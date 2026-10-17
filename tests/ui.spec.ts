@@ -1,0 +1,23 @@
+import { test, expect } from '@playwright/test';
+test('project navigation, search, editing, worktrees, and sessions', async ({ page }) => {
+  const errors: string[] = []; page.on('pageerror', e => errors.push(e.message));
+  await page.goto('http://127.0.0.1:5173');
+  await expect(page.getByRole('heading', { name: 'A home for your projects.' })).toBeVisible();
+  await page.getByRole('tab', { name: /Worktrees/ }).click();
+  await expect(page.getByText('Parallel work, separate branches')).toBeVisible();
+  await page.getByRole('button', { name: 'New worktree' }).click();
+  await expect(page.getByRole('dialog')).toBeVisible();
+  await page.getByRole('button', { name: 'Cancel' }).click();
+  await page.getByRole('tab', { name: /Sessions/ }).click();
+  await expect(page.getByText('Refine the project navigation and workspace switcher')).toBeVisible();
+  await page.getByRole('button', { name: 'Edit project', exact: true }).click();
+  await page.getByLabel('Project name', { exact: true }).fill('atlas-renamed');
+  await page.getByRole('button', { name: 'Save changes' }).click();
+  await expect(page.getByRole('heading', { name: 'atlas-renamed' })).toBeVisible();
+  await page.getByLabel('Search projects or sessions').fill('not-a-project');
+  await expect(page.getByText('No matching projects')).toBeVisible();
+  await page.getByLabel('Search projects or sessions').fill('');
+  await page.getByRole('tab', { name: 'Overview' }).click();
+  await page.screenshot({ path: 'test-results/desktop-preview.png', fullPage: true });
+  expect(errors).toEqual([]);
+});

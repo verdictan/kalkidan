@@ -147,3 +147,9 @@ vite.config.ts.timestamp-*
 
 # Turbo Repo
 .turbo
+
+# Desktop build and test output
+dist-electron/
+release/
+test-results/
+playwright-report/
