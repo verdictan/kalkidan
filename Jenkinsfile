@@ -4,6 +4,7 @@ import org.verdictan.UntrustedBoundary
 // Match the existing Verdictan worker/toolchain and trust boundary.
 // Branches are validated through PR jobs; main and discovered tags run directly.
 properties([
+    [$class: 'AuthorizeProjectProperty', strategy: [$class: 'SpecificUsersAuthorizationStrategy', userid: 'verdictan-ci']],
     disableConcurrentBuilds(),
     buildDiscarder(logRotator(numToKeepStr: '30', artifactNumToKeepStr: '3', artifactDaysToKeepStr: '7'))
 ])
