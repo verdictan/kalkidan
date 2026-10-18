@@ -318,6 +318,8 @@ credentials and never publish GitHub releases.
 
 ### Connect the repository to the existing controller
 
+The live multibranch job is [Verdictan / Kalkidan](https://jenkins.dennisotugo.com/job/verdictan/job/kalkidan/). Its Job DSL definition is saved in the controller configuration. Builds use the existing `verdictan-ci` identity.
+
 Create a GitHub multibranch pipeline for `verdictan/kalkidan`, using the existing
 `github-scm` credential and `Jenkinsfile` script path. Enable origin PR, main-branch,
 and tag discovery, and configure the tag build strategy to build version tags.
