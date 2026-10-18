@@ -1,0 +1,65 @@
+import { createPortal } from 'react-dom';
+import { SessionMenu } from './session-menu';
+import { sessionAPI } from '../lib/remote-api';
+import { useEffect, useRef, useState } from 'react';
+import { ArrowLeft, LoaderCircle, MessageSquare, X } from 'lucide-react';
+import { sessionRepo } from './project-tree';
+import { SessionMetadata } from './session-metadata';
+import { Conversation } from './conversation';
+import { Button } from './ui/button';
+import type { API, Session, Project, ProjectGroup } from '../types';
+const keyOf = (session: Session) => session.agent + ':' + session.id;
+const titleOf = (session: Session) => session.organization?.title || session.title;
+export function AgentWorkspace({ api, sessions, projects = [], projectGroups = [], selected, visible, onSelect, onClose, onComplete, onCreated, onDraft }: { onDraft: (session: Session) => void; onCreated?: (draft: Session, id: string, title: string) => void; api: API; sessions: Session[]; projects?: Project[]; projectGroups?: ProjectGroup[]; selected: Session; visible: boolean; onSelect: (session: Session) => void; onClose: () => void; onComplete: () => void }) {
+  const [tabs, setTabs] = useState<Session[]>([selected]);
+  const [sideKey, setSideKey] = useState<string | null>(null);
+  const [running, setRunning] = useState<Record<string, boolean>>({});
+  const [created, setCreated] = useState<Record<string, { id: string; title: string }>>({});
+  function liveSession(tab: Session) {
+    const resolved = created[keyOf(tab)];
+    const stored = sessions.find(s => s.agent === tab.agent && s.id === (resolved?.id || tab.id));
+    return { ...tab, ...stored, id: tab.id, projectId: tab.projectId, title: stored?.title || resolved?.title || tab.title };
+  }
+  const hostAPIs = useRef(new Map<string, API>());
+  function forSession(session: Session) { const key = keyOf(session); if (!hostAPIs.current.has(key)) hostAPIs.current.set(key, sessionAPI(api, session)); return hostAPIs.current.get(key)!; }
+  const callbacks = useRef(new Map<string, (active: boolean) => void>());
+  const selectedTab = tabs.find(tab => keyOf(tab) === keyOf(selected)) || tabs.find(tab => tab.agent === selected.agent && created[keyOf(tab)]?.id === selected.id) || selected;
+  const selectedKey = keyOf(selectedTab);
+  useEffect(() => { setTabs(previous => previous.some(s => keyOf(s) === selectedKey) ? previous : [...previous, selected]); }, [selectedKey]);
+  function closeTab(session: Session) {
+    const key = keyOf(session);
+    if (running[key]) return;
+    const remaining = tabs.filter(tab => keyOf(tab) !== key);
+    // Keep the last conversation mounted when returning to the library.
+    if (!remaining.length) { onClose(); return; }
+    if (key === selectedKey) onSelect(remaining[remaining.length - 1]);
+    setTabs(remaining);
+  }
+  const live = liveSession(selectedTab);
+  const resolvedId = created[selectedKey]?.id;
+  const saved = !!resolvedId || !selectedTab.projectId;
+  async function update(changes: import('../types').SessionOrganization) {
+    if (saved) await api.updateSession(live.agent, resolvedId || live.id, changes);
+    else onDraft({ ...live, organization: { ...live.organization, ...changes } });
+    setTabs(previous => previous.map(t => keyOf(t) === selectedKey ? { ...t, organization: { ...t.organization, ...changes } } : t));
+    onComplete();
+  }
+  async function branch(fork: boolean, worktree?: string) {
+    let repo = sessionRepo(live, projects);
+    if (!repo) throw new Error('Add this repository to a project first.');
+    if (worktree) { const result = await api.taskWorktree(repo.id,worktree); if (!result) return; repo = result; }
+    const draft: Session = { id: 'draft-' + crypto.randomUUID(), projectId: repo.id, cwd: repo.path, hostId: repo.hostId, agent: live.agent, title: fork ? 'Fork of ' + titleOf(live) : 'New side chat', updatedAt: new Date().toISOString(), forkFrom: fork ? resolvedId || live.id : undefined };
+    setTabs(previous => [...previous,draft]); onDraft(draft); onComplete();
+    if (fork) { setSideKey(null); onSelect(draft); } else setSideKey(keyOf(draft));
+  }
+  return <section className="agent-workspace" aria-label="Session conversations" hidden={!visible}>
+    {visible && document.getElementById('conversation-titlebar-actions') && createPortal(<SessionMenu key={selectedKey} api={api} session={{...live,id:resolvedId || live.id}} saved={saved} running={!!running[selectedKey]} update={update} branch={branch} archive={() => { setTabs(previous => previous.filter(t => keyOf(t) !== selectedKey)); onClose(); }}/>,document.getElementById('conversation-titlebar-actions')!)}
+    <div className="agent-stage">
+      <div className="conversation-toolbar"><Button variant="ghost" size="sm" onClick={onClose}><ArrowLeft size={14}/>Repository details</Button></div>
+      <div className={"agent-tabbar" + (tabs.length === 1 ? " single-tab" : "")}><div className="agent-open-tabs" aria-label="Open conversations">{tabs.map(tab => { const key = keyOf(tab); const live = liveSession(tab); return <div className={'agent-open-tab ' + (key === selectedKey ? 'selected' : '')} key={key}><Button variant="ghost" aria-label={`Open ${titleOf(live)}`} aria-pressed={key === selectedKey} onClick={() => onSelect(live)}>{running[key] ? <LoaderCircle size={12} className="animate-spin"/> : <MessageSquare size={12}/>}<span>{titleOf(live)}</span></Button><Button variant="ghost" disabled={running[key]} aria-label={`Close tab ${titleOf(live)}`} title={running[key] ? 'Stop the response before closing this tab' : 'Close tab'} onClick={() => closeTab(tab)}><X size={12}/></Button></div>; })}</div></div>
+      <div className="agent-stage-body"><div className={"agent-panes" + (sideKey && sideKey !== selectedKey ? " has-side-chat" : "")}>{tabs.map(tab => { const key = keyOf(tab); if (!callbacks.current.has(key)) callbacks.current.set(key, active => setRunning(previous => previous[key] === active ? previous : { ...previous, [key]: active })); return <div className="agent-pane" key={key} hidden={key !== selectedKey && key !== sideKey}>{key === sideKey && <div className="flex items-center justify-between border-b px-3 py-2"><span className="text-xs text-muted-foreground">Side chat</span><Button size="icon" variant="ghost" aria-label="Close side chat" disabled={running[key]} onClick={() => setSideKey(null)}><X size={14}/></Button></div>}<Conversation metadata={<SessionMetadata api={api} session={liveSession(tab)} providerId={created[key]?.id} onUpdate={onComplete}/>} api={forSession(tab)} projectGroup={projectGroups.find(g => { const repo = sessionRepo(tab, projects); return repo && g.repoIds.includes(repo.id); })} session={liveSession(tab)} onSessionCreated={(id, title) => { setCreated(previous => ({ ...previous, [key]: { id, title } })); onCreated?.(tab, id, title); }} titlebarVisible={key === selectedKey} open={visible && (key === selectedKey || key === sideKey)} onComplete={onComplete} onActivityChange={callbacks.current.get(key)!}/></div>; })}</div>
+
+      </div>
+    </div>
+  </section>;
+}
