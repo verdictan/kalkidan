@@ -125,12 +125,12 @@ If authorization is needed, Kalkidan starts the GitHub CLI sign-in or scope-refr
 Once connected, you can:
 
 - Open a project directly to its **Board**, search tasks, and filter by status or repository.
-- Drag cards between columns or change status with a keyboard-accessible selector.
+- Drag cards between columns or use a card’s keyboard-accessible **Move to** menu.
 - Create draft items and add existing issues or pull requests.
-- Choose **Work on this**, select a repository and agent, and review the task prompt before sending it.
+- Select a task title, choose a repository and checkout, then open a conversation with an agent. Review the prompt before sending; **Back to project board** preserves your filters.
 - Resume sessions linked to a task.
 
-A linked task moves to **In progress** when its agent starts responding. After a successful response, Kalkidan asks before marking it **Done**. Those transitions require matching status options on the board. Task changes sync to GitHub. Use **GitHub project** at the bottom of the sidebar to replace a connection; linked projects cannot be disconnected into local-only projects.
+A linked task moves to **In progress** when its agent starts responding. To finish a task, choose **Review task completion**, inspect **Review changes**, then explicitly **Mark task Done**. Finishing a response never opens this confirmation automatically. Those transitions require matching status options on the board. Task changes sync to GitHub. Use **GitHub project** at the bottom of the sidebar to replace a connection; linked projects cannot be disconnected into local-only projects.
 
 <details>
 <summary>See the tracker board</summary>
@@ -261,7 +261,7 @@ Include reproduction steps, your macOS and CLI versions, and relevant logs when 
 The conversation’s titlebar menu supports rename, pin/unpin, a separate side chat,
 archive, and native forks into the current checkout or a new Git worktree. Forks
 inherit the provider’s saved conversation and receive a new session ID on the first
-message. Send a draft’s first message before exporting, scheduling, or forking it.
+message. Send a draft’s first message before exporting or forking it.
 Archiving hides a conversation in Kalkidan; restore it from the repository’s archived sessions.
 
 **Share** exports Markdown or a standalone HTML file using the macOS save dialog.
@@ -271,10 +271,13 @@ The Copy submenu copies the transcript, session ID, or repository path. Saved ch
 can open in another Kalkidan window; local repositories can open in Finder, VS Code,
 or Cursor (the selected editor must be installed). Remote folders stay on their SSH host.
 
-**Scheduled tasks** run once, in read-only mode, while a Kalkidan window is open.
-Choose a local date/time and prompt from **Add scheduled task…**. The calendar button
-in the titlebar opens the task list and shows a badge for missed runs, failures, and
-approval requests. Approve or deny requests there, stop a running task, cancel a pending
-task, or explicitly run a missed task. Tasks missed while the app is closed or the Mac
-is asleep are not silently replayed. SSH tasks require their host to remain connected.
-Scheduled prompts and their latest results are stored locally in the app’s data folder.
+Git change review includes a changed-file selector, previous/next navigation, per-file
+addition/deletion counts, and individual file attachments. Untracked text files have
+bounded previews; binary files and symlinks are labelled without reading their targets.
+Large file previews and patches display truncation notices.
+
+## Extending Kalkidan
+
+Project trackers use a provider-neutral domain and an explicit adapter registry. GitHub is the included adapter; additional providers can supply their own authentication, project discovery, board data, and supported operations. Project workflow statuses can be configured from the board's **Workflow** action.
+
+The desktop and SSH service share agent runtime contracts. Domain types, capability APIs, runtime configuration, persistence, and feature styles have separate modules. See the [architecture and extension guide](docs/architecture.md) for adapter registration, migration behavior, configuration, test commands, and current limits.

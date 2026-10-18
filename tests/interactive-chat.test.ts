@@ -9,7 +9,7 @@ import type { ChatRun, Session } from '../src/types';
 
 async function until(fn: () => boolean) {
   const end = Date.now() + 5000;
-  while (!fn() && Date.now() < end) await new Promise(resolve => setTimeout(resolve, 15));
+  while (!fn() && Date.now() < end) await new Promise((resolve) => setTimeout(resolve, 15));
   assert.ok(fn(), 'Expected protocol state was not reached');
 }
 const fixture = `#!${process.execPath}
@@ -62,54 +62,96 @@ createInterface({input:process.stdin}).on('line',line=>{
 });
 `;
 
-for (const agent of ['codex', 'claude'] as const) test(`${agent}: requests pause for an explicit answer, retain output, reject stale approvals, and stop safely`, async () => {
-  const root = await mkdtemp(join(tmpdir(), 'kalkidan-interactive-'));
-  const path = join(root, 'agent'); await writeFile(path, fixture); await chmod(path, 0o755);
-  const runner = new InteractiveChatRunner(async () => ({ path, env: process.env }));
-  const session: Session = { id: 'session', cwd: root, agent, title: 'Fixture', updatedAt: '' };
-  try {
-    for (const allow of [true, false]) {
-      const state = await runner.start(session, 'Check the repository', true, allow, 'fixture-model');
-      await until(() => !!state.approvals?.some(a => a.status === 'pending'));
-      assert.equal(state.status, 'running');
-      assert.equal(state.messages.length, 0);
-      assert.equal(state.sessionReady, true);
-      assert.equal(state.sessionId, agent === 'codex' && allow ? 'created-session' : session.id);
-      assert.match(state.tools![0].title, /git status|Bash/);
-      await assert.rejects(runner.start(session, 'duplicate', true), /already/);
-      assert.throws(() => runner.approve('another-run', state.approvals![0].id, true), /no longer pending/);
-      runner.approve(state.id, state.approvals![0].id, allow);
-      assert.throws(() => runner.approve(state.id, state.approvals![0].id, true), /no longer pending/);
-      await until(() => state.status !== 'running');
-      assert.equal(state.status, 'completed');
-      assert.equal(state.messages[0].text, allow ? 'Approved result' : 'Denied result');
-      assert.equal(state.approvals![0].status, allow ? 'approved' : 'denied');
-      assert.match(state.tools![0].detail!, allow ? /clean/ : /denied/);
-      if (agent === 'codex') assert.match(state.diff!, /\+change/);
+for (const agent of ['codex', 'claude'] as const)
+  test(`${agent}: requests pause for an explicit answer, retain output, reject stale approvals, and stop safely`, async () => {
+    const root = await mkdtemp(join(tmpdir(), 'kalkidan-interactive-'));
+    const path = join(root, 'agent');
+    await writeFile(path, fixture);
+    await chmod(path, 0o755);
+    const runner = new InteractiveChatRunner(async () => ({ path, env: process.env }));
+    const session: Session = { id: 'session', cwd: root, agent, title: 'Fixture', updatedAt: '' };
+    try {
+      for (const allow of [true, false]) {
+        const state = await runner.start(
+          session,
+          'Check the repository',
+          true,
+          allow,
+          'fixture-model',
+        );
+        await until(() => !!state.approvals?.some((a) => a.status === 'pending'));
+        assert.equal(state.status, 'running');
+        assert.equal(state.messages.length, 0);
+        assert.equal(state.sessionReady, true);
+        assert.equal(state.sessionId, agent === 'codex' && allow ? 'created-session' : session.id);
+        assert.match(state.tools![0].title, /git status|Bash/);
+        await assert.rejects(runner.start(session, 'duplicate', true), /already/);
+        assert.throws(
+          () => runner.approve('another-run', state.approvals![0].id, true),
+          /no longer pending/,
+        );
+        runner.approve(state.id, state.approvals![0].id, allow);
+        assert.throws(
+          () => runner.approve(state.id, state.approvals![0].id, true),
+          /no longer pending/,
+        );
+        await until(() => state.status !== 'running');
+        assert.equal(state.status, 'completed');
+        assert.equal(state.messages[0].text, allow ? 'Approved result' : 'Denied result');
+        assert.equal(state.approvals![0].status, allow ? 'approved' : 'denied');
+        assert.match(state.tools![0].detail!, allow ? /clean/ : /denied/);
+        if (agent === 'codex') assert.match(state.diff!, /\+change/);
+      }
+      const stopped = await runner.start(
+        session,
+        'Stop before approval',
+        false,
+        false,
+        'fixture-model',
+      );
+      await until(() => !!stopped.approvals?.length);
+      runner.stop(stopped.id);
+      assert.equal(stopped.status, 'stopped');
+      assert.equal(stopped.approvals![0].status, 'expired');
+      assert.throws(() => runner.approve(stopped.id, stopped.approvals![0].id, true));
+      if (agent === 'codex') {
+        const busy = await runner.start(
+          { ...session, id: 'busy' },
+          'retry me',
+          false,
+          false,
+          'fixture-model',
+        );
+        await until(() => busy.status === 'failed');
+        assert.equal(busy.errorCode, 'session_busy');
+        assert.match(busy.error!, /another client/);
+      }
+    } finally {
+      runner.dispose();
+      await rm(root, { recursive: true, force: true });
     }
-    const stopped = await runner.start(session, 'Stop before approval', false, false, 'fixture-model');
-    await until(() => !!stopped.approvals?.length);
-    runner.stop(stopped.id);
-    assert.equal(stopped.status, 'stopped');
-    assert.equal(stopped.approvals![0].status, 'expired');
-    assert.throws(() => runner.approve(stopped.id, stopped.approvals![0].id, true));
-    if (agent === 'codex') {
-      const busy = await runner.start({ ...session, id: 'busy' }, 'retry me', false, false, 'fixture-model');
-      await until(() => busy.status === 'failed');
-      assert.equal(busy.errorCode, 'session_busy');
-      assert.match(busy.error!, /another client/);
-    }
-  } finally { runner.dispose(); await rm(root, { recursive: true, force: true }); }
-});
+  });
 
-test('new projects require GitHub and legacy projects discard obsolete client metadata', async () => {
+test('new projects require a tracker and legacy projects discard obsolete client metadata', async () => {
   const root = await mkdtemp(join(tmpdir(), 'kalkidan-clients-'));
   try {
     const file = join(root, 'groups.json');
-    await writeFile(file, JSON.stringify([{ id: 'legacy', name: 'Existing work', repoIds: ['repo'], client: 'Old label' }]));
-    const groups = new ProjectGroups(file); await groups.load();
-    await assert.rejects(groups.create('Unlinked', undefined as any), /GitHub/);
-    const gh = { id: 'github', title: 'Roadmap', url: 'https://github.com/orgs/example/projects/1', owner: 'example', number: 1 };
+    await writeFile(
+      file,
+      JSON.stringify([
+        { id: 'legacy', name: 'Existing work', repoIds: ['repo'], client: 'Old label' },
+      ]),
+    );
+    const groups = new ProjectGroups(file);
+    await groups.load();
+    await assert.rejects(groups.create('Unlinked', undefined as any), /tracker/);
+    const gh = {
+      id: 'github',
+      title: 'Roadmap',
+      url: 'https://github.com/orgs/example/projects/1',
+      owner: 'example',
+      number: 1,
+    };
     const id = await groups.create('New work', gh);
     await groups.update('legacy', 'Existing work');
     await groups.link('legacy', gh);
@@ -119,11 +161,34 @@ test('new projects require GitHub and legacy projects discard obsolete client me
     assert.deepEqual(persisted[0].repoIds, ['repo']);
     assert.equal('client' in persisted[1], false);
     assert.equal(persisted[1].github.id, 'github');
-  } finally { await rm(root, { recursive: true, force: true }); }
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
 });
 
-for (const agent of ['codex','claude'] as const) test(`${agent}: fork inherits the source through the native protocol and receives a distinct ID`, async()=>{
- const root=await mkdtemp(join(tmpdir(),'kalkidan-fork-'));const path=join(root,'agent');await writeFile(path,fixture);await chmod(path,0o755);
- const runner=new InteractiveChatRunner(async()=>({path,env:process.env}));
- try{const run=await runner.start({id:'new-session',agent,cwd:root,title:'Fork',updatedAt:''},'Try another direction',false,true,'fixture-model','source-session');await until(()=>!!run.approvals?.length);assert.equal(run.sessionId,'forked-session');assert.equal(run.sessionReady,true);runner.approve(run.id,run.approvals![0].id,false);await until(()=>run.status==='completed');}finally{runner.dispose();await rm(root,{recursive:true,force:true});}
-});
+for (const agent of ['codex', 'claude'] as const)
+  test(`${agent}: fork inherits the source through the native protocol and receives a distinct ID`, async () => {
+    const root = await mkdtemp(join(tmpdir(), 'kalkidan-fork-'));
+    const path = join(root, 'agent');
+    await writeFile(path, fixture);
+    await chmod(path, 0o755);
+    const runner = new InteractiveChatRunner(async () => ({ path, env: process.env }));
+    try {
+      const run = await runner.start(
+        { id: 'new-session', agent, cwd: root, title: 'Fork', updatedAt: '' },
+        'Try another direction',
+        false,
+        true,
+        'fixture-model',
+        'source-session',
+      );
+      await until(() => !!run.approvals?.length);
+      assert.equal(run.sessionId, 'forked-session');
+      assert.equal(run.sessionReady, true);
+      runner.approve(run.id, run.approvals![0].id, false);
+      await until(() => run.status === 'completed');
+    } finally {
+      runner.dispose();
+      await rm(root, { recursive: true, force: true });
+    }
+  });

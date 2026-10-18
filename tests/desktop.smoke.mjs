@@ -25,9 +25,13 @@ try {
   await assert.rejects(page.evaluate(() => window.workspace.discover()), /Choose a project/);
   await assert.rejects(page.evaluate(() => window.workspace.add()), /Choose a project/);
   await assert.rejects(page.evaluate(() => window.workspace.cloneRepository('example/repo')), /Choose a project/);
-  await assert.rejects(page.evaluate(() => window.workspace.createGroup('Platform')), /Choose a GitHub Project/);
+  await assert.rejects(page.evaluate(() => window.workspace.createGroup('Platform')), /Choose a tracker project/);
   const groupId = 'legacy';
   await page.evaluate(() => window.workspace.updateGroup('legacy', 'Platform'));
+  await page.evaluate(() => window.workspace.setGroupColor('legacy', 'blue'));
+  assert.equal(JSON.parse(await readFile(join(env.KALKIDAN_TEST_DATA, 'project-groups.json'), 'utf8'))[0].color, 'blue');
+  await assert.rejects(page.evaluate(() => window.workspace.setGroupColor('legacy', 'invalid')), /Invalid project color/);
+
   await assert.rejects(page.evaluate(() => window.workspace.chatApprove('missing', 'missing', true)), /no longer pending/);
   assert.equal((await page.evaluate(groupId => window.workspace.discover(groupId), groupId)).added, 1);
   const snapshot = await page.evaluate(() => window.workspace.snapshot());
@@ -137,7 +141,7 @@ try {
   assert.equal(taskRepo.path, await realpath(tree));
   assert.ok((await page.evaluate(() => window.workspace.snapshot())).groups[0].repoIds.includes(taskRepo.id));
   assert.equal((await page.evaluate(id => window.workspace.git(id), id)).worktrees.length, 2);
-  // Native conversation actions: clipboard, exports, schedule persistence, and isolated windows.
+  // Native conversation actions: clipboard, exports, and isolated windows.
   const savedSession = (await page.evaluate(() => window.workspace.snapshot())).sessions[0];
   await page.evaluate(s => window.workspace.sessionAction(s,'copy-id'), savedSession);
   assert.equal(await app.evaluate(({clipboard}) => clipboard.readText()),'session-1');
@@ -149,8 +153,6 @@ try {
   await app.evaluate(({dialog},path) => { dialog.showSaveDialog = async () => ({canceled:false,filePath:path}); },mdPath);
   await page.evaluate(s => window.workspace.sessionAction(s,'markdown'),savedSession);
   assert.ok((await readFile(mdPath,'utf8')).startsWith('# Organized session'));
-  const scheduled = await page.evaluate(s => window.workspace.scheduleTask(s,'Review this session',new Date(Date.now()+3600000).toISOString()),savedSession);
-  assert.equal(scheduled.status,'pending');
   const newWindow = app.waitForEvent('window');
   await page.evaluate(s => window.workspace.sessionAction(s,'window'),savedSession);
   const second = await newWindow;
@@ -162,7 +164,6 @@ try {
   await app.close();
   app = await launch(); page = await app.firstWindow(); await page.waitForFunction(() => !!window.workspace);
   assert.equal((await page.evaluate(()=>window.workspace.browserAction('unused','profile'))).settings.home,'https://example.com/');
-  const storedTasks = await page.evaluate(() => window.workspace.scheduledTasks()); assert.equal(storedTasks.length,1); assert.equal(storedTasks[0].status,'pending'); await page.evaluate(id => window.workspace.scheduleCancel(id),storedTasks[0].id);
   const restored = await page.evaluate(() => window.workspace.snapshot());
   assert.equal(restored.projects.length, 2);
   assert.equal(restored.groups[0].name, 'Platform');

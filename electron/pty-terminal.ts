@@ -51,36 +51,111 @@ try:
 finally:
     os.close(fd)
 `;
-interface Shell { child: ChildProcessWithoutNullStreams; output: string; cursor: number; exited: boolean; error?: string }
+interface Shell {
+  child: ChildProcessWithoutNullStreams;
+  output: string;
+  cursor: number;
+  exited: boolean;
+  error?: string;
+}
 export class PtyTerminal {
   private shells = new Map<string, Shell>();
   async open(cwd: string, cols: number, rows: number) {
     this.dimensions(cols, rows);
-    if ([...this.shells.values()].filter(s => !s.exited).length >= 8) throw new Error('Close an existing terminal before opening another.');
+    if ([...this.shells.values()].filter((s) => !s.exited).length >= 8)
+      throw new Error('Close an existing terminal before opening another.');
     for (const [id, shell] of this.shells) if (shell.exited) this.shells.delete(id);
     const id = randomUUID();
-    const child = spawn('python3', ['-u', '-c', helper, String(cols), String(rows)], { cwd, env: { ...process.env, NO_COLOR: undefined }, stdio: ['pipe', 'pipe', 'pipe'] });
-    const shell: Shell = { child, output: '', cursor: 0, exited: false }; this.shells.set(id, shell);
+    const child = spawn('python3', ['-u', '-c', helper, String(cols), String(rows)], {
+      cwd,
+      env: { ...process.env, NO_COLOR: undefined },
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+    const shell: Shell = { child, output: '', cursor: 0, exited: false };
+    this.shells.set(id, shell);
     child.stdin.on('error', () => {});
-    child.stderr.on('data', data => { shell.error = (shell.error || '') + data.toString(); });
+    child.stderr.on('data', (data) => {
+      shell.error = (shell.error || '') + data.toString();
+    });
     await new Promise<void>((resolve, reject) => {
-      const timer = setTimeout(() => { this.close(id); reject(new Error('Terminal startup timed out.')); }, 10000);
-      const fail = (error: Error) => { clearTimeout(timer); shell.exited = true; shell.error = error.message; reject(error); };
-      child.on('error', () => fail(new Error('Interactive terminal requires Python 3 on this machine’s PATH.')));
-      child.on('close', () => { shell.exited = true; clearTimeout(timer); reject(new Error(shell.error || 'Terminal closed before startup.')); });
-      createInterface({ input: child.stdout }).on('line', line => {
-        try { const message = JSON.parse(line); if (message.ready) { clearTimeout(timer); resolve(); }
-          if (typeof message.data === 'string') { shell.output = (shell.output + message.data).slice(-1000000); shell.cursor += message.data.length; }
-        } catch { /* Ignore malformed transport output. */ }
+      const timer = setTimeout(() => {
+        this.close(id);
+        reject(new Error('Terminal startup timed out.'));
+      }, 10000);
+      const fail = (error: Error) => {
+        clearTimeout(timer);
+        shell.exited = true;
+        shell.error = error.message;
+        reject(error);
+      };
+      child.on('error', () =>
+        fail(new Error('Interactive terminal requires Python 3 on this machine’s PATH.')),
+      );
+      child.on('close', () => {
+        shell.exited = true;
+        clearTimeout(timer);
+        reject(new Error(shell.error || 'Terminal closed before startup.'));
+      });
+      createInterface({ input: child.stdout }).on('line', (line) => {
+        try {
+          const message = JSON.parse(line);
+          if (message.ready) {
+            clearTimeout(timer);
+            resolve();
+          }
+          if (typeof message.data === 'string') {
+            shell.output = (shell.output + message.data).slice(-1000000);
+            shell.cursor += message.data.length;
+          }
+        } catch {
+          /* Ignore malformed transport output. */
+        }
       });
     });
     return { id };
   }
-  private get(id: string) { const shell = this.shells.get(id); if (!shell) throw new Error('Terminal no longer available.'); return shell; }
-  read(id: string, cursor: number) { const s = this.get(id); if (!Number.isSafeInteger(cursor) || cursor < 0) throw new Error('Invalid terminal cursor'); const start = s.cursor - s.output.length; return { id, data: s.output.slice(Math.max(0, cursor - start)), cursor: s.cursor, exited: s.exited, truncated: cursor < start, error: s.error }; }
-  write(id: string, input: string) { const s = this.get(id); if (s.exited) throw new Error('Terminal has exited.'); if (typeof input !== 'string' || input.length > 100000) throw new Error('Terminal input too long'); s.child.stdin.write(JSON.stringify({ input }) + '\n'); }
-  private dimensions(cols: number, rows: number) { if (![cols, rows].every(n => Number.isInteger(n) && n >= 2 && n <= 500)) throw new Error('Invalid terminal dimensions'); }
-  resize(id: string, cols: number, rows: number) { this.dimensions(cols, rows); const s = this.get(id); if (!s.exited) s.child.stdin.write(JSON.stringify({ cols, rows }) + '\n'); }
-  close(id: string) { const s = this.shells.get(id); if (!s || s.exited) return; s.child.stdin.end(); s.child.kill('SIGTERM'); s.exited = true; }
-  closeAll() { for (const id of this.shells.keys()) this.close(id); }
+  private get(id: string) {
+    const shell = this.shells.get(id);
+    if (!shell) throw new Error('Terminal no longer available.');
+    return shell;
+  }
+  read(id: string, cursor: number) {
+    const s = this.get(id);
+    if (!Number.isSafeInteger(cursor) || cursor < 0) throw new Error('Invalid terminal cursor');
+    const start = s.cursor - s.output.length;
+    return {
+      id,
+      data: s.output.slice(Math.max(0, cursor - start)),
+      cursor: s.cursor,
+      exited: s.exited,
+      truncated: cursor < start,
+      error: s.error,
+    };
+  }
+  write(id: string, input: string) {
+    const s = this.get(id);
+    if (s.exited) throw new Error('Terminal has exited.');
+    if (typeof input !== 'string' || input.length > 100000)
+      throw new Error('Terminal input too long');
+    s.child.stdin.write(JSON.stringify({ input }) + '\n');
+  }
+  private dimensions(cols: number, rows: number) {
+    if (![cols, rows].every((n) => Number.isInteger(n) && n >= 2 && n <= 500))
+      throw new Error('Invalid terminal dimensions');
+  }
+  resize(id: string, cols: number, rows: number) {
+    this.dimensions(cols, rows);
+    const s = this.get(id);
+    if (!s.exited) s.child.stdin.write(JSON.stringify({ cols, rows }) + '\n');
+  }
+  close(id: string) {
+    const s = this.shells.get(id);
+    if (!s || s.exited) return;
+    s.child.stdin.end();
+    s.child.kill('SIGTERM');
+    s.exited = true;
+  }
+  closeAll() {
+    for (const id of this.shells.keys()) this.close(id);
+  }
 }

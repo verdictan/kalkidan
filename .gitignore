@@ -148,8 +148,24 @@ vite.config.ts.timestamp-*
 # Turbo Repo
 .turbo
 
-# Desktop build and test output
-dist-electron/
-release/
-test-results/
-playwright-report/
+# Electron bundles and installers (keep build/icons as source assets)
+/dist-electron/
+/release/
+
+# Playwright output
+/test-results/
+/playwright-report/
+/blob-report/
+/playwright/.cache/
+
+# Local operating-system files
+.DS_Store
+.AppleDouble
+._*
+Thumbs.db
+Desktop.ini
+
+# Editor temporary files
+*.swp
+*.swo
+*~
