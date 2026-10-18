@@ -295,26 +295,39 @@ Docs navigation loads page metadata first and fetches Markdown when a page opens
 
 History discovery still reconciles directory entries and file metadata so new, deleted, and externally edited sessions are detected. Unchanged JSONL files reuse parsed metadata. The Codex index remains authoritative. Run `npx tsx --test tests/io-performance.test.ts` for read-count, payload-size, cache-invalidation, and queue-isolation checks.
 
-## GitHub Actions and releases
+## Jenkins CI and release builds
 
-`.github/workflows/ci.yml` validates pull requests and pushes to `main` on macOS with Node 22. It runs architecture checks, unit tests, the production build, the focused browser regression suite (`test:ci:ui`: onboarding, folder picker, GitHub CLI settings, docs, and repository refresh), desktop document persistence checks, and the isolated remote-agent protocol tests. Failed browser runs retain test artifacts for seven days.
+The root `Jenkinsfile` uses the existing Verdictan `keeptrusts` shared library,
+`verdictanNodeToolchain` helper, and `macos-untrusted` worker. Node and npm are
+pinned in `.node-version` and `package.json`. PRs, `main`, and discovered version
+tags run CI; standalone feature branches wait for a PR. GitHub Actions workflows
+have been removed.
 
-Push a version tag matching `package.json` to run `.github/workflows/release.yml`. The release workflow first runs CI, then builds separate Apple Silicon (`arm64`) and Intel (`x64`) DMG and ZIP installers. Once both builds succeed it creates a **draft GitHub release**, with installers and `SHA256SUMS.txt`. Review the draft before publishing. A manual rerun must select the matching tag; branch runs fail version validation. Reruns can replace draft assets but refuse to overwrite a published release.
+`scripts/ci.sh` installs from the lockfile and runs architecture checks, all unit
+tests, the production build, the focused browser regression suite, desktop document
+persistence tests, and the isolated remote-agent protocol test. Workspaces and
+job-local caches are cleared between builds. Jenkins retains 30 build records and
+up to three sets of artifacts for seven days.
 
-For example, after committing and pushing the intended release changes:
+For version-tag builds, `scripts/package-release.sh` verifies that the tag matches
+both `package.json` and the checked-out commit. After successful validation, it
+builds unsigned Apple Silicon and Intel DMG/ZIP installers and `SHA256SUMS.txt`.
+Download these from the Jenkins build's artifacts. Failed validation prevents
+packaging. Branch and PR builds receive no publishing, deployment, or signing
+credentials and never publish GitHub releases.
 
-```sh
-# For the current package version; choose a new version for subsequent releases.
-git tag -a v0.1.0 -m "Kalkidan 0.1.0"
-git push origin v0.1.0
-```
+### Connect the repository to the existing controller
 
-Builds default to unsigned previews. For signed and notarized releases, set the repository Actions variable `MAC_SIGNED_RELEASE` to `true` and add these Actions secrets:
+Create a GitHub multibranch pipeline for `verdictan/kalkidan`, using the existing
+`github-scm` credential and `Jenkinsfile` script path. Enable origin PR, main-branch,
+and tag discovery, and configure the tag build strategy to build version tags.
+The controller must already provide the globally configured `keeptrusts` library
+and an online `macos-untrusted` agent. The macOS worker needs a usable GUI session
+for Electron tests; Node/npm are supplied by the shared toolchain helper.
 
-- `MAC_CSC_LINK`: Base64-encoded Developer ID Application signing certificate (.p12).
-- `MAC_CSC_KEY_PASSWORD`: Password for that certificate.
-- `APPLE_ID`: Apple developer account email.
-- `APPLE_APP_SPECIFIC_PASSWORD`: App-specific password for notarization.
-- `APPLE_TEAM_ID`: Apple Developer team ID.
-
-Signed builds fail if credentials are missing, rather than silently producing unsigned installers. No personal GitHub token is needed: the final release job uses the repository's scoped `GITHUB_TOKEN`. Installer jobs have read-only repository permissions and do not publish directly. Workflow actions are pinned to commits and tracked by Dependabot.
+Scan the job after merging this Jenkinsfile. The existing `v0.1.0` tag points to
+the earlier GitHub Actions configuration; do not move that tag. A new release
+version/tag must include the Jenkinsfile. GitHub release publication and Apple
+signing belong in a separately configured trusted controller job, following the
+existing Verdictan credential boundary; this repository job archives installers
+only. The previous automatic draft-GitHub-release workflow is no longer active.

@@ -169,3 +169,6 @@ Desktop.ini
 *.swp
 *.swo
 *~
+
+# Jenkins workspace-local toolchain and npm caches
+/.ci-cache/
