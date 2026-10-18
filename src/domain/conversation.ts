@@ -74,3 +74,8 @@ export interface AgentInstallation {
   status: 'installed' | 'missing' | 'unavailable';
   path?: string;
 }
+
+export interface GitHubCliStatus {
+  status: 'ready' | 'signed-out' | 'missing' | 'error' | 'unavailable';
+  path?: string;
+}

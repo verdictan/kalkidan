@@ -148,10 +148,16 @@ Kalkidan has no hosted backend. It stores project and session organization on yo
 
 When you send a task-linked message, the selected agent receives the task description, project name, member repository paths, and linked GitHub Project URL alongside your prompt.
 
+### Project Board and Docs
+
+Click a project name to open its board, or its **Docs** entry to open the wiki. Docs supports a nested page tree, title and content search, page moves, and a rich-text editor with live Markdown shortcuts, a slash-command block menu, selection formatting, and a read-only view. Markdown source is available from the document actions menu. Changes save automatically; Cmd/Ctrl+S also saves. The editor uses one centered document canvas; secondary actions such as moving pages are in the document menu.
+
+Each project owns a folder, chosen in Create project or assigned under `~/.kalkidan/projects/<project-id>/`. The folder contains `docs/`, `repos/`, and `worktrees/`. New clones and worktrees are placed there automatically; existing repositories remain linked at their original paths. The location is shown in Manage project. Desktop pages are Markdown files at `<project-folder>/docs/<page-id>.md`. A small HTML comment stores the page title and parent ID. Files can be edited externally; revision checks prevent the app from silently overwriting newer disk content. Unsaved drafts are retained locally for recovery. Deleted leaf pages move to the project's `.trash` folder; move or delete subpages before deleting their parent. For SSH projects the project folder and docs live on the remote host. Existing local docs are copied there on first access, retaining the original files as a recovery copy. Local project docs migrate into their project folder on startup with the same recovery behavior. Browser preview docs use local browser storage.
+
 <details>
 <summary>Storage and session discovery</summary>
 
-App metadata lives in Electron's user-data directory, normally `~/Library/Application Support/kalkidan/`:
+App metadata and Electron browser storage live in `~/.kalkidan/`:
 
 | File | Contents |
 | --- | --- |
@@ -160,7 +166,7 @@ App metadata lives in Electron's user-data directory, normally `~/Library/Applic
 | `project-groups.json` | Project groupings and GitHub Project connections |
 | `sessions.json` | Session titles, pins, collections, notes, archives, and task links |
 
-Existing installations can reuse a previous `common-ground` or `Common Ground` data directory. Removing a repository from the library does not delete its files.
+On first launch, an existing `kalkidan`, `common-ground`, or `Common Ground` directory in the operating system’s application-data folder is moved to `~/.kalkidan`. An existing `~/.kalkidan` is never overwritten. Removing a repository from the library does not delete its files.
 
 Session discovery reads Codex's local SQLite index with a JSONL fallback, and Claude Code's local project conversation files. It respects `CODEX_HOME` and `CLAUDE_CONFIG_DIR`, which default to `~/.codex` and `~/.claude`. There is no session-count cap. Source-archived Codex threads and Claude subagent logs are excluded; sessions archived in Kalkidan are hidden from the active list.
 
@@ -281,3 +287,34 @@ Large file previews and patches display truncation notices.
 Project trackers use a provider-neutral domain and an explicit adapter registry. GitHub is the included adapter; additional providers can supply their own authentication, project discovery, board data, and supported operations. Project workflow statuses can be configured from the board's **Workflow** action.
 
 The desktop and SSH service share agent runtime contracts. Domain types, capability APIs, runtime configuration, persistence, and feature styles have separate modules. See the [architecture and extension guide](docs/architecture.md) for adapter registration, migration behavior, configuration, test commands, and current limits.
+
+
+Repository overview refreshes fetch the selected repository's sessions and Git state together; they do not poll the full library or unrelated SSH hosts. Overlapping requests share one operation, and cached repository content remains visible during revalidation.
+
+Docs navigation loads page metadata first and fetches Markdown when a page opens. The desktop/remote service caches up to 32 document bodies, revalidating file identity, size, modification time, and change time before reuse. Ordinary saves validate only the edited document; page moves validate the ancestor chain. Writes serialize per project, so separate projects can save concurrently. Initialization is cached on the owning host with a 30-second lifetime, identity checks, and failure invalidation.
+
+History discovery still reconciles directory entries and file metadata so new, deleted, and externally edited sessions are detected. Unchanged JSONL files reuse parsed metadata. The Codex index remains authoritative. Run `npx tsx --test tests/io-performance.test.ts` for read-count, payload-size, cache-invalidation, and queue-isolation checks.
+
+## GitHub Actions and releases
+
+`.github/workflows/ci.yml` validates pull requests and pushes to `main` on macOS with Node 22. It runs architecture checks, unit tests, the production build, the focused browser regression suite (`test:ci:ui`: onboarding, folder picker, GitHub CLI settings, docs, and repository refresh), desktop document persistence checks, and the isolated remote-agent protocol tests. Failed browser runs retain test artifacts for seven days.
+
+Push a version tag matching `package.json` to run `.github/workflows/release.yml`. The release workflow first runs CI, then builds separate Apple Silicon (`arm64`) and Intel (`x64`) DMG and ZIP installers. Once both builds succeed it creates a **draft GitHub release**, with installers and `SHA256SUMS.txt`. Review the draft before publishing. A manual rerun must select the matching tag; branch runs fail version validation. Reruns can replace draft assets but refuse to overwrite a published release.
+
+For example, after committing and pushing the intended release changes:
+
+```sh
+# For the current package version; choose a new version for subsequent releases.
+git tag -a v0.1.0 -m "Kalkidan 0.1.0"
+git push origin v0.1.0
+```
+
+Builds default to unsigned previews. For signed and notarized releases, set the repository Actions variable `MAC_SIGNED_RELEASE` to `true` and add these Actions secrets:
+
+- `MAC_CSC_LINK`: Base64-encoded Developer ID Application signing certificate (.p12).
+- `MAC_CSC_KEY_PASSWORD`: Password for that certificate.
+- `APPLE_ID`: Apple developer account email.
+- `APPLE_APP_SPECIFIC_PASSWORD`: App-specific password for notarization.
+- `APPLE_TEAM_ID`: Apple Developer team ID.
+
+Signed builds fail if credentials are missing, rather than silently producing unsigned installers. No personal GitHub token is needed: the final release job uses the repository's scoped `GITHUB_TOKEN`. Installer jobs have read-only repository permissions and do not publish directly. Workflow actions are pinned to commits and tracked by Dependabot.

@@ -1,0 +1,187 @@
+import { mkdir, readdir, readFile, writeFile, rename, rm, lstat, open } from 'node:fs/promises';
+import { StringDecoder } from 'node:string_decoder';
+import { join } from 'node:path';
+import { createHash, randomUUID } from 'node:crypto';
+import type { ProjectDoc, ProjectDocMetadata } from '../../src/domain/docs';
+
+const hash = (text: string) => createHash('sha256').update(text).digest('hex');
+export class ProjectDocs {
+  private queues = new Map<string, Promise<unknown>>();
+  private bodies = new Map<string, { stamp: string; doc: ProjectDoc }>();
+  private headers = new Map<string, { stamp: string; meta: ProjectDocMetadata }>();
+  readonly metrics = { bodyReads: 0, headerReads: 0 };
+  private stamp(info: Awaited<ReturnType<typeof lstat>>) {
+    return [info.dev, info.ino, info.size, info.mtimeMs, info.ctimeMs].join(':');
+  }
+  constructor(
+    private root: string,
+    private validGroup: (id: string) => boolean,
+    private resolveDirectory?: (id: string) => Promise<string>,
+  ) {}
+  private async directory(group: string) {
+    if (!/^[\w-]+$/.test(group) || !this.validGroup(group)) throw new Error('Project not found');
+    const dir = this.resolveDirectory ? await this.resolveDirectory(group) : join(this.root, group);
+    await mkdir(dir, { recursive: true, mode: 0o700 });
+    if ((await lstat(dir)).isSymbolicLink())
+      throw new Error('Docs folder cannot be a symbolic link');
+    return dir;
+  }
+  private file(dir: string, id: string) {
+    if (!/^[\w-]+$/.test(id)) throw new Error('Invalid page ID');
+    return join(dir, id + '.md');
+  }
+  private async read(dir: string, id: string): Promise<ProjectDoc> {
+    const path = this.file(dir, id);
+    const info = await lstat(path);
+    if (info.isSymbolicLink()) throw new Error('Page cannot be a symbolic link');
+    const stamp = this.stamp(info);
+    const cached = this.bodies.get(path);
+    if (cached?.stamp === stamp) {
+      this.bodies.delete(path);
+      this.bodies.set(path, cached);
+      return structuredClone(cached.doc);
+    }
+    this.metrics.bodyReads++;
+    const text = await readFile(path, 'utf8');
+    const end = text.indexOf('\n');
+    if (!text.startsWith('<!-- kalkidan ') || end < 0)
+      throw new Error('Invalid page metadata: ' + id);
+    const meta = JSON.parse(text.slice(14, end - 4));
+    const doc: ProjectDoc = {
+      id,
+      title: meta.title,
+      parentId: meta.parentId,
+      markdown: text.slice(end + 1),
+      revision: hash(text),
+    };
+    // Only cache a stable read; external edits must invalidate the entry.
+    if (this.stamp(await lstat(path)) === stamp) {
+      this.bodies.delete(path);
+      this.bodies.set(path, { stamp, doc });
+      if (this.bodies.size > 32) this.bodies.delete(this.bodies.keys().next().value!);
+    }
+    return structuredClone(doc);
+  }
+  async list(group: string) {
+    const dir = await this.directory(group);
+    const files = await readdir(dir);
+    return Promise.all(
+      files
+        .filter((f) => f.endsWith('.md'))
+        .sort()
+        .map((f) => this.read(dir, f.slice(0, -3))),
+    );
+  }
+  async get(group: string, id: string) {
+    return this.read(await this.directory(group), id);
+  }
+  async metadata(group: string): Promise<ProjectDocMetadata[]> {
+    const dir = await this.directory(group);
+    const names = (await readdir(dir)).filter((name) => name.endsWith('.md')).sort();
+    const result: ProjectDocMetadata[] = [];
+    for (const name of names) {
+      const path = join(dir, name);
+      const info = await lstat(path);
+      if (info.isSymbolicLink()) throw new Error('Page cannot be a symbolic link');
+      const stamp = this.stamp(info);
+      const cached = this.headers.get(path);
+      if (cached?.stamp === stamp) {
+        result.push({ ...cached.meta });
+        continue;
+      }
+      this.metrics.headerReads++;
+      const file = await open(path, 'r');
+      let header = '';
+      try {
+        const buffer = Buffer.alloc(1024);
+        const decoder = new StringDecoder('utf8');
+        let offset = 0;
+        while (!header.includes('\n') && offset < 16384) {
+          const { bytesRead } = await file.read(buffer, 0, buffer.length, offset);
+          if (!bytesRead) break;
+          header += decoder.write(buffer.subarray(0, bytesRead));
+          offset += bytesRead;
+        }
+      } finally {
+        await file.close();
+      }
+      const end = header.indexOf('\n');
+      if (!header.startsWith('<!-- kalkidan ') || end < 0)
+        throw new Error('Invalid page metadata: ' + name);
+      const value = JSON.parse(header.slice(14, end - 4));
+      const meta = { id: name.slice(0, -3), title: value.title, parentId: value.parentId };
+      if (this.stamp(await lstat(path)) === stamp) this.headers.set(path, { stamp, meta });
+      result.push(meta);
+    }
+    const valid = new Set(names.map((name) => join(dir, name)));
+    for (const path of this.headers.keys())
+      if (path.startsWith(dir + '/') && !valid.has(path)) this.headers.delete(path);
+    return result;
+  }
+  private change<T>(group: string, action: () => Promise<T>): Promise<T> {
+    const task = (this.queues.get(group) || Promise.resolve()).catch(() => {}).then(action);
+    this.queues.set(group, task);
+    const clean = () => {
+      if (this.queues.get(group) === task) this.queues.delete(group);
+    };
+    task.then(clean, clean);
+    return task;
+  }
+  private async write(dir: string, doc: ProjectDoc) {
+    if (!doc.title.trim() || doc.title.length > 200 || doc.markdown.length > 2000000)
+      throw new Error('Enter a title up to 200 characters and content under 2 MB');
+    const text =
+      '<!-- kalkidan ' +
+      JSON.stringify({ title: doc.title.trim(), parentId: doc.parentId }) +
+      ' -->\n' +
+      doc.markdown;
+    const file = this.file(dir, doc.id);
+    const temp = file + '.' + randomUUID() + '.tmp';
+    try {
+      await writeFile(temp, text, { mode: 0o600 });
+      await rename(temp, file);
+    } finally {
+      await rm(temp, { force: true });
+    }
+    return { ...doc, title: doc.title.trim(), revision: hash(text) };
+  }
+  create(group: string, title: string, parentId: string | null) {
+    return this.change(group, async () => {
+      const dir = await this.directory(group);
+      if (parentId) await this.read(dir, parentId);
+      return this.write(dir, { id: randomUUID(), title, parentId, markdown: '', revision: '' });
+    });
+  }
+  save(group: string, doc: ProjectDoc) {
+    return this.change(group, async () => {
+      const dir = await this.directory(group);
+      const previous = await this.read(dir, doc.id);
+      if (previous.revision !== doc.revision)
+        throw new Error(
+          'This page changed on disk. Reopen it before saving to avoid overwriting changes.',
+        );
+      const visited = new Set([doc.id]);
+      let parent = previous.parentId === doc.parentId ? null : doc.parentId;
+      while (parent) {
+        if (visited.has(parent)) throw new Error('A page cannot be nested inside itself');
+        visited.add(parent);
+        const page = await this.read(dir, parent);
+        parent = page.parentId;
+      }
+      return this.write(dir, doc);
+    });
+  }
+  delete(group: string, id: string, revision: string) {
+    return this.change(group, async () => {
+      const dir = await this.directory(group);
+      const doc = await this.read(dir, id);
+      if (doc.revision !== revision)
+        throw new Error('Page changed on disk. Reload before deleting.');
+      if ((await this.metadata(group)).some((p) => p.parentId === id))
+        throw new Error('Move or delete child pages first.');
+      const trash = join(dir, '.trash');
+      await mkdir(trash, { recursive: true });
+      await rename(this.file(dir, id), join(trash, id + '-' + Date.now() + '.md'));
+    });
+  }
+}

@@ -372,8 +372,8 @@ export function AddRepository({
                       </p>
                     )}
                     <p className="text-xs text-muted-foreground">
-                      Next, choose a new local folder in Finder. Kalkidan will clone the repository
-                      and add it to the selected project.
+                      Kalkidan will clone the repository into the project’s repos folder and add it
+                      to the selected project.
                     </p>
                   </>
                 )}
@@ -426,7 +426,7 @@ export function AddRepository({
               onClick={() => void add()}
             >
               {mode === 'github'
-                ? 'Choose location and clone'
+                ? 'Clone into project'
                 : mode === 'local'
                   ? 'Choose folders'
                   : 'Add to project'}

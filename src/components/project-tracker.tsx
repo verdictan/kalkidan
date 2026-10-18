@@ -1,6 +1,6 @@
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { ChevronLeft, ChevronRight, Columns3 } from 'lucide-react';
+import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { TrackerWorkflow } from './tracker-workflow';
 import { interfaceConfig } from '../config/interface';
 import { trackerConnection } from '../domain/tracker';
@@ -366,9 +366,6 @@ export function ProjectTrackerPanel({
       )}
       {linkedProject ? (
         <div className="tracker-filterbar">
-          <span className="tracker-view-label">
-            <Columns3 size={14} /> Board
-          </span>
           <div className="relative min-w-40 flex-1 sm:max-w-64">
             <Search
               size={14}

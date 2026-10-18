@@ -16,7 +16,8 @@ export interface RemoteFolders {
   folders: { name: string; path: string }[];
 }
 export interface ProjectGroup {
-  color?: import("./project-colors").ProjectColor;
+  rootPath?: string;
+  color?: import('./project-colors').ProjectColor;
   hostId?: string;
   id: string;
   name: string;
@@ -45,4 +46,16 @@ export interface Snapshot {
   sessions: Session[];
   warnings: string[];
   platform: string;
+}
+
+export interface RepositorySnapshot {
+  git: GitInfo | null;
+  sessions: Session[];
+  warnings: string[];
+}
+
+export interface DirectoryListing {
+  path: string;
+  parent: string;
+  entries: { name: string; path: string; kind: 'directory' | 'symlink' | 'file' }[];
 }

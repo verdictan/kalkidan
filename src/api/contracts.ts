@@ -1,3 +1,5 @@
+import type { GitHubCliStatus } from '../domain/conversation';
+import type { DocsAPI } from '../domain/docs';
 import type {
   HistoryImportPreview,
   HistoryImportRequest,
@@ -5,7 +7,14 @@ import type {
 } from '../domain/history-import';
 import type { TerminalRun, RepositoryDiff } from '../domain/terminal';
 import type { BrowserSelection, BrowserState, BrowserBounds } from '../domain/browser';
-import type { RemoteHost, RemoteFolders, Project, GitInfo, Snapshot } from '../domain/project';
+import type {
+  DirectoryListing,
+  RemoteHost,
+  RemoteFolders,
+  Project,
+  GitInfo,
+  Snapshot,
+} from '../domain/project';
 import type {
   ChatOptions,
   ModelOption,
@@ -62,6 +71,7 @@ export interface TrackerAPI {
   trackerConfigure(groupId: string, mapping: TrackerConnection['statusMapping']): Promise<void>;
 }
 export interface AgentAPI {
+  githubCliCheck(): Promise<GitHubCliStatus>;
   agentInstallations(): Promise<AgentInstallation[]>;
   sessionAction(
     session: Session,
@@ -140,6 +150,7 @@ export interface RemoteAPI {
     method: M,
     args: Parameters<SessionHostAPI[M]>,
   ): ReturnType<SessionHostAPI[M]>;
+  directoryList(path: string, hostId?: string): Promise<DirectoryListing>;
   remoteFolders(hostId: string, path: string): Promise<RemoteFolders>;
   remoteAddRepository(groupId: string, path: string, clone?: string): Promise<void>;
 }
@@ -163,6 +174,7 @@ export interface ProjectAPI {
   historyImport(request: HistoryImportRequest): Promise<HistoryImportResult>;
   cloneRepository(name: string, groupId?: string): Promise<boolean>;
   taskWorktree(repoId: string, branch: string): Promise<Project | null>;
+  repositorySnapshot(id: string): Promise<import('../domain/project').RepositorySnapshot>;
   snapshot(): Promise<Snapshot>;
   add(groupId?: string): Promise<void>;
   createGroup(
@@ -170,8 +182,12 @@ export interface ProjectAPI {
     trackerReference: string,
     hostId?: string,
     provider?: string,
+    rootPath?: string,
   ): Promise<string>;
-  setGroupColor(id: string, color: import("../domain/project-colors").ProjectColor | null): Promise<void>;
+  setGroupColor(
+    id: string,
+    color: import('../domain/project-colors').ProjectColor | null,
+  ): Promise<void>;
   updateGroup(id: string, name: string): Promise<void>;
   removeGroup(id: string): Promise<void>;
   moveRepo(repoId: string, groupId: string | null): Promise<void>;
@@ -184,6 +200,14 @@ export interface ProjectAPI {
   worktree(id: string, branch: string): Promise<boolean>;
 }
 export interface API
-  extends TrackerAPI, AgentAPI, BrowserAPI, TerminalAPI, RemoteAPI, GitHubAPI, ProjectAPI {}
+  extends
+    DocsAPI,
+    TrackerAPI,
+    AgentAPI,
+    BrowserAPI,
+    TerminalAPI,
+    RemoteAPI,
+    GitHubAPI,
+    ProjectAPI {}
 
 export type SessionHostAPI = Pick<API, SessionHostMethod>;

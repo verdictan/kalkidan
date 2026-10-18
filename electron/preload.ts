@@ -1,6 +1,12 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import type { API } from '../src/types';
 const api: API = {
+  docsMetadata: (group) => ipcRenderer.invoke('docs-metadata', group),
+  docsRead: (group, id) => ipcRenderer.invoke('docs-read', group, id),
+  docsList: (...args) => ipcRenderer.invoke('docs-list', ...args),
+  docsCreate: (...args) => ipcRenderer.invoke('docs-create', ...args),
+  docsSave: (...args) => ipcRenderer.invoke('docs-save', ...args),
+  docsDelete: (...args) => ipcRenderer.invoke('docs-delete', ...args),
   trackerProviders: (...args) => ipcRenderer.invoke('tracker-providers', ...args),
   trackerAuthStart: (...args) => ipcRenderer.invoke('tracker-auth-start', ...args),
   trackerAuthStatus: (...args) => ipcRenderer.invoke('tracker-auth-status', ...args),
@@ -16,6 +22,7 @@ const api: API = {
   trackerAddIssue: (...args) => ipcRenderer.invoke('tracker-add-issue', ...args),
   trackerConfigure: (...args) => ipcRenderer.invoke('tracker-configure', ...args),
 
+  githubCliCheck: () => ipcRenderer.invoke('github-cli-check'),
   agentInstallations: () => ipcRenderer.invoke('agent-installations'),
   browserAction: (id, action, value) => ipcRenderer.invoke('browser-action', id, action, value),
   sessionAction: (session, action) => ipcRenderer.invoke('session-action', session, action),
@@ -27,6 +34,7 @@ const api: API = {
   remoteDisconnect: (id) => ipcRenderer.invoke('remote-disconnect', id),
   remoteCall: ((id, method, args) =>
     ipcRenderer.invoke('remote-call', id, method, args)) as API['remoteCall'],
+  directoryList: (path, hostId) => ipcRenderer.invoke('directory-list', path, hostId),
   remoteFolders: (id, path) => ipcRenderer.invoke('remote-folders', id, path),
   remoteAddRepository: (id, path, clone) =>
     ipcRenderer.invoke('remote-add-repository', id, path, clone),
@@ -62,8 +70,8 @@ const api: API = {
   githubDraft: (id, title, body) => ipcRenderer.invoke('github-draft', id, title, body),
   githubAddIssue: (id, url) => ipcRenderer.invoke('github-add-issue', id, url),
 
-  createGroup: (name, url, hostId, provider) =>
-    ipcRenderer.invoke('group-create', name, url, hostId, provider),
+  createGroup: (name, url, hostId, provider, rootPath) =>
+    ipcRenderer.invoke('group-create', name, url, hostId, provider, rootPath),
   setGroupColor: (id, color) => ipcRenderer.invoke('group-color', id, color),
   updateGroup: (id, name) => ipcRenderer.invoke('group-update', id, name),
   removeGroup: (id) => ipcRenderer.invoke('group-remove', id),
@@ -78,6 +86,7 @@ const api: API = {
   taskWorktree: (id, branch) => ipcRenderer.invoke('task-worktree', id, branch),
   chatStop: (id) => ipcRenderer.invoke('chat-stop', id),
   updateSession: (agent, id, changes) => ipcRenderer.invoke('session-update', agent, id, changes),
+  repositorySnapshot: (id) => ipcRenderer.invoke('repository-snapshot', id),
   snapshot: () => ipcRenderer.invoke('snapshot'),
   add: (groupId) => ipcRenderer.invoke('add', groupId),
   historyPreview: () => ipcRenderer.invoke('history-preview'),

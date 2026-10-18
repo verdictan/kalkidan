@@ -1,3 +1,4 @@
+import { FolderPicker } from './folder-picker';
 import { interfaceConfig } from '../config/interface';
 import { useTracker } from '../hooks/use-tracker';
 import { RemoteHostPicker } from './remote-host-picker';
@@ -40,6 +41,7 @@ export function CreateProject({
   const [hostId, setHostId] = useState('');
   const [hostReady, setHostReady] = useState(false);
   const [name, setName] = useState('');
+  const [rootPath, setRootPath] = useState('');
   const [url, setUrl] = useState('');
   const [creating, setCreating] = useState(false);
   const [hostBusy, setHostBusy] = useState(false);
@@ -58,6 +60,7 @@ export function CreateProject({
   useEffect(() => {
     if (open) {
       setName('');
+      setRootPath('');
       setLocation('local');
       setHostId('');
       setHostReady(false);
@@ -109,6 +112,7 @@ export function CreateProject({
         url,
         location === 'remote' ? hostId : undefined,
         provider,
+        rootPath.trim() || undefined,
       );
       const snapshot = await api.snapshot();
       const group = snapshot.groups?.find((g) => g.id === id);
@@ -167,6 +171,28 @@ export function CreateProject({
           <p className="text-xs text-muted-foreground">
             Repositories and agent sessions stay on the selected machine.
           </p>
+        </div>
+        <div className="form-label">
+          <label htmlFor="project-root-folder">Project folder</label>
+          <Input
+            id="project-root-folder"
+            aria-label="Project folder"
+            value={rootPath}
+            disabled={busy}
+            onChange={(e) => setRootPath(e.target.value)}
+            placeholder="~/.kalkidan/projects/ (automatic)"
+          />
+          <span className="text-xs text-muted-foreground">
+            Docs, cloned repositories, and worktrees are stored here on the selected machine. Leave
+            blank to create a dedicated folder automatically.
+          </span>
+          <FolderPicker
+            api={api}
+            value={rootPath}
+            hostId={location === 'remote' ? hostId : undefined}
+            disabled={busy || (location === 'remote' && (!hostId || !hostReady))}
+            onSelect={setRootPath}
+          />
         </div>
         {location === 'remote' && (
           <RemoteHostPicker

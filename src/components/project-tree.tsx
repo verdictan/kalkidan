@@ -1,19 +1,10 @@
-import { projectColors } from '../domain/project-colors';
+import { projectColors, type ProjectColor } from '../domain/project-colors';
 import { TreeContextMenu, type TreeAction } from './tree-context-menu';
 import { sessionRepo } from '../lib/session-repository';
 import { CreateProject } from './create-project';
 import { AddRepository } from './add-repository';
 import { useState } from 'react';
-import {
-  ChevronDown,
-  ChevronRight,
-  Folder,
-  GitBranch,
-  MessageSquare,
-  Plus,
-  Pin,
-  Settings2,
-} from 'lucide-react';
+import { ChevronDown, Folder, BookOpen, GitBranch, Plus, Pin, Settings2 } from 'lucide-react';
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from './ui/collapsible';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
@@ -41,9 +32,13 @@ export function ProjectTree({
   onResume,
   onProject,
   onOverview,
+  onDocs,
+  projectPage,
   run,
 }: {
   onOverview: () => void;
+  onDocs: (group: ProjectGroup) => void;
+  projectPage: 'board' | 'docs';
   hosts?: RemoteHost[];
   api: API;
   repos: Project[];
@@ -99,16 +94,17 @@ export function ProjectTree({
   }
   const [editing, setEditing] = useState<ProjectGroup | 'new' | null>(null);
   const [name, setName] = useState('');
-  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  const [color, setColor] = useState<ProjectColor | null>(null);
+  const managedRepos =
+    editing && editing !== 'new'
+      ? allRepos.filter((repo) => editing.repoIds.includes(repo.id))
+      : [];
   function edit(group: ProjectGroup | 'new') {
     setEditing(group);
     setName(group === 'new' ? '' : group.name);
+    setColor(group === 'new' ? null : group.color || null);
   }
   function repository(repo: Project) {
-    const chats = sessions.filter(
-      (s) => !s.organization?.archived && sessionRepo(s, allRepos)?.id === repo.id,
-    );
-    const open = expanded[repo.id] ?? repo.id === selected;
     return (
       <div className="repo-node" key={repo.id}>
         <TreeContextMenu
@@ -148,15 +144,6 @@ export function ProjectTree({
           >
             <Button
               variant="ghost"
-              className="tree-toggle"
-              aria-label={`${open ? 'Collapse' : 'Expand'} ${repo.name} sessions`}
-              aria-expanded={open}
-              onClick={() => setExpanded((p) => ({ ...p, [repo.id]: !open }))}
-            >
-              {open ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
-            </Button>
-            <Button
-              variant="ghost"
               className="repo-select"
               aria-pressed={!activeGroup && selected === repo.id}
               onClick={() => onSelect(repo)}
@@ -167,29 +154,6 @@ export function ProjectTree({
             </Button>
           </div>
         </TreeContextMenu>
-        {open && (
-          <div className="repo-sessions">
-            {chats.map((session) => (
-              <TreeContextMenu key={session.agent + session.id} actions={sessionActions(session)}>
-                <Button
-                  variant="ghost"
-                  key={session.agent + session.id}
-                  title={session.organization?.title || session.title}
-                  aria-current={
-                    activeSession?.id === session.id && activeSession.agent === session.agent
-                      ? 'page'
-                      : undefined
-                  }
-                  onClick={() => onResume(session)}
-                >
-                  <MessageSquare size={12} />
-                  <span>{session.organization?.title || session.title}</span>
-                </Button>
-              </TreeContextMenu>
-            ))}
-            {!chats.length && <p>No sessions yet</p>}
-          </div>
-        )}
       </div>
     );
   }
@@ -255,7 +219,11 @@ export function ProjectTree({
       {groups.map((group) => (
         <Collapsible className="project-group" defaultOpen key={group.id}>
           <TreeContextMenu
-            folderColor={{ value: group.color, disabled: busy, onChange: color => void run(() => api.setGroupColor(group.id, color)) }}
+            folderColor={{
+              value: group.color,
+              disabled: busy,
+              onChange: (color) => void run(() => api.setGroupColor(group.id, color)),
+            }}
             actions={[
               { label: 'Open project board', action: () => onProject(group) },
               { label: 'Rename…', disabled: busy, action: () => edit(group) },
@@ -285,7 +253,10 @@ export function ProjectTree({
                 aria-current={activeGroup === group.id ? 'page' : undefined}
                 onClick={() => onProject(group)}
               >
-                <Folder size={15} style={{ color: group.color ? projectColors[group.color] : undefined }} />
+                <Folder
+                  size={15}
+                  style={{ color: group.color ? projectColors[group.color] : undefined }}
+                />
                 <strong>
                   {group.name}
                   {group.hostId && (
@@ -316,6 +287,14 @@ export function ProjectTree({
             </div>
           </TreeContextMenu>
           <CollapsibleContent className="project-group-children">
+            <Button
+              variant="ghost"
+              className="project-subpage"
+              aria-current={activeGroup === group.id && projectPage === 'docs' ? 'page' : undefined}
+              onClick={() => onDocs(group)}
+            >
+              <BookOpen size={14} /> Docs
+            </Button>
             {group.hostId && (
               <p className="tree-host">
                 <span
@@ -426,52 +405,138 @@ export function ProjectTree({
         open={!!editing && editing !== 'new'}
         onOpenChange={(open) => !open && !busy && setEditing(null)}
       >
-        <DialogContent className="max-h-[calc(100dvh-48px)] overflow-y-auto">
+        <DialogContent className="project-settings-dialog max-h-[calc(100dvh-48px)] overflow-y-auto sm:max-w-[560px]">
           <DialogHeader className="pr-6">
-            <DialogTitle>{editing === 'new' ? 'Create project' : 'Manage project'}</DialogTitle>
-            <DialogDescription>
-              Group related repositories under one project. Files and conversations stay in their
-              original folders.
-            </DialogDescription>
+            <div className="project-settings-heading">
+              <span
+                className="project-settings-icon"
+                style={{ color: color ? projectColors[color] : undefined }}
+              >
+                <Folder size={24} />
+              </span>
+              <div>
+                <DialogTitle>Manage project</DialogTitle>
+                <DialogDescription className="mt-1">
+                  Customize your project and review its repositories.
+                </DialogDescription>
+              </div>
+            </div>
           </DialogHeader>
           <label className="form-label">
             Project name
             <Input
               value={name}
               maxLength={150}
+              disabled={busy}
               onChange={(e) => setName(e.target.value)}
               placeholder="e.g. Customer platform"
             />
           </label>
-          {editing && editing !== 'new' && (
-            <Button
-              variant="ghost"
-              disabled={busy || editing.repoIds.some((id) => allRepos.some((r) => r.id === id))}
-              title="Move repositories to another project before removing this project"
-              onClick={() =>
-                void run(async () => {
-                  await api.removeGroup(editing.id);
-                  setEditing(null);
-                })
+          <label className="form-label">
+            Project folder
+            <Input
+              readOnly
+              aria-label="Project folder"
+              value={
+                editing && editing !== 'new'
+                  ? editing.rootPath || 'Assigned when this project is opened on its host'
+                  : ''
               }
-            >
-              Remove empty project
-            </Button>
+            />
+            <span className="text-xs text-muted-foreground">
+              Contains docs/, repos/, and worktrees/. Existing external repositories stay linked.
+            </span>
+          </label>
+          <fieldset className="project-settings-colors" disabled={busy}>
+            <legend>Folder color</legend>
+            <div className="flex flex-wrap gap-2">
+              {([null, ...Object.keys(projectColors)] as (ProjectColor | null)[]).map((value) => (
+                <Button
+                  key={value || 'default'}
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  aria-label={
+                    value ? value[0].toUpperCase() + value.slice(1) + ' folder' : 'Default folder'
+                  }
+                  aria-pressed={color === value}
+                  title={value || 'Default'}
+                  onClick={() => setColor(value)}
+                  style={{ color: value ? projectColors[value] : 'var(--muted-foreground)' }}
+                >
+                  <Folder size={19} />
+                </Button>
+              ))}
+            </div>
+          </fieldset>
+          <section className="project-settings-repositories" aria-label="Project repositories">
+            <h3>
+              Repositories <span>{managedRepos.length}</span>
+            </h3>
+            {managedRepos.length ? (
+              <ul>
+                {managedRepos.map((repo) => (
+                  <li key={repo.id}>
+                    <GitBranch size={16} />
+                    <div>
+                      <strong>{repo.name}</strong>
+                      <span title={repo.path}>{repo.path}</span>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p>No repositories added yet.</p>
+            )}
+          </section>
+          {editing && editing !== 'new' && (
+            <div className="project-settings-remove">
+              <div>
+                <strong>Remove project</strong>
+                <p>
+                  {managedRepos.length
+                    ? 'Move or remove its repositories first.'
+                    : 'Remove this empty project from your sidebar.'}
+                </p>
+              </div>
+              <Button
+                variant="outline"
+                className="text-destructive"
+                disabled={busy || managedRepos.length > 0}
+                onClick={() => {
+                  setItemAction({ kind: 'project', item: editing, mode: 'remove' });
+                  setEditing(null);
+                }}
+              >
+                Remove
+              </Button>
+            </div>
           )}
-          <DialogFooter>
+          <DialogFooter className="project-settings-footer">
             <Button variant="outline" disabled={busy} onClick={() => setEditing(null)}>
               Cancel
             </Button>
             <Button
-              disabled={busy || !name.trim()}
+              disabled={
+                busy ||
+                !name.trim() ||
+                (editing !== 'new' &&
+                  editing?.name === name.trim() &&
+                  (editing?.color || null) === color)
+              }
               onClick={() =>
                 void run(async () => {
-                  if (editing && editing !== 'new') await api.updateGroup(editing.id, name.trim());
+                  if (editing && editing !== 'new') {
+                    if (editing.name !== name.trim())
+                      await api.updateGroup(editing.id, name.trim());
+                    if ((editing.color || null) !== color)
+                      await api.setGroupColor(editing.id, color);
+                  }
                   setEditing(null);
                 })
               }
             >
-              {editing === 'new' ? 'Create project' : 'Save project'}
+              {busy ? 'Saving…' : 'Save project'}
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -1,3 +1,4 @@
+import type { ProjectDoc } from './domain/docs';
 import { githubDescriptor } from './domain/tracker';
 import type { API, Project, Session, ProjectGroup } from './types';
 const now = new Date().toISOString();
@@ -88,7 +89,48 @@ function previewProvider<T>(id: string, action: () => Promise<T>): Promise<T> {
     ? action()
     : Promise.reject(new Error(`Tracker ${id} is not available in this preview.`));
 }
+const demoDocs: Record<string, ProjectDoc[]> = JSON.parse(
+  localStorage.getItem('kalkidan-demo-docs') || '{}',
+);
+function persistDocs() {
+  localStorage.setItem('kalkidan-demo-docs', JSON.stringify(demoDocs));
+}
 export const demo: API = {
+  docsMetadata: async (group) =>
+    (demoDocs[group] || []).map(({ id, title, parentId }) => ({ id, title, parentId })),
+  docsRead: async (group, id) => {
+    const doc = demoDocs[group]?.find((doc) => doc.id === id);
+    if (!doc) throw new Error('Page not found');
+    return structuredClone(doc);
+  },
+  docsList: async (group) => structuredClone(demoDocs[group] || []),
+  docsCreate: async (group, title, parentId) => {
+    const doc = {
+      id: crypto.randomUUID(),
+      title,
+      parentId,
+      markdown: '',
+      revision: crypto.randomUUID(),
+    };
+    (demoDocs[group] ||= []).push(doc);
+    persistDocs();
+    return structuredClone(doc);
+  },
+  docsSave: async (group, doc) => {
+    const pages = demoDocs[group] || [];
+    const index = pages.findIndex((p) => p.id === doc.id);
+    if (index < 0 || pages[index].revision !== doc.revision)
+      throw new Error('Page changed. Reopen it before saving.');
+    pages[index] = { ...doc, revision: crypto.randomUUID() };
+    persistDocs();
+    return structuredClone(pages[index]);
+  },
+  docsDelete: async (group, id) => {
+    if (demoDocs[group]?.some((p) => p.parentId === id))
+      throw new Error('Move or delete child pages first.');
+    demoDocs[group] = (demoDocs[group] || []).filter((p) => p.id !== id);
+    persistDocs();
+  },
   trackerProviders: async () => [githubDescriptor],
   trackerAuthStart: (provider, force) =>
     previewProvider(provider, () => demo.githubAuthStart(force)),
@@ -112,6 +154,7 @@ export const demo: API = {
     if (group?.github)
       group.tracker = { provider: 'github', project: group.github, statusMapping: mapping };
   },
+  githubCliCheck: async () => ({ status: 'unavailable' }),
   agentInstallations: async () => [
     { agent: 'codex', status: 'unavailable' },
     { agent: 'claude', status: 'unavailable' },
@@ -125,6 +168,7 @@ export const demo: API = {
   remoteConnect: nativeOnly,
   remoteDisconnect: nativeOnly,
   remoteCall: nativeOnly as API['remoteCall'],
+  directoryList: nativeOnly,
   remoteFolders: nativeOnly,
   remoteAddRepository: nativeOnly,
   ptyOpen: nativeOnly,
@@ -230,13 +274,22 @@ export const demo: API = {
   },
   githubAddIssue: nativeOnly,
 
-  createGroup: async (name, url) => {
+  createGroup: async (name, url, hostId, provider, rootPath) => {
     if (!url) throw new Error('Choose a GitHub Project first.');
     const id = crypto.randomUUID();
-    groups.push({ id, name, github: { ...board.project, url }, repoIds: [] });
+    groups.push({
+      id,
+      name,
+      rootPath: rootPath || '~/.kalkidan/projects/' + id,
+      hostId,
+      github: { ...board.project, url },
+      repoIds: [],
+    });
     return id;
   },
-  setGroupColor: async (id, color) => { groups = groups.map(g => g.id === id ? { ...g, color: color || undefined } : g); },
+  setGroupColor: async (id, color) => {
+    groups = groups.map((g) => (g.id === id ? { ...g, color: color || undefined } : g));
+  },
   updateGroup: async (id, name) => {
     groups = groups.map((g) => (g.id === id ? { ...g, name } : g));
   },
@@ -284,6 +337,15 @@ export const demo: API = {
     const session = sessions.find((s) => s.agent === agent && s.id === id);
     if (session) session.organization = { ...session.organization, ...changes };
   },
+  repositorySnapshot: async (id) => ({
+    git: {
+      branch: 'main',
+      changes: 3,
+      worktrees: [{ path: projects.find((p) => p.id === id)?.path || '', branch: 'main' }],
+    },
+    sessions: sessions.filter((s) => s.cwd === projects.find((p) => p.id === id)?.path),
+    warnings: [],
+  }),
   snapshot: async () => ({
     projects: [...projects],
     groups: structuredClone(groups),

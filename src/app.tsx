@@ -1,3 +1,5 @@
+import { Onboarding, onboardingDismissed, dismissOnboarding } from './components/onboarding';
+import { ProjectDocsPanel } from './components/project-docs';
 import { WorkspaceSearch } from './components/workspace-search';
 import { useSidebarWidth } from './hooks/use-sidebar-width';
 import { SidebarResizer } from './components/sidebar-resizer';
@@ -33,7 +35,6 @@ import {
 import { Button } from './components/ui/button';
 import { Input } from './components/ui/input';
 import { Badge } from './components/ui/badge';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from './components/ui/tabs';
 import {
   Dialog,
   DialogContent,
@@ -60,15 +61,17 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
     platform: '',
   });
   const [home, setHome] = useState(true);
+  const [onboardingOpen, setOnboardingOpen] = useState(false);
+  const onboardingChecked = useRef(false);
   const sidebar = useSidebarWidth();
   const [navigationOpen, setNavigationOpen] = useState(true);
   const [trackerTarget, setTrackerTarget] = useState('');
   const [connectRequest, setConnectRequest] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [projectPage, setProjectPage] = useState<'board' | 'docs'>('board');
   const [boardGroup, setBoardGroup] = useState<string | null>(null);
   const [selected, setSelected] = useState('');
   const [query, setQuery] = useState('');
-  const [tab, setTab] = useState('overview');
   const [git, setGit] = useState<GitInfo | null>(null);
   const [gitError, setGitError] = useState('');
   const [busy, setBusy] = useState(false);
@@ -84,15 +87,15 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
   const [chatSession, setChatSession] = useState<Session | null>(null);
   const [chatOpen, setChatOpen] = useState(false);
   const navigation = useNavigationHistory(
-    { home, boardGroup, selected, tab, chatOpen, chatSession },
+    { home, boardGroup, projectPage, selected, chatOpen, chatSession },
     (route) =>
       route.home
         ? 'home'
         : route.chatOpen && route.chatSession
           ? `chat:${route.chatSession.hostId || ''}:${route.chatSession.agent}:${route.chatSession.id}`
           : route.boardGroup
-            ? `board:${route.boardGroup}`
-            : `repo:${route.selected}:${route.tab}`,
+            ? `${route.projectPage}:${route.boardGroup}`
+            : `repo:${route.selected}`,
     (route) => {
       const valid =
         route.home ||
@@ -101,8 +104,8 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
           : data.projects.some((project) => project.id === route.selected));
       setHome(!valid || route.home);
       setBoardGroup(valid ? route.boardGroup : null);
+      setProjectPage(route.projectPage);
       setSelected(route.selected);
-      setTab(route.tab);
       setChatOpen(!!valid && route.chatOpen);
       if (route.chatOpen && route.chatSession) setChatSession(route.chatSession);
     },
@@ -123,6 +126,17 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
   async function refresh() {
     const value = await api.snapshot();
     setData(value);
+    if (!onboardingChecked.current) {
+      onboardingChecked.current = true;
+      if (
+        !preview &&
+        !value.projects.length &&
+        !value.groups?.length &&
+        !value.sessions.length &&
+        !onboardingDismissed()
+      )
+        setOnboardingOpen(true);
+    }
     setSelected((id) =>
       value.projects.some((p) => p.id === id) ? id : value.projects[0]?.id || '',
     );
@@ -162,50 +176,50 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
       setError('Invalid conversation link.');
     }
   }, [data.sessions]);
+  const repositoryCache = useRef(new Map<string, import('./domain/project').RepositorySnapshot>());
+  const [repositoryView, setRepositoryView] = useState<{
+    id: string;
+    value: import('./domain/project').RepositorySnapshot;
+  } | null>(null);
+  const [repositoryRevision, setRepositoryRevision] = useState(0);
   useEffect(() => {
-    let current = true;
-    setGit(null);
-    setGitError('');
-    setGitLoading(!!selected);
-    if (selected)
-      api
-        .git(selected)
-        .then((value) => {
-          if (current) setGit(value);
-        })
-        .catch((e) => {
-          if (current) setGitError(String(e.message));
-        })
-        .finally(() => {
-          if (current) setGitLoading(false);
-        });
-    return () => {
-      current = false;
-    };
-  }, [selected, revision, tab]);
-  useEffect(() => {
-    if (home || chatOpen || tab !== 'worktrees') return;
+    if (home || chatOpen || boardGroup || !selected) return;
+    let live = true;
     let pending = false;
+    const cached = repositoryCache.current.get(selected);
+    setGit(cached?.git || null);
+    setRepositoryView(cached ? { id: selected, value: cached } : null);
+    setGitError('');
+    setGitLoading(!cached);
     const update = async () => {
       if (pending || document.visibilityState === 'hidden') return;
       pending = true;
       try {
-        await refresh();
+        const value = await api.repositorySnapshot(selected);
+        if (!live) return;
+        repositoryCache.current.set(selected, value);
+        setGit(value.git);
+        setRepositoryView({ id: selected, value });
+        setGitError(value.warnings.join(' '));
       } catch (error) {
-        setGitError(error instanceof Error ? error.message : String(error));
+        if (live) setGitError(error instanceof Error ? error.message : String(error));
       } finally {
         pending = false;
+        if (live) setGitLoading(false);
       }
     };
+    void update();
     const timer = window.setInterval(update, 15000);
     window.addEventListener('focus', update);
     return () => {
+      live = false;
       window.clearInterval(timer);
       window.removeEventListener('focus', update);
     };
-  }, [home, chatOpen, tab, selected]);
+  }, [home, chatOpen, boardGroup, selected, revision, repositoryRevision]);
+  const visibleSessions =
+    repositoryView?.id === selected ? repositoryView.value.sessions : data.sessions;
   const project = data.projects.find((p) => p.id === selected);
-  const repositoryGroup = data.groups?.find((g) => g.repoIds.includes(selected));
   const connectionGroup =
     (!home &&
       (data.groups?.find((g) => g.id === boardGroup) ||
@@ -248,13 +262,15 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
         .includes(query.toLowerCase()),
     )
     .sort((a, b) => Number(b.favorite) - Number(a.favorite) || a.name.localeCompare(b.name));
-  const sessions = data.sessions.filter((s) => sessionRepo(s, data.projects)?.id === project?.id);
+  const sessions =
+    repositoryView?.id === selected
+      ? visibleSessions
+      : data.sessions.filter((s) => sessionRepo(s, data.projects)?.id === project?.id);
   function openProject(p: Project) {
     setHome(false);
     setChatOpen(false);
     setBoardGroup(null);
     setSelected(p.id);
-    setTab('overview');
   }
   function openConversation(session: Session) {
     setHome(false);
@@ -268,7 +284,7 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
   }
   const launchTerminal = () =>
     project && run(() => api.launch(project.id, 'terminal'), 'Opened in Terminal.');
-  function newSession(agent: Agent, repo = project, task?: TrackerItem) {
+  function newSession(agent: Agent, repo = project, task?: TrackerItem, initialPrompt?: string) {
     if (!repo) return;
     setHome(false);
     setSelected(repo.id);
@@ -279,9 +295,11 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
       agent,
       cwd: repo.path,
       task,
-      initialPrompt: task
-        ? `Work on this task: ${task.title}. Review the repository and propose an implementation plan first.`
-        : undefined,
+      initialPrompt:
+        initialPrompt ||
+        (task
+          ? `Work on this task: ${task.title}. Review the repository and propose an implementation plan first.`
+          : undefined),
       title: `New ${agentLabel(agent)} session`,
       updatedAt: new Date().toISOString(),
     };
@@ -294,7 +312,6 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
       <SessionBrowser
         sessions={sessions}
         query=""
-        compact={tab === 'overview'}
         busy={busy}
         onResume={openConversation}
         onUpdate={async (session, changes) => {
@@ -428,12 +445,20 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
                     setHome(false);
                     setChatOpen(false);
                     setBoardGroup(group.id);
+                    setProjectPage('board');
                   }}
                   onRepository={openProject}
                   onSession={openConversation}
                 />
               ) : (
                 <ProjectTree
+                  projectPage={projectPage}
+                  onDocs={(group) => {
+                    setHome(false);
+                    setChatOpen(false);
+                    setBoardGroup(group.id);
+                    setProjectPage('docs');
+                  }}
                   onOverview={() => {
                     setHome(true);
                     setChatOpen(false);
@@ -459,6 +484,7 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
                     setHome(false);
                     setChatOpen(false);
                     setBoardGroup(group.id);
+                    setProjectPage('board');
                   }}
                   onResume={openConversation}
                   run={run}
@@ -486,6 +512,7 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
                       setHome(false);
                       setChatOpen(false);
                       setBoardGroup(connectionGroup.id);
+                      setProjectPage('board');
                       setConnectRequest(connectionGroup.id);
                     }}
                   >
@@ -503,6 +530,13 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
                     {connection ? `${trackerName} project` : `Connect ${trackerName}`}
                   </Button>
                 )}
+                <Button
+                  variant="ghost"
+                  className="w-full justify-start"
+                  onClick={() => setOnboardingOpen(true)}
+                >
+                  <ArrowRight size={16} /> Get started
+                </Button>
                 <Button
                   variant="ghost"
                   className="w-full justify-start"
@@ -527,25 +561,34 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
                     onSelect={(group) => {
                       setHome(false);
                       setBoardGroup(group.id);
+                      setProjectPage('board');
                     }}
                   />
                 ) : boardGroup && data.groups?.find((g) => g.id === boardGroup) ? (
-                  <ProjectTrackerPanel
-                    connectRequested={connectRequest === boardGroup}
-                    onConnectHandled={() => setConnectRequest(null)}
-                    key={boardGroup}
-                    revision={revision}
-                    api={api}
-                    sessions={data.sessions}
-                    onResume={openConversation}
-                    group={data.groups.find((g) => g.id === boardGroup)!}
-                    repos={data.projects.filter((p) =>
-                      data.groups!.find((g) => g.id === boardGroup)!.repoIds.includes(p.id),
-                    )}
-                    onRefresh={refresh}
-                    onRepo={openProject}
-                    onTask={(repo, agent, task) => newSession(agent, repo, task)}
-                  />
+                  projectPage === 'docs' ? (
+                    <ProjectDocsPanel
+                      key={boardGroup}
+                      api={api}
+                      group={data.groups.find((g) => g.id === boardGroup)!}
+                    />
+                  ) : (
+                    <ProjectTrackerPanel
+                      connectRequested={connectRequest === boardGroup}
+                      onConnectHandled={() => setConnectRequest(null)}
+                      key={boardGroup}
+                      revision={revision}
+                      api={api}
+                      sessions={data.sessions}
+                      onResume={openConversation}
+                      group={data.groups.find((g) => g.id === boardGroup)!}
+                      repos={data.projects.filter((p) =>
+                        data.groups!.find((g) => g.id === boardGroup)!.repoIds.includes(p.id),
+                      )}
+                      onRefresh={refresh}
+                      onRepo={openProject}
+                      onTask={(repo, agent, task) => newSession(agent, repo, task)}
+                    />
+                  )
                 ) : project ? (
                   <section className="detail">
                     <div className="detail-heading">
@@ -616,62 +659,53 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
                         <Settings2 size={18} />
                       </Button>
                     </div>
-                    <Tabs value={tab} onValueChange={setTab}>
-                      <TabsList variant="line" className="detail-tabs">
-                        <TabsTrigger value="overview">Overview</TabsTrigger>
-                        <TabsTrigger value="worktrees">
-                          Worktrees {git ? <span>{git.worktrees.length}</span> : ''}
-                        </TabsTrigger>
-                        <TabsTrigger value="sessions">
-                          Sessions <span>{sessions.length}</span>
-                        </TabsTrigger>
-                      </TabsList>
-                      <TabsContent value="overview" className="tab-body">
-                        <div className="repository-start">
-                          <span>New conversation</span>
-                          {agentCatalog.map(({ id: agent }) => (
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              disabled={busy}
-                              key={agent}
-                              aria-label={`${agentLabel(agent)} New session`}
-                              onClick={() => newSession(agent)}
-                            >
-                              <Plus size={14} />
-                              {agentLabel(agent)}
-                            </Button>
-                          ))}
-                        </div>
-                        {repositoryGroup && (
-                          <ProjectTrackerPanel
-                            embedded
-                            preferredRepoId={project.id}
-                            key={repositoryGroup.id + project.id}
-                            revision={revision}
-                            api={api}
-                            sessions={data.sessions}
-                            onResume={openConversation}
-                            group={repositoryGroup}
-                            repos={data.projects.filter((p) =>
-                              repositoryGroup.repoIds.includes(p.id),
-                            )}
-                            onRefresh={refresh}
-                            onRepo={openProject}
-                            onTask={(repo, agent, task) => newSession(agent, repo, task)}
-                          />
-                        )}
-                      </TabsContent>
-                      <TabsContent value="worktrees" className="tab-body">
+                    <div className="repository-overview">
+                      <div className="repository-start">
+                        <span>New conversation</span>
+                        {agentCatalog.map(({ id: agent }) => (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            disabled={busy}
+                            key={agent}
+                            aria-label={`${agentLabel(agent)} New session`}
+                            onClick={() => newSession(agent)}
+                          >
+                            <Plus size={14} />
+                            {agentLabel(agent)}
+                          </Button>
+                        ))}
+                      </div>
+                      <section
+                        className="repository-overview-section"
+                        aria-label="Repository sessions"
+                      >
                         <div className="section-header">
-                          <h3>Parallel work, separate branches</h3>
+                          <h3>
+                            Sessions{' '}
+                            <span className="text-muted-foreground">{sessions.length}</span>
+                          </h3>
+                        </div>
+                        {sessionList()}
+                      </section>
+                      <section
+                        className="repository-overview-section"
+                        aria-label="Repository worktrees"
+                      >
+                        <div className="section-header">
+                          <h3>
+                            Worktrees{' '}
+                            {git && (
+                              <span className="text-muted-foreground">{git.worktrees.length}</span>
+                            )}
+                          </h3>
                           <div className="flex items-center gap-2">
                             <Button
                               variant="ghost"
                               size="icon"
                               aria-label="Refresh worktrees"
                               disabled={busy || gitLoading}
-                              onClick={() => void run(async () => {})}
+                              onClick={() => setRepositoryRevision((value) => value + 1)}
                             >
                               <RefreshCw size={15} />
                             </Button>
@@ -703,7 +737,7 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
                                   {worktreeSessions(
                                     tree.path,
                                     git.worktrees,
-                                    data.sessions,
+                                    visibleSessions,
                                     project.hostId,
                                   ).map((session) => (
                                     <Button
@@ -737,14 +771,8 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
                             </p>
                           </div>
                         )}
-                      </TabsContent>
-                      <TabsContent value="sessions" className="tab-body">
-                        <div className="section-header">
-                          <h3>Repository sessions</h3>
-                        </div>
-                        {sessionList()}
-                      </TabsContent>
-                    </Tabs>
+                      </section>
+                    </div>
                   </section>
                 ) : (
                   <section className="detail welcome">
@@ -813,6 +841,28 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
         </div>
       </main>
 
+      {onboardingOpen && (
+        <Onboarding
+          api={api}
+          data={data}
+          preview={preview}
+          open={onboardingOpen}
+          onOpenChange={(open) => {
+            setOnboardingOpen(open);
+            if (!open) dismissOnboarding();
+          }}
+          onRefresh={refresh}
+          onSettings={() => {
+            setOnboardingOpen(false);
+            dismissOnboarding();
+            setSettingsOpen(true);
+          }}
+          onStart={(agent, repo, prompt) => {
+            setBoardGroup(null);
+            newSession(agent, repo, undefined, prompt);
+          }}
+        />
+      )}
       <SettingsDialog
         open={settingsOpen}
         onOpenChange={setSettingsOpen}
