@@ -1,0 +1,11 @@
+.git
+node_modules
+dist
+dist-electron
+release
+.ci-cache
+ci-results
+test-results
+playwright-report
+.env
+.env.*

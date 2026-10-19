@@ -1,0 +1,23 @@
+FROM node:22.23.3-bookworm-slim AS test
+ENV CI=true PLAYWRIGHT_BROWSERS_PATH=/opt/playwright
+WORKDIR /workspace
+COPY package.json package-lock.json ./
+RUN npm install --global npm@10.9.9 \
+    && npm ci \
+    && npx playwright install --with-deps chromium \
+    && apt-get update && apt-get install -y --no-install-recommends git xvfb xauth \
+    && rm -rf /var/lib/apt/lists/* \
+    && mkdir /out && chown -R node:node /workspace /out /opt/playwright
+COPY --chown=node:node . .
+USER node
+ENV KALKIDAN_CI_CONTAINER=1
+# Each Jenkins build executes tests, while dependency layers remain reusable.
+ARG CI_RUN_ID
+RUN echo "Validation run: ${CI_RUN_ID}"; \
+    status=0; xvfb-run -a -s '-screen 0 1440x1000x24' bash scripts/ci.sh || status=$?; \
+    echo "$status" > /out/exit-code; \
+    for dir in test-results playwright-report; do \
+      if [ -d "$dir" ]; then cp -R "$dir" /out/; fi; \
+    done
+FROM scratch AS results
+COPY --from=test /out/ /

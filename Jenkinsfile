@@ -13,27 +13,33 @@ if (!env.CHANGE_ID && env.BRANCH_NAME != 'main' && !env.TAG_NAME) {
     return
 }
 timeout(time: 90, unit: 'MINUTES') {
-    node('macos-untrusted') {
+    node('linux-untrusted') {
         try {
             stage('Checkout') {
                 deleteDir()
                 checkout scm
             }
-            withEnv([
-                'CI=true',
-                'BUILDKIT_HOST=tcp://jenkins-untrusted-buildkit:1234',
-                "XDG_CACHE_HOME=${pwd()}/.ci-cache/xdg",
-                "npm_config_cache=${pwd()}/.ci-cache/npm"
-            ]) {
-                new UntrustedBoundary(this).run()
-                verdictanNodeToolchain(packageDir: '.') {
-                    stage('Validate') {
-                        sh 'bash scripts/ci.sh'
-                    }
-                    if (env.TAG_NAME && !env.CHANGE_ID) {
+            new UntrustedBoundary(this).run()
+            stage('Validate with Linux display') {
+                sh 'bash scripts/ci-container.sh'
+            }
+        } finally {
+            archiveArtifacts artifacts: 'ci-results/**', allowEmptyArchive: true
+            deleteDir()
+        }
+    }
+    if (env.TAG_NAME && !env.CHANGE_ID) {
+        node('macos-untrusted') {
+            try {
+                stage('Checkout release') {
+                    deleteDir()
+                    checkout scm
+                }
+                withEnv(['CI=true', 'BUILDKIT_HOST=tcp://jenkins-untrusted-buildkit:1234']) {
+                    new UntrustedBoundary(this).run()
+                    verdictanNodeToolchain(packageDir: '.') {
                         stage('Package macOS release') {
-                            // No GitHub, signing, or deployment credentials on this worker.
-                            sh 'bash scripts/package-release.sh'
+                            sh 'npm ci && npm run build && bash scripts/package-release.sh'
                         }
                         stage('Archive release') {
                             archiveArtifacts artifacts: 'release/*.dmg,release/*.zip,release/SHA256SUMS.txt',
@@ -41,10 +47,9 @@ timeout(time: 90, unit: 'MINUTES') {
                         }
                     }
                 }
+            } finally {
+                deleteDir()
             }
-        } finally {
-            archiveArtifacts artifacts: 'test-results/**,playwright-report/**', allowEmptyArchive: true
-            deleteDir()
         }
     }
 }

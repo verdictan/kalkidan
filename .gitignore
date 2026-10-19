@@ -172,3 +172,5 @@ Desktop.ini
 
 # Jenkins workspace-local toolchain and npm caches
 /.ci-cache/
+
+/ci-results/

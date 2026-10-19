@@ -298,15 +298,21 @@ History discovery still reconciles directory entries and file metadata so new, d
 ## Jenkins CI and release builds
 
 The root `Jenkinsfile` uses the existing Verdictan `keeptrusts` shared library,
-`verdictanNodeToolchain` helper, and `macos-untrusted` worker. Node and npm are
-pinned in `.node-version` and `package.json`. PRs, `main`, and discovered version
+`linux-untrusted` worker for validation, and the `verdictanNodeToolchain` helper
+on `macos-untrusted` for release packaging. Node and npm are pinned in
+`.node-version`, `package.json`, and `ci/Dockerfile`. PRs, `main`, and discovered version
 tags run CI; standalone feature branches wait for a PR. GitHub Actions workflows
 have been removed.
 
 `scripts/ci.sh` installs from the lockfile and runs architecture checks, all unit
 tests, the production build, the focused browser regression suite, desktop document
 persistence tests, and the isolated remote-agent protocol test. Workspaces and
-job-local caches are cleared between builds. Jenkins retains 30 build records and
+job-local caches are cleared between builds. `scripts/ci-container.sh` runs the
+checks through the existing untrusted BuildKit service using `ci/Dockerfile`.
+The container supplies Xvfb for Electron and exports test results even on failure.
+Dependency layers can be reused, while each build executes validation again.
+Electron runs as a non-root user; its Linux sandbox is disabled only inside this
+isolated CI container because nested Chromium sandboxing is unavailable there. Jenkins retains 30 build records and
 up to three sets of artifacts for seven days.
 
 For version-tag builds, `scripts/package-release.sh` verifies that the tag matches
@@ -324,8 +330,10 @@ Create a GitHub multibranch pipeline for `verdictan/kalkidan`, using the existin
 `github-scm` credential and `Jenkinsfile` script path. Enable origin PR, main-branch,
 and tag discovery, and configure the tag build strategy to build version tags.
 The controller must already provide the globally configured `keeptrusts` library
-and an online `macos-untrusted` agent. The macOS worker needs a usable GUI session
-for Electron tests; Node/npm are supplied by the shared toolchain helper.
+an available `linux-untrusted` agent with `buildctl` and access to the existing
+untrusted BuildKit service, and a `macos-untrusted` agent for release tags.
+Validation uses its own Linux virtual display; macOS packaging does not require
+a desktop login. Node/npm for packaging come from the shared toolchain helper.
 
 Scan the job after merging this Jenkinsfile. The existing `v0.1.0` tag points to
 the earlier GitHub Actions configuration; do not move that tag. A new release

@@ -6,6 +6,8 @@ import assert from 'node:assert/strict';
 const root = await mkdtemp(join(tmpdir(), 'kalkidan-docs-ipc-'));
 const env = { ...process.env, KALKIDAN_TEST_DATA: join(root, 'library'), CODEX_HOME: join(root, 'codex'), CLAUDE_CONFIG_DIR: join(root, 'claude') };
 delete env.ELECTRON_RUN_AS_NODE;
+const launchArgs = ['--require', resolve('tests/helpers/electron-ci.cjs'), '.'];
+if (process.platform === 'linux' && process.env.KALKIDAN_CI_CONTAINER === '1') launchArgs.unshift('--no-sandbox');
 let app;
 try {
   await mkdir(env.KALKIDAN_TEST_DATA, { recursive: true });
@@ -13,7 +15,7 @@ try {
   await mkdir(join(env.KALKIDAN_TEST_DATA, 'docs', 'wiki'), { recursive: true });
   const legacy = '<!-- kalkidan {"title":"Legacy","parentId":null} -->\nOriginal Markdown';
   await writeFile(join(env.KALKIDAN_TEST_DATA, 'docs', 'wiki', 'legacy.md'), legacy);
-  app = await electron.launch({ args: ['--require', resolve('tests/helpers/electron-ci.cjs'), '.'], env });
+  app = await electron.launch({ args: launchArgs, env });
   console.log('Electron startup:', await app.evaluate(({ app, BrowserWindow }) => ({
     ready: app.isReady(), windows: BrowserWindow.getAllWindows().length,
     dockIcon: app.dock?.setIcon.toString(),
@@ -35,7 +37,7 @@ try {
   const file = join(env.KALKIDAN_TEST_DATA, 'projects', 'wiki', 'docs', saved.id + '.md');
   assert.match(await readFile(file, 'utf8'), /# Desktop wiki/);
   await app.close();
-  app = await electron.launch({ args: ['--require', resolve('tests/helpers/electron-ci.cjs'), '.'], env });
+  app = await electron.launch({ args: launchArgs, env });
   const reopened = await app.firstWindow();
   await reopened.waitForFunction(() => !!window.workspace);
   const docs = await reopened.evaluate(() => window.workspace.docsList('wiki'));
