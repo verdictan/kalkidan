@@ -6,5 +6,5 @@ npm test
 npm run build
 npx playwright install chromium
 npm run test:ci:ui
-DEBUG=pw:browser node tests/docs-desktop.mjs
 node tests/io-remote.mjs
+DEBUG=pw:browser node tests/docs-desktop.mjs

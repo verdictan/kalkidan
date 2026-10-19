@@ -11,4 +11,7 @@ process.on('unhandledRejection', error => {
 
 // SSH workers do not have a Dock session. Keep desktop tests from changing
 // the host's Dock icon or waiting for its unavailable native service.
-if (app.dock) app.dock.setIcon = () => {};
+if (process.platform === 'darwin') {
+  app.setActivationPolicy('accessory');
+  if (app.dock) app.dock.setIcon = () => {};
+}
