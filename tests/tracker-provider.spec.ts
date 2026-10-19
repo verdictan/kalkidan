@@ -4,6 +4,8 @@ test('a configured non-GitHub provider drives project creation and a read-only b
   page,
 }) => {
   await page.addInitScript(() => {
+    // An empty workspace opens the first-run onboarding. This test does not use it.
+    localStorage.setItem('kalkidan:onboarding:v1', 'dismissed');
     const project = {
       id: 'board',
       title: 'Engineering roadmap',
@@ -62,6 +64,7 @@ test('a configured non-GitHub provider drives project creation and a read-only b
   const dialog = page.getByRole('dialog', { name: 'Create project', exact: true });
   await expect(dialog).toContainText('Example Tracker');
   await dialog.getByLabel('Project name', { exact: true }).fill('Platform');
+  await dialog.getByRole('button', { name: 'Connect Example Tracker', exact: true }).click();
   await expect(dialog.getByRole('button', { name: 'Create new', exact: true })).toHaveCount(0);
   await dialog.getByRole('button', { name: 'Engineering roadmap', exact: true }).click();
   await dialog.getByRole('button', { name: 'Create project', exact: true }).click();

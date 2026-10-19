@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { openTool } from './helpers/tools';
 
 test('conversation tools preview evidence, attach it to the draft, and send it only on request', async ({
   page,
@@ -85,14 +86,14 @@ test('conversation tools preview evidence, attach it to the draft, and send it o
   await page.setViewportSize({ width: 961, height: 988 });
   await page.screenshot({ path: 'test-results/conversation-tools-empty.png' });
   const tools = page.getByRole('region', { name: 'Session', exact: true });
-  await page.locator('.topbar').getByRole('button', { name: 'Terminal', exact: true }).click();
+  await openTool(page, 'Terminal');
   let dialog = page.getByRole('region', { name: 'Repository tools' });
   await expect(dialog.getByLabel('Interactive terminal')).toContainText('Tests passed: 12');
   await expect(page.getByRole('dialog')).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Send', exact: true })).toBeVisible();
   await page.screenshot({ path: 'test-results/integrated-terminal.png' });
   await dialog.getByRole('button', { name: 'Attach output' }).click();
-  await page.locator('.topbar').getByRole('button', { name: 'Git diff', exact: true }).click();
+  await openTool(page, 'Changes');
   await expect(dialog.getByLabel('Git diff')).toContainText('+new');
   await dialog.getByRole('button', { name: 'Next changed file' }).click();
   await expect(dialog.getByLabel('Git diff')).toContainText('export const added = true;');
@@ -103,7 +104,7 @@ test('conversation tools preview evidence, attach it to the draft, and send it o
   await page.getByRole('option', { name: 'Staged changes', exact: true }).click();
   await expect(dialog.getByLabel('Git diff')).toContainText('+staged change');
   await dialog.getByRole('button', { name: 'Attach all changes to message' }).click();
-  await page.locator('.topbar').getByRole('button', { name: 'Browser', exact: true }).click();
+  await openTool(page, 'Browser');
   await dialog.getByRole('button', { name: 'Open preview' }).click();
   await dialog.getByRole('button', { name: 'Select element' }).click();
   await expect(dialog).toContainText('#save');
@@ -129,7 +130,7 @@ test('browser preview explains native requirements instead of simulating command
   await page.goto('http://127.0.0.1:5173');
   await page.locator('.repo-select').first().click();
   await page.getByRole('button', { name: 'New Codex session', exact: true }).click();
-  await page.getByRole('button', { name: 'Terminal', exact: true }).click();
+  await openTool(page, 'Terminal');
   await expect(
     page.getByRole('region', { name: 'Repository tools' }).getByRole('alert'),
   ).toContainText('Open the desktop app');

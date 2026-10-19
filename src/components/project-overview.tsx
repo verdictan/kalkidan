@@ -81,10 +81,13 @@ export function ProjectOverview({
         title="Projects"
         subtitle="Projects, repositories, and the work in progress."
         actions={
-          <Button onClick={() => setOpen(true)}>
-            <Plus />
-            New project
-          </Button>
+          // With no projects, the empty state shows the only "New project" action.
+          !!groups.length && (
+            <Button onClick={() => setOpen(true)}>
+              <Plus />
+              New project
+            </Button>
+          )
         }
       />
       {!!visible.length && (

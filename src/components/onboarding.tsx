@@ -95,7 +95,8 @@ export function Onboarding({
     setChecking(true);
     setCheckError('');
     setInstallations([]);
-    const request = pendingCheck.current || api.agentInstallations();
+    // A synchronous error from the bridge becomes a rejected check, not an unhandled error.
+    const request = pendingCheck.current || Promise.resolve().then(() => api.agentInstallations());
     pendingCheck.current = request;
     void request
       .then((value) => {

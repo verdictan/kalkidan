@@ -17,12 +17,11 @@ test('single view ignores old split preferences and preserves conversation draft
   await page.locator('.project-tree').getByRole('button', { name: 'Atlas', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Connect GitHub', exact: true })).toBeVisible();
   await expect(page.getByLabel('Message agent')).toBeHidden();
-  await page.getByRole('button', { name: 'New Codex session', exact: true }).click();
+  await page.getByRole('button', { name: 'Go back', exact: true }).click();
   await expect(page.getByLabel('Message agent')).toHaveValue('Preserve this draft');
   await page.getByRole('button', { name: 'Projects', exact: true }).click();
   await expect(page.getByRole('region', { name: 'Project overview', exact: true })).toBeVisible();
-  await page.getByRole('button', { name: 'Expand atlas-web sessions', exact: true }).click();
-  await page.getByRole('button', { name: 'New Codex session', exact: true }).click();
+  await page.getByRole('button', { name: 'Go back', exact: true }).click();
   await expect(page.getByLabel('Message agent')).toHaveValue('Preserve this draft');
   await page.setViewportSize({ width: 980, height: 680 });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
@@ -171,7 +170,7 @@ for (const outcome of ['completed', 'failed', 'stopped']) {
     );
     await page.goto(url);
     await page.locator('.repo-select').click();
-    await page.getByRole('button', { name: 'Linked conversation', exact: true }).click();
+    await page.getByRole('button', { name: 'Resume Linked conversation', exact: true }).click();
     await page.getByLabel('Message agent').fill('Implement the feature');
     await page.getByRole('button', { name: 'Send', exact: true }).click();
     await expect(page.getByText('Response ended', { exact: true })).toBeVisible();
