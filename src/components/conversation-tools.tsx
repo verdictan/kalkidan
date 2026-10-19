@@ -222,84 +222,86 @@ export function ConversationTools({
           onLostPointerCapture={() => setDragging(false)}
         />
       )}
-      {visible && document.getElementById('conversation-titlebar-tabs') && createPortal(
-<div className="tool-tabbar" data-expanded={expanded}>
-          <div
-            hidden={!expanded}
-            role="tablist"
-            aria-label="Tool tabs"
-            className="tool-tabs"
-            onKeyDown={(e) => {
-              if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(e.key)) return;
-              e.preventDefault();
-              const index = tabs.findIndex((t) => t.id === active);
-              const next =
-                tabs[
-                  e.key === 'Home'
-                    ? 0
-                    : e.key === 'End'
-                      ? tabs.length - 1
-                      : (index + (e.key === 'ArrowRight' ? 1 : -1) + tabs.length) % tabs.length
-                ];
-              setActive(next.id);
-              document.getElementById('tab-' + next.id)?.focus();
-            }}
-          >
-            {tabs.map((tab) => {
-              const Icon =
-                tab.kind === 'terminal'
-                  ? Terminal
-                  : tab.kind === 'browser'
-                    ? Globe
-                    : tab.kind === 'diff'
-                      ? FileDiff
-                      : Plus;
-              return (
-                <div key={tab.id} className={'tool-tab' + (active === tab.id ? ' selected' : '')}>
-                  <Button
-                    role="tab"
-                    tabIndex={active === tab.id ? 0 : -1}
-                    aria-selected={active === tab.id}
-                    aria-controls={'tool-' + tab.id}
-                    id={'tab-' + tab.id}
-                    variant="ghost"
-                    onClick={() => setActive(tab.id)}
-                  >
-                    <Icon size={14} />
-                    <span>{tab.title}</span>
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="icon-sm"
-                    aria-label={'Close ' + tab.title}
-                    onClick={() => close(tab.id)}
-                  >
-                    <X size={12} />
-                  </Button>
-                </div>
-              );
-            })}
-          </div>
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            aria-label="New tool tab"
-            onClick={() => add('home')}
-          >
-            <Plus size={16} />
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            hidden={!expanded}
-            aria-label="Hide tools"
-            onClick={() => setExpanded(false)}
-          >
-            <X size={15} />
-          </Button>
-        </div>,
-        document.getElementById('conversation-titlebar-tabs')!,
-      )}
+      {visible &&
+        document.getElementById('conversation-titlebar-tabs') &&
+        createPortal(
+          <div className="tool-tabbar" data-expanded={expanded}>
+            <div
+              hidden={!expanded}
+              role="tablist"
+              aria-label="Tool tabs"
+              className="tool-tabs"
+              onKeyDown={(e) => {
+                if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(e.key)) return;
+                e.preventDefault();
+                const index = tabs.findIndex((t) => t.id === active);
+                const next =
+                  tabs[
+                    e.key === 'Home'
+                      ? 0
+                      : e.key === 'End'
+                        ? tabs.length - 1
+                        : (index + (e.key === 'ArrowRight' ? 1 : -1) + tabs.length) % tabs.length
+                  ];
+                setActive(next.id);
+                document.getElementById('tab-' + next.id)?.focus();
+              }}
+            >
+              {tabs.map((tab) => {
+                const Icon =
+                  tab.kind === 'terminal'
+                    ? Terminal
+                    : tab.kind === 'browser'
+                      ? Globe
+                      : tab.kind === 'diff'
+                        ? FileDiff
+                        : Plus;
+                return (
+                  <div key={tab.id} className={'tool-tab' + (active === tab.id ? ' selected' : '')}>
+                    <Button
+                      role="tab"
+                      tabIndex={active === tab.id ? 0 : -1}
+                      aria-selected={active === tab.id}
+                      aria-controls={'tool-' + tab.id}
+                      id={'tab-' + tab.id}
+                      variant="ghost"
+                      onClick={() => setActive(tab.id)}
+                    >
+                      <Icon size={14} />
+                      <span>{tab.title}</span>
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon-sm"
+                      aria-label={'Close ' + tab.title}
+                      onClick={() => close(tab.id)}
+                    >
+                      <X size={12} />
+                    </Button>
+                  </div>
+                );
+              })}
+            </div>
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              aria-label="New tool tab"
+              onClick={() => add('home')}
+            >
+              <Plus size={16} />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              hidden={!expanded}
+              aria-label="Hide tools"
+              onClick={() => setExpanded(false)}
+            >
+              <X size={15} />
+            </Button>
+          </div>,
+          document.getElementById('conversation-titlebar-tabs')!,
+        )}
       <div className="conversation-tool-dock is-open" hidden={!expanded}>
         {error && tool !== 'diff' && (
           <p role="alert" className="px-3 py-1 text-xs text-destructive">
@@ -322,7 +324,8 @@ export function ConversationTools({
                     <h2>New tab</h2>
                   </div>
                   <p className="mb-6 text-xs text-muted-foreground">
-                    {cwd.split('/').filter(Boolean).at(-1)} · {remote ? 'SSH host' : 'This computer'}
+                    {cwd.split('/').filter(Boolean).at(-1)} ·{' '}
+                    {remote ? 'SSH host' : 'This computer'}
                   </p>
                   <div className="tool-launcher-grid">
                     {(['browser', 'terminal', 'diff'] as const).map((kind, i) => {

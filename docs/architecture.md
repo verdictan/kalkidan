@@ -50,16 +50,16 @@ Codex and Claude retain their native protocols inside `InteractiveChatRunner`; n
 
 ## Configuration ownership
 
-| Setting | Location | Meaning |
-| --- | --- | --- |
-| `KALKIDAN_DEFAULT_TRACKER` | Desktop process environment | Registered tracker ID; default `github`; unknown IDs fail at startup |
-| `KALKIDAN_AGENT_REQUEST_TIMEOUT_MS` | Process environment | Native agent request timeout, 1,000–300,000 ms; default 60,000 |
-| `KALKIDAN_CODEX_PATH`, `KALKIDAN_CLAUDE_PATH` | Process environment | Optional absolute executable paths; checked for executable access |
-| `CODEX_HOME`, `CLAUDE_CONFIG_DIR` | Process environment | Existing native history/config roots |
-| Task status mappings | Project Workflow dialog | Actual provider status option IDs |
-| UI limits and tool pane defaults | `src/config/interface.ts` | Poll interval, tab/attachment limits, resize defaults |
-| Agent names/vendor/short label | `src/config/agents.ts` | Shared product metadata |
-| Colors, typography, radius tokens | `src/styles/theme.css` | Design tokens shared by shadcn and feature styles |
+| Setting                                       | Location                    | Meaning                                                              |
+| --------------------------------------------- | --------------------------- | -------------------------------------------------------------------- |
+| `KALKIDAN_DEFAULT_TRACKER`                    | Desktop process environment | Registered tracker ID; default `github`; unknown IDs fail at startup |
+| `KALKIDAN_AGENT_REQUEST_TIMEOUT_MS`           | Process environment         | Native agent request timeout, 1,000–300,000 ms; default 60,000       |
+| `KALKIDAN_CODEX_PATH`, `KALKIDAN_CLAUDE_PATH` | Process environment         | Optional absolute executable paths; checked for executable access    |
+| `CODEX_HOME`, `CLAUDE_CONFIG_DIR`             | Process environment         | Existing native history/config roots                                 |
+| Task status mappings                          | Project Workflow dialog     | Actual provider status option IDs                                    |
+| UI limits and tool pane defaults              | `src/config/interface.ts`   | Poll interval, tab/attachment limits, resize defaults                |
+| Agent names/vendor/short label                | `src/config/agents.ts`      | Shared product metadata                                              |
+| Colors, typography, radius tokens             | `src/styles/theme.css`      | Design tokens shared by shadcn and feature styles                    |
 
 Environment overrides apply where the process runs. A remote agent uses its SSH host's environment, not arbitrary environment variables forwarded from the Mac. Changing native configuration requires restarting that process. UI defaults are build-time configuration. Security invariants—sender validation, isolation, SSH host verification, and approval ownership—are not user-disableable feature flags.
 
@@ -71,20 +71,20 @@ Browser credentials retain Electron safe-storage encryption. Authentication toke
 
 ## Subsystem review and boundaries
 
-| Area | Responsibility and result |
-| --- | --- |
-| Projects and task boards | Neutral tracker domain, adapter registry, capability-aware UI, workflow configuration, legacy migration |
-| Conversations and agent activity | Injected APIs, isolated runtime routing, native approval/session-lock behavior preserved |
-| History and transcripts | Separate readers retained; vendor parsing stays outside React; source-specific readers still needed for a new agent |
-| Local / SSH execution | Shared typed session operations, explicit host identity, same runtime composition; SSH remains a private stdio service |
-| Repository discovery / cloning | Separate `repositories.ts` service; GitHub repository discovery is still a GitHub integration, independent of tracker selection |
-| Git / worktrees / diffs | Native Git operations and diff parsing remain separate from tracker adapters; existing checks cover status, worktrees, and new files |
-| Terminal | PTY and bounded command services remain separate; renderer terminal controls consume the bridge |
-| Embedded browser / annotation | Chromium view, profile store, import parser, and React tools retain separate responsibilities; native isolation preserved |
-| Settings and persistence | Shared atomic writer, validated runtime config, installation status matched by agent ID rather than array position |
-| Navigation / presentation | Application bootstrap separated from composition; feature components retained; session-to-repository lookup moved to a pure shared helper |
-| Styling | Theme, projects, conversation, and tools split into ordered files; no generated gradients introduced |
-| Build / tests | Formatting command, boundary check, provider and configuration tests added; browser and desktop regressions retained |
+| Area                             | Responsibility and result                                                                                                                 |
+| -------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| Projects and task boards         | Neutral tracker domain, adapter registry, capability-aware UI, workflow configuration, legacy migration                                   |
+| Conversations and agent activity | Injected APIs, isolated runtime routing, native approval/session-lock behavior preserved                                                  |
+| History and transcripts          | Separate readers retained; vendor parsing stays outside React; source-specific readers still needed for a new agent                       |
+| Local / SSH execution            | Shared typed session operations, explicit host identity, same runtime composition; SSH remains a private stdio service                    |
+| Repository discovery / cloning   | Separate `repositories.ts` service; GitHub repository discovery is still a GitHub integration, independent of tracker selection           |
+| Git / worktrees / diffs          | Native Git operations and diff parsing remain separate from tracker adapters; existing checks cover status, worktrees, and new files      |
+| Terminal                         | PTY and bounded command services remain separate; renderer terminal controls consume the bridge                                           |
+| Embedded browser / annotation    | Chromium view, profile store, import parser, and React tools retain separate responsibilities; native isolation preserved                 |
+| Settings and persistence         | Shared atomic writer, validated runtime config, installation status matched by agent ID rather than array position                        |
+| Navigation / presentation        | Application bootstrap separated from composition; feature components retained; session-to-repository lookup moved to a pure shared helper |
+| Styling                          | Theme, projects, conversation, and tools split into ordered files; no generated gradients introduced                                      |
+| Build / tests                    | Formatting command, boundary check, provider and configuration tests added; browser and desktop regressions retained                      |
 
 ## Checks and deliberate limits
 

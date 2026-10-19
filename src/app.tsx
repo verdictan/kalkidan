@@ -22,7 +22,6 @@ import {
   Search,
   ArrowUpRight,
   GitBranch,
-  Terminal,
   Plus,
   RefreshCw,
   X,

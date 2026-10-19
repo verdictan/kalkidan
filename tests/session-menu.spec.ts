@@ -19,7 +19,10 @@ test('conversation actions rename, pin, fork, and open an independent side chat'
   await expect(page.locator('.conversation-toolbar-title')).toContainText('Release review');
   await menu();
   await page.getByRole('menuitem', { name: /^Pin/ }).click();
-  await expect(page.getByRole('button', { name: 'Unpin session', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.getByRole('button', { name: 'Unpin session', exact: true })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  );
   await menu();
   await page.getByRole('menuitem', { name: 'Fork', exact: true }).hover();
   await page.getByRole('menuitem', { name: 'In current checkout' }).click();

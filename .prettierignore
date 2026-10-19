@@ -7,3 +7,8 @@ playwright-report
 package-lock.json
 build/icons
 public
+.husky/_
+ci-results
+.ci-cache
+.cache
+coverage

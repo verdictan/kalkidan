@@ -77,7 +77,10 @@ export function ProjectOverview({
                       className="project-open h-auto max-w-full justify-start gap-3 px-0 py-2 text-left whitespace-normal"
                       onClick={() => onSelect(group)}
                     >
-                      <span className="project-symbol" style={{ color: group.color ? projectColors[group.color] : undefined }}>
+                      <span
+                        className="project-symbol"
+                        style={{ color: group.color ? projectColors[group.color] : undefined }}
+                      >
                         <Folder size={16} />
                       </span>
                       <span className="min-w-0 break-words font-medium">

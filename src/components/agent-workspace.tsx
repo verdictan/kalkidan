@@ -127,23 +127,25 @@ export function AgentWorkspace({
           />,
           document.getElementById('conversation-titlebar-actions')!,
         )}
-      {visible && document.getElementById('conversation-titlebar-heading') && createPortal(
-<div className="conversation-toolbar">
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            aria-label={returnLabel}
-            title={`Back to ${returnLabel.toLowerCase()}`}
-            onClick={onClose}
-          >
-            <ArrowLeft size={14} />
-          </Button>
-          <span className="conversation-toolbar-title" title={titleOf(live)}>
-            {titleOf(live)}
-          </span>
-        </div>,
-        document.getElementById('conversation-titlebar-heading')!,
-      )}
+      {visible &&
+        document.getElementById('conversation-titlebar-heading') &&
+        createPortal(
+          <div className="conversation-toolbar">
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              aria-label={returnLabel}
+              title={`Back to ${returnLabel.toLowerCase()}`}
+              onClick={onClose}
+            >
+              <ArrowLeft size={14} />
+            </Button>
+            <span className="conversation-toolbar-title" title={titleOf(live)}>
+              {titleOf(live)}
+            </span>
+          </div>,
+          document.getElementById('conversation-titlebar-heading')!,
+        )}
       <div className="agent-stage">
         <div className="agent-stage-body">
           <div

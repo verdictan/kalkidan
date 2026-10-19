@@ -1,6 +1,6 @@
 import { commandShell, pathContains } from './platform';
 import { lstat, open, realpath } from 'node:fs/promises';
-import { resolve, relative, isAbsolute } from 'node:path';
+import { resolve } from 'node:path';
 import { spawn, type ChildProcess } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { exec } from './core';
@@ -111,7 +111,6 @@ export async function repositoryDiff(cwd: string): Promise<RepositoryDiff> {
         continue;
       }
       const canonical = await realpath(target);
-      const rel = relative(root, canonical);
       if (!pathContains(root, canonical)) {
         newFiles.push({ path, reason: 'File is outside the repository.' });
         continue;

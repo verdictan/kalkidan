@@ -226,8 +226,12 @@
   background: var(--secondary);
   color: var(--foreground);
 }
-.composer-model { min-width: 0; }
-.composer-model [data-slot='select-trigger'] { color: var(--foreground); }
+.composer-model {
+  min-width: 0;
+}
+.composer-model [data-slot='select-trigger'] {
+  color: var(--foreground);
+}
 .composer-shortcut {
   align-self: center;
   white-space: nowrap;
