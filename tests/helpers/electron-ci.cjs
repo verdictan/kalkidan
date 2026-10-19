@@ -8,3 +8,7 @@ process.on('unhandledRejection', error => {
   console.error(error);
   app.exit(1);
 });
+
+// SSH workers do not have a Dock session. Keep desktop tests from changing
+// the host's Dock icon or waiting for its unavailable native service.
+if (app.dock) app.dock.setIcon = () => {};
