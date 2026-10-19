@@ -9,6 +9,7 @@ import type { API, TrackerAuthState, ProjectGroup } from '../types';
 import { TrackerProjectPicker } from './tracker-project-picker';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
+import { SectionHeader } from './ui/page-header';
 import {
   Dialog,
   DialogContent,
@@ -143,128 +144,140 @@ export function CreateProject({
           : '';
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[calc(100dvh-48px)] overflow-y-auto sm:max-w-xl">
-        <DialogHeader className="pr-6">
+      <DialogContent size="md" className="flex flex-col gap-0 overflow-hidden p-0">
+        <DialogHeader className="shrink-0 px-6 pt-6 pb-4">
           <DialogTitle>Create project</DialogTitle>
           <DialogDescription>
-            Choose or create a {providerName} project, then bring its repositories and conversations
+            Choose or create a {providerName} project, then bring its repositories and sessions
             together.
           </DialogDescription>
         </DialogHeader>
-        {providers.length > 1 && (
-          <Choice
-            label="Project tracker"
-            value={provider}
-            disabled={busy}
-            onChange={setProvider}
-            options={providers.map((p) => ({ value: p.id, label: p.name }))}
-          />
-        )}
-        <label className="form-label">
-          Project name
-          <Input
-            autoFocus
-            aria-label="Project name"
-            maxLength={150}
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            placeholder="Customer platform"
-          />
-        </label>
-        <div className="space-y-2">
-          <p className="text-sm font-medium">Where work runs</p>
-          <Choice
-            className="w-full"
-            label="Project execution host"
-            disabled={busy}
-            value={location}
-            onChange={setLocation}
-            options={[
-              { value: 'local', label: 'This computer' },
-              { value: 'remote', label: 'Remote SSH host' },
-            ]}
-          />
-          <p className="text-xs text-muted-foreground">
-            Repositories and agent sessions stay on the selected machine.
-          </p>
-        </div>
-        <div className="form-label">
-          <label htmlFor="project-root-folder">Project folder</label>
-          <Input
-            id="project-root-folder"
-            aria-label="Project folder"
-            value={rootPath}
-            disabled={busy}
-            onChange={(e) => setRootPath(e.target.value)}
-            placeholder="~/.kalkidan/projects/ (automatic)"
-          />
-          <span className="text-xs text-muted-foreground">
-            Docs, cloned repositories, and worktrees are stored here on the selected machine. Leave
-            blank to create a dedicated folder automatically.
-          </span>
-          <FolderPicker
-            api={api}
-            value={rootPath}
-            hostId={location === 'remote' ? hostId : undefined}
-            disabled={busy || (location === 'remote' && (!hostId || !hostReady))}
-            onSelect={setRootPath}
-          />
-        </div>
-        {location === 'remote' && (
-          <RemoteHostPicker
-            api={api}
-            value={hostId}
-            onChange={setHostId}
-            onReady={setHostReady}
-            onBusy={setHostBusy}
-          />
-        )}
-        {auth.status === 'ready' ? (
-          <TrackerProjectPicker
-            key={provider}
-            provider={provider}
-            api={api}
-            defaultTitle={name || 'New project'}
-            value={url}
-            onChange={setUrl}
-            onBusy={setPickerBusy}
-          />
-        ) : (
-          <div className="space-y-3 rounded-lg border p-4" aria-live="polite">
-            <p className="text-sm">
-              {auth.status === 'checking'
-                ? `Checking ${providerName} access…`
-                : auth.status === 'waiting'
-                  ? 'Approve Projects access in your browser to continue.'
-                  : auth.message ||
-                    `Each project uses a ${providerName} project to track its tasks. Connect ${providerName} to choose one. Your browser opens to approve access.`}
-            </p>
-            {auth.code && (
-              <Input aria-label="Authorization device code" readOnly value={auth.code} />
-            )}
-            <Button
-              variant="outline"
-              disabled={auth.status === 'checking'}
-              onClick={() =>
-                void (auth.status === 'waiting'
-                  ? client.openAuth().catch((e) => setError(e.message))
-                  : authorize())
-              }
-            >
-              {auth.status === 'waiting'
-                ? `Open ${providerName}`
-                : auth.status === 'error'
-                  ? `Try ${providerName} again`
-                  : `Connect ${providerName}`}
-            </Button>
+        <div className="grid min-h-0 gap-4 overflow-y-auto px-6 pb-6">
+          {providers.length > 1 && (
+            <label className="form-label">
+              Project tracker
+              <Choice
+                label="Project tracker"
+                value={provider}
+                disabled={busy}
+                onChange={setProvider}
+                options={providers.map((p) => ({ value: p.id, label: p.name }))}
+              />
+            </label>
+          )}
+          <label className="form-label">
+            Project name
+            <Input
+              autoFocus
+              aria-label="Project name"
+              maxLength={150}
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="Customer platform"
+            />
+          </label>
+          <div className="form-label">
+            <span>Where work runs</span>
+            <Choice
+              className="w-full"
+              label="Project execution host"
+              disabled={busy}
+              value={location}
+              onChange={setLocation}
+              options={[
+                { value: 'local', label: 'This computer' },
+                { value: 'remote', label: 'Remote SSH host' },
+              ]}
+            />
+            <span className="-mt-0.5 text-xs font-normal">
+              Repositories and agent sessions stay on the selected machine.
+            </span>
           </div>
-        )}
-        {(error || providerError) && (
-          <p role="alert" className="text-sm text-destructive">
-            {error || providerError}
-          </p>
-        )}
-        <DialogFooter>
+          {location === 'remote' && (
+            <RemoteHostPicker
+              api={api}
+              value={hostId}
+              onChange={setHostId}
+              onReady={setHostReady}
+              onBusy={setHostBusy}
+            />
+          )}
+          <div className="form-label">
+            <label htmlFor="project-root-folder">Project folder</label>
+            <div className="relative">
+              <Input
+                id="project-root-folder"
+                aria-label="Project folder"
+                className="pr-9"
+                value={rootPath}
+                disabled={busy}
+                onChange={(e) => setRootPath(e.target.value)}
+                placeholder="~/.kalkidan/projects/ (automatic)"
+              />
+              <FolderPicker
+                api={api}
+                value={rootPath}
+                hostId={location === 'remote' ? hostId : undefined}
+                className="absolute top-0.5 right-0.5"
+                disabled={busy || (location === 'remote' && (!hostId || !hostReady))}
+                onSelect={setRootPath}
+              />
+            </div>
+            <span className="-mt-0.5 text-xs font-normal">
+              Docs, cloned repositories, and worktrees are stored here on the selected machine.
+              Leave blank to create a dedicated folder automatically.
+            </span>
+          </div>
+          <section aria-label={`${providerName} project`}>
+            <SectionHeader className="mb-2 min-h-0" title={`${providerName} project`} />
+            {auth.status === 'ready' ? (
+              <TrackerProjectPicker
+                key={provider}
+                provider={provider}
+                api={api}
+                defaultTitle={name || 'New project'}
+                value={url}
+                onChange={setUrl}
+                onBusy={setPickerBusy}
+              />
+            ) : (
+              <div className="panel space-y-3" aria-live="polite">
+                <p className="text-sm">
+                  {auth.status === 'checking'
+                    ? `Checking ${providerName} access…`
+                    : auth.status === 'waiting'
+                      ? 'Approve Projects access in your browser to continue.'
+                      : auth.message ||
+                        `Each project uses a ${providerName} project to track its tasks. Connect ${providerName} to choose one. Your browser opens to approve access.`}
+                </p>
+                {auth.code && (
+                  <Input aria-label="Authorization device code" readOnly value={auth.code} />
+                )}
+                <Button
+                  variant="outline"
+                  disabled={auth.status === 'checking'}
+                  onClick={() =>
+                    void (auth.status === 'waiting'
+                      ? client.openAuth().catch((e) => setError(e.message))
+                      : authorize())
+                  }
+                >
+                  {auth.status === 'waiting'
+                    ? `Open ${providerName}`
+                    : auth.status === 'error'
+                      ? `Try ${providerName} again`
+                      : `Connect ${providerName}`}
+                </Button>
+              </div>
+            )}
+          </section>
+          {(error || providerError) && (
+            <p role="alert" className="text-sm text-destructive">
+              {error || providerError}
+            </p>
+          )}
+        </div>
+        <DialogFooter className="shrink-0 border-t px-6 py-4">
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>

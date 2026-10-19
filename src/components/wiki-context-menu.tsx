@@ -1,11 +1,20 @@
 import type { ReactNode } from 'react';
 import type { Editor } from '@tiptap/react';
 import { ContextMenu } from 'radix-ui';
+import { Check, ChevronRight } from 'lucide-react';
+import { cn } from '../lib/utils';
+import {
+  menuContentClass,
+  menuItemClass,
+  menuSeparatorClass,
+  menuShortcutClass,
+} from './ui/menu-styles';
 
-const itemClass =
-  'flex items-center gap-6 rounded-sm px-2 py-1.5 text-sm outline-none focus:bg-accent data-[disabled]:opacity-50 data-[state=open]:bg-accent';
-const menuClass =
-  'z-[70] min-w-52 max-h-[var(--radix-context-menu-content-available-height)] overflow-y-auto rounded-md border bg-popover p-1 text-popover-foreground shadow-lg';
+const itemClass = menuItemClass;
+const menuClass = cn(
+  menuContentClass,
+  'z-[70] max-h-[var(--radix-context-menu-content-available-height)]',
+);
 
 export function WikiContextMenu({
   editor,
@@ -66,7 +75,7 @@ export function WikiContextMenu({
         >
           {item('Undo', () => editor.chain().focus().undo().run(), !editor.can().undo())}
           {item('Redo', () => editor.chain().focus().redo().run(), !editor.can().redo())}
-          <ContextMenu.Separator className="my-1 h-px bg-border" />
+          <ContextMenu.Separator className={menuSeparatorClass} />
           {[
             { label: 'Bold', mark: 'bold', run: () => editor.chain().focus().toggleBold().run() },
             {
@@ -93,8 +102,10 @@ export function WikiContextMenu({
                 run();
               }}
             >
-              <span className="flex-1">{label}</span>
-              <ContextMenu.ItemIndicator>✓</ContextMenu.ItemIndicator>
+              {label}
+              <ContextMenu.ItemIndicator className={menuShortcutClass}>
+                <Check className="size-3.5" />
+              </ContextMenu.ItemIndicator>
             </ContextMenu.CheckboxItem>
           ))}
           {item(editor.isActive('link') ? 'Edit link' : 'Add link', onLink)}
@@ -103,13 +114,11 @@ export function WikiContextMenu({
               editor.chain().focus().extendMarkRange('link').unsetLink().run(),
             )}
           {item('Clear formatting', () => editor.chain().focus().unsetAllMarks().run())}
-          <ContextMenu.Separator className="my-1 h-px bg-border" />
+          <ContextMenu.Separator className={menuSeparatorClass} />
           <ContextMenu.Sub>
             <ContextMenu.SubTrigger className={itemClass}>
-              Blocks{' '}
-              <span className="ml-auto" aria-hidden="true">
-                ›
-              </span>
+              Blocks
+              <ChevronRight className="ml-auto" aria-hidden="true" />
             </ContextMenu.SubTrigger>
             <ContextMenu.Portal>
               <ContextMenu.SubContent className={menuClass} sideOffset={4}>
@@ -120,7 +129,7 @@ export function WikiContextMenu({
           </ContextMenu.Sub>
           {editor.isActive('table') && (
             <>
-              <ContextMenu.Separator className="my-1 h-px bg-border" />
+              <ContextMenu.Separator className={menuSeparatorClass} />
               {item('Add row', () => editor.chain().focus().addRowAfter().run())}
               {item('Add column', () => editor.chain().focus().addColumnAfter().run())}
               {item('Delete row', () => editor.chain().focus().deleteRow().run())}

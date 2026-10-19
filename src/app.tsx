@@ -4,10 +4,10 @@ import { WorkspaceSearch } from './components/workspace-search';
 import { useSidebarWidth } from './hooks/use-sidebar-width';
 import { SidebarResizer } from './components/sidebar-resizer';
 import { useNavigationHistory } from './hooks/use-navigation-history';
-import { agentCatalog, agentLabel } from './config/agents';
+import { agentCatalog, agentLabel, isAgent } from './config/agents';
 import { trackerConnection } from './domain/tracker';
 import { useTracker } from './hooks/use-tracker';
-import { SettingsDialog } from './components/settings-dialog';
+import { SettingsDialog, readDefaultAgent } from './components/settings-dialog';
 import { ProjectOverview } from './components/project-overview';
 import { ActionMenu } from './components/action-menu';
 import { Hint } from './components/hint';
@@ -21,11 +21,10 @@ import {
 } from './lib/platform';
 
 import { AddRepository } from './components/add-repository';
-import { useEffect, useRef, useState, type CSSProperties } from 'react';
+import { Fragment, useEffect, useRef, useState, type CSSProperties } from 'react';
 import {
   PanelLeft,
   Layers2,
-  Folder,
   FolderPlus,
   ArrowUpRight,
   GitBranch,
@@ -39,6 +38,7 @@ import {
   Trash2,
   Pencil,
   Menu,
+  ChevronDown,
 } from 'lucide-react';
 import { Button } from './components/ui/button';
 import { Input } from './components/ui/input';
@@ -52,6 +52,15 @@ import {
   DialogFooter,
 } from './components/ui/dialog';
 import { Textarea } from './components/ui/textarea';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from './components/ui/dropdown-menu';
+import { EmptyState } from './components/ui/empty-state';
+import { EntityIcon } from './components/ui/entity-icon';
+import { PageHeader, SectionHeader } from './components/ui/page-header';
 import { SessionBrowser } from './components/session-browser';
 import { ProjectTrackerPanel } from './components/project-tracker';
 import { Choice } from './components/choice';
@@ -76,6 +85,17 @@ import type {
   TrackerItem,
 } from './types';
 import type { GitHubCliStatus } from './domain/conversation';
+
+const lastAgentKey = 'kalkidan-last-agent';
+function savedLastAgent(): Agent {
+  try {
+    const value = localStorage.getItem(lastAgentKey);
+    if (isAgent(value)) return value;
+  } catch {
+    /* Optional preference. */
+  }
+  return readDefaultAgent();
+}
 export function App({ api, preview = false }: { api: API; preview?: boolean }) {
   const [data, setData] = useState<Snapshot>({
     projects: [],
@@ -458,6 +478,17 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
     setChatSession(draft);
     setChatOpen(true);
   }
+  // The split button starts the agent the user chose last.
+  const [lastAgent, setLastAgent] = useState<Agent>(savedLastAgent);
+  function startSession(agent: Agent) {
+    setLastAgent(agent);
+    try {
+      localStorage.setItem(lastAgentKey, agent);
+    } catch {
+      /* Optional preference. */
+    }
+    newSession(agent);
+  }
   function saveRepository() {
     void run(async () => {
       await api.update(modalRepo, { name, notes });
@@ -570,10 +601,14 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
             {!chatOpen && viewTitle.length > 0 && (
               <p className="topbar-title" title={viewTitle.join(' › ')}>
                 {viewTitle.map((part, index) => (
-                  <span key={index} aria-current={index === viewTitle.length - 1 || undefined}>
-                    {index > 0 && <span aria-hidden="true"> › </span>}
-                    {part}
-                  </span>
+                  <Fragment key={index}>
+                    {index > 0 && (
+                      <span className="topbar-title-separator" aria-hidden="true">
+                        ›
+                      </span>
+                    )}
+                    <span aria-current={index === viewTitle.length - 1 || undefined}>{part}</span>
+                  </Fragment>
                 ))}
               </p>
             )}
@@ -594,13 +629,14 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
               {error || notice}
               <Button
                 variant="ghost"
+                size="icon-xs"
                 aria-label="Dismiss notification"
                 onClick={() => {
                   setError('');
                   setNotice('');
                 }}
               >
-                <X size={15} />
+                <X />
               </Button>
             </div>
           )}
@@ -677,7 +713,7 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
                 {showConnectionButton && (
                   <Button
                     variant="outline"
-                    className="sidebar-github-connect w-full justify-start"
+                    className="sidebar-github-connect w-full justify-start px-2 has-[>svg]:px-2"
                     disabled={!connectionGroup}
                     onClick={connectTracker}
                   >
@@ -697,14 +733,14 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
                 )}
                 <Button
                   variant="ghost"
-                  className="w-full justify-start"
+                  className="w-full justify-start px-2 font-normal has-[>svg]:px-2"
                   onClick={() => setOnboardingOpen(true)}
                 >
                   <ArrowRight size={16} /> Get started
                 </Button>
                 <Button
                   variant="ghost"
-                  className="w-full justify-start"
+                  className="w-full justify-start px-2 font-normal has-[>svg]:px-2"
                   onClick={() => setSettingsOpen(true)}
                 >
                   <Settings2 size={16} />
@@ -724,6 +760,7 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
                     query=""
                     onRefresh={refresh}
                     onSelect={(group) => openGroup(group)}
+                    onResume={openConversation}
                   />
                 ) : boardGroup && data.groups?.find((g) => g.id === boardGroup) ? (
                   projectPage === 'docs' ? (
@@ -752,232 +789,275 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
                     />
                   )
                 ) : project ? (
-                  <section className="detail">
-                    <div className="detail-heading">
-                      <div className="detail-icon">
-                        <Folder size={27} />
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        {projectGroup && (
+                  <section className="page detail">
+                    <PageHeader
+                      icon={
+                        <EntityIcon size="lg">
+                          <GitBranch />
+                        </EntityIcon>
+                      }
+                      eyebrow={
+                        projectGroup && (
                           <Button
                             variant="link"
-                            size="sm"
-                            className="detail-parent"
+                            className="detail-parent h-auto p-0 text-xs font-normal text-muted-foreground hover:text-foreground"
                             aria-label={`${projectGroup.name} project`}
                             onClick={() => openGroup(projectGroup)}
                           >
                             {projectGroup.name}
                           </Button>
-                        )}
-                        <h2>{project.name}</h2>
-                        {project.hostId && (
-                          <span className="text-xs text-muted-foreground">
-                            SSH ·{' '}
-                            {data.hosts?.find((h) => h.id === project.hostId)?.name ||
-                              'Remote host'}{' '}
-                            ·{' '}
-                            {data.hosts?.find((h) => h.id === project.hostId)?.status ||
-                              'disconnected'}
-                          </span>
-                        )}
-                        <Hint
-                          label={
-                            project.hostId
-                              ? `Remote path: ${project.path}`
-                              : `${revealLabel()}: ${project.path}`
-                          }
-                        >
-                          <Button
-                            variant="ghost"
-                            className="path-button"
-                            disabled={!!project.hostId}
-                            onClick={() => run(() => api.reveal(project.id))}
+                        )
+                      }
+                      title={project.name}
+                      subtitle={
+                        <>
+                          {project.hostId && (
+                            <span className="shrink-0">
+                              SSH ·{' '}
+                              {data.hosts?.find((h) => h.id === project.hostId)?.name ||
+                                'Remote host'}{' '}
+                              ·{' '}
+                              {data.hosts?.find((h) => h.id === project.hostId)?.status ||
+                                'disconnected'}{' '}
+                              ·
+                            </span>
+                          )}
+                          <Hint
+                            label={
+                              project.hostId
+                                ? `Remote path: ${project.path}`
+                                : `${revealLabel()}: ${project.path}`
+                            }
                           >
-                            <span>{project.path}</span>
-                            {!project.hostId && <ArrowUpRight size={12} />}
-                          </Button>
-                        </Hint>
-                      </div>
-                      <ActionMenu
-                        label="Repository actions"
-                        disabled={busy}
-                        items={[
-                          ...(!project.hostId
-                            ? [
-                                {
-                                  label: revealLabel(),
-                                  action: () => void run(() => api.reveal(project.id)),
-                                },
-                                { label: 'Open Terminal', action: () => void launchTerminal() },
-                              ]
-                            : []),
-                          {
-                            label: project.favorite ? 'Remove from favorites' : 'Add to favorites',
-                            action: () =>
-                              void run(() =>
-                                api.update(project.id, { favorite: !project.favorite }),
-                              ),
-                          },
-                        ]}
-                      />
-                      <Hint label="Edit repository">
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          aria-label="Edit repository"
-                          onClick={() => {
-                            setName(project.name);
-                            setNotes(project.notes);
-                            setRepoGroup(
-                              (data.groups || []).find((g) => g.repoIds.includes(project.id))?.id ||
-                                '',
-                            );
-                            openModal('edit');
-                          }}
-                        >
-                          <Pencil size={16} />
-                        </Button>
-                      </Hint>
-                    </div>
-                    <div className="repository-overview">
-                      <div className="repository-start">
-                        <span>New session</span>
-                        {agentCatalog.map(({ id: agent }) => (
-                          <Button
-                            size="sm"
+                            <Button
+                              variant="ghost"
+                              className="path-button h-auto min-w-0 gap-1 p-0 text-xs font-normal text-muted-foreground hover:bg-transparent hover:text-foreground has-[>svg]:px-0"
+                              title={project.path}
+                              disabled={!!project.hostId}
+                              onClick={() => run(() => api.reveal(project.id))}
+                            >
+                              <span>{project.path}</span>
+                              {!project.hostId && <ArrowUpRight size={12} />}
+                            </Button>
+                          </Hint>
+                        </>
+                      }
+                      actions={
+                        <>
+                          <Hint label="Edit repository">
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              aria-label="Edit repository"
+                              onClick={() => {
+                                setName(project.name);
+                                setNotes(project.notes);
+                                setRepoGroup(
+                                  (data.groups || []).find((g) => g.repoIds.includes(project.id))
+                                    ?.id || '',
+                                );
+                                openModal('edit');
+                              }}
+                            >
+                              <Pencil />
+                            </Button>
+                          </Hint>
+                          <ActionMenu
+                            label="Repository actions"
+                            className="size-8"
                             disabled={busy}
-                            key={agent}
-                            aria-label={`New ${agentLabel(agent)} session`}
-                            onClick={() => newSession(agent)}
-                          >
-                            <Plus size={14} />
-                            {agentLabel(agent)}
-                          </Button>
-                        ))}
-                      </div>
+                            items={[
+                              ...(!project.hostId
+                                ? [
+                                    {
+                                      label: revealLabel(),
+                                      action: () => void run(() => api.reveal(project.id)),
+                                    },
+                                    {
+                                      label: 'Open Terminal',
+                                      action: () => void launchTerminal(),
+                                    },
+                                  ]
+                                : []),
+                              {
+                                label: project.favorite
+                                  ? 'Remove from favorites'
+                                  : 'Add to favorites',
+                                action: () =>
+                                  void run(() =>
+                                    api.update(project.id, { favorite: !project.favorite }),
+                                  ),
+                              },
+                            ]}
+                          />
+                          <div className="split-button" role="group" aria-label="New session">
+                            <Button
+                              disabled={busy}
+                              className="rounded-r-none"
+                              aria-label={`New ${agentLabel(lastAgent)} session`}
+                              onClick={() => startSession(lastAgent)}
+                            >
+                              <Plus />
+                              New {agentLabel(lastAgent)} session
+                            </Button>
+                            <DropdownMenu>
+                              <Hint label="Choose an agent">
+                                <DropdownMenuTrigger asChild>
+                                  <Button
+                                    size="icon"
+                                    disabled={busy}
+                                    className="rounded-l-none border-l border-primary-foreground/20"
+                                    aria-label="Choose an agent"
+                                  >
+                                    <ChevronDown />
+                                  </Button>
+                                </DropdownMenuTrigger>
+                              </Hint>
+                              <DropdownMenuContent align="end" sideOffset={6}>
+                                {agentCatalog.map(({ id: agent }) => (
+                                  <DropdownMenuItem
+                                    key={agent}
+                                    onSelect={() => startSession(agent)}
+                                  >
+                                    New {agentLabel(agent)} session
+                                  </DropdownMenuItem>
+                                ))}
+                              </DropdownMenuContent>
+                            </DropdownMenu>
+                          </div>
+                        </>
+                      }
+                    />
+                    <div className="repository-overview">
                       <section
                         className="repository-overview-section"
                         aria-label="Repository sessions"
                       >
-                        <div className="section-header">
-                          <h3>
-                            Sessions{' '}
-                            <span className="text-muted-foreground">{sessions.length}</span>
-                          </h3>
-                        </div>
+                        <SectionHeader title="Sessions" count={sessions.length} />
                         {sessionList()}
                       </section>
                       <section
                         className="repository-overview-section"
                         aria-label="Repository worktrees"
                       >
-                        <div className="section-header">
-                          <h3>
-                            Worktrees{' '}
-                            {git && (
-                              <span className="text-muted-foreground">{git.worktrees.length}</span>
-                            )}
-                          </h3>
-                          <div className="flex items-center gap-2">
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              aria-label="Refresh worktrees"
-                              disabled={busy || gitLoading}
-                              onClick={() => setRepositoryRevision((value) => value + 1)}
-                            >
-                              <RefreshCw size={15} />
-                            </Button>
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              disabled={!git || busy}
-                              onClick={() => {
-                                setBranch('');
-                                openModal('worktree');
-                              }}
-                            >
-                              <Plus size={14} /> New worktree
-                            </Button>
-                          </div>
-                        </div>
+                        <SectionHeader
+                          title="Worktrees"
+                          count={git?.worktrees.length}
+                          actions={
+                            <>
+                              <Hint label="Refresh worktrees">
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  aria-label="Refresh worktrees"
+                                  disabled={busy || gitLoading}
+                                  onClick={() => setRepositoryRevision((value) => value + 1)}
+                                >
+                                  <RefreshCw />
+                                </Button>
+                              </Hint>
+                              <Button
+                                variant="outline"
+                                disabled={!git || busy}
+                                onClick={() => {
+                                  setBranch('');
+                                  openModal('worktree');
+                                }}
+                              >
+                                <Plus /> New worktree
+                              </Button>
+                            </>
+                          }
+                        />
                         {gitError && (
                           <p role="alert" className="text-destructive">
                             {gitError}
                           </p>
                         )}
                         {git ? (
-                          git.worktrees.map((tree) => (
-                            <div className="worktree" key={tree.path}>
-                              <GitBranch size={20} />
-                              <div>
-                                <strong>{tree.branch}</strong>
-                                {tree.path === project.path ? (
-                                  <span className="worktree-path">Repository folder</span>
-                                ) : (
-                                  <code className="worktree-path" title={tree.path}>
-                                    {tree.path}
-                                  </code>
-                                )}
-                                <div className="worktree-sessions">
-                                  {worktreeSessions(
-                                    tree.path,
-                                    git.worktrees,
-                                    visibleSessions,
-                                    project.hostId,
-                                  ).map((session) => (
-                                    <Button
-                                      key={session.agent + ':' + session.id}
-                                      variant="ghost"
-                                      size="sm"
-                                      onClick={() => openConversation(session)}
-                                    >
-                                      <span>{agentLabel(session.agent)} ·</span>
-                                      <span className="truncate">
-                                        {session.organization?.title || session.title}
-                                      </span>
-                                    </Button>
-                                  ))}
+                          <div className="worktree-list">
+                            {git.worktrees.map((tree) => (
+                              <div className="worktree list-row" key={tree.path}>
+                                <EntityIcon>
+                                  <GitBranch />
+                                </EntityIcon>
+                                <div className="worktree-text">
+                                  <strong title={tree.branch}>{tree.branch}</strong>
+                                  {tree.path === project.path ? (
+                                    <span className="worktree-path">Repository folder</span>
+                                  ) : (
+                                    <code className="worktree-path" title={tree.path}>
+                                      {tree.path}
+                                    </code>
+                                  )}
+                                  <div className="worktree-sessions">
+                                    {worktreeSessions(
+                                      tree.path,
+                                      git.worktrees,
+                                      visibleSessions,
+                                      project.hostId,
+                                    ).map((session) => {
+                                      const title = session.organization?.title || session.title;
+                                      return (
+                                        <Button
+                                          key={session.agent + ':' + session.id}
+                                          variant="ghost"
+                                          size="xs"
+                                          title={`${agentLabel(session.agent)} · ${title}`}
+                                          onClick={() => openConversation(session)}
+                                        >
+                                          <span>{agentLabel(session.agent)} ·</span>
+                                          <span className="truncate">{title}</span>
+                                        </Button>
+                                      );
+                                    })}
+                                  </div>
                                 </div>
+                                {tree.path === project.path && (
+                                  <Badge variant="secondary" size="sm">
+                                    Current
+                                  </Badge>
+                                )}
                               </div>
-                              {tree.path === project.path && (
-                                <Badge variant="secondary">Current</Badge>
-                              )}
-                            </div>
-                          ))
+                            ))}
+                          </div>
                         ) : gitLoading ? (
                           <p className="help-text" role="status">
                             Checking worktrees…
                           </p>
                         ) : (
-                          <div className="empty-small">
-                            <GitBranch size={28} />
-                            <h3>No Git worktrees available</h3>
-                            <p>
-                              Choose an existing Git repository with an initial commit to create a
-                              worktree.
-                            </p>
-                          </div>
+                          <EmptyState
+                            compact
+                            icon={<GitBranch />}
+                            title="No Git worktrees available"
+                          >
+                            Choose an existing Git repository with an initial commit to create a
+                            worktree.
+                          </EmptyState>
                         )}
                       </section>
                     </div>
                   </section>
                 ) : (
-                  <section className="detail welcome">
-                    <Layers2 size={44} />
-                    <h2>Organize your repositories</h2>
-                    <p>
+                  <section className="page detail welcome">
+                    <EmptyState
+                      icon={<Layers2 />}
+                      title="Organize your repositories"
+                      action={
+                        <AddRepository
+                          api={api}
+                          variant="default"
+                          className="h-9 px-4 has-[>svg]:px-3"
+                          onRefresh={() => run(async () => {})}
+                          onNotice={notify}
+                        >
+                          <FolderPlus size={16} /> Add your first repository
+                        </AddRepository>
+                      }
+                    >
                       Create a project to group related repositories, or add a repository folder to
                       get started.
-                    </p>
-                    <AddRepository
-                      api={api}
-                      variant="default"
-                      onRefresh={() => run(async () => {})}
-                      onNotice={notify}
-                    >
-                      <FolderPlus size={16} /> Add your first repository
-                    </AddRepository>
+                    </EmptyState>
                   </section>
                 )}
               </div>
@@ -1069,7 +1149,7 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
       />
       {/* Work started here continues after the dialog closes and reports through the notice. */}
       <Dialog open={modal !== null} onOpenChange={(open) => !open && setModal(null)}>
-        <DialogContent className="max-h-[calc(100dvh-48px)] overflow-y-auto">
+        <DialogContent size={shownModal === 'remove' ? 'sm' : 'md'}>
           <form
             className="contents"
             onSubmit={(event) => {
@@ -1079,7 +1159,7 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
               else if (shownModal === 'edit' && name.trim() && repoGroup) saveRepository();
             }}
           >
-            <DialogHeader className="pr-6">
+            <DialogHeader>
               <DialogTitle>
                 {shownModal === 'worktree'
                   ? 'Create a Git worktree'
@@ -1120,6 +1200,7 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
                   Project
                   <Choice
                     label="Project"
+                    className="w-full"
                     value={repoGroup}
                     onChange={setRepoGroup}
                     options={[
@@ -1134,14 +1215,20 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
                   Notes
                   <Textarea rows={5} value={notes} onChange={(e) => setNotes(e.target.value)} />
                 </label>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  className="text-destructive justify-start"
-                  onClick={() => setModal('remove')}
-                >
-                  <Trash2 size={14} /> Remove from Kalkidan…
-                </Button>
+                <div className="danger-zone">
+                  <div>
+                    <strong>Remove repository</strong>
+                    <p>Kalkidan stops showing it. The folder and its files stay on disk.</p>
+                  </div>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="text-destructive hover:text-destructive"
+                    onClick={() => setModal('remove')}
+                  >
+                    <Trash2 /> Remove from Kalkidan…
+                  </Button>
+                </div>
               </>
             )}
             {error && (
@@ -1160,7 +1247,7 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
               </Button>
               {shownModal === 'edit' && (
                 <Button type="submit" disabled={busy || !name.trim() || !repoGroup}>
-                  <Check size={15} /> Save changes
+                  <Check /> Save changes
                 </Button>
               )}
               {shownModal === 'remove' && (

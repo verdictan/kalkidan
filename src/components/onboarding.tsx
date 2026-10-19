@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState } from 'react';
-import { Check, FolderPlus, GitBranch, Sparkles, RefreshCw } from 'lucide-react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { Check, RefreshCw } from 'lucide-react';
 import type { API, Snapshot, Agent, AgentInstallation, Project } from '../types';
 import { agentCatalog } from '../config/agents';
 import { CreateProject } from './create-project';
@@ -18,6 +18,7 @@ import {
   DialogFooter,
 } from './ui/dialog';
 import { errorMessage } from '../lib/errors';
+import { cn } from '../lib/utils';
 
 const starters = [
   {
@@ -143,21 +144,16 @@ export function Onboarding({
   return (
     <>
       <Dialog open={open && !creating} onOpenChange={onOpenChange}>
-        <DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-2xl">
-          <DialogHeader>
-            <div className="mb-2 flex items-center gap-2 text-sm text-muted-foreground">
-              <Sparkles size={16} /> Get started with Kalkidan
-            </div>
-            <DialogTitle className="text-2xl">From repository to your first session</DialogTitle>
+        <DialogContent size="lg" className="flex flex-col gap-0 overflow-hidden p-0">
+          <DialogHeader className="shrink-0 px-6 pt-6 pb-4">
+            <p className="text-xs font-medium text-muted-foreground">Get started with Kalkidan</p>
+            <DialogTitle className="text-xl">From repository to your first session</DialogTitle>
             <DialogDescription>
               Choose where your work lives, add code, and prepare your first session.
             </DialogDescription>
           </DialogHeader>
-          <ol className="grid gap-5 py-2">
-            <li className="rounded-lg border p-4 space-y-3">
-              <div className="flex items-center gap-2 font-medium">
-                {group ? <Check size={18} /> : <FolderPlus size={18} />} 1. Choose your project
-              </div>
+          <ol className="min-h-0 divide-y overflow-y-auto px-6">
+            <Step number={1} done={!!group} title="Choose your project">
               <p className="text-sm text-muted-foreground">
                 A project keeps docs, cloned repositories, and new worktrees together in one folder.
               </p>
@@ -178,7 +174,7 @@ export function Onboarding({
                 </Button>
               </div>
               {group?.rootPath && (
-                <p className="text-xs text-muted-foreground break-all">{group.rootPath}</p>
+                <p className="text-xs break-all text-muted-foreground">{group.rootPath}</p>
               )}
               {!group && (
                 <p className="text-xs text-muted-foreground">
@@ -186,11 +182,8 @@ export function Onboarding({
                   remote host.
                 </p>
               )}
-            </li>
-            <li className="rounded-lg border p-4 space-y-3">
-              <div className="flex items-center gap-2 font-medium">
-                {repo ? <Check size={18} /> : <GitBranch size={18} />} 2. Bring in your code
-              </div>
+            </Step>
+            <Step number={2} done={!!repo} title="Bring in your code">
               <p className="text-sm text-muted-foreground">
                 Clone a repository or add an existing folder.
               </p>
@@ -213,12 +206,9 @@ export function Onboarding({
                   Add repository
                 </AddRepository>
               </div>
-              {repo && <p className="text-xs text-muted-foreground break-all">{repo.path}</p>}
-            </li>
-            <li className="rounded-lg border p-4 space-y-3">
-              <div className="flex items-center gap-2 font-medium">
-                <Sparkles size={18} /> 3. Write a clear first message
-              </div>
+              {repo && <p className="text-xs break-all text-muted-foreground">{repo.path}</p>}
+            </Step>
+            <Step number={3} done={false} title="Write a clear first message">
               <div className="flex flex-wrap gap-2">
                 <Choice
                   label="Setup agent"
@@ -235,24 +225,28 @@ export function Onboarding({
                     disabled={checking}
                     onClick={() => setCheckRevision((r) => r + 1)}
                   >
-                    <RefreshCw size={14} /> Check again
+                    <RefreshCw /> Check again
                   </Button>
                 )}
               </div>
               <p className="text-xs text-muted-foreground" role="status">
                 {status}
               </p>
-              <Choice
-                label="Starter message"
-                value={starter}
-                options={starters.map((s) => ({ value: s.name, label: s.name }))}
-                onChange={(value) => {
-                  setStarter(value);
-                  setPrompt(starters.find((s) => s.name === value)!.prompt);
-                }}
-              />
+              <label className="form-label">
+                Starter message
+                <Choice
+                  label="Starter message"
+                  value={starter}
+                  options={starters.map((s) => ({ value: s.name, label: s.name }))}
+                  onChange={(value) => {
+                    setStarter(value);
+                    setPrompt(starters.find((s) => s.name === value)!.prompt);
+                  }}
+                />
+              </label>
               <Textarea
                 aria-label="First message"
+                className="max-h-48 min-h-24 resize-none"
                 value={prompt}
                 onChange={(event) => setPrompt(event.target.value)}
                 onKeyDown={(event) => {
@@ -263,13 +257,13 @@ export function Onboarding({
                 }}
                 rows={4}
               />
-              <p className="text-xs text-muted-foreground">
+              <p className="-mt-2 text-xs text-muted-foreground">
                 You can edit this draft in the session before you send it. Press{' '}
-                {shortcutLabel(['mod'], 'Enter')} to open the session.
+                <kbd className="kbd">{shortcutLabel(['mod'], 'Enter')}</kbd> to open the session.
               </p>
-            </li>
+            </Step>
           </ol>
-          <DialogFooter>
+          <DialogFooter className="shrink-0 border-t px-6 py-4">
             <Button variant="ghost" onClick={() => onOpenChange(false)}>
               Set up later
             </Button>
@@ -304,5 +298,35 @@ export function Onboarding({
         />
       )}
     </>
+  );
+}
+
+/** One setup step. The number changes to a check mark when the step is done. */
+function Step({
+  number,
+  done,
+  title,
+  children,
+}: {
+  number: number;
+  done: boolean;
+  title: string;
+  children: ReactNode;
+}) {
+  return (
+    <li className="flex gap-4 py-5 first:pt-1 last:pb-6">
+      <span
+        className={cn(
+          'flex size-6 shrink-0 items-center justify-center rounded-full border text-xs font-semibold tabular-nums',
+          done ? 'border-transparent bg-primary text-primary-foreground' : 'text-muted-foreground',
+        )}
+      >
+        {done ? <Check className="size-3.5" aria-label="Done" /> : number}
+      </span>
+      <div className="min-w-0 flex-1 space-y-3">
+        <h3 className="text-sm leading-6 font-semibold">{title}</h3>
+        {children}
+      </div>
+    </li>
   );
 }

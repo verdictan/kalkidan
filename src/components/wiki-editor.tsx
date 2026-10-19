@@ -126,12 +126,25 @@ export function WikiEditor({
     shouldRerenderOnTransaction: true,
     editorProps: {
       attributes: {
-        class: 'wiki-prose',
+        class: 'wiki-prose prose-ui',
         role: 'textbox',
         'aria-label': 'Document content',
         'aria-multiline': 'true',
       },
       handleKeyDown: (_view, event) => keyHandler.current(event),
+      // At the start of a list item, "- ", "* " or "+ " does nothing: the line is already a
+      // list item. Without this, the list shortcut puts a second bullet list in the item, and
+      // literal text "- " would load again as a nested list. Use Tab to make a nested list.
+      handleTextInput: (view, from, to, text) => {
+        if (text !== ' ') return false;
+        const { $from } = view.state.selection;
+        if ($from.depth < 2 || !['listItem', 'taskItem'].includes($from.node(-1).type.name))
+          return false;
+        const before = $from.parent.textBetween(0, $from.parentOffset);
+        if (!/^\s*[-+*]$/.test(before)) return false;
+        view.dispatch(view.state.tr.delete(from - before.length, to));
+        return true;
+      },
     },
     onUpdate: ({ editor }) => {
       onChange(editor.getMarkdown());
@@ -248,7 +261,7 @@ export function WikiEditor({
                 onMouseDown={(e) => e.preventDefault()}
                 onClick={action}
               >
-                <Icon size={15} />
+                <Icon size={14} />
               </Button>
             ))}
             <Button
@@ -259,7 +272,7 @@ export function WikiEditor({
               onMouseDown={(e) => e.preventDefault()}
               onClick={openLink}
             >
-              <LinkIcon size={15} />
+              <LinkIcon size={14} />
             </Button>
           </BubbleMenu>
         )}
@@ -337,7 +350,7 @@ export function WikiEditor({
                   onMouseDown={(e) => e.preventDefault()}
                   onClick={() => choose(i)}
                 >
-                  <strong>{c.label}</strong>
+                  <span>{c.label}</span>
                   <small>{c.hint}</small>
                 </button>
               ))

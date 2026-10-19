@@ -398,12 +398,13 @@ for (const agent of ['codex', 'claude'] as const) {
     });
     await page.goto('http://127.0.0.1:5173');
     await page.locator('.repo-select').first().click();
-    await page
-      .getByRole('button', {
-        name: agent === 'codex' ? 'New Codex session' : 'New Claude Code session',
-        exact: true,
-      })
-      .click();
+    // The split button starts Codex by default. Other agents are in its menu.
+    if (agent === 'codex')
+      await page.getByRole('button', { name: 'New Codex session', exact: true }).click();
+    else {
+      await page.getByRole('button', { name: 'Choose an agent', exact: true }).click();
+      await page.getByRole('menuitem', { name: 'New Claude Code session', exact: true }).click();
+    }
     await expect(page.getByRole('region', { name: 'Sessions', exact: true })).toBeVisible();
     await page.getByLabel('Message agent').fill('Build the first feature');
     await page.getByRole('button', { name: 'Send', exact: true }).click();
@@ -892,7 +893,7 @@ test('project navigation replaces the main sidebar and global history page', asy
   await expect(page.getByRole('region', { name: 'Projects and repositories' })).toBeVisible();
   await page.getByRole('button', { name: 'Settings', exact: true }).click();
   await expect(page.getByRole('dialog')).toContainText('Local agents');
-  await page.getByRole('button', { name: 'Done', exact: true }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Close', exact: true }).last().click();
   await page.screenshot({ path: 'test-results/project-navigation.png', fullPage: true });
 });
 

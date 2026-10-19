@@ -6,6 +6,7 @@ export function Choice({
   onChange,
   options,
   disabled,
+  size = 'default',
   className,
 }: {
   label: string;
@@ -13,6 +14,8 @@ export function Choice({
   onChange: (value: string) => void;
   options: { value: string; label: string }[];
   disabled?: boolean;
+  /** default 32px for forms and page actions, sm 28px for toolbars and filter bars. */
+  size?: 'sm' | 'default';
   className?: string;
 }) {
   return (
@@ -23,6 +26,7 @@ export function Choice({
     >
       <SelectTrigger
         aria-label={label}
+        size={size}
         className={cn(
           'min-w-0 max-w-full [&_[data-slot=select-value]]:min-w-0 [&_[data-slot=select-value]]:truncate',
           className,

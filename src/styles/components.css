@@ -1,0 +1,293 @@
+/* Shared building blocks. Pages use these classes instead of their own copies. */
+
+/* Management pages: one width, one side padding, one header. */
+.page {
+  width: 100%;
+  max-width: var(--page-max-width);
+  margin-inline: auto;
+  padding: var(--page-padding-top) var(--page-padding-x) var(--space-12);
+}
+@media (max-width: 800px) {
+  .page {
+    padding-inline: var(--space-4);
+  }
+}
+.page-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding-bottom: var(--space-6);
+  min-width: 0;
+}
+.page-header-text {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+.page-header-eyebrow,
+.page-subtitle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  color: var(--muted-foreground);
+  font-size: 12px;
+  line-height: 16px;
+}
+.page-title {
+  margin: 0;
+  font-size: 20px;
+  line-height: 28px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.page-header-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-shrink: 0;
+}
+
+/* Section headers inside a page, such as "Sessions 3". */
+.section-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: var(--control-md);
+  margin-bottom: var(--space-3);
+}
+.section-title {
+  margin: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  font-size: 13px;
+  line-height: 20px;
+  font-weight: 600;
+}
+.section-count {
+  color: var(--muted-foreground);
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
+}
+.section-actions {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+/* Square tiles for projects, repositories, agents and tools. */
+.entity-icon {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-lg);
+  background: var(--secondary);
+  color: var(--entity-color, var(--muted-foreground));
+}
+.entity-icon svg {
+  width: 16px;
+  height: 16px;
+}
+.entity-icon[data-size='lg'] {
+  width: 40px;
+  height: 40px;
+}
+.entity-icon[data-size='lg'] svg {
+  width: 20px;
+  height: 20px;
+}
+
+/* One empty state. */
+.empty-state {
+  display: grid;
+  justify-items: center;
+  gap: var(--space-2);
+  padding: var(--space-12) var(--space-6);
+  text-align: center;
+}
+.empty-state-icon {
+  color: var(--muted-foreground);
+}
+.empty-state-icon svg {
+  width: 32px;
+  height: 32px;
+}
+.empty-state-title {
+  margin: 0;
+  font-size: 14px;
+  line-height: 20px;
+  font-weight: 600;
+}
+.empty-state-body {
+  max-width: 360px;
+  color: var(--muted-foreground);
+  font-size: 13px;
+  line-height: 20px;
+}
+.empty-state-action {
+  margin-top: var(--space-2);
+}
+.empty-state[data-compact] {
+  gap: var(--space-1);
+  padding: var(--space-6) var(--space-4);
+}
+.empty-state[data-compact] .empty-state-icon svg {
+  width: 20px;
+  height: 20px;
+}
+.empty-state[data-compact] .empty-state-body {
+  font-size: 12px;
+  line-height: 16px;
+}
+
+/* Segmented control: one active option. */
+.segmented {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  height: var(--control-md);
+  padding: 2px;
+  border-radius: var(--radius-lg);
+  background: var(--secondary);
+}
+.segmented-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: var(--control-sm);
+  padding-inline: var(--space-3);
+  border: 0;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--muted-foreground);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: default;
+}
+.segmented-item:hover {
+  color: var(--foreground);
+}
+.segmented-item[aria-pressed='true'] {
+  background: var(--background);
+  color: var(--foreground);
+  box-shadow: var(--shadow-xs);
+}
+.segmented-item:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+.segmented-item svg {
+  width: 14px;
+  height: 14px;
+}
+.segmented[data-size='sm'] {
+  height: var(--control-sm);
+}
+.segmented[data-size='sm'] .segmented-item {
+  height: var(--control-xs);
+  padding-inline: var(--space-2);
+  font-size: 12px;
+}
+
+/* An inner panel inside a dialog or page. */
+.panel {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-3) var(--space-4);
+}
+
+/* A bordered list of choices in a picker. */
+.list-box {
+  display: grid;
+  gap: 2px;
+  max-height: 240px;
+  overflow-y: auto;
+  padding: var(--space-1);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+}
+
+/* Rows in lists: one hover and one selected state for every list type. */
+.list-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-height: var(--row-height-2line);
+  padding-block: var(--space-3);
+  border-bottom: 1px solid var(--border);
+}
+.list-row:last-child {
+  border-bottom: 0;
+}
+.row-hover:hover {
+  background: var(--surface-hover);
+}
+.row-selected,
+.row-selected:hover {
+  background: var(--surface-selected);
+}
+
+/* Keyboard hints. */
+.kbd {
+  display: inline-flex;
+  align-items: center;
+  height: 18px;
+  padding: 0 4px;
+  border-radius: var(--radius-xs);
+  background: var(--secondary);
+  color: var(--muted-foreground);
+  font-size: 11px;
+  line-height: 16px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+/* Prose for chat messages, docs and task descriptions. */
+.prose-ui {
+  font-size: 15px;
+  line-height: 1.7;
+}
+.prose-ui :where(h1) {
+  font-size: 24px;
+  line-height: 32px;
+  font-weight: 600;
+  margin: 32px 0 12px;
+}
+.prose-ui :where(h2) {
+  font-size: 20px;
+  line-height: 28px;
+  font-weight: 600;
+  margin: 24px 0 8px;
+}
+.prose-ui :where(h3) {
+  font-size: 16px;
+  line-height: 24px;
+  font-weight: 600;
+  margin: 16px 0 4px;
+}
+.prose-ui :where(h1, h2, h3):first-child {
+  margin-top: 0;
+}
+.prose-ui :where(p, ul, ol, blockquote, pre) {
+  margin: 0 0 12px;
+}
+.prose-ui :where(li + li) {
+  margin-top: 4px;
+}
+.prose-ui :where(code) {
+  font-size: 0.875em;
+}
+.prose-ui[data-size='sm'] {
+  font-size: 13px;
+  line-height: 1.6;
+}

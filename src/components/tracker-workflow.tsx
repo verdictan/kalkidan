@@ -18,6 +18,7 @@ export function TrackerWorkflow({
   connection,
   board,
   open,
+  defaults,
   onOpenChange,
   onSaved,
 }: {
@@ -26,6 +27,8 @@ export function TrackerWorkflow({
   connection: TrackerConnection;
   board: TrackerBoard;
   open: boolean;
+  /** The status names that the provider sets when a choice is "Provider default". */
+  defaults?: { progress: string; done: string };
   onOpenChange(open: boolean): void;
   onSaved(): Promise<void>;
 }) {
@@ -40,10 +43,11 @@ export function TrackerWorkflow({
       setError('');
     }
   }, [open, connection.statusMapping]);
-  const options = [
-    { value: 'default', label: 'Provider default' },
-    ...(board.statusField?.options.map((option) => ({ value: option.id, label: option.name })) ||
-      []),
+  const statuses =
+    board.statusField?.options.map((option) => ({ value: option.id, label: option.name })) || [];
+  const options = (name?: string) => [
+    { value: 'default', label: name ? `Provider default (${name})` : 'Provider default' },
+    ...statuses,
   ];
   async function save() {
     setBusy(true);
@@ -63,7 +67,7 @@ export function TrackerWorkflow({
   }
   return (
     <Dialog open={open} onOpenChange={(value) => !busy && onOpenChange(value)}>
-      <DialogContent>
+      <DialogContent size="sm">
         <DialogHeader>
           <DialogTitle>Task workflow</DialogTitle>
           <DialogDescription>
@@ -74,20 +78,22 @@ export function TrackerWorkflow({
         <label className="form-label">
           When work starts
           <Choice
+            className="w-full"
             label="Status when work starts"
             value={progress}
             onChange={setProgress}
-            options={options}
+            options={options(defaults?.progress)}
             disabled={busy}
           />
         </label>
         <label className="form-label">
           When you mark work complete
           <Choice
+            className="w-full"
             label="Status when work completes"
             value={done}
             onChange={setDone}
-            options={options}
+            options={options(defaults?.done)}
             disabled={busy}
           />
         </label>

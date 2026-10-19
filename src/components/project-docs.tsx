@@ -1,7 +1,16 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { WikiEditor } from './wiki-editor';
 import { ActionMenu } from './action-menu';
-import { BookOpen, FileText, Plus, ChevronRight, ChevronDown, Trash2 } from 'lucide-react';
+import {
+  BookOpen,
+  ChevronDown,
+  ChevronRight,
+  Eye,
+  FileText,
+  Pencil,
+  Plus,
+  Trash2,
+} from 'lucide-react';
 import type { API, ProjectGroup } from '../types';
 import type { DeletedProjectDoc, ProjectDoc, ProjectDocMetadata } from '../domain/docs';
 import { hasPrimaryModifier } from '../lib/platform';
@@ -9,6 +18,15 @@ import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Choice } from './choice';
 import { Hint } from './hint';
+import { Alert, AlertDescription } from './ui/alert';
+import { EmptyState } from './ui/empty-state';
+import { MoreButton } from './ui/more-button';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from './ui/dropdown-menu';
 import {
   Dialog,
   DialogContent,
@@ -218,43 +236,50 @@ function DocEditor({
   return (
     <section className="doc-editor" aria-label="Document editor">
       {recovery && (
-        <div className="doc-alert">
-          An unsaved draft is available.
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => {
-              update({ ...recovery, revision: initial.revision });
-              setEditorVersion((v) => v + 1);
-              setRecovery(null);
-            }}
-          >
-            Restore draft
-          </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => {
-              storeDraft(null);
-              setRecovery(null);
-            }}
-          >
-            Discard draft
-          </Button>
-        </div>
+        <Alert role={undefined} className="doc-alert">
+          <AlertDescription className="doc-alert-body">
+            An unsaved draft is available.
+            <span className="doc-alert-actions">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  update({ ...recovery, revision: initial.revision });
+                  setEditorVersion((v) => v + 1);
+                  setRecovery(null);
+                }}
+              >
+                Restore draft
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  storeDraft(null);
+                  setRecovery(null);
+                }}
+              >
+                Discard draft
+              </Button>
+            </span>
+          </AlertDescription>
+        </Alert>
       )}
       <div className="wiki-document-bar">
         <nav className="wiki-breadcrumbs" aria-label="Document breadcrumb">
-          <BookOpen size={15} aria-hidden="true" />
-          <span>{groupName}</span>
-          <ChevronRight size={13} aria-hidden="true" />
+          <span title={`${groupName} docs`}>Docs</span>
+          <ChevronRight size={12} aria-hidden="true" />
           {draft.parentId && (
             <>
-              <button onClick={() => onNavigate(draft.parentId!)}>{parentTitle}</button>
-              <ChevronRight size={13} aria-hidden="true" />
+              <button title={parentTitle || undefined} onClick={() => onNavigate(draft.parentId!)}>
+                {parentTitle}
+              </button>
+              <ChevronRight size={12} aria-hidden="true" />
             </>
           )}
-          <span aria-current="page">{draft.title || 'Untitled'}</span>
+          <span aria-current="page" title={draft.title || 'Untitled'}>
+            {draft.title || 'Untitled'}
+          </span>
         </nav>
         <div className="wiki-document-actions">
           {/* Do not announce each save. Announce only a failed save. */}
@@ -271,13 +296,17 @@ function DocEditor({
               Retry
             </Button>
           )}
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => setMode(mode === 'read' ? 'write' : 'read')}
-          >
-            {mode === 'read' ? 'Edit' : 'Read'}
-          </Button>
+          <Hint label={mode === 'read' ? 'Edit' : 'Preview'}>
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              aria-label="Preview"
+              aria-pressed={mode === 'read'}
+              onClick={() => setMode(mode === 'read' ? 'write' : 'read')}
+            >
+              {mode === 'read' ? <Pencil size={16} /> : <Eye size={16} />}
+            </Button>
+          </Hint>
           <ActionMenu
             label="Document actions"
             items={[
@@ -337,14 +366,14 @@ function DocEditor({
         </DialogContent>
       </Dialog>
       {error && (
-        <p role="alert" className="doc-alert">
-          {error} Your draft is kept locally for recovery.
-        </p>
+        <Alert variant="destructive" className="doc-alert">
+          <AlertDescription>{error} Your draft is kept locally for recovery.</AlertDescription>
+        </Alert>
       )}
       <div className="wiki-page">
         <Input
           ref={titleInput}
-          className="doc-title"
+          className="doc-title mb-2 h-10 rounded-none border-0 bg-transparent p-0 text-[32px] leading-10 font-semibold tracking-[-0.01em] shadow-none focus-visible:ring-0 dark:bg-transparent max-[800px]:h-8 max-[800px]:text-2xl max-[800px]:leading-8"
           aria-label="Page title"
           value={draft.title}
           readOnly={mode === 'read'}
@@ -502,38 +531,49 @@ export function ProjectDocsPanel({ api, group }: { api: API; group: ProjectGroup
             {hasChildren ? (
               <Button
                 variant="ghost"
-                size="icon-sm"
+                size="icon-xs"
+                className="wiki-tree-toggle"
                 aria-label={`Toggle ${p.title} subpages`}
                 aria-expanded={!collapsed[p.id]}
                 onClick={() => setCollapsed((c) => ({ ...c, [p.id]: !c[p.id] }))}
               >
-                {collapsed[p.id] ? <ChevronRight size={13} /> : <ChevronDown size={13} />}
+                {collapsed[p.id] ? <ChevronRight size={12} /> : <ChevronDown size={12} />}
               </Button>
             ) : (
               <span className="wiki-tree-spacer" />
             )}
             <Button
               variant="ghost"
-              className="doc-tree-page"
+              className="doc-tree-page h-8 min-w-0 flex-1 justify-start gap-2 px-1 text-sm font-normal hover:bg-transparent aria-[current=page]:font-medium"
               title={p.title}
               aria-current={selected === p.id ? 'page' : undefined}
               onClick={() => setSelected(p.id)}
             >
-              <FileText size={15} />
+              <FileText size={14} className="text-muted-foreground" />
               <span>{p.title}</span>
             </Button>
             <div className="wiki-tree-actions">
-              <ActionMenu
-                restoreFocus={false}
-                label={`Actions for ${p.title}`}
-                disabled={busy}
-                items={[
-                  { label: 'Rename page', action: () => command(p.id, 'rename') },
-                  { label: 'Move page', action: () => command(p.id, 'move') },
-                  { label: 'Add subpage', action: () => newPage(p.id) },
-                  { label: 'Delete page', danger: true, action: () => command(p.id, 'delete') },
-                ]}
-              />
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <MoreButton size="xs" label={`Actions for ${p.title}`} disabled={busy} />
+                </DropdownMenuTrigger>
+                <DropdownMenuContent
+                  align="end"
+                  sideOffset={6}
+                  onCloseAutoFocus={(event) => event.preventDefault()}
+                >
+                  <DropdownMenuItem onSelect={() => command(p.id, 'rename')}>
+                    Rename page
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onSelect={() => command(p.id, 'move')}>
+                    Move page
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onSelect={() => newPage(p.id)}>Add subpage</DropdownMenuItem>
+                  <DropdownMenuItem variant="destructive" onSelect={() => command(p.id, 'delete')}>
+                    Delete page
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
             </div>
           </div>
           {hasChildren && !collapsed[p.id] && (
@@ -546,31 +586,33 @@ export function ProjectDocsPanel({ api, group }: { api: API; group: ProjectGroup
   return (
     <section className="project-docs" aria-label="Project docs">
       {error && (
-        <p role="alert" className="doc-alert">
-          {error}
-        </p>
+        <Alert variant="destructive" className="doc-alert">
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
       )}
       <div className="docs-layout">
         <aside className="docs-library" aria-label="Document pages">
           <div className="wiki-pages-label">
-            <Button
-              variant="ghost"
-              size="sm"
-              className="wiki-new-page"
-              aria-label="New page"
-              disabled={busy}
-              onClick={() => newPage(null)}
-            >
-              <Plus size={15} /> New page
-            </Button>
+            <span>Pages</span>
+            <Hint label="New page">
+              <Button
+                variant="ghost"
+                size="icon-xs"
+                aria-label="New page"
+                disabled={busy}
+                onClick={() => newPage(null)}
+              >
+                <Plus size={14} />
+              </Button>
+            </Hint>
           </div>
-          <nav aria-label="Document structure">
+          <nav className="wiki-tree-scroll" aria-label="Document structure">
             <ul className="wiki-page-tree">{tree(null)}</ul>
           </nav>
           <Button
             variant="ghost"
             size="sm"
-            className="wiki-deleted-pages"
+            className="wiki-deleted-pages justify-start"
             disabled={busy}
             onClick={() =>
               void action(async () => {
@@ -578,7 +620,7 @@ export function ProjectDocsPanel({ api, group }: { api: API; group: ProjectGroup
               })
             }
           >
-            <Trash2 size={15} /> Deleted pages
+            <Trash2 size={14} /> Deleted pages
           </Button>
         </aside>
         {page && page.id === selected ? (
@@ -603,23 +645,31 @@ export function ProjectDocsPanel({ api, group }: { api: API; group: ProjectGroup
           </div>
         ) : (
           <div className="docs-empty">
-            <BookOpen size={32} />
-            <h3>
-              {loading || pageLoading
-                ? 'Loading pages…'
-                : pages.length
-                  ? 'Select a page'
-                  : 'Your project wiki starts here'}
-            </h3>
-            {!loading && !pageLoading && !!pages.length && <p>Select a page in the list.</p>}
-            {!loading && !pageLoading && !pages.length && (
-              <>
-                <p>Create a page for plans, decisions, or guides.</p>
-                <Button onClick={() => newPage(null)}>
-                  <Plus size={15} /> Create your first page
-                </Button>
-              </>
-            )}
+            <EmptyState
+              icon={<BookOpen />}
+              title={
+                loading || pageLoading
+                  ? 'Loading pages…'
+                  : pages.length
+                    ? 'Select a page'
+                    : 'Your project wiki starts here'
+              }
+              action={
+                !loading &&
+                !pageLoading &&
+                !pages.length && (
+                  <Button onClick={() => newPage(null)}>
+                    <Plus size={16} /> Create your first page
+                  </Button>
+                )
+              }
+            >
+              {!loading && !pageLoading
+                ? pages.length
+                  ? 'Select a page in the list.'
+                  : 'Create a page for plans, decisions, or guides.'
+                : null}
+            </EmptyState>
           </div>
         )}
       </div>
@@ -638,9 +688,9 @@ export function ProjectDocsPanel({ api, group }: { api: API; group: ProjectGroup
               maxLength={200}
             />
             {error && (
-              <p role="alert" className="doc-alert">
-                {error}
-              </p>
+              <Alert variant="destructive">
+                <AlertDescription>{error}</AlertDescription>
+              </Alert>
             )}
             <DialogFooter>
               <Button type="button" variant="outline" onClick={() => setCreating(null)}>
@@ -664,9 +714,9 @@ export function ProjectDocsPanel({ api, group }: { api: API; group: ProjectGroup
             </DialogDescription>
           </DialogHeader>
           {error && (
-            <p role="alert" className="doc-alert">
-              {error}
-            </p>
+            <Alert variant="destructive">
+              <AlertDescription>{error}</AlertDescription>
+            </Alert>
           )}
           <DialogFooter>
             <Button variant="outline" onClick={() => setDeleting(false)}>
@@ -711,9 +761,9 @@ export function ProjectDocsPanel({ api, group }: { api: API; group: ProjectGroup
             </DialogDescription>
           </DialogHeader>
           {error && (
-            <p role="alert" className="doc-alert">
-              {error}
-            </p>
+            <Alert variant="destructive">
+              <AlertDescription>{error}</AlertDescription>
+            </Alert>
           )}
           {deletedPages?.length ? (
             <ul className="wiki-deleted-list">

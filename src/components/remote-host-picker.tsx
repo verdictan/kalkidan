@@ -6,6 +6,7 @@ import { Input } from './ui/input';
 import { Choice } from './choice';
 import { ConfirmDialog } from './confirm-dialog';
 import { Hint } from './hint';
+import { SectionHeader } from './ui/page-header';
 import { errorMessage } from '../lib/errors';
 export function RemoteHostPicker({
   compact = false,
@@ -62,19 +63,31 @@ export function RemoteHostPicker({
     }
   }
   return (
-    <section aria-label="Remote host setup" className="space-y-3 rounded-lg border p-4">
-      <div className="flex items-center justify-between">
+    <section aria-label="Remote host setup" className={compact ? 'space-y-3' : 'panel space-y-3'}>
+      {compact ? (
+        <SectionHeader
+          className="mb-0"
+          title="Remote hosts"
+          actions={
+            !adding && (
+              <Button variant="ghost" disabled={!!busy} onClick={() => setAdding(true)}>
+                <Plus />
+                Add host
+              </Button>
+            )
+          }
+        />
+      ) : (
         <span className="flex items-center gap-2 text-sm font-medium">
           <Server size={16} />
           Remote SSH host
         </span>
-        {compact && !adding && (
-          <Button size="sm" variant="ghost" disabled={!!busy} onClick={() => setAdding(true)}>
-            <Plus size={14} />
-            Add host
-          </Button>
-        )}
-      </div>
+      )}
+      {compact && (
+        <p className="text-xs text-muted-foreground">
+          Run projects on another computer over SSH. Kalkidan installs a small helper on the host.
+        </p>
+      )}
       {!hosts.length && !adding && compact && (
         <p className="text-xs text-muted-foreground">No remote hosts connected.</p>
       )}
@@ -126,14 +139,13 @@ export function RemoteHostPicker({
           </label>
           <p className="text-xs text-muted-foreground">Uses your SSH keys and ~/.ssh/config.</p>
           <div className="flex flex-wrap gap-2">
-            <Button type="submit" variant="outline" size="sm" disabled={!!busy || !target.trim()}>
+            <Button type="submit" variant="outline" disabled={!!busy || !target.trim()}>
               Save host
             </Button>
             {(!!hosts.length || compact) && (
               <Button
                 type="button"
                 variant="ghost"
-                size="sm"
                 disabled={!!busy}
                 onClick={() => setAdding(false)}
               >
@@ -146,8 +158,7 @@ export function RemoteHostPicker({
         !compact && (
           <Button
             variant="link"
-            size="sm"
-            className="px-0"
+            className="h-auto px-0"
             disabled={!!busy}
             onClick={() => setAdding(true)}
           >
@@ -175,7 +186,6 @@ export function RemoteHostPicker({
           <div className="flex flex-wrap gap-2">
             <Button
               variant="outline"
-              size="sm"
               disabled={!!busy}
               onClick={() => void act('Checking SSH…', () => api.remoteCheck(selected.id))}
             >
@@ -183,7 +193,6 @@ export function RemoteHostPicker({
             </Button>
             {selected.status === 'checked' && !selected.version && (
               <Button
-                size="sm"
                 disabled={!!busy}
                 onClick={() =>
                   void act('Installing Kalkidan helper…', () => api.remoteInstall(selected.id))
@@ -194,7 +203,6 @@ export function RemoteHostPicker({
             )}
             {selected.version && selected.status !== 'connected' && (
               <Button
-                size="sm"
                 disabled={!!busy}
                 onClick={() => void act('Connecting…', () => api.remoteConnect(selected.id))}
               >
@@ -203,29 +211,19 @@ export function RemoteHostPicker({
             )}
             {selected.version && (
               <Hint label="Updating the Kalkidan helper stops active work on this host">
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  disabled={!!busy}
-                  onClick={() => setConfirmUpdate(true)}
-                >
+                <Button variant="ghost" disabled={!!busy} onClick={() => setConfirmUpdate(true)}>
                   Update Kalkidan helper
                 </Button>
               </Hint>
             )}
             {selected.status === 'connected' && (
-              <Button
-                variant="ghost"
-                size="sm"
-                disabled={!!busy}
-                onClick={() => setConfirmDisconnect(true)}
-              >
+              <Button variant="ghost" disabled={!!busy} onClick={() => setConfirmDisconnect(true)}>
                 Disconnect
               </Button>
             )}
           </div>
           {selected.status === 'connected' && (
-            <p role="status" className="text-xs text-[var(--success)]">
+            <p role="status" className="text-xs text-success">
               Connected · {selected.platform} · {selected.node}
             </p>
           )}

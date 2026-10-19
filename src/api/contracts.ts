@@ -213,6 +213,8 @@ export interface MenuAPI {
   onMenuCommand(callback: (command: MenuCommand) => void): () => void;
   /** Shows the application menu. Windows and Linux hide the menu bar with the title bar. */
   showAppMenu?(): Promise<void>;
+  /** Sets the native light or dark appearance. The window title bar and the page follow it. */
+  setAppearance?(mode: 'system' | 'light' | 'dark'): Promise<void>;
   /** Reports full screen changes. macOS hides the window buttons in full screen. */
   onFullScreenChange?(callback: (fullScreen: boolean) => void): () => void;
 }

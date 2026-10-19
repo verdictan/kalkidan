@@ -79,13 +79,15 @@ test('project workflow mappings can be configured and reopened', async ({ page }
   const connect = page.getByRole('dialog');
   await connect.getByRole('button', { name: 'Atlas roadmap #1', exact: true }).click();
   await connect.getByRole('button', { name: 'Connect project', exact: true }).click();
-  await page.getByRole('button', { name: 'Workflow', exact: true }).click();
+  await page.getByRole('button', { name: 'Tracker actions', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Workflow', exact: true }).click();
   const workflow = page.getByRole('dialog', { name: 'Task workflow', exact: true });
   await workflow.getByRole('combobox', { name: 'Status when work starts' }).click();
   await page.getByRole('option', { name: 'In progress', exact: true }).click();
   await workflow.getByRole('button', { name: 'Save workflow' }).click();
   await expect(workflow).not.toBeVisible();
-  await page.getByRole('button', { name: 'Workflow', exact: true }).click();
+  await page.getByRole('button', { name: 'Tracker actions', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Workflow', exact: true }).click();
   await expect(workflow.getByRole('combobox', { name: 'Status when work starts' })).toContainText(
     'In progress',
   );

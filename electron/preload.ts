@@ -102,6 +102,7 @@ const api: API = {
   reveal: (id) => ipcRenderer.invoke('reveal', id),
   worktree: (id, branch) => ipcRenderer.invoke('worktree', id, branch),
   showAppMenu: () => ipcRenderer.invoke('app-menu'),
+  setAppearance: (mode) => ipcRenderer.invoke('appearance', mode),
   onMenuCommand: (callback) => {
     const listener = (_event: unknown, command: unknown) => {
       if (typeof command === 'string' && (menuCommands as readonly string[]).includes(command))

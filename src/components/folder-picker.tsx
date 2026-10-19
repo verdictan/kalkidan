@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
-import { ArrowUp, File, Folder, Link, RefreshCw } from 'lucide-react';
+import { ArrowUp, File, Folder, FolderOpen, House, Link, RefreshCw } from 'lucide-react';
 import type { API } from '../types';
 import type { DirectoryListing } from '../domain/project';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
+import { Hint } from './hint';
 import {
   Dialog,
   DialogContent,
@@ -18,12 +19,15 @@ export function FolderPicker({
   value,
   hostId,
   disabled,
+  className,
   onSelect,
 }: {
   api: API;
   value: string;
   hostId?: string;
   disabled?: boolean;
+  /** Classes for the trigger button, for example to place it inside a path field. */
+  className?: string;
   onSelect: (path: string) => void;
 }) {
   const [open, setOpen] = useState(false);
@@ -72,16 +76,21 @@ export function FolderPicker({
     ) || [];
   return (
     <>
-      <Button
-        variant="outline"
-        disabled={disabled}
-        onClick={() => {
-          setOpen(true);
-          void browse(value.trim() || '~');
-        }}
-      >
-        Browse folders
-      </Button>
+      <Hint label="Browse folders">
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          aria-label="Browse folders"
+          className={className}
+          disabled={disabled}
+          onClick={() => {
+            setOpen(true);
+            void browse(value.trim() || '~');
+          }}
+        >
+          <FolderOpen />
+        </Button>
+      </Hint>
       <Dialog
         open={open}
         onOpenChange={(next) => {
@@ -89,7 +98,7 @@ export function FolderPicker({
           if (!next) request.current++;
         }}
       >
-        <DialogContent className="sm:max-w-xl max-h-[90dvh] overflow-y-auto">
+        <DialogContent size="lg">
           <DialogHeader>
             <DialogTitle>Choose project folder</DialogTitle>
             <DialogDescription>
@@ -115,31 +124,36 @@ export function FolderPicker({
               Go
             </Button>
           </form>
-          <div className="flex flex-wrap gap-2">
+          <div className="-mt-1 flex flex-wrap items-center gap-1">
             <Button
               variant="ghost"
+              size="sm"
               disabled={loading || !listing || listing.path === listing.parent}
               onClick={() => void browse(listing!.parent)}
             >
-              <ArrowUp size={16} /> Parent folder
+              <ArrowUp /> Parent folder
             </Button>
-            <Button variant="ghost" disabled={loading} onClick={() => void browse('~')}>
-              Home
+            <Button variant="ghost" size="sm" disabled={loading} onClick={() => void browse('~')}>
+              <House /> Home
             </Button>
-            <Button
-              variant="ghost"
-              aria-label="Refresh folder"
-              disabled={loading}
-              onClick={() => void browse(path)}
-            >
-              <RefreshCw size={16} />
-            </Button>
-            <label className="flex items-center gap-2 text-sm">
+            <Hint label="Refresh folder">
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                aria-label="Refresh folder"
+                disabled={loading}
+                onClick={() => void browse(path)}
+              >
+                <RefreshCw />
+              </Button>
+            </Hint>
+            <label className="ml-auto flex items-center gap-2 text-sm text-muted-foreground">
               <input
                 type="checkbox"
+                className="size-3.5 accent-primary"
                 checked={hidden}
                 onChange={(event) => setHidden(event.target.checked)}
-              />{' '}
+              />
               Show hidden
             </label>
           </div>
@@ -151,22 +165,22 @@ export function FolderPicker({
           />
           <div
             role="group"
-            className="h-64 overflow-auto rounded-md border p-1"
+            className="list-box h-60 content-start"
             aria-label="Folder entries"
             aria-busy={loading}
           >
             {loading && (
-              <p role="status" className="p-3 text-sm text-muted-foreground">
+              <p role="status" className="px-2 py-1.5 text-sm text-muted-foreground">
                 Loading folder…
               </p>
             )}
             {error && (
-              <p role="alert" className="p-3 text-sm text-destructive">
+              <p role="alert" className="px-2 py-1.5 text-sm text-destructive">
                 {error}
               </p>
             )}
             {listing && !entries.length && (
-              <p className="p-3 text-sm text-muted-foreground">
+              <p className="px-2 py-1.5 text-sm text-muted-foreground">
                 {listing.entries.length ? 'No matching entries.' : 'This folder is empty.'}
               </p>
             )}
@@ -174,23 +188,23 @@ export function FolderPicker({
               <Button
                 key={entry.path}
                 variant="ghost"
-                className="w-full justify-start"
+                className="w-full justify-start px-2 font-normal disabled:opacity-60 [&_svg]:size-3.5 [&_svg]:text-muted-foreground"
                 disabled={entry.kind === 'file'}
                 onClick={() => void browse(entry.path)}
               >
                 {entry.kind === 'directory' ? (
-                  <Folder size={16} />
+                  <Folder />
                 ) : entry.kind === 'symlink' ? (
-                  <Link size={16} />
+                  <Link />
                 ) : (
-                  <File size={16} />
+                  <File />
                 )}
                 <span className="truncate">{entry.name}</span>
               </Button>
             ))}
           </div>
           <DialogFooter>
-            <Button variant="ghost" onClick={() => setOpen(false)}>
+            <Button variant="outline" onClick={() => setOpen(false)}>
               Cancel
             </Button>
             <Button

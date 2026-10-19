@@ -159,9 +159,8 @@ export function AgentWorkspace({
         document.getElementById('conversation-titlebar-heading') &&
         createPortal(
           <nav className="conversation-toolbar" aria-label="Breadcrumb">
-            <Button
-              variant="ghost"
-              size="sm"
+            <button
+              type="button"
               className="conversation-breadcrumb-repo"
               aria-label={`Back to ${repositoryName}`}
               title={`Back to ${repositoryName}`}
@@ -172,7 +171,7 @@ export function AgentWorkspace({
               }}
             >
               {repositoryName}
-            </Button>
+            </button>
             <ChevronRight size={12} aria-hidden="true" className="shrink-0 text-muted-foreground" />
             <span className="conversation-toolbar-title" title={titleOf(live)} aria-current="page">
               {titleOf(live)}
@@ -200,16 +199,16 @@ export function AgentWorkspace({
                   hidden={key !== selectedKey && key !== sideKey}
                 >
                   {key === sideKey && (
-                    <div className="flex items-center justify-between border-b px-3 py-2">
+                    <div className="flex h-8 shrink-0 items-center justify-between border-b pr-1 pl-3">
                       <span className="text-xs text-muted-foreground">Side session</span>
                       <Button
-                        size="icon"
+                        size="icon-xs"
                         variant="ghost"
                         aria-label="Close side session"
                         disabled={!!running[key]}
                         onClick={() => setSideKey(null)}
                       >
-                        <X size={14} />
+                        <X />
                       </Button>
                     </div>
                   )}

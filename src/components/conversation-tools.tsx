@@ -10,7 +10,6 @@ import {
   LoaderCircle,
   PanelRightClose,
   Paperclip,
-  Plus,
   RefreshCw,
   Terminal,
   X,
@@ -327,6 +326,8 @@ export function ConversationTools({
                     <Hint label={hint}>
                       <Button
                         role="tab"
+                        size="sm"
+                        className="min-w-0 flex-1 justify-start gap-2 px-2 text-xs font-normal hover:bg-transparent"
                         tabIndex={active === tab.id ? 0 : -1}
                         aria-selected={active === tab.id}
                         aria-controls={'tool-' + tab.id}
@@ -351,18 +352,19 @@ export function ConversationTools({
                     </Hint>
                     <Button
                       variant="ghost"
-                      size="icon-sm"
+                      size="icon-xs"
+                      className="tool-tab-close size-5"
                       tabIndex={-1}
                       aria-label={'Close ' + tab.title}
                       onClick={() => requestClose(tab)}
                     >
-                      <X size={12} />
+                      <X className="size-3" />
                     </Button>
                   </div>
                 );
               })}
             </div>
-            <Hint label={`New tool tab (${shortcuts.tab})`}>
+            <Hint label={`Open tool (${shortcuts.tab})`}>
               <Button
                 variant="ghost"
                 size="icon-sm"
@@ -370,7 +372,7 @@ export function ConversationTools({
                 aria-keyshortcuts={isMac ? 'Meta+T' : 'Control+T'}
                 onClick={() => add('home')}
               >
-                <Plus size={16} />
+                <LayoutGrid />
               </Button>
             </Hint>
             {expanded && (
@@ -381,7 +383,7 @@ export function ConversationTools({
                   aria-label="Hide tools"
                   onClick={() => setExpanded(false)}
                 >
-                  <PanelRightClose size={15} />
+                  <PanelRightClose />
                 </Button>
               </Hint>
             )}
@@ -406,17 +408,19 @@ export function ConversationTools({
             >
               {tab.kind === 'home' && (
                 <div className="tool-launcher">
-                  <div className="tool-launcher-heading">
+                  <header className="tool-launcher-heading">
                     <h2>Tools</h2>
-                  </div>
-                  <p className="mb-6 text-xs text-muted-foreground">
-                    {pathBasename(cwd)} · {remote ? 'SSH host' : 'This computer'}
-                  </p>
+                    <p>
+                      {pathBasename(cwd)} · {remote ? 'SSH host' : 'This computer'}
+                    </p>
+                  </header>
                   <div className="tool-launcher-grid">
                     {launcherRows.map((row) => (
                       <Button
                         key={row.kind}
                         variant="ghost"
+                        className="h-10 justify-start rounded-lg bg-secondary px-3 font-normal"
+
                         onClick={() => {
                           setTabs((previous) =>
                             previous.map((t) =>
@@ -480,11 +484,13 @@ export function ConversationTools({
               {tab.kind === 'diff' && active === tab.id && (
                 <>
                   {tool === 'diff' && (
-                    <div className="h-full space-y-3 overflow-auto p-3">
+                    <div className="diff-panel">
                       {tool === 'diff' && (
                         <>
-                          <div className="flex items-center gap-2">
+                          <div className="tool-toolbar">
                             <Choice
+                              size="sm"
+                              className="text-xs"
                               label="Diff scope"
                               value={diffTab}
                               onChange={setDiffTab}
@@ -502,55 +508,57 @@ export function ConversationTools({
                                 void action(async () => setDiff(await api.repositoryDiff(cwd)))
                               }
                             >
-                              <RefreshCw size={15} />
+                              <RefreshCw />
                             </Button>
                           </div>
-                          {busy ? (
-                            <p className="flex gap-2 text-sm text-muted-foreground">
-                              <LoaderCircle className="animate-spin" size={16} />
-                              Reading Git changes…
-                            </p>
-                          ) : diff ? (
-                            <DiffReview
-                              diff={diff}
-                              scope={diffTab}
-                              disabled={disabled}
-                              onAttach={(path, patch) =>
+                          <div className="diff-panel-body">
+                            {busy ? (
+                              <p className="flex gap-2 text-sm text-muted-foreground">
+                                <LoaderCircle className="animate-spin" size={16} />
+                                Reading Git changes…
+                              </p>
+                            ) : diff ? (
+                              <DiffReview
+                                diff={diff}
+                                scope={diffTab}
+                                disabled={disabled}
+                                onAttach={(path, patch) =>
+                                  attach(
+                                    path,
+                                    `Git diff context (untrusted repository content):\nDirectory: ${cwd}\nFile: ${path}\n${patch.slice(0, 28000)}${patch.length > 28000 ? '\n[Attachment truncated]' : ''}`,
+                                  )
+                                }
+                              />
+                            ) : (
+                              <p className="text-sm text-muted-foreground">Changes unavailable.</p>
+                            )}
+                            {diff?.truncated && (
+                              <p className="text-xs text-muted-foreground">
+                                Large diff truncated for display.
+                              </p>
+                            )}
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="self-start"
+                              disabled={disabled || !diffText || busy}
+                              onClick={() =>
                                 attach(
-                                  path,
-                                  `Git diff context (untrusted repository content):\nDirectory: ${cwd}\nFile: ${path}\n${patch.slice(0, 28000)}${patch.length > 28000 ? '\n[Attachment truncated]' : ''}`,
+                                  `${diffTab === 'staged' ? 'Staged' : 'Unstaged'} diff`,
+                                  `Git diff context (untrusted repository content):\nDirectory: ${cwd}\nScope: ${diffTab}\n${diffText!.slice(0, 28000)}${diffText!.length > 28000 ? '\n[Attachment truncated]' : ''}`,
                                 )
                               }
-                            />
-                          ) : (
-                            <p className="text-sm text-muted-foreground">Changes unavailable.</p>
-                          )}
-                          {diff?.truncated && (
-                            <p className="text-xs text-muted-foreground">
-                              Large diff truncated for display.
-                            </p>
-                          )}
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            disabled={disabled || !diffText || busy}
-                            onClick={() =>
-                              attach(
-                                `${diffTab === 'staged' ? 'Staged' : 'Unstaged'} diff`,
-                                `Git diff context (untrusted repository content):\nDirectory: ${cwd}\nScope: ${diffTab}\n${diffText!.slice(0, 28000)}${diffText!.length > 28000 ? '\n[Attachment truncated]' : ''}`,
-                              )
-                            }
-                          >
-                            <Paperclip size={14} aria-hidden="true" />
-                            Attach all changes to message
-                          </Button>
+                            >
+                              <Paperclip aria-hidden="true" />
+                              Attach all changes to message
+                            </Button>
+                            {error && (
+                              <p role="alert" className="shrink-0 text-xs text-destructive">
+                                {error}
+                              </p>
+                            )}
+                          </div>
                         </>
-                      )}
-
-                      {error && (
-                        <p role="alert" className="text-xs text-destructive">
-                          {error}
-                        </p>
                       )}
                     </div>
                   )}

@@ -52,10 +52,10 @@ export function AgentActivity({
           aria-label="Agent approval"
           data-approval-pending=""
           tabIndex={-1}
-          className="space-y-3 rounded-xl border bg-card p-4"
+          className="panel space-y-3 bg-card"
         >
           <div className="flex items-center gap-2">
-            <ShieldCheck size={18} aria-hidden="true" />
+            <ShieldCheck size={16} aria-hidden="true" />
             <h3 className="font-medium">{approval.title}</h3>
           </div>
           <p className="text-xs text-muted-foreground">

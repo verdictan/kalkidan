@@ -1,12 +1,12 @@
 import { StatusIcon, trackerColumns } from './tracker-list';
 import { MessageSquare, Plus } from 'lucide-react';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { pathBasename, plural } from '../lib/platform';
 import type { TrackerBoard, TrackerItem, Session } from '../types';
 import { Card, CardContent } from './ui/card';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
-import { MoreHorizontal } from 'lucide-react';
+import { MoreButton } from './ui/more-button';
 import {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -37,9 +37,34 @@ export function TrackerBoard({
   const [announcement, setAnnouncement] = useState('');
   const options = board.statusField?.options || [];
   const columns = trackerColumns(board);
+  // Columns that do not fit scroll sideways. A faded edge shows that more columns are there.
+  const scroller = useRef<HTMLDivElement>(null);
+  const [overflow, setOverflow] = useState({ start: false, end: false });
+  useEffect(() => {
+    const element = scroller.current;
+    if (!element) return;
+    const measure = () => {
+      const start = element.scrollLeft > 1;
+      const end = element.scrollLeft + element.clientWidth < element.scrollWidth - 1;
+      setOverflow((current) =>
+        current.start === start && current.end === end ? current : { start, end },
+      );
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    element.addEventListener('scroll', measure, { passive: true });
+    return () => {
+      observer.disconnect();
+      element.removeEventListener('scroll', measure);
+    };
+  }, [columns.length]);
   return (
     <div
+      ref={scroller}
       className="tracker-board"
+      data-overflow-start={overflow.start || undefined}
+      data-overflow-end={overflow.end || undefined}
       role="region"
       aria-label="Tracker board"
       aria-busy={busy}
@@ -92,7 +117,7 @@ export function TrackerBoard({
               {onCreate && (
                 <Button
                   variant="ghost"
-                  size="icon-sm"
+                  size="icon-xs"
                   className="tracker-column-add"
                   aria-label={`New task in ${column.name}`}
                   disabled={busy}
@@ -138,12 +163,12 @@ export function TrackerBoard({
                       setOver(null);
                     }}
                     data-dragging={dragged === item.id || undefined}
-                    className="tracker-task gap-2 rounded-lg py-3 shadow-none"
+                    className="tracker-task relative gap-0 rounded-lg p-3 pr-8 shadow-none has-[.tracker-task-title:focus-visible]:shadow-[var(--focus-ring)]"
                   >
-                    <CardContent className="space-y-2 px-3 pr-10">
+                    <CardContent className="flex flex-col items-start gap-1 p-0">
                       <Button
                         variant="ghost"
-                        className="h-auto max-w-full justify-start p-0 text-left text-[13px] font-medium whitespace-normal break-words leading-snug"
+                        className="tracker-task-title h-auto max-w-full justify-start p-0 text-left text-sm leading-5 font-medium whitespace-normal break-words hover:bg-transparent focus-visible:ring-0"
                         onClick={() => onOpen(item)}
                       >
                         {item.title}
@@ -153,23 +178,20 @@ export function TrackerBoard({
                         {item.number ? ` #${item.number}` : ''}
                       </p>
                       {count > 0 && (
-                        <Badge variant="outline">
-                          <MessageSquare size={11} />
+                        <Badge variant="outline" className="mt-1">
+                          <MessageSquare size={12} />
                           {plural(count, 'linked session')}
                         </Badge>
                       )}
                       {board.statusField && (
                         <DropdownMenu>
                           <DropdownMenuTrigger asChild>
-                            <Button
-                              variant="ghost"
-                              size="icon-sm"
-                              className="tracker-task-menu"
-                              aria-label={`Move task: ${item.title}`}
+                            <MoreButton
+                              size="xs"
+                              className="tracker-task-menu absolute top-2 right-2 text-muted-foreground"
+                              label={`Move task: ${item.title}`}
                               disabled={busy}
-                            >
-                              <MoreHorizontal size={14} />
-                            </Button>
+                            />
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="end">
                             <DropdownMenuLabel>Move to</DropdownMenuLabel>
@@ -190,9 +212,7 @@ export function TrackerBoard({
                   </Card>
                 );
               })}
-              {!tasks.length && (
-                <p className="py-6 text-center text-xs text-muted-foreground">No tasks</p>
-              )}
+              {!tasks.length && <p className="tracker-column-empty">No tasks</p>}
             </div>
           </section>
         );

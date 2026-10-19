@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
 import {
-  MoreHorizontal,
   Pencil,
   Pin,
   MessageSquarePlus,
@@ -14,6 +13,7 @@ import {
 import type { API, Session, SessionOrganization } from '../types';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
+import { MoreButton } from './ui/more-button';
 import {
   Dialog,
   DialogContent,
@@ -137,9 +137,7 @@ export function SessionMenu({
       )}
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <Button variant="ghost" size="icon" aria-label="Session actions" disabled={busy}>
-            <MoreHorizontal size={17} />
-          </Button>
+          <MoreButton label="Session actions" disabled={busy} />
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="w-64">
           <DropdownMenuItem onSelect={rename}>
@@ -234,7 +232,7 @@ export function SessionMenu({
       </DropdownMenu>
       {error && (
         <Dialog open onOpenChange={() => setError('')}>
-          <DialogContent role="alertdialog">
+          <DialogContent size="sm" role="alertdialog">
             <DialogHeader>
               <DialogTitle className="text-destructive">Could not complete action</DialogTitle>
               <DialogDescription className="break-words">{error}</DialogDescription>
@@ -262,7 +260,7 @@ export function SessionMenu({
         open={dialog === 'rename' || dialog === 'worktree'}
         onOpenChange={(open) => !open && setDialog(null)}
       >
-        <DialogContent>
+        <DialogContent size="md">
           <DialogHeader>
             <DialogTitle>
               {dialog === 'rename' ? 'Rename session' : 'Fork in a new worktree'}
@@ -274,6 +272,7 @@ export function SessionMenu({
             </DialogDescription>
           </DialogHeader>
           <form
+            className="grid gap-4"
             onSubmit={(e) => {
               e.preventDefault();
               void perform(async () => {
@@ -290,7 +289,7 @@ export function SessionMenu({
               value={value}
               onChange={(e) => setValue(e.target.value)}
             />
-            <DialogFooter className="mt-4">
+            <DialogFooter>
               <Button type="button" variant="outline" onClick={() => setDialog(null)}>
                 Cancel
               </Button>

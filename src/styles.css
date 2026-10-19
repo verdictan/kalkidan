@@ -1,6 +1,8 @@
 @import 'tailwindcss';
 @import 'tw-animate-css';
 @import './styles/theme.css';
-@import './styles/projects.css';
-@import './styles/conversation.css';
-@import './styles/tools.css';
+/* App CSS sits in the components layer, so Tailwind utilities in JSX can override it. */
+@import './styles/components.css' layer(components);
+@import './styles/projects.css' layer(components);
+@import './styles/conversation.css' layer(components);
+@import './styles/tools.css' layer(components);

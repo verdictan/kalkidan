@@ -217,13 +217,20 @@ test('settings shows agent and remote controls without history import', async ({
   await page.goto(url);
   await page.getByRole('button', { name: 'Settings', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: 'Settings' });
-  await expect(dialog.getByText('Local agents', { exact: true })).toBeVisible();
+  await expect(dialog.getByRole('tab', { name: 'Agents & tools' })).toHaveAttribute(
+    'aria-selected',
+    'true',
+  );
+  await expect(dialog.getByText('Local agents and tools', { exact: true })).toBeVisible();
+  await dialog.getByRole('tab', { name: 'Remote hosts' }).click();
   await expect(dialog.getByRole('button', { name: 'Add host', exact: true })).toBeVisible();
   await expect(dialog.getByText('Import chat history', { exact: true })).toHaveCount(0);
   await expect(dialog.getByRole('button', { name: 'Preview chat history' })).toHaveCount(0);
-  await expect(dialog.getByRole('button', { name: 'Done', exact: true })).toBeInViewport();
+  await dialog.getByRole('tab', { name: 'General' }).click();
+  await expect(dialog.getByRole('group', { name: 'Appearance' })).toBeVisible();
+  await expect(dialog.getByRole('button', { name: 'Close', exact: true })).toBeInViewport();
   await page.screenshot({ path: 'test-results/settings-modal.png', fullPage: true });
-  await dialog.getByRole('button', { name: 'Done', exact: true }).click();
+  await dialog.getByRole('button', { name: 'Close', exact: true }).click();
   await expect(dialog).toHaveCount(0);
 });
 
