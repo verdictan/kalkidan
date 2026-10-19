@@ -52,7 +52,8 @@ finally:
     os.close(fd)
 `;
 interface Shell {
-  child: ChildProcessWithoutNullStreams;
+  child?: ChildProcessWithoutNullStreams;
+  pty?: import('node-pty').IPty;
   output: string;
   cursor: number;
   exited: boolean;
@@ -66,6 +67,26 @@ export class PtyTerminal {
       throw new Error('Close an existing terminal before opening another.');
     for (const [id, shell] of this.shells) if (shell.exited) this.shells.delete(id);
     const id = randomUUID();
+    if (process.platform === 'win32') {
+      const { spawn: spawnPty } = await import('node-pty');
+      const pty = spawnPty('powershell.exe', ['-NoLogo'], {
+        cwd,
+        cols,
+        rows,
+        name: 'xterm-256color',
+        env: process.env as Record<string, string>,
+      });
+      const shell: Shell = { pty, output: '', cursor: 0, exited: false };
+      this.shells.set(id, shell);
+      pty.onData((data) => {
+        shell.output = (shell.output + data).slice(-1000000);
+        shell.cursor += data.length;
+      });
+      pty.onExit(() => {
+        shell.exited = true;
+      });
+      return { id };
+    }
     const child = spawn('python3', ['-u', '-c', helper, String(cols), String(rows)], {
       cwd,
       env: { ...process.env, NO_COLOR: undefined },
@@ -137,7 +158,8 @@ export class PtyTerminal {
     if (s.exited) throw new Error('Terminal has exited.');
     if (typeof input !== 'string' || input.length > 100000)
       throw new Error('Terminal input too long');
-    s.child.stdin.write(JSON.stringify({ input }) + '\n');
+    if (s.pty) s.pty.write(input);
+    else s.child!.stdin.write(JSON.stringify({ input }) + '\n');
   }
   private dimensions(cols: number, rows: number) {
     if (![cols, rows].every((n) => Number.isInteger(n) && n >= 2 && n <= 500))
@@ -146,13 +168,19 @@ export class PtyTerminal {
   resize(id: string, cols: number, rows: number) {
     this.dimensions(cols, rows);
     const s = this.get(id);
-    if (!s.exited) s.child.stdin.write(JSON.stringify({ cols, rows }) + '\n');
+    if (!s.exited) {
+      if (s.pty) s.pty.resize(cols, rows);
+      else s.child!.stdin.write(JSON.stringify({ cols, rows }) + '\n');
+    }
   }
   close(id: string) {
     const s = this.shells.get(id);
     if (!s || s.exited) return;
-    s.child.stdin.end();
-    s.child.kill('SIGTERM');
+    if (s.pty) s.pty.kill();
+    else {
+      s.child!.stdin.end();
+      s.child!.kill('SIGTERM');
+    }
     s.exited = true;
   }
   closeAll() {

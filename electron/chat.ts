@@ -1,5 +1,6 @@
+import { executableCandidates } from './platform';
 import { runtimeConfig } from './config/runtime';
-import { access, readdir } from 'node:fs/promises';
+import { access, readdir, readFile } from 'node:fs/promises';
 import { constants } from 'node:fs';
 import { join, isAbsolute } from 'node:path';
 import { homedir } from 'node:os';
@@ -114,7 +115,7 @@ export function applyChatEvent(run: ChatRun, row: any) {
 
 export async function executable(
   agent: Agent | 'gh',
-): Promise<{ path: string; env: NodeJS.ProcessEnv }> {
+): Promise<{ path: string; env: NodeJS.ProcessEnv; args?: string[] }> {
   const config = runtimeConfig();
   let env = { ...process.env };
   const configured = agent === 'gh' ? undefined : config.agentExecutable[agent];
@@ -126,10 +127,11 @@ export async function executable(
   }
   delete env.ELECTRON_RUN_AS_NODE;
   delete env.CLAUDECODE;
-  const candidates = (env.PATH || '').split(':').map((path) => join(path, agent));
+  const candidates = executableCandidates(agent, env);
   try {
+    if (process.platform === 'win32') throw new Error('Use Windows PATH');
     const { stdout } = await exec(
-      process.env.SHELL || '/bin/zsh',
+      process.env.SHELL || '/bin/sh',
       ['-ilc', `printf '__CG_PATH__%s\\n' "$PATH"; command -v ${agent}`],
       { timeout: 10000 },
     );
@@ -147,7 +149,11 @@ export async function executable(
     '/opt/homebrew/bin/' + agent,
     '/usr/local/bin/' + agent,
   );
-  if (agent === 'codex') {
+  if (process.platform === 'win32') {
+    candidates.push(join(homedir(), '.local', 'bin', agent + '.exe'));
+    if (env.APPDATA) candidates.push(join(env.APPDATA, 'npm', agent + '.cmd'));
+  }
+  if (agent === 'codex' && process.platform === 'darwin') {
     candidates.push('/Applications/Codex.app/Contents/Resources/codex');
     const extensions = join(homedir(), '.vscode/extensions');
     try {
@@ -172,6 +178,19 @@ export async function executable(
   for (const path of candidates) {
     try {
       await access(path, constants.X_OK);
+      if (process.platform === 'win32' && path.toLowerCase().endsWith('.cmd')) {
+        // Run the npm JavaScript entry point directly. Do not interpolate agent arguments into cmd.exe.
+        const shim = await readFile(path, 'utf8');
+        const entry = shim.match(/%dp0%[\\/]([^"\r\n]+\.(?:m?js|cjs))/i)?.[1];
+        if (!entry) continue;
+        const script = join(path, '..', entry);
+        await access(script);
+        return {
+          path: process.execPath,
+          args: [script],
+          env: { ...env, ELECTRON_RUN_AS_NODE: '1' },
+        };
+      }
       return { path, env };
     } catch {}
   }

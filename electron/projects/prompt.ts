@@ -1,3 +1,4 @@
+import { pathContains } from '../platform';
 import type { Project, ProjectGroup, ChatOptions } from '../../src/types';
 import { trackerConnection } from '../../src/domain/tracker';
 import type { TrackerRegistry } from '../trackers/registry';
@@ -11,7 +12,7 @@ export function createProjectPrompt(dependencies: {
       throw new Error('Enter a message of up to 100,000 characters.');
     const repo = dependencies
       .projects()
-      .filter((p) => p.hostId === hostId && (cwd === p.path || cwd.startsWith(p.path + '/')))
+      .filter((p) => p.hostId === hostId && pathContains(p.path, cwd))
       .sort((a, b) => b.path.length - a.path.length)[0];
     const group = dependencies.groups().find((g) => repo && g.repoIds.includes(repo.id));
     if (!group) {

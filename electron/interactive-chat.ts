@@ -164,10 +164,10 @@ export class InteractiveChatRunner {
       args.splice(-2, 2, '--resume', forkFrom, '--fork-session');
       run.state.sessionId = '';
     }
-    const child = spawn(resolved.path, args, {
+    const child = spawn(resolved.path, [...(resolved.args || []), ...args], {
       cwd: run.session.cwd,
       env: resolved.env,
-      detached: true,
+      detached: process.platform !== 'win32',
       stdio: 'pipe',
     });
     run.process = child;
@@ -555,11 +555,13 @@ export class InteractiveChatRunner {
     if (run.process?.pid) {
       const pid = run.process.pid;
       try {
-        process.kill(-pid, 'SIGTERM');
+        if (process.platform === 'win32') run.process!.kill('SIGTERM');
+        else process.kill(-pid, 'SIGTERM');
       } catch {}
       run.killTimer = setTimeout(() => {
         try {
-          process.kill(-pid, 'SIGKILL');
+          if (process.platform === 'win32') run.process!.kill('SIGKILL');
+          else process.kill(-pid, 'SIGKILL');
         } catch {}
       }, 2000);
       run.killTimer.unref();
@@ -585,7 +587,8 @@ export class InteractiveChatRunner {
       if (run.killTimer) clearTimeout(run.killTimer);
       if (run.process?.pid) {
         try {
-          process.kill(-run.process.pid, 'SIGKILL');
+          if (process.platform === 'win32') run.process.kill('SIGKILL');
+          else process.kill(-run.process.pid, 'SIGKILL');
         } catch {}
       }
     }

@@ -7,7 +7,7 @@
   "main": "dist-electron/main.cjs",
   "scripts": {
     "dev": "npm run build:electron && concurrently -k \"vite --host 127.0.0.1\" \"wait-on http://127.0.0.1:5173 && electron . --dev\"",
-    "build:electron": "esbuild electron/main.ts electron/preload.ts electron/remote-agent.ts --bundle --platform=node --external:electron --outdir=dist-electron --out-extension:.js=.cjs",
+    "build:electron": "esbuild electron/main.ts electron/preload.ts electron/remote-agent.ts --bundle --platform=node --external:electron --external:node-pty --outdir=dist-electron --out-extension:.js=.cjs",
     "build": "tsc --noEmit && vite build && npm run build:electron",
     "test": "tsx --test tests/*.test.ts",
     "dist:mac": "npm run build && electron-builder --mac",
@@ -18,7 +18,10 @@
     "format": "prettier --write \"{src,electron,tests}/**/*.{ts,tsx}\"",
     "format:check": "prettier --check \"{src,electron,tests}/**/*.{ts,tsx}\"",
     "check:architecture": "node scripts/check-boundaries.mjs",
-    "test:ci:ui": "playwright test tests/onboarding.spec.ts tests/folder-picker.spec.ts tests/github-cli-settings.spec.ts tests/project-docs.spec.ts tests/repository-refresh.spec.ts --workers=2 --reporter=line"
+    "test:ci:ui": "playwright test tests/onboarding.spec.ts tests/folder-picker.spec.ts tests/github-cli-settings.spec.ts tests/project-docs.spec.ts tests/repository-refresh.spec.ts --workers=2 --reporter=line",
+    "dist:linux": "npm run build && electron-builder --linux",
+    "dist:win": "npm run build && electron-builder --win",
+    "package:release": "node scripts/package-release.mjs"
   },
   "build": {
     "appId": "dev.kalkidan.desktop",
@@ -38,7 +41,28 @@
       ],
       "icon": "build/icons/icon.icns"
     },
-    "artifactName": "${productName}-${version}-${os}-${arch}.${ext}"
+    "artifactName": "${productName}-${version}-${os}-${arch}.${ext}",
+    "linux": {
+      "target": [
+        "AppImage",
+        "deb"
+      ],
+      "category": "Development",
+      "icon": "public/brand/icon-512.png",
+      "maintainer": "Verdictan <support@verdictan.com>"
+    },
+    "win": {
+      "target": [
+        "nsis",
+        "zip"
+      ],
+      "icon": "build/icons/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true
+    }
   },
   "dependencies": {
     "@iarna/toml": "^2.2.5",
@@ -57,6 +81,7 @@
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "lucide-react": "^1.59.0",
+    "node-pty": "1.1.0",
     "radix-ui": "^1.8.1",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
@@ -85,5 +110,6 @@
   "engines": {
     "node": ">=22.12.0"
   },
-  "packageManager": "npm@10.9.9"
+  "packageManager": "npm@10.9.9",
+  "homepage": "https://github.com/verdictan/kalkidan"
 }
