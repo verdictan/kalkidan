@@ -1,3 +1,4 @@
+import { commandShell, pathContains } from './platform';
 import { lstat, open, realpath } from 'node:fs/promises';
 import { resolve, relative, isAbsolute } from 'node:path';
 import { spawn, type ChildProcess } from 'node:child_process';
@@ -14,7 +15,8 @@ export class CommandTerminal {
       throw new Error('Stop an existing command before starting another.');
     for (const [id, run] of this.runs)
       if (this.runs.size >= 40 && run.state.status !== 'running') this.runs.delete(id);
-    const child = spawn(process.env.SHELL || '/bin/sh', ['-lc', command], {
+    const shell = commandShell(command);
+    const child = spawn(shell.file, shell.args, {
       cwd,
       detached: process.platform !== 'win32',
       env: { ...process.env, TERM: 'dumb', NO_COLOR: '1' },
@@ -110,7 +112,7 @@ export async function repositoryDiff(cwd: string): Promise<RepositoryDiff> {
       }
       const canonical = await realpath(target);
       const rel = relative(root, canonical);
-      if (rel === '..' || rel.startsWith('../') || isAbsolute(rel)) {
+      if (!pathContains(root, canonical)) {
         newFiles.push({ path, reason: 'File is outside the repository.' });
         continue;
       }

@@ -84,8 +84,8 @@ export class GitHubAuth {
         stdio: 'pipe',
         env: {
           ...process.env,
-          GH_BROWSER: '/usr/bin/true',
-          BROWSER: '/usr/bin/true',
+          GH_BROWSER: process.platform === 'win32' ? 'cmd /c exit 0' : '/usr/bin/true',
+          BROWSER: process.platform === 'win32' ? 'cmd /c exit 0' : '/usr/bin/true',
           NO_COLOR: '1',
         },
       }) as ChildProcessWithoutNullStreams;
@@ -118,7 +118,7 @@ export class GitHubAuth {
           status: 'error',
           message:
             error.code === 'ENOENT'
-              ? 'Install GitHub CLI (brew install gh), then retry.'
+              ? 'Install GitHub CLI, then retry.'
               : 'Could not start GitHub authorization. Try again.',
         };
       });
@@ -152,10 +152,7 @@ export class GitHubAuth {
       if (generation === this.generation)
         this.state = {
           status: 'error',
-          message:
-            error.code === 'ENOENT'
-              ? 'Install GitHub CLI (brew install gh), then retry.'
-              : error.message,
+          message: error.code === 'ENOENT' ? 'Install GitHub CLI, then retry.' : error.message,
         };
     }
     return this.snapshot();

@@ -1,3 +1,5 @@
+import { spawn } from 'node:child_process';
+import { pathContains } from './platform';
 import { githubCliCheck } from './github-cli-check';
 import { listDirectory } from './storage/directory-list';
 import {
@@ -293,11 +295,7 @@ app.whenReady().then(async () => {
   async function toolDirectory(cwd: string) {
     if (typeof cwd !== 'string') throw new Error('Choose a repository first.');
     const canonical = await realpath(cwd);
-    if (
-      !projects.some(
-        (p) => !p.hostId && (canonical === p.path || canonical.startsWith(p.path + '/')),
-      )
-    )
+    if (!projects.some((p) => !p.hostId && pathContains(p.path, canonical)))
       throw new Error('Add this session folder to a project before using repository tools.');
     if (!(await stat(canonical)).isDirectory()) throw new Error('Repository folder unavailable.');
     return canonical;
@@ -423,9 +421,7 @@ app.whenReady().then(async () => {
       const path = args[0];
       if (
         typeof path !== 'string' ||
-        !projects.some(
-          (p) => p.hostId === hostId && (path === p.path || path.startsWith(p.path + '/')),
-        )
+        !projects.some((p) => p.hostId === hostId && pathContains(p.path, path))
       )
         throw new Error('Add this remote folder to the project first.');
     }
@@ -808,11 +804,7 @@ app.whenReady().then(async () => {
         git: info,
         warnings: scan.warnings,
         sessions: sessionLibrary
-          .decorate(
-            scan.sessions.filter((s) =>
-              roots.some((root) => s.cwd === root || s.cwd.startsWith(root + '/')),
-            ),
-          )
+          .decorate(scan.sessions.filter((s) => roots.some((root) => pathContains(root, s.cwd))))
           .filter((s) => !s.organization?.importHidden),
       };
     })();
@@ -834,10 +826,20 @@ app.whenReady().then(async () => {
     const p = project(id);
     if (p.hostId) throw new Error('Use the in-app Terminal for remote repositories.');
     await stat(p.path);
-    if (process.platform !== 'darwin')
-      throw new Error(
-        'Launching Terminal is available on macOS. Build or run this app on your Mac.',
-      );
+    if (process.platform !== 'darwin') {
+      const binary = process.platform === 'win32' ? 'powershell.exe' : 'x-terminal-emulator';
+      const child = spawn(binary, process.platform === 'win32' ? ['-NoExit'] : [], {
+        cwd: p.path,
+        detached: true,
+        stdio: 'ignore',
+      });
+      await new Promise<void>((resolve, reject) => {
+        child.once('spawn', resolve);
+        child.once('error', reject);
+      });
+      child.unref();
+      return;
+    }
     const command = launchCommand(p.path, agent);
     await exec(
       '/usr/bin/osascript',
@@ -970,6 +972,10 @@ app.whenReady().then(async () => {
       if (action === 'finder') {
         const error = await shell.openPath(session.cwd);
         if (error) throw new Error(error);
+      } else if (process.platform !== 'darwin') {
+        await shell.openExternal(
+          `${action === 'vscode' ? 'vscode' : 'cursor'}://file/${session.cwd.replaceAll('\\', '/')}`,
+        );
       } else
         await exec(
           'open',

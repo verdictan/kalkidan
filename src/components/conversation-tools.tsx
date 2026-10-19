@@ -322,7 +322,7 @@ export function ConversationTools({
                     <h2>New tab</h2>
                   </div>
                   <p className="mb-6 text-xs text-muted-foreground">
-                    {cwd.split('/').filter(Boolean).at(-1)} · {remote ? 'SSH host' : 'This Mac'}
+                    {cwd.split('/').filter(Boolean).at(-1)} · {remote ? 'SSH host' : 'This computer'}
                   </p>
                   <div className="tool-launcher-grid">
                     {(['browser', 'terminal', 'diff'] as const).map((kind, i) => {

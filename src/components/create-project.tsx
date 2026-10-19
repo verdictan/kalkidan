@@ -164,7 +164,7 @@ export function CreateProject({
             value={location}
             onChange={setLocation}
             options={[
-              { value: 'local', label: 'This Mac' },
+              { value: 'local', label: 'This computer' },
               { value: 'remote', label: 'Remote SSH host' },
             ]}
           />
