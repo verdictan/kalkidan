@@ -106,3 +106,28 @@ test('project and repository setup return to the checklist', async ({ page }) =>
     page.getByRole('heading', { name: 'From repository to your first session' }),
   ).toBeVisible();
 });
+
+test('a missing agent check shows an error, and an empty overview has one New project action', async ({
+  page,
+}) => {
+  const errors: string[] = [];
+  page.on('pageerror', (error) => errors.push(error.message));
+  await page.addInitScript(() => {
+    (window as any).workspace = {
+      trackerProviders: async () => [],
+      snapshot: async () => ({
+        projects: [],
+        groups: [],
+        sessions: [],
+        warnings: [],
+        platform: 'darwin',
+      }),
+    };
+  });
+  await page.goto('http://127.0.0.1:5173');
+  const dialog = page.getByRole('dialog');
+  await expect(dialog).toContainText('Could not check agents');
+  await page.getByRole('button', { name: 'Set up later' }).click();
+  await expect(page.getByRole('button', { name: 'New project', exact: true })).toHaveCount(1);
+  expect(errors).toEqual([]);
+});

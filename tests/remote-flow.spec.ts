@@ -4,7 +4,7 @@ test('remote project flow checks and installs the host, picks remote folders, an
   page,
 }) => {
   await page.addInitScript(() => {
-    // This test starts from an empty workspace. Skip the first-run onboarding.
+    // An empty workspace opens the first-run onboarding. This test does not use it.
     localStorage.setItem('kalkidan:onboarding:v1', 'dismissed');
     let host: any;
     const groups: any[] = [];
@@ -76,8 +76,7 @@ test('remote project flow checks and installs the host, picks remote folders, an
     };
   });
   await page.goto('http://127.0.0.1:5173');
-  // The empty overview shows the action in the header and in the empty state.
-  await page.getByRole('button', { name: 'New project', exact: true }).first().click();
+  await page.getByRole('button', { name: 'New project', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: 'Create project', exact: true });
   await dialog.getByLabel('Project name', { exact: true }).fill('Remote platform');
   await dialog.getByRole('combobox', { name: 'Project execution host' }).click();
