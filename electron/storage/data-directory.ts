@@ -1,7 +1,11 @@
 import { existsSync, mkdirSync, renameSync } from 'node:fs';
 import { join } from 'node:path';
 
-export function dataDirectory(home: string, appData: string, testDirectory?: string) {
+export function dataDirectory(
+  home: string,
+  appData: string | (() => string),
+  testDirectory?: string,
+) {
   // Tests must never inspect or migrate the user's real library.
   if (testDirectory) {
     mkdirSync(testDirectory, { recursive: true, mode: 0o700 });
@@ -9,8 +13,9 @@ export function dataDirectory(home: string, appData: string, testDirectory?: str
   }
   const destination = join(home, '.kalkidan');
   if (existsSync(destination)) return destination;
+  const legacyRoot = typeof appData === 'function' ? appData() : appData;
   const previous = ['kalkidan', 'common-ground', 'Common Ground']
-    .map((name) => join(appData, name))
+    .map((name) => join(legacyRoot, name))
     .find((path) => existsSync(path));
   if (previous) {
     // Rename the whole profile before Electron opens it. If migration fails,

@@ -479,9 +479,11 @@ A failed release fails its main build. It does not cause an endless timer retry 
 
 The [Kalkidan multibranch job](https://jenkins.dennisotugo.com/job/verdictan/job/kalkidan/) uses the root `Jenkinsfile` and the trusted `keeptrusts` shared library. Pull requests and discovered version tags run validation only. GitHub Actions workflows are not used.
 
+The repository webhook sends push and pull-request events to `https://dennisotugo.com/github-webhook/`. This public route forwards only the webhook endpoint. The Jenkins dashboard stays on its private hostname.
+
 The controller-owned `verdictan/trusted/kalkidan-release` job uses `verdictanKalkidanPipeline()`. It accepts `SOURCE_SHA`, `SOURCE_BRANCH`, and `SOURCE_BUILD`. It verifies the revision against the main/master build record. The job has no polling timer. Allow `verdictan-ci` to read and build this job; the job runs as `verdictan-release`.
 
-Validation uses `linux-untrusted` and BuildKit. Packaging uses `windows-vm`, `ubuntu-vm`, and `macos-untrusted`. The macOS desktop check uses `macos`. The Windows build account must have an active desktop session; a temporary scheduled task runs its desktop check there. The task and release-workspace processes are removed after the test. Local user installations are not stopped.
+Validation uses `linux-untrusted` and BuildKit. Packaging uses `windows-vm`, `ubuntu-vm`, and `macos-untrusted`. The macOS desktop check uses `macos`. The Linux worker needs GTK 3, NSS, GBM, ALSA, Xvfb, and xauth. Its packaged test uses a virtual display. The Windows build account must have an active desktop session; a temporary scheduled task runs its desktop check there. The task and release-workspace processes are removed after the test. Local user installations are not stopped.
 
 `.node-version`, `package.json`, and `ci/Dockerfile` specify the toolchain. The shared library supplies the pinned Node.js and npm versions. CI can reuse dependency layers, but it runs validation for each build. The container uses Xvfb and disables the Electron sandbox only inside that isolated test container.
 
