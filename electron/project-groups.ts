@@ -60,20 +60,26 @@ export class ProjectGroups {
       throw new Error('Project name must contain 1–150 characters');
     return value.trim();
   }
-  async create(name: string, github: GitHubProject | TrackerConnection, hostId?: string) {
+  async create(
+    name: string,
+    github: GitHubProject | TrackerConnection,
+    hostId?: string,
+    rootPath?: string,
+    id = randomUUID(),
+  ) {
     const connection =
       github && 'provider' in github
         ? github
         : { provider: 'github', project: github as GitHubProject };
     if (!isTrackerConnection(connection))
       throw new Error('Choose a tracker project before creating a project.');
-    const id = randomUUID();
     const title = this.name(name);
     await this.change((groups) =>
       groups.push({
         id,
         name: title,
         repoIds: [],
+        ...(rootPath ? { rootPath } : {}),
         tracker: connection,
         ...(connection.provider === 'github'
           ? { github: connection.project as GitHubProject }
@@ -91,10 +97,17 @@ export class ProjectGroups {
       group.name = title;
     });
   }
+  setRoot(id: string, rootPath: string) {
+    return this.change((groups) => {
+      const group = groups.find((g) => g.id === id);
+      if (!group) throw new Error('Project not found');
+      group.rootPath = rootPath;
+    });
+  }
   setColor(id: string, color: ProjectColor | null) {
     if (color !== null && !isProjectColor(color)) throw new Error('Invalid project color');
-    return this.change(groups => {
-      const group = groups.find(g => g.id === id);
+    return this.change((groups) => {
+      const group = groups.find((g) => g.id === id);
       if (!group) throw new Error('Project not found');
       if (color === null) delete group.color;
       else group.color = color;

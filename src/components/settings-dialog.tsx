@@ -1,7 +1,8 @@
+import type { GitHubCliStatus } from '../domain/conversation';
 import { agentCatalog } from '../config/agents';
 import { RemoteHostPicker } from './remote-host-picker';
 import { useEffect, useState } from 'react';
-import { Terminal, RefreshCw } from 'lucide-react';
+import { Terminal, RefreshCw, GitBranch } from 'lucide-react';
 import type { API, AgentInstallation } from '../types';
 import { Button } from './ui/button';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from './ui/dialog';
@@ -18,9 +19,30 @@ export function SettingsDialog({
   onRefresh: () => Promise<void>;
 }) {
   const [installations, setInstallations] = useState<AgentInstallation[]>([]);
+  const [checkRevision, setCheckRevision] = useState(0);
+  const [gh, setGh] = useState<GitHubCliStatus>();
+  const [ghChecking, setGhChecking] = useState(false);
+  useEffect(() => {
+    if (!open) return;
+    let live = true;
+    setGhChecking(true);
+    Promise.resolve()
+      .then(() => api.githubCliCheck())
+      .then((value) => {
+        if (live) setGh(value);
+      })
+      .catch(() => {
+        if (live) setGh({ status: 'error' });
+      })
+      .finally(() => {
+        if (live) setGhChecking(false);
+      });
+    return () => {
+      live = false;
+    };
+  }, [open, api, checkRevision]);
   const [checking, setChecking] = useState(false);
   const [checkError, setCheckError] = useState('');
-  const [checkRevision, setCheckRevision] = useState(0);
   useEffect(() => {
     if (!open) return;
     let live = true;
@@ -67,12 +89,12 @@ export function SettingsDialog({
           <section aria-labelledby="settings-agents-title" className="space-y-3">
             <div className="flex items-center justify-between">
               <h3 id="settings-agents-title" className="text-sm font-medium">
-                Local agents
+                Local agents and tools
               </h3>
               <Button
                 variant="ghost"
                 size="sm"
-                disabled={checking}
+                disabled={checking || ghChecking}
                 onClick={() => setCheckRevision((n) => n + 1)}
               >
                 <RefreshCw size={14} className={checking ? 'animate-spin' : ''} />
@@ -110,6 +132,36 @@ export function SettingsDialog({
                   </span>
                 </div>
               ))}
+              <div className="flex items-center gap-3 p-3" aria-label="GitHub CLI status">
+                <span className="flex size-9 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground">
+                  <GitBranch size={17} />
+                </span>
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-medium">GitHub CLI</p>
+                  <p className="text-xs text-muted-foreground">gh · github.com</p>
+                  {!ghChecking && gh?.status === 'missing' && (
+                    <p className="text-xs text-muted-foreground">Install gh, then check again.</p>
+                  )}
+                  {!ghChecking && gh?.status === 'signed-out' && (
+                    <p className="text-xs text-muted-foreground">
+                      Run <code>gh auth login</code>, then check again.
+                    </p>
+                  )}
+                </div>
+                <span role="status" title={gh?.path} className="text-xs text-muted-foreground">
+                  {ghChecking
+                    ? 'Checking…'
+                    : gh?.status === 'ready'
+                      ? 'Signed in'
+                      : gh?.status === 'signed-out'
+                        ? 'Sign-in required'
+                        : gh?.status === 'missing'
+                          ? 'Not found'
+                          : gh?.status === 'unavailable'
+                            ? 'Desktop only'
+                            : 'Check failed'}
+                </span>
+              </div>
             </div>
             {checkError && (
               <p role="alert" className="text-xs text-destructive">

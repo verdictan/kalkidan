@@ -21,7 +21,6 @@ export function RemoteRepositoryPicker({
   const [path, setPath] = useState('~');
   const [folders, setFolders] = useState<RemoteFolders>();
   const [repository, setRepository] = useState('');
-  const [destination, setDestination] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   async function browse(value: string) {
@@ -49,7 +48,7 @@ export function RemoteRepositoryPicker({
     try {
       await api.remoteAddRepository(
         group.id,
-        mode === 'existing' ? path : destination,
+        mode === 'existing' ? path : '',
         mode === 'clone' ? repository : undefined,
       );
       await onAdded();
@@ -117,7 +116,6 @@ export function RemoteRepositoryPicker({
             disabled={busy}
             onChange={(value) => {
               setRepository(value);
-              setDestination((folders?.path || '') + '/' + value.split('/').at(-1));
             }}
             options={[
               { value: '', label: 'Choose a GitHub repository' },
@@ -131,15 +129,8 @@ export function RemoteRepositoryPicker({
             disabled={busy}
             onChange={(e) => setRepository(e.target.value)}
           />
-          <Input
-            aria-label="Remote clone destination"
-            placeholder="/home/you/projects/new-repository"
-            value={destination}
-            disabled={busy}
-            onChange={(e) => setDestination(e.target.value)}
-          />
           <p className="text-xs text-muted-foreground">
-            Cloning uses Git credentials on the host. Your Mac’s GitHub login is not copied.
+            Clones are stored in the project’s repos folder using Git credentials on the host.
           </p>
         </>
       )}
@@ -149,9 +140,7 @@ export function RemoteRepositoryPicker({
         </p>
       )}
       <Button
-        disabled={
-          busy || !path || (mode === 'clone' && (!repository || !destination.startsWith('/')))
-        }
+        disabled={busy || !path || (mode === 'clone' && !repository)}
         onClick={() => void add()}
       >
         {busy ? (

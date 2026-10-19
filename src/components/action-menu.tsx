@@ -11,7 +11,9 @@ export function ActionMenu({
   label,
   disabled,
   items,
+  restoreFocus = true,
 }: {
+  restoreFocus?: boolean;
   label: string;
   disabled?: boolean;
   items: { label: string; action: () => void; danger?: boolean }[];
@@ -25,7 +27,13 @@ export function ActionMenu({
           </Button>
         </DropdownMenuTrigger>
       </Hint>
-      <DropdownMenuContent align="end" sideOffset={6}>
+      <DropdownMenuContent
+        align="end"
+        sideOffset={6}
+        onCloseAutoFocus={(event) => {
+          if (!restoreFocus) event.preventDefault();
+        }}
+      >
         {items.map((item) => (
           <DropdownMenuItem
             key={item.label}

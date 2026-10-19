@@ -1,3 +1,13 @@
+import { githubCliCheck } from './github-cli-check';
+import { listDirectory } from './storage/directory-list';
+import {
+  ProjectLocationCache,
+  prepareProjectLocation,
+  legacyDocs,
+  importLegacyDocs,
+} from './storage/project-location';
+import { ProjectDocs } from './storage/project-docs';
+import { dataDirectory } from './storage/data-directory';
 import { HistoryImport } from './history-import';
 import { isAgent } from '../src/config/agents';
 import { createProjectPrompt } from './projects/prompt';
@@ -37,17 +47,13 @@ import { modelOptions } from './models';
 import type { ChatOptions } from '../src/types';
 import { createAgentRuntimes } from './agents/runtime';
 app.setName('Kalkidan');
-// Reuse an existing library from before the rename; never move or overwrite it.
-const dataRoot = join(app.getPath('appData'), 'kalkidan');
-const legacyRoot = ['common-ground', 'Common Ground']
-  .map((name) => join(app.getPath('appData'), name))
-  .find(
-    (path) => existsSync(join(path, 'projects.json')) || existsSync(join(path, 'sessions.json')),
-  );
-app.setPath('userData', existsSync(dataRoot) ? dataRoot : legacyRoot || dataRoot);
-// Development tests use an isolated library without touching personal app data.
-if (!app.isPackaged && process.env.KALKIDAN_TEST_DATA)
-  app.setPath('userData', process.env.KALKIDAN_TEST_DATA);
+const dataRoot = dataDirectory(
+  homedir(),
+  app.getPath('appData'),
+  !app.isPackaged ? process.env.KALKIDAN_TEST_DATA : undefined,
+);
+app.setPath('userData', dataRoot);
+app.setPath('sessionData', dataRoot);
 const pty = new PtyTerminal();
 const terminal = new CommandTerminal();
 const windows = new Set<BrowserWindow>();
@@ -178,6 +184,78 @@ app.whenReady().then(async () => {
     app.quit();
     return;
   }
+  const locations = new ProjectLocationCache(join(dataRoot, 'projects'));
+  const preparingRoots = new Map<string, Promise<string>>();
+  async function projectRoot(id: string): Promise<string> {
+    const group = projectGroups.groups.find((g) => g.id === id);
+    if (!group) throw new Error('Project not found');
+    if (group.hostId && group.rootPath) return group.rootPath;
+    if (preparingRoots.has(id)) return preparingRoots.get(id)!;
+    const task = (async () => {
+      const root = group.hostId
+        ? await remote.call(group.hostId, 'project-prepare', [id, group.rootPath])
+        : await locations.get(id, group.rootPath);
+      if (!group.rootPath) {
+        const files = await legacyDocs(join(dataRoot, 'docs', id));
+        if (group.hostId) {
+          for (const file of files)
+            await remote.call(group.hostId, 'project-import-docs', [id, root, [file]]);
+        } else await importLegacyDocs(root, files);
+        await projectGroups.setRoot(id, root);
+      }
+      return root;
+    })();
+    preparingRoots.set(id, task);
+    try {
+      return await task;
+    } finally {
+      preparingRoots.delete(id);
+    }
+  }
+  try {
+    for (const group of projectGroups.groups.filter((g) => !g.hostId)) await projectRoot(group.id);
+  } catch (error: any) {
+    dialog.showErrorBox('Cannot prepare project folders', error.message);
+    app.quit();
+    return;
+  }
+  const docs = new ProjectDocs(
+    join(dataRoot, 'docs'),
+    (id) => projectGroups.groups.some((g) => g.id === id),
+    async (id) => join(await projectRoot(id), 'docs'),
+  );
+  for (const operation of ['list', 'metadata', 'read', 'create', 'save', 'delete'] as const) {
+    handle('docs-' + operation, async (id, ...args) => {
+      const group = projectGroups.groups.find((g) => g.id === id);
+      if (!group) throw new Error('Project not found');
+      if (group.hostId)
+        return remote.call(group.hostId, 'project-docs', [
+          id,
+          await projectRoot(id),
+          operation,
+          args,
+        ]);
+      try {
+        switch (operation) {
+          case 'metadata':
+            return await docs.metadata(id);
+          case 'read':
+            return await docs.get(id, args[0]);
+          case 'list':
+            return await docs.list(id);
+          case 'create':
+            return await docs.create(id, args[0], args[1]);
+          case 'save':
+            return await docs.save(id, args[0]);
+          case 'delete':
+            return await docs.delete(id, args[0], args[1]);
+        }
+      } catch (error) {
+        locations.invalidate(id, group.rootPath);
+        throw error;
+      }
+    });
+  }
   const sessionLibrary = new SessionLibrary(join(app.getPath('userData'), 'sessions.json'));
   try {
     await sessionLibrary.load();
@@ -296,6 +374,9 @@ app.whenReady().then(async () => {
   handle('remote-install', (id) => remote.install(id));
   handle('remote-connect', (id) => remote.connect(id));
   handle('remote-disconnect', (id) => remote.disconnect(id));
+  handle('directory-list', (path, hostId) =>
+    hostId ? remote.call(hostId, 'directory-list', [path]) : listDirectory(path),
+  );
   handle('remote-folders', (id, path) => remote.call(id, 'folders', [path]));
   async function addRemote(groupId: string, value: { name: string; path: string }) {
     const group = projectGroups.groups.find((g) => g.id === groupId);
@@ -322,7 +403,16 @@ app.whenReady().then(async () => {
     if (!group?.hostId) throw new Error('Choose a remote project.');
     return addRemote(
       groupId,
-      await remote.call(group.hostId, clone ? 'clone' : 'validate', clone ? [clone, path] : [path]),
+      await remote.call(
+        group.hostId,
+        clone ? 'clone' : 'validate',
+        clone
+          ? [
+              clone,
+              join(await projectRoot(groupId), 'repos', repositoryName(clone).replace('/', '--')),
+            ]
+          : [path],
+      ),
     );
   });
   const remoteMethods = new Set<string>(sessionHostMethods);
@@ -495,16 +585,23 @@ app.whenReady().then(async () => {
   handle('chat-status', (id) => chatRunner.status(id));
   handle('chat-stop', (id) => chatRunner.stop(id));
   handle('chat-approve', (id, approval, allow) => chatRunner.approve(id, approval, allow));
-  handle('group-create', async (name, url, hostId, provider = trackers.defaultProvider) => {
-    if (typeof url !== 'string' || !url.trim()) throw new Error('Choose a tracker project first.');
-    if (hostId && !remote.list().some((h) => h.id === hostId && h.status === 'connected'))
-      throw new Error('Connect the remote host before creating this project.');
-    return projectGroups.create(
-      name,
-      { provider, project: await trackers.get(provider).resolve(url) },
-      hostId,
-    );
-  });
+  handle(
+    'group-create',
+    async (name, url, hostId, provider = trackers.defaultProvider, requestedRoot?: string) => {
+      if (typeof url !== 'string' || !url.trim())
+        throw new Error('Choose a tracker project first.');
+      if (hostId && !remote.list().some((h) => h.id === hostId && h.status === 'connected'))
+        throw new Error('Connect the remote host before creating this project.');
+      if (typeof name !== 'string' || !name.trim() || name.trim().length > 150)
+        throw new Error('Project name must contain 1–150 characters');
+      const connection = { provider, project: await trackers.get(provider).resolve(url) };
+      const id = randomUUID();
+      const root = hostId
+        ? await remote.call(hostId, 'project-prepare', [id, requestedRoot])
+        : await prepareProjectLocation(id, requestedRoot, join(dataRoot, 'projects'));
+      return projectGroups.create(name, connection, hostId, root, id);
+    },
+  );
   handle('group-color', (id, color) => projectGroups.setColor(id, color));
   handle('group-update', (id, name) => projectGroups.update(id, name));
   handle('group-remove', (id) => {
@@ -554,18 +651,12 @@ app.whenReady().then(async () => {
       throw new Error('Choose a project before adding repositories.');
     if (projectGroups.groups.find((g) => g.id === groupId)?.hostId)
       throw new Error('Choose a destination on the remote host.');
-    const result = await dialog.showSaveDialog(win, {
-      title: 'Clone repository into a new folder',
-      buttonLabel: 'Clone here',
-      defaultPath: join(app.getPath('documents'), name.split('/')[1]),
-      properties: ['createDirectory', 'showOverwriteConfirmation'],
-    });
-    if (result.canceled || !result.filePath) return false;
-    await cloneRepository(name, result.filePath);
-    await addPath(result.filePath);
+    const destination = join(await projectRoot(groupId!), 'repos', name.replace('/', '--'));
+    await cloneRepository(name, destination);
+    await addPath(destination);
     await save();
     if (groupId) {
-      const canonical = await realpath(result.filePath);
+      const canonical = await realpath(destination);
       try {
         await projectGroups.move(
           projects.find((p) => !p.hostId && p.path === canonical)!.id,
@@ -579,6 +670,7 @@ app.whenReady().then(async () => {
     }
     return true;
   });
+  handle('github-cli-check', githubCliCheck);
   handle('agent-installations', agentInstallations);
   const historyImporter = new HistoryImport({
     scan: () => history(codexRoot, claudeRoot),
@@ -661,7 +753,7 @@ app.whenReady().then(async () => {
     projects = projects.filter((p) => p.id !== id);
     await save();
   });
-  handle('git', async (id) => {
+  async function repositoryGit(id: string) {
     const p = project(id);
     if (p.hostId) return remote.call(p.hostId, 'git', [p.path]);
     await stat(p.path);
@@ -685,6 +777,51 @@ app.whenReady().then(async () => {
       }
     }
     return { branch: branch.trim(), changes, worktrees: parseWorktrees(trees) };
+  }
+  handle('git', repositoryGit);
+  const repositoryRequests = new Map<string, Promise<any>>();
+  handle('repository-snapshot', (id: string) => {
+    if (repositoryRequests.has(id)) return repositoryRequests.get(id);
+    const task = (async () => {
+      const repo = project(id);
+      if (repo.hostId) {
+        const value = await remote.call(repo.hostId, 'repository-snapshot', [repo.path]);
+        return {
+          ...value,
+          sessions: sessionLibrary
+            .decorate(
+              value.sessions.map((s: Session) => ({
+                ...s,
+                id: repo.hostId + '::' + s.id,
+                hostId: repo.hostId,
+              })),
+            )
+            .filter((s: Session) => !s.organization?.importHidden),
+        };
+      }
+      const [info, scan] = await Promise.all([repositoryGit(id), history(codexRoot, claudeRoot)]);
+      const roots = [
+        repo.path,
+        ...(info?.worktrees.map((tree: { path: string }) => tree.path) || []),
+      ];
+      return {
+        git: info,
+        warnings: scan.warnings,
+        sessions: sessionLibrary
+          .decorate(
+            scan.sessions.filter((s) =>
+              roots.some((root) => s.cwd === root || s.cwd.startsWith(root + '/')),
+            ),
+          )
+          .filter((s) => !s.organization?.importHidden),
+      };
+    })();
+    repositoryRequests.set(id, task);
+    const clean = () => {
+      if (repositoryRequests.get(id) === task) repositoryRequests.delete(id);
+    };
+    task.then(clean, clean);
+    return task;
   });
   handle('reveal', async (id) => {
     if (project(id).hostId)
@@ -716,26 +853,29 @@ app.whenReady().then(async () => {
     if (p.hostId) {
       const group = projectGroups.groups.find((g) => g.repoIds.includes(id));
       if (!group) throw new Error('Assign this repository to a project first.');
-      return addRemote(group.id, await remote.call(p.hostId, 'worktree', [p.path, branch]));
+      return addRemote(
+        group.id,
+        await remote.call(p.hostId, 'worktree', [p.path, branch, await projectRoot(group.id)]),
+      );
     }
     if (!projectGroups.groups.some((g) => g.repoIds.includes(id)))
       throw new Error('Assign this repository to a project before creating a worktree.');
     if (typeof branch !== 'string' || branch.startsWith('-') || branch.length > 200)
       throw new Error('Enter a valid new branch name');
     await git(p.path, ['check-ref-format', '--branch', branch]);
-    const r = await dialog.showSaveDialog(win, {
-      title: 'Choose a location for the new worktree',
-      defaultPath: join(p.path, '..', basename(p.path) + '-' + branch.replaceAll('/', '-')),
-      buttonLabel: 'Create worktree',
-    });
-    if (r.canceled || !r.filePath) return null;
-    await git(p.path, ['worktree', 'add', '-b', branch, '--', r.filePath]);
-    await addPath(r.filePath);
+    const owner = projectGroups.groups.find((g) => g.repoIds.includes(id))!;
+    const destination = join(
+      await projectRoot(owner.id),
+      'worktrees',
+      basename(p.path) + '-' + branch.replaceAll('/', '-') + '-' + randomUUID().slice(0, 8),
+    );
+    await git(p.path, ['worktree', 'add', '-b', branch, '--', destination]);
+    await addPath(destination);
     await save();
-    const canonicalWorktree = await realpath(r.filePath);
+    const canonicalWorktree = await realpath(destination);
     const group = projectGroups.groups.find((g) => g.repoIds.includes(id));
     if (group) {
-      const canonical = await realpath(r.filePath);
+      const canonical = await realpath(destination);
       await projectGroups.move(
         projects.find((repo) => !repo.hostId && repo.path === canonical)!.id,
         group.id,

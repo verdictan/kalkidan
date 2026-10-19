@@ -5,8 +5,10 @@ test('project navigation, search, editing, worktrees, and sessions', async ({ pa
   await page.goto('http://127.0.0.1:5173');
   await page.locator('.repo-select').first().click();
   await expect(page.getByRole('heading', { name: 'atlas-web', exact: true })).toBeVisible();
-  await page.getByRole('tab', { name: /Worktrees/ }).click();
-  await expect(page.getByText('Parallel work, separate branches')).toBeVisible();
+
+  await expect(page.getByRole('region', { name: 'Repository worktrees' })).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Repository sessions' })).toBeVisible();
+  await expect(page.locator('.detail').getByRole('tablist')).toHaveCount(0);
   await expect(page.locator('.project-status')).toHaveCount(0);
   await expect(page.getByText(/Give each agent its own worktree/)).toHaveCount(0);
   await expect(page.locator('.worktree-sessions').getByRole('button')).toHaveCount(2);
@@ -15,7 +17,7 @@ test('project navigation, search, editing, worktrees, and sessions', async ({ pa
   await page.getByRole('button', { name: 'New worktree' }).click();
   await expect(page.getByRole('dialog')).toBeVisible();
   await page.getByRole('button', { name: 'Cancel' }).click();
-  await page.getByRole('tab', { name: /Sessions/ }).click();
+
   await expect(page.getByText('Refine project and repository navigation').last()).toBeVisible();
   await page.getByRole('button', { name: 'Edit repository', exact: true }).click();
   await page.getByLabel('Repository name', { exact: true }).fill('atlas-renamed');
@@ -24,7 +26,7 @@ test('project navigation, search, editing, worktrees, and sessions', async ({ pa
   await page.getByLabel('Search projects or sessions').fill('not-a-project');
   await expect(page.getByText('No matches found.')).toBeVisible();
   await page.getByLabel('Search projects or sessions').fill('');
-  await page.getByRole('tab', { name: 'Overview' }).click();
+
   await page.screenshot({ path: 'test-results/desktop-preview.png', fullPage: true });
   await page.keyboard.press('Meta+k');
   await expect(page.getByLabel('Search projects or sessions')).toBeFocused();
@@ -40,7 +42,7 @@ test('project navigation, search, editing, worktrees, and sessions', async ({ pa
 test('organize sessions and continue inside the conversation UI', async ({ page }) => {
   await page.goto('http://127.0.0.1:5173');
   await page.locator('.repo-select').first().click();
-  await page.getByRole('tab', { name: /^Sessions/ }).click();
+
   await page
     .getByRole('button', { name: 'Organize Refine project and repository navigation' })
     .click();
@@ -162,7 +164,7 @@ test('conversation streams responses, keeps multiple turns, and stops without le
   });
   await page.goto('http://127.0.0.1:5173');
   await page.locator('.repo-select').first().click();
-  await page.getByRole('tab', { name: /^Sessions/ }).click();
+
   await page.getByRole('button', { name: 'Resume session', exact: true }).first().click();
   await expect(page.getByText('Original prompt', { exact: true })).toBeVisible();
   await page.getByLabel('Message agent').fill('First follow-up');
@@ -251,7 +253,7 @@ test('a session ownership conflict restores the unsent draft and permits an expl
   });
   await page.goto('http://127.0.0.1:5173');
   await page.locator('.repo-select').first().click();
-  await page.getByRole('tab', { name: /^Sessions/ }).click();
+
   await page.getByRole('button', { name: 'Resume session', exact: true }).click();
   await page.getByLabel('Message agent').fill('Keep my follow-up');
   await page.getByRole('button', { name: 'Send', exact: true }).click();
@@ -266,7 +268,7 @@ test('a session ownership conflict restores the unsent draft and permits an expl
 test('integrated conversations keep drafts and project navigation visible', async ({ page }) => {
   await page.goto('http://127.0.0.1:5173');
   await page.locator('.repo-select').first().click();
-  await page.getByRole('tab', { name: /^Sessions/ }).click();
+
   await page.getByRole('button', { name: 'Resume session', exact: true }).first().click();
   const workspace = page.getByRole('region', { name: 'Session conversations', exact: true });
   const pane = page.locator('.agent-pane:not([hidden])');
@@ -465,7 +467,7 @@ for (const agent of ['codex', 'claude'] as const) {
     );
     await page.goto('http://127.0.0.1:5173');
     await page.locator('.repo-select').first().click();
-    await page.getByRole('tab', { name: /^Sessions/ }).click();
+
     await page.getByRole('button', { name: 'Resume Saved conversation', exact: true }).click();
     await expect(page.getByText('Previous conversation context', { exact: true })).toBeVisible();
     await page.getByLabel('Message agent').fill('Continue where we left off');
@@ -740,7 +742,7 @@ test('add repositories can create a project, pick a GitHub repo, and clone into 
   await expect(dialog.getByRole('combobox', { name: 'Add to project' })).toContainText('Mobile');
   await dialog.getByLabel('Search GitHub repositories').fill('mobile');
   await dialog.getByRole('button', { name: /example\/mobile-app/ }).click();
-  await dialog.getByRole('button', { name: 'Choose location and clone', exact: true }).click();
+  await dialog.getByRole('button', { name: 'Clone into project', exact: true }).click();
   await expect(dialog).not.toBeVisible();
   const group = page
     .locator('.project-group')
@@ -780,7 +782,7 @@ test('local folder selection keeps the chosen project and clone cancellation kee
   await page.getByRole('button', { name: 'Add repositories to Platform', exact: true }).click();
   const dialog = page.getByRole('dialog');
   await dialog.getByLabel('GitHub repository name').fill('example/web');
-  await dialog.getByRole('button', { name: 'Choose location and clone', exact: true }).click();
+  await dialog.getByRole('button', { name: 'Clone into project', exact: true }).click();
   await expect(dialog).toBeVisible();
   await dialog.getByRole('button', { name: 'Local folders', exact: true }).click();
   await dialog.getByRole('button', { name: 'Choose folders', exact: true }).click();

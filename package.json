@@ -17,7 +17,8 @@
     "generate:icons": "node scripts/generate-icons.mjs",
     "format": "prettier --write \"{src,electron,tests}/**/*.{ts,tsx}\"",
     "format:check": "prettier --check \"{src,electron,tests}/**/*.{ts,tsx}\"",
-    "check:architecture": "node scripts/check-boundaries.mjs"
+    "check:architecture": "node scripts/check-boundaries.mjs",
+    "test:ci:ui": "playwright test tests/onboarding.spec.ts tests/folder-picker.spec.ts tests/github-cli-settings.spec.ts tests/project-docs.spec.ts tests/repository-refresh.spec.ts --workers=2 --reporter=line"
   },
   "build": {
     "appId": "dev.kalkidan.desktop",
@@ -36,11 +37,21 @@
         "zip"
       ],
       "icon": "build/icons/icon.icns"
-    }
+    },
+    "artifactName": "${productName}-${version}-${os}-${arch}.${ext}"
   },
   "dependencies": {
     "@iarna/toml": "^2.2.5",
     "@tailwindcss/vite": "^4.3.3",
+    "@tiptap/extension-image": "^3.32.0",
+    "@tiptap/extension-placeholder": "^3.32.0",
+    "@tiptap/extension-table": "^3.32.0",
+    "@tiptap/extension-task-item": "^3.32.0",
+    "@tiptap/extension-task-list": "^3.32.0",
+    "@tiptap/markdown": "^3.32.0",
+    "@tiptap/pm": "^3.32.0",
+    "@tiptap/react": "^3.32.0",
+    "@tiptap/starter-kit": "^3.32.0",
     "@xterm/addon-fit": "^0.11.0",
     "@xterm/xterm": "^6.0.0",
     "class-variance-authority": "^0.7.1",
@@ -73,5 +84,6 @@
   },
   "engines": {
     "node": ">=22.12.0"
-  }
+  },
+  "packageManager": "npm@10.9.9"
 }

@@ -112,10 +112,12 @@ export function applyChatEvent(run: ChatRun, row: any) {
   }
 }
 
-export async function executable(agent: Agent): Promise<{ path: string; env: NodeJS.ProcessEnv }> {
+export async function executable(
+  agent: Agent | 'gh',
+): Promise<{ path: string; env: NodeJS.ProcessEnv }> {
   const config = runtimeConfig();
   let env = { ...process.env };
-  const configured = config.agentExecutable[agent];
+  const configured = agent === 'gh' ? undefined : config.agentExecutable[agent];
   if (configured) {
     await access(configured, constants.X_OK);
     delete env.ELECTRON_RUN_AS_NODE;
@@ -174,6 +176,6 @@ export async function executable(agent: Agent): Promise<{ path: string; env: Nod
     } catch {}
   }
   throw new Error(
-    `${agent === 'codex' ? 'Codex' : 'Claude Code'} CLI was not found. Install it and sign in, then try again.`,
+    `${agent === 'codex' ? 'Codex' : agent === 'gh' ? 'GitHub' : 'Claude Code'} CLI was not found. Install it and sign in, then try again.`,
   );
 }

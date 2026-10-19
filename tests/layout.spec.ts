@@ -51,7 +51,7 @@ test('repository dialog contains long names, scrolls results, and keeps actions 
   await last.scrollIntoViewIfNeeded();
   await last.click();
   await expect(
-    dialog.getByRole('button', { name: 'Choose location and clone', exact: true }),
+    dialog.getByRole('button', { name: 'Clone into project', exact: true }),
   ).toBeInViewport();
   await expect(dialog.getByRole('button', { name: 'Cancel', exact: true })).toBeInViewport();
   expect(await dialog.evaluate((el) => el.scrollWidth <= el.clientWidth + 1)).toBe(true);
@@ -63,7 +63,7 @@ test('repository dialog contains long names, scrolls results, and keeps actions 
   await expect(create.getByRole('button', { name: 'Create project', exact: true })).toBeDisabled();
   await create.getByRole('button', { name: 'Cancel', exact: true }).click();
   await expect(
-    dialog.getByRole('button', { name: 'Choose location and clone', exact: true }),
+    dialog.getByRole('button', { name: 'Clone into project', exact: true }),
   ).toBeInViewport();
   await dialog.getByRole('button', { name: 'Local folders', exact: true }).click();
   await expect(

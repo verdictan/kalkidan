@@ -148,10 +148,16 @@ Kalkidan has no hosted backend. It stores project and session organization on yo
 
 When you send a task-linked message, the selected agent receives the task description, project name, member repository paths, and linked GitHub Project URL alongside your prompt.
 
+### Project Board and Docs
+
+Click a project name to open its board, or its **Docs** entry to open the wiki. Docs supports a nested page tree, title and content search, page moves, and a rich-text editor with live Markdown shortcuts, a slash-command block menu, selection formatting, and a read-only view. Markdown source is available from the document actions menu. Changes save automatically; Cmd/Ctrl+S also saves. The editor uses one centered document canvas; secondary actions such as moving pages are in the document menu.
+
+Each project owns a folder, chosen in Create project or assigned under `~/.kalkidan/projects/<project-id>/`. The folder contains `docs/`, `repos/`, and `worktrees/`. New clones and worktrees are placed there automatically; existing repositories remain linked at their original paths. The location is shown in Manage project. Desktop pages are Markdown files at `<project-folder>/docs/<page-id>.md`. A small HTML comment stores the page title and parent ID. Files can be edited externally; revision checks prevent the app from silently overwriting newer disk content. Unsaved drafts are retained locally for recovery. Deleted leaf pages move to the project's `.trash` folder; move or delete subpages before deleting their parent. For SSH projects the project folder and docs live on the remote host. Existing local docs are copied there on first access, retaining the original files as a recovery copy. Local project docs migrate into their project folder on startup with the same recovery behavior. Browser preview docs use local browser storage.
+
 <details>
 <summary>Storage and session discovery</summary>
 
-App metadata lives in Electron's user-data directory, normally `~/Library/Application Support/kalkidan/`:
+App metadata and Electron browser storage live in `~/.kalkidan/`:
 
 | File | Contents |
 | --- | --- |
@@ -160,7 +166,7 @@ App metadata lives in Electron's user-data directory, normally `~/Library/Applic
 | `project-groups.json` | Project groupings and GitHub Project connections |
 | `sessions.json` | Session titles, pins, collections, notes, archives, and task links |
 
-Existing installations can reuse a previous `common-ground` or `Common Ground` data directory. Removing a repository from the library does not delete its files.
+On first launch, an existing `kalkidan`, `common-ground`, or `Common Ground` directory in the operating system’s application-data folder is moved to `~/.kalkidan`. An existing `~/.kalkidan` is never overwritten. Removing a repository from the library does not delete its files.
 
 Session discovery reads Codex's local SQLite index with a JSONL fallback, and Claude Code's local project conversation files. It respects `CODEX_HOME` and `CLAUDE_CONFIG_DIR`, which default to `~/.codex` and `~/.claude`. There is no session-count cap. Source-archived Codex threads and Claude subagent logs are excluded; sessions archived in Kalkidan are hidden from the active list.
 
@@ -281,3 +287,91 @@ Large file previews and patches display truncation notices.
 Project trackers use a provider-neutral domain and an explicit adapter registry. GitHub is the included adapter; additional providers can supply their own authentication, project discovery, board data, and supported operations. Project workflow statuses can be configured from the board's **Workflow** action.
 
 The desktop and SSH service share agent runtime contracts. Domain types, capability APIs, runtime configuration, persistence, and feature styles have separate modules. See the [architecture and extension guide](docs/architecture.md) for adapter registration, migration behavior, configuration, test commands, and current limits.
+
+
+Repository overview refreshes fetch the selected repository's sessions and Git state together; they do not poll the full library or unrelated SSH hosts. Overlapping requests share one operation, and cached repository content remains visible during revalidation.
+
+Docs navigation loads page metadata first and fetches Markdown when a page opens. The desktop/remote service caches up to 32 document bodies, revalidating file identity, size, modification time, and change time before reuse. Ordinary saves validate only the edited document; page moves validate the ancestor chain. Writes serialize per project, so separate projects can save concurrently. Initialization is cached on the owning host with a 30-second lifetime, identity checks, and failure invalidation.
+
+History discovery still reconciles directory entries and file metadata so new, deleted, and externally edited sessions are detected. Unchanged JSONL files reuse parsed metadata. The Codex index remains authoritative. Run `npx tsx --test tests/io-performance.test.ts` for read-count, payload-size, cache-invalidation, and queue-isolation checks.
+
+## Jenkins CI and release builds
+
+The root `Jenkinsfile` uses the existing Verdictan `keeptrusts` shared library,
+`linux-untrusted` worker for validation, and the `verdictanNodeToolchain` helper
+on `macos-untrusted` for release packaging. Node and npm are pinned in
+`.node-version`, `package.json`, and `ci/Dockerfile`. PRs, `main`/`master`, and discovered version
+tags run CI; standalone feature branches wait for a PR. GitHub Actions workflows
+have been removed.
+
+`scripts/ci.sh` installs from the lockfile and runs architecture checks, all unit
+tests, the production build, the focused browser regression suite, desktop document
+persistence tests, and the isolated remote-agent protocol test. Workspaces and
+job-local caches are cleared between builds. `scripts/ci-container.sh` runs the
+checks through the existing untrusted BuildKit service using `ci/Dockerfile`.
+The container supplies Xvfb for Electron and exports test results even on failure.
+Dependency layers can be reused, while each build executes validation again.
+Electron runs as a non-root user; its Linux sandbox is disabled only inside this
+isolated CI container because nested Chromium sandboxing is unavailable there. Jenkins retains 30 build records and
+up to three sets of artifacts for seven days.
+
+For version-tag builds, `scripts/package-release.sh` verifies that the tag matches
+both `package.json` and the checked-out commit. After successful validation, it
+builds unsigned Apple Silicon and Intel DMG/ZIP installers and `SHA256SUMS.txt`.
+Download these from the Jenkins build's artifacts. Failed validation prevents
+packaging. Branch and PR builds receive no publishing, deployment, or signing
+credentials and never publish GitHub releases.
+
+### Connect the repository to the existing controller
+
+The live multibranch job is [Verdictan / Kalkidan](https://jenkins.dennisotugo.com/job/verdictan/job/kalkidan/). Its Job DSL definition is saved in the controller configuration. Builds use the existing `verdictan-ci` identity.
+
+Create a GitHub multibranch pipeline for `verdictan/kalkidan`, using the existing
+`github-scm` credential and `Jenkinsfile` script path. Enable origin PR, main-branch,
+and tag discovery, and configure the tag build strategy to build version tags.
+The controller must already provide the globally configured `keeptrusts` library
+an available `linux-untrusted` agent with `buildctl` and access to the existing
+untrusted BuildKit service, and a `macos-untrusted` agent for release tags.
+Validation uses its own Linux virtual display; macOS packaging does not require
+a desktop login. Node/npm for packaging come from the shared toolchain helper.
+
+Scan the job after merging this Jenkinsfile. The existing `v0.1.0` tag points to
+the earlier GitHub Actions configuration; do not move that tag. A new release
+version/tag must include the Jenkinsfile. The repository job archives installers only.
+
+A separate controller-owned release job checks `main` and `master` every two
+minutes. It builds each new first-parent commit in order, including intermediate
+commits between checks, and publishes Apple Silicon and Intel DMG/ZIP installers
+to [Kalkidan releases](https://github.com/verdictan/packages/releases?q=kalkidan).
+The first run starts at the current branch head. Failed builds stop publication;
+the next run retries before processing later commits. Rewritten published history
+requires reconciliation rather than silently skipping commits.
+
+Each release has a unique `VERSION-build.TIMESTAMP.COMMIT` version. The latest
+Kalkidan release and SHA-256 checksums are recorded in
+[kalkidan.json](https://github.com/verdictan/packages/blob/main/kalkidan.json).
+The shared package repository's global latest pointer remains owned by the CLI.
+The release job updates the architecture-specific Homebrew cask automatically:
+
+```sh
+brew install --cask verdictan/tap/kalkidan
+# Later:
+brew upgrade --cask kalkidan
+```
+
+Installers are currently unsigned macOS builds. This flow does not publish Linux
+APT/RPM packages or Apple signing/notarization. Publication credentials are only
+available to the controller-owned publisher, after the untrusted build completes.
+
+## Dependency updates
+
+Renovate runs daily through the existing Jenkins maintenance job. Its repository
+configuration is in `renovate.json`, and its Dependency Dashboard tracks pending
+updates. npm patch/minor updates are grouped, major upgrades remain separate,
+and lockfile maintenance runs weekly. Node.js and npm toolchain rules also cover
+the CI container when those files are present on the default branch.
+
+Updates normally wait seven days after release. Renovate opens at most three
+concurrent PRs, with at most two new PRs per hour. Automerge is disabled; review
+and merge updates explicitly. Once an update reaches `main` or `master`, the
+normal build and release pipeline publishes the resulting app.

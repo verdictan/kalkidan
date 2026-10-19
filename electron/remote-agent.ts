@@ -1,3 +1,10 @@
+import { listDirectory } from './storage/directory-list';
+import {
+  ProjectLocationCache,
+  prepareProjectLocation,
+  importLegacyDocs,
+} from './storage/project-location';
+import { ProjectDocs } from './storage/project-docs';
 import { PtyTerminal } from './pty-terminal';
 // Private stdio RPC service. OpenSSH provides authentication and encryption; no listening port.
 import { createInterface } from 'node:readline';
@@ -12,6 +19,8 @@ import { codexTranscript } from './codex-store';
 import { createAgentRuntimes } from './agents/runtime';
 import { CommandTerminal, repositoryDiff } from './conversation-tools';
 import { modelOptions } from './models';
+const locations = new ProjectLocationCache(join(homedir(), '.kalkidan', 'projects'));
+const projectDocs = new Map<string, ProjectDocs>();
 const pty = new PtyTerminal();
 const chats = createAgentRuntimes();
 const terminal = new CommandTerminal();
@@ -34,7 +43,7 @@ async function source(agent: string, id: string) {
   if (!session) throw new Error('Remote session not found. Refresh history.');
   return { session, path: sources.get(`${agent}:${id}`) };
 }
-async function dispatch(method: string, args: any[]) {
+async function dispatch(method: string, args: any[]): Promise<any> {
   const [a, b, c, d, e] = args;
   switch (method) {
     case 'ptyOpen':
@@ -47,6 +56,46 @@ async function dispatch(method: string, args: any[]) {
       return pty.resize(a, b, c);
     case 'ptyClose':
       return pty.close(a);
+    case 'project-prepare':
+      return prepareProjectLocation(a, b, join(homedir(), '.kalkidan', 'projects'));
+    case 'project-import-docs': {
+      const root = await locations.get(a, b);
+      await importLegacyDocs(root, c);
+      return true;
+    }
+    case 'project-docs': {
+      const root = await locations.get(a, b);
+      let docs = projectDocs.get(root);
+      if (!docs) {
+        docs = new ProjectDocs(
+          root,
+          (id) => id === a,
+          async () => join(root, 'docs'),
+        );
+        projectDocs.set(root, docs);
+      }
+      try {
+        switch (c) {
+          case 'metadata':
+            return await docs.metadata(a);
+          case 'read':
+            return await docs.get(a, d[0]);
+          case 'list':
+            return await docs.list(a);
+          case 'create':
+            return await docs.create(a, d[0], d[1]);
+          case 'save':
+            return await docs.save(a, d[0]);
+          case 'delete':
+            return await docs.delete(a, d[0], d[1]);
+          default:
+            throw new Error('Unknown document operation');
+        }
+      } catch (error) {
+        locations.invalidate(a, b);
+        throw error;
+      }
+    }
     case 'hello':
       return {
         protocol: 1,
@@ -55,12 +104,26 @@ async function dispatch(method: string, args: any[]) {
         node: process.version,
         home: homedir(),
       };
+    case 'repository-snapshot': {
+      const cwd = await folder(a);
+      const [info, scan] = await Promise.all([dispatch('git', [cwd]), history(codex, claude)]);
+      const roots = [cwd, ...(info?.worktrees.map((tree: { path: string }) => tree.path) || [])];
+      return {
+        git: info,
+        warnings: scan.warnings,
+        sessions: scan.sessions.filter((session) =>
+          roots.some((root) => session.cwd === root || session.cwd.startsWith(root + '/')),
+        ),
+      };
+    }
     case 'snapshot':
       return history(codex, claude);
     case 'validate': {
       const path = await folder(a);
       return { path, name: basename(path) };
     }
+    case 'directory-list':
+      return listDirectory(a);
     case 'folders': {
       const path = await folder(a || '~');
       const entries = await readdir(path, { withFileTypes: true });
@@ -114,7 +177,12 @@ async function dispatch(method: string, args: any[]) {
       if (typeof b !== 'string' || b.startsWith('-') || b.length > 200)
         throw new Error('Invalid branch');
       await git(cwd, ['check-ref-format', '--branch', b]);
-      const path = join(dirname(cwd), basename(cwd) + '-' + b.replaceAll('/', '-'));
+      if (typeof c !== 'string' || !c.startsWith('/')) throw new Error('Project location required');
+      const path = join(
+        c,
+        'worktrees',
+        basename(cwd) + '-' + b.replaceAll('/', '-') + '-' + randomUUID().slice(0, 8),
+      );
       await git(cwd, ['worktree', 'add', '-b', b, '--', path]);
       return { path: await folder(path), name: basename(path) };
     }
@@ -174,7 +242,7 @@ async function dispatch(method: string, args: any[]) {
 }
 const input = createInterface({ input: process.stdin });
 input.on('line', (line) => {
-  if (line.length > 1000000) return;
+  if (line.length > 16000000) return;
   let request: any;
   try {
     request = JSON.parse(line);
