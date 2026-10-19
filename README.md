@@ -362,3 +362,16 @@ brew upgrade --cask kalkidan
 Installers are currently unsigned macOS builds. This flow does not publish Linux
 APT/RPM packages or Apple signing/notarization. Publication credentials are only
 available to the controller-owned publisher, after the untrusted build completes.
+
+## Dependency updates
+
+Renovate runs daily through the existing Jenkins maintenance job. Its repository
+configuration is in `renovate.json`, and its Dependency Dashboard tracks pending
+updates. npm patch/minor updates are grouped, major upgrades remain separate,
+and lockfile maintenance runs weekly. Node.js and npm toolchain rules also cover
+the CI container when those files are present on the default branch.
+
+Updates normally wait seven days after release. Renovate opens at most three
+concurrent PRs, with at most two new PRs per hour. Automerge is disabled; review
+and merge updates explicitly. Once an update reaches `main` or `master`, the
+normal build and release pipeline publishes the resulting app.
