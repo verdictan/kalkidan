@@ -473,7 +473,7 @@ Push to `main` or `master` to validate and publish Kalkidan. No release tag or m
 
 Each release uses `VERSION-build.TIMESTAMP.COMMIT`. Downloads include macOS Apple Silicon and Intel DMG/ZIP files, Windows x64 NSIS/ZIP files, and Linux x64 AppImage/DEB files. The installers are unsigned. macOS installers are not notarized. DEB files are standalone downloads, not an APT repository.
 
-A failed release fails its main build. It does not cause an endless timer retry or block the next main push. To retry a release, run the controller job with that main build's SHA, branch, and build number. Retrying an older build does not replace a newer release in Homebrew or the latest-release pointer.
+A failed release fails its main build. It does not cause an endless timer retry or block the next main push. To retry a failed release, rebuild its main/master job. To republish a successful build, run the controller job with that build's SHA, branch, and build number. Retrying an older build does not replace a newer release in Homebrew or the latest-release pointer.
 
 ### Jenkins configuration
 
