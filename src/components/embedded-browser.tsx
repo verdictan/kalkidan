@@ -190,11 +190,17 @@ export function EmbeddedBrowser({
       else toolbar.current?.querySelector<HTMLElement>('[aria-label="Browser menu"]')?.focus();
     });
   }
+  const statusText = busy
+    ? 'Working…'
+    : state?.url ||
+      (remote
+        ? 'Chromium in Kalkidan · use a reachable URL or SSH-forwarded port'
+        : 'Embedded Chromium · isolated from your desktop bridge');
   return (
     <div className="browser-pane" hidden={!visible}>
       <form
         ref={toolbar}
-        className="flex shrink-0 items-center gap-1 border-b p-2"
+        className="tool-toolbar browser-toolbar"
         onSubmit={(e) => {
           e.preventDefault();
           void navigate(url);
@@ -209,7 +215,7 @@ export function EmbeddedBrowser({
             disabled={!state?.canGoBack || busy}
             onClick={() => void action(() => api.browserNavigate(id, 'back'))}
           >
-            <ArrowLeft size={14} />
+            <ArrowLeft />
           </Button>
         </Hint>
         <Hint label="Forward">
@@ -221,7 +227,7 @@ export function EmbeddedBrowser({
             disabled={!state?.canGoForward || busy}
             onClick={() => void action(() => api.browserNavigate(id, 'forward'))}
           >
-            <ArrowRight size={14} />
+            <ArrowRight />
           </Button>
         </Hint>
         <Hint label="Reload preview">
@@ -233,13 +239,13 @@ export function EmbeddedBrowser({
             disabled={!ready || busy}
             onClick={() => void action(() => api.browserNavigate(id, 'reload'))}
           >
-            <RefreshCw size={14} className={state?.loading ? 'animate-spin' : ''} />
+            <RefreshCw className={state?.loading ? 'animate-spin' : ''} />
           </Button>
         </Hint>
         <Input
           ref={address}
           aria-label="Preview URL"
-          className="h-8 min-w-0 text-xs"
+          className="h-7 w-20 min-w-0 flex-1 rounded-md border-transparent bg-secondary text-xs shadow-none dark:bg-secondary"
           value={url}
           onFocus={() => {
             editingURL.current = true;
@@ -256,7 +262,7 @@ export function EmbeddedBrowser({
             aria-label="Open preview"
             disabled={busy || !url.trim()}
           >
-            <ArrowRight size={14} />
+            <ArrowRight />
           </Button>
         </Hint>
         <Hint label="Select element to annotate">
@@ -273,7 +279,7 @@ export function EmbeddedBrowser({
               })
             }
           >
-            <MousePointer2 size={15} />
+            <MousePointer2 />
           </Button>
         </Hint>
         <BrowserMenu
@@ -294,7 +300,7 @@ export function EmbeddedBrowser({
       </form>
       {findOpen && (
         <form
-          className="browser-find"
+          className="tool-toolbar browser-find"
           onSubmit={(e) => {
             e.preventDefault();
             void find(findText, true);
@@ -311,13 +317,14 @@ export function EmbeddedBrowser({
             aria-label="Find in page"
             aria-keyshortcuts="Enter"
             placeholder="Find in page…"
+            className="h-7 w-20 min-w-0 flex-1 text-xs"
             value={findText}
             onChange={(e) => {
               setFindText(e.target.value);
               void find(e.target.value);
             }}
           />
-          <span className="text-xs text-muted-foreground">
+          <span className="text-muted-foreground tabular-nums">
             {state?.find?.activeMatchOrdinal || 0}/{state?.find?.matches || 0}
           </span>
           <Button
@@ -327,10 +334,10 @@ export function EmbeddedBrowser({
             aria-label="Previous match"
             onClick={() => void find(findText, true, false)}
           >
-            <ArrowLeft size={14} />
+            <ArrowLeft />
           </Button>
           <Button size="icon-sm" variant="ghost" aria-label="Next match">
-            <ArrowRight size={14} />
+            <ArrowRight />
           </Button>
           <Button
             type="button"
@@ -339,13 +346,15 @@ export function EmbeddedBrowser({
             aria-label="Close find"
             onClick={closeFind}
           >
-            <X size={14} />
+            <X />
           </Button>
         </form>
       )}
       {deviceOpen && (
-        <div className="browser-device">
+        <div className="tool-toolbar browser-device">
           <Choice
+            size="sm"
+            className="w-28 text-xs"
             label="Device preset"
             value={preset}
             onChange={(value) => {
@@ -367,6 +376,7 @@ export function EmbeddedBrowser({
           />
           <Input
             aria-label="Device width"
+            className="h-7 w-16 px-1 text-xs"
             type="number"
             min={240}
             max={3840}
@@ -376,6 +386,7 @@ export function EmbeddedBrowser({
           <span>×</span>
           <Input
             aria-label="Device height"
+            className="h-7 w-16 px-1 text-xs"
             type="number"
             min={240}
             max={3840}
@@ -398,7 +409,7 @@ export function EmbeddedBrowser({
               void action(() => api.browserAction(id, 'device', null));
             }}
           >
-            <X size={14} />
+            <X />
           </Button>
         </div>
       )}
@@ -412,7 +423,7 @@ export function EmbeddedBrowser({
               aria-label="Cancel annotation"
               onClick={() => setSelection(null)}
             >
-              <X size={14} />
+              <X />
             </Button>
           </div>
           <Textarea
@@ -441,13 +452,8 @@ export function EmbeddedBrowser({
           {!ready && <p>Open a URL to preview it here.</p>}
         </div>
       )}
-      <div className="shrink-0 truncate border-t px-3 py-1 text-[11px] text-muted-foreground">
-        {busy
-          ? 'Working…'
-          : state?.url ||
-            (remote
-              ? 'Chromium in Kalkidan · use a reachable URL or SSH-forwarded port'
-              : 'Embedded Chromium · isolated from your desktop bridge')}
+      <div className="tool-statusbar" title={statusText}>
+        {statusText}
       </div>
       {error && (
         <p

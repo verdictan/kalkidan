@@ -104,8 +104,8 @@ export function DiffReview({
       <p className="py-8 text-center text-sm text-muted-foreground">No changes in this scope.</p>
     );
   return (
-    <section aria-label="File change review" className="space-y-3">
-      <div className="flex flex-wrap items-center gap-2">
+    <section aria-label="File change review" className="diff-review">
+      <div className="flex shrink-0 flex-wrap items-center gap-2">
         <span className="mr-auto text-xs text-muted-foreground">
           {plural(files.length, 'changed file')}
         </span>
@@ -151,18 +151,18 @@ export function DiffReview({
           </li>
         ))}
       </ul>
-      <div className="flex flex-wrap gap-2 text-xs">
+      <div className="flex shrink-0 flex-wrap gap-2 text-xs">
         <span className="min-w-0 flex-1 break-all font-mono">{current.path}</span>
-        <span className="text-[var(--diff-add)]">+{current.added}</span>
-        <span className="text-[var(--diff-remove)]">−{current.removed}</span>
+        <span className="text-diff-add">+{current.added}</span>
+        <span className="text-diff-remove">−{current.removed}</span>
       </div>
-      {current.note && <p className="text-xs text-muted-foreground">{current.note}</p>}
+      {current.note && <p className="shrink-0 text-xs text-muted-foreground">{current.note}</p>}
       <pre
         key={current.key}
         role="region"
         tabIndex={0}
         aria-label="Git diff"
-        className="tool-output diff-output max-h-[55vh]"
+        className="tool-output diff-output"
       >
         {current.patch
           ? numberLines(current.patch).map((line, index) => (
@@ -182,6 +182,7 @@ export function DiffReview({
       <Button
         size="sm"
         variant="outline"
+        className="self-start"
         disabled={disabled || !current.patch}
         onClick={() => onAttach(current.path, current.patch)}
       >

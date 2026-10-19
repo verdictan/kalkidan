@@ -17,12 +17,11 @@ test('single view ignores old split preferences and preserves conversation draft
   await page.locator('.project-tree').getByRole('button', { name: 'Atlas', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Connect GitHub', exact: true })).toBeVisible();
   await expect(page.getByLabel('Message agent')).toBeHidden();
-  await page.getByRole('button', { name: 'New Codex session', exact: true }).click();
+  await page.getByRole('button', { name: 'Go back', exact: true }).click();
   await expect(page.getByLabel('Message agent')).toHaveValue('Preserve this draft');
   await page.getByRole('button', { name: 'Projects', exact: true }).click();
   await expect(page.getByRole('region', { name: 'Project overview', exact: true })).toBeVisible();
-  await page.getByRole('button', { name: 'Expand atlas-web sessions', exact: true }).click();
-  await page.getByRole('button', { name: 'New Codex session', exact: true }).click();
+  await page.getByRole('button', { name: 'Go back', exact: true }).click();
   await expect(page.getByLabel('Message agent')).toHaveValue('Preserve this draft');
   await page.setViewportSize({ width: 980, height: 680 });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
@@ -171,7 +170,7 @@ for (const outcome of ['completed', 'failed', 'stopped']) {
     );
     await page.goto(url);
     await page.locator('.repo-select').click();
-    await page.getByRole('button', { name: 'Linked conversation', exact: true }).click();
+    await page.getByRole('button', { name: 'Resume Linked conversation', exact: true }).click();
     await page.getByLabel('Message agent').fill('Implement the feature');
     await page.getByRole('button', { name: 'Send', exact: true }).click();
     await expect(page.getByText('Response ended', { exact: true })).toBeVisible();
@@ -217,13 +216,20 @@ test('settings shows agent and remote controls without history import', async ({
   await page.goto(url);
   await page.getByRole('button', { name: 'Settings', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: 'Settings' });
-  await expect(dialog.getByText('Local agents', { exact: true })).toBeVisible();
+  await expect(dialog.getByRole('tab', { name: 'Agents & tools' })).toHaveAttribute(
+    'aria-selected',
+    'true',
+  );
+  await expect(dialog.getByText('Local agents and tools', { exact: true })).toBeVisible();
+  await dialog.getByRole('tab', { name: 'Remote hosts' }).click();
   await expect(dialog.getByRole('button', { name: 'Add host', exact: true })).toBeVisible();
   await expect(dialog.getByText('Import chat history', { exact: true })).toHaveCount(0);
   await expect(dialog.getByRole('button', { name: 'Preview chat history' })).toHaveCount(0);
-  await expect(dialog.getByRole('button', { name: 'Done', exact: true })).toBeInViewport();
+  await dialog.getByRole('tab', { name: 'General' }).click();
+  await expect(dialog.getByRole('group', { name: 'Appearance' })).toBeVisible();
+  await expect(dialog.getByRole('button', { name: 'Close', exact: true })).toBeInViewport();
   await page.screenshot({ path: 'test-results/settings-modal.png', fullPage: true });
-  await dialog.getByRole('button', { name: 'Done', exact: true }).click();
+  await dialog.getByRole('button', { name: 'Close', exact: true }).click();
   await expect(dialog).toHaveCount(0);
 });
 

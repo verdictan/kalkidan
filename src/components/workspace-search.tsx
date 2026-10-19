@@ -1,6 +1,7 @@
 import { useEffect, useId, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react';
 import { Search, X } from 'lucide-react';
 import { sessionAPI } from '../lib/remote-api';
+import { sessionRepo } from '../lib/session-repository';
 import { plural, shortcutLabel } from '../lib/platform';
 import type { API, Project, ProjectGroup, Session } from '../types';
 import { Button } from './ui/button';
@@ -9,6 +10,21 @@ import { Input } from './ui/input';
 interface SearchOption {
   key: string;
   open: () => void;
+}
+
+/** Shows each match of `term` in `text` with a subtle highlight. */
+function Highlight({ text, term }: { text: string; term: string }) {
+  if (!term) return <>{text}</>;
+  const lower = text.toLocaleLowerCase();
+  const parts: ReactNode[] = [];
+  let from = 0;
+  for (let index = lower.indexOf(term); index >= 0; index = lower.indexOf(term, from)) {
+    if (index > from) parts.push(text.slice(from, index));
+    parts.push(<mark key={index}>{text.slice(index, index + term.length)}</mark>);
+    from = index + term.length;
+  }
+  if (from < text.length) parts.push(text.slice(from));
+  return <>{parts}</>;
 }
 
 /**
@@ -141,14 +157,21 @@ export function WorkspaceSearch({
     : [];
   const title = (s: Session) => s.organization?.title || s.title;
   const sessionKey = (s: Session) => s.hostId + ':' + s.agent + ':' + s.id;
+  // One row for each session. A message match adds an excerpt under the session row.
+  const excerpts = new Map(history.map((hit) => [sessionKey(hit.session), hit.excerpt]));
+  const sessionResults = [
+    ...sessionMatches,
+    ...history
+      .map((hit) => hit.session)
+      .filter((session) => !sessionMatches.some((s) => sessionKey(s) === sessionKey(session))),
+  ];
+  const projectOf = (repo?: Project) =>
+    repo ? groups.find((g) => g.repoIds.includes(repo.id))?.name : undefined;
+  const context = (...parts: (string | undefined)[]) => parts.filter(Boolean).join(' › ');
   const options: SearchOption[] = [
     ...projectMatches.map((g) => ({ key: 'project:' + g.id, open: () => onProject(g) })),
     ...repoMatches.map((p) => ({ key: 'repo:' + p.id, open: () => onRepository(p) })),
-    ...sessionMatches.map((s) => ({ key: 'session:' + sessionKey(s), open: () => onSession(s) })),
-    ...history.map(({ session }) => ({
-      key: 'message:' + sessionKey(session),
-      open: () => onSession(session),
-    })),
+    ...sessionResults.map((s) => ({ key: 'session:' + sessionKey(s), open: () => onSession(s) })),
   ];
   const optionId = (key: string) => `${id}-${key.replace(/[^\w-]/g, '_')}`;
   const activeOption = options[active];
@@ -180,9 +203,10 @@ export function WorkspaceSearch({
   return (
     <>
       <div className="search">
-        <Search size={16} />
+        <Search size={16} aria-hidden="true" />
         <Input
           ref={inputRef}
+          className="pr-10 pl-8"
           role="combobox"
           aria-label="Search projects and sessions"
           aria-expanded={!!term}
@@ -215,7 +239,7 @@ export function WorkspaceSearch({
         {query ? (
           <Button
             variant="ghost"
-            size="icon-sm"
+            size="icon-xs"
             className="search-clear"
             aria-label="Clear search"
             onClick={() => {
@@ -226,12 +250,12 @@ export function WorkspaceSearch({
             <X size={14} />
           </Button>
         ) : (
-          <kbd>{shortcutLabel(['mod'], 'K')}</kbd>
+          <kbd className="kbd search-kbd">{shortcutLabel(['mod'], 'K')}</kbd>
         )}
       </div>
       {term ? (
         <section className="workspace-search-results" aria-label="Search results">
-          <p role="status" className="text-xs text-muted-foreground px-2 py-2">
+          <p role="status" className="search-status">
             {shortTerm && !total
               ? 'Type at least two characters to search message text.'
               : busy && !total
@@ -243,49 +267,62 @@ export function WorkspaceSearch({
             {!!projectMatches.length && (
               <div role="group" aria-labelledby={`${id}-projects`}>
                 <h3 id={`${id}-projects`}>Projects</h3>
-                {projectMatches.map((g) => option('project:' + g.id, g.name, {}))}
+                {projectMatches.map((g) =>
+                  option('project:' + g.id, <Highlight text={g.name} term={term} />, {
+                    title: g.name,
+                  }),
+                )}
               </div>
             )}
             {!!repoMatches.length && (
               <div role="group" aria-labelledby={`${id}-repositories`}>
                 <h3 id={`${id}-repositories`}>Repositories</h3>
-                {repoMatches.map((p) => option('repo:' + p.id, p.name, { title: p.path }))}
+                {repoMatches.map((p) =>
+                  option(
+                    'repo:' + p.id,
+                    <>
+                      <span className="search-option-title">
+                        <Highlight text={p.name} term={term} />
+                      </span>
+                      {projectOf(p) && (
+                        <span className="search-option-context">{projectOf(p)}</span>
+                      )}
+                    </>,
+                    { title: p.path },
+                  ),
+                )}
               </div>
             )}
-            {!!sessionMatches.length && (
+            {!!sessionResults.length && (
               <div role="group" aria-labelledby={`${id}-sessions`}>
                 <h3 id={`${id}-sessions`}>Sessions</h3>
-                {sessionMatches.map((s) =>
-                  option(
+                {sessionResults.map((s) => {
+                  const repo = sessionRepo(s, projects);
+                  const found = excerpts.get(sessionKey(s));
+                  // Skip an excerpt that only repeats the title.
+                  const excerpt = found?.replace(/^…|…$/g, '') === title(s) ? undefined : found;
+                  const where = context(projectOf(repo), repo?.name);
+                  return option(
                     'session:' + sessionKey(s),
                     <>
-                      {title(s)}
-                      {s.organization?.archived ? ' · Archived' : ''}
+                      <span className="search-option-title">
+                        <Highlight text={title(s)} term={term} />
+                        {s.organization?.archived ? ' · Archived' : ''}
+                      </span>
+                      {where && <span className="search-option-context">{where}</span>}
+                      {excerpt && (
+                        <span className="search-option-excerpt">
+                          <Highlight text={excerpt} term={term} />
+                        </span>
+                      )}
                     </>,
-                    {},
-                  ),
-                )}
-              </div>
-            )}
-            {!!history.length && (
-              <div role="group" aria-labelledby={`${id}-messages`}>
-                <h3 id={`${id}-messages`}>Session messages</h3>
-                {history.map(({ session, excerpt }) =>
-                  option(
-                    'message:' + sessionKey(session),
-                    <>
-                      <span>{title(session)}</span>
-                      <span className="text-xs text-muted-foreground">{excerpt}</span>
-                    </>,
-                    { className: 'history-search-hit' },
-                  ),
-                )}
+                    { className: excerpt ? 'history-search-hit' : undefined, title: title(s) },
+                  );
+                })}
               </div>
             )}
           </div>
-          {!shortTerm && !busy && !total && (
-            <p className="p-2 text-sm text-muted-foreground">No matches found.</p>
-          )}
+          {!shortTerm && !busy && !total && <p className="search-status">No matches found.</p>}
           {!!failed && (
             <p role="alert" className="search-error">
               {plural(failed, 'session')} could not be searched. Check the host connection and try
@@ -293,7 +330,7 @@ export function WorkspaceSearch({
             </p>
           )}
           {!!partial && (
-            <p role="status" className="p-2 text-xs text-muted-foreground">
+            <p role="status" className="search-status">
               For {plural(partial, 'long session')}, the search used only the most recent messages.
             </p>
           )}

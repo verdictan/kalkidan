@@ -20,7 +20,7 @@ import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Choice } from './choice';
 import { Badge } from './ui/badge';
-import { Card } from './ui/card';
+import { cn } from '../lib/utils';
 import type { SessionActivityState } from './activity-dot';
 import { Button } from './ui/button';
 import { Textarea } from './ui/textarea';
@@ -33,6 +33,10 @@ import type {
   ProjectGroup,
   TrackerItem,
 } from '../types';
+
+// The composer controls share one chip look: 28px, fully round, 12px muted text.
+const chipClass =
+  'h-7 rounded-full border-0 bg-transparent px-2.5 text-xs font-medium text-muted-foreground shadow-none hover:bg-[var(--surface-hover)] hover:text-foreground data-[state=open]:bg-[var(--surface-hover)] data-[state=open]:text-foreground dark:bg-transparent dark:hover:bg-[var(--surface-hover)]';
 
 /** Only web and mail links open outside Kalkidan. Other links show as text. */
 function safeLink(href: string | undefined) {
@@ -467,7 +471,7 @@ export function Conversation({
                 <div className="chat-message-author">
                   {message.role === 'user' ? 'You' : agentName}
                 </div>
-                <div className="chat-markdown">
+                <div className="chat-markdown prose-ui" data-variant="chat">
                   <Markdown
                     remarkPlugins={[remarkGfm]}
                     components={{
@@ -518,29 +522,32 @@ export function Conversation({
         <div className="composer-dock">
           {approvalHidden && (
             <div className="approval-banner" role="status">
-              <ShieldAlert size={15} aria-hidden="true" />
+              <ShieldAlert size={16} aria-hidden="true" />
               <span>The agent is waiting for your approval</span>
               <Button size="xs" variant="outline" onClick={reviewApproval}>
                 Review
               </Button>
             </div>
           )}
-          <Card className="conversation-composer">
+          <div className="conversation-composer">
             {!!contexts.length && (
               <div className="context-attachments" aria-label="Attached context">
                 {contexts.map((context) => (
                   <div key={context.id}>
-                    <span>{context.label}</span>
+                    <span className="truncate" title={context.label}>
+                      {context.label}
+                    </span>
                     <Button
                       variant="ghost"
-                      size="icon-sm"
+                      size="icon-xs"
+                      className="size-5"
                       aria-label={`Remove ${context.label}`}
                       disabled={!!active}
                       onClick={() =>
                         setContexts((previous) => previous.filter((item) => item.id !== context.id))
                       }
                     >
-                      <X size={12} />
+                      <X className="size-3" />
                     </Button>
                   </div>
                 ))}
@@ -555,7 +562,7 @@ export function Conversation({
               <Button
                 variant="ghost"
                 size="sm"
-                className="mb-2"
+                className={cn(chipClass, 'self-start')}
                 disabled={!!active || taskBusy}
                 onClick={() => setReviewTask(true)}
               >
@@ -563,11 +570,7 @@ export function Conversation({
               </Button>
             )}
             {taskId && reviewTask && (
-              <div
-                className="rounded-md border p-3 space-y-2"
-                role="group"
-                aria-label="Review task completion"
-              >
+              <div className="panel space-y-2" role="group" aria-label="Review task completion">
                 <p className="text-sm font-medium">Complete this task?</p>
                 <p className="text-xs text-muted-foreground">
                   Review the changes and verify the result before marking the linked tracker task
@@ -612,6 +615,7 @@ export function Conversation({
               </p>
             )}
             <Textarea
+              className="max-h-[clamp(80px,20vh,180px)] min-h-10 resize-none rounded-none border-0 bg-transparent px-2 py-1 text-[15px] leading-6 shadow-none focus-visible:ring-0 md:text-[15px] dark:bg-transparent"
               aria-label="Message agent"
               aria-description="Press Enter to send. Press Shift+Enter for a new line."
               placeholder="Ask anything…"
@@ -631,6 +635,8 @@ export function Conversation({
                 <div className="composer-model">
                   <Choice
                     label="Model"
+                    size="sm"
+                    className={cn(chipClass, 'max-w-[180px]')}
                     disabled={!!active}
                     value={model}
                     onChange={setModel}
@@ -642,6 +648,13 @@ export function Conversation({
                 </div>
                 <Choice
                   label="Agent permissions"
+                  size="sm"
+                  className={cn(
+                    chipClass,
+                    // Show a warning dot when the agent can change files.
+                    allowEdits &&
+                      "before:size-1.5 before:shrink-0 before:rounded-full before:bg-warning before:content-['']",
+                  )}
                   disabled={!!active}
                   value={allowEdits ? 'edit' : 'read'}
                   onChange={(value) => setAllowEdits(value === 'edit')}
@@ -654,6 +667,7 @@ export function Conversation({
                   <Button
                     variant="ghost"
                     size="sm"
+                    className={chipClass}
                     disabled={!!active}
                     onClick={() => void openTaskLink()}
                   >
@@ -666,7 +680,7 @@ export function Conversation({
               </span>
               {active ? (
                 <Button
-                  className="composer-send"
+                  className="composer-send rounded-full"
                   aria-label="Stop"
                   title="Stop response"
                   variant="default"
@@ -674,18 +688,18 @@ export function Conversation({
                   disabled={starting}
                   onClick={() => void stop()}
                 >
-                  <Square size={16} />
+                  <Square className="size-3.5" />
                 </Button>
               ) : (
                 <Button
-                  className="composer-send"
+                  className="composer-send rounded-full"
                   aria-label="Send"
                   aria-keyshortcuts="Enter"
                   size="icon"
                   disabled={taskBusy || !prompt.trim() || loading}
                   onClick={() => void send()}
                 >
-                  <ArrowUp size={19} />
+                  <ArrowUp />
                 </Button>
               )}
             </div>
@@ -695,8 +709,8 @@ export function Conversation({
               </p>
             )}
             {taskId && (
-              <div className="flex items-center gap-2 text-xs">
-                <Badge variant="outline">
+              <div className="flex min-w-0 items-center gap-1">
+                <Badge variant="outline" className="min-w-0 truncate">
                   Task ·{' '}
                   {linkItems.find((i) => i.id === taskId)?.title ||
                     session.task?.title ||
@@ -704,7 +718,8 @@ export function Conversation({
                 </Badge>
                 <Button
                   variant="ghost"
-                  size="xs"
+                  size="sm"
+                  className={chipClass}
                   disabled={!!active}
                   onClick={() => setUnlinkOpen(true)}
                 >
@@ -712,10 +727,10 @@ export function Conversation({
                 </Button>
               </div>
             )}
-          </Card>
+          </div>
         </div>
         <Dialog open={linkOpen} onOpenChange={(value) => !linkBusy && setLinkOpen(value)}>
-          <DialogContent>
+          <DialogContent size="md">
             <DialogHeader>
               <DialogTitle>Link a task</DialogTitle>
               <DialogDescription>

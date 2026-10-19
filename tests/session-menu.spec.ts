@@ -21,11 +21,13 @@ test('session actions rename, pin, fork, and open an independent side session', 
   await expect(page.locator('.conversation-toolbar-title')).toContainText('Release review');
   await menu();
   await page.getByRole('menuitem', { name: /^Pin/ }).click();
-  await expect(page.getByRole('button', { name: 'Unpin session', exact: true })).toHaveAttribute(
-    'aria-pressed',
-    'true',
-  );
+  await expect(
+    page
+      .getByRole('region', { name: 'Projects and repositories' })
+      .getByRole('button', { name: 'Resume pinned Release review', exact: true }),
+  ).toBeVisible();
   await menu();
+  await expect(page.getByRole('menuitem', { name: /^Unpin/ })).toBeVisible();
   await page.getByRole('menuitem', { name: 'Fork', exact: true }).hover();
   await page.getByRole('menuitem', { name: 'In current checkout' }).click();
   await expect(page.locator('.conversation-toolbar-title:visible')).toContainText(

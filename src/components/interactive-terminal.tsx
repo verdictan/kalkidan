@@ -54,13 +54,14 @@ const lightPalette: ITheme = {
 function terminalTheme(): ITheme {
   const dark = document.documentElement.classList.contains('dark');
   const style = getComputedStyle(document.documentElement);
-  const token = (name: string, fallback: string) => style.getPropertyValue(name).trim() || fallback;
+  // theme.css sets each token. If a token is empty, xterm uses its own default color.
+  const token = (name: string) => style.getPropertyValue(name).trim() || undefined;
   return {
     ...(dark ? darkPalette : lightPalette),
-    background: token('--background', dark ? '#101316' : '#ffffff'),
-    foreground: token('--foreground', dark ? '#e1e4e7' : '#1f2328'),
-    cursor: token('--muted-foreground', dark ? '#92999f' : '#59636e'),
-    selectionBackground: token('--accent', dark ? '#2a3035' : '#e6eaef'),
+    background: token('--background'),
+    foreground: token('--foreground'),
+    cursor: token('--muted-foreground'),
+    selectionBackground: token('--accent'),
   };
 }
 
@@ -209,8 +210,10 @@ export function InteractiveTerminal({
         aria-label="Interactive terminal"
         aria-description="Press F6 to move focus out of the terminal."
       />
-      <div className="flex shrink-0 items-center justify-between gap-2 px-3 py-1 text-xs text-muted-foreground">
-        <span className="truncate">{exited ? 'Shell exited' : cwd}</span>
+      <div className="tool-toolbar tool-toolbar-footer">
+        <span className="min-w-0 flex-1 truncate" title={exited ? undefined : cwd}>
+          {exited ? 'Shell exited' : cwd}
+        </span>
         <div className="flex gap-1">
           <Button size="sm" variant="ghost" disabled={disabled} onClick={attach}>
             Attach output

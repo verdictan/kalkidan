@@ -186,15 +186,14 @@ test('conversation streams responses, keeps multiple turns, and stops without le
   await expect(page.getByRole('button', { name: 'Send', exact: true })).toBeVisible();
   await page.getByLabel('Message agent').fill('Long task');
   await page.getByRole('button', { name: 'Send', exact: true }).click();
-  await page
-    .getByRole('region', { name: 'Projects and repositories' })
-    .getByRole('button', { name: 'Another fixture', exact: true })
-    .click();
+  // Sessions open from the repository page. The sidebar lists repositories only.
+  // The activity dot adds to the row name while the agent works.
+  const repository = page.locator('.repo-select').filter({ hasText: 'My project' });
+  await repository.click();
+  await page.getByRole('button', { name: 'Resume Another fixture', exact: true }).click();
   await expect(page.locator('.agent-tabbar')).toHaveCount(0);
-  await page
-    .getByRole('region', { name: 'Projects and repositories' })
-    .getByRole('button', { name: 'Live fixture', exact: true })
-    .click();
+  await repository.click();
+  await page.getByRole('button', { name: 'Resume Live fixture', exact: true }).click();
   await page.getByRole('button', { name: 'Stop', exact: true }).click();
   await expect(page.getByText('Response stopped. Send another message to continue.')).toBeVisible();
 });
@@ -289,35 +288,37 @@ test('integrated conversations keep drafts and project navigation visible', asyn
   await expect(workspace).toBeVisible();
   await expect(page.getByRole('dialog')).not.toBeVisible();
   await pane.getByLabel('Message agent').fill('Keep this Codex draft');
-  await page
+  const repository = page
     .getByRole('region', { name: 'Projects and repositories' })
+    .getByRole('button', { name: 'atlas-web', exact: true });
+  await repository.click();
+  await page
     .getByRole('button', {
-      name: 'Review the authentication flow and add integration tests',
+      name: 'Resume Review the authentication flow and add integration tests',
       exact: true,
     })
     .click();
   await pane.getByLabel('Message agent').fill('Keep this Claude draft');
+  await repository.click();
   await page
-    .getByRole('region', { name: 'Projects and repositories' })
-    .getByRole('button', { name: 'Refine project and repository navigation', exact: true })
+    .getByRole('button', { name: 'Resume Refine project and repository navigation', exact: true })
     .click();
   await expect(pane.getByLabel('Message agent')).toHaveValue('Keep this Codex draft');
   await expect(pane.getByRole('region', { name: 'Session details', exact: true })).toHaveCount(0);
-  const pin = page
-    .locator('.conversation-toolbar')
-    .getByRole('button', { name: 'Pin session', exact: true });
-  await expect(pin).toBeVisible();
-  await pin.click();
+  await page.getByRole('button', { name: 'Session actions', exact: true }).click();
+  await page.getByRole('menuitem', { name: /^Pin/ }).click();
   await expect(
     page
-      .locator('.conversation-toolbar')
-      .getByRole('button', { name: 'Unpin session', exact: true }),
-  ).toHaveAttribute('aria-pressed', 'true');
-  await page
-    .locator('.conversation-toolbar')
-    .getByRole('button', { name: 'Unpin session', exact: true })
-    .click();
-  await expect(pin).toHaveAttribute('aria-pressed', 'false');
+      .getByRole('region', { name: 'Projects and repositories' })
+      .getByRole('button', { name: 'Resume pinned Refine project and repository navigation' }),
+  ).toBeVisible();
+  await page.getByRole('button', { name: 'Session actions', exact: true }).click();
+  await page.getByRole('menuitem', { name: /^Unpin/ }).click();
+  await expect(
+    page
+      .getByRole('region', { name: 'Projects and repositories' })
+      .getByRole('button', { name: 'Resume pinned Refine project and repository navigation' }),
+  ).toHaveCount(0);
   await page.setViewportSize({ width: 961, height: 988 });
   await expect(pane.getByRole('button', { name: 'Send', exact: true })).toBeInViewport();
   await page.screenshot({
@@ -336,9 +337,9 @@ test('integrated conversations keep drafts and project navigation visible', asyn
   await page.getByRole('button', { name: /^Back to / }).click();
   await page.locator('.project-tree').getByRole('button', { name: 'Atlas', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Connect GitHub', exact: true })).toBeVisible();
+  await repository.click();
   await page
-    .getByRole('region', { name: 'Projects and repositories' })
-    .getByRole('button', { name: 'Refine project and repository navigation', exact: true })
+    .getByRole('button', { name: 'Resume Refine project and repository navigation', exact: true })
     .click();
   await expect(pane.getByLabel('Message agent')).toHaveValue('Keep this Codex draft');
 });
@@ -398,12 +399,13 @@ for (const agent of ['codex', 'claude'] as const) {
     });
     await page.goto('http://127.0.0.1:5173');
     await page.locator('.repo-select').first().click();
-    await page
-      .getByRole('button', {
-        name: agent === 'codex' ? 'New Codex session' : 'New Claude Code session',
-        exact: true,
-      })
-      .click();
+    // The split button starts Codex by default. Other agents are in its menu.
+    if (agent === 'codex')
+      await page.getByRole('button', { name: 'New Codex session', exact: true }).click();
+    else {
+      await page.getByRole('button', { name: 'Choose an agent', exact: true }).click();
+      await page.getByRole('menuitem', { name: 'New Claude Code session', exact: true }).click();
+    }
     await expect(page.getByRole('region', { name: 'Sessions', exact: true })).toBeVisible();
     await page.getByLabel('Message agent').fill('Build the first feature');
     await page.getByRole('button', { name: 'Send', exact: true }).click();
@@ -516,7 +518,9 @@ test('projects group multiple repositories and each repository opens its own ses
     infrastructure.getByRole('button', { name: 'api-service', exact: true }),
   ).toBeVisible();
   await tree.getByRole('button', { name: 'atlas-web', exact: true }).click();
-  await tree.getByRole('button', { name: /Refine project and repository navigation/ }).click();
+  await page
+    .getByRole('button', { name: 'Resume Refine project and repository navigation', exact: true })
+    .click();
   await expect(page.getByRole('region', { name: 'Sessions', exact: true })).toBeVisible();
   await expect(page.getByText('Atlas / atlas-web', { exact: true })).toHaveCount(0);
 });
@@ -892,7 +896,7 @@ test('project navigation replaces the main sidebar and global history page', asy
   await expect(page.getByRole('region', { name: 'Projects and repositories' })).toBeVisible();
   await page.getByRole('button', { name: 'Settings', exact: true }).click();
   await expect(page.getByRole('dialog')).toContainText('Local agents');
-  await page.getByRole('button', { name: 'Done', exact: true }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Close', exact: true }).last().click();
   await page.screenshot({ path: 'test-results/project-navigation.png', fullPage: true });
 });
 
@@ -907,19 +911,24 @@ test('simplified controls remain accessible and selection follows project and co
   await expect(page.getByRole('menuitem', { name: 'Open Terminal', exact: true })).toBeVisible();
   await expect(page.getByRole('menuitem', { name: /^Show in / })).toBeVisible();
   await page.keyboard.press('Escape');
-  const notes = page.getByRole('button', { name: 'Repository notes', exact: true });
-  await expect(notes).toHaveAttribute('aria-expanded', 'false');
-  await notes.click();
-  await expect(notes).toHaveAttribute('aria-expanded', 'true');
-  await page.locator('.project-tree').getByRole('button', { name: 'Atlas', exact: true }).click();
-  await expect(
-    page.locator('.project-tree').getByRole('button', { name: 'Atlas', exact: true }),
-  ).toHaveAttribute('aria-current', 'page');
-  const session = page
-    .getByRole('region', { name: 'Projects and repositories' })
-    .getByRole('button', { name: 'Refine project and repository navigation', exact: true });
-  await session.click();
-  await expect(session).toHaveAttribute('aria-current', 'page');
+  // Repository notes are part of the repository settings.
+  await page.getByRole('button', { name: 'Edit repository', exact: true }).click();
+  await expect(page.getByRole('dialog').getByRole('textbox', { name: 'Notes' })).toBeVisible();
+  await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+  const tree = page.locator('.project-tree');
+  await tree.getByRole('button', { name: 'Atlas', exact: true }).click();
+  await expect(tree.getByRole('button', { name: 'Atlas', exact: true })).toHaveAttribute(
+    'aria-current',
+    'page',
+  );
+  const repository = tree.locator('.repo-select').filter({ hasText: 'atlas-web' });
+  await repository.click();
+  await expect(repository).toHaveAttribute('aria-current', 'page');
+  await page
+    .getByRole('button', { name: 'Resume Refine project and repository navigation', exact: true })
+    .click();
+  // An open session marks its repository as the current location.
+  await expect(repository).toHaveAttribute('aria-current', 'location');
   await expect(page.getByRole('region', { name: 'Sessions', exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Settings', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Preview chat history', exact: true })).toHaveCount(

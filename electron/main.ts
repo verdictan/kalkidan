@@ -495,6 +495,12 @@ app.whenReady().then(async () => {
   handle('github-auth-status', () => githubAuth.inspect());
   handle('github-auth-cancel', () => githubAuth.cancel());
   handle('github-auth-open', () => shell.openExternal('https://github.com/login/device'));
+  // The saved appearance sets the native theme, so the page and the title bar overlay follow it.
+  handle('appearance', (mode) => {
+    if (mode !== 'system' && mode !== 'light' && mode !== 'dark')
+      throw new Error('Invalid appearance');
+    nativeTheme.themeSource = mode;
+  });
   handle('app-menu', () => {
     const window = BrowserWindow.getFocusedWindow() ?? win;
     if (window) Menu.getApplicationMenu()?.popup({ window, x: 8, y: 48 });

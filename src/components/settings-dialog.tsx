@@ -1,13 +1,61 @@
 import type { GitHubCliStatus } from '../domain/conversation';
 import { agentCatalog } from '../config/agents';
 import { RemoteHostPicker } from './remote-host-picker';
-import { useEffect, useRef, useState } from 'react';
-import { Terminal, RefreshCw, GitBranch } from 'lucide-react';
-import type { API, AgentInstallation } from '../types';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { Tabs as TabsPrimitive } from 'radix-ui';
+import {
+  Asterisk,
+  Bot,
+  ExternalLink,
+  Info,
+  RefreshCw,
+  Server,
+  SlidersHorizontal,
+  Terminal,
+} from 'lucide-react';
+import type { API, Agent, AgentInstallation } from '../types';
 import { Button } from './ui/button';
 import { Hint } from './hint';
-import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from './ui/dialog';
+import { Choice } from './choice';
+import { EntityIcon } from './ui/entity-icon';
+import { SectionHeader } from './ui/page-header';
+import { SegmentedControl } from './ui/segmented-control';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from './ui/dialog';
 import { errorMessage } from '../lib/errors';
+import {
+  applyAppearance,
+  readAppearance,
+  saveAppearance,
+  type Appearance,
+} from '../lib/appearance';
+import { cn } from '../lib/utils';
+
+const defaultAgentKey = 'kalkidan-default-agent';
+
+/** The agent that the user prefers for new sessions. */
+export function readDefaultAgent(): Agent {
+  try {
+    const value = localStorage.getItem(defaultAgentKey);
+    return agentCatalog.some((agent) => agent.id === value) ? (value as Agent) : 'codex';
+  } catch {
+    return 'codex';
+  }
+}
+
+function saveDefaultAgent(agent: Agent) {
+  try {
+    localStorage.setItem(defaultAgentKey, agent);
+  } catch {
+    /* The choice applies for this run only. */
+  }
+}
+
+const sections = [
+  { value: 'general', label: 'General', icon: <SlidersHorizontal /> },
+  { value: 'agents', label: 'Agents & tools', icon: <Bot /> },
+  { value: 'remote', label: 'Remote hosts', icon: <Server /> },
+  { value: 'about', label: 'About', icon: <Info /> },
+];
 
 export function SettingsDialog({
   open,
@@ -70,6 +118,8 @@ export function SettingsDialog({
   }, [open, api, checkRevision]);
   const [remoteId, setRemoteId] = useState('');
   const [refreshError, setRefreshError] = useState('');
+  const [appearance, setAppearance] = useState<Appearance>(readAppearance);
+  const [defaultAgent, setDefaultAgent] = useState<Agent>(readDefaultAgent);
   const heading = useRef<HTMLHeadingElement>(null);
   function agentStatus(agent: string) {
     if (checking) return 'Checking…';
@@ -94,117 +144,257 @@ export function SettingsDialog({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
+        size="lg"
         aria-describedby={undefined}
-        className="flex max-h-[calc(100dvh-2rem)] flex-col gap-0 overflow-hidden p-0 sm:max-w-lg"
+        className="flex h-[min(600px,calc(100dvh-2rem))] flex-col gap-0 overflow-hidden p-0"
         onOpenAutoFocus={(event) => {
           event.preventDefault();
           heading.current?.focus();
         }}
       >
-        <DialogHeader className="border-b px-6 py-5 pr-12 text-left">
+        <DialogHeader className="shrink-0 border-b px-6 pt-6 pb-4">
           <DialogTitle ref={heading} tabIndex={-1} className="outline-none">
             Settings
           </DialogTitle>
         </DialogHeader>
-        <div className="min-h-0 overflow-y-auto px-6 py-5">
-          <section aria-labelledby="settings-agents-title" className="space-y-3">
-            <div className="flex items-center justify-between">
-              <h3 id="settings-agents-title" className="text-sm font-medium">
-                Local agents and tools
-              </h3>
-              <Button
-                variant="ghost"
-                size="sm"
-                disabled={checking || ghChecking}
-                onClick={() => setCheckRevision((n) => n + 1)}
+        <TabsPrimitive.Root
+          defaultValue="agents"
+          orientation="vertical"
+          className="flex min-h-0 flex-1"
+        >
+          <TabsPrimitive.List
+            aria-label="Settings sections"
+            className="flex w-44 shrink-0 flex-col gap-0.5 border-r p-3"
+          >
+            {sections.map((section) => (
+              <TabsPrimitive.Trigger
+                key={section.value}
+                value={section.value}
+                className="flex h-8 items-center gap-2 rounded-md px-2 text-left text-sm text-muted-foreground outline-none transition-colors hover:bg-[var(--surface-hover)] hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring data-[state=active]:bg-[var(--surface-selected)] data-[state=active]:font-medium data-[state=active]:text-foreground [&_svg]:size-4 [&_svg]:shrink-0"
               >
-                <RefreshCw size={14} className={checking ? 'animate-spin' : ''} />
-                Check again
-              </Button>
-            </div>
-            <div className="divide-y rounded-lg border">
-              {agentCatalog.map(({ id, name, vendor }) => (
-                <div key={name} className="flex items-center gap-3 p-3">
-                  <span
-                    className="flex size-9 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground"
-                    aria-hidden="true"
-                  >
-                    {id === 'codex' ? <Terminal size={17} /> : '✳'}
+                {section.icon}
+                {section.label}
+              </TabsPrimitive.Trigger>
+            ))}
+          </TabsPrimitive.List>
+          <div className="min-h-0 min-w-0 flex-1 overflow-y-auto px-6 pt-3 pb-6">
+            {/* Keep each section mounted so that checks and forms keep their state. */}
+            <SettingsSection value="general">
+              <SectionHeader title="General" />
+              <div className="grid gap-4">
+                <div className="form-label">
+                  <span>Appearance</span>
+                  <SegmentedControl
+                    className="justify-self-start"
+                    label="Appearance"
+                    value={appearance}
+                    onChange={(mode) => {
+                      setAppearance(mode);
+                      saveAppearance(mode);
+                      void api.setAppearance?.(mode);
+                      applyAppearance(mode);
+                    }}
+                    options={[
+                      { value: 'system', label: 'System' },
+                      { value: 'light', label: 'Light' },
+                      { value: 'dark', label: 'Dark' },
+                    ]}
+                  />
+                  <span className="text-xs font-normal">
+                    System uses the light or dark setting of your computer.
                   </span>
-                  <div className="min-w-0 flex-1">
-                    <p className="text-sm font-medium">{name}</p>
-                    <p className="text-xs text-muted-foreground">{vendor}</p>
-                    <InstalledPath path={installations.find((item) => item.agent === id)?.path} />
-                  </div>
-                  <span className="shrink-0 text-xs text-muted-foreground">{agentStatus(id)}</span>
                 </div>
-              ))}
-              <div
-                className="flex items-center gap-3 p-3"
-                role="group"
-                aria-label="GitHub CLI status"
-              >
-                <span className="flex size-9 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground">
-                  <GitBranch size={17} />
-                </span>
-                <div className="min-w-0 flex-1">
-                  <p className="text-sm font-medium">GitHub CLI</p>
-                  <p className="text-xs text-muted-foreground">gh · github.com</p>
-                  <InstalledPath path={gh?.path} />
-                  {!ghChecking && gh?.status === 'missing' && (
-                    <p className="text-xs text-muted-foreground">Install gh, then check again.</p>
-                  )}
-                  {!ghChecking && gh?.status === 'signed-out' && (
-                    <p className="text-xs text-muted-foreground">
-                      Run <code>gh auth login</code>, then check again.
-                    </p>
-                  )}
-                </div>
-                <span className="shrink-0 text-xs text-muted-foreground">{ghStatus}</span>
+                <label className="form-label">
+                  Default agent
+                  <Choice
+                    className="w-60"
+                    label="Default agent"
+                    value={defaultAgent}
+                    onChange={(value) => {
+                      setDefaultAgent(value as Agent);
+                      saveDefaultAgent(value as Agent);
+                    }}
+                    options={agentCatalog.map((agent) => ({ value: agent.id, label: agent.name }))}
+                  />
+                  <span className="text-xs font-normal">The agent for new sessions.</span>
+                </label>
               </div>
-            </div>
-            {/* One live region announces the result of all checks together. */}
-            <p role="status" className="sr-only">
-              {checking || ghChecking
-                ? 'Checking agents and tools…'
-                : [
-                    ...agentCatalog.map(({ id, name }) => `${name}: ${agentStatus(id)}.`),
-                    `GitHub CLI: ${ghStatus}.`,
-                  ].join(' ')}
-            </p>
-            {checkError && (
-              <p role="alert" className="text-xs text-destructive">
-                {checkError}
-              </p>
-            )}
-          </section>
-          <div className="mt-6">
-            <RemoteHostPicker
-              compact
-              api={api}
-              value={remoteId}
-              onChange={setRemoteId}
-              onReady={() => {
-                setRefreshError('');
-                void onRefresh().catch((error) =>
-                  setRefreshError(`Could not refresh projects: ${errorMessage(error)}`),
-                );
-              }}
-            />
-            {refreshError && (
-              <p role="alert" className="mt-2 text-xs text-destructive">
-                {refreshError}
-              </p>
-            )}
+            </SettingsSection>
+            <SettingsSection value="agents">
+              <section aria-label="Local agents and tools">
+                <SectionHeader
+                  title="Local agents and tools"
+                  actions={
+                    <Button
+                      variant="ghost"
+                      disabled={checking || ghChecking}
+                      onClick={() => setCheckRevision((n) => n + 1)}
+                    >
+                      <RefreshCw className={checking ? 'animate-spin' : ''} />
+                      Check again
+                    </Button>
+                  }
+                />
+                <div className="divide-y rounded-lg border">
+                  {agentCatalog.map(({ id, name, vendor }) => (
+                    <ToolRow
+                      key={id}
+                      icon={id === 'codex' ? <Terminal /> : <Asterisk />}
+                      name={name}
+                      vendor={vendor}
+                      path={installations.find((item) => item.agent === id)?.path}
+                      status={agentStatus(id)}
+                      ready={agentStatus(id) === 'Installed'}
+                    />
+                  ))}
+                  <ToolRow
+                    label="GitHub CLI status"
+                    icon={
+                      <img
+                        src="./icons/github.svg"
+                        width="16"
+                        height="16"
+                        alt=""
+                        className="dark:invert"
+                      />
+                    }
+                    name="GitHub CLI"
+                    vendor="gh · github.com"
+                    path={gh?.path}
+                    status={ghStatus}
+                    ready={ghStatus === 'Signed in'}
+                  >
+                    {!ghChecking && gh?.status === 'missing' && (
+                      <p className="text-xs text-muted-foreground">Install gh, then check again.</p>
+                    )}
+                    {!ghChecking && gh?.status === 'signed-out' && (
+                      <p className="text-xs text-muted-foreground">
+                        Run <code>gh auth login</code>, then check again.
+                      </p>
+                    )}
+                  </ToolRow>
+                </div>
+                {/* One live region announces the result of all checks together. */}
+                <p role="status" className="sr-only">
+                  {checking || ghChecking
+                    ? 'Checking agents and tools…'
+                    : [
+                        ...agentCatalog.map(({ id, name }) => `${name}: ${agentStatus(id)}.`),
+                        `GitHub CLI: ${ghStatus}.`,
+                      ].join(' ')}
+                </p>
+                {checkError && (
+                  <p role="alert" className="mt-2 text-xs text-destructive">
+                    {checkError}
+                  </p>
+                )}
+              </section>
+            </SettingsSection>
+            <SettingsSection value="remote">
+              <RemoteHostPicker
+                compact
+                api={api}
+                value={remoteId}
+                onChange={setRemoteId}
+                onReady={() => {
+                  setRefreshError('');
+                  void onRefresh().catch((error) =>
+                    setRefreshError(`Could not refresh projects: ${errorMessage(error)}`),
+                  );
+                }}
+              />
+              {refreshError && (
+                <p role="alert" className="mt-2 text-xs text-destructive">
+                  {refreshError}
+                </p>
+              )}
+            </SettingsSection>
+            <SettingsSection value="about">
+              <SectionHeader title="About" />
+              <div className="flex items-center gap-3">
+                <img
+                  src="./brand/kalkidan-icon.svg"
+                  alt=""
+                  width="40"
+                  height="40"
+                  className="size-10 rounded-lg"
+                />
+                <div>
+                  <p className="text-sm font-medium">Kalkidan</p>
+                  <p className="text-xs text-muted-foreground">
+                    Projects, repositories, and agent sessions in one workspace.
+                  </p>
+                </div>
+              </div>
+              <ul className="mt-4 grid gap-1">
+                <li>
+                  <ExternalLinkRow href="https://github.com/verdictan/kalkidan/blob/main/docs/user-guide.md">
+                    User guide
+                  </ExternalLinkRow>
+                </li>
+                <li>
+                  <ExternalLinkRow href="https://github.com/verdictan/kalkidan/issues">
+                    Report an issue
+                  </ExternalLinkRow>
+                </li>
+              </ul>
+            </SettingsSection>
           </div>
-        </div>
-        <DialogFooter className="shrink-0 border-t px-6 py-4">
-          <Button variant="outline" onClick={() => onOpenChange(false)}>
-            Done
-          </Button>
-        </DialogFooter>
+        </TabsPrimitive.Root>
       </DialogContent>
     </Dialog>
+  );
+}
+
+function SettingsSection({ value, children }: { value: string; children: ReactNode }) {
+  return (
+    <TabsPrimitive.Content
+      forceMount
+      value={value}
+      className="outline-none data-[state=inactive]:hidden"
+    >
+      {children}
+    </TabsPrimitive.Content>
+  );
+}
+
+/** One agent or tool: icon, name, vendor, installed path, and status. */
+function ToolRow({
+  label,
+  icon,
+  name,
+  vendor,
+  path,
+  status,
+  ready,
+  children,
+}: {
+  label?: string;
+  icon: ReactNode;
+  name: string;
+  vendor: string;
+  path?: string;
+  status: string;
+  ready: boolean;
+  children?: ReactNode;
+}) {
+  return (
+    <div
+      className="flex items-center gap-3 px-4 py-3"
+      role={label ? 'group' : undefined}
+      aria-label={label}
+    >
+      <EntityIcon>{icon}</EntityIcon>
+      <div className="min-w-0 flex-1">
+        <p className="text-sm font-medium">{name}</p>
+        <p className="text-xs text-muted-foreground">{vendor}</p>
+        <InstalledPath path={path} />
+        {children}
+      </div>
+      <span className={cn('shrink-0 text-xs', ready ? 'text-success' : 'text-muted-foreground')}>
+        {status}
+      </span>
+    </div>
   );
 }
 
@@ -217,5 +407,19 @@ function InstalledPath({ path }: { path?: string }) {
         {path}
       </p>
     </Hint>
+  );
+}
+
+function ExternalLinkRow({ href, children }: { href: string; children: ReactNode }) {
+  return (
+    <a
+      href={href}
+      target="_blank"
+      rel="noreferrer"
+      className="inline-flex h-8 items-center gap-2 rounded-md px-2 -mx-2 text-sm text-link outline-none hover:bg-[var(--surface-hover)] focus-visible:ring-2 focus-visible:ring-ring"
+    >
+      {children}
+      <ExternalLink className="size-3.5" aria-hidden="true" />
+    </a>
   );
 }

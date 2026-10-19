@@ -18,27 +18,52 @@
   --color-border: var(--border);
   --color-input: var(--border);
   --color-ring: var(--ring);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-link: var(--link);
+  --color-diff-add: var(--diff-add);
+  --color-diff-remove: var(--diff-remove);
+  /* Type scale. text-sm is the one UI size. */
+  --text-xs: 12px;
+  --text-xs--line-height: 16px;
+  --text-sm: 13px;
+  --text-sm--line-height: 20px;
+  --text-base: 15px;
+  --text-base--line-height: 24px;
+  --text-lg: 16px;
+  --text-lg--line-height: 24px;
+  --text-xl: 20px;
+  --text-xl--line-height: 28px;
+  --text-2xl: 24px;
+  --text-2xl--line-height: 32px;
+  /* Radius scale: 4 small parts, 6 controls and rows, 8 cards and menus, 12 dialogs. */
+  --radius-xs: 4px;
   --radius-sm: 4px;
   --radius-md: 6px;
-  --radius-lg: 10px;
-  --radius-xl: 14px;
+  --radius-lg: 8px;
+  --radius-xl: 12px;
+  --radius-2xl: 16px;
+  --shadow-xs: 0 1px 2px rgb(0 0 0 / 0.05);
+  --shadow-sm: var(--shadow-raised);
+  --shadow-md: var(--shadow-popover);
+  --shadow-lg: var(--shadow-dialog);
 }
 
 :root {
   color-scheme: dark;
   --background: #101316;
   --foreground: #e1e4e7;
-  --card: #191d21;
+  --card: #1a1e22;
   --primary: #e6eaed;
   --primary-foreground: #13171b;
   --secondary: #252a2f;
-  --muted: #191d21;
+  --muted: #1f2428;
   --muted-foreground: #92999f;
   --accent: #2a3035;
   --border: #282e33;
   --ring: #87939d;
   --destructive: #f28b82;
-  --navigation: #171b1e;
+  --navigation: #15191c;
   --chrome: #22272b;
   --composer: #292e33;
   --success: #71c78a;
@@ -50,6 +75,41 @@
   --diff-remove: #f2a3a3;
   --diff-remove-surface: #392326;
   --navigation-width: 260px;
+
+  /* Spacing uses a 4px grid. 6px is only for icon and label gaps. */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-12: 48px;
+  /* Controls and rows */
+  --control-xs: 24px;
+  --control-sm: 28px;
+  --control-md: 32px;
+  --control-lg: 36px;
+  --row-height: 32px;
+  --row-height-2line: 56px;
+  /* Layout */
+  --page-max-width: 1120px;
+  --page-padding-x: 32px;
+  --page-padding-top: 24px;
+  --reading-width: 752px;
+  --section-gap: 32px;
+  --dialog-sm: 440px;
+  --dialog-md: 560px;
+  --dialog-lg: 720px;
+  /* States and elevation */
+  --surface-hover: color-mix(in srgb, var(--foreground) 5%, transparent);
+  --surface-selected: color-mix(in srgb, var(--foreground) 9%, transparent);
+  --popover: var(--card);
+  --focus-ring: 0 0 0 2px var(--ring);
+  --overlay: rgb(0 0 0 / 0.5);
+  --shadow-raised: 0 1px 2px rgb(0 0 0 / 0.2);
+  --shadow-popover: 0 4px 16px rgb(0 0 0 / 0.32);
+  --shadow-dialog: 0 16px 48px rgb(0 0 0 / 0.45);
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   font-synthesis: none;
 }
@@ -58,11 +118,11 @@
   color-scheme: light;
   --background: #ffffff;
   --foreground: #1f2328;
-  --card: #f6f8fa;
+  --card: #ffffff;
   --primary: #1f2328;
   --primary-foreground: #ffffff;
   --secondary: #eaeef2;
-  --muted: #f6f8fa;
+  --muted: #f3f5f7;
   --muted-foreground: #59636e;
   --accent: #e6eaef;
   --border: #d8dee4;
@@ -79,6 +139,10 @@
   --diff-add-surface: #dafbe1;
   --diff-remove: #cf222e;
   --diff-remove-surface: #ffebe9;
+  --overlay: rgb(15 20 25 / 0.32);
+  --shadow-raised: 0 1px 2px rgb(15 20 25 / 0.06);
+  --shadow-popover: 0 4px 16px rgb(15 20 25 / 0.12);
+  --shadow-dialog: 0 16px 48px rgb(15 20 25 / 0.18);
 }
 @layer base {
   * {
@@ -90,13 +154,27 @@ body {
   margin: 0;
   background: var(--background);
   color: var(--foreground);
-  font-size: 14px;
+  font-size: 13px;
+  line-height: 20px;
   -webkit-font-smoothing: antialiased;
 }
 button,
 input,
 textarea {
   -webkit-app-region: no-drag;
+}
+
+/* Shared form label: text above its control. */
+.form-label {
+  display: grid;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--muted-foreground);
+}
+.form-label > :is(input, textarea, button, select) {
+  color: var(--foreground);
+  font-weight: 400;
 }
 
 .hint-disabled {

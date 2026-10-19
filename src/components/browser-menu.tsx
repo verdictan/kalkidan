@@ -1,7 +1,8 @@
 import { useState } from 'react';
-import { MoreHorizontal, Download, KeyRound } from 'lucide-react';
+import { Download, KeyRound } from 'lucide-react';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
+import { MoreButton } from './ui/more-button';
 import { Switch } from './ui/switch';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from './ui/dialog';
 import {
@@ -144,21 +145,13 @@ export function BrowserMenu({
           disabled={!ready}
           onClick={() => void show('Downloads')}
         >
-          <Download size={15} />
+          <Download />
         </Button>
       </Hint>
       <DropdownMenu>
         <Hint label="Browser menu">
           <DropdownMenuTrigger asChild>
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon-sm"
-              aria-label="Browser menu"
-              disabled={!ready}
-            >
-              <MoreHorizontal size={17} />
-            </Button>
+            <MoreButton type="button" label="Browser menu" disabled={!ready} />
           </DropdownMenuTrigger>
         </Hint>
         <DropdownMenuContent align="end" className="w-64">
@@ -177,7 +170,7 @@ export function BrowserMenu({
             <div className="flex items-center">
               {/* Menu items keep the zoom controls in the keyboard order. The menu stays open. */}
               <DropdownMenuItem
-                className="h-8 w-8 justify-center p-0"
+                className="w-7 justify-center p-0"
                 aria-label="Zoom out"
                 disabled={busy || zoom <= 0.25}
                 onSelect={(e) => {
@@ -188,7 +181,7 @@ export function BrowserMenu({
                 −
               </DropdownMenuItem>
               <DropdownMenuItem
-                className="h-8 justify-center px-2 tabular-nums"
+                className="justify-center px-2 tabular-nums"
                 aria-label={`Reset zoom (now ${Math.round(zoom * 100)}%)`}
                 disabled={busy}
                 onSelect={(e) => {
@@ -199,7 +192,7 @@ export function BrowserMenu({
                 {Math.round(zoom * 100)}%
               </DropdownMenuItem>
               <DropdownMenuItem
-                className="h-8 w-8 justify-center p-0"
+                className="w-7 justify-center p-0"
                 aria-label="Zoom in"
                 disabled={busy || zoom >= 3}
                 onSelect={(e) => {
@@ -252,7 +245,7 @@ export function BrowserMenu({
         </DropdownMenuContent>
       </DropdownMenu>
       <Dialog open={!!panel} onOpenChange={(open) => !open && openPanel(null)}>
-        <DialogContent className="sm:max-w-xl">
+        <DialogContent size="md">
           <DialogHeader>
             <DialogTitle>{panel}</DialogTitle>
             <DialogDescription>
@@ -288,7 +281,7 @@ export function BrowserMenu({
                 );
               }}
             >
-              <label className="block space-y-2 text-sm">
+              <label className="form-label">
                 Home page
                 <Input
                   aria-label="Home page"
@@ -310,7 +303,7 @@ export function BrowserMenu({
           {panel === 'Clear browsing data' && (
             <div className="space-y-3">
               {clearOptions.map((option) => (
-                <div key={option.kind} className="space-y-3 rounded border p-3">
+                <div key={option.kind} className="panel space-y-3">
                   <div className="flex items-center justify-between gap-4">
                     <span className="text-sm">{option.label}</span>
                     <Button
@@ -400,7 +393,7 @@ export function BrowserMenu({
                 Refresh downloads
               </Button>
               {data?.downloads.map((d) => (
-                <div key={d.id} className="rounded border p-3">
+                <div key={d.id} className="panel">
                   <p className="truncate text-sm">{d.name}</p>
                   <p className="text-xs text-muted-foreground">
                     {downloadState[d.state] || d.state} · {Math.round(d.received / 1024)} /{' '}
@@ -450,7 +443,7 @@ export function BrowserMenu({
                 Import password CSV…
               </Button>
               {data?.credentials.map((c) => (
-                <div key={c.id} className="rounded border p-3">
+                <div key={c.id} className="panel">
                   <p className="break-all text-sm">{c.origin}</p>
                   <p className="text-xs text-muted-foreground">{c.username}</p>
                   <div className="mt-2 flex gap-2">

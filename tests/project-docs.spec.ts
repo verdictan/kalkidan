@@ -88,6 +88,18 @@ test('rich editor formats in place, supports slash blocks, and saves Markdown', 
   await editor.press('Enter');
   await editor.pressSequentially('Ship the first release');
   await expect(editor.locator('input[type="checkbox"]')).toHaveCount(1);
+  // The list shortcut in a list item does not put a second list in the item.
+  await editor.press('Enter');
+  await editor.press('Enter');
+  await editor.pressSequentially('- First step');
+  await editor.press('Enter');
+  await editor.pressSequentially('- Second step');
+  await expect(editor.locator('li ul')).toHaveCount(0);
+  await expect(editor.locator('ul:not([data-type="taskList"]) > li')).toHaveCount(2);
+  // The marker is not kept as text, so the list does not load again as a nested list.
+  await expect(editor.locator('ul:not([data-type="taskList"]) > li').nth(1)).toHaveText(
+    'Second step',
+  );
   await expect(page.getByRole('status')).toHaveText('Saved');
   await page.getByRole('button', { name: 'Document actions' }).click();
   await page.getByRole('menuitem', { name: 'Markdown source', exact: true }).click();
@@ -99,7 +111,7 @@ test('rich editor formats in place, supports slash blocks, and saves Markdown', 
   await page.setViewportSize({ width: 1262, height: 988 });
   await expect(page.getByRole('menu')).toHaveCount(0);
   await page.screenshot({ path: 'test-results/wiki-editor-desktop.png', fullPage: true });
-  await page.getByRole('button', { name: 'Read', exact: true }).click();
+  await page.getByRole('button', { name: 'Preview', exact: true }).click();
   await expect(editor).toHaveAttribute('contenteditable', 'false');
 });
 
@@ -190,7 +202,7 @@ test('document context menu preserves selection and supports keyboard block edit
     page.locator('.wiki-page-icon, .wiki-page-meta, .wiki-collection, .wiki-library-search'),
   ).toHaveCount(0);
   await page.screenshot({ path: 'test-results/wiki-context-menu-layout.png', fullPage: true });
-  await page.getByRole('button', { name: 'Read', exact: true }).click();
+  await page.getByRole('button', { name: 'Preview', exact: true }).click();
   await editor.click({ button: 'right' });
   await expect(menu).toHaveCount(0);
 });

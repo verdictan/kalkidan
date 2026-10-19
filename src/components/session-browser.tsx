@@ -1,10 +1,13 @@
 import { Hint } from './hint';
 import { ActivityDot, activityKey, type SessionActivityState } from './activity-dot';
 import { useEffect, useState } from 'react';
-import { Archive, ArchiveRestore, History, MoreHorizontal, Pin, Terminal } from 'lucide-react';
+import { Archive, ArchiveRestore, History, Pin, Terminal } from 'lucide-react';
 import { agentCatalog, agentLabel } from '../config/agents';
 import { Choice } from './choice';
 import { Button } from './ui/button';
+import { EntityIcon } from './ui/entity-icon';
+import { MoreButton } from './ui/more-button';
+import { SegmentedControl } from './ui/segmented-control';
 import { Input } from './ui/input';
 import { Textarea } from './ui/textarea';
 import {
@@ -117,18 +120,15 @@ export function SessionBrowser({
     <>
       {!compact && (
         <div className="session-filters">
-          <div className="session-scopes" role="group" aria-label="Session view">
-            {['active', 'pinned', 'archived'].map((value) => (
-              <Button
-                variant="ghost"
-                key={value}
-                aria-pressed={scope === value}
-                onClick={() => setScope(value)}
-              >
-                {value[0].toUpperCase() + value.slice(1)}
-              </Button>
-            ))}
-          </div>
+          <SegmentedControl
+            label="Session view"
+            value={scope}
+            onChange={setScope}
+            options={['active', 'pinned', 'archived'].map((value) => ({
+              value,
+              label: value[0].toUpperCase() + value.slice(1),
+            }))}
+          />
           <Choice
             label="Filter by agent"
             value={agent}
@@ -156,13 +156,17 @@ export function SessionBrowser({
             const title = org.title || session.title;
             return (
               <div className="session organized-session" key={session.agent + session.id}>
-                <span className={'agent-mark ' + session.agent} aria-hidden="true">
-                  {session.agent === 'codex' ? <Terminal size={16} /> : '✳'}
-                </span>
+                <EntityIcon>
+                  {session.agent === 'codex' ? (
+                    <Terminal />
+                  ) : (
+                    <span className="text-base leading-none">✳</span>
+                  )}
+                </EntityIcon>
                 <div className="min-w-0 flex-1">
                   <Button
                     variant="ghost"
-                    className="session-title"
+                    className="session-title h-auto max-w-full justify-start gap-1.5 p-0 text-left font-medium hover:bg-transparent has-[>svg]:px-0"
                     title={title}
                     disabled={busy}
                     aria-label={`Resume ${title}`}
@@ -172,7 +176,10 @@ export function SessionBrowser({
                     <span>{title}</span>
                     <ActivityDot state={activity[activityKey(session.agent, session.id)]} />
                   </Button>
-                  <div className="session-meta">
+                  <div
+                    className="session-meta"
+                    title={`${agentLabel(session.agent)} · ${new Date(session.updatedAt).toLocaleString()}${org.collection ? ' · ' + org.collection : ''}`}
+                  >
                     {agentLabel(session.agent)} ·{' '}
                     <time
                       dateTime={session.updatedAt}
@@ -186,19 +193,16 @@ export function SessionBrowser({
                 </div>
                 <div className="session-actions">
                   <Hint label="Organize session">
-                    <Button
-                      variant="ghost"
-                      size="icon-sm"
+                    <MoreButton
+                      size="sm"
                       disabled={busy}
-                      aria-label={`Organize ${title}`}
+                      label={`Organize ${title}`}
                       onClick={() => {
                         setSaveError('');
                         setEditing(session);
                         setDraft({ ...org });
                       }}
-                    >
-                      <MoreHorizontal size={14} />
-                    </Button>
+                    />
                   </Hint>
                 </div>
               </div>
@@ -228,8 +232,8 @@ export function SessionBrowser({
           if (!open && !saving) setEditing(null);
         }}
       >
-        <DialogContent className="max-h-[calc(100dvh-48px)] overflow-y-auto">
-          <DialogHeader className="pr-6">
+        <DialogContent size="md">
+          <DialogHeader>
             <DialogTitle>Organize session</DialogTitle>
             <DialogDescription>
               These settings are saved in Kalkidan. The original session stays unchanged.

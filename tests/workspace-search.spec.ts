@@ -12,9 +12,8 @@ test('search finds project, session and message text and opens the conversation'
   await input.fill('authentication');
   await expect(results.getByRole('heading', { name: 'Sessions', exact: true })).toBeVisible();
   await input.fill('original messages');
-  await expect(
-    results.getByRole('heading', { name: 'Session messages', exact: true }),
-  ).toBeVisible();
+  // A message match shows as an excerpt under its session row.
+  await expect(results.getByRole('heading', { name: 'Sessions', exact: true })).toBeVisible();
   await expect(results.locator('.history-search-hit')).toHaveCount(2);
   await results.locator('.history-search-hit').first().click();
   await expect(page.getByRole('region', { name: 'Session', exact: true })).toBeVisible();

@@ -4,6 +4,8 @@ test('remote project flow checks and installs the host, picks remote folders, an
   page,
 }) => {
   await page.addInitScript(() => {
+    // An empty workspace opens the first-run onboarding. This test does not use it.
+    localStorage.setItem('kalkidan:onboarding:v1', 'dismissed');
     let host: any;
     const groups: any[] = [];
     const projects: any[] = [];
@@ -90,6 +92,7 @@ test('remote project flow checks and installs the host, picks remote folders, an
     .getByRole('button', { name: 'Install Kalkidan helper and connect', exact: true })
     .click();
   await expect(dialog.getByRole('status')).toContainText('Connected');
+  await dialog.getByRole('button', { name: 'Connect GitHub', exact: true }).click();
   await dialog.getByRole('button', { name: 'Use URL', exact: true }).click();
   await dialog.getByLabel('GitHub URL').fill('https://github.com/orgs/example/projects/1');
   await page.screenshot({ path: 'test-results/remote-project-setup.png', fullPage: true });
@@ -104,7 +107,7 @@ test('remote project flow checks and installs the host, picks remote folders, an
   await add.getByLabel('Remote folder path').fill('/home/dev/web');
   await add.getByRole('button', { name: 'Add remote folder', exact: true }).click();
   await page.locator('.repo-select').click();
-  await expect(page.getByText('SSH · Development · connected', { exact: true })).toBeVisible();
+  await expect(page.getByText(/^SSH · Development · connected/)).toBeVisible();
   await page.getByRole('button', { name: 'New Codex session', exact: true }).click();
   await page.getByLabel('Message agent').fill('Inspect this repository');
   await page.getByRole('button', { name: 'Send', exact: true }).click();
