@@ -10,13 +10,13 @@ test('board quick creation, issue inspector and status changes share the tracker
   await page.getByRole('button', { name: 'Atlas roadmap #1', exact: true }).click();
   await page.getByRole('button', { name: 'Connect project', exact: true }).click();
   const board = page.getByRole('region', { name: 'Tracker board', exact: true });
-  await board.getByRole('button', { name: 'New item in In progress', exact: true }).click();
+  await board.getByRole('button', { name: 'New task in In progress', exact: true }).click();
   const create = page.getByRole('dialog');
   await expect(create.getByRole('combobox', { name: 'Initial status' })).toContainText(
     'In progress',
   );
-  await create.getByLabel('Item title').fill('Polish the issue workflow');
-  await create.getByLabel('Item description').fill('## Acceptance criteria\n- Keep GitHub in sync');
+  await create.getByLabel('Task title').fill('Polish the issue workflow');
+  await create.getByLabel('Task description').fill('## Acceptance criteria\n- Keep GitHub in sync');
   await create.getByRole('button', { name: 'Add to GitHub', exact: true }).click();
   const progress = board.getByRole('region', { name: 'In progress column', exact: true });
   await expect(
@@ -25,12 +25,12 @@ test('board quick creation, issue inspector and status changes share the tracker
   await progress.getByRole('button', { name: 'Polish the issue workflow', exact: true }).click();
   const detail = page.getByRole('dialog');
   await expect(detail.getByRole('heading', { name: 'Acceptance criteria' })).toBeVisible();
-  await detail.getByRole('combobox', { name: 'Issue status', exact: true }).click();
+  await detail.getByRole('combobox', { name: 'Task status', exact: true }).click();
   await page.getByRole('option', { name: 'Done', exact: true }).click();
-  await expect(detail.getByRole('combobox', { name: 'Issue status', exact: true })).toContainText(
+  await expect(detail.getByRole('combobox', { name: 'Task status', exact: true })).toContainText(
     'Done',
   );
-  await detail.getByRole('button', { name: 'Previous issue', exact: true }).click();
+  await detail.getByRole('button', { name: 'Previous task', exact: true }).click();
   await expect(
     detail.getByRole('heading', { name: 'Review authentication', exact: true }),
   ).toBeVisible();
@@ -42,7 +42,7 @@ test('board quick creation, issue inspector and status changes share the tracker
       .getByRole('region', { name: 'Done column', exact: true })
       .getByRole('button', { name: 'Polish the issue workflow', exact: true }),
   ).toBeVisible();
-  await page.getByRole('combobox', { name: 'Sort issues', exact: true }).click();
+  await page.getByRole('combobox', { name: 'Sort tasks', exact: true }).click();
   await page.getByRole('option', { name: 'Title A–Z', exact: true }).click();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.screenshot({ path: 'test-results/tracker-workspace.png' });
@@ -105,12 +105,12 @@ test('failed initial status leaves one created item available for a status retry
     .locator('.project-tree')
     .getByRole('button', { name: 'Platform', exact: true })
     .click();
-  await page.getByRole('button', { name: 'New item in Building', exact: true }).click();
-  await page.getByLabel('Item title').fill('Only create once');
+  await page.getByRole('button', { name: 'New task in Building', exact: true }).click();
+  await page.getByLabel('Task title').fill('Only create once');
   await page.getByRole('button', { name: 'Add to GitHub', exact: true }).click();
   await expect(page.getByRole('dialog')).not.toBeVisible();
   await expect(page.getByRole('alert')).toContainText(
-    'Item created, but its status could not be set',
+    'Task created, but its status could not be set',
   );
   const board = page.getByRole('region', { name: 'Tracker board', exact: true });
   await expect(board.getByRole('button', { name: 'Only create once', exact: true })).toHaveCount(1);

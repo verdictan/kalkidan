@@ -6,6 +6,13 @@ export interface ProjectDoc {
   revision: string;
 }
 export type ProjectDocMetadata = Pick<ProjectDoc, 'id' | 'title' | 'parentId'>;
+/** A deleted page in the project's .trash folder. */
+export interface DeletedProjectDoc {
+  trashId: string;
+  id: string;
+  title: string;
+  deletedAt: number;
+}
 export interface DocsAPI {
   docsMetadata(groupId: string): Promise<ProjectDocMetadata[]>;
   docsRead(groupId: string, id: string): Promise<ProjectDoc>;
@@ -13,4 +20,6 @@ export interface DocsAPI {
   docsCreate(groupId: string, title: string, parentId: string | null): Promise<ProjectDoc>;
   docsSave(groupId: string, doc: ProjectDoc): Promise<ProjectDoc>;
   docsDelete(groupId: string, id: string, revision: string): Promise<void>;
+  docsTrash(groupId: string): Promise<DeletedProjectDoc[]>;
+  docsRestore(groupId: string, trashId: string): Promise<ProjectDoc>;
 }

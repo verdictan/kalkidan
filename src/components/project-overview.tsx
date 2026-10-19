@@ -2,12 +2,13 @@ import { projectColors } from '../domain/project-colors';
 import { trackerConnection } from '../domain/tracker';
 import { CreateProject } from './create-project';
 import { useState } from 'react';
-import { ArrowUpRight, Folder, Plus, GitBranch, MessageSquare } from 'lucide-react';
+import { ChevronRight, Folder, Plus, GitBranch, MessageSquare } from 'lucide-react';
 import { Button } from './ui/button';
 
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table';
 import type { API, ProjectGroup, Project, Session } from '../types';
 import { sessionRepo } from '../lib/session-repository';
+import { plural } from '../lib/platform';
 
 export function ProjectOverview({
   api,
@@ -47,72 +48,74 @@ export function ProjectOverview({
           New project
         </Button>
       </div>
-      <div className="project-directory">
-        <Table>
-          <colgroup>
-            <col className="project-name-column" />
-            <col className="project-repositories-column" />
-            <col className="project-sessions-column" />
-          </colgroup>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Project</TableHead>
-              <TableHead>Repositories</TableHead>
-              <TableHead>Sessions</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {visible.map((group) => {
-              const repositories = repos.filter((r) => group.repoIds.includes(r.id));
-              const count = sessions.filter(
-                (s) =>
-                  !s.organization?.archived &&
-                  repositories.some((r) => r.id === sessionRepo(s, repos)?.id),
-              ).length;
-              return (
-                <TableRow key={group.id}>
-                  <TableCell>
-                    <Button
-                      variant="ghost"
-                      className="project-open h-auto max-w-full justify-start gap-3 px-0 py-2 text-left whitespace-normal"
-                      onClick={() => onSelect(group)}
-                    >
-                      <span
-                        className="project-symbol"
-                        style={{ color: group.color ? projectColors[group.color] : undefined }}
+      {!!visible.length && (
+        <div className="project-directory">
+          <Table>
+            <colgroup>
+              <col className="project-name-column" />
+              <col className="project-repositories-column" />
+              <col className="project-sessions-column" />
+            </colgroup>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Project</TableHead>
+                <TableHead>Repositories</TableHead>
+                <TableHead>Sessions</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {visible.map((group) => {
+                const repositories = repos.filter((r) => group.repoIds.includes(r.id));
+                const count = sessions.filter(
+                  (s) =>
+                    !s.organization?.archived &&
+                    repositories.some((r) => r.id === sessionRepo(s, repos)?.id),
+                ).length;
+                return (
+                  <TableRow key={group.id}>
+                    <TableCell>
+                      <Button
+                        variant="ghost"
+                        className="project-open h-auto max-w-full justify-start gap-3 px-0 py-2 text-left whitespace-normal"
+                        onClick={() => onSelect(group)}
                       >
-                        <Folder size={16} />
+                        <span
+                          className="project-symbol"
+                          style={{ color: group.color ? projectColors[group.color] : undefined }}
+                        >
+                          <Folder size={16} />
+                        </span>
+                        <span className="min-w-0 break-words font-medium">
+                          {group.name}
+                          {group.hostId && (
+                            <span className="ml-2 text-[11px] text-muted-foreground">SSH</span>
+                          )}
+                        </span>
+                        <ChevronRight size={12} className="shrink-0 text-muted-foreground" />
+                      </Button>
+                    </TableCell>
+                    <TableCell>
+                      <span
+                        className="inline-flex items-center gap-2 text-xs text-muted-foreground"
+                        title={repositories.map((r) => r.name).join(', ')}
+                      >
+                        <GitBranch size={13} />
+                        {plural(repositories.length, 'repository', 'repositories')}
                       </span>
-                      <span className="min-w-0 break-words font-medium">
-                        {group.name}
-                        {group.hostId && (
-                          <span className="ml-2 text-[10px] text-muted-foreground">SSH</span>
-                        )}
+                    </TableCell>
+                    <TableCell>
+                      <span className="inline-flex items-center gap-2 text-xs text-muted-foreground">
+                        <MessageSquare size={13} />
+                        {plural(count, 'session')}
                       </span>
-                      <ArrowUpRight size={12} className="shrink-0 text-muted-foreground" />
-                    </Button>
-                  </TableCell>
-                  <TableCell>
-                    <span
-                      className="inline-flex items-center gap-2 text-xs text-muted-foreground"
-                      title={repositories.map((r) => r.name).join(', ')}
-                    >
-                      <GitBranch size={13} />
-                      {repositories.length} repositories
-                    </span>
-                  </TableCell>
-                  <TableCell>
-                    <span className="inline-flex items-center gap-2 text-xs text-muted-foreground">
-                      <MessageSquare size={13} />
-                      {count} sessions
-                    </span>
-                  </TableCell>
-                </TableRow>
-              );
-            })}
-          </TableBody>
-        </Table>
-      </div>
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
+            </TableBody>
+          </Table>
+        </div>
+      )}
       {!visible.length && (
         <div className="project-empty">
           <Folder size={24} />

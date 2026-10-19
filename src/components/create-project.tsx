@@ -3,7 +3,8 @@ import { interfaceConfig } from '../config/interface';
 import { useTracker } from '../hooks/use-tracker';
 import { RemoteHostPicker } from './remote-host-picker';
 import { Choice } from './choice';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { Hint } from './hint';
 import type { API, TrackerAuthState, ProjectGroup } from '../types';
 import { TrackerProjectPicker } from './tracker-project-picker';
 import { Button } from './ui/button';
@@ -49,7 +50,10 @@ export function CreateProject({
   const busy = creating || hostBusy || pickerBusy;
   const [error, setError] = useState('');
   const [auth, setAuth] = useState<TrackerAuthState>({ status: 'idle' });
+  // True after the user starts sign-in here. Closing the dialog then cancels it.
+  const started = useRef(false);
   async function authorize() {
+    started.current = true;
     setAuth({ status: 'checking' });
     try {
       setAuth(await client.authorize());
@@ -71,22 +75,24 @@ export function CreateProject({
     setUrl('');
     setError('');
     let active = true;
+    started.current = false;
+    // Only read the current access. Sign-in starts when the user asks for it.
     setAuth({ status: 'checking' });
-    void client
-      .authorize()
+    void Promise.resolve()
+      .then(() => client.authStatus())
       .then((value) => {
         if (active) setAuth(value);
       })
-      .catch((e) => {
-        if (active) setAuth({ status: 'error', message: e.message });
+      .catch(() => {
+        if (active) setAuth({ status: 'idle' });
       });
     return () => {
       active = false;
-      void client.cancelAuth();
+      if (started.current) void client.cancelAuth();
     };
   }, [open, client, ready]);
   useEffect(() => {
-    if (!open || !['checking', 'waiting'].includes(auth.status)) return;
+    if (!open || !started.current || !['checking', 'waiting'].includes(auth.status)) return;
     let active = true;
     const timer = setInterval(() => {
       void client
@@ -125,8 +131,18 @@ export function CreateProject({
       setCreating(false);
     }
   }
+  // Tells the user why Create project is not available yet.
+  const blocked = !name.trim()
+    ? 'Enter a project name'
+    : auth.status !== 'ready'
+      ? `Connect ${providerName} first`
+      : !url
+        ? `Choose a ${providerName} project`
+        : location === 'remote' && (!hostId || !hostReady)
+          ? 'Connect the remote host first'
+          : '';
   return (
-    <Dialog open={open} onOpenChange={(value) => !busy && onOpenChange(value)}>
+    <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[calc(100dvh-48px)] overflow-y-auto sm:max-w-xl">
         <DialogHeader className="pr-6">
           <DialogTitle>Create project</DialogTitle>
@@ -220,7 +236,8 @@ export function CreateProject({
                 ? `Checking ${providerName} access…`
                 : auth.status === 'waiting'
                   ? 'Approve Projects access in your browser to continue.'
-                  : auth.message || `Connect ${providerName} to choose a project.`}
+                  : auth.message ||
+                    `Each project uses a ${providerName} project to track its tasks. Connect ${providerName} to choose one. Your browser opens to approve access.`}
             </p>
             {auth.code && (
               <Input aria-label="Authorization device code" readOnly value={auth.code} />
@@ -236,7 +253,9 @@ export function CreateProject({
             >
               {auth.status === 'waiting'
                 ? `Open ${providerName}`
-                : `Retry ${providerName} authorization`}
+                : auth.status === 'error'
+                  ? `Try ${providerName} again`
+                  : `Connect ${providerName}`}
             </Button>
           </div>
         )}
@@ -246,21 +265,14 @@ export function CreateProject({
           </p>
         )}
         <DialogFooter>
-          <Button variant="outline" disabled={busy} onClick={() => onOpenChange(false)}>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
-          <Button
-            disabled={
-              busy ||
-              !name.trim() ||
-              !url ||
-              auth.status !== 'ready' ||
-              (location === 'remote' && (!hostId || !hostReady))
-            }
-            onClick={() => void create()}
-          >
-            {creating ? 'Creating…' : 'Create project'}
-          </Button>
+          <Hint label={blocked || 'Create project'}>
+            <Button disabled={busy || !!blocked} onClick={() => void create()}>
+              {creating ? 'Creating…' : 'Create project'}
+            </Button>
+          </Hint>
         </DialogFooter>
       </DialogContent>
     </Dialog>

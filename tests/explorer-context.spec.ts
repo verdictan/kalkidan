@@ -21,12 +21,12 @@ test('explorer context menus rename the clicked item and confirm non-destructive
   await expect(tree.getByRole('button', { name: 'atlas-web', exact: true })).toBeVisible();
   await tree.getByRole('button', { name: 'Components', exact: true }).click({ button: 'right' });
   await page.getByRole('menuitem', { name: 'Remove from Kalkidan…' }).click();
-  await expect(page.getByRole('dialog')).toContainText('Files on disk');
+  await expect(page.getByRole('dialog')).toContainText('stay on disk');
   await page.getByRole('button', { name: 'Cancel', exact: true }).click();
   await expect(tree.getByRole('button', { name: 'Components', exact: true })).toBeVisible();
   await tree.getByRole('button', { name: 'Components', exact: true }).click({ button: 'right' });
   await page.getByRole('menuitem', { name: 'Remove from Kalkidan…' }).click();
-  await page.getByRole('button', { name: 'Remove', exact: true }).click();
+  await page.getByRole('button', { name: 'Remove from Kalkidan', exact: true }).click();
   await expect(tree.getByRole('button', { name: 'Components', exact: true })).toHaveCount(0);
 });
 

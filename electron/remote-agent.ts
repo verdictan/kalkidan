@@ -88,6 +88,10 @@ async function dispatch(method: string, args: any[]): Promise<any> {
             return await docs.save(a, d[0]);
           case 'delete':
             return await docs.delete(a, d[0], d[1]);
+          case 'trash':
+            return await docs.trash(a);
+          case 'restore':
+            return await docs.restore(a, d[0]);
           default:
             throw new Error('Unknown document operation');
         }

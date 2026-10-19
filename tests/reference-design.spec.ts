@@ -20,7 +20,7 @@ test('dark desktop workflow preserves drafts across resizable tool panes and the
   await page.locator('.project-tree').getByRole('button', { name: 'Atlas', exact: true }).click();
   await page.screenshot({ animations: 'disabled', path: 'test-results/reference-board.png' });
   await page.locator('.repo-select').first().click();
-  await page.getByRole('button', { name: 'Codex New session', exact: true }).click();
+  await page.getByRole('button', { name: 'New Codex session', exact: true }).click();
   await page.getByLabel('Message agent').fill('Keep this plan while I inspect the app.');
   await page.screenshot({
     animations: 'disabled',

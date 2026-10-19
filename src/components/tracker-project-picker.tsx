@@ -106,7 +106,7 @@ export function TrackerProjectPicker({
   }
   return (
     <div className="space-y-3">
-      <div className="flex flex-wrap gap-2" aria-label="Project connection method">
+      <div className="flex flex-wrap gap-2" role="group" aria-label="Project connection method">
         {[
           { value: 'pick', label: 'Choose existing' },
           { value: 'create', label: 'Create new' },
@@ -203,6 +203,7 @@ export function TrackerProjectPicker({
           />
           <div
             className="max-h-56 space-y-1 overflow-y-auto rounded-md border p-1"
+            role="group"
             aria-label={`Available ${providerName} projects`}
           >
             {loading ? (

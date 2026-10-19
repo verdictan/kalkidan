@@ -4,12 +4,13 @@ import type { TrackerBoard, TrackerItem, Session } from '../types';
 import { Button } from './ui/button';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table';
 import { Choice } from './choice';
+import { plural } from '../lib/platform';
 
 export function StatusIcon({ name }: { name: string }) {
   if (/done|complete|closed/i.test(name))
-    return <CircleCheck size={14} className="shrink-0 text-indigo-500" aria-hidden="true" />;
+    return <CircleCheck size={14} className="shrink-0 text-[var(--success)]" aria-hidden="true" />;
   if (/progress|doing|review/i.test(name))
-    return <CircleDot size={14} className="shrink-0 text-amber-500" aria-hidden="true" />;
+    return <CircleDot size={14} className="shrink-0 text-[var(--warning)]" aria-hidden="true" />;
   if (/backlog|no status/i.test(name))
     return <CircleDashed size={14} className="shrink-0 text-muted-foreground" aria-hidden="true" />;
   return <Circle size={14} className="shrink-0 text-muted-foreground" aria-hidden="true" />;
@@ -42,7 +43,7 @@ export function TrackerList({
     <Table className="tracker-list">
       <TableHeader className="sr-only">
         <TableRow>
-          <TableHead>Issue</TableHead>
+          <TableHead>Task</TableHead>
           <TableHead>Repository</TableHead>
           <TableHead>Status</TableHead>
           <TableHead>Action</TableHead>
@@ -76,7 +77,7 @@ export function TrackerList({
                     <TableCell>
                       <div className="flex items-center gap-3">
                         <span className="w-12 shrink-0 text-xs text-muted-foreground">
-                          {item.number ? `#${item.number}` : 'Draft'}
+                          {item.number ? `#${item.number}` : 'Draft task'}
                         </span>
                         <Button
                           variant="ghost"
@@ -88,7 +89,7 @@ export function TrackerList({
                         {count > 0 && (
                           <span
                             className="inline-flex shrink-0 items-center gap-1 text-xs text-muted-foreground"
-                            title={`${count} linked sessions`}
+                            title={plural(count, 'linked session')}
                           >
                             <MessageSquare size={12} />
                             {count}
@@ -118,8 +119,13 @@ export function TrackerList({
                       )}
                     </TableCell>
                     <TableCell className="text-right">
-                      <Button variant="ghost" size="sm" onClick={() => onOpen(item)}>
-                        Work on this
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        aria-label={`Work on this task: ${item.title}`}
+                        onClick={() => onOpen(item)}
+                      >
+                        Work on this task
                       </Button>
                     </TableCell>
                   </TableRow>

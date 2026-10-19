@@ -38,5 +38,5 @@ test('titlebar history traverses boards, repositories and chats, preserves draft
   await expect(forward).toBeDisabled();
   await page.setViewportSize({ width: 773, height: 988 });
   await expect(back).toBeInViewport();
-  await expect(header.getByRole('button', { name: 'Toggle project navigation' })).toBeInViewport();
+  await expect(header.getByRole('button', { name: 'Toggle sidebar' })).toBeInViewport();
 });

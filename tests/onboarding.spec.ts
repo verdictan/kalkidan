@@ -16,21 +16,21 @@ test('empty workspace starts onboarding once and can resume after dismissal', as
   });
   await page.goto('http://127.0.0.1:5173');
   await expect(
-    page.getByRole('heading', { name: 'From repository to your first task' }),
+    page.getByRole('heading', { name: 'From repository to your first session' }),
   ).toBeVisible();
   await expect(page.getByRole('button', { name: 'Add repository', exact: true })).toBeDisabled();
-  await expect(page.getByRole('button', { name: 'Open first conversation' })).toBeDisabled();
+  await expect(page.getByRole('button', { name: 'Open first session' })).toBeDisabled();
   await page.getByRole('button', { name: 'Set up later' }).click();
   await page.reload();
   await expect(page.getByRole('button', { name: 'Get started', exact: true })).toBeVisible();
   await expect(page.getByRole('dialog')).toHaveCount(0);
   await page.getByRole('button', { name: 'Get started', exact: true }).click();
   await expect(
-    page.getByRole('heading', { name: 'From repository to your first task' }),
+    page.getByRole('heading', { name: 'From repository to your first session' }),
   ).toBeVisible();
 });
 
-test('existing workspace can prepare an editable first task without sending it', async ({
+test('existing workspace can prepare an editable first message without sending it', async ({
   page,
 }) => {
   const errors: string[] = [];
@@ -39,14 +39,16 @@ test('existing workspace can prepare an editable first task without sending it',
   await expect(page.getByRole('dialog')).toHaveCount(0);
   await page.getByRole('button', { name: 'Get started', exact: true }).click();
   await expect(page.getByRole('combobox', { name: 'Setup project' })).toContainText('Atlas');
-  await page.getByRole('combobox', { name: 'Starter task' }).click();
+  await page.getByRole('combobox', { name: 'Starter message' }).click();
   await page.getByRole('option', { name: 'Plan a change', exact: true }).click();
-  await expect(page.getByLabel('First task', { exact: true })).toHaveValue(/Help me plan a change/);
+  await expect(page.getByLabel('First message', { exact: true })).toHaveValue(
+    /Help me plan a change/,
+  );
   await page
-    .getByLabel('First task', { exact: true })
+    .getByLabel('First message', { exact: true })
     .fill('Inspect the authentication flow and suggest an integration test plan.');
   await page.screenshot({ path: 'test-results/onboarding.png', animations: 'disabled' });
-  await page.getByRole('button', { name: 'Open first conversation' }).click();
+  await page.getByRole('button', { name: 'Open first session' }).click();
   await expect(page.getByLabel('Message agent')).toHaveValue(
     'Inspect the authentication flow and suggest an integration test plan.',
   );
@@ -80,9 +82,9 @@ test('agent check failure is recoverable and short screens keep setup actions ac
   await page.goto('http://127.0.0.1:5173');
   await page.getByRole('button', { name: 'Get started', exact: true }).click();
   await expect(page.getByRole('status')).toContainText('Temporary failure');
-  await expect(page.getByRole('button', { name: 'Open first conversation' })).toBeDisabled();
+  await expect(page.getByRole('button', { name: 'Open first session' })).toBeDisabled();
   await page.getByRole('button', { name: 'Check again' }).click();
-  await expect(page.getByRole('button', { name: 'Open first conversation' })).toBeEnabled();
+  await expect(page.getByRole('button', { name: 'Open first session' })).toBeEnabled();
   await page.getByRole('button', { name: 'Set up later' }).click();
   await expect(page.getByRole('dialog')).toHaveCount(0);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
@@ -95,12 +97,12 @@ test('project and repository setup return to the checklist', async ({ page }) =>
   await expect(page.getByRole('dialog')).toContainText('Project name');
   await page.getByRole('button', { name: 'Cancel', exact: true }).click();
   await expect(
-    page.getByRole('heading', { name: 'From repository to your first task' }),
+    page.getByRole('heading', { name: 'From repository to your first session' }),
   ).toBeVisible();
   await page.getByRole('button', { name: 'Add repository', exact: true }).click();
   await expect(page.getByRole('dialog').last()).toContainText('Clone into project');
   await page.getByRole('button', { name: 'Cancel', exact: true }).click();
   await expect(
-    page.getByRole('heading', { name: 'From repository to your first task' }),
+    page.getByRole('heading', { name: 'From repository to your first session' }),
   ).toBeVisible();
 });

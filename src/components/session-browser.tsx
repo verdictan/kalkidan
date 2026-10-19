@@ -1,14 +1,8 @@
 import { Hint } from './hint';
-import { useState } from 'react';
-import {
-  Archive,
-  ArchiveRestore,
-  ArrowUpRight,
-  History,
-  Pin,
-  Settings2,
-  Terminal,
-} from 'lucide-react';
+import { ActivityDot, activityKey, type SessionActivityState } from './activity-dot';
+import { useEffect, useState } from 'react';
+import { Archive, ArchiveRestore, History, MoreHorizontal, Pin, Terminal } from 'lucide-react';
+import { agentCatalog, agentLabel } from '../config/agents';
 import { Choice } from './choice';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
@@ -30,6 +24,33 @@ interface Props {
   busy: boolean;
   onUpdate: (session: Session, changes: SessionOrganization) => Promise<boolean>;
   onResume: (session: Session) => void;
+  /** Key that keeps the view and filters for one repository. */
+  storageKey?: string;
+  /** Background state of open sessions, by `activityKey`. */
+  activity?: Record<string, SessionActivityState>;
+}
+interface SavedView {
+  agent: string;
+  scope: string;
+  collection: string;
+}
+const defaultView: SavedView = { agent: 'all', scope: 'active', collection: 'all' };
+function readView(key: string | undefined): SavedView {
+  if (!key) return defaultView;
+  try {
+    const saved = JSON.parse(localStorage.getItem(key) || 'null') as Partial<SavedView> | null;
+    return { ...defaultView, ...(saved && typeof saved === 'object' ? saved : {}) };
+  } catch {
+    return defaultView;
+  }
+}
+function formatDay(value: string, now = new Date()) {
+  const date = new Date(value);
+  return date.toLocaleDateString(undefined, {
+    month: 'short',
+    day: 'numeric',
+    year: date.getFullYear() === now.getFullYear() ? undefined : 'numeric',
+  });
 }
 export function SessionBrowser({
   sessions,
@@ -38,10 +59,31 @@ export function SessionBrowser({
   busy,
   onUpdate,
   onResume,
+  storageKey,
+  activity = {},
 }: Props) {
-  const [agent, setAgent] = useState('all');
-  const [scope, setScope] = useState('active');
-  const [collection, setCollection] = useState('all');
+  const viewKey = (key: string | undefined) => (key ? `kalkidan.sessionView.${key}` : undefined);
+  const repositoryKey = viewKey(storageKey ?? sessions[0]?.projectId);
+  const [loadedKey, setLoadedKey] = useState(repositoryKey);
+  const [view, setView] = useState(() => readView(repositoryKey));
+  // Load the saved view again when the user goes to a different repository.
+  if (loadedKey !== repositoryKey) {
+    setLoadedKey(repositoryKey);
+    setView(readView(repositoryKey));
+  }
+  const { agent, scope, collection } = view;
+  useEffect(() => {
+    if (!loadedKey) return;
+    try {
+      localStorage.setItem(loadedKey, JSON.stringify(view));
+    } catch {
+      // Storage is not available. The view stays for this window only.
+    }
+  }, [loadedKey, view]);
+  const setAgent = (value: string) => setView((previous) => ({ ...previous, agent: value }));
+  const setScope = (value: string) => setView((previous) => ({ ...previous, scope: value }));
+  const setCollection = (value: string) =>
+    setView((previous) => ({ ...previous, collection: value }));
   const [editing, setEditing] = useState<Session | null>(null);
   const [draft, setDraft] = useState<SessionOrganization>({});
   const [saving, setSaving] = useState(false);
@@ -75,7 +117,7 @@ export function SessionBrowser({
     <>
       {!compact && (
         <div className="session-filters">
-          <div className="session-scopes" aria-label="Session view">
+          <div className="session-scopes" role="group" aria-label="Session view">
             {['active', 'pinned', 'archived'].map((value) => (
               <Button
                 variant="ghost"
@@ -92,9 +134,8 @@ export function SessionBrowser({
             value={agent}
             onChange={setAgent}
             options={[
-              { value: 'all', label: 'Both agents' },
-              { value: 'codex', label: 'Codex' },
-              { value: 'claude', label: 'Claude Code' },
+              { value: 'all', label: 'All agents' },
+              ...agentCatalog.map((item) => ({ value: item.id, label: item.name })),
             ]}
           />
           <Choice
@@ -115,7 +156,7 @@ export function SessionBrowser({
             const title = org.title || session.title;
             return (
               <div className="session organized-session" key={session.agent + session.id}>
-                <span className={'agent-mark ' + session.agent}>
+                <span className={'agent-mark ' + session.agent} aria-hidden="true">
                   {session.agent === 'codex' ? <Terminal size={16} /> : '✳'}
                 </span>
                 <div className="min-w-0 flex-1">
@@ -129,45 +170,34 @@ export function SessionBrowser({
                   >
                     {org.pinned && <Pin size={12} />}
                     <span>{title}</span>
+                    <ActivityDot state={activity[activityKey(session.agent, session.id)]} />
                   </Button>
                   <div className="session-meta">
-                    {session.agent === 'codex' ? 'Codex' : 'Claude Code'} ·{' '}
+                    {agentLabel(session.agent)} ·{' '}
                     <time
                       dateTime={session.updatedAt}
                       title={new Date(session.updatedAt).toLocaleString()}
                     >
-                      {new Date(session.updatedAt).toLocaleDateString(undefined, {
-                        month: 'short',
-                        day: 'numeric',
-                      })}
+                      {formatDay(session.updatedAt)}
                     </time>
                     {org.collection && <span className="collection-label">{org.collection}</span>}
                   </div>
                   {org.notes && !compact && <p className="session-note">{org.notes}</p>}
                 </div>
                 <div className="session-actions">
-                  <Button
-                    variant="ghost"
-                    size="icon-sm"
-                    disabled={busy}
-                    aria-label={`Organize ${title}`}
-                    onClick={() => {
-                      setSaveError('');
-                      setEditing(session);
-                      setDraft({ ...org });
-                    }}
-                  >
-                    <Settings2 size={14} />
-                  </Button>
-                  <Hint label="Continue conversation">
+                  <Hint label="Organize session">
                     <Button
                       variant="ghost"
                       size="icon-sm"
-                      aria-label="Resume session"
                       disabled={busy}
-                      onClick={() => onResume(session)}
+                      aria-label={`Organize ${title}`}
+                      onClick={() => {
+                        setSaveError('');
+                        setEditing(session);
+                        setDraft({ ...org });
+                      }}
                     >
-                      <ArrowUpRight size={15} />
+                      <MoreHorizontal size={14} />
                     </Button>
                   </Hint>
                 </div>
@@ -187,8 +217,8 @@ export function SessionBrowser({
           </h3>
           <p>
             {sessions.length
-              ? 'Try a different search or filter. Use session settings to pin, organize, or archive a conversation.'
-              : 'Start a conversation with Codex or Claude Code from this repository’s Overview.'}
+              ? 'Try a different search or filter. Use Organize on a session to pin, collect, or archive it.'
+              : `Start a session with ${agentCatalog.map((item) => item.name).join(' or ')} with the New session buttons above.`}
           </p>
         </div>
       )}
@@ -202,7 +232,7 @@ export function SessionBrowser({
           <DialogHeader className="pr-6">
             <DialogTitle>Organize session</DialogTitle>
             <DialogDescription>
-              These settings are saved in Kalkidan. The original conversation stays unchanged.
+              These settings are saved in Kalkidan. The original session stays unchanged.
             </DialogDescription>
           </DialogHeader>
           <label className="form-label">
@@ -267,7 +297,7 @@ export function SessionBrowser({
                   if (await onUpdate(editing, draft)) setEditing(null);
                   else
                     setSaveError(
-                      'Could not save session settings. Check that the session still exists, then try again.',
+                      'Could not save the session. Check that the session still exists, then try again.',
                     );
                 } finally {
                   setSaving(false);

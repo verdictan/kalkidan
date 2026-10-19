@@ -1,8 +1,10 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { ChevronRight, ShieldCheck } from 'lucide-react';
 import type { API, ChatRun } from '../types';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from './ui/collapsible';
 import { Button } from './ui/button';
+import { agentLabel } from '../config/agents';
+import { errorMessage } from '../lib/errors';
 
 export function AgentActivity({
   api,
@@ -15,6 +17,18 @@ export function AgentActivity({
 }) {
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState('');
+  // Announce each new approval request. The live region is always on screen, so
+  // screen readers detect the change of text.
+  const [announcement, setAnnouncement] = useState('');
+  const announced = useRef(new Set<string>());
+  const pending = (run.approvals || []).filter((a) => a.status === 'pending');
+  const pendingKey = pending.map((a) => a.id).join('|');
+  useEffect(() => {
+    const fresh = pending.filter((a) => !announced.current.has(a.id));
+    if (!fresh.length) return;
+    for (const approval of fresh) announced.current.add(approval.id);
+    setAnnouncement(`Approval needed: ${fresh.at(-1)!.title}`);
+  }, [pendingKey]);
   async function answer(id: string, allow: boolean) {
     setBusy(id);
     setError('');
@@ -22,53 +36,56 @@ export function AgentActivity({
       await api.chatApprove(run.id, id, allow);
       onUpdate(await api.chatStatus(run.id));
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(errorMessage(e));
     } finally {
       setBusy(null);
     }
   }
   return (
     <div className="agent-activity space-y-3">
-      {(run.approvals || [])
-        .filter((a) => a.status === 'pending')
-        .map((approval) => (
-          <section
-            key={approval.id}
-            aria-label="Agent approval"
-            className="space-y-3 rounded-xl border bg-card p-4"
-          >
-            <div className="flex items-center gap-2">
-              <ShieldCheck size={18} />
-              <h3 className="font-medium">{approval.title}</h3>
-            </div>
-            <p className="text-xs text-muted-foreground">
-              {run.agent === 'codex' ? 'Codex' : 'Claude Code'} is waiting.{' '}
-              {approval.scope === 'turn'
-                ? 'Permissions apply until this turn ends.'
-                : 'Approval applies only to this request.'}
-            </p>
-            <pre className="max-h-48 overflow-auto whitespace-pre-wrap break-words rounded-md bg-muted p-3 text-xs">
-              {approval.detail}
-            </pre>
-            <div className="flex gap-2">
-              <Button
-                size="sm"
-                disabled={!!busy || run.status !== 'running'}
-                onClick={() => void answer(approval.id, true)}
-              >
-                {approval.scope === 'turn' ? 'Allow for this turn' : 'Allow once'}
-              </Button>
-              <Button
-                size="sm"
-                variant="outline"
-                disabled={!!busy || run.status !== 'running'}
-                onClick={() => void answer(approval.id, false)}
-              >
-                Deny
-              </Button>
-            </div>
-          </section>
-        ))}
+      <div aria-live="polite" className="sr-only">
+        {announcement}
+      </div>
+      {pending.map((approval) => (
+        <section
+          key={approval.id}
+          aria-label="Agent approval"
+          data-approval-pending=""
+          tabIndex={-1}
+          className="space-y-3 rounded-xl border bg-card p-4"
+        >
+          <div className="flex items-center gap-2">
+            <ShieldCheck size={18} aria-hidden="true" />
+            <h3 className="font-medium">{approval.title}</h3>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            {agentLabel(run.agent)} is waiting.{' '}
+            {approval.scope === 'turn'
+              ? 'Permissions apply until this turn ends.'
+              : 'Approval applies only to this request.'}
+          </p>
+          <pre className="max-h-48 overflow-auto whitespace-pre-wrap break-words rounded-md bg-muted p-3 text-xs">
+            {approval.detail}
+          </pre>
+          <div className="flex gap-2">
+            <Button
+              size="sm"
+              disabled={!!busy || run.status !== 'running'}
+              onClick={() => void answer(approval.id, true)}
+            >
+              {approval.scope === 'turn' ? 'Allow for this turn' : 'Allow once'}
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={!!busy || run.status !== 'running'}
+              onClick={() => void answer(approval.id, false)}
+            >
+              Deny
+            </Button>
+          </div>
+        </section>
+      ))}
       {error && (
         <p role="alert" className="text-sm text-destructive">
           {error}
@@ -77,8 +94,12 @@ export function AgentActivity({
       {!!run.tools?.length && (
         <Collapsible>
           <CollapsibleTrigger asChild>
-            <Button variant="ghost" size="sm" className="gap-2 text-muted-foreground">
-              <ChevronRight size={14} />
+            <Button variant="ghost" size="sm" className="group gap-2 text-muted-foreground">
+              <ChevronRight
+                size={14}
+                aria-hidden="true"
+                className="transition-transform group-data-[state=open]:rotate-90"
+              />
               Activity · {run.tools.length} {run.tools.length === 1 ? 'step' : 'steps'}
             </Button>
           </CollapsibleTrigger>

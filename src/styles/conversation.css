@@ -52,6 +52,9 @@
   padding: 28px max(24px, calc((100% - 752px) / 2)) 24px;
   scrollbar-gutter: stable both-edges;
 }
+.chat-log {
+  display: contents;
+}
 .chat-message {
   margin: 0 0 36px;
   max-width: 100%;
@@ -138,7 +141,14 @@
   border: 1px solid var(--border);
 }
 .chat-link {
+  color: var(--link);
   text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.chat-link:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+  border-radius: 2px;
 }
 .chat-context-note {
   text-align: center;
@@ -159,7 +169,7 @@
 .chat-error {
   font-size: 12px;
   color: var(--destructive);
-  background: #3a2326;
+  background: var(--danger-surface);
   border-radius: 10px;
   padding: 10px 12px;
   max-height: 120px;
@@ -174,7 +184,7 @@
   border: 1px solid var(--border);
   background: var(--card);
   border-radius: 28px;
-  box-shadow: 0 3px 12px #0000000b;
+  box-shadow: 0 3px 12px color-mix(in srgb, var(--foreground) 4%, transparent);
 }
 .conversation-composer:focus-within {
   border-color: var(--ring);
@@ -234,9 +244,10 @@
 }
 .composer-shortcut {
   align-self: center;
+  margin-left: auto;
   white-space: nowrap;
   color: var(--muted-foreground);
-  font-size: 10px;
+  font-size: 11px;
 }
 .composer-actions .composer-send {
   width: 36px;
@@ -326,13 +337,13 @@
   }
 }
 
+/* A normal outline button. It shows only while the tracker is not connected. */
 .sidebar-github-connect {
-  background: #fff;
-  color: #171717;
+  color: var(--foreground);
 }
-.sidebar-github-connect:hover {
-  background: #e5e5e5;
-  color: #171717;
+/* The GitHub mark is black. Invert it on a dark background. */
+.dark .sidebar-github-connect img {
+  filter: invert(1);
 }
 .sidebar-github {
   flex-shrink: 0;
@@ -382,6 +393,9 @@
   padding: 24px 16px;
 }
 
+.session-menu-status {
+  white-space: nowrap;
+}
 .conversation-toolbar-title {
   flex: 1;
   min-width: 0;
@@ -390,5 +404,40 @@
   white-space: nowrap;
   font-size: 12px;
   font-weight: 500;
+  color: var(--foreground);
+}
+.approval-banner {
+  position: sticky;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 max(8px, calc((100% - 784px) / 2)) 8px;
+  padding: 8px 12px;
+  border: 1px solid var(--warning);
+  border-radius: 14px;
+  background: var(--card);
+  color: var(--foreground);
+  font-size: 12px;
+}
+.approval-banner svg {
+  color: var(--warning);
+}
+.approval-banner button {
+  margin-left: auto;
+}
+.conversation-toolbar .conversation-breadcrumb-repo {
+  flex-shrink: 1;
+  min-width: 0;
+  max-width: 40%;
+  height: 24px;
+  padding: 0 6px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  display: block;
+  -webkit-app-region: no-drag;
+}
+.conversation-toolbar .conversation-breadcrumb-repo:hover {
   color: var(--foreground);
 }

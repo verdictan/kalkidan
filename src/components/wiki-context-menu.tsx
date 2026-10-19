@@ -97,7 +97,7 @@ export function WikiContextMenu({
               <ContextMenu.ItemIndicator>✓</ContextMenu.ItemIndicator>
             </ContextMenu.CheckboxItem>
           ))}
-          {item('Add link', onLink)}
+          {item(editor.isActive('link') ? 'Edit link' : 'Add link', onLink)}
           {editor.isActive('link') &&
             item('Remove link', () =>
               editor.chain().focus().extendMarkRange('link').unsetLink().run(),

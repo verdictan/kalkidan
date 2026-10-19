@@ -2,10 +2,12 @@ import { createPortal } from 'react-dom';
 import { SessionMenu } from './session-menu';
 import { sessionAPI } from '../lib/remote-api';
 import { useEffect, useRef, useState } from 'react';
-import { ArrowLeft, X } from 'lucide-react';
+import { ChevronRight, X } from 'lucide-react';
+import { pathBasename } from '../lib/platform';
 import { sessionRepo } from '../lib/session-repository';
 import { Conversation } from './conversation';
 import { Button } from './ui/button';
+import type { SessionActivity, SessionActivityState } from './activity-dot';
 import type { API, Session, Project, ProjectGroup } from '../types';
 const keyOf = (session: Session) => session.agent + ':' + session.id;
 const titleOf = (session: Session) => session.organization?.title || session.title;
@@ -19,6 +21,8 @@ export function AgentWorkspace({
   returnLabel = 'Repository details',
   onSelect,
   onClose,
+  onOpenRepository,
+  onActivity,
   onComplete,
   onCreated,
   onDraft,
@@ -34,11 +38,14 @@ export function AgentWorkspace({
   returnLabel?: string;
   onSelect: (session: Session) => void;
   onClose: () => void;
+  onOpenRepository?: (repository: Project) => void;
+  /** Reports the open sessions that work or wait for approval. */
+  onActivity?: (activity: SessionActivity[]) => void;
   onComplete: () => void;
 }) {
   const [tabs, setTabs] = useState<Session[]>([selected]);
   const [sideKey, setSideKey] = useState<string | null>(null);
-  const [running, setRunning] = useState<Record<string, boolean>>({});
+  const [running, setRunning] = useState<Record<string, SessionActivityState | null>>({});
   const [created, setCreated] = useState<Record<string, { id: string; title: string }>>({});
   function liveSession(tab: Session) {
     const resolved = created[keyOf(tab)];
@@ -57,7 +64,7 @@ export function AgentWorkspace({
     if (!hostAPIs.current.has(key)) hostAPIs.current.set(key, sessionAPI(api, session));
     return hostAPIs.current.get(key)!;
   }
-  const callbacks = useRef(new Map<string, (active: boolean) => void>());
+  const callbacks = useRef(new Map<string, (activity: SessionActivityState | null) => void>());
   const selectedTab =
     tabs.find((tab) => keyOf(tab) === keyOf(selected)) ||
     tabs.find((tab) => tab.agent === selected.agent && created[keyOf(tab)]?.id === selected.id) ||
@@ -67,10 +74,31 @@ export function AgentWorkspace({
     setTabs((previous) =>
       previous.some((s) => keyOf(s) === selectedKey) ? previous : [...previous, selected],
     );
-  }, [selectedKey]);
+    // Archive removes the tab but keeps the selection. Opening the session again adds it back.
+  }, [selectedKey, visible]);
+  const reportActivity = useRef(onActivity);
+  reportActivity.current = onActivity;
+  useEffect(() => {
+    const activity: SessionActivity[] = [];
+    for (const tab of tabs) {
+      const state = running[keyOf(tab)];
+      if (!state) continue;
+      const session = liveSession(tab);
+      activity.push({
+        agent: session.agent,
+        id: created[keyOf(tab)]?.id || session.id,
+        projectId: session.projectId,
+        cwd: session.cwd,
+        hostId: session.hostId,
+        state,
+      });
+    }
+    reportActivity.current?.(activity);
+  }, [running, tabs, created]);
   const live = liveSession(selectedTab);
   const resolvedId = created[selectedKey]?.id;
   const saved = !!resolvedId || !selectedTab.projectId;
+  const repositoryName = sessionRepo(live, projects)?.name || pathBasename(live.cwd) || returnLabel;
   async function update(changes: import('../types').SessionOrganization) {
     if (saved) await api.updateSession(live.agent, resolvedId || live.id, changes);
     else onDraft({ ...live, organization: { ...live.organization, ...changes } });
@@ -95,7 +123,7 @@ export function AgentWorkspace({
       cwd: repo.path,
       hostId: repo.hostId,
       agent: live.agent,
-      title: fork ? 'Fork of ' + titleOf(live) : 'New side chat',
+      title: fork ? 'Fork of ' + titleOf(live) : 'New side session',
       updatedAt: new Date().toISOString(),
       forkFrom: fork ? resolvedId || live.id : undefined,
     };
@@ -108,7 +136,7 @@ export function AgentWorkspace({
     } else setSideKey(keyOf(draft));
   }
   return (
-    <section className="agent-workspace" aria-label="Session conversations" hidden={!visible}>
+    <section className="agent-workspace" aria-label="Sessions" hidden={!visible}>
       {visible &&
         document.getElementById('conversation-titlebar-actions') &&
         createPortal(
@@ -130,20 +158,26 @@ export function AgentWorkspace({
       {visible &&
         document.getElementById('conversation-titlebar-heading') &&
         createPortal(
-          <div className="conversation-toolbar">
+          <nav className="conversation-toolbar" aria-label="Breadcrumb">
             <Button
               variant="ghost"
-              size="icon-sm"
-              aria-label={returnLabel}
-              title={`Back to ${returnLabel.toLowerCase()}`}
-              onClick={onClose}
+              size="sm"
+              className="conversation-breadcrumb-repo"
+              aria-label={`Back to ${repositoryName}`}
+              title={`Back to ${repositoryName}`}
+              onClick={() => {
+                const repository = sessionRepo(live, projects);
+                if (repository && onOpenRepository) onOpenRepository(repository);
+                else onClose();
+              }}
             >
-              <ArrowLeft size={14} />
+              {repositoryName}
             </Button>
-            <span className="conversation-toolbar-title" title={titleOf(live)}>
+            <ChevronRight size={12} aria-hidden="true" className="shrink-0 text-muted-foreground" />
+            <span className="conversation-toolbar-title" title={titleOf(live)} aria-current="page">
               {titleOf(live)}
             </span>
-          </div>,
+          </nav>,
           document.getElementById('conversation-titlebar-heading')!,
         )}
       <div className="agent-stage">
@@ -154,9 +188,9 @@ export function AgentWorkspace({
             {tabs.map((tab) => {
               const key = keyOf(tab);
               if (!callbacks.current.has(key))
-                callbacks.current.set(key, (active) =>
+                callbacks.current.set(key, (activity) =>
                   setRunning((previous) =>
-                    previous[key] === active ? previous : { ...previous, [key]: active },
+                    previous[key] === activity ? previous : { ...previous, [key]: activity },
                   ),
                 );
               return (
@@ -167,12 +201,12 @@ export function AgentWorkspace({
                 >
                   {key === sideKey && (
                     <div className="flex items-center justify-between border-b px-3 py-2">
-                      <span className="text-xs text-muted-foreground">Side chat</span>
+                      <span className="text-xs text-muted-foreground">Side session</span>
                       <Button
                         size="icon"
                         variant="ghost"
-                        aria-label="Close side chat"
-                        disabled={running[key]}
+                        aria-label="Close side session"
+                        disabled={!!running[key]}
                         onClick={() => setSideKey(null)}
                       >
                         <X size={14} />

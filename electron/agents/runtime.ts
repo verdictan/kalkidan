@@ -17,6 +17,8 @@ export interface AgentRuntime {
   approve(id: string, approvalId: string, allow: boolean): void;
   stopAll(): void;
   dispose(): void;
+  /** Number of runs that are still working. Optional for test adapters. */
+  runningCount?(): number;
 }
 
 /** Routes by explicit registration; an unknown provider never falls through to Claude. */
@@ -65,6 +67,11 @@ export class AgentRuntimes implements AgentRuntime {
   }
   stopAll() {
     for (const runtime of new Set(this.adapters.values())) runtime.stopAll();
+  }
+  runningCount() {
+    let count = 0;
+    for (const runtime of new Set(this.adapters.values())) count += runtime.runningCount?.() ?? 0;
+    return count;
   }
   dispose() {
     for (const runtime of new Set(this.adapters.values())) runtime.dispose();

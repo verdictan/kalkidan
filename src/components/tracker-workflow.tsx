@@ -67,8 +67,8 @@ export function TrackerWorkflow({
         <DialogHeader>
           <DialogTitle>Task workflow</DialogTitle>
           <DialogDescription>
-            Choose the statuses used by agent conversations. Completion still requires your
-            approval.
+            Choose the statuses that sessions set on a task. A task is complete only when you
+            approve it.
           </DialogDescription>
         </DialogHeader>
         <label className="form-label">

@@ -1,5 +1,5 @@
 import type { Session, Project } from '../types';
-export function sessionRepo(session: Session, repos: Project[]) {
+export function sessionRepo(session: Pick<Session, 'cwd' | 'hostId'>, repos: Project[]) {
   return repos
     .filter(
       (repo) =>

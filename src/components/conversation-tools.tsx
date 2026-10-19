@@ -3,24 +3,55 @@ import { DiffReview } from './diff-review';
 import { createPortal } from 'react-dom';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import {
+  ChevronRight,
   FileDiff,
   Globe,
+  LayoutGrid,
   LoaderCircle,
+  PanelRightClose,
+  Paperclip,
   Plus,
   RefreshCw,
   Terminal,
   X,
-  MessageSquare,
-  ArrowUpRight,
 } from 'lucide-react';
 import { Button } from './ui/button';
 import { Choice } from './choice';
+import { Hint } from './hint';
+import { ConfirmDialog } from './confirm-dialog';
+import {
+  hasPrimaryModifier,
+  isMac,
+  isTypingTarget,
+  pathBasename,
+  shortcutLabel,
+} from '../lib/platform';
 import { InteractiveTerminal } from './interactive-terminal';
 import { EmbeddedBrowser } from './embedded-browser';
 import type { API, RepositoryDiff } from '../types';
+import { errorMessage } from '../lib/errors';
 export type ConversationContext = { id: string; label: string; text: string };
 type ToolKind = 'terminal' | 'browser' | 'diff' | 'home';
 type ToolTab = { id: string; kind: ToolKind; title: string; url?: string };
+
+// Command+` cycles windows on macOS, so the terminal uses Control+` there, as VS Code does.
+// The session column keeps at least this width so it is never narrower than a usable composer.
+const minSessionWidth = 360;
+const shortcuts = {
+  terminal: isMac ? '⌃`' : 'Ctrl+`',
+  tab: shortcutLabel(['mod'], 'T'),
+  diff: shortcutLabel(['mod', 'shift'], 'G'),
+};
+const launcherRows = [
+  { kind: 'browser', title: 'Browser', icon: Globe, shortcut: '' },
+  { kind: 'terminal', title: 'Terminal', icon: Terminal, shortcut: shortcuts.terminal },
+  { kind: 'diff', title: 'Changes', icon: FileDiff, shortcut: shortcuts.diff },
+] as const;
+function isTerminalShortcut(e: KeyboardEvent) {
+  if (e.key !== '`' && e.code !== 'Backquote') return false;
+  if (e.altKey || e.shiftKey) return false;
+  return isMac ? e.ctrlKey && !e.metaKey : hasPrimaryModifier(e);
+}
 export function ConversationTools({
   children,
   api,
@@ -67,13 +98,17 @@ export function ConversationTools({
   const [diffTab, setDiffTab] = useState('unstaged');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [closing, setClosing] = useState<ToolTab | null>(null);
+  const [focusRequests, setFocusRequests] = useState<Record<string, number>>({});
+  const focusTerminal = (id: string) =>
+    setFocusRequests((previous) => ({ ...previous, [id]: (previous[id] || 0) + 1 }));
   async function action(fn: () => Promise<void>) {
     setBusy(true);
     setError('');
     try {
       await fn();
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(errorMessage(e));
     } finally {
       setBusy(false);
     }
@@ -87,6 +122,9 @@ export function ConversationTools({
   }
   function add(kind: ToolKind, url?: string) {
     if (tabs.length >= interfaceConfig.maxToolTabs) {
+      // Show the dock, so that the user can see the message and the tabs to close.
+      setExpanded(true);
+      if (!active) setActive(tabs.at(-1)?.id || null);
       setError('Close a tool tab before opening another.');
       return;
     }
@@ -100,12 +138,13 @@ export function ConversationTools({
             ? 'New browser tab'
             : kind === 'diff'
               ? 'Changes'
-              : 'New tab',
+              : 'Tools',
       url,
     };
     setTabs((previous) => [...previous, tab]);
     setActive(tab.id);
     setExpanded(true);
+    if (kind === 'terminal') focusTerminal(tab.id);
     if (kind === 'diff') void action(async () => setDiff(await api.repositoryDiff(cwd)));
   }
   function open(kind: ToolKind | null) {
@@ -117,18 +156,29 @@ export function ConversationTools({
     if (tab) {
       setActive(tab.id);
       setExpanded(true);
+      if (kind === 'terminal') focusTerminal(tab.id);
     } else add(kind);
     if (kind === 'diff') void action(async () => setDiff(await api.repositoryDiff(cwd)));
   }
   function close(id: string) {
     const remaining = tabs.filter((t) => t.id !== id);
     setTabs(remaining);
-    if (active === id) setActive(remaining.at(-1)?.id || null);
+    setError('');
+    if (active === id) {
+      const next = remaining.at(-1)?.id || null;
+      setActive(next);
+      if (next) requestAnimationFrame(() => document.getElementById('tab-' + next)?.focus());
+    }
     if (!remaining.length) setExpanded(false);
+  }
+  /** A terminal tab has a running shell. Ask before it stops. */
+  function requestClose(tab: ToolTab) {
+    if (tab.kind === 'terminal') setClosing(tab);
+    else close(tab.id);
   }
   function resize(value: number) {
     const width = container.current?.clientWidth || 1000;
-    const lower = Math.max(interfaceConfig.toolPane.minPercent, (240 / width) * 100),
+    const lower = Math.max(interfaceConfig.toolPane.minPercent, (minSessionWidth / width) * 100),
       upper = Math.min(interfaceConfig.toolPane.maxPercent, ((width - 286) / width) * 100);
     const next = Math.min(upper, Math.max(lower, value));
     setRatio(next);
@@ -145,7 +195,10 @@ export function ConversationTools({
       setRatio((previous) =>
         Math.min(
           Math.min(interfaceConfig.toolPane.maxPercent, ((width - 286) / width) * 100),
-          Math.max(Math.max(interfaceConfig.toolPane.minPercent, (240 / width) * 100), previous),
+          Math.max(
+            Math.max(interfaceConfig.toolPane.minPercent, (minSessionWidth / width) * 100),
+            previous,
+          ),
         ),
       );
     });
@@ -155,14 +208,21 @@ export function ConversationTools({
   useEffect(() => {
     if (!visible) return;
     const keys = (e: KeyboardEvent) => {
-      if (!(e.metaKey || e.ctrlKey) || document.querySelector('[role="dialog"]')) return;
-      if (e.key === '`') {
+      if (document.querySelector('[role="dialog"]')) return;
+      if (isTerminalShortcut(e)) {
         e.preventDefault();
         open(tool === 'terminal' ? null : 'terminal');
-      } else if (e.shiftKey && e.key.toLowerCase() === 'g') {
+        return;
+      }
+      if (!hasPrimaryModifier(e) || e.altKey) return;
+      // In a terminal on Windows and Linux, Ctrl+T and Ctrl+Shift+G go to the shell.
+      // In a text field, such as the composer, the shortcuts go to the text field.
+      const inTerminal = !!(e.target as HTMLElement | null)?.closest?.('.xterm');
+      if (inTerminal ? !isMac : isTypingTarget(e.target)) return;
+      if (e.shiftKey && e.code === 'KeyG') {
         e.preventDefault();
         open('diff');
-      } else if (e.key.toLowerCase() === 't') {
+      } else if (!e.shiftKey && e.code === 'KeyT') {
         e.preventDefault();
         add('home');
       }
@@ -187,7 +247,7 @@ export function ConversationTools({
         <div
           role="separator"
           tabIndex={0}
-          aria-label="Resize chat and tools"
+          aria-label="Resize session and tools"
           aria-orientation="vertical"
           aria-valuemin={interfaceConfig.toolPane.minPercent}
           aria-valuemax={interfaceConfig.toolPane.maxPercent}
@@ -255,26 +315,46 @@ export function ConversationTools({
                       ? Globe
                       : tab.kind === 'diff'
                         ? FileDiff
-                        : Plus;
+                        : LayoutGrid;
+                const hint =
+                  tab.kind === 'terminal'
+                    ? `${tab.title} (${shortcuts.terminal}). In the terminal, press F6 to go back to the tabs.`
+                    : tab.kind === 'diff'
+                      ? `${tab.title} (${shortcuts.diff})`
+                      : tab.title;
                 return (
                   <div key={tab.id} className={'tool-tab' + (active === tab.id ? ' selected' : '')}>
-                    <Button
-                      role="tab"
-                      tabIndex={active === tab.id ? 0 : -1}
-                      aria-selected={active === tab.id}
-                      aria-controls={'tool-' + tab.id}
-                      id={'tab-' + tab.id}
-                      variant="ghost"
-                      onClick={() => setActive(tab.id)}
-                    >
-                      <Icon size={14} />
-                      <span>{tab.title}</span>
-                    </Button>
+                    <Hint label={hint}>
+                      <Button
+                        role="tab"
+                        tabIndex={active === tab.id ? 0 : -1}
+                        aria-selected={active === tab.id}
+                        aria-controls={'tool-' + tab.id}
+                        aria-description={
+                          'Press Delete to close this tab.' +
+                          (tab.kind === 'terminal'
+                            ? ' In the terminal, press F6 to go back to the tabs.'
+                            : '')
+                        }
+                        id={'tab-' + tab.id}
+                        variant="ghost"
+                        onClick={() => setActive(tab.id)}
+                        onKeyDown={(e) => {
+                          if (e.key !== 'Delete' && e.key !== 'Backspace') return;
+                          e.preventDefault();
+                          requestClose(tab);
+                        }}
+                      >
+                        <Icon size={14} aria-hidden="true" />
+                        <span>{tab.title}</span>
+                      </Button>
+                    </Hint>
                     <Button
                       variant="ghost"
                       size="icon-sm"
+                      tabIndex={-1}
                       aria-label={'Close ' + tab.title}
-                      onClick={() => close(tab.id)}
+                      onClick={() => requestClose(tab)}
                     >
                       <X size={12} />
                     </Button>
@@ -282,23 +362,29 @@ export function ConversationTools({
                 );
               })}
             </div>
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              aria-label="New tool tab"
-              onClick={() => add('home')}
-            >
-              <Plus size={16} />
-            </Button>
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              hidden={!expanded}
-              aria-label="Hide tools"
-              onClick={() => setExpanded(false)}
-            >
-              <X size={15} />
-            </Button>
+            <Hint label={`New tool tab (${shortcuts.tab})`}>
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                aria-label="New tool tab"
+                aria-keyshortcuts={isMac ? 'Meta+T' : 'Control+T'}
+                onClick={() => add('home')}
+              >
+                <Plus size={16} />
+              </Button>
+            </Hint>
+            {expanded && (
+              <Hint label="Hide tools">
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  aria-label="Hide tools"
+                  onClick={() => setExpanded(false)}
+                >
+                  <PanelRightClose size={15} />
+                </Button>
+              </Hint>
+            )}
           </div>,
           document.getElementById('conversation-titlebar-tabs')!,
         )}
@@ -321,41 +407,33 @@ export function ConversationTools({
               {tab.kind === 'home' && (
                 <div className="tool-launcher">
                   <div className="tool-launcher-heading">
-                    <h2>New tab</h2>
+                    <h2>Tools</h2>
                   </div>
                   <p className="mb-6 text-xs text-muted-foreground">
-                    {cwd.split('/').filter(Boolean).at(-1)} ·{' '}
-                    {remote ? 'SSH host' : 'This computer'}
+                    {pathBasename(cwd)} · {remote ? 'SSH host' : 'This computer'}
                   </p>
                   <div className="tool-launcher-grid">
-                    {(['browser', 'terminal', 'diff'] as const).map((kind, i) => {
-                      const Icon = [Globe, Terminal, FileDiff][i];
-                      return (
-                        <Button
-                          key={kind}
-                          variant="ghost"
-                          onClick={() => {
-                            setTabs((previous) =>
-                              previous.map((t) =>
-                                t.id === tab.id
-                                  ? { ...t, kind, title: ['Browser', 'Terminal', 'Changes'][i] }
-                                  : t,
-                              ),
-                            );
-                            if (kind === 'diff')
-                              void action(async () => setDiff(await api.repositoryDiff(cwd)));
-                          }}
-                        >
-                          <Icon />
-                          <span>{['Browser', 'Terminal', 'Changes'][i]}</span>
-                          <ArrowUpRight size={14} />
-                        </Button>
-                      );
-                    })}
-                    <Button variant="ghost" onClick={() => setExpanded(false)}>
-                      <MessageSquare />
-                      <span>Return to conversation</span>
-                    </Button>
+                    {launcherRows.map((row) => (
+                      <Button
+                        key={row.kind}
+                        variant="ghost"
+                        onClick={() => {
+                          setTabs((previous) =>
+                            previous.map((t) =>
+                              t.id === tab.id ? { ...t, kind: row.kind, title: row.title } : t,
+                            ),
+                          );
+                          if (row.kind === 'terminal') focusTerminal(tab.id);
+                          if (row.kind === 'diff')
+                            void action(async () => setDiff(await api.repositoryDiff(cwd)));
+                        }}
+                      >
+                        <row.icon aria-hidden="true" />
+                        <span>{row.title}</span>
+                        {row.shortcut && <kbd aria-hidden="true">{row.shortcut}</kbd>}
+                        <ChevronRight size={14} aria-hidden="true" />
+                      </Button>
+                    ))}
                   </div>
                 </div>
               )}
@@ -365,6 +443,8 @@ export function ConversationTools({
                   cwd={cwd}
                   visible={visible && expanded && active === tab.id}
                   disabled={disabled}
+                  focusRequest={focusRequests[tab.id] || 0}
+                  onLeave={() => document.getElementById('tab-' + tab.id)?.focus()}
                   onAttach={(text) =>
                     attach(
                       'Terminal output',
@@ -452,6 +532,7 @@ export function ConversationTools({
                           )}
                           <Button
                             variant="outline"
+                            size="sm"
                             disabled={disabled || !diffText || busy}
                             onClick={() =>
                               attach(
@@ -460,8 +541,8 @@ export function ConversationTools({
                               )
                             }
                           >
-                            <Plus size={14} />
-                            Attach diff
+                            <Paperclip size={14} aria-hidden="true" />
+                            Attach all changes to message
                           </Button>
                         </>
                       )}
@@ -479,6 +560,18 @@ export function ConversationTools({
           ))}
         </section>
       </div>
+      <ConfirmDialog
+        open={!!closing}
+        title="Close terminal?"
+        description="The shell and any running command stop."
+        confirmLabel="Close terminal"
+        destructive
+        onCancel={() => setClosing(null)}
+        onConfirm={() => {
+          if (closing) close(closing.id);
+          setClosing(null);
+        }}
+      />
     </div>
   );
 }

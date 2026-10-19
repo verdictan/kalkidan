@@ -1,6 +1,7 @@
 import { createReadStream } from 'node:fs';
 import { createInterface } from 'node:readline';
 import { codexIndex } from './codex-store';
+import { contentText } from './transcript';
 import { readdir, stat, realpath } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { Session } from '../src/types';
@@ -19,6 +20,10 @@ async function files(root: string): Promise<string[]> {
     if (error.code === 'ENOENT') return [];
     throw error;
   }
+}
+// Agents add context as user messages. These messages are not a good title.
+function injectedContext(text: string) {
+  return text.startsWith('<') || text.startsWith('# AGENTS.md instructions');
 }
 const parsedFiles = new Map<string, { stamp: string; cwd: string; id: string; title: string }>();
 export const historyMetrics = { parsedFiles: 0, cacheHits: 0 };
@@ -89,24 +94,21 @@ async function scanHistory(codexRoot: string, claudeRoot: string, sources?: Map<
                   cwd ||= row.cwd;
                   id ||= row.sessionId;
                 }
+                // Codex writes the prompt as a user response item and, in newer
+                // versions, also as a user_message event.
                 const content =
                   agent === 'claude' && row.type === 'user'
                     ? row.message?.content
                     : row.type === 'event_msg' && row.payload?.type === 'user_message'
                       ? row.payload.message
-                      : null;
-                const text =
-                  typeof content === 'string'
-                    ? content
-                    : Array.isArray(content)
-                      ? content
-                          .filter(
-                            (block) => block.type === 'text' && typeof block.text === 'string',
-                          )
-                          .map((block) => block.text)
-                          .join(' ')
-                      : '';
-                if (!title && text && !text.startsWith('<'))
+                      : agent === 'codex' &&
+                          row.type === 'response_item' &&
+                          row.payload?.type === 'message' &&
+                          row.payload.role === 'user'
+                        ? row.payload.content
+                        : null;
+                const text = contentText(content).trim();
+                if (!title && text && !injectedContext(text))
                   title = text.replace(/\s+/g, ' ').slice(0, 120);
                 if (cwd && id && title) break;
               } catch {

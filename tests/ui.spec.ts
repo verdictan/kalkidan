@@ -23,15 +23,15 @@ test('project navigation, search, editing, worktrees, and sessions', async ({ pa
   await page.getByLabel('Repository name', { exact: true }).fill('atlas-renamed');
   await page.getByRole('button', { name: 'Save changes' }).click();
   await expect(page.getByRole('heading', { name: 'atlas-renamed' })).toBeVisible();
-  await page.getByLabel('Search projects or sessions').fill('not-a-project');
+  await page.getByLabel('Search projects and sessions').fill('not-a-project');
   await expect(page.getByText('No matches found.')).toBeVisible();
-  await page.getByLabel('Search projects or sessions').fill('');
+  await page.getByLabel('Search projects and sessions').fill('');
 
   await page.screenshot({ path: 'test-results/desktop-preview.png', fullPage: true });
-  await page.keyboard.press('Meta+k');
-  await expect(page.getByLabel('Search projects or sessions')).toBeFocused();
+  await page.keyboard.press('ControlOrMeta+k');
+  await expect(page.getByLabel('Search projects and sessions')).toBeFocused();
   await page.setViewportSize({ width: 980, height: 680 });
-  await expect(page.getByRole('button', { name: 'Codex New session' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'New Codex session' })).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(
     true,
   );
@@ -63,10 +63,12 @@ test('organize sessions and continue inside the conversation UI', async ({ page 
   ).not.toBeVisible();
   await page.getByRole('combobox', { name: 'Filter by collection' }).click();
   await page.getByRole('option', { name: 'Website', exact: true }).click();
-  await page.getByRole('button', { name: 'Resume session', exact: true }).click();
-  await expect(
-    page.getByRole('region', { name: 'Session conversations', exact: true }),
-  ).toBeVisible();
+  await page
+    .locator('.session-list')
+    .getByRole('button', { name: /^Resume / })
+    .first()
+    .click();
+  await expect(page.getByRole('region', { name: 'Sessions', exact: true })).toBeVisible();
   await expect(page.getByText('This is a sample conversation.', { exact: false })).toBeVisible();
   await page.getByLabel('Message agent').fill('Continue with keyboard navigation');
   await page.screenshot({
@@ -77,7 +79,7 @@ test('organize sessions and continue inside the conversation UI', async ({ page 
   await page.getByRole('button', { name: 'Send', exact: true }).click();
   await expect(page.getByRole('alert')).toContainText('Open the desktop app');
   await expect(page.getByLabel('Message agent')).toHaveValue('Continue with keyboard navigation');
-  await page.getByRole('button', { name: 'Repository details', exact: true }).click();
+  await page.getByRole('button', { name: /^Back to / }).click();
   await page.getByRole('button', { name: 'Organize Navigation follow-up' }).click();
   await page.getByRole('button', { name: 'Archive session', exact: true }).click();
   await page.getByRole('button', { name: 'Save session', exact: true }).click();
@@ -165,7 +167,11 @@ test('conversation streams responses, keeps multiple turns, and stops without le
   await page.goto('http://127.0.0.1:5173');
   await page.locator('.repo-select').first().click();
 
-  await page.getByRole('button', { name: 'Resume session', exact: true }).first().click();
+  await page
+    .locator('.session-list')
+    .getByRole('button', { name: /^Resume / })
+    .first()
+    .click();
   await expect(page.getByText('Original prompt', { exact: true })).toBeVisible();
   await page.getByLabel('Message agent').fill('First follow-up');
   await page.getByLabel('Message agent').press('Shift+Enter');
@@ -254,7 +260,11 @@ test('a session ownership conflict restores the unsent draft and permits an expl
   await page.goto('http://127.0.0.1:5173');
   await page.locator('.repo-select').first().click();
 
-  await page.getByRole('button', { name: 'Resume session', exact: true }).click();
+  await page
+    .locator('.session-list')
+    .getByRole('button', { name: /^Resume / })
+    .first()
+    .click();
   await page.getByLabel('Message agent').fill('Keep my follow-up');
   await page.getByRole('button', { name: 'Send', exact: true }).click();
   await expect(page.getByRole('alert')).toContainText('another client');
@@ -269,8 +279,12 @@ test('integrated conversations keep drafts and project navigation visible', asyn
   await page.goto('http://127.0.0.1:5173');
   await page.locator('.repo-select').first().click();
 
-  await page.getByRole('button', { name: 'Resume session', exact: true }).first().click();
-  const workspace = page.getByRole('region', { name: 'Session conversations', exact: true });
+  await page
+    .locator('.session-list')
+    .getByRole('button', { name: /^Resume / })
+    .first()
+    .click();
+  const workspace = page.getByRole('region', { name: 'Sessions', exact: true });
   const pane = page.locator('.agent-pane:not([hidden])');
   await expect(workspace).toBeVisible();
   await expect(page.getByRole('dialog')).not.toBeVisible();
@@ -316,10 +330,10 @@ test('integrated conversations keep drafts and project navigation visible', asyn
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(
     true,
   );
-  await page.keyboard.press('Meta+k');
-  await expect(page.getByLabel('Search projects or sessions')).toBeFocused();
+  await page.keyboard.press('ControlOrMeta+k');
+  await expect(page.getByLabel('Search projects and sessions')).toBeFocused();
   await expect(page.getByRole('region', { name: 'Projects and repositories' })).toBeVisible();
-  await page.getByRole('button', { name: 'Repository details', exact: true }).click();
+  await page.getByRole('button', { name: /^Back to / }).click();
   await page.locator('.project-tree').getByRole('button', { name: 'Atlas', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Connect GitHub', exact: true })).toBeVisible();
   await page
@@ -386,13 +400,11 @@ for (const agent of ['codex', 'claude'] as const) {
     await page.locator('.repo-select').first().click();
     await page
       .getByRole('button', {
-        name: agent === 'codex' ? 'Codex New session' : 'Claude Code New session',
+        name: agent === 'codex' ? 'New Codex session' : 'New Claude Code session',
         exact: true,
       })
       .click();
-    await expect(
-      page.getByRole('region', { name: 'Session conversations', exact: true }),
-    ).toBeVisible();
+    await expect(page.getByRole('region', { name: 'Sessions', exact: true })).toBeVisible();
     await page.getByLabel('Message agent').fill('Build the first feature');
     await page.getByRole('button', { name: 'Send', exact: true }).click();
     await expect(page.getByText('Reply for r1', { exact: true })).toBeVisible();
@@ -488,7 +500,7 @@ test('projects group multiple repositories and each repository opens its own ses
   await expect(tree.getByRole('button', { name: 'atlas-web', exact: true })).toBeVisible();
   await tree.getByRole('button', { name: 'api-service', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'api-service', exact: true })).toBeVisible();
-  await page.getByRole('button', { name: 'New project group' }).click();
+  await page.getByRole('button', { name: 'Add project', exact: true }).click();
   await page.getByLabel('Project name', { exact: true }).fill('Infrastructure');
   await page.getByRole('button', { name: 'Atlas roadmap #1', exact: true }).click();
   await page.getByRole('button', { name: 'Create project', exact: true }).click();
@@ -505,9 +517,7 @@ test('projects group multiple repositories and each repository opens its own ses
   ).toBeVisible();
   await tree.getByRole('button', { name: 'atlas-web', exact: true }).click();
   await tree.getByRole('button', { name: /Refine project and repository navigation/ }).click();
-  await expect(
-    page.getByRole('region', { name: 'Session conversations', exact: true }),
-  ).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Sessions', exact: true })).toBeVisible();
   await expect(page.getByText('Atlas / atlas-web', { exact: true })).toHaveCount(0);
 });
 
@@ -634,9 +644,9 @@ test('a project can connect, create a GitHub draft, and change its connection in
   await page.getByLabel('GitHub URL').fill('https://github.com/orgs/example/projects/1');
   await page.getByRole('button', { name: 'Connect project', exact: true }).click();
   await expect(page.getByText('Atlas roadmap', { exact: true })).toBeVisible();
-  await page.getByRole('button', { name: 'New item', exact: true }).click();
-  await page.getByLabel('Item title').fill('Ship the next release');
-  await page.getByLabel('Item description').fill('Verify release checks');
+  await page.getByRole('button', { name: 'New task', exact: true }).click();
+  await page.getByLabel('Task title').fill('Ship the next release');
+  await page.getByLabel('Task description').fill('Verify release checks');
   await page.getByRole('button', { name: 'Add to GitHub', exact: true }).click();
   await expect(
     page.getByRole('button', { name: 'Ship the next release', exact: true }),
@@ -644,7 +654,7 @@ test('a project can connect, create a GitHub draft, and change its connection in
   await page.getByRole('button', { name: 'Tracker actions', exact: true }).click();
   await page.getByRole('menuitem', { name: 'Change project connection', exact: true }).click();
   await expect(
-    page.getByRole('dialog', { name: 'Connect GitHub Project', exact: true }),
+    page.getByRole('dialog', { name: 'Connect GitHub project', exact: true }),
   ).toBeVisible();
   await page.getByRole('button', { name: 'Cancel', exact: true }).click();
   await expect(page.getByText('Atlas roadmap', { exact: true })).toBeVisible();
@@ -811,7 +821,7 @@ test('tracker board groups tasks, syncs status moves, and filters', async ({ pag
       .getByRole('button', { name: 'Review authentication', exact: true }),
   ).toBeVisible();
   await page.screenshot({ path: 'test-results/tracker-board.png', fullPage: true });
-  await page.getByLabel('Search GitHub items').fill('authentication');
+  await page.getByLabel('Search tasks').fill('authentication');
   await expect(
     board.getByRole('button', { name: 'Build the project overview', exact: true }),
   ).toHaveCount(0);
@@ -895,9 +905,7 @@ test('simplified controls remain accessible and selection follows project and co
   await expect(page.getByRole('button', { name: 'Discover', exact: true })).toHaveCount(0);
   await page.getByRole('button', { name: 'Repository actions', exact: true }).click();
   await expect(page.getByRole('menuitem', { name: 'Open Terminal', exact: true })).toBeVisible();
-  await expect(
-    page.getByRole('menuitem', { name: 'Open folder in Finder', exact: true }),
-  ).toBeVisible();
+  await expect(page.getByRole('menuitem', { name: /^Show in / })).toBeVisible();
   await page.keyboard.press('Escape');
   const notes = page.getByRole('button', { name: 'Repository notes', exact: true });
   await expect(notes).toHaveAttribute('aria-expanded', 'false');
@@ -912,9 +920,7 @@ test('simplified controls remain accessible and selection follows project and co
     .getByRole('button', { name: 'Refine project and repository navigation', exact: true });
   await session.click();
   await expect(session).toHaveAttribute('aria-current', 'page');
-  await expect(
-    page.getByRole('region', { name: 'Session conversations', exact: true }),
-  ).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Sessions', exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Settings', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Preview chat history', exact: true })).toHaveCount(
     0,

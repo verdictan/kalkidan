@@ -1,11 +1,13 @@
 import type { GitHubCliStatus } from '../domain/conversation';
 import { agentCatalog } from '../config/agents';
 import { RemoteHostPicker } from './remote-host-picker';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Terminal, RefreshCw, GitBranch } from 'lucide-react';
 import type { API, AgentInstallation } from '../types';
 import { Button } from './ui/button';
+import { Hint } from './hint';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from './ui/dialog';
+import { errorMessage } from '../lib/errors';
 
 export function SettingsDialog({
   open,
@@ -67,23 +69,42 @@ export function SettingsDialog({
     };
   }, [open, api, checkRevision]);
   const [remoteId, setRemoteId] = useState('');
-  const [busy, setBusy] = useState(false);
+  const [refreshError, setRefreshError] = useState('');
+  const heading = useRef<HTMLHeadingElement>(null);
+  function agentStatus(agent: string) {
+    if (checking) return 'Checking…';
+    const status = installations.find((item) => item.agent === agent)?.status;
+    if (status === 'installed') return 'Installed';
+    if (status === 'missing') return 'Not found';
+    if (status === 'unavailable') return 'Desktop only';
+    return 'Check failed';
+  }
+  const ghStatus = ghChecking
+    ? 'Checking…'
+    : gh?.status === 'ready'
+      ? 'Signed in'
+      : gh?.status === 'signed-out'
+        ? 'Sign-in required'
+        : gh?.status === 'missing'
+          ? 'Not found'
+          : gh?.status === 'unavailable'
+            ? 'Desktop only'
+            : 'Check failed';
+  // Remote host work continues on the host after this dialog closes.
   return (
-    <Dialog
-      open={open}
-      onOpenChange={(value) => {
-        if (!busy) {
-          onOpenChange(value);
-        }
-      }}
-    >
+    <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
         aria-describedby={undefined}
         className="flex max-h-[calc(100dvh-2rem)] flex-col gap-0 overflow-hidden p-0 sm:max-w-lg"
-        showCloseButton={!busy}
+        onOpenAutoFocus={(event) => {
+          event.preventDefault();
+          heading.current?.focus();
+        }}
       >
         <DialogHeader className="border-b px-6 py-5 pr-12 text-left">
-          <DialogTitle>Settings</DialogTitle>
+          <DialogTitle ref={heading} tabIndex={-1} className="outline-none">
+            Settings
+          </DialogTitle>
         </DialogHeader>
         <div className="min-h-0 overflow-y-auto px-6 py-5">
           <section aria-labelledby="settings-agents-title" className="space-y-3">
@@ -113,32 +134,23 @@ export function SettingsDialog({
                   <div className="min-w-0 flex-1">
                     <p className="text-sm font-medium">{name}</p>
                     <p className="text-xs text-muted-foreground">{vendor}</p>
+                    <InstalledPath path={installations.find((item) => item.agent === id)?.path} />
                   </div>
-                  <span
-                    role="status"
-                    className="text-xs text-muted-foreground"
-                    title={installations.find((item) => item.agent === id)?.path}
-                  >
-                    {checking
-                      ? 'Checking…'
-                      : installations.find((item) => item.agent === id)?.status === 'installed'
-                        ? 'Installed'
-                        : installations.find((item) => item.agent === id)?.status === 'missing'
-                          ? 'Not found'
-                          : installations.find((item) => item.agent === id)?.status ===
-                              'unavailable'
-                            ? 'Desktop only'
-                            : 'Check failed'}
-                  </span>
+                  <span className="shrink-0 text-xs text-muted-foreground">{agentStatus(id)}</span>
                 </div>
               ))}
-              <div className="flex items-center gap-3 p-3" aria-label="GitHub CLI status">
+              <div
+                className="flex items-center gap-3 p-3"
+                role="group"
+                aria-label="GitHub CLI status"
+              >
                 <span className="flex size-9 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground">
                   <GitBranch size={17} />
                 </span>
                 <div className="min-w-0 flex-1">
                   <p className="text-sm font-medium">GitHub CLI</p>
                   <p className="text-xs text-muted-foreground">gh · github.com</p>
+                  <InstalledPath path={gh?.path} />
                   {!ghChecking && gh?.status === 'missing' && (
                     <p className="text-xs text-muted-foreground">Install gh, then check again.</p>
                   )}
@@ -148,21 +160,18 @@ export function SettingsDialog({
                     </p>
                   )}
                 </div>
-                <span role="status" title={gh?.path} className="text-xs text-muted-foreground">
-                  {ghChecking
-                    ? 'Checking…'
-                    : gh?.status === 'ready'
-                      ? 'Signed in'
-                      : gh?.status === 'signed-out'
-                        ? 'Sign-in required'
-                        : gh?.status === 'missing'
-                          ? 'Not found'
-                          : gh?.status === 'unavailable'
-                            ? 'Desktop only'
-                            : 'Check failed'}
-                </span>
+                <span className="shrink-0 text-xs text-muted-foreground">{ghStatus}</span>
               </div>
             </div>
+            {/* One live region announces the result of all checks together. */}
+            <p role="status" className="sr-only">
+              {checking || ghChecking
+                ? 'Checking agents and tools…'
+                : [
+                    ...agentCatalog.map(({ id, name }) => `${name}: ${agentStatus(id)}.`),
+                    `GitHub CLI: ${ghStatus}.`,
+                  ].join(' ')}
+            </p>
             {checkError && (
               <p role="alert" className="text-xs text-destructive">
                 {checkError}
@@ -176,24 +185,37 @@ export function SettingsDialog({
               value={remoteId}
               onChange={setRemoteId}
               onReady={() => {
-                void onRefresh().catch(() => {});
+                setRefreshError('');
+                void onRefresh().catch((error) =>
+                  setRefreshError(`Could not refresh projects: ${errorMessage(error)}`),
+                );
               }}
-              onBusy={setBusy}
             />
+            {refreshError && (
+              <p role="alert" className="mt-2 text-xs text-destructive">
+                {refreshError}
+              </p>
+            )}
           </div>
         </div>
         <DialogFooter className="shrink-0 border-t px-6 py-4">
-          <Button
-            variant="outline"
-            disabled={busy}
-            onClick={() => {
-              onOpenChange(false);
-            }}
-          >
+          <Button variant="outline" onClick={() => onOpenChange(false)}>
             Done
           </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+/** The installed binary path, truncated, with the full path in a tooltip. */
+function InstalledPath({ path }: { path?: string }) {
+  if (!path) return null;
+  return (
+    <Hint label={path}>
+      <p tabIndex={0} className="mt-0.5 truncate font-mono text-[11px] text-muted-foreground">
+        {path}
+      </p>
+    </Hint>
   );
 }

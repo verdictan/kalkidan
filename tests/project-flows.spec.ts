@@ -7,7 +7,7 @@ test('single view ignores old split preferences and preserves conversation draft
   await page.goto(url);
   await expect(page.getByRole('region', { name: 'Project overview', exact: true })).toBeVisible();
   await page.locator('.repo-select').filter({ hasText: 'atlas-web' }).click();
-  await page.getByRole('button', { name: 'Codex New session', exact: true }).click();
+  await page.getByRole('button', { name: 'New Codex session', exact: true }).click();
   await page.getByLabel('Message agent').fill('Preserve this draft');
   await expect(page.getByRole('combobox', { name: 'Content layout' })).toHaveCount(0);
   await expect(page.locator('.split-view, .repo-breadcrumb, .conversation-breadcrumb')).toHaveCount(
@@ -19,7 +19,7 @@ test('single view ignores old split preferences and preserves conversation draft
   await expect(page.getByLabel('Message agent')).toBeHidden();
   await page.getByRole('button', { name: 'New Codex session', exact: true }).click();
   await expect(page.getByLabel('Message agent')).toHaveValue('Preserve this draft');
-  await page.getByRole('button', { name: 'Project overview', exact: true }).click();
+  await page.getByRole('button', { name: 'Projects', exact: true }).click();
   await expect(page.getByRole('region', { name: 'Project overview', exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Expand atlas-web sessions', exact: true }).click();
   await page.getByRole('button', { name: 'New Codex session', exact: true }).click();
@@ -177,16 +177,16 @@ for (const outcome of ['completed', 'failed', 'stopped']) {
     await expect(page.getByText('Response ended', { exact: true })).toBeVisible();
     expect(await page.evaluate(() => (window as any).writes)).toEqual(['progress']);
     if (outcome === 'completed') {
-      await expect(page.getByRole('button', { name: 'Mark task Done', exact: true })).toHaveCount(
+      await expect(page.getByRole('button', { name: 'Mark task done', exact: true })).toHaveCount(
         0,
       );
       await page.getByRole('button', { name: 'Review task completion', exact: true }).click();
       await expect(page.getByText('Complete this task?', { exact: true })).toBeVisible();
-      await page.getByRole('button', { name: 'Mark task Done', exact: true }).click();
+      await page.getByRole('button', { name: 'Mark task done', exact: true }).click();
       await expect(page.getByText('Task marked Done.', { exact: true })).toBeVisible();
       expect(await page.evaluate(() => (window as any).writes)).toEqual(['progress', 'done']);
     } else
-      await expect(page.getByRole('button', { name: 'Mark task Done', exact: true })).toHaveCount(
+      await expect(page.getByRole('button', { name: 'Mark task done', exact: true })).toHaveCount(
         0,
       );
   });
@@ -197,14 +197,14 @@ test('navigation collapse preserves the conversation and command K restores sear
 }) => {
   await page.goto(url);
   await page.locator('.repo-select').filter({ hasText: 'atlas-web' }).click();
-  await page.getByRole('button', { name: 'Codex New session', exact: true }).click();
+  await page.getByRole('button', { name: 'New Codex session', exact: true }).click();
   await expect(page.getByText('What are we working on?', { exact: true })).toBeVisible();
   await page.getByLabel('Message agent').fill('Keep this draft while I focus');
-  await page.getByRole('button', { name: 'Toggle project navigation', exact: true }).click();
+  await page.getByRole('button', { name: 'Toggle sidebar', exact: true }).click();
   await expect(page.getByRole('region', { name: 'Projects and repositories' })).not.toBeVisible();
   await expect(page.getByLabel('Message agent')).toHaveValue('Keep this draft while I focus');
-  await page.keyboard.press('Meta+k');
-  await expect(page.getByLabel('Search projects or sessions')).toBeFocused();
+  await page.keyboard.press('ControlOrMeta+k');
+  await expect(page.getByLabel('Search projects and sessions')).toBeFocused();
   await expect(page.getByRole('region', { name: 'Projects and repositories' })).toBeVisible();
   await page.screenshot({ path: 'test-results/chatgpt-new-conversation.png', fullPage: true });
   await page.setViewportSize({ width: 980, height: 680 });
@@ -258,7 +258,7 @@ test('sidebar connects the chosen project from the overview without duplicate au
   await page.getByRole('option', { name: 'Platform', exact: true }).click();
   await footer.getByRole('button', { name: 'Connect GitHub', exact: true }).click();
   await expect(
-    page.getByRole('dialog', { name: 'Connect GitHub Project', exact: true }),
+    page.getByRole('dialog', { name: 'Connect GitHub project', exact: true }),
   ).toBeVisible();
   await expect(page.getByLabel('GitHub device code')).toHaveValue('ABCD-1234');
   expect(await page.evaluate(() => (window as any).authStarts)).toBe(1);
@@ -272,12 +272,12 @@ test('task conversation returns to the filtered project board', async ({ page })
   await page.getByRole('button', { name: 'Connect GitHub', exact: true }).click();
   await page.getByRole('button', { name: 'Atlas roadmap #1', exact: true }).click();
   await page.getByRole('button', { name: 'Connect project', exact: true }).click();
-  await page.getByLabel('Search GitHub items').fill('authentication');
+  await page.getByLabel('Search tasks').fill('authentication');
   await page.getByRole('button', { name: 'Review authentication', exact: true }).click();
   await page.getByRole('button', { name: 'Open in Codex', exact: true }).click();
   await expect(page.getByLabel('Message agent')).toHaveValue(/Review authentication/);
-  await page.getByRole('button', { name: 'Back to Atlas board', exact: true }).click();
-  await expect(page.getByLabel('Search GitHub items')).toHaveValue('authentication');
+  await page.getByRole('button', { name: 'Go back', exact: true }).click();
+  await expect(page.getByLabel('Search tasks')).toHaveValue('authentication');
   await expect(page.getByRole('region', { name: 'Tracker board', exact: true })).toBeVisible();
   await expect(
     page.getByRole('button', { name: 'Build the project overview', exact: true }),

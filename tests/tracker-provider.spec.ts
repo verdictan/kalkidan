@@ -67,7 +67,7 @@ test('a configured non-GitHub provider drives project creation and a read-only b
   await dialog.getByRole('button', { name: 'Create project', exact: true }).click();
   await expect(dialog).not.toBeVisible();
   await expect(page.getByText('Provider-independent work', { exact: true })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'New item', exact: true })).toBeDisabled();
+  await expect(page.getByRole('button', { name: 'New task', exact: true })).toBeDisabled();
   const calls = await page.evaluate(() => (window as any).providerCalls);
   expect(calls).not.toContain('github');
   expect(calls).toContain('example:https://tracker.example/team');

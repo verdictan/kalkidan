@@ -41,9 +41,44 @@
   --navigation: #171b1e;
   --chrome: #22272b;
   --composer: #292e33;
+  --success: #71c78a;
+  --warning: #e3b341;
+  --danger-surface: #3a2326;
+  --link: #82baff;
+  --diff-add: #8fd3a3;
+  --diff-add-surface: #1a3225;
+  --diff-remove: #f2a3a3;
+  --diff-remove-surface: #392326;
   --navigation-width: 260px;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   font-synthesis: none;
+}
+/* Light theme. src/main.tsx removes the dark class when the system uses light colors. */
+:root:not(.dark) {
+  color-scheme: light;
+  --background: #ffffff;
+  --foreground: #1f2328;
+  --card: #f6f8fa;
+  --primary: #1f2328;
+  --primary-foreground: #ffffff;
+  --secondary: #eaeef2;
+  --muted: #f6f8fa;
+  --muted-foreground: #59636e;
+  --accent: #e6eaef;
+  --border: #d8dee4;
+  --ring: #8c959f;
+  --destructive: #cf222e;
+  --navigation: #f6f8fa;
+  --chrome: #eef0f2;
+  --composer: #f6f8fa;
+  --success: #1a7f37;
+  --warning: #9a6700;
+  --danger-surface: #ffebe9;
+  --link: #0969da;
+  --diff-add: #1a7f37;
+  --diff-add-surface: #dafbe1;
+  --diff-remove: #cf222e;
+  --diff-remove-surface: #ffebe9;
 }
 @layer base {
   * {
@@ -62,4 +97,38 @@ button,
 input,
 textarea {
   -webkit-app-region: no-drag;
+}
+
+.hint-disabled {
+  display: inline-flex;
+}
+
+/* Status of an open session that works or waits in the background. */
+.activity-dot {
+  flex-shrink: 0;
+  width: 8px;
+  height: 8px;
+  margin-left: auto;
+  border-radius: 999px;
+  background: var(--success);
+}
+.activity-dot[data-state='approval'] {
+  background: var(--warning);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--warning) 25%, transparent);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .activity-dot[data-state='running'] {
+    animation: activity-pulse 1.6s ease-in-out infinite;
+  }
+}
+@keyframes activity-pulse {
+  50% {
+    opacity: 0.35;
+  }
+}
+/* Row labels set every span to fill the row. The dot keeps its own size. */
+.repo-select .activity-dot,
+.session-title .activity-dot {
+  flex: 0 0 8px;
+  min-width: 8px;
 }

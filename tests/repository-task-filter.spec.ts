@@ -13,7 +13,7 @@ test('repository overview omits tasks while the project Board page retains them'
   await page.locator('.repo-select').filter({ hasText: 'api-service' }).click();
   await expect(page.getByRole('region', { name: 'Repository project tasks' })).toHaveCount(0);
   await page.locator('.project-tree').getByRole('button', { name: 'Atlas', exact: true }).click();
-  await expect(page.getByRole('combobox', { name: 'Filter issues by repository' })).toBeVisible();
+  await expect(page.getByRole('combobox', { name: 'Filter by repository' })).toBeVisible();
   await expect(page.getByText('Build the project overview', { exact: true })).toBeVisible();
   await expect(page.getByText('Review authentication', { exact: true })).toBeVisible();
 });

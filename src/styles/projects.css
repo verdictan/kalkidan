@@ -81,9 +81,34 @@
   -webkit-app-region: no-drag;
 }
 .desktop-titlebar .topbar-brand {
-  padding-left: 96px;
+  padding-left: 12px;
   padding-right: 12px;
   gap: 8px;
+}
+/* macOS draws the traffic lights at the top left of the window. */
+[data-platform='mac']:not([data-fullscreen='true']) .desktop-titlebar .topbar-brand {
+  padding-left: 96px;
+}
+/* Windows and Linux draw the window controls at the top right (titleBarOverlay). */
+:root:not([data-platform='mac']) .desktop-titlebar {
+  /* Keep space for the window controls. The Window Controls Overlay gives the
+     free title bar area. Without the overlay, the fallbacks give 140px. */
+  padding-right: 140px;
+  padding-right: calc(
+    100vw - env(titlebar-area-x, 0px) - env(titlebar-area-width, calc(100vw - 140px))
+  );
+}
+.topbar-title {
+  flex-shrink: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  color: var(--muted-foreground);
+}
+.topbar-title [aria-current] {
+  color: var(--foreground);
 }
 .navigation-collapsed .topbar-brand {
   width: auto;
@@ -142,7 +167,7 @@
   top: 50%;
   transform: translateY(-50%);
   font-family: inherit;
-  font-size: 10px;
+  font-size: 11px;
   color: var(--muted-foreground);
   pointer-events: none;
 }
@@ -203,9 +228,9 @@
   box-shadow: none;
 }
 .project-tree .project-group-heading > button:first-child {
-  width: 20px;
-  min-width: 20px;
-  padding: 2px;
+  width: 24px;
+  min-width: 24px;
+  padding: 4px;
   flex-shrink: 0;
   color: var(--muted-foreground);
 }
@@ -365,7 +390,7 @@
   flex-shrink: 0;
   border: 1px solid var(--border);
   border-radius: 8px;
-  color: #adb8c2;
+  color: var(--muted-foreground);
   background: var(--secondary);
 }
 .project-empty {
@@ -429,13 +454,25 @@
 }
 .path-button {
   height: auto;
+  max-width: 100%;
   padding: 0;
   font-size: 11px;
   color: var(--muted-foreground);
-  word-break: break-all;
-  white-space: normal;
+  white-space: nowrap;
   justify-content: flex-start;
   text-align: left;
+}
+/* Long paths end with an ellipsis. The tooltip shows the full path. */
+.path-button > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.detail-parent {
+  height: auto;
+  padding: 0;
+  font-size: 12px;
+  color: var(--muted-foreground);
 }
 .project-status {
   display: flex;
@@ -658,11 +695,13 @@
   font-size: 13px;
   font-weight: 500;
 }
-.worktree code {
+.worktree .worktree-path {
   display: block;
   font-size: 11px;
   color: var(--muted-foreground);
-  overflow-wrap: anywhere;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   margin-top: 5px;
 }
 .help-text {
@@ -792,6 +831,8 @@
   background: transparent;
 }
 .tracker-column-heading {
+  /* Keeps the screen reader task count inside the scrolling board. */
+  position: relative;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -885,9 +926,8 @@
   background: var(--card);
   border-radius: 7px;
 }
-.tracker-task:focus-visible {
-  outline: 2px solid var(--ring);
-  outline-offset: 2px;
+.tracker-task:has(:focus-visible) {
+  border-color: var(--ring);
 }
 .tracker-issue-detail[data-slot='dialog-content'] {
   left: auto;
@@ -952,6 +992,7 @@
 }
 .tracker-issue-description a {
   text-decoration: underline;
+  color: var(--link);
 }
 .tracker-work-heading {
   border-top: 1px solid var(--border);
@@ -964,17 +1005,61 @@
   padding-top: 12px;
 }
 
-.project-group-actions {
+.project-group-actions,
+.tree-row-menu {
   opacity: 0;
 }
 .project-group-heading:hover .project-group-actions,
-.project-group-heading:focus-within .project-group-actions {
+.project-group-heading:focus-within .project-group-actions,
+.project-group-heading:has(.project-select[aria-current='page']) .project-group-actions,
+.repo-row:hover .tree-row-menu,
+.repo-row:focus-within .tree-row-menu,
+.repo-row.selected .tree-row-menu,
+.pinned-session-row:hover .tree-row-menu,
+.pinned-session-row:focus-within .tree-row-menu,
+.pinned-session-row.selected .tree-row-menu,
+.tree-row-menu[data-state='open'] {
   opacity: 1;
 }
 @media (hover: none) {
-  .project-group-actions {
+  .project-group-actions,
+  .tree-row-menu {
     opacity: 1;
   }
+}
+.project-tree .repo-row > .tree-row-menu,
+.pinned-session-row > .tree-row-menu {
+  flex-shrink: 0;
+  width: 24px;
+  height: 24px;
+  padding: 4px;
+  border-radius: 3px;
+  color: var(--muted-foreground);
+}
+.pinned-session-row {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  padding-right: 8px;
+  border-radius: var(--radius-md);
+}
+.pinned-session-row:hover {
+  background: var(--muted);
+}
+.pinned-session-row.selected {
+  background: var(--accent);
+}
+.pinned-session-row > button:first-child {
+  flex: 1;
+  min-width: 0;
+  justify-content: flex-start;
+  font-size: 13px;
+  font-weight: 400;
+}
+.pinned-session-row > button:first-child span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .sidebar-resizer {
@@ -1014,15 +1099,39 @@
   font-weight: 600;
   color: var(--muted-foreground);
 }
-.workspace-search-results > button {
+.workspace-search-results .search-option {
+  display: flex;
+  align-items: center;
   width: 100%;
-  height: auto;
   min-height: 32px;
   text-align: left;
   justify-content: flex-start;
   white-space: normal;
   overflow-wrap: anywhere;
   padding: 8px;
+  border-radius: var(--radius-md);
+  font-size: 13px;
+  cursor: pointer;
+}
+.workspace-search-results .search-option[aria-selected='true'] {
+  background: var(--accent);
+}
+.workspace-search-results .search-error {
+  margin: 8px;
+  padding: 8px;
+  border: 1px solid color-mix(in srgb, var(--destructive) 40%, transparent);
+  border-radius: var(--radius-md);
+  color: var(--destructive);
+  font-size: 12px;
+}
+.search .search-clear {
+  position: absolute;
+  right: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 24px;
+  height: 24px;
+  color: var(--muted-foreground);
 }
 .workspace-search-results .history-search-hit {
   flex-direction: column;
@@ -1101,7 +1210,7 @@
   padding: 0 8px 7px 10px;
 }
 .wiki-pages-label > span {
-  font-size: 10px;
+  font-size: 11px;
   letter-spacing: 0.08em;
   font-weight: 600;
   color: var(--muted-foreground);
@@ -1113,7 +1222,7 @@
 }
 .wiki-tree-row > button:first-child:not(.doc-tree-page),
 .wiki-tree-spacer {
-  width: 18px;
+  width: 24px;
   flex-shrink: 0;
   padding: 0;
 }
@@ -1290,7 +1399,7 @@
 }
 .wiki-prose a {
   text-decoration: underline;
-  color: #82baff;
+  color: var(--link);
 }
 .wiki-prose table {
   border-collapse: collapse;
@@ -1351,9 +1460,9 @@
 }
 .wiki-slash > p {
   color: var(--muted-foreground);
-  font-size: 10px;
+  font-size: 11px;
+  font-weight: 500;
   padding: 8px;
-  letter-spacing: 0.05em;
 }
 .wiki-slash > button {
   display: flex;
@@ -1613,8 +1722,8 @@
   margin: 0;
 }
 .wiki-tree-children {
-  margin-left: 9px;
-  padding-left: 9px;
+  margin-left: 12px;
+  padding-left: 6px;
   border-left: 1px solid var(--border);
 }
 .wiki-tree-row {
@@ -1649,6 +1758,7 @@
 }
 .wiki-tree-row:hover .wiki-tree-actions,
 .wiki-tree-row:focus-within .wiki-tree-actions,
+.wiki-tree-row[data-selected='true'] .wiki-tree-actions,
 .wiki-tree-actions:has([data-state='open']) {
   opacity: 1;
 }
@@ -1661,4 +1771,27 @@
   .docs-layout {
     grid-template-columns: 180px minmax(0, 1fr);
   }
+}
+.docs-library .wiki-deleted-pages {
+  justify-content: flex-start;
+  gap: 8px;
+  margin-top: 12px;
+  color: var(--muted-foreground);
+}
+.wiki-deleted-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+  max-height: 50vh;
+  overflow: auto;
+}
+.wiki-deleted-list li {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
 }

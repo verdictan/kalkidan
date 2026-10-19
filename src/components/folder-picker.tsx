@@ -96,7 +96,7 @@ export function FolderPicker({
               {hostId
                 ? 'Browse folders on the selected remote host.'
                 : 'Browse folders on this machine.'}{' '}
-              Files are shown for context; choose a folder for your project.
+              Files show for context. Choose a folder for your project.
             </DialogDescription>
           </DialogHeader>
           <form
@@ -150,6 +150,7 @@ export function FolderPicker({
             onChange={(event) => setFilter(event.target.value)}
           />
           <div
+            role="group"
             className="h-64 overflow-auto rounded-md border p-1"
             aria-label="Folder entries"
             aria-busy={loading}

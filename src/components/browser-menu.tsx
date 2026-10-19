@@ -13,14 +13,59 @@ import {
   DropdownMenuSub,
   DropdownMenuSubTrigger,
   DropdownMenuSubContent,
+  DropdownMenuShortcut,
 } from './ui/dropdown-menu';
+import { Hint } from './hint';
+import { revealLabel } from '../lib/platform';
+import { errorMessage } from '../lib/errors';
 import type { API, BrowserProfileData } from '../types';
+
+const clearOptions = [
+  {
+    kind: 'history',
+    label: 'History',
+    button: 'Clear history',
+    warning: 'The list of pages you visited in the Kalkidan browser is deleted.',
+  },
+  {
+    kind: 'cache',
+    label: 'Cached files',
+    button: 'Clear cached files',
+    warning: 'Pages can load more slowly the next time you open them.',
+  },
+  {
+    kind: 'cookies',
+    label: 'Cookies and site data',
+    button: 'Clear cookies',
+    warning: 'This signs you out of all sites in the Kalkidan browser.',
+  },
+  {
+    kind: 'passwords',
+    label: 'Saved passwords',
+    button: 'Delete passwords',
+    warning: 'All saved passwords are permanently deleted. You cannot undo this.',
+  },
+] as const;
+type ClearOption = (typeof clearOptions)[number];
+const downloadState: Record<string, string> = {
+  progressing: 'Downloading',
+  paused: 'Paused',
+  completed: 'Complete',
+  cancelled: 'Cancelled',
+  interrupted: 'Interrupted',
+};
+const downloadCommand: Record<string, string> = {
+  pause: 'Pause',
+  resume: 'Resume',
+  cancel: 'Cancel',
+};
 export function BrowserMenu({
   api,
   id,
   ready,
   url,
   zoom,
+  findShortcut,
   onFind,
   onDevice,
   onNavigate,
@@ -31,6 +76,7 @@ export function BrowserMenu({
   ready: boolean;
   url: string;
   zoom: number;
+  findShortcut?: string;
   onFind: () => void;
   onDevice: () => void;
   onNavigate: (url: string) => void;
@@ -43,22 +89,38 @@ export function BrowserMenu({
   const [remember, setRemember] = useState(true);
   const [filter, setFilter] = useState('');
   const [notice, setNotice] = useState('');
-  async function act(action: string, value?: unknown) {
+  const [failed, setFailed] = useState(false);
+  const [pendingClear, setPendingClear] = useState<ClearOption | null>(null);
+  const [pendingDelete, setPendingDelete] = useState<{ id: string; origin: string } | null>(null);
+  async function attempt(action: string, value?: unknown) {
     setBusy(true);
     setNotice('');
+    setFailed(false);
     try {
       const result = await api.browserAction(id, action, value);
       if (typeof result === 'string') setNotice(result);
-      return result;
-    } catch (e: any) {
-      setNotice(e.message);
-      onError(e.message);
+      return { ok: true as const, result };
+    } catch (e) {
+      const message = errorMessage(e);
+      setNotice(message);
+      setFailed(true);
+      onError(message);
+      return { ok: false as const };
     } finally {
       setBusy(false);
     }
   }
-  async function show(next: string) {
+  async function act(action: string, value?: unknown) {
+    const outcome = await attempt(action, value);
+    return outcome.ok ? outcome.result : undefined;
+  }
+  function openPanel(next: string | null) {
+    setPendingClear(null);
+    setPendingDelete(null);
     setPanel(next);
+  }
+  async function show(next: string) {
+    openPanel(next);
     setFilter('');
     const profile = (await act('profile')) as BrowserProfileData | undefined;
     if (profile) {
@@ -73,63 +135,80 @@ export function BrowserMenu({
   }
   return (
     <>
-      <Button
-        type="button"
-        variant="ghost"
-        size="icon-sm"
-        aria-label="Downloads"
-        disabled={!ready}
-        onClick={() => void show('Downloads')}
-      >
-        <Download size={15} />
-      </Button>
+      <Hint label="Downloads">
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-sm"
+          aria-label="Downloads"
+          disabled={!ready}
+          onClick={() => void show('Downloads')}
+        >
+          <Download size={15} />
+        </Button>
+      </Hint>
       <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon-sm"
-            aria-label="Browser menu"
-            disabled={!ready}
-          >
-            <MoreHorizontal size={17} />
-          </Button>
-        </DropdownMenuTrigger>
+        <Hint label="Browser menu">
+          <DropdownMenuTrigger asChild>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-sm"
+              aria-label="Browser menu"
+              disabled={!ready}
+            >
+              <MoreHorizontal size={17} />
+            </Button>
+          </DropdownMenuTrigger>
+        </Hint>
         <DropdownMenuContent align="end" className="w-64">
-          <DropdownMenuItem onSelect={onFind}>Find in page</DropdownMenuItem>
+          <DropdownMenuItem onSelect={onFind}>
+            Find in page
+            {findShortcut && <DropdownMenuShortcut>{findShortcut}</DropdownMenuShortcut>}
+          </DropdownMenuItem>
           <DropdownMenuItem onSelect={() => void act('print')}>Print…</DropdownMenuItem>
           <DropdownMenuSeparator />
-          <div className="flex items-center justify-between px-2 py-1 text-sm">
-            <span>Zoom</span>
+          <div
+            className="flex items-center justify-between px-2 py-1 text-sm"
+            role="group"
+            aria-label="Zoom"
+          >
+            <span aria-hidden="true">Zoom</span>
             <div className="flex items-center">
-              <Button
-                size="icon-sm"
-                variant="ghost"
+              {/* Menu items keep the zoom controls in the keyboard order. The menu stays open. */}
+              <DropdownMenuItem
+                className="h-8 w-8 justify-center p-0"
                 aria-label="Zoom out"
                 disabled={busy || zoom <= 0.25}
-                onClick={() =>
-                  void act('zoom', Math.max(0.25, Math.round((zoom - 0.1) * 100) / 100))
-                }
+                onSelect={(e) => {
+                  e.preventDefault();
+                  void act('zoom', Math.max(0.25, Math.round((zoom - 0.1) * 100) / 100));
+                }}
               >
                 −
-              </Button>
-              <Button
-                variant="ghost"
-                size="sm"
-                aria-label="Reset zoom"
-                onClick={() => void act('zoom', 1)}
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                className="h-8 justify-center px-2 tabular-nums"
+                aria-label={`Reset zoom (now ${Math.round(zoom * 100)}%)`}
+                disabled={busy}
+                onSelect={(e) => {
+                  e.preventDefault();
+                  void act('zoom', 1);
+                }}
               >
                 {Math.round(zoom * 100)}%
-              </Button>
-              <Button
-                size="icon-sm"
-                variant="ghost"
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                className="h-8 w-8 justify-center p-0"
                 aria-label="Zoom in"
                 disabled={busy || zoom >= 3}
-                onClick={() => void act('zoom', Math.min(3, Math.round((zoom + 0.1) * 100) / 100))}
+                onSelect={(e) => {
+                  e.preventDefault();
+                  void act('zoom', Math.min(3, Math.round((zoom + 0.1) * 100) / 100));
+                }}
               >
                 +
-              </Button>
+              </DropdownMenuItem>
             </div>
           </div>
           <DropdownMenuItem onSelect={onDevice}>Device toolbar</DropdownMenuItem>
@@ -142,7 +221,7 @@ export function BrowserMenu({
             <DropdownMenuSubContent>
               <DropdownMenuItem
                 onSelect={() => {
-                  setPanel('Import');
+                  openPanel('Import');
                   void act('import', 'cookies');
                 }}
               >
@@ -150,7 +229,7 @@ export function BrowserMenu({
               </DropdownMenuItem>
               <DropdownMenuItem
                 onSelect={() => {
-                  setPanel('Import');
+                  openPanel('Import');
                   void act('import', 'passwords');
                 }}
               >
@@ -172,7 +251,7 @@ export function BrowserMenu({
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
-      <Dialog open={!!panel} onOpenChange={(open) => !open && setPanel(null)}>
+      <Dialog open={!!panel} onOpenChange={(open) => !open && openPanel(null)}>
         <DialogContent className="sm:max-w-xl">
           <DialogHeader>
             <DialogTitle>{panel}</DialogTitle>
@@ -187,7 +266,10 @@ export function BrowserMenu({
             </DialogDescription>
           </DialogHeader>
           {notice && (
-            <p role="status" className="break-words text-sm">
+            <p
+              role={failed ? 'alert' : 'status'}
+              className={'break-words text-sm' + (failed ? ' text-destructive' : '')}
+            >
               {notice}
             </p>
           )}
@@ -197,9 +279,13 @@ export function BrowserMenu({
               onSubmit={(e) => {
                 e.preventDefault();
                 e.stopPropagation();
-                void act('settings', { home, rememberHistory: remember })
-                  .then(() => refresh())
-                  .then(() => setNotice('Browser settings saved'));
+                void attempt('settings', { home, rememberHistory: remember }).then(
+                  async (outcome) => {
+                    if (!outcome.ok) return;
+                    await refresh();
+                    setNotice('Browser settings saved');
+                  },
+                );
               }}
             >
               <label className="block space-y-2 text-sm">
@@ -223,27 +309,52 @@ export function BrowserMenu({
           )}
           {panel === 'Clear browsing data' && (
             <div className="space-y-3">
-              {[
-                ['history', 'History'],
-                ['cache', 'Cached files'],
-                ['cookies', 'Cookies and site data (signs you out)'],
-                ['passwords', 'Saved passwords'],
-              ].map(([kind, label]) => (
-                <div
-                  key={kind}
-                  className="flex items-center justify-between gap-4 rounded border p-3"
-                >
-                  <span className="text-sm">{label}</span>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    disabled={busy}
-                    onClick={() =>
-                      void act('clear', kind).then(() => setNotice(label + ' cleared'))
-                    }
-                  >
-                    Clear {kind}
-                  </Button>
+              {clearOptions.map((option) => (
+                <div key={option.kind} className="space-y-3 rounded border p-3">
+                  <div className="flex items-center justify-between gap-4">
+                    <span className="text-sm">{option.label}</span>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={busy || pendingClear?.kind === option.kind}
+                      onClick={() => setPendingClear(option)}
+                    >
+                      {option.button}…
+                    </Button>
+                  </div>
+                  {pendingClear?.kind === option.kind && (
+                    <div
+                      role="group"
+                      aria-label={`Confirm: ${option.button}`}
+                      className="space-y-2"
+                    >
+                      <p className="text-xs text-muted-foreground">{option.warning}</p>
+                      <div className="flex justify-end gap-2">
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          disabled={busy}
+                          onClick={() => setPendingClear(null)}
+                        >
+                          Cancel
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="destructive"
+                          autoFocus
+                          disabled={busy}
+                          onClick={() =>
+                            void attempt('clear', option.kind).then((outcome) => {
+                              setPendingClear(null);
+                              if (outcome.ok) setNotice(option.label + ' cleared');
+                            })
+                          }
+                        >
+                          {option.button}
+                        </Button>
+                      </div>
+                    </div>
+                  )}
                 </div>
               ))}
             </div>
@@ -292,7 +403,8 @@ export function BrowserMenu({
                 <div key={d.id} className="rounded border p-3">
                   <p className="truncate text-sm">{d.name}</p>
                   <p className="text-xs text-muted-foreground">
-                    {d.state} · {Math.round(d.received / 1024)} / {Math.round(d.total / 1024)} KB
+                    {downloadState[d.state] || d.state} · {Math.round(d.received / 1024)} /{' '}
+                    {Math.round(d.total / 1024)} KB
                   </p>
                   <div className="mt-2 flex gap-2">
                     {(d.state === 'completed'
@@ -306,9 +418,13 @@ export function BrowserMenu({
                         size="sm"
                         variant="outline"
                         disabled={busy}
-                        onClick={() => void act('download', { id: d.id, command }).then(refresh)}
+                        onClick={() =>
+                          void attempt('download', { id: d.id, command }).then((outcome) =>
+                            outcome.ok ? refresh() : undefined,
+                          )
+                        }
                       >
-                        {command === 'reveal' ? 'Show in Finder' : command}
+                        {command === 'reveal' ? revealLabel() : downloadCommand[command]}
                       </Button>
                     ))}
                   </div>
@@ -324,7 +440,11 @@ export function BrowserMenu({
               <Button
                 variant="outline"
                 disabled={busy}
-                onClick={() => void act('import', 'passwords').then(refresh)}
+                onClick={() =>
+                  void attempt('import', 'passwords').then((outcome) =>
+                    outcome.ok ? refresh() : undefined,
+                  )
+                }
               >
                 <KeyRound size={14} />
                 Import password CSV…
@@ -344,12 +464,48 @@ export function BrowserMenu({
                     <Button
                       size="sm"
                       variant="outline"
-                      disabled={busy}
-                      onClick={() => void act('delete-password', c.id).then(refresh)}
+                      disabled={busy || pendingDelete?.id === c.id}
+                      onClick={() => setPendingDelete({ id: c.id, origin: c.origin })}
                     >
-                      Delete
+                      Delete…
                     </Button>
                   </div>
+                  {pendingDelete?.id === c.id && (
+                    <div
+                      role="group"
+                      aria-label="Confirm password deletion"
+                      className="mt-3 space-y-2"
+                    >
+                      <p className="text-xs text-muted-foreground">
+                        The saved password for {c.username || 'this account'} on {c.origin} is
+                        permanently deleted.
+                      </p>
+                      <div className="flex justify-end gap-2">
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          disabled={busy}
+                          onClick={() => setPendingDelete(null)}
+                        >
+                          Cancel
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="destructive"
+                          autoFocus
+                          disabled={busy}
+                          onClick={() =>
+                            void attempt('delete-password', c.id).then(async (outcome) => {
+                              setPendingDelete(null);
+                              if (outcome.ok) await refresh();
+                            })
+                          }
+                        >
+                          Delete password
+                        </Button>
+                      </div>
+                    </div>
+                  )}
                 </div>
               ))}
               {!data?.credentials.length && (

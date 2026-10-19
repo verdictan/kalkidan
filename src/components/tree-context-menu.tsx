@@ -7,6 +7,8 @@ export interface TreeAction {
   action(): void;
   disabled?: boolean;
   destructive?: boolean;
+  /** Tells the user why the action is disabled. */
+  reason?: string;
 }
 export function TreeContextMenu({
   children,
@@ -82,11 +84,14 @@ export function TreeContextMenu({
               disabled={item.disabled}
               onSelect={item.action}
               className={
-                'relative flex cursor-default select-none items-center rounded-sm px-2 py-1.5 text-sm outline-hidden focus:bg-accent data-[disabled]:pointer-events-none data-[disabled]:opacity-50' +
+                'relative flex cursor-default select-none flex-col items-start rounded-sm px-2 py-1.5 text-sm outline-hidden focus:bg-accent data-[disabled]:pointer-events-none data-[disabled]:opacity-50' +
                 (item.destructive ? ' text-destructive focus:bg-destructive/10' : '')
               }
             >
               {item.label}
+              {item.disabled && item.reason && (
+                <span className="text-xs text-muted-foreground">{item.reason}</span>
+              )}
             </ContextMenu.Item>
           ))}
         </ContextMenu.Content>

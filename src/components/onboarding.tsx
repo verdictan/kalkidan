@@ -5,6 +5,8 @@ import { agentCatalog } from '../config/agents';
 import { CreateProject } from './create-project';
 import { AddRepository } from './add-repository';
 import { Choice } from './choice';
+import { Hint } from './hint';
+import { hasPrimaryModifier, shortcutLabel } from '../lib/platform';
 import { Button } from './ui/button';
 import { Textarea } from './ui/textarea';
 import {
@@ -15,6 +17,7 @@ import {
   DialogDescription,
   DialogFooter,
 } from './ui/dialog';
+import { errorMessage } from '../lib/errors';
 
 const starters = [
   {
@@ -104,7 +107,7 @@ export function Onboarding({
         );
       })
       .catch((error) => {
-        if (active) setCheckError(error instanceof Error ? error.message : String(error));
+        if (active) setCheckError(errorMessage(error));
       })
       .finally(() => {
         if (pendingCheck.current === request) pendingCheck.current = null;
@@ -132,6 +135,11 @@ export function Onboarding({
           : installation?.status === 'installed'
             ? 'Agent found. Your first message will use its existing sign-in.'
             : 'Install and sign in to this agent’s CLI, then check again. Agent settings shows detected installations.';
+  function start() {
+    if (!canStart || !repo) return;
+    onStart(agent, repo, prompt.trim());
+    onOpenChange(false);
+  }
   return (
     <>
       <Dialog open={open && !creating} onOpenChange={onOpenChange}>
@@ -140,9 +148,9 @@ export function Onboarding({
             <div className="mb-2 flex items-center gap-2 text-sm text-muted-foreground">
               <Sparkles size={16} /> Get started with Kalkidan
             </div>
-            <DialogTitle className="text-2xl">From repository to your first task</DialogTitle>
+            <DialogTitle className="text-2xl">From repository to your first session</DialogTitle>
             <DialogDescription>
-              Choose where your work lives, add code, and prepare a useful conversation.
+              Choose where your work lives, add code, and prepare your first session.
             </DialogDescription>
           </DialogHeader>
           <ol className="grid gap-5 py-2">
@@ -209,7 +217,7 @@ export function Onboarding({
             </li>
             <li className="rounded-lg border p-4 space-y-3">
               <div className="flex items-center gap-2 font-medium">
-                <Sparkles size={18} /> 3. Start with a clear task
+                <Sparkles size={18} /> 3. Write a clear first message
               </div>
               <div className="flex flex-wrap gap-2">
                 <Choice
@@ -235,7 +243,7 @@ export function Onboarding({
                 {status}
               </p>
               <Choice
-                label="Starter task"
+                label="Starter message"
                 value={starter}
                 options={starters.map((s) => ({ value: s.name, label: s.name }))}
                 onChange={(value) => {
@@ -244,13 +252,20 @@ export function Onboarding({
                 }}
               />
               <Textarea
-                aria-label="First task"
+                aria-label="First message"
                 value={prompt}
                 onChange={(event) => setPrompt(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter' && hasPrimaryModifier(event.nativeEvent)) {
+                    event.preventDefault();
+                    start();
+                  }
+                }}
                 rows={4}
               />
               <p className="text-xs text-muted-foreground">
-                You can edit this draft in chat before sending it.
+                You can edit this draft in the session before you send it. Press{' '}
+                {shortcutLabel(['mod'], 'Enter')} to open the session.
               </p>
             </li>
           </ol>
@@ -258,17 +273,21 @@ export function Onboarding({
             <Button variant="ghost" onClick={() => onOpenChange(false)}>
               Set up later
             </Button>
-            <Button
-              disabled={!canStart}
-              onClick={() => {
-                if (repo) {
-                  onStart(agent, repo, prompt.trim());
-                  onOpenChange(false);
-                }
-              }}
+            <Hint
+              label={
+                !repo
+                  ? 'Add a repository first'
+                  : !prompt.trim()
+                    ? 'Write the first message'
+                    : canStart
+                      ? 'Open first session'
+                      : 'Make the agent available first'
+              }
             >
-              Open first conversation
-            </Button>
+              <Button disabled={!canStart} onClick={start}>
+                Open first session
+              </Button>
+            </Hint>
           </DialogFooter>
         </DialogContent>
       </Dialog>

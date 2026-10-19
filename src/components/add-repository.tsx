@@ -1,13 +1,14 @@
 import { interfaceConfig } from '../config/interface';
 import { RemoteRepositoryPicker } from './remote-repository-picker';
 import { CreateProject } from './create-project';
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Plus, RefreshCw } from 'lucide-react';
 import type { API, GitHubAuthState, GitHubRepository, Snapshot } from '../types';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Badge } from './ui/badge';
 import { Choice } from './choice';
+import { fileManagerName } from '../lib/platform';
 import {
   Dialog,
   DialogContent,
@@ -25,7 +26,10 @@ export function AddRepository({
   disabled,
   className,
   variant = 'ghost',
+  onNotice,
 }: {
+  /** Reports the result of work that continues after the dialog closes. */
+  onNotice?: (message: string, error?: boolean) => void;
   api: API;
   groupId?: string;
   onRefresh: () => Promise<unknown>;
@@ -44,6 +48,8 @@ export function AddRepository({
   const [query, setQuery] = useState('');
   const [manual, setManual] = useState('');
   const [busy, setBusy] = useState(false);
+  const openRef = useRef(false);
+  openRef.current = open;
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [auth, setAuth] = useState<GitHubAuthState>({ status: 'idle' });
@@ -75,8 +81,8 @@ export function AddRepository({
     }
     void loadRepos();
   }
+  // Work in progress continues after the dialog closes. `perform` reports its result.
   function close() {
-    if (busy) return;
     setOpen(false);
     if (auth.status === 'checking' || auth.status === 'waiting') void api.githubAuthCancel();
   }
@@ -116,13 +122,16 @@ export function AddRepository({
       });
     }
   }
-  async function perform(fn: () => Promise<void>) {
+  async function perform(fn: () => Promise<string | void>) {
     setBusy(true);
     setError('');
     try {
-      await fn();
+      const done = await fn();
+      if (done && !openRef.current) onNotice?.(done);
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      const message = e instanceof Error ? e.message : String(e);
+      setError(message);
+      if (!openRef.current) onNotice?.(message, true);
     } finally {
       setBusy(false);
     }
@@ -136,6 +145,7 @@ export function AddRepository({
       else if (!(await api.cloneRepository(manual.trim() || selected, target || undefined))) return;
       await onRefresh();
       setOpen(false);
+      return mode === 'github' ? 'Repository cloned and added to the project.' : undefined;
     });
   }
   return (
@@ -194,12 +204,14 @@ export function AddRepository({
                 onBusy={setBusy}
                 onAdded={async () => {
                   await onRefresh();
+                  if (!openRef.current) onNotice?.('Remote repository added to the project.');
                   setOpen(false);
                 }}
               />
             ) : (
               <>
                 <div
+                  role="group"
                   className="flex flex-wrap gap-1 rounded-md border bg-muted/50 p-1"
                   aria-label="Repository source"
                 >
@@ -245,6 +257,7 @@ export function AddRepository({
                       </Button>
                     </div>
                     <div
+                      role="group"
                       className="min-h-20 max-h-48 space-y-1 overflow-auto rounded-md border p-1"
                       aria-label="Available repositories"
                     >
@@ -379,8 +392,8 @@ export function AddRepository({
                 )}
                 {mode === 'local' && (
                   <p className="text-sm text-muted-foreground">
-                    Choose one or more existing folders in Finder. They’ll be added to the selected
-                    project.
+                    Choose one or more existing folders in {fileManagerName()}. Kalkidan adds them
+                    to the selected project.
                   </p>
                 )}
                 {mode === 'library' && (
@@ -407,13 +420,15 @@ export function AddRepository({
             )}
             {busy && (
               <p role="status" className="text-sm text-muted-foreground">
-                Working… Cloning large repositories can take several minutes.
+                {mode === 'github'
+                  ? 'Cloning… A large repository can take several minutes. You can close this window. The clone continues.'
+                  : 'Working…'}
               </p>
             )}
           </div>
           <DialogFooter className="shrink-0 border-t px-6 py-4">
-            <Button variant="outline" disabled={busy} onClick={close}>
-              Cancel
+            <Button variant="outline" onClick={close}>
+              {busy ? 'Close' : 'Cancel'}
             </Button>
             <Button
               hidden={!!remoteGroup}

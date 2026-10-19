@@ -40,7 +40,10 @@ test('project Board and Docs pages support live Markdown, subpages and persisten
   );
   await page.reload();
   await page.getByRole('button', { name: 'Docs', exact: true }).click();
-  await page.getByRole('button', { name: 'Engineering handbook', exact: true }).click();
+  await page
+    .getByRole('complementary', { name: 'Document pages' })
+    .getByRole('button', { name: 'Engineering handbook', exact: true })
+    .click();
   if (await page.getByLabel('Markdown content').count()) {
     await page.getByRole('button', { name: 'Document actions' }).click();
     await page.getByRole('menuitem', { name: 'Rich text editor', exact: true }).click();
@@ -53,7 +56,7 @@ test('project Board and Docs pages support live Markdown, subpages and persisten
   await page.getByRole('menuitem', { name: 'Move page', exact: true }).click();
   await page.getByRole('combobox', { name: 'Parent page' }).click();
   await page.getByRole('option', { name: 'Top-level page', exact: true }).click();
-  await page.getByRole('button', { name: 'Done', exact: true }).click();
+  await page.getByRole('button', { name: 'Move', exact: true }).click();
   await expect(page.getByRole('status')).toHaveText('Saved');
   await page.getByRole('button', { name: 'Document actions' }).click();
   await page.getByRole('menuitem', { name: 'Delete page', exact: true }).click();
@@ -215,7 +218,7 @@ test('sidebar organizes nested pages and reveals a newly created child', async (
   await page.getByRole('menuitem', { name: 'Move page', exact: true }).click();
   await page.getByRole('combobox', { name: 'Parent page' }).click();
   await page.getByRole('option', { name: 'Top-level page' }).click();
-  await page.getByRole('button', { name: 'Done', exact: true }).click();
+  await page.getByRole('button', { name: 'Move', exact: true }).click();
   await expect(page.getByRole('status')).toHaveText('Saved');
   await expect(sidebar.locator('.wiki-tree-children')).not.toContainText('Contributing');
   await sidebar.getByRole('button', { name: 'Actions for Contributing' }).click();

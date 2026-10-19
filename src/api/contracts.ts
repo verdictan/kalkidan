@@ -199,6 +199,23 @@ export interface ProjectAPI {
   reveal(id: string): Promise<void>;
   worktree(id: string, branch: string): Promise<boolean>;
 }
+// Commands that the native application menu sends to the focused window.
+export const menuCommands = [
+  'back',
+  'forward',
+  'new-project',
+  'settings',
+  'search',
+  'toggle-sidebar',
+] as const;
+export type MenuCommand = (typeof menuCommands)[number];
+export interface MenuAPI {
+  onMenuCommand(callback: (command: MenuCommand) => void): () => void;
+  /** Shows the application menu. Windows and Linux hide the menu bar with the title bar. */
+  showAppMenu?(): Promise<void>;
+  /** Reports full screen changes. macOS hides the window buttons in full screen. */
+  onFullScreenChange?(callback: (fullScreen: boolean) => void): () => void;
+}
 export interface API
   extends
     DocsAPI,
@@ -208,6 +225,7 @@ export interface API
     TerminalAPI,
     RemoteAPI,
     GitHubAPI,
-    ProjectAPI {}
+    ProjectAPI,
+    MenuAPI {}
 
 export type SessionHostAPI = Pick<API, SessionHostMethod>;

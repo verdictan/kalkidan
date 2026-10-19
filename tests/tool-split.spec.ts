@@ -5,7 +5,7 @@ test('tool pane resizes, keeps the composer visible, and preserves independent t
   await page.goto('http://127.0.0.1:5173');
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.locator('.repo-select').first().click();
-  await page.getByRole('button', { name: 'Codex New session', exact: true }).click();
+  await page.getByRole('button', { name: 'New Codex session', exact: true }).click();
   await page.getByLabel('Message agent').fill('Keep this draft');
   await page.getByRole('button', { name: 'Terminal', exact: true }).click();
   await expect(page.getByLabel('Message agent')).toBeVisible();
@@ -37,6 +37,7 @@ test('tool pane resizes, keeps the composer visible, and preserves independent t
     .click();
   await expect(page.getByRole('tab', { name: 'Terminal', exact: true })).toHaveCount(2);
   await page.getByRole('button', { name: 'Close Terminal', exact: true }).last().click();
+  await page.getByRole('button', { name: 'Close terminal', exact: true }).click();
   await expect(page.getByRole('tab', { name: 'Terminal', exact: true })).toHaveCount(1);
   await page.setViewportSize({ width: 961, height: 988 });
   await expect(page.getByRole('button', { name: 'Send', exact: true })).toBeInViewport();
@@ -93,7 +94,7 @@ test('browser menu exposes working find, device, history, settings, and data con
   });
   await page.goto('http://127.0.0.1:5173');
   await page.locator('.repo-select').click();
-  await page.getByRole('button', { name: 'Codex New session' }).click();
+  await page.getByRole('button', { name: 'New Codex session' }).click();
   await page.getByRole('button', { name: 'Browser', exact: true }).click();
   await page.getByRole('button', { name: 'Open preview' }).click();
   const menu = () => page.getByRole('button', { name: 'Browser menu' }).click();
@@ -140,6 +141,7 @@ test('browser menu exposes working find, device, history, settings, and data con
   await page.keyboard.press('Escape');
   await menu();
   await page.getByRole('menuitem', { name: 'Clear browsing data' }).click();
-  await page.getByRole('button', { name: 'Clear cache' }).click();
+  await page.getByRole('button', { name: 'Clear cached files…' }).click();
+  await page.getByRole('button', { name: 'Clear cached files', exact: true }).click();
   await expect(page.getByRole('status')).toContainText('cleared');
 });

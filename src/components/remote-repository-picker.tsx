@@ -73,18 +73,29 @@ export function RemoteRepositoryPicker({
           { value: 'clone', label: 'Clone GitHub repository on host' },
         ]}
       />
-      <div className="flex gap-2">
+      <form
+        className="flex gap-2"
+        onSubmit={(event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          if (!busy) void browse(path);
+        }}
+      >
         <Input
           aria-label="Remote folder path"
           value={path}
           disabled={busy}
           onChange={(e) => setPath(e.target.value)}
         />
-        <Button variant="outline" disabled={busy} onClick={() => void browse(path)}>
+        <Button type="submit" variant="outline" disabled={busy}>
           Browse
         </Button>
-      </div>
-      <div className="max-h-40 overflow-auto rounded-md border p-1">
+      </form>
+      <div
+        role="group"
+        aria-label="Remote folders"
+        className="max-h-40 overflow-auto rounded-md border p-1"
+      >
         <Button
           variant="ghost"
           className="w-full justify-start"

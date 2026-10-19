@@ -55,8 +55,11 @@
   padding: 14px;
   font:
     12px/1.65 ui-monospace,
+    'SF Mono',
     SFMono-Regular,
     Menlo,
+    Consolas,
+    'DejaVu Sans Mono',
     monospace;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
@@ -66,15 +69,81 @@
   overflow-wrap: normal;
 }
 .diff-addition {
-  color: #8fd3a3;
-  background: #1a3225;
+  color: var(--diff-add);
+  background: var(--diff-add-surface);
 }
 .diff-deletion {
-  color: #f2a3a3;
-  background: #392326;
+  color: var(--diff-remove);
+  background: var(--diff-remove-surface);
 }
 .diff-location {
-  color: #a6b8e9;
+  color: var(--link);
+}
+.diff-header {
+  color: var(--muted-foreground);
+}
+.diff-gutter {
+  display: inline-block;
+  width: 4ch;
+  margin-right: 1ch;
+  text-align: right;
+  color: var(--muted-foreground);
+  opacity: 0.7;
+  user-select: none;
+}
+.diff-file-list {
+  display: grid;
+  gap: 2px;
+  max-height: 160px;
+  overflow: auto;
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+.diff-file {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  width: 100%;
+  min-width: 0;
+  padding: 4px 8px;
+  border-radius: 6px;
+  font-size: 12px;
+  text-align: left;
+  color: var(--muted-foreground);
+}
+.diff-file:hover {
+  background: var(--accent);
+  color: var(--foreground);
+}
+.diff-file:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: -2px;
+}
+.diff-file[aria-current='true'] {
+  background: var(--accent);
+  color: var(--foreground);
+}
+.diff-file-name {
+  flex-shrink: 0;
+  font-weight: 500;
+}
+.diff-file-path {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+  opacity: 0.7;
+}
+.diff-count-add {
+  color: var(--diff-add);
+  font-variant-numeric: tabular-nums;
+}
+.diff-count-remove {
+  color: var(--diff-remove);
+  font-variant-numeric: tabular-nums;
 }
 .conversation-empty .conversation-messages {
   flex: 1;
@@ -124,7 +193,7 @@
   border-radius: 8px;
 }
 .conversation-tools button[aria-pressed='true'] {
-  background: #353b41;
+  background: var(--accent);
   color: var(--foreground);
 }
 .conversation-tool-dock.is-open {
@@ -286,7 +355,7 @@
 }
 .tree-host small {
   margin-left: auto;
-  font-size: 10px;
+  font-size: 11px;
 }
 .tree-host > span {
   width: 6px;
@@ -296,7 +365,7 @@
   background: var(--muted-foreground);
 }
 .tree-host .host-connected {
-  background: #71c78a;
+  background: var(--success);
 }
 
 .titlebar-tools:empty {
@@ -566,26 +635,17 @@
   gap: 8px;
   padding-inline: 12px;
 }
+/* Narrow windows keep one title bar row. The breadcrumb and the tool tabs share the
+   width, the breadcrumb truncates, and the tab strip scrolls. */
 @media (max-width: 1100px) {
-  .app-shell:has(#conversation-titlebar-tabs [data-expanded='true']) {
-    --titlebar-height: 90px;
-  }
-  .topbar-content:has(#conversation-titlebar-tabs [data-expanded='true']) {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) auto;
-    grid-template-rows: 48px 42px;
-  }
   #conversation-titlebar-heading {
-    grid-column: 1;
-    grid-row: 1;
-  }
-  .topbar-actions {
-    grid-column: 2;
-    grid-row: 1;
+    flex: 1 1 40%;
   }
   #conversation-titlebar-tabs {
-    grid-column: 1 / -1;
-    grid-row: 2;
+    flex: 1 1 60%;
+  }
+  .tool-tab {
+    min-width: 88px;
   }
 }
 

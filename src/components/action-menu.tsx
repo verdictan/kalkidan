@@ -12,17 +12,25 @@ export function ActionMenu({
   disabled,
   items,
   restoreFocus = true,
+  className,
 }: {
   restoreFocus?: boolean;
   label: string;
   disabled?: boolean;
-  items: { label: string; action: () => void; danger?: boolean }[];
+  className?: string;
+  items: { label: string; action: () => void; danger?: boolean; disabled?: boolean }[];
 }) {
   return (
     <DropdownMenu>
-      <Hint label={label}>
+      <Hint label={label} disabled={disabled}>
         <DropdownMenuTrigger asChild>
-          <Button variant="ghost" size="icon-sm" aria-label={label} disabled={disabled}>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            className={className}
+            aria-label={label}
+            disabled={disabled}
+          >
             <Ellipsis size={16} />
           </Button>
         </DropdownMenuTrigger>
@@ -38,6 +46,7 @@ export function ActionMenu({
           <DropdownMenuItem
             key={item.label}
             variant={item.danger ? 'destructive' : 'default'}
+            disabled={item.disabled}
             onSelect={item.action}
           >
             {item.label}

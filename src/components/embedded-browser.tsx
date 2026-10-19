@@ -6,6 +6,9 @@ import type { API, BrowserSelection, BrowserState } from '../types';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Textarea } from './ui/textarea';
+import { Hint } from './hint';
+import { hasPrimaryModifier, shortcutLabel } from '../lib/platform';
+import { errorMessage } from '../lib/errors';
 export function EmbeddedBrowser({
   api,
   visible,
@@ -46,6 +49,9 @@ export function EmbeddedBrowser({
   const [error, setError] = useState('');
   const alive = useRef(true);
   const editingURL = useRef(false);
+  const toolbar = useRef<HTMLFormElement>(null);
+  // The element that had focus before the find bar opened.
+  const findReturn = useRef<HTMLElement | null>(null);
   const lastURL = useRef('');
   useEffect(() => {
     alive.current = true;
@@ -95,7 +101,7 @@ export function EmbeddedBrowser({
         const value = await api.browserState(id);
         if (!cancelled) {
           setState(value);
-          if (value.command === 'f') setFindOpen(true);
+          if (value.command === 'f') openFind();
           if (value.command === 'l') address.current?.select();
           if (value.command === 't') callbacks.current.onNewTab();
           if (value.command === 'w') callbacks.current.onClose();
@@ -124,7 +130,7 @@ export function EmbeddedBrowser({
     try {
       await fn();
     } catch (e) {
-      if (alive.current) setError(e instanceof Error ? e.message : String(e));
+      if (alive.current) setError(errorMessage(e));
     } finally {
       if (alive.current) setBusy(false);
     }
@@ -148,14 +154,16 @@ export function EmbeddedBrowser({
         .then((profile) => {
           if (alive.current && profile?.settings?.home) setUrl(profile.settings.home);
         })
-        .catch(() => {});
+        .catch((e) => {
+          if (alive.current) setError('Could not load the browser home page: ' + errorMessage(e));
+        });
   }, []);
   useEffect(() => {
     if (!visible) return;
     const listener = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'f' && ready) {
+      if (hasPrimaryModifier(e) && !e.altKey && !e.shiftKey && e.code === 'KeyF' && ready) {
         e.preventDefault();
-        setFindOpen(true);
+        openFind();
       }
     };
     window.addEventListener('keydown', listener);
@@ -164,45 +172,70 @@ export function EmbeddedBrowser({
   async function find(text: string, next = false, forward = true) {
     await action(() => api.browserAction(id, 'find', { text, next, forward }));
   }
+  function openFind() {
+    const current = document.activeElement;
+    if (current instanceof HTMLElement && current !== document.body && !findOpen)
+      findReturn.current = current;
+    setFindOpen(true);
+  }
+  // Close the find bar and move focus back to where it was. If that element is
+  // gone (for example, a menu item), move focus to the browser menu button.
+  function closeFind() {
+    setFindOpen(false);
+    void find('');
+    const target = findReturn.current;
+    findReturn.current = null;
+    requestAnimationFrame(() => {
+      if (target?.isConnected && !target.closest('[hidden]')) target.focus();
+      else toolbar.current?.querySelector<HTMLElement>('[aria-label="Browser menu"]')?.focus();
+    });
+  }
   return (
     <div className="browser-pane" hidden={!visible}>
       <form
+        ref={toolbar}
         className="flex shrink-0 items-center gap-1 border-b p-2"
         onSubmit={(e) => {
           e.preventDefault();
           void navigate(url);
         }}
       >
-        <Button
-          type="button"
-          size="icon-sm"
-          variant="ghost"
-          aria-label="Back"
-          disabled={!state?.canGoBack || busy}
-          onClick={() => void action(() => api.browserNavigate(id, 'back'))}
-        >
-          <ArrowLeft size={14} />
-        </Button>
-        <Button
-          type="button"
-          size="icon-sm"
-          variant="ghost"
-          aria-label="Forward"
-          disabled={!state?.canGoForward || busy}
-          onClick={() => void action(() => api.browserNavigate(id, 'forward'))}
-        >
-          <ArrowRight size={14} />
-        </Button>
-        <Button
-          type="button"
-          size="icon-sm"
-          variant="ghost"
-          aria-label="Reload preview"
-          disabled={!ready || busy}
-          onClick={() => void action(() => api.browserNavigate(id, 'reload'))}
-        >
-          <RefreshCw size={14} className={state?.loading ? 'animate-spin' : ''} />
-        </Button>
+        <Hint label="Back">
+          <Button
+            type="button"
+            size="icon-sm"
+            variant="ghost"
+            aria-label="Back"
+            disabled={!state?.canGoBack || busy}
+            onClick={() => void action(() => api.browserNavigate(id, 'back'))}
+          >
+            <ArrowLeft size={14} />
+          </Button>
+        </Hint>
+        <Hint label="Forward">
+          <Button
+            type="button"
+            size="icon-sm"
+            variant="ghost"
+            aria-label="Forward"
+            disabled={!state?.canGoForward || busy}
+            onClick={() => void action(() => api.browserNavigate(id, 'forward'))}
+          >
+            <ArrowRight size={14} />
+          </Button>
+        </Hint>
+        <Hint label="Reload preview">
+          <Button
+            type="button"
+            size="icon-sm"
+            variant="ghost"
+            aria-label="Reload preview"
+            disabled={!ready || busy}
+            onClick={() => void action(() => api.browserNavigate(id, 'reload'))}
+          >
+            <RefreshCw size={14} className={state?.loading ? 'animate-spin' : ''} />
+          </Button>
+        </Hint>
         <Input
           ref={address}
           aria-label="Preview URL"
@@ -216,37 +249,41 @@ export function EmbeddedBrowser({
           }}
           onChange={(e) => setUrl(e.target.value)}
         />
-        <Button
-          size="icon-sm"
-          variant="ghost"
-          aria-label="Open preview"
-          title="Go"
-          disabled={busy || !url.trim()}
-        >
-          <ArrowRight size={14} />
-        </Button>
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon-sm"
-          aria-label="Select element"
-          disabled={busy || !ready}
-          onClick={() =>
-            void action(async () => {
-              const result = await api.browserSelect(id);
-              if (result) setSelection(result);
-            })
-          }
-        >
-          <MousePointer2 size={15} />
-        </Button>
+        <Hint label="Open preview">
+          <Button
+            size="icon-sm"
+            variant="ghost"
+            aria-label="Open preview"
+            disabled={busy || !url.trim()}
+          >
+            <ArrowRight size={14} />
+          </Button>
+        </Hint>
+        <Hint label="Select element to annotate">
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-sm"
+            aria-label="Select element"
+            disabled={busy || !ready}
+            onClick={() =>
+              void action(async () => {
+                const result = await api.browserSelect(id);
+                if (result) setSelection(result);
+              })
+            }
+          >
+            <MousePointer2 size={15} />
+          </Button>
+        </Hint>
         <BrowserMenu
           api={api}
           id={id}
           ready={ready}
           url={state?.url || url}
           zoom={state?.zoom || 1}
-          onFind={() => setFindOpen(true)}
+          findShortcut={shortcutLabel(['mod'], 'F')}
+          onFind={openFind}
           onDevice={() => setDeviceOpen((value) => !value)}
           onNavigate={(target) => {
             setUrl(target);
@@ -262,10 +299,17 @@ export function EmbeddedBrowser({
             e.preventDefault();
             void find(findText, true);
           }}
+          onKeyDown={(e) => {
+            if (e.key !== 'Escape') return;
+            e.preventDefault();
+            e.stopPropagation();
+            closeFind();
+          }}
         >
           <Input
             autoFocus
             aria-label="Find in page"
+            aria-keyshortcuts="Enter"
             placeholder="Find in page…"
             value={findText}
             onChange={(e) => {
@@ -293,10 +337,7 @@ export function EmbeddedBrowser({
             size="icon-sm"
             variant="ghost"
             aria-label="Close find"
-            onClick={() => {
-              setFindOpen(false);
-              void find('');
-            }}
+            onClick={closeFind}
           >
             <X size={14} />
           </Button>
@@ -405,7 +446,7 @@ export function EmbeddedBrowser({
           ? 'Working…'
           : state?.url ||
             (remote
-              ? 'Chromium on this Mac · use a reachable URL or SSH-forwarded port'
+              ? 'Chromium in Kalkidan · use a reachable URL or SSH-forwarded port'
               : 'Embedded Chromium · isolated from your desktop bridge')}
       </div>
       {error && (

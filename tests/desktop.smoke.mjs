@@ -390,7 +390,7 @@ try {
   // Exercise the actual dock and native view geometry together, not only bridge calls.
   await page.reload();
   await page.locator('.repo-select').first().click();
-  await page.getByRole('button', { name: 'Codex New session', exact: true }).click();
+  await page.getByRole('button', { name: 'New Codex session', exact: true }).click();
   await page.getByRole('button', { name: 'Browser', exact: true }).click();
   await page.getByLabel('Preview URL').fill(previewUrl);
   await page.getByRole('button', { name: 'Open preview', exact: true }).click();
