@@ -47,7 +47,15 @@ export function FolderPicker({
       setPath(result.path);
       setFilter('');
     } catch (error) {
-      if (id === request.current) setError(error instanceof Error ? error.message : String(error));
+      if (id === request.current) {
+        const message = error instanceof Error ? error.message : String(error);
+        setError(
+          message.includes("No handler registered for 'directory-list'") ||
+            message.includes('api.directoryList is not a function')
+            ? 'Restart the Kalkidan desktop app to load folder browsing. Refreshing this page does not update the desktop backend.'
+            : message,
+        );
+      }
     } finally {
       if (id === request.current) setLoading(false);
     }
