@@ -6,7 +6,6 @@ import org.verdictan.UntrustedBoundary
 properties([
     [$class: 'AuthorizeProjectProperty', strategy: [$class: 'SpecificUsersAuthorizationStrategy', userid: 'verdictan-ci']],
     disableConcurrentBuilds(),
-    quietPeriod(0),
     buildDiscarder(logRotator(numToKeepStr: '30', artifactNumToKeepStr: '3', artifactDaysToKeepStr: '7'))
 ])
 if (!env.CHANGE_ID && !(env.BRANCH_NAME in ['main', 'master']) && !env.TAG_NAME) {
