@@ -14,6 +14,10 @@ try {
   const legacy = '<!-- kalkidan {"title":"Legacy","parentId":null} -->\nOriginal Markdown';
   await writeFile(join(env.KALKIDAN_TEST_DATA, 'docs', 'wiki', 'legacy.md'), legacy);
   app = await electron.launch({ args: ['--require', resolve('tests/helpers/electron-ci.cjs'), '.'], env });
+  console.log('Electron startup:', await app.evaluate(({ app, BrowserWindow }) => ({
+    ready: app.isReady(), windows: BrowserWindow.getAllWindows().length,
+    dockIcon: app.dock?.setIcon.toString(),
+  })));
   const page = await app.firstWindow();
   await page.waitForFunction(() => !!window.workspace);
   const listing = await page.evaluate(path => window.workspace.directoryList(path), root);
