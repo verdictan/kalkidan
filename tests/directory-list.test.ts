@@ -25,7 +25,11 @@ test('directory listing includes files, hidden folders, and symlinks and validat
     assert.equal((await listDirectory(join(root, 'linked'))).path, join(listing.path, 'docs'));
     await assert.rejects(listDirectory(join(root, 'notes.md')), /Choose a folder/);
     await assert.rejects(listDirectory('relative'), /absolute path/);
-    await assert.rejects(listDirectory(join(root, 'missing')));
+    await assert.rejects(
+      listDirectory(join(root, 'missing')),
+      /Folder not found:.*Check the spelling and letter case/,
+    );
+    await assert.rejects(listDirectory(join(root, 'notes.md', 'child')), /Folder not found:/);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

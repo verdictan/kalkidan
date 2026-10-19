@@ -7,7 +7,21 @@ export async function listDirectory(value: string = '~') {
   const expanded =
     value === '~' ? homedir() : value.startsWith('~/') ? join(homedir(), value.slice(2)) : value;
   if (!isAbsolute(expanded)) throw new Error('Enter an absolute path or a path starting with ~/.');
-  const path = await realpath(expanded);
+  let path: string;
+  try {
+    path = await realpath(expanded);
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === 'ENOENT' || code === 'ENOTDIR') {
+      throw new Error(
+        `Folder not found: ${value}. Check the spelling and letter case, or open the parent folder.`,
+      );
+    }
+    if (code === 'EACCES' || code === 'EPERM') {
+      throw new Error(`Cannot open folder: ${value}. Check your access permissions.`);
+    }
+    throw error;
+  }
   if (!(await stat(path)).isDirectory()) throw new Error('Choose a folder, not a file.');
   const entries = await readdir(path, { withFileTypes: true });
   // Symlinks are resolved only when opened, avoiding a stat call for every entry.

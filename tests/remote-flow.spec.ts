@@ -41,11 +41,19 @@ test('remote project flow checks and installs the host, picks remote folders, an
         return 'g';
       },
       githubBoard: async () => ({ project: github, items: [] }),
-      remoteFolders: async () => ({
-        path: '/home/dev',
-        parent: '/home',
-        folders: [{ name: 'web', path: '/home/dev/web' }],
-      }),
+      remoteFolders: async (_host: string, value: string) => {
+        if (value === '/mnt/work/')
+          throw Error("ENOENT: no such file or directory, realpath '/mnt/work/'");
+        const path = value === '~' ? '/home/dev' : value;
+        return {
+          path,
+          parent: path === '/mnt' ? '/' : '/home',
+          folders:
+            path === '/mnt'
+              ? [{ name: 'Work', path: '/mnt/Work' }]
+              : [{ name: 'web', path: '/home/dev/web' }],
+        };
+      },
       remoteAddRepository: async (group: string, path: string) => {
         projects.push({
           id: 'r',
@@ -104,7 +112,17 @@ test('remote project flow checks and installs the host, picks remote folders, an
   await add.getByRole('combobox', { name: 'Add to project' }).click();
   await page.getByRole('option', { name: 'Remote platform', exact: true }).click();
   await expect(add.getByRole('region', { name: 'Remote repository picker' })).toBeVisible();
-  await add.getByLabel('Remote folder path').fill('/home/dev/web');
+  await add.getByLabel('Remote folder path').fill('/mnt/work/');
+  await expect(add.getByRole('button', { name: 'Add remote folder', exact: true })).toBeDisabled();
+  await add.getByRole('button', { name: 'Browse', exact: true }).click();
+  await expect(add.getByRole('alert')).toContainText('Check the spelling and letter case');
+  await expect(add.getByRole('button', { name: 'Add remote folder', exact: true })).toBeDisabled();
+  await add.getByRole('button', { name: 'Parent folder', exact: true }).click();
+  await expect(add.getByLabel('Remote folder path')).toHaveValue('/mnt');
+  await expect(add.getByRole('button', { name: 'Work', exact: true })).toBeVisible();
+  await add.getByRole('button', { name: 'Home', exact: true }).click();
+  await add.getByRole('button', { name: 'web', exact: true }).click();
+  await expect(add.getByLabel('Remote folder path')).toHaveValue('/home/dev/web');
   await add.getByRole('button', { name: 'Add remote folder', exact: true }).click();
   await page.locator('.repo-select').click();
   await expect(page.getByText(/^SSH · Development · connected/)).toBeVisible();

@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react';
-import { ArrowUp, Folder, RefreshCw } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { ArrowUp, Folder, House, RefreshCw } from 'lucide-react';
 import type { API, GitHubRepository, ProjectGroup, RemoteFolders } from '../types';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
@@ -24,24 +24,45 @@ export function RemoteRepositoryPicker({
   const [repository, setRepository] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const request = useRef(0);
+  const parent =
+    error && path.startsWith('/')
+      ? path.replace(/\/+$/, '').replace(/\/[^/]*$/, '') || '/'
+      : folders?.parent;
   async function browse(value: string) {
+    const id = ++request.current;
+    setPath(value);
     setBusy(true);
     onBusy(true);
     setError('');
     try {
       const result = await api.remoteFolders(group.hostId!, value);
+      if (id !== request.current) return;
       setFolders(result);
       setPath(result.path);
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      if (id === request.current) {
+        const message = e instanceof Error ? e.message : String(e);
+        setError(
+          /\b(ENOENT|ENOTDIR)\b/.test(message)
+            ? `Folder not found: ${value}. Check the spelling and letter case, or open the parent folder.`
+            : message,
+        );
+      }
     } finally {
-      setBusy(false);
-      onBusy(false);
+      if (id === request.current) {
+        setBusy(false);
+        onBusy(false);
+      }
     }
   }
   useEffect(() => {
+    setFolders(undefined);
     void browse('~');
-  }, [group.id]);
+    return () => {
+      request.current++;
+    };
+  }, [group.id, group.hostId]);
   async function add() {
     setBusy(true);
     onBusy(true);
@@ -96,24 +117,33 @@ export function RemoteRepositoryPicker({
         <Button
           variant="ghost"
           className="w-full justify-start px-2 font-normal [&_svg]:text-muted-foreground"
-          disabled={busy || !folders || folders.parent === folders.path}
-          onClick={() => void browse(folders!.parent)}
+          disabled={busy || !parent || parent === path}
+          onClick={() => parent && void browse(parent)}
         >
           <ArrowUp size={14} />
           Parent folder
         </Button>
-        {folders?.folders.map((folder) => (
-          <Button
-            variant="ghost"
-            className="w-full justify-start px-2 font-normal [&_svg]:text-muted-foreground"
-            disabled={busy}
-            key={folder.path}
-            onClick={() => void browse(folder.path)}
-          >
-            <Folder size={14} />
-            <span className="truncate">{folder.name}</span>
-          </Button>
-        ))}
+        <Button
+          variant="ghost"
+          className="w-full justify-start px-2 font-normal"
+          disabled={busy}
+          onClick={() => void browse('~')}
+        >
+          <House size={14} /> Home
+        </Button>
+        {!error &&
+          folders?.folders.map((folder) => (
+            <Button
+              variant="ghost"
+              className="w-full justify-start px-2 font-normal [&_svg]:text-muted-foreground"
+              disabled={busy}
+              key={folder.path}
+              onClick={() => void browse(folder.path)}
+            >
+              <Folder size={14} />
+              <span className="truncate">{folder.name}</span>
+            </Button>
+          ))}
       </div>
       {mode === 'clone' && (
         <>
@@ -149,7 +179,9 @@ export function RemoteRepositoryPicker({
       )}
       <Button
         className="justify-self-start"
-        disabled={busy || !path || (mode === 'clone' && !repository)}
+        disabled={
+          busy || (mode === 'existing' ? !folders || path !== folders.path || !!error : !repository)
+        }
         onClick={() => void add()}
       >
         {busy ? (

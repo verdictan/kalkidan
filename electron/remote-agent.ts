@@ -8,9 +8,9 @@ import { ProjectDocs } from './storage/project-docs';
 import { PtyTerminal } from './pty-terminal';
 // Private stdio RPC service. OpenSSH provides authentication and encryption; no listening port.
 import { createInterface } from 'node:readline';
-import { readdir, realpath, stat } from 'node:fs/promises';
+import { realpath, stat } from 'node:fs/promises';
 import { homedir } from 'node:os';
-import { join, basename, dirname } from 'node:path';
+import { join, basename } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { exec, parseWorktrees } from './core';
 import { history } from './history';
@@ -129,15 +129,13 @@ async function dispatch(method: string, args: any[]): Promise<any> {
     case 'directory-list':
       return listDirectory(a);
     case 'folders': {
-      const path = await folder(a || '~');
-      const entries = await readdir(path, { withFileTypes: true });
+      const listing = await listDirectory(a || '~');
       return {
-        path,
-        parent: dirname(path),
-        folders: entries
-          .filter((e) => e.isDirectory() && !e.name.startsWith('.'))
-          .map((e) => ({ name: e.name, path: join(path, e.name) }))
-          .sort((a, b) => a.name.localeCompare(b.name))
+        path: listing.path,
+        parent: listing.parent,
+        folders: listing.entries
+          .filter((entry) => entry.kind === 'directory' && !entry.name.startsWith('.'))
+          .map(({ name, path }) => ({ name, path }))
           .slice(0, 500),
       };
     }

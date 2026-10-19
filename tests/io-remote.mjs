@@ -30,6 +30,10 @@ try {
   const listing = await rpc('directory-list', [root]);
   assert.equal(listing.path, root);
   assert.ok(listing.entries.some((entry) => entry.name === 'docs' && entry.kind === 'directory'));
+  await assert.rejects(rpc('folders', [join(root, 'missing')]), /Folder not found:.*letter case/);
+  const folders = await rpc('folders', [root]);
+  assert.equal(folders.path, root);
+  assert.ok(folders.folders.some((entry) => entry.name === 'docs'));
   const doc = await rpc('project-docs', ['test', root, 'create', ['Remote guide', null]]);
   const saved = await rpc('project-docs', [
     'test',
