@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { openTool } from './helpers/tools';
 test('tool pane resizes, keeps the composer visible, and preserves independent tabs', async ({
   page,
 }) => {
@@ -7,9 +8,9 @@ test('tool pane resizes, keeps the composer visible, and preserves independent t
   await page.locator('.repo-select').first().click();
   await page.getByRole('button', { name: 'New Codex session', exact: true }).click();
   await page.getByLabel('Message agent').fill('Keep this draft');
-  await page.getByRole('button', { name: 'Terminal', exact: true }).click();
+  await openTool(page, 'Terminal');
   await expect(page.getByLabel('Message agent')).toBeVisible();
-  const divider = page.getByRole('separator', { name: 'Resize chat and tools' });
+  const divider = page.getByRole('separator', { name: 'Resize session and tools' });
   const before = await page.locator('.conversation-chat-column').boundingBox();
   const box = (await divider.boundingBox())!;
   await page.mouse.move(box.x + 3, box.y + 100);
@@ -21,20 +22,16 @@ test('tool pane resizes, keeps the composer visible, and preserves independent t
   );
   await divider.focus();
   await page.keyboard.press('ArrowRight');
-  await page.getByRole('button', { name: 'Browser', exact: true }).click();
+  await openTool(page, 'Browser');
   await expect(page.getByRole('tab', { name: 'Terminal', exact: true })).toBeVisible();
-  await expect(page.getByRole('tab', { name: 'New browser tab', exact: true })).toBeVisible();
+  await expect(page.getByRole('tab', { name: 'Browser', exact: true })).toBeVisible();
   await page.getByLabel('Preview URL').fill('http://localhost:5000');
   await page.getByRole('tab', { name: 'Terminal', exact: true }).click();
-  await page.getByRole('tab', { name: 'New browser tab', exact: true }).click();
+  await page.getByRole('tab', { name: 'Browser', exact: true }).click();
   await expect(page.getByLabel('Preview URL')).toHaveValue('http://localhost:5000');
   await expect(page.getByLabel('Message agent')).toHaveValue('Keep this draft');
   await page.screenshot({ path: 'test-results/resizable-tools.png', animations: 'disabled' });
-  await page.getByRole('button', { name: 'New tool tab' }).click();
-  await page
-    .getByRole('region', { name: 'Repository tools' })
-    .getByRole('button', { name: 'Terminal', exact: false })
-    .click();
+  await openTool(page, 'Terminal');
   await expect(page.getByRole('tab', { name: 'Terminal', exact: true })).toHaveCount(2);
   await page.getByRole('button', { name: 'Close Terminal', exact: true }).last().click();
   await page.getByRole('button', { name: 'Close terminal', exact: true }).click();
@@ -95,7 +92,7 @@ test('browser menu exposes working find, device, history, settings, and data con
   await page.goto('http://127.0.0.1:5173');
   await page.locator('.repo-select').click();
   await page.getByRole('button', { name: 'New Codex session' }).click();
-  await page.getByRole('button', { name: 'Browser', exact: true }).click();
+  await openTool(page, 'Browser');
   await page.getByRole('button', { name: 'Open preview' }).click();
   const menu = () => page.getByRole('button', { name: 'Browser menu' }).click();
   await menu();

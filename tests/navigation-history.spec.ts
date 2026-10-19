@@ -15,7 +15,7 @@ test('titlebar history traverses boards, repositories and chats, preserves draft
   await expect(page.getByRole('region', { name: 'Project tracker', exact: true })).toBeVisible();
   await page.locator('.repo-select').first().click();
   await page
-    .getByRole('button', { name: 'Refine project and repository navigation', exact: true })
+    .getByRole('button', { name: 'Resume Refine project and repository navigation', exact: true })
     .click();
   await page.getByLabel('Message agent').fill('Keep this draft while navigating');
   await back.click();

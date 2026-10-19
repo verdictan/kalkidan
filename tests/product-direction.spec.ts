@@ -87,10 +87,10 @@ for (const allow of [true, false])
     });
     await page.goto('http://127.0.0.1:5173');
     await page.locator('.repo-select').click();
-    await page.getByRole('button', { name: 'Review changes', exact: true }).click();
+    await page.getByRole('button', { name: 'Resume Review changes', exact: true }).click();
     await page.getByLabel('Message agent').fill('Review and test');
     await page.getByRole('button', { name: 'Send', exact: true }).click();
-    await expect(page.getByText('Needs approval', { exact: true })).toBeVisible();
+    await expect(page.getByRole('status')).toContainText('Waiting for your approval');
     await expect(page.getByRole('region', { name: 'Agent approval' })).toContainText('npm test');
     await page.screenshot({ path: `test-results/approval-${allow}.png` });
     await page.getByRole('button', { name: allow ? 'Allow once' : 'Deny', exact: true }).click();
@@ -168,8 +168,10 @@ test('task worktree cancellation keeps the task open and a created worktree beco
   await expect(dialog).toBeVisible();
   await dialog.getByRole('button', { name: 'Open in Codex' }).click();
   await expect(dialog).not.toBeVisible();
-  await expect(page.getByRole('region', { name: 'Session', exact: true })).toContainText(
-    '/tmp/task-worktree',
+  // The tool launcher names the session folder.
+  await page.getByRole('button', { name: 'New tool tab', exact: true }).click();
+  await expect(page.getByRole('region', { name: 'Repository tools', exact: true })).toContainText(
+    'task-worktree · This computer',
   );
   await expect(page.getByLabel('Message agent')).toContainText('Implement feature');
   expect(await page.evaluate(() => (window as any).branches)).toEqual([
@@ -229,16 +231,13 @@ test('project opens its board and filters tasks by repository', async ({ page })
   await page.screenshot({ path: 'test-results/project-tracker-compact.png' });
 });
 
-test('repository overview integrates project tasks and starts work in the selected repository', async ({
-  page,
-}) => {
+test('project board moves tasks and starts work in the selected repository', async ({ page }) => {
   await page.goto('http://127.0.0.1:5173');
   await page.locator('.project-tree').getByRole('button', { name: 'Atlas', exact: true }).click();
   await page.getByRole('button', { name: 'Connect GitHub', exact: true }).click();
   await page.getByRole('button', { name: 'Atlas roadmap #1', exact: true }).click();
   await page.getByRole('button', { name: 'Connect project', exact: true }).click();
-  await page.locator('.repo-select').filter({ hasText: 'atlas-web' }).click();
-  const tasks = page.getByRole('region', { name: 'Repository project tasks', exact: true });
+  const tasks = page.getByRole('region', { name: 'Project tracker', exact: true });
   await expect(tasks.getByRole('region', { name: 'Tracker board', exact: true })).toBeVisible();
   await tasks.getByRole('button', { name: 'Move task: Build the project overview' }).click();
   await page.getByRole('menuitem', { name: 'Done', exact: true }).click();
@@ -249,11 +248,16 @@ test('repository overview integrates project tasks and starts work in the select
     0,
   );
   await page.setViewportSize({ width: 961, height: 988 });
-  await page.screenshot({ path: 'test-results/repository-project-tasks.png', fullPage: true });
+  await page.screenshot({ path: 'test-results/project-board-tasks.png', fullPage: true });
   await tasks.getByRole('button', { name: 'Build the project overview', exact: true }).click();
+  await page.getByRole('combobox', { name: 'Task repository', exact: true }).click();
+  await page.getByRole('option', { name: 'atlas-web', exact: true }).click();
   await expect(page.getByRole('combobox', { name: 'Task repository', exact: true })).toContainText(
     'atlas-web',
   );
   await page.getByRole('button', { name: 'Open in Codex', exact: true }).click();
   await expect(page.getByLabel('Message agent')).toContainText('Build the project overview');
+  await expect(
+    page.getByRole('navigation', { name: 'Breadcrumb' }).getByRole('button', { name: /atlas-web/ }),
+  ).toBeVisible();
 });
