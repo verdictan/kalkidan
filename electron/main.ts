@@ -61,7 +61,7 @@ import { createAgentRuntimes } from './agents/runtime';
 app.setName('Kalkidan');
 const dataRoot = dataDirectory(
   homedir(),
-  app.getPath('appData'),
+  () => app.getPath('appData'),
   !app.isPackaged ? process.env.KALKIDAN_TEST_DATA : undefined,
 );
 app.setPath('userData', dataRoot);

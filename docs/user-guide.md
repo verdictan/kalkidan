@@ -463,62 +463,31 @@ These checks cover read counts, payload sizes, cache invalidation, and queue iso
 
 ## Jenkins CI and release builds
 
-The root `Jenkinsfile` uses the Verdictan `keeptrusts` shared library. Validation runs on `linux-untrusted`. Release packaging uses `verdictanNodeToolchain` on `macos-untrusted`.
+Push to `main` or `master` to validate and publish Kalkidan. No release tag or manual release job is required.
 
-`.node-version`, `package.json`, and `ci/Dockerfile` specify Node.js and npm versions.
+1. The repository pipeline runs lint, formatting, architecture checks, unit tests, the production build, browser tests, and desktop tests in the Linux CI container.
+2. After validation, it calls the controller release job with the exact Git revision and source build number. The main build waits for the release result.
+3. The release job builds Windows, Linux, and macOS packages in parallel. Each platform uses the same source revision and version.
+4. Packaged desktop tests check launch, IPC, repository discovery, commands, and the terminal.
+5. The publisher uploads all eight files and SHA-256 checksums to [GitHub releases](https://github.com/verdictan/packages/releases?q=kalkidan). It updates the [Homebrew cask](https://github.com/verdictan/homebrew-tap/blob/main/Casks/kalkidan.rb), [kalkidan.json](https://github.com/verdictan/packages/blob/main/kalkidan.json), and the GitHub latest-release pointer.
 
-Pull requests, `main`/`master`, and discovered version tags run CI. Other branches require a pull request. GitHub Actions workflows have been removed.
+Each release uses `VERSION-build.TIMESTAMP.COMMIT`. Downloads include macOS Apple Silicon and Intel DMG/ZIP files, Windows x64 NSIS/ZIP files, and Linux x64 AppImage/DEB files. The installers are unsigned. macOS installers are not notarized. DEB files are standalone downloads, not an APT repository.
 
-### Validation and artifacts
+A failed release fails its main build. It does not cause an endless timer retry or block the next main push. To retry a failed release, rebuild its main/master job. To republish a successful build, run the controller job with that build's SHA, branch, and build number. Retrying an older build does not replace a newer release in Homebrew or the latest-release pointer.
 
-`scripts/ci.sh` installs dependencies from the lockfile. It runs architecture checks, unit tests, the production build, browser regression tests, desktop document tests, and a remote-agent protocol test.
+### Jenkins configuration
 
-`scripts/ci-container.sh` runs these checks through the untrusted BuildKit service with `ci/Dockerfile`. The container supplies Xvfb for Electron. It exports test results after success or failure.
+The [Kalkidan multibranch job](https://jenkins.dennisotugo.com/job/verdictan/job/kalkidan/) uses the root `Jenkinsfile` and the trusted `keeptrusts` shared library. Pull requests and discovered version tags run validation only. GitHub Actions workflows are not used.
 
-Builds clear workspaces and job-local caches. They can reuse dependency layers. Each build runs validation again.
+The repository webhook sends push and pull-request events to `https://dennisotugo.com/github-webhook/`. This public route forwards only the webhook endpoint. The Jenkins dashboard stays on its private hostname.
 
-Electron runs as a non-root user. Its Linux sandbox is disabled only in this isolated CI container. The container cannot use nested Chromium sandboxing.
+The controller-owned `verdictan/trusted/kalkidan-release` job uses `verdictanKalkidanPipeline()`. It accepts `SOURCE_SHA`, `SOURCE_BRANCH`, and `SOURCE_BUILD`. It verifies the revision against the main/master build record. The job has no polling timer. Allow `verdictan-ci` to read and build this job; the job runs as `verdictan-release`.
 
-Jenkins keeps 30 build records. It keeps up to three artifact sets for seven days.
+Validation uses `linux-untrusted` and BuildKit. Packaging uses `windows-vm`, `ubuntu-vm`, and `macos-untrusted`. The macOS desktop check uses `macos`. The Linux worker needs GTK 3, NSS, GBM, ALSA, Xvfb, and xauth. Its packaged test uses a virtual display. The Windows build account must have an active desktop session; a temporary scheduled task runs its desktop check there. The task and release-workspace processes are removed after the test. Local user installations are not stopped.
 
-For version tags, `scripts/package-release.sh` checks the tag against `package.json` and the checked-out commit. Successful validation permits packaging. Failed validation prevents it.
+`.node-version`, `package.json`, and `ci/Dockerfile` specify the toolchain. The shared library supplies the pinned Node.js and npm versions. CI can reuse dependency layers, but it runs validation for each build. The container uses Xvfb and disables the Electron sandbox only inside that isolated test container.
 
-Packaging creates unsigned Apple Silicon and Intel DMG and ZIP installers, plus `SHA256SUMS.txt`. Download these files from the Jenkins build artifacts.
-
-The repository job only archives installers. Branch and pull request builds receive no publication, deployment, or signing credentials. They do not publish GitHub releases directly.
-
-### Jenkins controller configuration
-
-The multibranch job is [Verdictan / Kalkidan](https://jenkins.dennisotugo.com/job/verdictan/job/kalkidan/). The controller configuration stores its Job DSL definition. Builds use the `verdictan-ci` identity.
-
-To configure an equivalent job:
-
-1. Create a GitHub multibranch pipeline for `verdictan/kalkidan`.
-2. Select the `github-scm` credential.
-3. Set the script path to `Jenkinsfile`.
-4. Enable origin pull request, main-branch, and tag discovery.
-5. Configure the tag build strategy for version tags.
-6. Scan the job after the Jenkinsfile is available on the branch.
-
-The controller requires the global `keeptrusts` library. The `linux-untrusted` worker requires `buildctl` and access to the untrusted BuildKit service. Release tags require a `macos-untrusted` worker.
-
-Linux validation uses its own virtual display. macOS packaging does not require a desktop login. The shared toolchain helper supplies Node.js and npm.
-
-The existing `v0.1.0` tag uses the earlier GitHub Actions configuration. Do not move that tag. New release tags must include the Jenkinsfile.
-
-### Automatic publication
-
-A separate controller release job checks `main` and `master` every two minutes. It builds each new first-parent commit in sequence. This includes intermediate commits between checks. The first run starts at the current branch head.
-
-A failed build stops publication. The next run retries that commit before later commits. Rewritten published history requires reconciliation.
-
-The job tests packaged apps on macOS, Windows, and Linux before publication. It publishes all eight installers and archives to [Kalkidan releases](https://github.com/verdictan/packages/releases?q=kalkidan). Each release uses a unique `VERSION-build.TIMESTAMP.COMMIT` version.
-
-[kalkidan.json](https://github.com/verdictan/packages/blob/main/kalkidan.json) records the latest Kalkidan release and SHA-256 checksums. The package repository's global latest pointer remains assigned to the CLI.
-
-The release job also updates the Homebrew cask for each architecture. Publication credentials are available only to the controller publisher after the untrusted build completes.
-
-This process publishes macOS DMG/ZIP, Windows x64 NSIS/ZIP, and Linux x64 AppImage/DEB files. It does not sign or notarize installers. DEB files are standalone downloads; the pipeline does not manage an APT repository.
+Branch, pull request, and packaging builds receive no publication credentials. Only the final publisher receives the GitHub token, after all packages pass. Jenkins keeps 30 build records and up to three artifact sets.
 
 ## Dependency updates
 

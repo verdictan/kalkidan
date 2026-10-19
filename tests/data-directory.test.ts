@@ -42,3 +42,18 @@ test('creates a hidden storage directory for a fresh install', () => {
     rmSync(home, { recursive: true, force: true });
   }
 });
+
+test('does not resolve legacy OS paths for an existing or isolated profile', () => {
+  const home = mkdtempSync(join(tmpdir(), 'kalkidan-existing-'));
+  try {
+    const unavailablePath = () => {
+      throw new Error('OS profile is unavailable');
+    };
+    mkdirSync(join(home, '.kalkidan'));
+    assert.equal(dataDirectory(home, unavailablePath), join(home, '.kalkidan'));
+    const isolated = join(home, 'isolated');
+    assert.equal(dataDirectory(home, unavailablePath, isolated), isolated);
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
+});

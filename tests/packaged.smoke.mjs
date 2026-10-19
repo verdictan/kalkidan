@@ -21,6 +21,9 @@ const env = {
   CLAUDE_CONFIG_DIR: join(root, 'claude'),
 };
 delete env.ELECTRON_RUN_AS_NODE;
+for (const folder of [env.APPDATA, env.LOCALAPPDATA, env.XDG_CONFIG_HOME]) {
+  await mkdir(folder, { recursive: true });
+}
 let app;
 try {
   execFileSync('git', ['init', repo]);
@@ -36,7 +39,7 @@ try {
   );
   app = await electron.launch({
     executablePath: resolve(executablePath),
-    args: process.platform === 'linux' ? ['--ozone-platform=headless'] : [],
+    args: process.platform === 'linux' && !env.DISPLAY ? ['--ozone-platform=headless'] : [],
     env,
     timeout: 60000,
   });

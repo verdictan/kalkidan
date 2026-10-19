@@ -42,6 +42,7 @@ for (const arch of architectures) {
       '--publish',
       'never',
       `-c.extraMetadata.version=${version}`,
+      ...(platform === 'win32' ? ['-c.npmRebuild=false'] : []),
       ...(platform === 'darwin' ? ['-c.mac.identity=null', '-c.mac.notarize=false'] : []),
     ],
     { stdio: 'inherit', env },
