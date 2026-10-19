@@ -4,6 +4,8 @@ WORKDIR /workspace
 RUN apt-get update && apt-get install -y --no-install-recommends python3 make g++ \
     && rm -rf /var/lib/apt/lists/*
 COPY package.json package-lock.json ./
+# npm ci runs prepare before the full source tree is copied.
+COPY .husky/install.mjs .husky/install.mjs
 RUN npm install --global npm@10.9.9 \
     && npm ci \
     && npx playwright install --with-deps chromium \
