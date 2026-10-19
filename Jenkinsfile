@@ -6,18 +6,20 @@ import org.verdictan.UntrustedBoundary
 properties([
     [$class: 'AuthorizeProjectProperty', strategy: [$class: 'SpecificUsersAuthorizationStrategy', userid: 'verdictan-ci']],
     disableConcurrentBuilds(),
+    quietPeriod(0),
     buildDiscarder(logRotator(numToKeepStr: '30', artifactNumToKeepStr: '3', artifactDaysToKeepStr: '7'))
 ])
 if (!env.CHANGE_ID && !(env.BRANCH_NAME in ['main', 'master']) && !env.TAG_NAME) {
     echo 'Open a pull request to validate this branch.'
     return
 }
-timeout(time: 90, unit: 'MINUTES') {
+String sourceSha
+timeout(time: 150, unit: 'MINUTES') {
     node('linux-untrusted') {
         try {
             stage('Checkout') {
                 deleteDir()
-                checkout scm
+                sourceSha = checkout(scm).GIT_COMMIT
             }
             new UntrustedBoundary(this).run()
             stage('Validate with Linux display') {
@@ -28,28 +30,14 @@ timeout(time: 90, unit: 'MINUTES') {
             deleteDir()
         }
     }
-    if (env.TAG_NAME && !env.CHANGE_ID) {
-        node('macos-untrusted') {
-            try {
-                stage('Checkout release') {
-                    deleteDir()
-                    checkout scm
-                }
-                withEnv(['CI=true', 'BUILDKIT_HOST=tcp://jenkins-untrusted-buildkit:1234']) {
-                    new UntrustedBoundary(this).run()
-                    verdictanNodeToolchain(packageDir: '.') {
-                        stage('Package macOS release') {
-                            sh 'npm ci && npm run build && bash scripts/package-release.sh'
-                        }
-                        stage('Archive release') {
-                            archiveArtifacts artifacts: 'release/*.dmg,release/*.zip,release/SHA256SUMS.txt',
-                                fingerprint: true, allowEmptyArchive: false
-                        }
-                    }
-                }
-            } finally {
-                deleteDir()
-            }
+    if (!env.CHANGE_ID && env.BRANCH_NAME in ['main', 'master']) {
+        stage('Publish desktop releases') {
+            build job: '/verdictan/trusted/kalkidan-release',
+                parameters: [
+                    string(name: 'SOURCE_SHA', value: sourceSha),
+                    string(name: 'SOURCE_BRANCH', value: env.BRANCH_NAME),
+                    string(name: 'SOURCE_BUILD', value: env.BUILD_NUMBER)
+                ], quietPeriod: 0, wait: true, propagate: true
         }
     }
 }
