@@ -37,12 +37,12 @@ brew upgrade --cask kalkidan
 
 Download an installer from the [releases page](https://github.com/verdictan/packages/releases?q=kalkidan).
 
-| Platform | Download filename |
-| --- | --- |
-| macOS (Apple Silicon) | `Kalkidan-<version>-mac-arm64.dmg` |
-| macOS (Intel) | `Kalkidan-<version>-mac-x64.dmg` |
-| Windows (x64) | `Kalkidan-<version>-win-x64.exe` |
-| Linux (x64) | `Kalkidan-<version>-linux-x64.AppImage` or `.deb` |
+| Platform              | Download filename                                 |
+| --------------------- | ------------------------------------------------- |
+| macOS (Apple Silicon) | `Kalkidan-<version>-mac-arm64.dmg`                |
+| macOS (Intel)         | `Kalkidan-<version>-mac-x64.dmg`                  |
+| Windows (x64)         | `Kalkidan-<version>-win-x64.exe`                  |
+| Linux (x64)           | `Kalkidan-<version>-linux-x64.AppImage` or `.deb` |
 
 Each release also includes ZIP files and `SHA256SUMS.txt`. Replace `<version>` with the release version. Windows and macOS installers are unsigned. macOS installers are not notarized.
 

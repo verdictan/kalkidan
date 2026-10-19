@@ -4,7 +4,7 @@ dialog.showErrorBox = (title, message) => {
   console.error(`${title}: ${message}`);
   app.exit(1);
 };
-process.on('unhandledRejection', error => {
+process.on('unhandledRejection', (error) => {
   console.error(error);
   app.exit(1);
 });

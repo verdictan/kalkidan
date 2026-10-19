@@ -15,13 +15,18 @@
     "test:ui": "playwright test",
     "test:desktop": "npm run build && node tests/desktop.smoke.mjs",
     "generate:icons": "node scripts/generate-icons.mjs",
-    "format": "prettier --write \"{src,electron,tests}/**/*.{ts,tsx}\"",
-    "format:check": "prettier --check \"{src,electron,tests}/**/*.{ts,tsx}\"",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
     "check:architecture": "node scripts/check-boundaries.mjs",
     "test:ci:ui": "playwright test tests/onboarding.spec.ts tests/folder-picker.spec.ts tests/github-cli-settings.spec.ts tests/project-docs.spec.ts tests/repository-refresh.spec.ts --workers=2 --reporter=line",
     "dist:linux": "npm run build && electron-builder --linux",
     "dist:win": "npm run build && electron-builder --win",
-    "package:release": "node scripts/package-release.mjs"
+    "package:release": "node scripts/package-release.mjs",
+    "prepare": "node .husky/install.mjs",
+    "lint": "oxlint .",
+    "lint:fix": "oxlint --fix .",
+    "lint:staged": "lint-staged",
+    "typecheck": "tsc --noEmit"
   },
   "build": {
     "appId": "dev.kalkidan.desktop",
@@ -101,6 +106,9 @@
     "electron": "^44.9.0",
     "electron-builder": "^26.15.3",
     "esbuild": "^0.28.2",
+    "husky": "^9.1.7",
+    "lint-staged": "^17.6.0",
+    "oxlint": "^1.88.0",
     "prettier": "^3.9.10",
     "tsx": "^4.23.15",
     "typescript": "^7.0.2",
@@ -108,7 +116,7 @@
     "wait-on": "^9.5.1"
   },
   "engines": {
-    "node": ">=22.12.0"
+    "node": ">=22.22.1"
   },
   "packageManager": "npm@10.9.9",
   "homepage": "https://github.com/verdictan/kalkidan"

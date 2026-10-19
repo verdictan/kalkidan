@@ -249,13 +249,19 @@ export function WikiEditor({
           </div>
         )}
         {editor && !readOnly ? (
-          <WikiContextMenu editor={editor} commands={commands} onLink={() => {
-            setUrl(editor.getAttributes('link').href || '');
-            setLinkOpen(true);
-          }}>
+          <WikiContextMenu
+            editor={editor}
+            commands={commands}
+            onLink={() => {
+              setUrl(editor.getAttributes('link').href || '');
+              setLinkOpen(true);
+            }}
+          >
             <EditorContent editor={editor} />
           </WikiContextMenu>
-        ) : <EditorContent editor={editor} />}
+        ) : (
+          <EditorContent editor={editor} />
+        )}
       </div>
       {headings.length > 1 && (
         <aside className="wiki-outline" aria-label="On this page">

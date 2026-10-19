@@ -526,11 +526,7 @@ export function Conversation({
               maxLength={100000}
               onChange={(e) => setPrompt(e.target.value)}
               onKeyDown={(event) => {
-                if (
-                  event.key === 'Enter' &&
-                  !event.shiftKey &&
-                  !event.nativeEvent.isComposing
-                ) {
+                if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
                   event.preventDefault();
                   void send();
                 }

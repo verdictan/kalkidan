@@ -4,9 +4,13 @@ import { githubExecutable } from './github-projects';
 import type { GitHubAuthState } from '../src/types';
 
 export function deviceCode(output: string) {
-  return output
-    .replace(/\x1b\[[0-9;]*m/g, '')
-    .match(/one-time code:\s*([A-Z0-9]{4}-[A-Z0-9]{4})/i)?.[1];
+  return (
+    output
+      // Remove ANSI color codes from CLI output.
+      // oxlint-disable-next-line no-control-regex
+      .replace(/\x1b\[[0-9;]*m/g, '')
+      .match(/one-time code:\s*([A-Z0-9]{4}-[A-Z0-9]{4})/i)?.[1]
+  );
 }
 export class GitHubAuth {
   private state: GitHubAuthState = { status: 'idle' };

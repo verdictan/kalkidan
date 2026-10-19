@@ -42,14 +42,14 @@ You can also download installers from [Kalkidan releases](https://github.com/ver
 
 ### Prerequisites
 
-| Requirement | Purpose |
-| --- | --- |
-| macOS, Windows 10 (1809+) or Windows 11, or desktop Linux | Run the desktop app. |
-| Node.js **22.12+** and npm | Install dependencies and run the source code. |
-| Git | Read repository status and manage worktrees. |
-| Codex CLI or Claude Code CLI | Run the selected agent. You can install both. |
-| GitHub CLI (`gh`) | Connect projects and find or clone repositories. |
-| Python 3 | Run interactive terminals on macOS or Linux. Windows uses ConPTY. |
+| Requirement                                               | Purpose                                                           |
+| --------------------------------------------------------- | ----------------------------------------------------------------- |
+| macOS, Windows 10 (1809+) or Windows 11, or desktop Linux | Run the desktop app.                                              |
+| Node.js **22.12+** and npm                                | Install dependencies and run the source code.                     |
+| Git                                                       | Read repository status and manage worktrees.                      |
+| Codex CLI or Claude Code CLI                              | Run the selected agent. You can install both.                     |
+| GitHub CLI (`gh`)                                         | Connect projects and find or clone repositories.                  |
+| Python 3                                                  | Run interactive terminals on macOS or Linux. Windows uses ConPTY. |
 
 Sign in to each agent CLI that you will use. Make sure that `codex` or `claude` runs in your shell. Kalkidan uses the installed CLI and its credentials.
 
@@ -250,7 +250,7 @@ Use **GitHub project** at the bottom of the sidebar to replace a connection. Con
 
 ![Task board with Todo, In progress, and Done columns](images/tracker-board.png)
 
-*The image shows sample data.*
+_The image shows sample data._
 
 </details>
 
@@ -268,11 +268,11 @@ Select a folder when you create a project. The default location is `~/.kalkidan/
 
 The project folder contains:
 
-| Folder | Contents |
-| --- | --- |
-| `docs/` | Markdown documents |
-| `repos/` | New repository clones |
-| `worktrees/` | New worktrees |
+| Folder       | Contents              |
+| ------------ | --------------------- |
+| `docs/`      | Markdown documents    |
+| `repos/`     | New repository clones |
+| `worktrees/` | New worktrees         |
 
 Existing repositories stay at their original paths. The project keeps links to those repositories.
 
@@ -302,12 +302,12 @@ A message connected to a task includes the task description, project name, repos
 
 App metadata and Electron browser storage use `~/.kalkidan/`.
 
-| File | Contents |
-| --- | --- |
-| `remote-hosts.json` | SSH host profiles and installed agent versions; no SSH credentials |
-| `projects.json` | Registered repository folders and metadata |
-| `project-groups.json` | Project groups and GitHub Project connections |
-| `sessions.json` | Titles, pins, collections, notes, archives, and task connections |
+| File                  | Contents                                                           |
+| --------------------- | ------------------------------------------------------------------ |
+| `remote-hosts.json`   | SSH host profiles and installed agent versions; no SSH credentials |
+| `projects.json`       | Registered repository folders and metadata                         |
+| `project-groups.json` | Project groups and GitHub Project connections                      |
+| `sessions.json`       | Titles, pins, collections, notes, archives, and task connections   |
 
 On first launch, Kalkidan checks the operating system's application-data folder for an existing `kalkidan`, `common-ground`, or `Common Ground` directory. It moves that directory to `~/.kalkidan` if the destination does not exist. It never overwrites an existing destination.
 
@@ -331,17 +331,17 @@ The Electron renderer uses a sandbox and context isolation. It has no direct Nod
 
 Use the Node.js version in `.node-version` and the npm version in `package.json`.
 
-| Command | Purpose |
-| --- | --- |
-| `npm run dev` | Start Vite and Electron. |
-| `npm run build` | Check types and build the renderer and desktop app. |
-| `npm test` | Run unit tests and integration fixtures. |
-| `npx playwright install chromium` | Install Chromium for browser tests. |
-| `npm run test:ui` | Run browser interaction tests. |
-| `npm run test:desktop` | Test Electron IPC and persistence. |
-| `npm run dist:mac` | Build macOS DMG and ZIP files in `release/`. |
-| `npm run dist:win` | Build Windows NSIS and ZIP files in `release/`. |
-| `npm run dist:linux` | Build Linux AppImage and DEB files in `release/`. |
+| Command                           | Purpose                                             |
+| --------------------------------- | --------------------------------------------------- |
+| `npm run dev`                     | Start Vite and Electron.                            |
+| `npm run build`                   | Check types and build the renderer and desktop app. |
+| `npm test`                        | Run unit tests and integration fixtures.            |
+| `npx playwright install chromium` | Install Chromium for browser tests.                 |
+| `npm run test:ui`                 | Run browser interaction tests.                      |
+| `npm run test:desktop`            | Test Electron IPC and persistence.                  |
+| `npm run dist:mac`                | Build macOS DMG and ZIP files in `release/`.        |
+| `npm run dist:win`                | Build Windows NSIS and ZIP files in `release/`.     |
+| `npm run dist:linux`              | Build Linux AppImage and DEB files in `release/`.   |
 
 Renderer changes reload automatically. Restart `npm run dev` after you change files in `electron/`.
 

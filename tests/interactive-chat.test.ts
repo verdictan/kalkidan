@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { InteractiveChatRunner } from '../electron/interactive-chat';
 import { ProjectGroups } from '../electron/project-groups';
-import type { ChatRun, Session } from '../src/types';
+import type { Session } from '../src/types';
 
 async function until(fn: () => boolean) {
   const end = Date.now() + 5000;
