@@ -1,0 +1,46 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:recommended", ":gitSignOff"],
+  "timezone": "Europe/Madrid",
+  "labels": ["dependencies"],
+  "dependencyDashboard": true,
+  "automerge": false,
+  "minimumReleaseAge": "7 days",
+  "minimumReleaseAgeBehaviour": "timestamp-required",
+  "prConcurrentLimit": 3,
+  "prHourlyLimit": 2,
+  "rangeStrategy": "bump",
+  "lockFileMaintenance": {
+    "enabled": true,
+    "schedule": ["before 4am on Tuesday"]
+  },
+  "packageRules": [
+    {
+      "description": "Keep related npm patch and minor updates together",
+      "matchManagers": ["npm"],
+      "matchUpdateTypes": ["minor", "patch"],
+      "groupName": "non-major npm dependencies"
+    },
+    {
+      "description": "Update the Node runtime and its container together within the current major",
+      "matchDatasources": ["node-version", "docker"],
+      "matchPackageNames": ["node"],
+      "matchUpdateTypes": ["minor", "patch", "digest", "pinDigest"],
+      "groupName": "Node.js runtime"
+    },
+    {
+      "description": "Keep the pinned npm toolchain and Docker build installation aligned",
+      "matchPackageNames": ["npm"],
+      "groupName": "npm toolchain"
+    }
+  ],
+  "customManagers": [
+    {
+      "customType": "regex",
+      "managerFilePatterns": ["/^ci/Dockerfile$/"],
+      "matchStrings": ["npm install --global npm@(?<currentValue>\\d+\\.\\d+\\.\\d+)"],
+      "depNameTemplate": "npm",
+      "datasourceTemplate": "npm"
+    }
+  ]
+}
