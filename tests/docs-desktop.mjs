@@ -1,7 +1,7 @@
 import { _electron as electron } from '@playwright/test';
 import { mkdtemp, mkdir, writeFile, readFile, rm, realpath } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import assert from 'node:assert/strict';
 const root = await mkdtemp(join(tmpdir(), 'kalkidan-docs-ipc-'));
 const env = { ...process.env, KALKIDAN_TEST_DATA: join(root, 'library'), CODEX_HOME: join(root, 'codex'), CLAUDE_CONFIG_DIR: join(root, 'claude') };
@@ -13,9 +13,12 @@ try {
   await mkdir(join(env.KALKIDAN_TEST_DATA, 'docs', 'wiki'), { recursive: true });
   const legacy = '<!-- kalkidan {"title":"Legacy","parentId":null} -->\nOriginal Markdown';
   await writeFile(join(env.KALKIDAN_TEST_DATA, 'docs', 'wiki', 'legacy.md'), legacy);
-  app = await electron.launch({ args: ['.'], env });
+  app = await electron.launch({ args: ['--require', resolve('tests/helpers/electron-ci.cjs'), '.'], env });
   const page = await app.firstWindow();
   await page.waitForFunction(() => !!window.workspace);
+  const listing = await page.evaluate(path => window.workspace.directoryList(path), root);
+  assert.equal(listing.path, await realpath(root));
+  assert.ok(listing.entries.some(entry => entry.name === 'library' && entry.kind === 'directory'));
   const snapshot = await page.evaluate(() => window.workspace.snapshot());
   const projectRoot = snapshot.groups.find(group => group.id === 'wiki').rootPath;
   assert.equal(projectRoot, await realpath(join(env.KALKIDAN_TEST_DATA, 'projects', 'wiki')));
@@ -28,7 +31,7 @@ try {
   const file = join(env.KALKIDAN_TEST_DATA, 'projects', 'wiki', 'docs', saved.id + '.md');
   assert.match(await readFile(file, 'utf8'), /# Desktop wiki/);
   await app.close();
-  app = await electron.launch({ args: ['.'], env });
+  app = await electron.launch({ args: ['--require', resolve('tests/helpers/electron-ci.cjs'), '.'], env });
   const reopened = await app.firstWindow();
   await reopened.waitForFunction(() => !!window.workspace);
   const docs = await reopened.evaluate(() => window.workspace.docsList('wiki'));
