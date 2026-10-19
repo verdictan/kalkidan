@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process';
+import { appMenuTemplate } from './app-menu';
 import { pathContains } from './platform';
 import { githubCliCheck } from './github-cli-check';
 import { listDirectory } from './storage/directory-list';
@@ -27,17 +28,7 @@ import { PtyTerminal } from './pty-terminal';
 import { RemoteHosts } from './remote-hosts';
 import { CommandTerminal, repositoryDiff } from './conversation-tools';
 import { AnnotationBrowser } from './annotation-browser';
-import {
-  app,
-  BrowserWindow,
-  dialog,
-  ipcMain,
-  shell,
-  Menu,
-  clipboard,
-  nativeTheme,
-  type MenuItemConstructorOptions,
-} from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, shell, Menu, clipboard, nativeTheme } from 'electron';
 import { existsSync } from 'node:fs';
 import { readFile, writeFile, stat, realpath } from 'node:fs/promises';
 import { join, basename } from 'node:path';
@@ -1020,6 +1011,10 @@ app.whenReady().then(async () => {
     // macOS hides the window buttons in full screen, so the title bar can use that space.
     window.on('enter-full-screen', () => window.webContents.send('full-screen', true));
     window.on('leave-full-screen', () => window.webContents.send('full-screen', false));
+    // A reload or a window that opens in full screen must also know the current state.
+    window.webContents.on('did-finish-load', () =>
+      window.webContents.send('full-screen', window.isFullScreen()),
+    );
     window.on('closed', () => {
       owned.get(window)?.forEach(stopResource);
       owned.delete(window);
@@ -1137,96 +1132,13 @@ app.whenReady().then(async () => {
     const focused = BrowserWindow.getFocusedWindow() ?? win;
     if (focused && !focused.isDestroyed()) focused.webContents.send('menu-command', name);
   };
-  const mac = process.platform === 'darwin';
-  const separator: MenuItemConstructorOptions = { type: 'separator' };
-  const template: MenuItemConstructorOptions[] = [
-    ...(mac
-      ? [
-          {
-            label: app.name,
-            submenu: [
-              { role: 'about' },
-              separator,
-              { label: 'Settings…', accelerator: 'Cmd+,', click: command('settings') },
-              separator,
-              { role: 'services' },
-              separator,
-              { role: 'hide' },
-              { role: 'hideOthers' },
-              { role: 'unhide' },
-              separator,
-              { role: 'quit' },
-            ],
-          } satisfies MenuItemConstructorOptions,
-        ]
-      : []),
-    {
-      label: 'File',
-      submenu: [
-        { label: 'New Project', accelerator: 'CmdOrCtrl+N', click: command('new-project') },
-        // The renderer handles this key at once, so typed text does not reach the focused field.
-        {
-          label: 'Search',
-          accelerator: 'CmdOrCtrl+K',
-          registerAccelerator: false,
-          click: command('search'),
-        },
-        separator,
-        ...(mac
-          ? [{ role: 'close' } satisfies MenuItemConstructorOptions]
-          : ([
-              { label: 'Settings', accelerator: 'Ctrl+,', click: command('settings') },
-              separator,
-              { role: 'close' },
-              { role: 'quit' },
-            ] satisfies MenuItemConstructorOptions[])),
-      ],
-    },
-    { role: 'editMenu' },
-    {
-      label: 'View',
-      submenu: [
-        { label: 'Toggle Sidebar', accelerator: 'CmdOrCtrl+B', click: command('toggle-sidebar') },
-        separator,
-        ...(app.isPackaged
-          ? []
-          : ([
-              { role: 'reload' },
-              { role: 'toggleDevTools' },
-              separator,
-            ] satisfies MenuItemConstructorOptions[])),
-        { role: 'resetZoom' },
-        { role: 'zoomIn' },
-        { role: 'zoomOut' },
-        separator,
-        { role: 'togglefullscreen' },
-      ],
-    },
-    {
-      label: 'Go',
-      submenu: [
-        { label: 'Back', accelerator: 'CmdOrCtrl+[', click: command('back') },
-        { label: 'Forward', accelerator: 'CmdOrCtrl+]', click: command('forward') },
-      ],
-    },
-    { role: 'windowMenu' },
-    {
-      role: 'help',
-      submenu: [
-        {
-          label: 'Kalkidan User Guide',
-          click: () =>
-            void shell.openExternal(
-              'https://github.com/verdictan/kalkidan/blob/main/docs/user-guide.md',
-            ),
-        },
-        {
-          label: 'Report an Issue',
-          click: () => void shell.openExternal('https://github.com/verdictan/kalkidan/issues'),
-        },
-      ],
-    },
-  ];
+  const template = appMenuTemplate({
+    mac: process.platform === 'darwin',
+    packaged: app.isPackaged,
+    appName: app.name,
+    command,
+    openExternal: (url) => void shell.openExternal(url),
+  });
   Menu.setApplicationMenu(Menu.buildFromTemplate(template));
   createWindow();
   app.on('activate', () => {
