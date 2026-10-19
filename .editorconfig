@@ -13,3 +13,6 @@ trim_trailing_whitespace = false
 
 [Makefile]
 indent_style = tab
+
+[*.{bat,cmd}]
+end_of_line = crlf
