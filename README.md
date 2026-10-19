@@ -300,7 +300,7 @@ History discovery still reconciles directory entries and file metadata so new, d
 The root `Jenkinsfile` uses the existing Verdictan `keeptrusts` shared library,
 `linux-untrusted` worker for validation, and the `verdictanNodeToolchain` helper
 on `macos-untrusted` for release packaging. Node and npm are pinned in
-`.node-version`, `package.json`, and `ci/Dockerfile`. PRs, `main`, and discovered version
+`.node-version`, `package.json`, and `ci/Dockerfile`. PRs, `main`/`master`, and discovered version
 tags run CI; standalone feature branches wait for a PR. GitHub Actions workflows
 have been removed.
 
@@ -337,7 +337,28 @@ a desktop login. Node/npm for packaging come from the shared toolchain helper.
 
 Scan the job after merging this Jenkinsfile. The existing `v0.1.0` tag points to
 the earlier GitHub Actions configuration; do not move that tag. A new release
-version/tag must include the Jenkinsfile. GitHub release publication and Apple
-signing belong in a separately configured trusted controller job, following the
-existing Verdictan credential boundary; this repository job archives installers
-only. The previous automatic draft-GitHub-release workflow is no longer active.
+version/tag must include the Jenkinsfile. The repository job archives installers only.
+
+A separate controller-owned release job checks `main` and `master` every two
+minutes. It builds each new first-parent commit in order, including intermediate
+commits between checks, and publishes Apple Silicon and Intel DMG/ZIP installers
+to [Kalkidan releases](https://github.com/verdictan/packages/releases?q=kalkidan).
+The first run starts at the current branch head. Failed builds stop publication;
+the next run retries before processing later commits. Rewritten published history
+requires reconciliation rather than silently skipping commits.
+
+Each release has a unique `VERSION-build.TIMESTAMP.COMMIT` version. The latest
+Kalkidan release and SHA-256 checksums are recorded in
+[kalkidan.json](https://github.com/verdictan/packages/blob/main/kalkidan.json).
+The shared package repository's global latest pointer remains owned by the CLI.
+The release job updates the architecture-specific Homebrew cask automatically:
+
+```sh
+brew install --cask verdictan/tap/kalkidan
+# Later:
+brew upgrade --cask kalkidan
+```
+
+Installers are currently unsigned macOS builds. This flow does not publish Linux
+APT/RPM packages or Apple signing/notarization. Publication credentials are only
+available to the controller-owned publisher, after the untrusted build completes.

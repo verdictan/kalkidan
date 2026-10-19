@@ -2,13 +2,13 @@
 import org.verdictan.UntrustedBoundary
 
 // Match the existing Verdictan worker/toolchain and trust boundary.
-// Branches are validated through PR jobs; main and discovered tags run directly.
+// Branches are validated through PR jobs; main/master and discovered tags run directly.
 properties([
     [$class: 'AuthorizeProjectProperty', strategy: [$class: 'SpecificUsersAuthorizationStrategy', userid: 'verdictan-ci']],
     disableConcurrentBuilds(),
     buildDiscarder(logRotator(numToKeepStr: '30', artifactNumToKeepStr: '3', artifactDaysToKeepStr: '7'))
 ])
-if (!env.CHANGE_ID && env.BRANCH_NAME != 'main' && !env.TAG_NAME) {
+if (!env.CHANGE_ID && !(env.BRANCH_NAME in ['main', 'master']) && !env.TAG_NAME) {
     echo 'Open a pull request to validate this branch.'
     return
 }
