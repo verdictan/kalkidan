@@ -8,6 +8,8 @@ RUN npm install --global npm@10.9.9 \
     && apt-get update && apt-get install -y --no-install-recommends git xvfb xauth \
     && rm -rf /var/lib/apt/lists/* \
     && mkdir /out && chown -R node:node /workspace /out /opt/playwright
+RUN apt-get update && apt-get install -y --no-install-recommends python3 libgtk-3-0 \
+    && rm -rf /var/lib/apt/lists/*
 COPY --chown=node:node . .
 USER node
 ENV KALKIDAN_CI_CONTAINER=1
