@@ -4,6 +4,7 @@ import type { API, GitHubRepository, ProjectGroup, RemoteFolders } from '../type
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Choice } from './choice';
+import { SectionHeader } from './ui/page-header';
 export function RemoteRepositoryPicker({
   api,
   group,
@@ -60,8 +61,8 @@ export function RemoteRepositoryPicker({
     }
   }
   return (
-    <section className="space-y-3" aria-label="Remote repository picker">
-      <p className="text-sm font-medium">Repositories on the remote host</p>
+    <section className="grid gap-3" aria-label="Remote repository picker">
+      <SectionHeader className="mb-0 min-h-0" title="Repositories on the remote host" />
       <Choice
         label="Remote repository source"
         className="w-full"
@@ -73,21 +74,28 @@ export function RemoteRepositoryPicker({
           { value: 'clone', label: 'Clone GitHub repository on host' },
         ]}
       />
-      <div className="flex gap-2">
+      <form
+        className="flex gap-2"
+        onSubmit={(event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          if (!busy) void browse(path);
+        }}
+      >
         <Input
           aria-label="Remote folder path"
           value={path}
           disabled={busy}
           onChange={(e) => setPath(e.target.value)}
         />
-        <Button variant="outline" disabled={busy} onClick={() => void browse(path)}>
+        <Button type="submit" variant="outline" disabled={busy}>
           Browse
         </Button>
-      </div>
-      <div className="max-h-40 overflow-auto rounded-md border p-1">
+      </form>
+      <div role="group" aria-label="Remote folders" className="list-box content-start">
         <Button
           variant="ghost"
-          className="w-full justify-start"
+          className="w-full justify-start px-2 font-normal [&_svg]:text-muted-foreground"
           disabled={busy || !folders || folders.parent === folders.path}
           onClick={() => void browse(folders!.parent)}
         >
@@ -97,7 +105,7 @@ export function RemoteRepositoryPicker({
         {folders?.folders.map((folder) => (
           <Button
             variant="ghost"
-            className="w-full justify-start"
+            className="w-full justify-start px-2 font-normal [&_svg]:text-muted-foreground"
             disabled={busy}
             key={folder.path}
             onClick={() => void browse(folder.path)}
@@ -129,7 +137,7 @@ export function RemoteRepositoryPicker({
             disabled={busy}
             onChange={(e) => setRepository(e.target.value)}
           />
-          <p className="text-xs text-muted-foreground">
+          <p className="-mt-1 text-xs text-muted-foreground">
             Clones are stored in the project’s repos folder using Git credentials on the host.
           </p>
         </>
@@ -140,6 +148,7 @@ export function RemoteRepositoryPicker({
         </p>
       )}
       <Button
+        className="justify-self-start"
         disabled={busy || !path || (mode === 'clone' && !repository)}
         onClick={() => void add()}
       >

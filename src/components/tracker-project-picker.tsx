@@ -5,6 +5,7 @@ import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Alert, AlertDescription } from './ui/alert';
 import { Choice } from './choice';
+import { SegmentedControl } from './ui/segmented-control';
 
 export function TrackerProjectPicker({
   api,
@@ -106,30 +107,23 @@ export function TrackerProjectPicker({
   }
   return (
     <div className="space-y-3">
-      <div className="flex flex-wrap gap-2" aria-label="Project connection method">
-        {[
-          { value: 'pick', label: 'Choose existing' },
-          { value: 'create', label: 'Create new' },
-          { value: 'url', label: 'Use URL' },
-        ]
-          .filter((option) => option.value !== 'create' || descriptor?.capabilities.createProject)
-          .map((option) => (
-            <Button
-              key={option.value}
-              size="sm"
-              variant={mode === option.value ? 'secondary' : 'ghost'}
-              disabled={creating}
-              aria-pressed={mode === option.value}
-              onClick={() => {
-                setMode(option.value);
-                onChange('');
-                setNotice('');
-              }}
-            >
-              {option.label}
-            </Button>
-          ))}
-      </div>
+      <SegmentedControl
+        size="sm"
+        label="Project connection method"
+        value={mode}
+        onChange={(next) => {
+          setMode(next);
+          onChange('');
+          setNotice('');
+        }}
+        options={[
+          { value: 'pick', label: 'Choose existing', disabled: creating },
+          ...(descriptor?.capabilities.createProject
+            ? [{ value: 'create', label: 'Create new', disabled: creating }]
+            : []),
+          { value: 'url', label: 'Use URL', disabled: creating },
+        ]}
+      />
       {mode !== 'url' && (
         <Choice
           className="w-full"
@@ -197,14 +191,11 @@ export function TrackerProjectPicker({
         <>
           <Input
             aria-label={`Search ${providerName} projects`}
-            placeholder="Search projects…"
+            placeholder={`Search ${providerName} projects…`}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
           />
-          <div
-            className="max-h-56 space-y-1 overflow-y-auto rounded-md border p-1"
-            aria-label={`Available ${providerName} projects`}
-          >
+          <div className="list-box" role="group" aria-label={`Available ${providerName} projects`}>
             {loading ? (
               <p className="py-4 text-sm text-muted-foreground">Loading projects…</p>
             ) : (

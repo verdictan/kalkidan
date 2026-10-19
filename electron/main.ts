@@ -22,12 +22,22 @@ import { registerTrackerHandlers } from './trackers/ipc';
 
 import { agentInstallations } from './agent-installations';
 import { BrowserProfile } from './browser-profile';
-import type { Session } from '../src/types';
+import type { MenuCommand, Session } from '../src/types';
 import { PtyTerminal } from './pty-terminal';
 import { RemoteHosts } from './remote-hosts';
 import { CommandTerminal, repositoryDiff } from './conversation-tools';
 import { AnnotationBrowser } from './annotation-browser';
-import { app, BrowserWindow, dialog, ipcMain, shell, Menu, clipboard } from 'electron';
+import {
+  app,
+  BrowserWindow,
+  dialog,
+  ipcMain,
+  shell,
+  Menu,
+  clipboard,
+  nativeTheme,
+  type MenuItemConstructorOptions,
+} from 'electron';
 import { existsSync } from 'node:fs';
 import { readFile, writeFile, stat, realpath } from 'node:fs/promises';
 import { join, basename } from 'node:path';
@@ -67,7 +77,31 @@ const previews = new Map<BrowserWindow, AnnotationBrowser>();
 const chatRunner = createAgentRuntimes();
 const githubAuth = new GitHubAuth(() => shell.openExternal('https://github.com/login/device'));
 let remote: RemoteHosts;
-app.on('before-quit', () => {
+// The user confirmed that running agents can stop. Do not ask again while the app quits.
+let stopAgentsConfirmed = false;
+/** Asks before an action stops running agents. Returns true when the action can continue. */
+function confirmStopAgents(parent?: BrowserWindow) {
+  const count = chatRunner.runningCount();
+  if (!count || stopAgentsConfirmed) return true;
+  const options = {
+    type: 'warning' as const,
+    buttons: ['Stop agents and close', 'Cancel'],
+    defaultId: 1,
+    cancelId: 1,
+    message: count === 1 ? 'An agent is still working' : `${count} agents are still working`,
+    detail: 'If you close Kalkidan now, the agents stop. Their sessions stay on disk.',
+  };
+  const choice = parent
+    ? dialog.showMessageBoxSync(parent, options)
+    : dialog.showMessageBoxSync(options);
+  stopAgentsConfirmed = choice === 0;
+  return stopAgentsConfirmed;
+}
+app.on('before-quit', (event) => {
+  if (!confirmStopAgents()) {
+    event.preventDefault();
+    return;
+  }
   githubAuth.cancel();
   chatRunner.dispose();
   terminal.stopAll();
@@ -226,7 +260,16 @@ app.whenReady().then(async () => {
     (id) => projectGroups.groups.some((g) => g.id === id),
     async (id) => join(await projectRoot(id), 'docs'),
   );
-  for (const operation of ['list', 'metadata', 'read', 'create', 'save', 'delete'] as const) {
+  for (const operation of [
+    'list',
+    'metadata',
+    'read',
+    'create',
+    'save',
+    'delete',
+    'trash',
+    'restore',
+  ] as const) {
     handle('docs-' + operation, async (id, ...args) => {
       const group = projectGroups.groups.find((g) => g.id === id);
       if (!group) throw new Error('Project not found');
@@ -251,6 +294,10 @@ app.whenReady().then(async () => {
             return await docs.save(id, args[0]);
           case 'delete':
             return await docs.delete(id, args[0], args[1]);
+          case 'trash':
+            return await docs.trash(id);
+          case 'restore':
+            return await docs.restore(id, args[0]);
         }
       } catch (error) {
         locations.invalidate(id, group.rootPath);
@@ -448,6 +495,16 @@ app.whenReady().then(async () => {
   handle('github-auth-status', () => githubAuth.inspect());
   handle('github-auth-cancel', () => githubAuth.cancel());
   handle('github-auth-open', () => shell.openExternal('https://github.com/login/device'));
+  // The saved appearance sets the native theme, so the page and the title bar overlay follow it.
+  handle('appearance', (mode) => {
+    if (mode !== 'system' && mode !== 'light' && mode !== 'dark')
+      throw new Error('Invalid appearance');
+    nativeTheme.themeSource = mode;
+  });
+  handle('app-menu', () => {
+    const window = BrowserWindow.getFocusedWindow() ?? win;
+    if (window) Menu.getApplicationMenu()?.popup({ window, x: 8, y: 48 });
+  });
   function linked(id: string) {
     const group = projectGroups.groups.find((g) => g.id === id);
     if (!group?.github) throw new Error('Connect a GitHub project first.');
@@ -887,7 +944,34 @@ app.whenReady().then(async () => {
   }
   handle('worktree', async (id, branch) => !!(await createWorktree(id, branch)));
   handle('task-worktree', createWorktree);
+  // The window chrome follows the light or dark appearance of the system.
+  function windowColors() {
+    return nativeTheme.shouldUseDarkColors
+      ? { chrome: '#22272b', symbol: '#e1e4e7', background: '#101316' }
+      : { chrome: '#eef0f2', symbol: '#1f2328', background: '#ffffff' };
+  }
+  function titleBarOverlay() {
+    const colors = windowColors();
+    return { color: colors.chrome, symbolColor: colors.symbol, height: 48 };
+  }
+  nativeTheme.on('updated', () => {
+    for (const window of windows) {
+      if (window.isDestroyed()) continue;
+      window.setBackgroundColor(windowColors().background);
+      if (process.platform !== 'darwin') window.setTitleBarOverlay(titleBarOverlay());
+    }
+  });
+  function openExternalLink(value: string) {
+    let url: URL;
+    try {
+      url = new URL(value);
+    } catch {
+      return;
+    }
+    if (['http:', 'https:', 'mailto:'].includes(url.protocol)) void shell.openExternal(url.href);
+  }
   function createWindow(session?: Session) {
+    stopAgentsConfirmed = false;
     const window = new BrowserWindow({
       width: 1360,
       height: 900,
@@ -895,9 +979,10 @@ app.whenReady().then(async () => {
       minHeight: 680,
       title: 'Kalkidan',
       icon: appIcon,
-      backgroundColor: '#101316',
-      titleBarStyle: 'hiddenInset',
-      trafficLightPosition: { x: 22, y: 17 },
+      backgroundColor: windowColors().background,
+      ...(process.platform === 'darwin'
+        ? { titleBarStyle: 'hiddenInset', trafficLightPosition: { x: 22, y: 17 } }
+        : { titleBarStyle: 'hidden', titleBarOverlay: titleBarOverlay() }),
       webPreferences: {
         preload: join(__dirname, 'preload.cjs'),
         contextIsolation: true,
@@ -917,8 +1002,24 @@ app.whenReady().then(async () => {
       (session
         ? '#session=' + encodeURIComponent(JSON.stringify({ agent: session.agent, id: session.id }))
         : '');
-    window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
-    window.webContents.on('will-navigate', (event) => event.preventDefault());
+    // The app never opens its own windows from links. Web and mail links open in the
+    // default application of the system.
+    window.webContents.setWindowOpenHandler(({ url }) => {
+      openExternalLink(url);
+      return { action: 'deny' };
+    });
+    window.webContents.on('will-navigate', (event, target) => {
+      event.preventDefault();
+      // Navigation inside the app stays blocked and does not open a browser.
+      if (!target.startsWith(base)) openExternalLink(target);
+    });
+    // Agents stop when the last window closes. Ask first.
+    window.on('close', (event) => {
+      if (windows.size === 1 && !confirmStopAgents(window)) event.preventDefault();
+    });
+    // macOS hides the window buttons in full screen, so the title bar can use that space.
+    window.on('enter-full-screen', () => window.webContents.send('full-screen', true));
+    window.on('leave-full-screen', () => window.webContents.send('full-screen', false));
     window.on('closed', () => {
       owned.get(window)?.forEach(stopResource);
       owned.delete(window);
@@ -1005,7 +1106,7 @@ app.whenReady().then(async () => {
         .join('\n\n');
     if (action === 'copy-transcript') {
       clipboard.writeText(text);
-      return 'Conversation copied';
+      return 'Session copied';
     }
     const htmlEscape = (v: string) =>
       v.replace(
@@ -1022,25 +1123,111 @@ app.whenReady().then(async () => {
           '</pre></body></html>';
     const extension = action === 'markdown' ? 'md' : 'html';
     const result = await dialog.showSaveDialog(win, {
-      title: 'Export conversation',
+      title: 'Export session',
       defaultPath:
-        (session.title.replace(/[^a-zA-Z0-9 _-]/g, '').slice(0, 90) || 'conversation') +
-        '.' +
-        extension,
+        (session.title.replace(/[^a-zA-Z0-9 _-]/g, '').slice(0, 90) || 'session') + '.' + extension,
       filters: [{ name: action === 'markdown' ? 'Markdown' : 'HTML', extensions: [extension] }],
     });
     if (result.canceled || !result.filePath) return null;
     await writeFile(result.filePath, content, { mode: 0o600 });
-    return 'Conversation exported';
+    return 'Session exported';
   });
-  Menu.setApplicationMenu(
-    Menu.buildFromTemplate([
-      { role: 'appMenu' },
-      { role: 'editMenu' },
-      { role: 'viewMenu' },
-      { role: 'windowMenu' },
-    ]),
-  );
+  // Menu commands go to the renderer of the focused window.
+  const command = (name: MenuCommand) => () => {
+    const focused = BrowserWindow.getFocusedWindow() ?? win;
+    if (focused && !focused.isDestroyed()) focused.webContents.send('menu-command', name);
+  };
+  const mac = process.platform === 'darwin';
+  const separator: MenuItemConstructorOptions = { type: 'separator' };
+  const template: MenuItemConstructorOptions[] = [
+    ...(mac
+      ? [
+          {
+            label: app.name,
+            submenu: [
+              { role: 'about' },
+              separator,
+              { label: 'Settings…', accelerator: 'Cmd+,', click: command('settings') },
+              separator,
+              { role: 'services' },
+              separator,
+              { role: 'hide' },
+              { role: 'hideOthers' },
+              { role: 'unhide' },
+              separator,
+              { role: 'quit' },
+            ],
+          } satisfies MenuItemConstructorOptions,
+        ]
+      : []),
+    {
+      label: 'File',
+      submenu: [
+        { label: 'New Project', accelerator: 'CmdOrCtrl+N', click: command('new-project') },
+        // The renderer handles this key at once, so typed text does not reach the focused field.
+        {
+          label: 'Search',
+          accelerator: 'CmdOrCtrl+K',
+          registerAccelerator: false,
+          click: command('search'),
+        },
+        separator,
+        ...(mac
+          ? [{ role: 'close' } satisfies MenuItemConstructorOptions]
+          : ([
+              { label: 'Settings', accelerator: 'Ctrl+,', click: command('settings') },
+              separator,
+              { role: 'close' },
+              { role: 'quit' },
+            ] satisfies MenuItemConstructorOptions[])),
+      ],
+    },
+    { role: 'editMenu' },
+    {
+      label: 'View',
+      submenu: [
+        { label: 'Toggle Sidebar', accelerator: 'CmdOrCtrl+B', click: command('toggle-sidebar') },
+        separator,
+        ...(app.isPackaged
+          ? []
+          : ([
+              { role: 'reload' },
+              { role: 'toggleDevTools' },
+              separator,
+            ] satisfies MenuItemConstructorOptions[])),
+        { role: 'resetZoom' },
+        { role: 'zoomIn' },
+        { role: 'zoomOut' },
+        separator,
+        { role: 'togglefullscreen' },
+      ],
+    },
+    {
+      label: 'Go',
+      submenu: [
+        { label: 'Back', accelerator: 'CmdOrCtrl+[', click: command('back') },
+        { label: 'Forward', accelerator: 'CmdOrCtrl+]', click: command('forward') },
+      ],
+    },
+    { role: 'windowMenu' },
+    {
+      role: 'help',
+      submenu: [
+        {
+          label: 'Kalkidan User Guide',
+          click: () =>
+            void shell.openExternal(
+              'https://github.com/verdictan/kalkidan/blob/main/docs/user-guide.md',
+            ),
+        },
+        {
+          label: 'Report an Issue',
+          click: () => void shell.openExternal('https://github.com/verdictan/kalkidan/issues'),
+        },
+      ],
+    },
+  ];
+  Menu.setApplicationMenu(Menu.buildFromTemplate(template));
   createWindow();
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();

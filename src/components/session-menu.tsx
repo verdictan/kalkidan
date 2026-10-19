@@ -1,6 +1,5 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
-  MoreHorizontal,
   Pencil,
   Pin,
   MessageSquarePlus,
@@ -14,6 +13,7 @@ import {
 import type { API, Session, SessionOrganization } from '../types';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
+import { MoreButton } from './ui/more-button';
 import {
   Dialog,
   DialogContent,
@@ -33,6 +33,21 @@ import {
   DropdownMenuSubContent,
   DropdownMenuShortcut,
 } from './ui/dropdown-menu';
+import { ConfirmDialog } from './confirm-dialog';
+import {
+  fileManagerName,
+  hasPrimaryModifier,
+  isTypingTarget,
+  shortcutLabel,
+} from '../lib/platform';
+import { errorMessage } from '../lib/errors';
+
+const shortcuts = {
+  rename: shortcutLabel(['mod', 'alt'], 'R'),
+  pin: shortcutLabel(['mod', 'alt'], 'P'),
+  side: shortcutLabel(['mod', 'alt'], 'S'),
+  archive: shortcutLabel(['mod', 'shift'], 'A'),
+};
 
 export function SessionMenu({
   api,
@@ -51,18 +66,26 @@ export function SessionMenu({
   branch: (fork: boolean, worktree?: string) => Promise<void>;
   archive: () => void;
 }) {
-  const [dialog, setDialog] = useState<'rename' | 'worktree' | null>(null);
+  const [dialog, setDialog] = useState<'rename' | 'worktree' | 'archive' | null>(null);
   const [value, setValue] = useState('');
   const [busy, setBusy] = useState(false);
-  const [notice, setNotice] = useState('');
+  const [status, setStatus] = useState('');
+  const [error, setError] = useState('');
+  const statusTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  useEffect(() => () => clearTimeout(statusTimer.current), []);
+  function showStatus(text: string) {
+    clearTimeout(statusTimer.current);
+    setStatus(text);
+    statusTimer.current = setTimeout(() => setStatus(''), 3000);
+  }
   async function perform(fn: () => Promise<unknown>) {
     setBusy(true);
-    setNotice('');
+    setError('');
     try {
       const result = await fn();
-      if (typeof result === 'string') setNotice(result);
-    } catch (e: any) {
-      setNotice(e.message);
+      if (typeof result === 'string') showStatus(result);
+    } catch (e) {
+      setError(errorMessage(e));
     } finally {
       setBusy(false);
     }
@@ -75,11 +98,14 @@ export function SessionMenu({
   const doArchive = () =>
     perform(async () => {
       await update({ archived: true });
+      setDialog(null);
       archive();
     });
+  const confirmArchive = () => setDialog('archive');
   useEffect(() => {
     const key = (e: KeyboardEvent) => {
-      if (!(e.metaKey || e.ctrlKey) || document.querySelector('[role="dialog"]')) return;
+      if (!hasPrimaryModifier(e) || isTypingTarget(e.target)) return;
+      if (document.querySelector('[role="dialog"]')) return;
       if (e.altKey && e.code === 'KeyR') {
         e.preventDefault();
         rename();
@@ -94,7 +120,7 @@ export function SessionMenu({
       }
       if (e.shiftKey && !e.altKey && e.code === 'KeyA' && !running) {
         e.preventDefault();
-        void doArchive();
+        confirmArchive();
       }
     };
     window.addEventListener('keydown', key);
@@ -104,26 +130,29 @@ export function SessionMenu({
     void perform(() => api.sessionAction(session, kind));
   return (
     <>
+      {status && (
+        <span role="status" className="session-menu-status text-xs text-muted-foreground">
+          {status}
+        </span>
+      )}
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <Button variant="ghost" size="icon" aria-label="Conversation actions" disabled={busy}>
-            <MoreHorizontal size={17} />
-          </Button>
+          <MoreButton label="Session actions" disabled={busy} />
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="w-64">
           <DropdownMenuItem onSelect={rename}>
             <Pencil />
-            Rename<DropdownMenuShortcut>⌥⌘R</DropdownMenuShortcut>
+            Rename…<DropdownMenuShortcut>{shortcuts.rename}</DropdownMenuShortcut>
           </DropdownMenuItem>
           <DropdownMenuItem onSelect={() => void pin()}>
             <Pin />
             {session.organization?.pinned ? 'Unpin' : 'Pin'}
-            <DropdownMenuShortcut>⌥⌘P</DropdownMenuShortcut>
+            <DropdownMenuShortcut>{shortcuts.pin}</DropdownMenuShortcut>
           </DropdownMenuItem>
           <DropdownMenuSeparator />
           <DropdownMenuItem onSelect={() => void perform(() => branch(false))}>
             <MessageSquarePlus />
-            New side chat<DropdownMenuShortcut>⌥⌘S</DropdownMenuShortcut>
+            New side session<DropdownMenuShortcut>{shortcuts.side}</DropdownMenuShortcut>
           </DropdownMenuItem>
           <DropdownMenuSub>
             <DropdownMenuSubTrigger disabled={!saved || running}>
@@ -164,7 +193,7 @@ export function SessionMenu({
             </DropdownMenuSubTrigger>
             <DropdownMenuSubContent>
               <DropdownMenuItem disabled={running} onSelect={() => action('copy-transcript')}>
-                Conversation as Markdown
+                Session as Markdown
               </DropdownMenuItem>
               <DropdownMenuItem onSelect={() => action('copy-id')}>Session ID</DropdownMenuItem>
               <DropdownMenuItem onSelect={() => action('copy-path')}>
@@ -184,15 +213,15 @@ export function SessionMenu({
             <DropdownMenuSubContent>
               {(['finder', 'vscode', 'cursor'] as const).map((target, i) => (
                 <DropdownMenuItem key={target} onSelect={() => action(target)}>
-                  {['Finder', 'VS Code', 'Cursor'][i]}
+                  {[fileManagerName(), 'VS Code', 'Cursor'][i]}
                 </DropdownMenuItem>
               ))}
             </DropdownMenuSubContent>
           </DropdownMenuSub>
           <DropdownMenuSeparator />
-          <DropdownMenuItem disabled={running} onSelect={() => void doArchive()}>
+          <DropdownMenuItem disabled={running} onSelect={confirmArchive}>
             <Archive />
-            Archive<DropdownMenuShortcut>⇧⌘A</DropdownMenuShortcut>
+            Archive…<DropdownMenuShortcut>{shortcuts.archive}</DropdownMenuShortcut>
           </DropdownMenuItem>
           {!saved && (
             <p className="px-2 py-2 text-xs text-muted-foreground">
@@ -201,35 +230,49 @@ export function SessionMenu({
           )}
         </DropdownMenuContent>
       </DropdownMenu>
-      {notice && (
-        <Dialog open onOpenChange={() => setNotice('')}>
-          <DialogContent>
+      {error && (
+        <Dialog open onOpenChange={() => setError('')}>
+          <DialogContent size="sm" role="alertdialog">
             <DialogHeader>
-              <DialogTitle>Conversation action</DialogTitle>
-              <DialogDescription className="break-words">{notice}</DialogDescription>
+              <DialogTitle className="text-destructive">Could not complete action</DialogTitle>
+              <DialogDescription className="break-words">{error}</DialogDescription>
             </DialogHeader>
             <DialogFooter>
-              <Button onClick={() => setNotice('')}>Close</Button>
+              <Button onClick={() => setError('')}>Close</Button>
             </DialogFooter>
           </DialogContent>
         </Dialog>
       )}
+      <ConfirmDialog
+        open={dialog === 'archive'}
+        busy={busy}
+        title="Archive session"
+        description="Hide this session from the sidebar. You can restore it from the repository’s archived sessions."
+        confirmLabel="Archive session"
+        onCancel={() => setDialog(null)}
+        onConfirm={() => void doArchive()}
+      >
+        <p className="truncate text-sm font-medium">
+          {session.organization?.title || session.title}
+        </p>
+      </ConfirmDialog>
       <Dialog
         open={dialog === 'rename' || dialog === 'worktree'}
         onOpenChange={(open) => !open && setDialog(null)}
       >
-        <DialogContent>
+        <DialogContent size="md">
           <DialogHeader>
             <DialogTitle>
-              {dialog === 'rename' ? 'Rename conversation' : 'Fork in a new worktree'}
+              {dialog === 'rename' ? 'Rename session' : 'Fork in a new worktree'}
             </DialogTitle>
             <DialogDescription>
               {dialog === 'rename'
                 ? 'This name appears in Kalkidan’s session list.'
-                : 'Create a branch and inherit this conversation’s history. The agent fork is created when you send your first message.'}
+                : 'Create a branch and inherit this session’s history. The agent fork is created when you send your first message.'}
             </DialogDescription>
           </DialogHeader>
           <form
+            className="grid gap-4"
             onSubmit={(e) => {
               e.preventDefault();
               void perform(async () => {
@@ -241,12 +284,12 @@ export function SessionMenu({
           >
             <Input
               autoFocus
-              aria-label={dialog === 'rename' ? 'Conversation name' : 'Branch name'}
-              placeholder={dialog === 'rename' ? 'Conversation name' : 'feature/new-direction'}
+              aria-label={dialog === 'rename' ? 'Session name' : 'Branch name'}
+              placeholder={dialog === 'rename' ? 'Session name' : 'feature/new-direction'}
               value={value}
               onChange={(e) => setValue(e.target.value)}
             />
-            <DialogFooter className="mt-4">
+            <DialogFooter>
               <Button type="button" variant="outline" onClick={() => setDialog(null)}>
                 Cancel
               </Button>

@@ -1,8 +1,8 @@
 import { createServer } from 'node:http';
 import { _electron as electron, expect } from '@playwright/test';
-import { mkdtemp, mkdir, writeFile, readFile, rm, realpath } from 'node:fs/promises';
+import { mkdtemp, mkdir, writeFile, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import { execFileSync } from 'node:child_process';
 import assert from 'node:assert/strict';
 const root = await mkdtemp(join(tmpdir(), 'kalkidan-desktop-'));
@@ -388,10 +388,18 @@ try {
   );
   await page.evaluate(() => window.workspace.browserClose());
   // Exercise the actual dock and native view geometry together, not only bridge calls.
+  // Tools open from the title bar launcher: "New tool tab", then the tool row.
+  const openTool = async (name) => {
+    await page.getByRole('button', { name: 'New tool tab', exact: true }).click();
+    await page
+      .getByRole('region', { name: 'Repository tools', exact: true })
+      .getByRole('button', { name, exact: true })
+      .click();
+  };
   await page.reload();
   await page.locator('.repo-select').first().click();
-  await page.getByRole('button', { name: 'Codex New session', exact: true }).click();
-  await page.getByRole('button', { name: 'Browser', exact: true }).click();
+  await page.getByRole('button', { name: 'New Codex session', exact: true }).click();
+  await openTool('Browser');
   await page.getByLabel('Preview URL').fill(previewUrl);
   await page.getByRole('button', { name: 'Open preview', exact: true }).click();
   await expect
@@ -404,7 +412,7 @@ try {
       ),
     )
     .toBe(1);
-  await page.getByRole('button', { name: 'Terminal', exact: true }).click();
+  await openTool('Terminal');
   await expect
     .poll(() =>
       app.evaluate(
@@ -425,22 +433,13 @@ try {
     /Choose a project/,
   );
   await page.evaluate(({ id, groupId }) => window.workspace.moveRepo(id, groupId), { id, groupId });
-  await app.evaluate(({ dialog }) => {
-    dialog.showSaveDialog = async () => ({ canceled: true });
-  });
-  assert.equal(
-    await page.evaluate((id) => window.workspace.taskWorktree(id, 'feature/cancelled'), id),
-    null,
-  );
-  const tree = join(root, 'parallel tree');
-  await app.evaluate(({ dialog }, path) => {
-    dialog.showSaveDialog = async () => ({ canceled: false, filePath: path });
-  }, tree);
+  // A task worktree goes in the worktrees folder of its project. No save dialog opens.
   const taskRepo = await page.evaluate(
     (id) => window.workspace.taskWorktree(id, 'feature/parallel'),
     id,
   );
-  assert.equal(taskRepo.path, await realpath(tree));
+  assert.equal(basename(dirname(taskRepo.path)), 'worktrees');
+  assert.match(basename(taskRepo.path), /^project with spaces-feature-parallel-[0-9a-f]{8}$/);
   assert.ok(
     (await page.evaluate(() => window.workspace.snapshot())).groups[0].repoIds.includes(
       taskRepo.id,
@@ -476,7 +475,7 @@ try {
   await page.evaluate((s) => window.workspace.sessionAction(s, 'window'), savedSession);
   const second = await newWindow;
   await second.waitForFunction(() => !!window.workspace);
-  await expect(second.locator('.conversation-header')).toContainText('Organized session');
+  await expect(second.locator('.conversation-toolbar-title')).toContainText('Organized session');
   assert.equal((await second.evaluate(() => window.workspace.snapshot())).sessions.length, 1);
   await second.close();
   assert.equal((await page.evaluate(() => window.workspace.snapshot())).sessions.length, 1);

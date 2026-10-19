@@ -3,13 +3,31 @@ import remarkGfm from 'remark-gfm';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { TrackerWorkflow } from './tracker-workflow';
 import { interfaceConfig } from '../config/interface';
+import { agentCatalog, agentLabel } from '../config/agents';
 import { trackerConnection } from '../domain/tracker';
 import { useTracker } from '../hooks/use-tracker';
 import { sessionRepo } from '../lib/session-repository';
+import { pathBasename, plural } from '../lib/platform';
 import { ActionMenu } from './action-menu';
 import { TrackerBoard } from './tracker-board';
-import { useEffect, useRef, useState } from 'react';
-import { GitFork, RefreshCw, Plus, Search } from 'lucide-react';
+import { StatusIcon, TrackerList } from './tracker-list';
+import { projectColors } from '../domain/project-colors';
+import { EmptyState } from './ui/empty-state';
+import { EntityIcon } from './ui/entity-icon';
+import { PageHeader, SectionHeader } from './ui/page-header';
+import { SegmentedControl } from './ui/segmented-control';
+import { useEffect, useRef, useState, type ComponentProps, type KeyboardEvent } from 'react';
+import {
+  Columns3,
+  ExternalLink,
+  Folder,
+  GitFork,
+  Layers2,
+  List,
+  RefreshCw,
+  Plus,
+  Search,
+} from 'lucide-react';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Textarea } from './ui/textarea';
@@ -35,6 +53,61 @@ import type {
   Session,
   TrackerAuthState,
 } from '../types';
+import { errorMessage } from '../lib/errors';
+
+type TrackerFilters = {
+  query: string;
+  status: string;
+  repoFilter: string;
+  sort: string;
+  view: string;
+};
+const defaultFilters: TrackerFilters = {
+  query: '',
+  status: 'all',
+  repoFilter: 'all',
+  sort: 'project',
+  view: 'board',
+};
+// One quiet look for the search field and the filter menus. All are 28px high.
+const filterClass =
+  'border-transparent bg-secondary/50 shadow-none hover:bg-secondary dark:bg-secondary/50 dark:hover:bg-secondary';
+
+// Filters are kept per project board, so that they stay when the view changes.
+function filterKey(groupId: string, embedded: boolean) {
+  return `kalkidan-tracker-filters:${groupId}${embedded ? ':embedded' : ''}`;
+}
+
+function readFilters(key: string): TrackerFilters {
+  try {
+    const value = JSON.parse(localStorage.getItem(key) || 'null');
+    if (!value || typeof value !== 'object') return defaultFilters;
+    const text = (name: keyof TrackerFilters) =>
+      typeof value[name] === 'string' ? value[name] : defaultFilters[name];
+    return {
+      query: text('query'),
+      status: text('status'),
+      repoFilter: text('repoFilter'),
+      sort: text('sort'),
+      view: text('view') === 'list' ? 'list' : 'board',
+    };
+  } catch {
+    return defaultFilters;
+  }
+}
+
+function writeFilters(key: string, filters: TrackerFilters) {
+  try {
+    localStorage.setItem(key, JSON.stringify(filters));
+  } catch {
+    // Storage can be unavailable. The filters then reset on the next visit.
+  }
+}
+
+function ExternalAnchor({ node: _node, ...props }: ComponentProps<'a'> & { node?: unknown }) {
+  return <a {...props} target="_blank" rel="noreferrer" />;
+}
+
 export function ProjectTrackerPanel({
   api,
   group,
@@ -45,6 +118,7 @@ export function ProjectTrackerPanel({
   preferredRepoId,
   connectRequested,
   onConnectHandled,
+  onConnectTracker,
   onResume,
   onRefresh,
   onRepo,
@@ -54,6 +128,8 @@ export function ProjectTrackerPanel({
   preferredRepoId?: string;
   connectRequested?: boolean;
   onConnectHandled?: () => void;
+  /** Starts the tracker connection. The empty state shows a connect button for it. */
+  onConnectTracker?: () => void;
   revision?: number;
   api: API;
   group: ProjectGroup;
@@ -73,7 +149,9 @@ export function ProjectTrackerPanel({
   } = useTracker(api, connection?.provider);
   const linkedProject = connection?.project;
   const [workflowOpen, setWorkflowOpen] = useState(false);
-  const [repoFilter, setRepoFilter] = useState('all');
+  const filterStorage = filterKey(group.id, embedded);
+  const [savedFilters] = useState(() => readFilters(filterStorage));
+  const [repoFilter, setRepoFilter] = useState(savedFilters.repoFilter);
   const projectSessions = sessions.filter((session) => !!sessionRepo(session, repos));
   const [checkout, setCheckout] = useState('current');
   const [taskBranch, setTaskBranch] = useState('');
@@ -85,12 +163,17 @@ export function ProjectTrackerPanel({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [url, setUrl] = useState('');
-  const [query, setQuery] = useState('');
-  const [status, setStatus] = useState('all');
+  const [query, setQuery] = useState(savedFilters.query);
+  const [status, setStatus] = useState(savedFilters.status);
   const [modal, setModal] = useState<'draft' | 'issue' | 'connect' | null>(null);
   const [draftStatus, setDraftStatus] = useState('');
-  const [sort, setSort] = useState('project');
-  const [syncNotice, setSyncNotice] = useState('');
+  const [sort, setSort] = useState(savedFilters.sort);
+  const [view, setView] = useState<'board' | 'list'>(
+    savedFilters.view === 'list' ? 'list' : 'board',
+  );
+  useEffect(() => {
+    writeFilters(filterStorage, { query, status, repoFilter, sort, view });
+  }, [filterStorage, query, status, repoFilter, sort, view]);
   const [title, setTitle] = useState('');
   const [body, setBody] = useState('');
   const [task, setTask] = useState<TrackerItem | null>(null);
@@ -101,10 +184,13 @@ export function ProjectTrackerPanel({
     setError('');
     try {
       setAuth(await client.authorize());
-    } catch {
+    } catch (e) {
       setAuth({
         status: 'error',
-        message: `Could not start ${providerName} authorization. Restart Kalkidan and try again.`,
+        message:
+          `Could not start ${providerName} authorization. ${errorMessage(e).replace(/\.?$/, '.')} ` +
+          'Make sure that you are online, then try again. ' +
+          'If the problem continues, restart Kalkidan.',
       });
     }
   }
@@ -163,7 +249,9 @@ export function ProjectTrackerPanel({
     setCheckout('current');
     setTaskBranch('');
     setTaskError('');
-    const matches = repos.filter((r) => r.name === item.repository?.split('/').at(-1));
+    const matches = item.repository
+      ? repos.filter((r) => r.name === pathBasename(item.repository!))
+      : [];
     setRepoId(
       matches.length === 1
         ? matches[0].id
@@ -183,7 +271,7 @@ export function ProjectTrackerPanel({
       onTask(target, agent, task);
       setTask(null);
     } catch (e) {
-      setTaskError(e instanceof Error ? e.message : String(e));
+      setTaskError(errorMessage(e));
     } finally {
       setTaskBusy(false);
     }
@@ -198,17 +286,11 @@ export function ProjectTrackerPanel({
   async function action(fn: () => Promise<unknown>, refresh = true) {
     setBusy(true);
     setError('');
-    setSyncNotice('');
     try {
       await fn();
       if (refresh) await refreshBoard();
-      setSyncNotice(`Synced with ${providerName}`);
     } catch (e) {
-      setError(
-        e instanceof Error
-          ? e.message.replace(/^Error invoking remote method '[^']+': Error: /, '')
-          : String(e),
-      );
+      setError(errorMessage(e));
     } finally {
       setBusy(false);
     }
@@ -224,7 +306,7 @@ export function ProjectTrackerPanel({
         if (current) setBoard(value);
       })
       .catch((e) => {
-        if (current) setError(e.message);
+        if (current) setError(errorMessage(e));
       })
       .finally(() => {
         if (current) setBusy(false);
@@ -236,16 +318,14 @@ export function ProjectTrackerPanel({
   const currentRepository = embedded
     ? repos.find((repo) => repo.id === preferredRepoId)
     : undefined;
-  const repositoryName = currentRepository?.path.replace(/\/$/, '').split('/').at(-1);
+  const repositoryName = currentRepository && pathBasename(currentRepository.path);
   const items =
     board?.items.filter(
       (item) =>
         (!embedded ||
           (!!currentRepository &&
             !!item.repository &&
-            [repositoryName, currentRepository.name].includes(
-              item.repository.split('/').at(-1),
-            ))) &&
+            [repositoryName, currentRepository.name].includes(pathBasename(item.repository)))) &&
         (status === 'all' || item.statusId === status || (status === 'none' && !item.statusId)) &&
         (repoFilter === 'all' ||
           (repoFilter === 'draft' ? !item.repository : item.repository === repoFilter)) &&
@@ -266,67 +346,130 @@ export function ProjectTrackerPanel({
       board?.items.map((item) => item.repository).filter((repo): repo is string => !!repo) || [],
     ),
   ].sort();
+  const modalReady =
+    !busy &&
+    (modal !== 'connect' || auth.status === 'ready') &&
+    (modal === 'draft' ? !!title.trim() : !!url.trim());
+  function submitModal() {
+    if (!modalReady) return;
+    void action(async () => {
+      if (modal === 'connect') {
+        await client.link(group.id, url);
+        await onRefresh();
+      } else if (modal === 'issue') await client.importItem(group.id, url);
+      else {
+        const createdId = await client.draft(group.id, title, body);
+        setModal(null);
+        if (draftStatus) {
+          try {
+            if (!createdId) throw new Error('This tracker did not return the new task ID.');
+            await client.status(group.id, createdId, draftStatus);
+          } catch (e) {
+            await refreshBoard();
+            throw new Error(
+              'Task created, but its status could not be set. ' +
+                `Move it on the board to try again. ${errorMessage(e)}`,
+            );
+          }
+        }
+      }
+      setModal(null);
+    });
+  }
+  function submitOnEnter(event: KeyboardEvent<HTMLInputElement>) {
+    if (event.key === 'Enter' && !event.nativeEvent.isComposing) {
+      event.preventDefault();
+      submitModal();
+    }
+  }
+  // A saved filter can point at a status or repository that no longer exists.
+  useEffect(() => {
+    if (!board) return;
+    const statuses = board.statusField?.options.map((option) => option.id) || [];
+    if (!['all', 'none', ...statuses].includes(status)) setStatus('all');
+    if (!['all', 'draft', ...repositoryOptions].includes(repoFilter)) setRepoFilter('all');
+  }, [board]);
+  const linkedSessions = task
+    ? projectSessions.filter((s) => !s.organization?.archived && s.organization?.taskId === task.id)
+    : [];
+  const syncStatus = busy
+    ? `Syncing with ${providerName}…`
+    : board && !error
+      ? `Synced with ${providerName}`
+      : '';
+  const filtered = query || status !== 'all' || repoFilter !== 'all';
   return (
     <section
       className={embedded ? 'project-tracker embedded-tracker' : 'project-tracker'}
       aria-label={embedded ? 'Repository project tasks' : 'Project tracker'}
     >
-      <header className="tracker-project-heading">
-        <div className="flex min-w-0 items-center gap-3">
-          <div className="min-w-0">
-            <h2>{embedded ? 'Project tasks' : group.name}</h2>
-            <div className="tracker-project-source">
-              <GitFork size={12} />
-              <span>{linkedProject?.title || `Connect this project to ${providerName}`}</span>
-              {linkedProject && (
-                <span className="text-muted-foreground">
-                  {linkedProject.number ? `#${linkedProject.number}` : ''}
-                </span>
+      <PageHeader
+        className="tracker-project-heading"
+        icon={
+          <EntityIcon size="lg" color={group.color ? projectColors[group.color] : undefined}>
+            <Folder />
+          </EntityIcon>
+        }
+        title={embedded ? 'Project tasks' : group.name}
+        subtitle={
+          <>
+            {connection?.provider === 'github' || !connection ? (
+              <span
+                className="tracker-provider-mark"
+                style={{ maskImage: 'url(./icons/github.svg)' }}
+                aria-hidden="true"
+              />
+            ) : (
+              <Layers2 size={12} aria-hidden="true" />
+            )}
+            <span className="truncate">
+              {linkedProject ? (
+                <>
+                  {providerName} · <span>{linkedProject.title}</span>
+                  {linkedProject.number ? ` #${linkedProject.number}` : ''}
+                </>
+              ) : (
+                `Not connected to ${providerName}`
               )}
-            </div>
-          </div>
-        </div>
-        <div className="flex shrink-0 items-center gap-2">
-          {linkedProject ? (
+            </span>
+          </>
+        }
+        actions={
+          linkedProject ? (
             <>
+              <span role="status" className="tracker-sync-status">
+                {syncStatus}
+              </span>
               <Button
                 variant="ghost"
-                size="icon-sm"
+                size="icon"
                 aria-label={`Refresh ${providerName} project`}
                 disabled={busy}
                 onClick={() => void action(refreshBoard, false)}
               >
-                <RefreshCw size={14} className={busy ? 'animate-spin' : ''} />
+                <RefreshCw size={16} className={busy ? 'animate-spin' : ''} />
               </Button>
               <Button
-                size="sm"
                 disabled={busy || !descriptor?.capabilities.createItem}
                 onClick={() => newItem()}
               >
-                <Plus size={14} />
-                New item
+                <Plus size={16} />
+                New task
               </Button>
-              {connection &&
-                board?.statusField &&
-                descriptor?.capabilities.updateStatus &&
-                typeof api.trackerConfigure === 'function' && (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    disabled={busy}
-                    onClick={() => setWorkflowOpen(true)}
-                  >
-                    Workflow
-                  </Button>
-                )}
               <ActionMenu
                 label="Tracker actions"
                 disabled={busy}
                 items={[
+                  ...(connection &&
+                  board?.statusField &&
+                  descriptor?.capabilities.updateStatus &&
+                  typeof api.trackerConfigure === 'function'
+                    ? [{ label: 'Workflow', action: () => setWorkflowOpen(true) }]
+                    : []),
                   ...(descriptor?.capabilities.importItem
                     ? [
                         {
-                          label: 'Add existing issue',
+                          label: 'Add existing task',
                           action: () => {
                             setUrl('');
                             setModal('issue');
@@ -338,15 +481,16 @@ export function ProjectTrackerPanel({
                 ]}
               />
             </>
-          ) : null}
-        </div>
-      </header>
+          ) : null
+        }
+      />
       {connection && board && (
         <TrackerWorkflow
           api={api}
           groupId={group.id}
           connection={connection}
           board={board}
+          defaults={descriptor?.statusNames}
           open={workflowOpen}
           onOpenChange={setWorkflowOpen}
           onSaved={onRefresh}
@@ -372,16 +516,17 @@ export function ProjectTrackerPanel({
               className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground"
             />
             <Input
-              className="h-8 pl-8 text-xs"
-              aria-label={`Search ${providerName} items`}
-              placeholder="Search issues…"
+              className={`h-7 pl-8 text-xs ${filterClass}`}
+              aria-label="Search tasks"
+              placeholder="Search tasks…"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
             />
           </div>
           <Choice
-            className="h-8 text-xs"
-            label="Filter task status"
+            size="sm"
+            className={`text-xs ${filterClass}`}
+            label="Filter by status"
             value={status}
             onChange={setStatus}
             options={[
@@ -392,20 +537,22 @@ export function ProjectTrackerPanel({
           />
           {!embedded && (
             <Choice
-              className="h-8 max-w-60 text-xs"
-              label="Filter issues by repository"
+              size="sm"
+              className={`max-w-60 text-xs ${filterClass}`}
+              label="Filter by repository"
               value={repoFilter}
               onChange={setRepoFilter}
               options={[
                 { value: 'all', label: 'All repositories' },
-                { value: 'draft', label: 'Draft items' },
+                { value: 'draft', label: 'Draft tasks' },
                 ...repositoryOptions.map((repo) => ({ value: repo, label: repo })),
               ]}
             />
           )}
           <Choice
-            label="Sort issues"
-            className="h-8 text-xs"
+            label="Sort tasks"
+            size="sm"
+            className={`text-xs ${filterClass}`}
             value={sort}
             onChange={setSort}
             options={[
@@ -413,7 +560,7 @@ export function ProjectTrackerPanel({
               { value: 'title', label: 'Title A–Z' },
             ]}
           />
-          {(query || status !== 'all' || repoFilter !== 'all') && (
+          {filtered && (
             <Button
               variant="ghost"
               size="sm"
@@ -426,6 +573,19 @@ export function ProjectTrackerPanel({
               Clear filters
             </Button>
           )}
+          <div className="tracker-filter-end">
+            <span className="tracker-count">{plural(items.length, 'task')} shown</span>
+            <SegmentedControl
+              size="sm"
+              label="Task view"
+              value={view}
+              onChange={setView}
+              options={[
+                { value: 'board', label: 'Board', icon: <Columns3 aria-hidden="true" /> },
+                { value: 'list', label: 'List', icon: <List aria-hidden="true" /> },
+              ]}
+            />
+          </div>
         </div>
       ) : embedded ? (
         <p className="py-3 text-sm text-muted-foreground">
@@ -436,61 +596,69 @@ export function ProjectTrackerPanel({
           <GitFork size={24} />
           <h3>Connect your project tracker</h3>
           <p>
-            This existing project remains available. Use Connect {providerName} at the bottom of the
-            sidebar to manage issues alongside your repositories.
+            Connect a {providerName} project to show its tasks next to your repositories. Your
+            repositories and sessions do not change.
           </p>
+          {onConnectTracker && (
+            <Button onClick={onConnectTracker}>Connect {providerName} project</Button>
+          )}
         </div>
-      )}
-      {board && (
-        <TrackerBoard
-          board={board}
-          items={sortedItems}
-          sessions={projectSessions}
-          busy={busy || !descriptor?.capabilities.updateStatus}
-          onCreate={
-            descriptor?.capabilities.createItem && descriptor?.capabilities.updateStatus
-              ? newItem
-              : undefined
-          }
-          onOpen={chooseTask}
-          onStatus={(item, value) => void action(() => client.status(group.id, item.id, value))}
-        />
       )}
       {linkedProject && !items.length && (
-        <div className="tracker-empty-result">
+        <EmptyState compact className="tracker-empty-result">
           {busy
-            ? 'Loading issues…'
+            ? 'Loading tasks…'
             : error
-              ? 'Issues could not be loaded. Retry the connection above.'
-              : 'No tasks to show. Clear filters or create a new item.'}
-        </div>
+              ? 'Tasks could not be loaded. Retry the connection above.'
+              : filtered
+                ? 'No tasks to show. Clear the filters or create a new task.'
+                : 'No tasks to show. Create a new task.'}
+        </EmptyState>
       )}
-      {linkedProject && !embedded && (
-        <footer className="tracker-footer">
-          <span>
-            {items.length} {items.length === 1 ? 'issue' : 'issues'} shown
-          </span>
-          <span role="status">
-            {busy
-              ? `Syncing with ${providerName}…`
-              : syncNotice || `${providerName} · Status field`}
-          </span>
-        </footer>
-      )}
+      {board &&
+        (view === 'list' ? (
+          <div className="tracker-list-view">
+            <TrackerList
+              board={board}
+              items={sortedItems}
+              sessions={projectSessions}
+              busy={busy || !descriptor?.capabilities.updateStatus}
+              onOpen={chooseTask}
+              onStatus={(item, value) => void action(() => client.status(group.id, item.id, value))}
+            />
+          </div>
+        ) : (
+          <TrackerBoard
+            board={board}
+            items={sortedItems}
+            sessions={projectSessions}
+            busy={busy || !descriptor?.capabilities.updateStatus}
+            onCreate={
+              descriptor?.capabilities.createItem && descriptor?.capabilities.updateStatus
+                ? newItem
+                : undefined
+            }
+            onOpen={chooseTask}
+            onStatus={(item, value) => void action(() => client.status(group.id, item.id, value))}
+          />
+        ))}
       <Dialog open={!!modal} onOpenChange={(open) => !open && !busy && closeModal()}>
-        <DialogContent className="max-h-[calc(100dvh-48px)] overflow-y-auto">
-          <DialogHeader className="pr-6">
+        <DialogContent size="md">
+          <DialogHeader>
             <DialogTitle>
               {modal === 'connect'
-                ? `Connect ${providerName} Project`
+                ? `Connect ${providerName} project`
                 : modal === 'issue'
-                  ? 'Add existing issue or pull request'
-                  : 'Create draft item'}
+                  ? 'Add existing task'
+                  : 'New task'}
             </DialogTitle>
             <DialogDescription>
               {modal === 'connect'
                 ? `Choose an existing ${providerName} project or create a new one.`
-                : `This action updates the linked ${providerName} project.`}
+                : modal === 'issue'
+                  ? `Paste the URL of a ${providerName} issue or pull request. ` +
+                    `This action updates the linked ${providerName} project.`
+                  : `This action updates the linked ${providerName} project.`}
             </DialogDescription>
           </DialogHeader>
           {modal === 'connect' && (
@@ -543,33 +711,46 @@ export function ProjectTrackerPanel({
             </div>
           )}
           {modal === 'draft' ? (
-            <>
-              <Input
-                maxLength={256}
-                aria-label="Item title"
-                placeholder="What needs to be done?"
-                value={title}
-                onChange={(e) => setTitle(e.target.value)}
-              />
-              {board?.statusField && descriptor?.capabilities.updateStatus && (
-                <Choice
-                  label="Initial status"
-                  value={draftStatus}
-                  onChange={setDraftStatus}
-                  options={[
-                    { value: '', label: 'Project default' },
-                    ...board.statusField.options.map((o) => ({ value: o.id, label: o.name })),
-                  ]}
+            <div className="space-y-4">
+              <label className="form-label">
+                Title
+                <Input
+                  maxLength={256}
+                  aria-label="Task title"
+                  onKeyDown={submitOnEnter}
+                  placeholder="What needs to be done?"
+                  value={title}
+                  onChange={(e) => setTitle(e.target.value)}
                 />
+              </label>
+              {board?.statusField && descriptor?.capabilities.updateStatus && (
+                <label className="form-label">
+                  Status
+                  <Choice
+                    className="w-full"
+                    label="Initial status"
+                    value={draftStatus}
+                    onChange={setDraftStatus}
+                    options={[
+                      { value: '', label: 'Project default' },
+                      ...board.statusField.options.map((o) => ({ value: o.id, label: o.name })),
+                    ]}
+                  />
+                </label>
               )}
-              <Textarea
-                maxLength={20000}
-                aria-label="Item description"
-                placeholder="Description and acceptance criteria"
-                value={body}
-                onChange={(e) => setBody(e.target.value)}
-              />
-            </>
+              <label className="form-label">
+                Description
+                <Textarea
+                  rows={4}
+                  className="field-sizing-fixed resize-y"
+                  maxLength={20000}
+                  aria-label="Task description"
+                  placeholder="Description and acceptance criteria"
+                  value={body}
+                  onChange={(e) => setBody(e.target.value)}
+                />
+              </label>
+            </div>
           ) : modal === 'connect' ? (
             auth.status === 'ready' && (
               <TrackerProjectPicker
@@ -584,11 +765,12 @@ export function ProjectTrackerPanel({
           ) : (
             <Input
               aria-label={`${providerName} URL`}
-              placeholder="Issue URL"
+              placeholder="Issue or pull request URL"
+              onKeyDown={submitOnEnter}
               value={url}
               onChange={(e) => setUrl(e.target.value)}
             />
-          )}{' '}
+          )}
           {error && (
             <p role="alert" className="text-sm text-destructive">
               {error}
@@ -598,38 +780,7 @@ export function ProjectTrackerPanel({
             <Button variant="outline" disabled={busy} onClick={closeModal}>
               Cancel
             </Button>
-            <Button
-              disabled={
-                busy ||
-                (modal === 'connect' && auth.status !== 'ready') ||
-                (modal === 'draft' ? !title.trim() : !url.trim())
-              }
-              onClick={() =>
-                void action(async () => {
-                  if (modal === 'connect') {
-                    await client.link(group.id, url);
-                    await onRefresh();
-                  } else if (modal === 'issue') await client.importItem(group.id, url);
-                  else {
-                    const createdId = await client.draft(group.id, title, body);
-                    setModal(null);
-                    if (draftStatus) {
-                      try {
-                        if (!createdId)
-                          throw new Error('This tracker did not return the new item ID.');
-                        await client.status(group.id, createdId, draftStatus);
-                      } catch (e) {
-                        await refreshBoard();
-                        throw new Error(
-                          `Item created, but its status could not be set. Move it from the board to retry. ${e instanceof Error ? e.message : String(e)}`,
-                        );
-                      }
-                    }
-                  }
-                  setModal(null);
-                })
-              }
-            >
+            <Button disabled={!modalReady} onClick={submitModal}>
               {busy
                 ? 'Saving…'
                 : modal === 'connect'
@@ -640,128 +791,161 @@ export function ProjectTrackerPanel({
         </DialogContent>
       </Dialog>
       <Dialog open={!!task} onOpenChange={(open) => !open && !taskBusy && setTask(null)}>
-        <DialogContent className="tracker-issue-detail">
-          <div className="tracker-issue-nav">
-            <span>{task?.number ? `#${task.number}` : 'Draft item'}</span>
-            <div>
-              <Button
-                variant="ghost"
-                size="icon-sm"
-                aria-label="Previous issue"
-                disabled={taskBusy || taskIndex <= 0}
-                onClick={() => chooseTask(sortedItems[taskIndex - 1])}
-              >
-                <ChevronLeft size={16} />
-              </Button>
-              <Button
-                variant="ghost"
-                size="icon-sm"
-                aria-label="Next issue"
-                disabled={taskBusy || taskIndex < 0 || taskIndex >= sortedItems.length - 1}
-                onClick={() => chooseTask(sortedItems[taskIndex + 1])}
-              >
-                <ChevronRight size={16} />
-              </Button>
-            </div>
-          </div>
-          <DialogHeader className="pr-6">
-            <DialogTitle>{task?.title}</DialogTitle>
-            <DialogDescription>
-              {task?.repository || 'Project task'} · {task?.status || 'No status'}
-            </DialogDescription>
-          </DialogHeader>
-          {task && board?.statusField && (
-            <Choice
-              label="Issue status"
-              value={task.statusId || ''}
-              disabled={busy || !descriptor?.capabilities.updateStatus}
-              onChange={(value) => void action(() => client.status(group.id, task.id, value))}
-              options={[
-                ...(!task.statusId ? [{ value: '', label: 'No status' }] : []),
-                ...board.statusField.options.map((o) => ({ value: o.id, label: o.name })),
-              ]}
-            />
-          )}
-          {error && (
-            <p role="alert" className="text-sm text-destructive">
-              {error}
-            </p>
-          )}
-          <div className="tracker-issue-description">
-            <Markdown remarkPlugins={[remarkGfm]}>{task?.body || 'No description yet.'}</Markdown>
-          </div>
-          {task?.url && <Input aria-label="Issue URL" readOnly value={task.url} />}
-          <div className="tracker-work-heading">Work on this issue</div>
-          <p className="text-xs font-medium text-muted-foreground">Work in repository</p>
-          <Choice
-            className="w-full"
-            label="Task repository"
-            disabled={taskBusy}
-            value={repoId}
-            onChange={setRepoId}
-            options={[
-              { value: '', label: 'Choose repository' },
-              ...repos.map((r) => ({ value: r.id, label: r.name })),
-            ]}
-          />
-          {task &&
-            projectSessions.filter(
-              (s) => !s.organization?.archived && s.organization?.taskId === task.id,
-            ).length > 0 && (
-              <div className="space-y-2">
-                <p className="text-xs font-medium">Continue existing work</p>
-                {projectSessions
-                  .filter((s) => !s.organization?.archived && s.organization?.taskId === task.id)
-                  .map((s) => (
-                    <Button
-                      className="w-full justify-start truncate"
-                      variant="outline"
-                      key={s.agent + s.id}
-                      onClick={() => {
-                        onResume(s);
-                        setTask(null);
-                      }}
-                    >
-                      {s.agent === 'codex' ? 'Codex' : 'Claude'} ·{' '}
-                      {s.organization?.title || s.title}
-                    </Button>
-                  ))}
+        <DialogContent className="tracker-issue-detail top-0 right-0 left-auto flex h-dvh max-h-dvh w-[min(560px,100vw)] max-w-[100vw] translate-x-0 translate-y-0 flex-col gap-0 overflow-hidden rounded-none border-0 border-l p-0 sm:max-w-[100vw] data-[state=closed]:zoom-out-100 data-[state=open]:zoom-in-100 [&>[data-slot=dialog-close]]:top-4 [&>[data-slot=dialog-close]]:right-6">
+          <div className="tracker-issue-body">
+            <div className="tracker-issue-nav">
+              <span>{task?.number ? `#${task.number}` : 'Draft task'}</span>
+              <div>
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  aria-label="Previous task"
+                  disabled={taskBusy || taskIndex <= 0}
+                  onClick={() => chooseTask(sortedItems[taskIndex - 1])}
+                >
+                  <ChevronLeft size={16} />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  aria-label="Next task"
+                  disabled={taskBusy || taskIndex < 0 || taskIndex >= sortedItems.length - 1}
+                  onClick={() => chooseTask(sortedItems[taskIndex + 1])}
+                >
+                  <ChevronRight size={16} />
+                </Button>
               </div>
+            </div>
+            <DialogHeader className="pr-0">
+              <DialogTitle className="tracker-issue-title">{task?.title}</DialogTitle>
+              <DialogDescription className="sr-only">
+                {task?.repository || 'Project task'}
+              </DialogDescription>
+            </DialogHeader>
+            <dl className="tracker-issue-properties">
+              <dt>Status</dt>
+              <dd>
+                {task && board?.statusField ? (
+                  <Choice
+                    size="sm"
+                    className="-ml-2.5 border-transparent shadow-none hover:bg-[var(--surface-hover)] dark:bg-transparent dark:hover:bg-[var(--surface-hover)]"
+                    label="Task status"
+                    value={task.statusId || ''}
+                    disabled={busy || !descriptor?.capabilities.updateStatus}
+                    onChange={(value) => void action(() => client.status(group.id, task.id, value))}
+                    options={[
+                      ...(!task.statusId ? [{ value: '', label: 'No status' }] : []),
+                      ...board.statusField.options.map((o) => ({ value: o.id, label: o.name })),
+                    ]}
+                  />
+                ) : (
+                  <span className="flex items-center gap-1.5">
+                    <StatusIcon name={task?.status || 'No status'} />
+                    {task?.status || 'No status'}
+                  </span>
+                )}
+              </dd>
+              <dt>Repository</dt>
+              <dd className="truncate" title={task?.repository}>
+                {task?.repository || 'None'}
+              </dd>
+              <dt>Linked sessions</dt>
+              <dd>{linkedSessions.length || 'None'}</dd>
+            </dl>
+            {error && (
+              <p role="alert" className="text-sm text-destructive">
+                {error}
+              </p>
             )}
-          <p className="text-xs font-medium text-muted-foreground">Checkout</p>
-          <Choice
-            className="w-full"
-            label="Task checkout"
-            disabled={taskBusy}
-            value={checkout}
-            onChange={setCheckout}
-            options={[
-              { value: 'current', label: 'Current checkout' },
-              { value: 'worktree', label: 'New worktree' },
-            ]}
-          />
-          {checkout === 'worktree' && (
-            <label className="form-label">
-              New branch
-              <Input
-                aria-label="Task branch"
-                disabled={taskBusy}
-                value={taskBranch}
-                onChange={(e) => setTaskBranch(e.target.value)}
-                placeholder="feature/task-name"
-              />
-            </label>
-          )}
-          {taskError && (
-            <p role="alert" className="text-sm text-destructive">
-              {taskError}
-            </p>
-          )}
-          <p className="text-xs text-muted-foreground">
-            Choose where the agent should work. You can review the prompt before sending.
-          </p>
-          <DialogFooter>
-            {(['codex', 'claude'] as Agent[]).map((agent) => (
+            <div className="tracker-issue-description prose-ui" data-size="sm">
+              <Markdown remarkPlugins={[remarkGfm]} components={{ a: ExternalAnchor }}>
+                {task?.body || 'No description yet.'}
+              </Markdown>
+            </div>
+            {task?.url && (
+              <Button asChild variant="outline" size="sm" className="self-start">
+                <a href={task.url} target="_blank" rel="noreferrer">
+                  <ExternalLink size={14} aria-hidden="true" />
+                  Open issue on {providerName}
+                </a>
+              </Button>
+            )}
+            <section className="tracker-work" aria-label="Work on this task">
+              <SectionHeader title="Work on this task" />
+              <div className="space-y-4">
+                <label className="form-label">
+                  Repository
+                  <Choice
+                    className="w-full"
+                    label="Task repository"
+                    disabled={taskBusy}
+                    value={repoId}
+                    onChange={setRepoId}
+                    options={[
+                      { value: '', label: 'Choose repository' },
+                      ...repos.map((r) => ({ value: r.id, label: r.name })),
+                    ]}
+                  />
+                </label>
+                {linkedSessions.length > 0 && (
+                  <div className="form-label">
+                    Continue existing work
+                    <div className="space-y-2 font-normal text-foreground">
+                      {linkedSessions.map((s) => (
+                        <Button
+                          className="w-full justify-start truncate"
+                          variant="outline"
+                          key={s.agent + s.id}
+                          onClick={() => {
+                            onResume(s);
+                            setTask(null);
+                          }}
+                        >
+                          {agentLabel(s.agent)} · {s.organization?.title || s.title}
+                        </Button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                <label className="form-label">
+                  Checkout
+                  <Choice
+                    className="w-full"
+                    label="Task checkout"
+                    disabled={taskBusy}
+                    value={checkout}
+                    onChange={setCheckout}
+                    options={[
+                      { value: 'current', label: 'Current checkout' },
+                      { value: 'worktree', label: 'New worktree' },
+                    ]}
+                  />
+                </label>
+                {checkout === 'worktree' && (
+                  <label className="form-label">
+                    New branch
+                    <Input
+                      aria-label="Task branch"
+                      disabled={taskBusy}
+                      value={taskBranch}
+                      onChange={(e) => setTaskBranch(e.target.value)}
+                      placeholder="feature/task-name"
+                    />
+                  </label>
+                )}
+                {taskError && (
+                  <p role="alert" className="text-sm text-destructive">
+                    {taskError}
+                  </p>
+                )}
+                <p className="text-xs text-muted-foreground">
+                  Choose where the agent should work. You can review the prompt before sending.
+                </p>
+              </div>
+            </section>
+          </div>
+          <DialogFooter className="tracker-issue-footer">
+            {agentCatalog.map(({ id: agent, name }, index) => (
               <Button
                 key={agent}
                 disabled={
@@ -769,10 +953,10 @@ export function ProjectTrackerPanel({
                   !repos.some((r) => r.id === repoId) ||
                   (checkout === 'worktree' && !taskBranch.trim())
                 }
-                variant={agent === 'codex' ? 'default' : 'outline'}
+                variant={index === 0 ? 'default' : 'outline'}
                 onClick={() => void startTask(agent)}
               >
-                {agent === 'codex' ? 'Open in Codex' : 'Open in Claude Code'}
+                Open in {name}
               </Button>
             ))}
           </DialogFooter>

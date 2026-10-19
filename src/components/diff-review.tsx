@@ -1,9 +1,53 @@
 import { useState } from 'react';
-import { ChevronLeft, ChevronRight } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Paperclip } from 'lucide-react';
 import type { RepositoryDiff } from '../types';
 import { diffFiles } from '../lib/diff-files';
+import { pathBasename, plural } from '../lib/platform';
 import { Button } from './ui/button';
-import { Choice } from './choice';
+
+type DiffLineKind = 'header' | 'hunk' | 'add' | 'remove' | 'context';
+interface DiffLine {
+  kind: DiffLineKind;
+  text: string;
+  oldNumber?: number;
+  newNumber?: number;
+}
+
+/** Splits a file patch into lines with old and new line numbers. */
+function numberLines(patch: string): DiffLine[] {
+  const lines = patch.split('\n');
+  // A patch ends with a newline. Do not show the empty last line as a context line.
+  if (lines.at(-1) === '') lines.pop();
+  // A new, untracked file has only added lines and no Git header.
+  const plain = !lines.some((line) => line.startsWith('@@') || line.startsWith('diff --git'));
+  let inHunk = plain;
+  let oldNumber = 1;
+  let newNumber = 1;
+  return lines.map((text) => {
+    const hunk = text.match(/^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/);
+    if (hunk) {
+      inHunk = true;
+      oldNumber = Number(hunk[1]);
+      newNumber = Number(hunk[2]);
+      return { kind: 'hunk', text };
+    }
+    if (!inHunk || text.startsWith('diff --git')) {
+      inHunk = false;
+      return { kind: 'header', text };
+    }
+    if (text.startsWith('+')) return { kind: 'add', text, newNumber: newNumber++ };
+    if (text.startsWith('-')) return { kind: 'remove', text, oldNumber: oldNumber++ };
+    if (text.startsWith('\\')) return { kind: 'header', text };
+    return { kind: 'context', text, oldNumber: oldNumber++, newNumber: newNumber++ };
+  });
+}
+const lineClass: Record<DiffLineKind, string> = {
+  header: 'diff-line diff-header',
+  hunk: 'diff-line diff-location',
+  add: 'diff-line diff-addition',
+  remove: 'diff-line diff-deletion',
+  context: 'diff-line',
+};
 
 export function DiffReview({
   diff,
@@ -60,10 +104,10 @@ export function DiffReview({
       <p className="py-8 text-center text-sm text-muted-foreground">No changes in this scope.</p>
     );
   return (
-    <section aria-label="File change review" className="space-y-3">
-      <div className="flex flex-wrap items-center gap-2">
+    <section aria-label="File change review" className="diff-review">
+      <div className="flex shrink-0 flex-wrap items-center gap-2">
         <span className="mr-auto text-xs text-muted-foreground">
-          {files.length} changed {files.length === 1 ? 'file' : 'files'}
+          {plural(files.length, 'changed file')}
         </span>
         <Button
           variant="ghost"
@@ -87,38 +131,49 @@ export function DiffReview({
           <ChevronRight />
         </Button>
       </div>
-      <Choice
-        className="w-full min-w-0"
-        label="Changed file"
-        value={current.key}
-        onChange={setSelection}
-        options={files.map((file) => ({
-          value: file.key,
-          label: `${file.path} · +${file.added} −${file.removed}`,
-        }))}
-      />
-      <div className="flex flex-wrap gap-2 text-xs">
+      <ul className="diff-file-list" aria-label="Changed files">
+        {files.map((file) => (
+          <li key={file.key}>
+            <button
+              type="button"
+              className="diff-file"
+              aria-current={file.key === current.key ? 'true' : undefined}
+              title={file.path}
+              onClick={() => setSelection(file.key)}
+            >
+              <span className="diff-file-name">{pathBasename(file.path)}</span>
+              {pathBasename(file.path) !== file.path && (
+                <span className="diff-file-path">{file.path}</span>
+              )}
+              <span className="diff-count-add">+{file.added}</span>
+              <span className="diff-count-remove">−{file.removed}</span>
+            </button>
+          </li>
+        ))}
+      </ul>
+      <div className="flex shrink-0 flex-wrap gap-2 text-xs">
         <span className="min-w-0 flex-1 break-all font-mono">{current.path}</span>
-        <span className="text-emerald-400">+{current.added}</span>
-        <span className="text-red-400">−{current.removed}</span>
+        <span className="text-diff-add">+{current.added}</span>
+        <span className="text-diff-remove">−{current.removed}</span>
       </div>
-      {current.note && <p className="text-xs text-muted-foreground">{current.note}</p>}
-      <pre key={current.key} aria-label="Git diff" className="tool-output diff-output max-h-[55vh]">
+      {current.note && <p className="shrink-0 text-xs text-muted-foreground">{current.note}</p>}
+      <pre
+        key={current.key}
+        role="region"
+        tabIndex={0}
+        aria-label="Git diff"
+        className="tool-output diff-output"
+      >
         {current.patch
-          ? current.patch.split('\n').map((line, index) => (
-              <span
-                key={index}
-                className={
-                  line.startsWith('+')
-                    ? 'diff-addition'
-                    : line.startsWith('-')
-                      ? 'diff-deletion'
-                      : line.startsWith('@@')
-                        ? 'diff-location'
-                        : ''
-                }
-              >
-                {line}
+          ? numberLines(current.patch).map((line, index) => (
+              <span key={index} className={lineClass[line.kind]}>
+                <span className="diff-gutter" aria-hidden="true">
+                  {line.oldNumber ?? ''}
+                </span>
+                <span className="diff-gutter" aria-hidden="true">
+                  {line.newNumber ?? ''}
+                </span>
+                <span className="diff-text">{line.text}</span>
                 {'\n'}
               </span>
             ))
@@ -127,10 +182,12 @@ export function DiffReview({
       <Button
         size="sm"
         variant="outline"
+        className="self-start"
         disabled={disabled || !current.patch}
         onClick={() => onAttach(current.path, current.patch)}
       >
-        Attach this file’s changes
+        <Paperclip size={14} aria-hidden="true" />
+        Attach file to message
       </Button>
     </section>
   );

@@ -1,12 +1,22 @@
+import { Check } from 'lucide-react';
 import { projectColors, type ProjectColor } from '../domain/project-colors';
 import type { ReactElement } from 'react';
 import { ContextMenu } from 'radix-ui';
+import { cn } from '../lib/utils';
+import {
+  menuContentClass,
+  menuItemClass,
+  menuLabelClass,
+  menuSeparatorClass,
+} from './ui/menu-styles';
 
 export interface TreeAction {
   label: string;
   action(): void;
   disabled?: boolean;
   destructive?: boolean;
+  /** Tells the user why the action is disabled. */
+  reason?: string;
 }
 export function TreeContextMenu({
   children,
@@ -43,15 +53,10 @@ export function TreeContextMenu({
         {children}
       </ContextMenu.Trigger>
       <ContextMenu.Portal>
-        <ContextMenu.Content
-          className="z-50 min-w-48 rounded-md border bg-popover p-1 text-popover-foreground shadow-md"
-          aria-label="Explorer actions"
-        >
+        <ContextMenu.Content className={menuContentClass} aria-label="Explorer actions">
           {folderColor && (
             <>
-              <ContextMenu.Label className="px-2 py-1.5 text-xs text-muted-foreground">
-                Folder color
-              </ContextMenu.Label>
+              <ContextMenu.Label className={menuLabelClass}>Folder color</ContextMenu.Label>
               <ContextMenu.RadioGroup
                 value={folderColor.value || 'default'}
                 onValueChange={(value) =>
@@ -64,16 +69,21 @@ export function TreeContextMenu({
                       key={name}
                       value={name}
                       disabled={folderColor.disabled}
-                      className="flex items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none focus:bg-accent data-[disabled]:opacity-50"
+                      className={menuItemClass}
                     >
-                      <span className="size-3 rounded-full" style={{ backgroundColor: color }} />
+                      <span
+                        className="size-3 shrink-0 rounded-full"
+                        style={{ backgroundColor: color }}
+                      />
                       <span className="flex-1">{name[0].toUpperCase() + name.slice(1)}</span>
-                      <ContextMenu.ItemIndicator aria-hidden="true">✓</ContextMenu.ItemIndicator>
+                      <ContextMenu.ItemIndicator aria-hidden="true">
+                        <Check />
+                      </ContextMenu.ItemIndicator>
                     </ContextMenu.RadioItem>
                   ),
                 )}
               </ContextMenu.RadioGroup>
-              <ContextMenu.Separator className="my-1 h-px bg-border" />
+              <ContextMenu.Separator className={menuSeparatorClass} />
             </>
           )}
           {actions.map((item) => (
@@ -81,12 +91,18 @@ export function TreeContextMenu({
               key={item.label}
               disabled={item.disabled}
               onSelect={item.action}
-              className={
-                'relative flex cursor-default select-none items-center rounded-sm px-2 py-1.5 text-sm outline-hidden focus:bg-accent data-[disabled]:pointer-events-none data-[disabled]:opacity-50' +
-                (item.destructive ? ' text-destructive focus:bg-destructive/10' : '')
-              }
+              className={cn(
+                menuItemClass,
+                // An item with a reason shows a second line, so it is taller.
+                item.disabled && item.reason && 'h-auto flex-col items-start gap-0 py-1.5',
+                item.destructive &&
+                  'text-destructive focus:bg-destructive/10 focus:text-destructive',
+              )}
             >
               {item.label}
+              {item.disabled && item.reason && (
+                <span className="text-xs text-muted-foreground">{item.reason}</span>
+              )}
             </ContextMenu.Item>
           ))}
         </ContextMenu.Content>

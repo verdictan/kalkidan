@@ -1,50 +1,4 @@
-/* Conversation tools stay with the draft, without squeezing the message area. */
-.composer-dock {
-  width: min(calc(100% - 40px), 784px);
-  align-self: center;
-  flex-shrink: 0;
-  padding: 8px 0 16px;
-}
-.composer-dock .conversation-composer {
-  margin: 0;
-  padding: 10px;
-  gap: 8px;
-  border-radius: 26px;
-  background: var(--card);
-  border-color: var(--border);
-  box-shadow: none;
-}
-.conversation-tools {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 4px;
-  padding: 6px 0;
-}
-.conversation-tools button {
-  color: var(--muted-foreground);
-  font-size: 12px;
-  height: 30px;
-}
-.context-attachments {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-.context-attachments > div {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  padding: 2px 4px 2px 10px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--muted);
-  font-size: 11px;
-}
-.context-attachments button {
-  width: 24px;
-  height: 24px;
-}
+/* Tool output, diffs and the Changes panel. */
 .tool-output {
   min-height: 160px;
   max-height: 42vh;
@@ -52,11 +6,14 @@
   border: 1px solid var(--border);
   border-radius: 8px;
   background: var(--muted);
-  padding: 14px;
+  padding: 12px;
   font:
     12px/1.65 ui-monospace,
+    'SF Mono',
     SFMono-Regular,
     Menlo,
+    Consolas,
+    'DejaVu Sans Mono',
     monospace;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
@@ -66,66 +23,148 @@
   overflow-wrap: normal;
 }
 .diff-addition {
-  color: #8fd3a3;
-  background: #1a3225;
+  color: var(--diff-add);
+  background: var(--diff-add-surface);
 }
 .diff-deletion {
-  color: #f2a3a3;
-  background: #392326;
+  color: var(--diff-remove);
+  background: var(--diff-remove-surface);
 }
 .diff-location {
-  color: #a6b8e9;
+  color: var(--link);
 }
-.conversation-empty .conversation-messages {
-  flex: 1;
-  max-height: none;
-  padding-bottom: 40px;
+.diff-header {
+  color: var(--muted-foreground);
 }
-.conversation-empty .composer-dock {
-  margin-bottom: 0;
+.diff-gutter {
+  display: inline-block;
+  width: 4ch;
+  margin-right: 1ch;
+  text-align: right;
+  color: var(--muted-foreground);
+  opacity: 0.7;
+  user-select: none;
 }
-.conversation-welcome h3 {
-  font-size: 26px;
-}
-@media (max-height: 740px) {
-  .conversation-empty .conversation-messages {
-    max-height: 30%;
-  }
-  .conversation-welcome {
-    padding: 8px 0;
-  }
-  .conversation-welcome h3 {
-    font-size: 22px;
-  }
-}
-
-/* Workbench tabs follow the desktop reference and keep every tool mounted. */
-.topbar-brand {
-  background: var(--chrome);
-}
-.conversation-metadata {
-  flex-shrink: 0;
-  padding: 0 16px 6px;
-}
-.conversation-tool-dock {
-  order: -1;
-  flex-shrink: 0;
+/* The Changes panel is a column. Only the diff scrolls; the file list has a short scroll. */
+.diff-panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
   min-height: 0;
 }
-.conversation-tools {
-  flex-wrap: nowrap;
-  padding: 6px 10px;
-  gap: 4px;
-  border-bottom: 1px solid var(--border);
-  background: var(--chrome);
+.diff-panel-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 12px;
+  overflow: auto;
 }
-.conversation-tools button {
-  height: 32px;
-  border-radius: 8px;
+.diff-review {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
 }
-.conversation-tools button[aria-pressed='true'] {
-  background: #353b41;
+.diff-review .diff-output {
+  flex: 1;
+  min-height: 120px;
+  max-height: none;
+}
+.diff-file-list {
+  display: grid;
+  flex-shrink: 0;
+  gap: 2px;
+  max-height: 120px;
+  overflow: auto;
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+.diff-file {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  width: 100%;
+  min-width: 0;
+  padding: 4px 8px;
+  border-radius: 6px;
+  font-size: 12px;
+  text-align: left;
+  color: var(--muted-foreground);
+}
+.diff-file:hover {
+  background: var(--surface-hover);
   color: var(--foreground);
+}
+.diff-file:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: -2px;
+}
+.diff-file[aria-current='true'] {
+  background: var(--surface-selected);
+  color: var(--foreground);
+}
+.diff-file-name {
+  flex-shrink: 0;
+  font-weight: 500;
+}
+.diff-file-path {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+  opacity: 0.7;
+}
+.diff-count-add {
+  color: var(--diff-add);
+  font-variant-numeric: tabular-nums;
+}
+.diff-count-remove {
+  color: var(--diff-remove);
+  font-variant-numeric: tabular-nums;
+}
+
+/* One toolbar for the tool panes: browser, find, device, Changes and the terminal footer.
+   Controls are 28px. A status bar is 24px with 11px text. */
+.tool-toolbar {
+  display: flex;
+  flex-shrink: 0;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  min-height: 36px;
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+  color: var(--muted-foreground);
+}
+.tool-toolbar-footer {
+  flex-wrap: nowrap;
+  border-top: 1px solid var(--border);
+  border-bottom: 0;
+}
+.tool-statusbar {
+  flex-shrink: 0;
+  height: 24px;
+  padding: 0 12px;
+  overflow: hidden;
+  border-top: 1px solid var(--border);
+  font-size: 11px;
+  line-height: 24px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--muted-foreground);
+}
+
+/* Tool panes stay mounted next to the chat. */
+.conversation-tool-dock {
+  flex-shrink: 0;
+  min-height: 0;
 }
 .conversation-tool-dock.is-open {
   display: flex;
@@ -137,7 +176,6 @@
   min-height: 0;
   overflow: hidden;
 }
-
 .terminal-pane,
 .browser-pane {
   height: 100%;
@@ -153,7 +191,7 @@
 .terminal-emulator {
   min-height: 0;
   flex: 1;
-  padding: 16px;
+  padding: 12px;
   background: var(--background);
   overflow: hidden;
 }
@@ -166,17 +204,8 @@
   color: var(--muted-foreground);
   font-size: 13px;
 }
-.browser-pane > form {
-  background: var(--background);
-  padding: 10px;
-  gap: 6px;
-}
-.browser-pane > form input {
-  border-radius: 999px;
-  background: var(--composer);
-  height: 36px;
-  padding-inline: 16px;
-}
+
+/* The tool launcher: title and location, then one row for each tool. */
 .tool-launcher {
   max-width: 980px;
   margin: auto;
@@ -185,25 +214,19 @@
   overflow: auto;
 }
 .tool-launcher-heading {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 16px;
-  margin-bottom: 40px;
+  display: grid;
+  gap: 4px;
+  margin-bottom: 24px;
 }
 .tool-launcher-heading h2 {
-  font-size: 22px;
-  font-weight: 500;
-  letter-spacing: -0.5px;
+  font-size: 20px;
+  line-height: 28px;
+  font-weight: 600;
 }
 .tool-launcher-heading p {
   font-size: 12px;
+  line-height: 16px;
   color: var(--muted-foreground);
-}
-.tool-launcher h3 {
-  font-size: 13px;
-  font-weight: 500;
-  margin-bottom: 16px;
 }
 .tool-launcher-grid {
   display: grid;
@@ -212,15 +235,9 @@
 }
 .tool-launcher-grid button {
   width: 100%;
-  height: 48px;
-  justify-content: flex-start;
-  border-radius: 10px;
-  padding: 12px 16px;
-  background: var(--muted);
-  font-weight: 400;
 }
 .tool-launcher-grid button:hover {
-  background: var(--accent);
+  background: var(--surface-hover);
 }
 .tool-launcher-grid span {
   flex: 1;
@@ -228,17 +245,16 @@
 }
 .tool-launcher-grid kbd {
   font: 11px inherit;
-  border-radius: 6px;
-  background: var(--secondary);
+  border-radius: 4px;
+  background: var(--muted);
   color: var(--muted-foreground);
   padding: 2px 6px;
 }
-.tool-launcher-help {
-  margin-top: 48px;
-  max-width: 520px;
-  color: var(--muted-foreground);
-  font-size: 13px;
-  line-height: 1.8;
+.conversation-tool-panel .tool-launcher {
+  padding: 24px;
+}
+.conversation-tool-panel .tool-launcher-grid {
+  grid-template-columns: 1fr;
 }
 @media (max-width: 800px) {
   .topbar-actions {
@@ -247,17 +263,12 @@
   .management-pane {
     padding: 16px;
   }
-  .tool-launcher {
-    padding: 24px;
-  }
   .tool-launcher-grid {
     grid-template-columns: 1fr;
   }
-  .conversation-tools button {
-    font-size: 11px;
-    padding-inline: 7px;
-  }
 }
+
+/* Workbench tabs follow the desktop reference and keep every tool mounted. */
 
 .pinned-sessions {
   margin-bottom: 22px;
@@ -286,7 +297,7 @@
 }
 .tree-host small {
   margin-left: auto;
-  font-size: 10px;
+  font-size: 11px;
 }
 .tree-host > span {
   width: 6px;
@@ -296,21 +307,7 @@
   background: var(--muted-foreground);
 }
 .tree-host .host-connected {
-  background: #71c78a;
-}
-
-.titlebar-tools:empty {
-  display: none;
-}
-.titlebar-tools {
-  padding-right: 8px;
-  margin-right: 4px;
-  border-right: 1px solid var(--border);
-  -webkit-app-region: no-drag;
-}
-.titlebar-tools button[aria-pressed='true'] {
-  background: var(--accent);
-  color: var(--foreground);
+  background: var(--success);
 }
 
 .agent-panes.has-side-chat {
@@ -319,19 +316,13 @@
   gap: 0;
 }
 .agent-panes.has-side-chat > .agent-pane:not([hidden]) {
+  display: flex;
+  flex-direction: column;
   min-width: 0;
+  min-height: 0;
 }
 .agent-panes.has-side-chat > .agent-pane:not([hidden]) ~ .agent-pane:not([hidden]) {
   border-left: 1px solid var(--border);
-}
-.agent-panes.has-side-chat .composer-controls {
-  flex-wrap: wrap;
-}
-
-.agent-panes.has-side-chat > .agent-pane:not([hidden]) {
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
 }
 .agent-panes.has-side-chat .conversation-panel {
   flex: 1;
@@ -369,7 +360,6 @@
   grid-template-columns: clamp(240px, var(--chat-width), calc(100% - 281px)) 1px minmax(0, 1fr);
 }
 .conversation-split .conversation-tool-dock {
-  order: 0;
   min-width: 0;
   min-height: 0;
 }
@@ -385,6 +375,11 @@
   position: relative;
   outline: none;
 }
+.tool-divider::after {
+  content: '';
+  position: absolute;
+  inset: 0 -4px;
+}
 .tool-divider:hover,
 .tool-divider:focus-visible,
 .resizing .tool-divider {
@@ -394,156 +389,80 @@
   user-select: none;
   cursor: col-resize;
 }
+.tools-expanded .composer-dock {
+  padding: 8px 0 12px;
+}
+.tools-expanded .composer-actions {
+  flex-wrap: nowrap;
+}
+.tools-expanded .conversation-welcome {
+  padding: 20px 0;
+}
+
+/* The tool tab bar sits in the title bar slot. Tabs are 28px with a close button that
+   shows on hover, selection and focus. */
 .tool-tabbar {
   display: flex;
   align-items: center;
   gap: 2px;
-  min-height: 42px;
-  padding: 4px 6px;
-  background: var(--chrome);
-  border-bottom: 1px solid var(--border);
+  height: 100%;
+  min-width: 0;
 }
 .tool-tabs {
   display: flex;
+  align-items: center;
   min-width: 0;
   flex: 1;
-  gap: 4px;
+  gap: 2px;
   overflow: auto;
   scrollbar-width: thin;
 }
 .tool-tab {
   display: flex;
   align-items: center;
-  min-width: 110px;
+  flex-shrink: 0;
+  height: 28px;
+  min-width: 96px;
   max-width: 220px;
-  border-radius: 8px;
+  padding-right: 4px;
+  border-radius: 6px;
   color: var(--muted-foreground);
 }
-.tool-tab.selected {
-  background: var(--accent);
+.tool-tab:hover {
+  background: var(--surface-hover);
   color: var(--foreground);
 }
-.tool-tab > button[role='tab'] {
-  min-width: 0;
-  height: 32px;
-  gap: 8px;
-  font-size: 12px;
-  font-weight: 400;
-  flex: 1;
-  justify-content: flex-start;
-  padding-inline: 8px;
+.tool-tab.selected {
+  background: var(--surface-selected);
+  color: var(--foreground);
 }
 .tool-tab span {
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
 }
+.tool-tab-close {
+  opacity: 0;
+}
+.tool-tab:hover .tool-tab-close,
+.tool-tab:focus-within .tool-tab-close,
+.tool-tab.selected .tool-tab-close {
+  opacity: 1;
+}
 .tool-tab-content {
   height: 100%;
   min-height: 0;
   overflow: hidden;
 }
-.tool-tab-content[hidden] {
+.tool-tab-content[hidden],
+.tool-tabs[hidden],
+.tool-tabbar button[hidden] {
   display: none;
 }
-.tools-expanded .conversation-messages {
-  padding-inline: 16px;
-}
-.tools-expanded .composer-dock {
-  padding: 8px 0 12px;
-}
-.tools-expanded .conversation-composer {
-  padding: 10px;
-}
-.tools-expanded .composer-actions {
-  flex-wrap: nowrap;
-  gap: 6px;
-}
-.tools-expanded .composer-shortcut {
-  display: none;
-}
-.tools-expanded .conversation-welcome h3 {
-  font-size: 23px;
-}
-.tools-expanded .conversation-welcome {
-  padding: 20px 0;
-}
-.conversation-tool-panel .tool-launcher {
-  padding: 28px 20px;
-}
-.conversation-tool-panel .tool-launcher-grid {
-  grid-template-columns: 1fr;
-}
-.browser-pane > form {
-  flex-wrap: wrap;
-  padding: 6px;
-  gap: 2px;
-}
-.browser-pane > form input[aria-label='Preview URL'] {
-  flex: 1;
-  width: 80px;
-  min-width: 80px;
-  padding-inline: 10px;
-}
-.browser-find,
-.browser-device {
-  display: flex;
-  flex-shrink: 0;
-  align-items: center;
-  gap: 4px;
-  padding: 6px;
-  border-bottom: 1px solid var(--border);
-}
-.browser-device {
-  flex-wrap: wrap;
-  font-size: 11px;
-}
-.browser-device input {
-  width: 64px;
-  height: 28px;
-  padding: 4px;
-  font-size: 11px;
-}
-.browser-device button[role='combobox'] {
-  width: 112px;
-  height: 28px;
-  font-size: 11px;
-}
-.browser-find input {
-  min-width: 0;
-  flex: 1;
-  height: 28px;
-}
 
-.desktop-app:not(.navigation-collapsed) {
-  --navigation-width: 260px;
-}
-
-.tracker-task-menu {
-  position: absolute;
-  right: 4px;
-  top: 4px;
-  color: var(--muted-foreground);
-}
-
-.composer-dock .conversation-composer:focus-within {
-  border-color: var(--ring);
-}
-
-.tool-divider::after {
-  content: '';
-  position: absolute;
-  inset: 0 -4px;
-}
 #conversation-titlebar-heading {
   flex: 1;
   min-width: 0;
-}
-#conversation-titlebar-heading .conversation-toolbar {
-  border-right: 1px solid var(--border);
-  padding: 0 0 0 8px;
-  min-width: 0;
-  gap: 4px;
 }
 #conversation-titlebar-tabs:empty,
 #conversation-titlebar-heading:empty {
@@ -552,47 +471,25 @@
 #conversation-titlebar-tabs {
   flex: 1;
   min-width: 0;
+  align-self: stretch;
+  display: flex;
+  align-items: center;
+  padding-inline: 4px;
   -webkit-app-region: no-drag;
 }
-#conversation-titlebar-tabs .tool-tabbar {
-  min-width: 0;
-  height: 40px;
-  min-height: 0;
-  padding: 0;
-  border-bottom: 0;
-  background: transparent;
-}
-.topbar-content {
-  gap: 8px;
-  padding-inline: 12px;
-}
-@media (max-width: 1100px) {
-  .app-shell:has(#conversation-titlebar-tabs [data-expanded='true']) {
-    --titlebar-height: 90px;
-  }
-  .topbar-content:has(#conversation-titlebar-tabs [data-expanded='true']) {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) auto;
-    grid-template-rows: 48px 42px;
-  }
-  #conversation-titlebar-heading {
-    grid-column: 1;
-    grid-row: 1;
-  }
-  .topbar-actions {
-    grid-column: 2;
-    grid-row: 1;
-  }
-  #conversation-titlebar-tabs {
-    grid-column: 1 / -1;
-    grid-row: 2;
-  }
-}
-
 #conversation-titlebar-tabs:has([data-expanded='false']) {
   flex: 0 0 auto;
 }
-.tool-tabs[hidden],
-.tool-tabbar button[hidden] {
-  display: none;
+/* Narrow windows keep one title bar row. The breadcrumb and the tool tabs share the
+   width, the breadcrumb truncates, and the tab strip scrolls. */
+@media (max-width: 1100px) {
+  #conversation-titlebar-heading {
+    flex: 1 1 40%;
+  }
+  #conversation-titlebar-tabs {
+    flex: 1 1 60%;
+  }
+  .tool-tab {
+    min-width: 88px;
+  }
 }

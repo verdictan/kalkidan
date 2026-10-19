@@ -4,12 +4,13 @@ import type { TrackerBoard, TrackerItem, Session } from '../types';
 import { Button } from './ui/button';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table';
 import { Choice } from './choice';
+import { plural } from '../lib/platform';
 
 export function StatusIcon({ name }: { name: string }) {
   if (/done|complete|closed/i.test(name))
-    return <CircleCheck size={14} className="shrink-0 text-indigo-500" aria-hidden="true" />;
+    return <CircleCheck size={14} className="shrink-0 text-success" aria-hidden="true" />;
   if (/progress|doing|review/i.test(name))
-    return <CircleDot size={14} className="shrink-0 text-amber-500" aria-hidden="true" />;
+    return <CircleDot size={14} className="shrink-0 text-warning" aria-hidden="true" />;
   if (/backlog|no status/i.test(name))
     return <CircleDashed size={14} className="shrink-0 text-muted-foreground" aria-hidden="true" />;
   return <Circle size={14} className="shrink-0 text-muted-foreground" aria-hidden="true" />;
@@ -42,7 +43,7 @@ export function TrackerList({
     <Table className="tracker-list">
       <TableHeader className="sr-only">
         <TableRow>
-          <TableHead>Issue</TableHead>
+          <TableHead>Task</TableHead>
           <TableHead>Repository</TableHead>
           <TableHead>Status</TableHead>
           <TableHead>Action</TableHead>
@@ -75,12 +76,12 @@ export function TrackerList({
                   <TableRow key={item.id}>
                     <TableCell>
                       <div className="flex items-center gap-3">
-                        <span className="w-12 shrink-0 text-xs text-muted-foreground">
-                          {item.number ? `#${item.number}` : 'Draft'}
+                        <span className="w-16 shrink-0 text-xs whitespace-nowrap text-muted-foreground">
+                          {item.number ? `#${item.number}` : 'Draft task'}
                         </span>
                         <Button
                           variant="ghost"
-                          className="h-auto justify-start whitespace-normal px-0 py-1.5 text-left text-[13px] font-normal"
+                          className="h-auto justify-start whitespace-normal px-0 py-1.5 text-left font-normal hover:bg-transparent"
                           onClick={() => onOpen(item)}
                         >
                           {item.title}
@@ -88,7 +89,7 @@ export function TrackerList({
                         {count > 0 && (
                           <span
                             className="inline-flex shrink-0 items-center gap-1 text-xs text-muted-foreground"
-                            title={`${count} linked sessions`}
+                            title={plural(count, 'linked session')}
                           >
                             <MessageSquare size={12} />
                             {count}
@@ -102,7 +103,8 @@ export function TrackerList({
                     <TableCell>
                       {board.statusField && (
                         <Choice
-                          className="h-7 border-transparent bg-transparent text-xs shadow-none"
+                          size="sm"
+                          className="border-transparent bg-transparent text-xs shadow-none hover:bg-[var(--surface-hover)] dark:bg-transparent dark:hover:bg-[var(--surface-hover)]"
                           label={`Status for ${item.title}`}
                           value={item.statusId || ''}
                           disabled={busy}
@@ -118,8 +120,14 @@ export function TrackerList({
                       )}
                     </TableCell>
                     <TableCell className="text-right">
-                      <Button variant="ghost" size="sm" onClick={() => onOpen(item)}>
-                        Work on this
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="text-muted-foreground hover:text-foreground"
+                        aria-label={`Work on this task: ${item.title}`}
+                        onClick={() => onOpen(item)}
+                      >
+                        Work on this task
                       </Button>
                     </TableCell>
                   </TableRow>

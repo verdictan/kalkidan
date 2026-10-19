@@ -581,6 +581,9 @@ export class InteractiveChatRunner {
   stopAll() {
     for (const id of this.runs.keys()) this.stop(id);
   }
+  runningCount() {
+    return [...this.runs.values()].filter((run) => run.state.status === 'running').length;
+  }
   dispose() {
     this.stopAll();
     for (const run of this.runs.values()) {

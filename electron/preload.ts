@@ -1,5 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron';
-import type { API } from '../src/types';
+import type { API, MenuCommand } from '../src/types';
+import { menuCommands } from '../src/api/contracts';
 const api: API = {
   docsMetadata: (group) => ipcRenderer.invoke('docs-metadata', group),
   docsRead: (group, id) => ipcRenderer.invoke('docs-read', group, id),
@@ -7,6 +8,8 @@ const api: API = {
   docsCreate: (...args) => ipcRenderer.invoke('docs-create', ...args),
   docsSave: (...args) => ipcRenderer.invoke('docs-save', ...args),
   docsDelete: (...args) => ipcRenderer.invoke('docs-delete', ...args),
+  docsTrash: (group) => ipcRenderer.invoke('docs-trash', group),
+  docsRestore: (...args) => ipcRenderer.invoke('docs-restore', ...args),
   trackerProviders: (...args) => ipcRenderer.invoke('tracker-providers', ...args),
   trackerAuthStart: (...args) => ipcRenderer.invoke('tracker-auth-start', ...args),
   trackerAuthStatus: (...args) => ipcRenderer.invoke('tracker-auth-status', ...args),
@@ -98,5 +101,24 @@ const api: API = {
   launch: (id, agent) => ipcRenderer.invoke('launch', id, agent),
   reveal: (id) => ipcRenderer.invoke('reveal', id),
   worktree: (id, branch) => ipcRenderer.invoke('worktree', id, branch),
+  showAppMenu: () => ipcRenderer.invoke('app-menu'),
+  setAppearance: (mode) => ipcRenderer.invoke('appearance', mode),
+  onMenuCommand: (callback) => {
+    const listener = (_event: unknown, command: unknown) => {
+      if (typeof command === 'string' && (menuCommands as readonly string[]).includes(command))
+        callback(command as MenuCommand);
+    };
+    ipcRenderer.on('menu-command', listener);
+    return () => {
+      ipcRenderer.removeListener('menu-command', listener);
+    };
+  },
+  onFullScreenChange: (callback) => {
+    const listener = (_event: unknown, fullScreen: unknown) => callback(fullScreen === true);
+    ipcRenderer.on('full-screen', listener);
+    return () => {
+      ipcRenderer.removeListener('full-screen', listener);
+    };
+  },
 };
 contextBridge.exposeInMainWorld('workspace', api);

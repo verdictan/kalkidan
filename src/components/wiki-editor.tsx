@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState, type FormEvent } from 'react';
 import { createPortal } from 'react-dom';
 import { EditorContent, useEditor, type Editor } from '@tiptap/react';
 import { BubbleMenu } from '@tiptap/react/menus';
@@ -11,7 +11,14 @@ import { TableKit } from '@tiptap/extension-table';
 import Image from '@tiptap/extension-image';
 import { Bold, Italic, Strikethrough, Code, Link as LinkIcon } from 'lucide-react';
 import { Button } from './ui/button';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from './ui/dialog';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from './ui/dialog';
 import { Input } from './ui/input';
 import { WikiContextMenu } from './wiki-context-menu';
 
@@ -82,6 +89,8 @@ export function WikiEditor({
   const [index, setIndex] = useState(0);
   const [linkOpen, setLinkOpen] = useState(false);
   const [url, setUrl] = useState('');
+  const [editingLink, setEditingLink] = useState(false);
+  const slashId = useId();
   const keyHandler = useRef<(event: KeyboardEvent) => boolean>(() => false);
   function detect(editor: Editor) {
     const { $from, empty } = editor.state.selection;
@@ -117,12 +126,25 @@ export function WikiEditor({
     shouldRerenderOnTransaction: true,
     editorProps: {
       attributes: {
-        class: 'wiki-prose',
+        class: 'wiki-prose prose-ui',
         role: 'textbox',
         'aria-label': 'Document content',
         'aria-multiline': 'true',
       },
       handleKeyDown: (_view, event) => keyHandler.current(event),
+      // At the start of a list item, "- ", "* " or "+ " does nothing: the line is already a
+      // list item. Without this, the list shortcut puts a second bullet list in the item, and
+      // literal text "- " would load again as a nested list. Use Tab to make a nested list.
+      handleTextInput: (view, from, to, text) => {
+        if (text !== ' ') return false;
+        const { $from } = view.state.selection;
+        if ($from.depth < 2 || !['listItem', 'taskItem'].includes($from.node(-1).type.name))
+          return false;
+        const before = $from.parent.textBetween(0, $from.parentOffset);
+        if (!/^\s*[-+*]$/.test(before)) return false;
+        view.dispatch(view.state.tr.delete(from - before.length, to));
+        return true;
+      },
     },
     onUpdate: ({ editor }) => {
       onChange(editor.getMarkdown());
@@ -136,6 +158,38 @@ export function WikiEditor({
   const filtered = commands.filter((c) =>
     c.label.toLowerCase().includes(slash?.query.toLowerCase() || ''),
   );
+  const activeOption = slash && !readOnly && filtered[index] ? `${slashId}-${index}` : '';
+  // Focus stays in the editor while the slash menu is open. Point assistive
+  // technology at the highlighted option.
+  useEffect(() => {
+    const dom = editor?.view.dom;
+    if (!dom) return;
+    if (slash && !readOnly) {
+      dom.setAttribute('aria-controls', `${slashId}-list`);
+      dom.setAttribute('aria-autocomplete', 'list');
+    } else {
+      dom.removeAttribute('aria-controls');
+      dom.removeAttribute('aria-autocomplete');
+    }
+    if (activeOption) {
+      dom.setAttribute('aria-activedescendant', activeOption);
+      document.getElementById(activeOption)?.scrollIntoView({ block: 'nearest' });
+    } else dom.removeAttribute('aria-activedescendant');
+  }, [editor, slash, readOnly, activeOption, slashId]);
+  function openLink() {
+    if (!editor) return;
+    const href = editor.getAttributes('link').href || '';
+    setEditingLink(!!href);
+    setUrl(href);
+    setLinkOpen(true);
+  }
+  const validUrl = /^(https?:\/\/|mailto:|#)/i.test(url.trim());
+  function applyLink(event: FormEvent) {
+    event.preventDefault();
+    if (!validUrl) return;
+    editor?.chain().focus().extendMarkRange('link').setLink({ href: url.trim() }).run();
+    setLinkOpen(false);
+  }
   function choose(i: number) {
     if (!editor || !slash || !filtered[i]) return;
     editor.chain().focus().deleteRange({ from: slash.from, to: slash.to }).run();
@@ -207,19 +261,18 @@ export function WikiEditor({
                 onMouseDown={(e) => e.preventDefault()}
                 onClick={action}
               >
-                <Icon size={15} />
+                <Icon size={14} />
               </Button>
             ))}
             <Button
               variant="ghost"
               size="icon-sm"
-              aria-label="Add link"
-              onClick={() => {
-                setUrl(editor.getAttributes('link').href || '');
-                setLinkOpen(true);
-              }}
+              aria-label={editor.isActive('link') ? 'Edit link' : 'Add link'}
+              aria-pressed={editor.isActive('link')}
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={openLink}
             >
-              <LinkIcon size={15} />
+              <LinkIcon size={14} />
             </Button>
           </BubbleMenu>
         )}
@@ -249,14 +302,7 @@ export function WikiEditor({
           </div>
         )}
         {editor && !readOnly ? (
-          <WikiContextMenu
-            editor={editor}
-            commands={commands}
-            onLink={() => {
-              setUrl(editor.getAttributes('link').href || '');
-              setLinkOpen(true);
-            }}
-          >
+          <WikiContextMenu editor={editor} commands={commands} onLink={openLink}>
             <EditorContent editor={editor} />
           </WikiContextMenu>
         ) : (
@@ -286,22 +332,25 @@ export function WikiEditor({
         !readOnly &&
         createPortal(
           <div
+            id={`${slashId}-list`}
             className="wiki-slash"
             role="listbox"
             aria-label="Insert block"
             style={{ left: slash.left, top: slash.top }}
           >
-            <p>INSERT BLOCK</p>
+            <p aria-hidden="true">Insert block</p>
             {filtered.length ? (
               filtered.map((c, i) => (
                 <button
                   key={c.label}
+                  id={`${slashId}-${i}`}
                   role="option"
+                  tabIndex={-1}
                   aria-selected={i === index}
                   onMouseDown={(e) => e.preventDefault()}
                   onClick={() => choose(i)}
                 >
-                  <strong>{c.label}</strong>
+                  <span>{c.label}</span>
                   <small>{c.hint}</small>
                 </button>
               ))
@@ -313,35 +362,42 @@ export function WikiEditor({
         )}
       <Dialog open={linkOpen} onOpenChange={setLinkOpen}>
         <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Add link</DialogTitle>
-          </DialogHeader>
-          <Input
-            aria-label="Link URL"
-            value={url}
-            onChange={(e) => setUrl(e.target.value)}
-            placeholder="https://…"
-          />
-          <DialogFooter>
-            <Button
-              variant="ghost"
-              onClick={() => {
-                editor?.chain().focus().unsetLink().run();
-                setLinkOpen(false);
-              }}
-            >
-              Remove link
-            </Button>
-            <Button
-              disabled={!/^(https?:\/\/|mailto:|#)/i.test(url)}
-              onClick={() => {
-                editor?.chain().focus().setLink({ href: url }).run();
-                setLinkOpen(false);
-              }}
-            >
-              Apply link
-            </Button>
-          </DialogFooter>
+          <form className="contents" onSubmit={applyLink}>
+            <DialogHeader>
+              <DialogTitle>{editingLink ? 'Edit link' : 'Add link'}</DialogTitle>
+              <DialogDescription>
+                Type a web address, an email link, or a heading link.
+              </DialogDescription>
+            </DialogHeader>
+            <Input
+              aria-label="Link URL"
+              autoFocus
+              value={url}
+              onChange={(e) => setUrl(e.target.value)}
+              placeholder="https://…"
+            />
+            <DialogFooter>
+              {editingLink && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  className="sm:mr-auto"
+                  onClick={() => {
+                    editor?.chain().focus().extendMarkRange('link').unsetLink().run();
+                    setLinkOpen(false);
+                  }}
+                >
+                  Remove link
+                </Button>
+              )}
+              <Button type="button" variant="outline" onClick={() => setLinkOpen(false)}>
+                Cancel
+              </Button>
+              <Button type="submit" disabled={!validUrl}>
+                Apply link
+              </Button>
+            </DialogFooter>
+          </form>
         </DialogContent>
       </Dialog>
     </div>

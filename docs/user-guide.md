@@ -70,13 +70,15 @@ npm run dev
 2. Select or create a GitHub Project.
 3. Use **Add repositories** to add local folders or clone repositories from GitHub.
 4. Select a repository.
-5. Start a **Codex** or **Claude Code** conversation, or select an existing session.
+5. Start a **Codex** or **Claude Code** session, or select an existing session.
 6. Select a model.
 7. Select a permission mode.
 8. Write your message.
-9. Press **⌘ Enter** to send the message.
+9. Press **Enter** to send the message. Press **Shift+Enter** to start a new line.
 
-Each repository belongs to a project. You can open a board task in the current checkout or a new worktree. Use **Link task** to connect an existing conversation to a task.
+You can write the next message while the agent responds. **Send** is available when the response stops.
+
+Each repository belongs to a project. You can open a board task in the current checkout or a new worktree. Use **Link task** to connect an existing session to a task. Use **Unlink task** to remove the link. The task stays in the tracker.
 
 ### Open the browser preview
 
@@ -144,36 +146,52 @@ Conversations start in **Read only** mode. Select **Allow project edits** to per
 
 Permission requests show **Allow once** and **Deny** actions. Codex can also show **Allow for this turn**. Unanswered requests expire when the turn stops or ends. Kalkidan declines unsupported interactive requests.
 
+If a permission request is not in view, a banner above the message box shows "The agent is waiting for your approval". Select **Review** to go to the request.
+
 ### Navigation and session management
 
 Use **⌘K** to search. Collapse the project tree when necessary. Drafts and active responses remain available when you change views. Closing the app window stops active responses. Saved conversation history remains available.
 
-Use the repository's session list to manage titles, pins, collections, notes, and archives. Archiving hides a conversation in Kalkidan. It does not delete the agent provider's history. Restore a conversation from the repository's archived sessions.
+Use the repository's session list to manage titles, pins, collections, notes, and archives. Select a session title to resume it. Select **Organize** to change its settings. Kalkidan keeps the selected view and filters for each repository. Archiving hides a session in Kalkidan. It does not delete the agent provider's history. Restore a session from the repository's archived sessions.
 
-### Conversation actions
+The titlebar shows the repository name and the session title. Select the repository name to go back to the repository.
 
-The titlebar menu lets you rename, pin, unpin, or archive a conversation. You can also open a separate side chat.
+### Session actions
 
-A native fork copies the saved conversation into the current checkout or a new worktree. It receives a new session ID after its first message. Send a draft conversation's first message before you export or fork it.
+The titlebar menu lets you rename, pin, unpin, or archive a session. Kalkidan asks you to confirm before it archives a session. You can also open a separate side session.
 
-Use **Share** to export Markdown or a standalone HTML file through the macOS save dialog. Exports contain the available transcript. A notice identifies truncated content. HTML exports escape conversation content. Exporting does not create a public link.
+| Action           | macOS | Windows and Linux |
+| ---------------- | ----- | ----------------- |
+| Rename           | ⌥⌘R   | Ctrl+Alt+R        |
+| Pin or unpin     | ⌥⌘P   | Ctrl+Alt+P        |
+| New side session | ⌥⌘S   | Ctrl+Alt+S        |
+| Archive          | ⇧⌘A   | Ctrl+Shift+A      |
 
-The **Copy** submenu copies the transcript, session ID, or repository path. You can open saved conversations in another Kalkidan window.
+These shortcuts do not operate while you type in a text field or in the terminal.
 
-Local repositories can open in Finder, VS Code, or Cursor. The selected editor must be installed. Remote folders stay on their SSH host.
+A native fork copies the saved session into the current checkout or a new worktree. It receives a new session ID after its first message. Send a draft session's first message before you export or fork it.
+
+Use **Share** to export Markdown or a standalone HTML file through the macOS save dialog. Exports contain the available transcript. A notice identifies truncated content. HTML exports escape session content. Exporting does not create a public link.
+
+The **Copy** submenu copies the transcript, session ID, or repository path. You can open saved sessions in another Kalkidan window.
+
+Local repositories can open in the file manager (Finder, File Explorer, or the Linux file manager), VS Code, or Cursor. The selected editor must be installed. Remote folders stay on their SSH host.
 
 ### Terminal, browser, and Git tools
 
-Use **Terminal**, **Browser**, or **Git diff** in the titlebar to open the tools pane. The conversation and draft remain visible.
+Use **New tool tab** (**+**) in the titlebar to open the tools pane. The **Tools** tab shows **Browser**, **Terminal**, and **Changes**. The session and draft remain visible.
 
 - Drag the divider to change the pane width.
 - Use the divider's arrow keys for small adjustments.
 - Double-click the divider to reset its position.
-- Use **+** or **⌘T** to add a tool tab.
-- Use **⌘`** to open Terminal.
-- Use **⌘⇧G** to open Changes.
+- Use **+** or **⌘T** (**Ctrl+T** on Windows and Linux) to add a tool tab.
+- Use **Control+\`** on macOS or **Ctrl+\`** on Windows and Linux to show or hide Terminal. On macOS, Command+\` changes windows.
+- Use **⇧⌘G** (**Ctrl+Shift+G** on Windows and Linux) to open Changes.
+- Use **Hide tools** to hide the pane.
 
-Each tab has a separate terminal, browser page, or changes view. You can close individual tabs. Hiding the pane keeps its sessions open.
+Each tab has a separate terminal, browser page, or changes view. To close a tab, select its **×** button, or focus the tab and press **Delete**. Kalkidan asks you to confirm before it closes a terminal tab, because the shell stops. Hiding the pane keeps its tabs open.
+
+The changes view shows a list of changed files with added and removed line counts. Select a file to show its diff. The diff shows the old and new line numbers. Use **Attach file to message** or **Attach all changes to message** to add changes to your draft.
 
 Attach terminal output, Git diffs, or page annotations to a message. You can remove attachments before you send it. The agent receives the attachments when you send the message.
 
@@ -183,15 +201,19 @@ These tools require the Electron desktop app.
 
 The terminal uses xterm.js and a real pseudo-terminal. It requires Python 3 on your computer or the selected SSH host. It uses only the Python standard library.
 
-Shell state remains available until you select **New shell**, close the conversation tab, disconnect the host, or quit Kalkidan. Commands and browser previews stop when the app window closes.
+The terminal gets focus only when you open it. The shell uses the Tab key for completion. Press **F6** to move focus from the terminal to the tool tabs.
 
-The repository's **Terminal** shortcut opens macOS Terminal. Agent conversations run inside Kalkidan.
+Shell state remains available until you select **New shell**, close the terminal tab, disconnect the host, or quit Kalkidan. Kalkidan asks you to confirm before **New shell** stops the current shell. Commands and browser previews stop when the app window closes.
+
+The repository's **Terminal** shortcut opens macOS Terminal. Agent sessions run inside Kalkidan.
 
 #### Browser
 
 The Chromium browser supports navigation, reload, page search, zoom, element annotations, PNG screenshots, and printing. Its device toolbar supports preset and custom dimensions. Links that request another window open in a new tool tab.
 
-Use the **⋯** menu to manage downloads, history, and the home page. You can also control history recording or clear cache, cookies, site data, and saved passwords. Browser data uses a separate Kalkidan profile.
+Use the **⋯** menu to manage downloads, history, and the home page. You can also control history recording or clear history, cached files, cookies, site data, and saved passwords. Kalkidan asks you to confirm before it clears data. Clearing cookies signs you out of sites. Deleted passwords cannot be restored. Browser data uses a separate Kalkidan profile.
+
+Use **⌘F** (**Ctrl+F** on Windows and Linux) to find text on the page.
 
 Annotations contain text, selectors, URLs, and element bounds. They do not contain screenshots.
 

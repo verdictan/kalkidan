@@ -92,6 +92,8 @@ function previewProvider<T>(id: string, action: () => Promise<T>): Promise<T> {
 const demoDocs: Record<string, ProjectDoc[]> = JSON.parse(
   localStorage.getItem('kalkidan-demo-docs') || '{}',
 );
+// Deleted preview pages stay in memory for this browser tab only.
+const demoTrash: Record<string, { doc: ProjectDoc; deletedAt: number }[]> = {};
 function persistDocs() {
   localStorage.setItem('kalkidan-demo-docs', JSON.stringify(demoDocs));
 }
@@ -128,8 +130,34 @@ export const demo: API = {
   docsDelete: async (group, id) => {
     if (demoDocs[group]?.some((p) => p.parentId === id))
       throw new Error('Move or delete child pages first.');
+    const deleted = demoDocs[group]?.find((p) => p.id === id);
+    if (deleted) (demoTrash[group] ||= []).push({ doc: deleted, deletedAt: Date.now() });
     demoDocs[group] = (demoDocs[group] || []).filter((p) => p.id !== id);
     persistDocs();
+  },
+  docsTrash: async (group) =>
+    (demoTrash[group] || [])
+      .map(({ doc, deletedAt }) => ({
+        trashId: doc.id + '-' + deletedAt,
+        id: doc.id,
+        title: doc.title,
+        deletedAt,
+      }))
+      .sort((a, b) => b.deletedAt - a.deletedAt),
+  docsRestore: async (group, trashId) => {
+    const items = demoTrash[group] || [];
+    const index = items.findIndex(({ doc, deletedAt }) => doc.id + '-' + deletedAt === trashId);
+    if (index < 0) throw new Error('Deleted page not found');
+    const [{ doc }] = items.splice(index, 1);
+    const pages = (demoDocs[group] ||= []);
+    const restored = {
+      ...doc,
+      parentId: pages.some((p) => p.id === doc.parentId) ? doc.parentId : null,
+      revision: crypto.randomUUID(),
+    };
+    pages.push(restored);
+    persistDocs();
+    return structuredClone(restored);
   },
   trackerProviders: async () => [githubDescriptor],
   trackerAuthStart: (provider, force) =>
@@ -394,4 +422,5 @@ export const demo: API = {
     await nativeOnly();
     return false;
   },
+  onMenuCommand: () => () => {},
 };

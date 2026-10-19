@@ -2,7 +2,7 @@ import { mkdir, readdir, readFile, writeFile, rename, rm, lstat, open } from 'no
 import { StringDecoder } from 'node:string_decoder';
 import { join } from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
-import type { ProjectDoc, ProjectDocMetadata } from '../../src/domain/docs';
+import type { DeletedProjectDoc, ProjectDoc, ProjectDocMetadata } from '../../src/domain/docs';
 
 const hash = (text: string) => createHash('sha256').update(text).digest('hex');
 export class ProjectDocs {
@@ -182,6 +182,51 @@ export class ProjectDocs {
       const trash = join(dir, '.trash');
       await mkdir(trash, { recursive: true });
       await rename(this.file(dir, id), join(trash, id + '-' + Date.now() + '.md'));
+    });
+  }
+  /** Lists deleted pages, newest first. */
+  async trash(group: string): Promise<DeletedProjectDoc[]> {
+    const trash = join(await this.directory(group), '.trash');
+    let names: string[];
+    try {
+      names = await readdir(trash);
+    } catch (error: any) {
+      if (error.code === 'ENOENT') return [];
+      throw error;
+    }
+    const result: DeletedProjectDoc[] = [];
+    for (const name of names) {
+      const match = name.match(/^([\w-]+)-(\d+)\.md$/);
+      if (!match) continue;
+      try {
+        const doc = await this.read(trash, match[1] + '-' + match[2]);
+        result.push({
+          trashId: match[1] + '-' + match[2],
+          id: match[1],
+          title: doc.title,
+          deletedAt: Number(match[2]),
+        });
+      } catch {
+        // Skip files in the trash that are not Kalkidan pages.
+      }
+    }
+    return result.sort((a, b) => b.deletedAt - a.deletedAt);
+  }
+  /** Moves a deleted page back. It goes to the top level if its parent no longer exists. */
+  restore(group: string, trashId: string) {
+    return this.change(group, async () => {
+      const match = /^([\w-]+)-(\d+)$/.exec(trashId);
+      if (!match) throw new Error('Invalid deleted page');
+      const dir = await this.directory(group);
+      const trash = join(dir, '.trash');
+      const deleted = await this.read(trash, trashId);
+      const pages = await this.metadata(group);
+      const id = pages.some((p) => p.id === match[1]) ? randomUUID() : match[1];
+      const parentId =
+        deleted.parentId && pages.some((p) => p.id === deleted.parentId) ? deleted.parentId : null;
+      const doc = await this.write(dir, { ...deleted, id, parentId });
+      await rm(this.file(trash, trashId), { force: true });
+      return doc;
     });
   }
 }

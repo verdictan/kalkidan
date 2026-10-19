@@ -4,6 +4,10 @@ import type { API, RemoteHost } from '../types';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Choice } from './choice';
+import { ConfirmDialog } from './confirm-dialog';
+import { Hint } from './hint';
+import { SectionHeader } from './ui/page-header';
+import { errorMessage } from '../lib/errors';
 export function RemoteHostPicker({
   compact = false,
   api,
@@ -25,6 +29,8 @@ export function RemoteHostPicker({
   const [target, setTarget] = useState('');
   const [busy, setBusy] = useState('');
   const [error, setError] = useState('');
+  const [confirmDisconnect, setConfirmDisconnect] = useState(false);
+  const [confirmUpdate, setConfirmUpdate] = useState(false);
   const selected = hosts.find((h) => h.id === value);
   useEffect(() => {
     let active = true;
@@ -33,7 +39,7 @@ export function RemoteHostPicker({
       .then((value) => {
         if (active) setHosts(value);
       })
-      .catch((e) => setError(e.message));
+      .catch((e) => setError(errorMessage(e)));
     return () => {
       active = false;
     };
@@ -49,7 +55,7 @@ export function RemoteHostPicker({
       onChange(host.id);
       setAdding(false);
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(errorMessage(e));
       onReady(false);
     } finally {
       setBusy('');
@@ -57,19 +63,31 @@ export function RemoteHostPicker({
     }
   }
   return (
-    <section aria-label="Remote host setup" className="space-y-3 rounded-lg border p-4">
-      <div className="flex items-center justify-between">
+    <section aria-label="Remote host setup" className={compact ? 'space-y-3' : 'panel space-y-3'}>
+      {compact ? (
+        <SectionHeader
+          className="mb-0"
+          title="Remote hosts"
+          actions={
+            !adding && (
+              <Button variant="ghost" disabled={!!busy} onClick={() => setAdding(true)}>
+                <Plus />
+                Add host
+              </Button>
+            )
+          }
+        />
+      ) : (
         <span className="flex items-center gap-2 text-sm font-medium">
           <Server size={16} />
           Remote SSH host
         </span>
-        {compact && !adding && (
-          <Button size="sm" variant="ghost" disabled={!!busy} onClick={() => setAdding(true)}>
-            <Plus size={14} />
-            Add host
-          </Button>
-        )}
-      </div>
+      )}
+      {compact && (
+        <p className="text-xs text-muted-foreground">
+          Run projects on another computer over SSH. Kalkidan installs a small helper on the host.
+        </p>
+      )}
       {!hosts.length && !adding && compact && (
         <p className="text-xs text-muted-foreground">No remote hosts connected.</p>
       )}
@@ -87,7 +105,18 @@ export function RemoteHostPicker({
         />
       )}
       {(!hosts.length && !compact) || adding ? (
-        <>
+        <form
+          className="space-y-3"
+          onSubmit={(event) => {
+            event.preventDefault();
+            // The parent dialog can hold another form. Keep this submit local.
+            event.stopPropagation();
+            if (busy || !target.trim()) return;
+            void act('Saving host…', () =>
+              api.remoteAdd(name.trim() || target.trim(), target.trim()),
+            );
+          }}
+        >
           <label className="form-label">
             Name (optional)
             <Input
@@ -109,30 +138,27 @@ export function RemoteHostPicker({
             />
           </label>
           <p className="text-xs text-muted-foreground">Uses your SSH keys and ~/.ssh/config.</p>
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={!!busy || !target.trim()}
-            onClick={() =>
-              void act('Saving host…', () =>
-                api.remoteAdd(name.trim() || target.trim(), target.trim()),
-              )
-            }
-          >
-            Save host
-          </Button>
-          {(!!hosts.length || compact) && (
-            <Button variant="ghost" size="sm" disabled={!!busy} onClick={() => setAdding(false)}>
-              Cancel host
+          <div className="flex flex-wrap gap-2">
+            <Button type="submit" variant="outline" disabled={!!busy || !target.trim()}>
+              Save host
             </Button>
-          )}
-        </>
+            {(!!hosts.length || compact) && (
+              <Button
+                type="button"
+                variant="ghost"
+                disabled={!!busy}
+                onClick={() => setAdding(false)}
+              >
+                Cancel
+              </Button>
+            )}
+          </div>
+        </form>
       ) : (
         !compact && (
           <Button
             variant="link"
-            size="sm"
-            className="px-0"
+            className="h-auto px-0"
             disabled={!!busy}
             onClick={() => setAdding(true)}
           >
@@ -146,22 +172,20 @@ export function RemoteHostPicker({
             {selected.status === 'connected'
               ? 'Connected'
               : selected.version
-                ? 'Agent installed · Ready to connect'
+                ? 'Kalkidan helper installed · Ready to connect'
                 : selected.status === 'checked'
-                  ? 'SSH ready · Install the agent to continue'
+                  ? 'SSH ready · Install the Kalkidan helper to continue'
                   : 'Check SSH access to continue'}
           </p>
           <details className="text-xs text-muted-foreground">
             <summary className="cursor-pointer">Connection details</summary>
             <p className="mt-2">
               {selected.target} · Requires Node.js 22+. Installs in ~/.local/share/kalkidan/agents.
-              Disconnecting or updating stops active work.
             </p>
           </details>
           <div className="flex flex-wrap gap-2">
             <Button
               variant="outline"
-              size="sm"
               disabled={!!busy}
               onClick={() => void act('Checking SSH…', () => api.remoteCheck(selected.id))}
             >
@@ -169,16 +193,16 @@ export function RemoteHostPicker({
             </Button>
             {selected.status === 'checked' && !selected.version && (
               <Button
-                size="sm"
                 disabled={!!busy}
-                onClick={() => void act('Installing agent…', () => api.remoteInstall(selected.id))}
+                onClick={() =>
+                  void act('Installing Kalkidan helper…', () => api.remoteInstall(selected.id))
+                }
               >
-                Install agent & connect
+                Install Kalkidan helper and connect
               </Button>
             )}
             {selected.version && selected.status !== 'connected' && (
               <Button
-                size="sm"
                 disabled={!!busy}
                 onClick={() => void act('Connecting…', () => api.remoteConnect(selected.id))}
               >
@@ -186,33 +210,20 @@ export function RemoteHostPicker({
               </Button>
             )}
             {selected.version && (
-              <Button
-                variant="ghost"
-                size="sm"
-                disabled={!!busy}
-                onClick={() => void act('Updating agent…', () => api.remoteInstall(selected.id))}
-              >
-                Update agent
-              </Button>
+              <Hint label="Updating the Kalkidan helper stops active work on this host">
+                <Button variant="ghost" disabled={!!busy} onClick={() => setConfirmUpdate(true)}>
+                  Update Kalkidan helper
+                </Button>
+              </Hint>
             )}
             {selected.status === 'connected' && (
-              <Button
-                variant="ghost"
-                size="sm"
-                disabled={!!busy}
-                onClick={() =>
-                  void act('Disconnecting…', async () => {
-                    await api.remoteDisconnect(selected.id);
-                    return { ...selected, status: 'disconnected' };
-                  })
-                }
-              >
+              <Button variant="ghost" disabled={!!busy} onClick={() => setConfirmDisconnect(true)}>
                 Disconnect
               </Button>
             )}
           </div>
           {selected.status === 'connected' && (
-            <p role="status" className="text-xs text-emerald-400">
+            <p role="status" className="text-xs text-success">
               Connected · {selected.platform} · {selected.node}
             </p>
           )}
@@ -228,6 +239,37 @@ export function RemoteHostPicker({
         <p role="alert" className="whitespace-pre-wrap break-words text-xs text-destructive">
           {error}
         </p>
+      )}
+      {selected && (
+        <ConfirmDialog
+          open={confirmUpdate}
+          title={`Update the Kalkidan helper on ${selected.name}?`}
+          description="The update stops all active work on this host. Running agent sessions stop."
+          confirmLabel="Update Kalkidan helper"
+          destructive
+          onCancel={() => setConfirmUpdate(false)}
+          onConfirm={() => {
+            setConfirmUpdate(false);
+            void act('Updating Kalkidan helper…', () => api.remoteInstall(selected.id));
+          }}
+        />
+      )}
+      {selected && (
+        <ConfirmDialog
+          open={confirmDisconnect}
+          title={`Disconnect ${selected.name}?`}
+          description="Disconnecting stops all active work on this host. Running agent sessions stop."
+          confirmLabel="Disconnect"
+          destructive
+          onCancel={() => setConfirmDisconnect(false)}
+          onConfirm={() => {
+            setConfirmDisconnect(false);
+            void act('Disconnecting…', async () => {
+              await api.remoteDisconnect(selected.id);
+              return { ...selected, status: 'disconnected' };
+            });
+          }}
+        />
       )}
     </section>
   );

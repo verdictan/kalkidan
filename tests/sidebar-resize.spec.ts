@@ -24,9 +24,9 @@ test('sidebar resizes, clamps, persists, and restores after collapse', async ({ 
   await expect(divider).toHaveAttribute('aria-valuenow', '413');
   expect((await panel.boundingBox())!.width).toBe(413);
   expect((await page.locator('.topbar-brand').boundingBox())!.width).toBe(413);
-  await page.getByRole('button', { name: 'Toggle project navigation' }).click();
+  await page.getByRole('button', { name: 'Toggle sidebar' }).click();
   await expect(divider).toHaveCount(0);
-  await page.getByRole('button', { name: 'Toggle project navigation' }).click();
+  await page.getByRole('button', { name: 'Toggle sidebar' }).click();
   await expect(divider).toHaveAttribute('aria-valuenow', '413');
   await divider.dblclick();
   await expect(divider).toHaveAttribute('aria-valuenow', '260');

@@ -79,8 +79,8 @@ test('notifications and a long draft do not push the composer outside the window
   await page.locator('.repo-select').first().click();
   await page.getByRole('button', { name: 'Edit repository', exact: true }).click();
   await page.getByRole('button', { name: 'Save changes', exact: true }).click();
-  await expect(page.getByRole('status')).toContainText('Project updated.');
-  await page.getByRole('button', { name: 'Codex New session', exact: true }).click();
+  await expect(page.locator('.notice')).toContainText('Repository updated.');
+  await page.getByRole('button', { name: 'New Codex session', exact: true }).click();
   await page
     .getByLabel('Message agent')
     .fill('Review the repository and explain the next steps.\n'.repeat(20));
@@ -109,7 +109,7 @@ test('notifications and a long draft do not push the composer outside the window
   ).toBe(true);
   expect(
     await page
-      .getByRole('region', { name: 'Session conversations', exact: true })
+      .getByRole('region', { name: 'Sessions', exact: true })
       .evaluate((el) => el.getBoundingClientRect().bottom <= innerHeight),
   ).toBe(true);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);

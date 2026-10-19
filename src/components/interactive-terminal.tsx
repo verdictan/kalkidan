@@ -1,22 +1,88 @@
 import { useEffect, useRef, useState } from 'react';
-import { Terminal } from '@xterm/xterm';
+import { Terminal, type ITheme } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import '@xterm/xterm/css/xterm.css';
 import type { API } from '../types';
 import { Button } from './ui/button';
+import { ConfirmDialog } from './confirm-dialog';
+import { errorMessage } from '../lib/errors';
+
+const terminalFont = "'SF Mono', Menlo, Consolas, 'DejaVu Sans Mono', monospace";
+
+// ANSI colors for each scheme. Each color has good contrast on the background of
+// its scheme. On the light background, "white" and "bright white" are gray, so
+// that the text stays readable.
+const darkPalette: ITheme = {
+  black: '#484f58',
+  red: '#ff7b72',
+  green: '#3fb950',
+  yellow: '#d29922',
+  blue: '#58a6ff',
+  magenta: '#bc8cff',
+  cyan: '#39c5cf',
+  white: '#b1bac4',
+  brightBlack: '#8b949e',
+  brightRed: '#ffa198',
+  brightGreen: '#56d364',
+  brightYellow: '#e3b341',
+  brightBlue: '#79c0ff',
+  brightMagenta: '#d2a8ff',
+  brightCyan: '#56d4dd',
+  brightWhite: '#f0f6fc',
+};
+
+const lightPalette: ITheme = {
+  black: '#24292f',
+  red: '#cf222e',
+  green: '#116329',
+  yellow: '#9a6700',
+  blue: '#0969da',
+  magenta: '#8250df',
+  cyan: '#1b7c83',
+  white: '#6e7781',
+  brightBlack: '#57606a',
+  brightRed: '#a40e26',
+  brightGreen: '#1a7f37',
+  brightYellow: '#7d4e00',
+  brightBlue: '#0550ae',
+  brightMagenta: '#6639ba',
+  brightCyan: '#136061',
+  brightWhite: '#424a53',
+};
+
+/** Reads the terminal colors from the theme tokens and the current scheme. */
+function terminalTheme(): ITheme {
+  const dark = document.documentElement.classList.contains('dark');
+  const style = getComputedStyle(document.documentElement);
+  // theme.css sets each token. If a token is empty, xterm uses its own default color.
+  const token = (name: string) => style.getPropertyValue(name).trim() || undefined;
+  return {
+    ...(dark ? darkPalette : lightPalette),
+    background: token('--background'),
+    foreground: token('--foreground'),
+    cursor: token('--muted-foreground'),
+    selectionBackground: token('--accent'),
+  };
+}
 
 export function InteractiveTerminal({
   api,
   cwd,
   visible,
   disabled,
+  focusRequest = 0,
   onAttach,
+  onLeave,
 }: {
   api: API;
   cwd: string;
   visible: boolean;
   disabled: boolean;
+  /** Increase this number to move focus into the terminal. Use it only when the user opens it. */
+  focusRequest?: number;
   onAttach: (text: string) => void;
+  /** Called when the user presses F6 to move focus out of the terminal. */
+  onLeave?: () => void;
 }) {
   const element = useRef<HTMLDivElement>(null);
   const terminal = useRef<Terminal | null>(null);
@@ -25,13 +91,25 @@ export function InteractiveTerminal({
   const [error, setError] = useState('');
   const [exited, setExited] = useState(false);
   const [generation, setGeneration] = useState(0);
+  const [confirmRestart, setConfirmRestart] = useState(false);
+  const leave = useRef(onLeave);
+  leave.current = onLeave;
   useEffect(() => {
     const term = new Terminal({
       fontSize: 12,
-      fontFamily: 'Menlo, monospace',
+      fontFamily: terminalFont,
       cursorBlink: true,
       scrollback: 3000,
-      theme: { background: '#101316', foreground: '#f4f4f5', cursor: '#a1a1aa' },
+      theme: terminalTheme(),
+    });
+    // The shell needs Tab for completion. F6 gives keyboard users a way out.
+    term.attachCustomKeyEventHandler((event) => {
+      if (event.key !== 'F6') return true;
+      if (event.type === 'keydown') {
+        event.preventDefault();
+        leave.current?.();
+      }
+      return false;
     });
     const addon = new FitAddon();
     term.loadAddon(addon);
@@ -44,7 +122,7 @@ export function InteractiveTerminal({
     setError('');
     setExited(false);
     const report = (e: unknown) => {
-      if (!disposed) setError(e instanceof Error ? e.message : String(e));
+      if (!disposed) setError(errorMessage(e));
     };
     const input = term.onData((data) => {
       if (shell.current) void api.ptyWrite(shell.current, data).catch(report);
@@ -57,6 +135,11 @@ export function InteractiveTerminal({
     };
     const observer = new ResizeObserver(resize);
     observer.observe(element.current!);
+    // src/main.tsx changes the `dark` class when the system scheme changes.
+    const scheme = new MutationObserver(() => {
+      term.options.theme = terminalTheme();
+    });
+    scheme.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] });
     void (async () => {
       try {
         addon.fit();
@@ -66,7 +149,6 @@ export function InteractiveTerminal({
           return;
         }
         shell.current = result.id;
-        term.focus();
         const poll = async () => {
           try {
             const next = await api.ptyRead(result.id, cursor);
@@ -95,6 +177,7 @@ export function InteractiveTerminal({
       disposed = true;
       clearTimeout(timer);
       observer.disconnect();
+      scheme.disconnect();
       input.dispose();
       term.dispose();
       terminal.current = null;
@@ -105,11 +188,11 @@ export function InteractiveTerminal({
     };
   }, [api, cwd, generation]);
   useEffect(() => {
-    if (visible) {
-      fit.current?.fit();
-      terminal.current?.focus();
-    }
+    if (visible) fit.current?.fit();
   }, [visible]);
+  useEffect(() => {
+    if (focusRequest) terminal.current?.focus();
+  }, [focusRequest, generation]);
   function attach() {
     const buffer = terminal.current?.buffer.active;
     if (!buffer) return;
@@ -120,14 +203,26 @@ export function InteractiveTerminal({
   }
   return (
     <div hidden={!visible} className="terminal-pane">
-      <div ref={element} className="terminal-emulator" aria-label="Interactive terminal" />
-      <div className="flex shrink-0 items-center justify-between gap-2 px-3 py-1 text-xs text-muted-foreground">
-        <span className="truncate">{exited ? 'Shell exited' : cwd}</span>
+      <div
+        ref={element}
+        className="terminal-emulator"
+        role="group"
+        aria-label="Interactive terminal"
+        aria-description="Press F6 to move focus out of the terminal."
+      />
+      <div className="tool-toolbar tool-toolbar-footer">
+        <span className="min-w-0 flex-1 truncate" title={exited ? undefined : cwd}>
+          {exited ? 'Shell exited' : cwd}
+        </span>
         <div className="flex gap-1">
           <Button size="sm" variant="ghost" disabled={disabled} onClick={attach}>
             Attach output
           </Button>
-          <Button size="sm" variant="ghost" onClick={() => setGeneration((n) => n + 1)}>
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() => (exited ? setGeneration((n) => n + 1) : setConfirmRestart(true))}
+          >
             {exited ? 'Restart terminal' : 'New shell'}
           </Button>
         </div>
@@ -137,6 +232,18 @@ export function InteractiveTerminal({
           {error}
         </p>
       )}
+      <ConfirmDialog
+        open={confirmRestart}
+        title="Start a new shell?"
+        description="The shell and any running command stop."
+        confirmLabel="New shell"
+        destructive
+        onCancel={() => setConfirmRestart(false)}
+        onConfirm={() => {
+          setConfirmRestart(false);
+          setGeneration((n) => n + 1);
+        }}
+      />
     </div>
   );
 }

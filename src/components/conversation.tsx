@@ -12,13 +12,16 @@ import {
   DialogFooter,
 } from './ui/dialog';
 import { changeTaskStatus } from '../lib/task-status';
+import { agentLabel } from '../config/agents';
+import { ConfirmDialog } from './confirm-dialog';
 import { useEffect, useRef, useState } from 'react';
-import { ArrowUp, LoaderCircle, Square, X } from 'lucide-react';
+import { ArrowUp, LoaderCircle, ShieldAlert, Square, X } from 'lucide-react';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Choice } from './choice';
 import { Badge } from './ui/badge';
-import { Card } from './ui/card';
+import { cn } from '../lib/utils';
+import type { SessionActivityState } from './activity-dot';
 import { Button } from './ui/button';
 import { Textarea } from './ui/textarea';
 import type {
@@ -30,6 +33,21 @@ import type {
   ProjectGroup,
   TrackerItem,
 } from '../types';
+
+// The composer controls share one chip look: 28px, fully round, 12px muted text.
+const chipClass =
+  'h-7 rounded-full border-0 bg-transparent px-2.5 text-xs font-medium text-muted-foreground shadow-none hover:bg-[var(--surface-hover)] hover:text-foreground data-[state=open]:bg-[var(--surface-hover)] data-[state=open]:text-foreground dark:bg-transparent dark:hover:bg-[var(--surface-hover)]';
+
+/** Only web and mail links open outside Kalkidan. Other links show as text. */
+function safeLink(href: string | undefined) {
+  if (!href) return undefined;
+  try {
+    const url = new URL(href);
+    return ['http:', 'https:', 'mailto:'].includes(url.protocol) ? url.href : undefined;
+  } catch {
+    return undefined;
+  }
+}
 
 export function Conversation({
   api,
@@ -47,7 +65,7 @@ export function Conversation({
   session: Session;
   open: boolean;
   onComplete: () => void;
-  onActivityChange: (active: boolean) => void;
+  onActivityChange: (activity: SessionActivityState | null) => void;
   onSessionCreated?: (id: string, title: string) => void;
 }) {
   const [toolOpen, setToolOpen] = useState(false);
@@ -61,6 +79,8 @@ export function Conversation({
   const [prompt, setPrompt] = useState(session.initialPrompt || '');
   const [model, setModel] = useState('');
   const [models, setModels] = useState<ModelOption[]>([]);
+  const [modelsFailed, setModelsFailed] = useState(false);
+  const [unlinkOpen, setUnlinkOpen] = useState(false);
   const [reviewTask, setReviewTask] = useState(false);
   const [reviewChanges, setReviewChanges] = useState(0);
   const [taskBusy, setTaskBusy] = useState(false);
@@ -108,12 +128,15 @@ export function Conversation({
     let current = true;
     setModels([]);
     setModel('');
+    setModelsFailed(false);
     api
       .models?.(session.agent)
       .then((value) => {
         if (current) setModels(value);
       })
-      .catch(() => {});
+      .catch(() => {
+        if (current) setModelsFailed(true);
+      });
     return () => {
       current = false;
     };
@@ -149,8 +172,7 @@ export function Conversation({
           .then(() => completed.current())
           .catch((e) =>
             setError(
-              'Conversation saved, but its name, pin, or task link could not be saved: ' +
-                e.message,
+              'Session saved, but its name, pin, or task link could not be saved: ' + e.message,
             ),
           );
       onSessionCreated?.(
@@ -174,11 +196,7 @@ export function Conversation({
   const completed = useRef(onComplete);
   completed.current = onComplete;
   const active = starting || run?.status === 'running';
-  useEffect(() => {
-    onActivityChange(!!active);
-    return () => onActivityChange(false);
-  }, [active, onActivityChange]);
-  const agentName = session.agent === 'codex' ? 'Codex' : 'Claude Code';
+  const agentName = agentLabel(session.agent);
   useEffect(() => {
     mounted.current = true;
     let current = true;
@@ -232,6 +250,38 @@ export function Conversation({
   useEffect(() => {
     if (follow.current && scroll.current) scroll.current.scrollTop = scroll.current.scrollHeight;
   }, [messages, run, loading, open]);
+  const pendingApprovals = (run?.approvals || []).filter((a) => a.status === 'pending').length;
+  const activity: SessionActivityState | null = pendingApprovals
+    ? 'approval'
+    : active
+      ? 'running'
+      : null;
+  useEffect(() => {
+    onActivityChange(activity);
+    return () => onActivityChange(null);
+  }, [activity, onActivityChange]);
+  const [approvalHidden, setApprovalHidden] = useState(false);
+  // Show a banner when an approval request is outside the visible part of the transcript.
+  useEffect(() => {
+    const root = scroll.current;
+    const target = root?.querySelector('[data-approval-pending]');
+    if (!root || !target || !pendingApprovals) {
+      setApprovalHidden(false);
+      return;
+    }
+    const observer = new IntersectionObserver(
+      ([entry]) => setApprovalHidden(!entry.isIntersecting),
+      { root, threshold: 0.2 },
+    );
+    observer.observe(target);
+    return () => observer.disconnect();
+  }, [pendingApprovals, run?.id, open]);
+  function reviewApproval() {
+    const target = scroll.current?.querySelector<HTMLElement>('[data-approval-pending]');
+    if (!target) return;
+    target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    target.focus({ preventScroll: true });
+  }
   async function send() {
     if (!prompt.trim() || active || taskBusy || startingRef.current || loading) return;
     const text = [prompt, ...contexts.map((context) => context.text)].join('\n\n');
@@ -339,6 +389,25 @@ export function Conversation({
     }
   }
   const empty = !loading && !messages.length && !run;
+  const nextActivity =
+    run?.activity && !run.activity.startsWith('message:')
+      ? run.activity
+      : `${agentName} is responding…`;
+  // The status poll runs every 400 ms. Keep the announced text until it really changes.
+  const [activityText, setActivityText] = useState(nextActivity);
+  if (active && activityText !== nextActivity) setActivityText(nextActivity);
+  function unlinkTask() {
+    setUnlinkOpen(false);
+    const previous = taskId;
+    setTaskId('');
+    const id = providerSession.current || (!session.projectId ? session.id : null);
+    if (id)
+      void api.updateSession(session.agent, id, { taskId: '' }).catch((e) => {
+        // Show the link again when the change was not saved.
+        setTaskId(previous);
+        setError(e instanceof Error ? e.message : String(e));
+      });
+  }
   return (
     <ConversationTools
       reviewRequest={reviewChanges}
@@ -352,7 +421,7 @@ export function Conversation({
     >
       <section
         className={'conversation-panel' + (empty ? ' conversation-empty' : '')}
-        aria-label="Conversation"
+        aria-label="Session"
         data-tool-open={toolOpen}
       >
         <div
@@ -365,7 +434,7 @@ export function Conversation({
         >
           {loading && (
             <div className="chat-loading">
-              <LoaderCircle className="animate-spin" size={18} /> Loading conversation…
+              <LoaderCircle className="animate-spin" size={18} /> Loading session…
             </div>
           )}
           {truncated && (
@@ -376,9 +445,7 @@ export function Conversation({
           )}
           {!loading && !messages.length && (
             <div className="conversation-welcome">
-              <h3>
-                {session.projectId ? 'What are we working on?' : 'Continue your conversation'}
-              </h3>
+              <h3>{session.projectId ? 'What are we working on?' : 'Resume your session'}</h3>
               <p>
                 {session.projectId
                   ? `Plan, build, and review with ${agentName}.`
@@ -386,28 +453,47 @@ export function Conversation({
               </p>
             </div>
           )}
-          {[
-            ...messages,
-            ...(run?.messages || []).map((message) => ({
-              ...message,
-              id: run!.id + ':' + message.id,
-            })),
-          ].map((message) => (
-            <article className={'chat-message ' + message.role} key={message.id}>
-              {message.role === 'user' && <div className="chat-message-author">You</div>}
-              <div className="chat-markdown">
-                <Markdown
-                  remarkPlugins={[remarkGfm]}
-                  components={{
-                    img: ({ alt }) => <span>[Image{alt ? `: ${alt}` : ''}]</span>,
-                    a: ({ children }) => <span className="chat-link">{children}</span>,
-                  }}
-                >
-                  {message.text}
-                </Markdown>
-              </div>
-            </article>
-          ))}
+          <div
+            className="chat-log"
+            role="log"
+            aria-live="polite"
+            aria-relevant="additions"
+            aria-label="Session messages"
+          >
+            {[
+              ...messages,
+              ...(run?.messages || []).map((message) => ({
+                ...message,
+                id: run!.id + ':' + message.id,
+              })),
+            ].map((message) => (
+              <article className={'chat-message ' + message.role} key={message.id}>
+                <div className="chat-message-author">
+                  {message.role === 'user' ? 'You' : agentName}
+                </div>
+                <div className="chat-markdown prose-ui" data-variant="chat">
+                  <Markdown
+                    remarkPlugins={[remarkGfm]}
+                    components={{
+                      img: ({ alt }) => <span>[Image{alt ? `: ${alt}` : ''}]</span>,
+                      a: ({ href, children }) => {
+                        const link = safeLink(href);
+                        return link ? (
+                          <a className="chat-link" href={link} target="_blank" rel="noreferrer">
+                            {children}
+                          </a>
+                        ) : (
+                          <span className="chat-link-text">{children}</span>
+                        );
+                      },
+                    }}
+                  >
+                    {message.text}
+                  </Markdown>
+                </div>
+              </article>
+            ))}
+          </div>
           {pastActivity.map((previous) => (
             <AgentActivity key={previous.id} api={api} run={previous} onUpdate={() => {}} />
           ))}
@@ -424,11 +510,9 @@ export function Conversation({
             />
           )}
           {active && (
-            <div role="status" className="chat-activity">
-              <LoaderCircle size={14} className="animate-spin" />
-              {run?.activity && !run.activity.startsWith('message:')
-                ? run.activity
-                : `${agentName} is responding…`}
+            <div className="chat-activity">
+              <LoaderCircle size={14} className="animate-spin" aria-hidden="true" />
+              <span role="status">{activityText}</span>
             </div>
           )}
           {run?.status === 'stopped' && (
@@ -436,22 +520,34 @@ export function Conversation({
           )}
         </div>
         <div className="composer-dock">
-          <Card className="conversation-composer">
+          {approvalHidden && (
+            <div className="approval-banner" role="status">
+              <ShieldAlert size={16} aria-hidden="true" />
+              <span>The agent is waiting for your approval</span>
+              <Button size="xs" variant="outline" onClick={reviewApproval}>
+                Review
+              </Button>
+            </div>
+          )}
+          <div className="conversation-composer">
             {!!contexts.length && (
               <div className="context-attachments" aria-label="Attached context">
                 {contexts.map((context) => (
                   <div key={context.id}>
-                    <span>{context.label}</span>
+                    <span className="truncate" title={context.label}>
+                      {context.label}
+                    </span>
                     <Button
                       variant="ghost"
-                      size="icon-sm"
+                      size="icon-xs"
+                      className="size-5"
                       aria-label={`Remove ${context.label}`}
                       disabled={!!active}
                       onClick={() =>
                         setContexts((previous) => previous.filter((item) => item.id !== context.id))
                       }
                     >
-                      <X size={12} />
+                      <X className="size-3" />
                     </Button>
                   </div>
                 ))}
@@ -466,7 +562,7 @@ export function Conversation({
               <Button
                 variant="ghost"
                 size="sm"
-                className="mb-2"
+                className={cn(chipClass, 'self-start')}
                 disabled={!!active || taskBusy}
                 onClick={() => setReviewTask(true)}
               >
@@ -474,7 +570,7 @@ export function Conversation({
               </Button>
             )}
             {taskId && reviewTask && (
-              <div className="rounded-md border p-3 space-y-2" aria-label="Review task completion">
+              <div className="panel space-y-2" role="group" aria-label="Review task completion">
                 <p className="text-sm font-medium">Complete this task?</p>
                 <p className="text-xs text-muted-foreground">
                   Review the changes and verify the result before marking the linked tracker task
@@ -489,7 +585,7 @@ export function Conversation({
                     Review changes
                   </Button>
                   <Button size="sm" disabled={taskBusy || !!active} onClick={() => void markDone()}>
-                    {taskBusy ? 'Updating…' : 'Mark task Done'}
+                    {taskBusy ? 'Updating…' : 'Mark task done'}
                   </Button>
                   <Button
                     size="sm"
@@ -519,8 +615,9 @@ export function Conversation({
               </p>
             )}
             <Textarea
-              disabled={!!active}
+              className="max-h-[clamp(80px,20vh,180px)] min-h-10 resize-none rounded-none border-0 bg-transparent px-2 py-1 text-[15px] leading-6 shadow-none focus-visible:ring-0 md:text-[15px] dark:bg-transparent"
               aria-label="Message agent"
+              aria-description="Press Enter to send. Press Shift+Enter for a new line."
               placeholder="Ask anything…"
               value={prompt}
               maxLength={100000}
@@ -538,6 +635,8 @@ export function Conversation({
                 <div className="composer-model">
                   <Choice
                     label="Model"
+                    size="sm"
+                    className={cn(chipClass, 'max-w-[180px]')}
                     disabled={!!active}
                     value={model}
                     onChange={setModel}
@@ -549,6 +648,13 @@ export function Conversation({
                 </div>
                 <Choice
                   label="Agent permissions"
+                  size="sm"
+                  className={cn(
+                    chipClass,
+                    // Show a warning dot when the agent can change files.
+                    allowEdits &&
+                      "before:size-1.5 before:shrink-0 before:rounded-full before:bg-warning before:content-['']",
+                  )}
                   disabled={!!active}
                   value={allowEdits ? 'edit' : 'read'}
                   onChange={(value) => setAllowEdits(value === 'edit')}
@@ -561,6 +667,7 @@ export function Conversation({
                   <Button
                     variant="ghost"
                     size="sm"
+                    className={chipClass}
                     disabled={!!active}
                     onClick={() => void openTaskLink()}
                   >
@@ -568,9 +675,12 @@ export function Conversation({
                   </Button>
                 )}
               </div>
+              <span className="composer-shortcut" aria-hidden="true">
+                Enter to send · Shift+Enter for new line
+              </span>
               {active ? (
                 <Button
-                  className="composer-send"
+                  className="composer-send rounded-full"
                   aria-label="Stop"
                   title="Stop response"
                   variant="default"
@@ -578,60 +688,58 @@ export function Conversation({
                   disabled={starting}
                   onClick={() => void stop()}
                 >
-                  <Square size={16} />
+                  <Square className="size-3.5" />
                 </Button>
               ) : (
                 <Button
-                  className="composer-send"
+                  className="composer-send rounded-full"
                   aria-label="Send"
-                  title="Send message (Enter). Shift+Enter for a new line."
+                  aria-keyshortcuts="Enter"
                   size="icon"
                   disabled={taskBusy || !prompt.trim() || loading}
                   onClick={() => void send()}
                 >
-                  <ArrowUp size={19} />
+                  <ArrowUp />
                 </Button>
               )}
             </div>
+            {modelsFailed && (
+              <p role="status" className="text-xs text-muted-foreground">
+                Could not load models. Default model is used.
+              </p>
+            )}
             {taskId && (
-              <div className="flex items-center gap-2 text-xs">
-                <Badge variant="outline">
-                  tracker task ·{' '}
+              <div className="flex min-w-0 items-center gap-1">
+                <Badge variant="outline" className="min-w-0 truncate">
+                  Task ·{' '}
                   {linkItems.find((i) => i.id === taskId)?.title ||
                     session.task?.title ||
-                    'Linked item'}
+                    'Linked task'}
                 </Badge>
                 <Button
                   variant="ghost"
-                  size="xs"
+                  size="sm"
+                  className={chipClass}
                   disabled={!!active}
-                  onClick={() => {
-                    setTaskId('');
-                    const id = providerSession.current || (!session.projectId ? session.id : null);
-                    if (id)
-                      void api
-                        .updateSession(session.agent, id, { taskId: '' })
-                        .catch((e) => setError(e.message));
-                  }}
+                  onClick={() => setUnlinkOpen(true)}
                 >
-                  Clear context
+                  Unlink task
                 </Button>
               </div>
             )}
-          </Card>
+          </div>
         </div>
         <Dialog open={linkOpen} onOpenChange={(value) => !linkBusy && setLinkOpen(value)}>
-          <DialogContent>
+          <DialogContent size="md">
             <DialogHeader>
               <DialogTitle>Link a task</DialogTitle>
               <DialogDescription>
-                Add tracker task context to this conversation. General conversations can stay
-                unlinked.
+                Add task context to this session. General sessions can stay unlinked.
               </DialogDescription>
             </DialogHeader>
             <Choice
               className="w-full"
-              label="Conversation task"
+              label="Session task"
               value={linkChoice}
               onChange={setLinkChoice}
               disabled={linkBusy}
@@ -655,6 +763,14 @@ export function Conversation({
             </DialogFooter>
           </DialogContent>
         </Dialog>
+        <ConfirmDialog
+          open={unlinkOpen}
+          title="Unlink task"
+          description="The agent no longer gets this task as context. The task stays in the tracker. You can link it again later."
+          confirmLabel="Unlink task"
+          onCancel={() => setUnlinkOpen(false)}
+          onConfirm={unlinkTask}
+        />
       </section>
     </ConversationTools>
   );

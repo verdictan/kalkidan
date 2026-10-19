@@ -1,13 +1,16 @@
 import { interfaceConfig } from '../config/interface';
 import { RemoteRepositoryPicker } from './remote-repository-picker';
 import { CreateProject } from './create-project';
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Plus, RefreshCw } from 'lucide-react';
 import type { API, GitHubAuthState, GitHubRepository, Snapshot } from '../types';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Badge } from './ui/badge';
 import { Choice } from './choice';
+import { SegmentedControl } from './ui/segmented-control';
+import { cn } from '../lib/utils';
+import { fileManagerName } from '../lib/platform';
 import {
   Dialog,
   DialogContent,
@@ -25,7 +28,10 @@ export function AddRepository({
   disabled,
   className,
   variant = 'ghost',
+  onNotice,
 }: {
+  /** Reports the result of work that continues after the dialog closes. */
+  onNotice?: (message: string, error?: boolean) => void;
   api: API;
   groupId?: string;
   onRefresh: () => Promise<unknown>;
@@ -44,6 +50,8 @@ export function AddRepository({
   const [query, setQuery] = useState('');
   const [manual, setManual] = useState('');
   const [busy, setBusy] = useState(false);
+  const openRef = useRef(false);
+  openRef.current = open;
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [auth, setAuth] = useState<GitHubAuthState>({ status: 'idle' });
@@ -75,8 +83,8 @@ export function AddRepository({
     }
     void loadRepos();
   }
+  // Work in progress continues after the dialog closes. `perform` reports its result.
   function close() {
-    if (busy) return;
     setOpen(false);
     if (auth.status === 'checking' || auth.status === 'waiting') void api.githubAuthCancel();
   }
@@ -116,13 +124,16 @@ export function AddRepository({
       });
     }
   }
-  async function perform(fn: () => Promise<void>) {
+  async function perform(fn: () => Promise<string | void>) {
     setBusy(true);
     setError('');
     try {
-      await fn();
+      const done = await fn();
+      if (done && !openRef.current) onNotice?.(done);
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      const message = e instanceof Error ? e.message : String(e);
+      setError(message);
+      if (!openRef.current) onNotice?.(message, true);
     } finally {
       setBusy(false);
     }
@@ -136,6 +147,7 @@ export function AddRepository({
       else if (!(await api.cloneRepository(manual.trim() || selected, target || undefined))) return;
       await onRefresh();
       setOpen(false);
+      return mode === 'github' ? 'Repository cloned and added to the project.' : undefined;
     });
   }
   return (
@@ -153,17 +165,27 @@ export function AddRepository({
         )}
       </Button>
       <Dialog open={open} onOpenChange={(value) => !value && close()}>
-        <DialogContent className="flex max-h-[calc(100dvh-48px)] flex-col gap-0 overflow-hidden p-0 sm:max-w-xl">
-          <DialogHeader className="shrink-0 px-6 pt-6 pb-4 pr-12">
+        <DialogContent size="lg" className="flex flex-col gap-0 overflow-hidden p-0">
+          <DialogHeader className="shrink-0 px-6 pt-6 pb-4">
             <DialogTitle>Add repositories</DialogTitle>
             <DialogDescription>
               Clone from GitHub, choose local folders, or organize repositories already in your
               library.
             </DialogDescription>
           </DialogHeader>
-          <div className="min-h-0 space-y-4 overflow-y-auto px-6 pb-6">
-            <div className="space-y-2">
-              <p className="text-sm font-medium">Project</p>
+          <div className="grid min-h-0 gap-4 overflow-y-auto px-6 pb-6">
+            <div className="form-label">
+              <div className="flex items-center justify-between gap-2">
+                <span>Project</span>
+                <Button
+                  variant="link"
+                  className="h-auto p-0 text-xs"
+                  disabled={busy}
+                  onClick={() => setCreatingProject(true)}
+                >
+                  Create a new project
+                </Button>
+              </div>
               <Choice
                 className="w-full"
                 label="Add to project"
@@ -176,15 +198,6 @@ export function AddRepository({
                 ]}
               />
             </div>
-            <Button
-              variant="link"
-              size="sm"
-              className="px-0"
-              disabled={busy}
-              onClick={() => setCreatingProject(true)}
-            >
-              Create a new project
-            </Button>
             {remoteGroup ? (
               <RemoteRepositoryPicker
                 key={remoteGroup.id}
@@ -194,35 +207,29 @@ export function AddRepository({
                 onBusy={setBusy}
                 onAdded={async () => {
                   await onRefresh();
+                  if (!openRef.current) onNotice?.('Remote repository added to the project.');
                   setOpen(false);
                 }}
               />
             ) : (
               <>
-                <div
-                  className="flex flex-wrap gap-1 rounded-md border bg-muted/50 p-1"
-                  aria-label="Repository source"
-                >
-                  {[
-                    { value: 'github', label: 'Clone from GitHub' },
-                    { value: 'local', label: 'Local folders' },
-                    { value: 'library', label: 'From library' },
-                  ].map((item) => (
-                    <Button
-                      key={item.value}
-                      size="sm"
-                      disabled={busy}
-                      variant={mode === item.value ? 'secondary' : 'ghost'}
-                      aria-pressed={mode === item.value}
-                      onClick={() => {
-                        setMode(item.value);
-                        setSelected('');
-                        setError('');
-                      }}
-                    >
-                      {item.label}
-                    </Button>
-                  ))}
+                <div className="form-label">
+                  <span>Source</span>
+                  <SegmentedControl
+                    className="justify-self-start"
+                    label="Repository source"
+                    value={mode}
+                    onChange={(value) => {
+                      setMode(value);
+                      setSelected('');
+                      setError('');
+                    }}
+                    options={[
+                      { value: 'github', label: 'Clone from GitHub', disabled: busy },
+                      { value: 'local', label: 'Local folders', disabled: busy },
+                      { value: 'library', label: 'From library', disabled: busy },
+                    ]}
+                  />
                 </div>
                 {mode === 'github' && (
                   <>
@@ -245,55 +252,77 @@ export function AddRepository({
                       </Button>
                     </div>
                     <div
-                      className="min-h-20 max-h-48 space-y-1 overflow-auto rounded-md border p-1"
+                      role="group"
+                      className="list-box min-h-20 content-start"
                       aria-label="Available repositories"
                     >
                       {loading ? (
-                        <p className="text-sm text-muted-foreground">Loading repositories…</p>
+                        <p className="px-2 py-1.5 text-sm text-muted-foreground">
+                          Loading repositories…
+                        </p>
                       ) : (
                         repos
                           .filter((r) =>
                             r.nameWithOwner.toLowerCase().includes(query.toLowerCase()),
                           )
-                          .map((repo) => (
-                            <Button
-                              key={repo.nameWithOwner}
-                              disabled={busy}
-                              variant={selected === repo.nameWithOwner ? 'secondary' : 'ghost'}
-                              aria-pressed={selected === repo.nameWithOwner}
-                              className="h-auto w-full items-start justify-start gap-3 whitespace-normal px-3 py-3 text-left"
-                              onClick={() => {
-                                setSelected(repo.nameWithOwner);
-                                setManual('');
-                              }}
-                            >
-                              <span className="min-w-0 flex-1">
-                                <span className="block break-all">{repo.nameWithOwner}</span>
-                                <span className="mt-1 block break-words text-xs font-normal text-muted-foreground">
-                                  {repo.description}
+                          .map((repo) => {
+                            const active = selected === repo.nameWithOwner;
+                            return (
+                              <button
+                                type="button"
+                                key={repo.nameWithOwner}
+                                disabled={busy}
+                                aria-pressed={active}
+                                className={cn(
+                                  'row-hover flex w-full items-start gap-3 rounded-md px-2 py-2 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50',
+                                  active && 'row-selected',
+                                )}
+                                onClick={() => {
+                                  setSelected(repo.nameWithOwner);
+                                  setManual('');
+                                }}
+                              >
+                                <span
+                                  aria-hidden="true"
+                                  className={cn(
+                                    'mt-0.5 flex size-4 shrink-0 items-center justify-center rounded-full border',
+                                    active && 'border-primary',
+                                  )}
+                                >
+                                  {active && <span className="size-2 rounded-full bg-primary" />}
                                 </span>
-                              </span>
-                              <Badge variant="outline" className="mt-0.5 shrink-0">
-                                {repo.isArchived
-                                  ? 'Archived'
-                                  : repo.isPrivate
-                                    ? 'Private'
-                                    : 'Public'}
-                              </Badge>
-                            </Button>
-                          ))
+                                <span className="min-w-0 flex-1">
+                                  <span className="block text-sm font-medium break-all">
+                                    {repo.nameWithOwner}
+                                  </span>
+                                  {repo.description && (
+                                    <span className="block text-xs break-words text-muted-foreground">
+                                      {repo.description}
+                                    </span>
+                                  )}
+                                </span>
+                                <Badge variant="outline" size="sm" className="shrink-0">
+                                  {repo.isArchived
+                                    ? 'Archived'
+                                    : repo.isPrivate
+                                      ? 'Private'
+                                      : 'Public'}
+                                </Badge>
+                              </button>
+                            );
+                          })
                       )}
                       {!loading &&
                         !repos.some((r) =>
                           r.nameWithOwner.toLowerCase().includes(query.toLowerCase()),
                         ) && (
-                          <p className="text-sm text-muted-foreground">
+                          <p className="px-2 py-1.5 text-sm text-muted-foreground">
                             No matching repositories. Enter owner/repository below, or connect
                             GitHub.
                           </p>
                         )}
                     </div>
-                    <p className="text-xs text-muted-foreground">
+                    <p className="-mt-3 text-xs text-muted-foreground">
                       {repos.length} repositories · {repos.filter((repo) => repo.isPrivate).length}{' '}
                       private · personal and organization access
                     </p>
@@ -307,20 +336,23 @@ export function AddRepository({
                         setSelected('');
                       }}
                     />
-                    <Button
-                      variant="link"
-                      className="justify-start px-0"
-                      disabled={busy || ['checking', 'waiting'].includes(auth.status)}
-                      onClick={() => void authorize()}
-                    >
-                      {auth.status === 'checking'
-                        ? 'Starting GitHub authorization…'
-                        : auth.status === 'waiting'
-                          ? 'Waiting for GitHub approval…'
-                          : auth.status === 'ready'
-                            ? 'Authorize GitHub again'
-                            : 'Connect or authorize GitHub'}
-                    </Button>
+                    <p className="-mt-3 text-xs text-muted-foreground">
+                      Is a repository missing?{' '}
+                      <Button
+                        variant="link"
+                        className="h-auto p-0 text-xs"
+                        disabled={busy || ['checking', 'waiting'].includes(auth.status)}
+                        onClick={() => void authorize()}
+                      >
+                        {auth.status === 'checking'
+                          ? 'Starting GitHub authorization…'
+                          : auth.status === 'waiting'
+                            ? 'Waiting for GitHub approval…'
+                            : auth.status === 'ready'
+                              ? 'Authorize GitHub again'
+                              : 'Connect or authorize GitHub'}
+                      </Button>
+                    </p>
                     {auth.status === 'checking' && (
                       <p role="status" className="text-sm text-muted-foreground">
                         Checking GitHub CLI and opening browser authorization…
@@ -332,7 +364,7 @@ export function AddRepository({
                       </p>
                     )}
                     {auth.status === 'waiting' && (
-                      <div className="space-y-3 rounded-md border p-4" aria-live="polite">
+                      <div className="panel space-y-3" aria-live="polite">
                         <p className="text-sm">
                           Approve access in your browser.
                           {auth.code ? ' Enter this code:' : ' Requesting code…'}
@@ -379,8 +411,8 @@ export function AddRepository({
                 )}
                 {mode === 'local' && (
                   <p className="text-sm text-muted-foreground">
-                    Choose one or more existing folders in Finder. They’ll be added to the selected
-                    project.
+                    Choose one or more existing folders in {fileManagerName()}. Kalkidan adds them
+                    to the selected project.
                   </p>
                 )}
                 {mode === 'library' && (
@@ -407,13 +439,15 @@ export function AddRepository({
             )}
             {busy && (
               <p role="status" className="text-sm text-muted-foreground">
-                Working… Cloning large repositories can take several minutes.
+                {mode === 'github'
+                  ? 'Cloning… A large repository can take several minutes. You can close this window. The clone continues.'
+                  : 'Working…'}
               </p>
             )}
           </div>
           <DialogFooter className="shrink-0 border-t px-6 py-4">
-            <Button variant="outline" disabled={busy} onClick={close}>
-              Cancel
+            <Button variant="outline" onClick={close}>
+              {busy ? 'Close' : 'Cancel'}
             </Button>
             <Button
               hidden={!!remoteGroup}

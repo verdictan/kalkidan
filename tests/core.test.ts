@@ -93,6 +93,34 @@ test('history reads both agents, skips truncated lines, and handles missing stor
     await rm(root, { recursive: true, force: true });
   }
 });
+test('history uses the first Codex user response item as the session title', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'kalkidan-title-'));
+  try {
+    const codex = join(root, 'codex');
+    await mkdir(join(codex, 'sessions'), { recursive: true });
+    const message = (text: string) =>
+      JSON.stringify({
+        type: 'response_item',
+        payload: { type: 'message', role: 'user', content: [{ type: 'input_text', text }] },
+      });
+    await writeFile(
+      join(codex, 'sessions', 'rollout.jsonl'),
+      [
+        JSON.stringify({ type: 'session_meta', payload: { id: 'sess-1', cwd: '/tmp/project' } }),
+        message('# AGENTS.md instructions for /tmp/project\n\nUse tabs.'),
+        message('<environment_context>\n  <cwd>/tmp/project</cwd>\n</environment_context>'),
+        message('Add a dark mode toggle to the header'),
+      ].join('\n'),
+    );
+    const result = await history(codex, join(root, 'claude'));
+    assert.deepEqual(
+      result.sessions.map((s) => s.title),
+      ['Add a dark mode toggle to the header'],
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
 test('history matches projects opened through symlinked folders', async () => {
   const root = await mkdtemp(join(tmpdir(), 'kalkidan-links-'));
   try {
