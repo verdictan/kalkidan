@@ -16,12 +16,7 @@ export function SearchInput({
         className="pointer-events-none absolute top-1/2 left-2 size-3.5 -translate-y-1/2 text-muted-foreground"
         aria-hidden="true"
       />
-      <Input
-        type="search"
-        variant={variant}
-        className={cn(size === 'sm' ? 'h-7 pl-7' : 'pl-7')}
-        {...props}
-      />
+      <Input type="search" variant={variant} size={size} className="pl-7" {...props} />
     </div>
   );
 }

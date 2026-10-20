@@ -1,5 +1,6 @@
 import { createPortal } from 'react-dom';
 import { SessionMenu } from './session-menu';
+import { viewArchivedSessions } from './session-browser';
 import { sessionAPI } from '../lib/remote-api';
 import { useEffect, useRef, useState } from 'react';
 import { ChevronRight, X } from 'lucide-react';
@@ -7,6 +8,8 @@ import { pathBasename } from '../lib/platform';
 import { sessionRepo } from '../lib/session-repository';
 import { Conversation, type ConversationDraft } from './conversation';
 import { Button } from './ui/button';
+import { Hint } from './hint';
+import { shortcutLabel } from '../lib/platform';
 import type { SessionActivity, SessionActivityState } from './activity-dot';
 import type { API, Session, Project, ProjectGroup } from '../types';
 const keyOf = (session: Session) => session.agent + ':' + session.id;
@@ -25,6 +28,9 @@ export function AgentWorkspace({
   onSelect,
   onClose,
   onOpenRepository,
+  onOpenOverview,
+  onOpenProject,
+  onOpenChats,
   onActivity,
   onComplete,
   onCreated,
@@ -42,6 +48,12 @@ export function AgentWorkspace({
   onSelect: (session: Session) => void;
   onClose: () => void;
   onOpenRepository?: (repository: Project) => void;
+  /** Opens the Projects overview from the breadcrumb. */
+  onOpenOverview?: () => void;
+  /** Opens the project home from the breadcrumb. */
+  onOpenProject?: (group: ProjectGroup) => void;
+  /** Reports the open chats, for the "Open chats" list in the sidebar. */
+  onOpenChats?: (chats: { session: Session; state?: SessionActivityState }[]) => void;
   /** Reports the open sessions that work or wait for approval. */
   onActivity?: (activity: SessionActivity[]) => void;
   onComplete: () => void;
@@ -107,6 +119,42 @@ export function AgentWorkspace({
     );
     // Archive removes the tab but keeps the selection. Opening the session again adds it back.
   }, [selectedKey, visible]);
+  // The sidebar and the title bar close a chat with this event. A chat that works keeps
+  // running in the background and stays in the list.
+  const closeRef = useRef<(key: string) => void>(() => {});
+  closeRef.current = (key: string) => {
+    if (!running[key]) {
+      setTabs((previous) => previous.filter((t) => keyOf(t) !== key));
+      if (sideKey === key) setSideKey(null);
+    }
+    if (key === selectedKey && visible) onClose();
+  };
+  useEffect(() => {
+    const onCloseChat = (event: Event) => {
+      const detail = (event as CustomEvent<{ agent: string; id: string }>).detail;
+      if (!detail) return;
+      const tab = tabs.find(
+        (t) =>
+          t.agent === detail.agent && (t.id === detail.id || created[keyOf(t)]?.id === detail.id),
+      );
+      if (tab) closeRef.current(keyOf(tab));
+    };
+    window.addEventListener('kalkidan-close-chat', onCloseChat);
+    return () => window.removeEventListener('kalkidan-close-chat', onCloseChat);
+  }, [tabs, created]);
+  const reportChats = useRef(onOpenChats);
+  reportChats.current = onOpenChats;
+  useEffect(() => {
+    reportChats.current?.(
+      tabs.map((tab) => {
+        const session = liveSession(tab);
+        return {
+          session: { ...session, id: created[keyOf(tab)]?.id || session.id },
+          state: running[keyOf(tab)] || undefined,
+        };
+      }),
+    );
+  }, [tabs, running, created, sessions]);
   const reportActivity = useRef(onActivity);
   reportActivity.current = onActivity;
   useEffect(() => {
@@ -131,6 +179,9 @@ export function AgentWorkspace({
   const saved = !!resolvedId || !selectedTab.projectId;
   const repository = sessionRepo(live, projects);
   const repositoryName = repository?.name || pathBasename(live.cwd) || returnLabel;
+  const group = repository
+    ? projectGroups.find((g) => g.repoIds.includes(repository.id))
+    : undefined;
   async function update(changes: import('../types').SessionOrganization) {
     if (saved) await api.updateSession(live.agent, resolvedId || live.id, changes);
     else onDraft({ ...live, organization: { ...live.organization, ...changes } });
@@ -185,30 +236,89 @@ export function AgentWorkspace({
               setTabs((previous) => previous.filter((t) => keyOf(t) !== selectedKey));
               onClose();
             }}
+            onViewArchived={
+              repository
+                ? () => {
+                    viewArchivedSessions(repository.id);
+                    onOpenRepository?.(repository);
+                  }
+                : undefined
+            }
           />,
           document.getElementById('conversation-titlebar-actions')!,
         )}
       {visible &&
         document.getElementById('conversation-titlebar-heading') &&
         createPortal(
-          <nav className="conversation-toolbar" aria-label="Breadcrumb">
-            <button
-              type="button"
-              className="conversation-breadcrumb-repo"
-              aria-label={`Back to ${repositoryName}`}
-              title={`Back to ${repositoryName}`}
-              onClick={() => {
-                if (repository && onOpenRepository) onOpenRepository(repository);
-                else onClose();
-              }}
-            >
-              {repositoryName}
-            </button>
-            <ChevronRight aria-hidden="true" className="size-3 shrink-0 text-muted-foreground" />
-            <span className="conversation-toolbar-title" title={titleOf(live)} aria-current="page">
-              {titleOf(live)}
-            </span>
-          </nav>,
+          <div className="conversation-heading">
+            <nav className="conversation-toolbar conversation-trail" aria-label="Breadcrumb">
+              {onOpenOverview && (
+                <>
+                  <button
+                    type="button"
+                    className="topbar-crumb"
+                    aria-label="Projects overview"
+                    title="Projects"
+                    onClick={onOpenOverview}
+                  >
+                    Projects
+                  </button>
+                  <ChevronRight
+                    aria-hidden="true"
+                    className="size-3 shrink-0 text-muted-foreground"
+                  />
+                </>
+              )}
+              {group && onOpenProject && (
+                <>
+                  <button
+                    type="button"
+                    className="topbar-crumb"
+                    aria-label={`${group.name} project`}
+                    title={group.name}
+                    onClick={() => onOpenProject(group)}
+                  >
+                    {group.name}
+                  </button>
+                  <ChevronRight
+                    aria-hidden="true"
+                    className="size-3 shrink-0 text-muted-foreground"
+                  />
+                </>
+              )}
+              <button
+                type="button"
+                className="conversation-breadcrumb-repo"
+                aria-label={`Back to ${repositoryName}`}
+                title={`Back to ${repositoryName}`}
+                onClick={() => {
+                  if (repository && onOpenRepository) onOpenRepository(repository);
+                  else onClose();
+                }}
+              >
+                {repositoryName}
+              </button>
+              <ChevronRight aria-hidden="true" className="size-3 shrink-0 text-muted-foreground" />
+              <span
+                className="conversation-toolbar-title"
+                title={titleOf(live)}
+                aria-current="page"
+              >
+                {titleOf(live)}
+              </span>
+            </nav>
+            <Hint label={`Close chat (${shortcutLabel(['mod'], 'W')})`}>
+              <Button
+                variant="ghost"
+                size="icon-xs"
+                className="conversation-close"
+                aria-label="Close chat"
+                onClick={() => closeRef.current(selectedKey)}
+              >
+                <X />
+              </Button>
+            </Hint>
+          </div>,
           document.getElementById('conversation-titlebar-heading')!,
         )}
       <div className="agent-stage">

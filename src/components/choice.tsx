@@ -6,6 +6,7 @@ export function Choice({
   onChange,
   options,
   disabled,
+  title,
   size = 'default',
   variant = 'outline',
   className,
@@ -15,6 +16,8 @@ export function Choice({
   onChange: (value: string) => void;
   options: { value: string; label: string }[];
   disabled?: boolean;
+  /** A tooltip for the trigger, for example the full value when the trigger truncates it. */
+  title?: string;
   /** default 32px for forms and page actions, sm 28px for toolbars and filter bars. */
   size?: 'sm' | 'default';
   /** outline for forms, filled for filter bars, ghost for inline values and chips. */
@@ -29,6 +32,7 @@ export function Choice({
     >
       <SelectTrigger
         aria-label={label}
+        title={title}
         size={size}
         variant={variant}
         className={cn(

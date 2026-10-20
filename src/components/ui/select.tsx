@@ -24,8 +24,8 @@ function SelectTrigger({
   ...props
 }: React.ComponentProps<typeof SelectPrimitive.Trigger> & {
   size?: 'sm' | 'default';
-  /** outline for forms, filled for filter bars, ghost for inline values and chips. */
-  variant?: 'outline' | 'filled' | 'ghost';
+  /** outline for forms, filled for filter bars, ghost for inline values, chip for composer pills. */
+  variant?: 'outline' | 'filled' | 'ghost' | 'chip';
 }) {
   return (
     <SelectPrimitive.Trigger
@@ -33,14 +33,14 @@ function SelectTrigger({
       data-size={size}
       data-variant={variant}
       className={cn(
-        "flex w-fit items-center justify-between gap-2 rounded-md border border-input bg-transparent px-2.5 text-sm whitespace-nowrap shadow-xs transition-[color,box-shadow] outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-destructive/20 data-[placeholder]:text-muted-foreground data-[size=default]:h-8 data-[size=sm]:h-7 *:data-[slot=select-value]:line-clamp-1 *:data-[slot=select-value]:flex *:data-[slot=select-value]:items-center *:data-[slot=select-value]:gap-2 hover:bg-[var(--surface-hover)] dark:bg-input/30 data-[variant=filled]:border-transparent data-[variant=filled]:bg-secondary/60 data-[variant=filled]:shadow-none data-[variant=ghost]:border-transparent data-[variant=ghost]:bg-transparent data-[variant=ghost]:shadow-none dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 [&_svg:not([class*='text-'])]:text-muted-foreground",
+        "flex w-fit items-center justify-between gap-2 rounded-md border border-input bg-transparent px-2.5 text-sm whitespace-nowrap shadow-xs transition-[color,box-shadow] outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-[var(--focus-color)] disabled:cursor-not-allowed disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-destructive/20 data-[placeholder]:text-muted-foreground data-[size=default]:h-8 data-[size=sm]:h-7 *:data-[slot=select-value]:line-clamp-1 *:data-[slot=select-value]:flex *:data-[slot=select-value]:items-center *:data-[slot=select-value]:gap-2 group/select hover:bg-[var(--surface-hover)] dark:hover:bg-[var(--surface-selected)] data-[variant=filled]:border-transparent data-[variant=filled]:bg-secondary/60 data-[variant=filled]:shadow-none data-[variant=filled]:hover:bg-secondary data-[variant=ghost]:border-transparent data-[variant=ghost]:bg-transparent data-[variant=ghost]:shadow-none data-[variant=ghost]:hover:bg-[var(--surface-hover)] data-[variant=chip]:h-7 data-[variant=chip]:rounded-full data-[variant=chip]:border-transparent data-[variant=chip]:bg-transparent data-[variant=chip]:px-2.5 data-[variant=chip]:text-xs data-[variant=chip]:font-medium data-[variant=chip]:text-muted-foreground data-[variant=chip]:shadow-none data-[variant=chip]:hover:bg-[var(--surface-hover)] data-[variant=chip]:hover:text-foreground dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 [&_svg:not([class*='text-'])]:text-muted-foreground",
         className,
       )}
       {...props}
     >
       {children}
       <SelectPrimitive.Icon asChild>
-        <ChevronDownIcon className="size-4 opacity-50" />
+        <ChevronDownIcon className="size-3.5 opacity-50 group-data-[size=sm]/select:size-3" />
       </SelectPrimitive.Icon>
     </SelectPrimitive.Trigger>
   );
@@ -49,7 +49,7 @@ function SelectTrigger({
 function SelectContent({
   className,
   children,
-  position = 'item-aligned',
+  position = 'popper',
   align = 'center',
   ...props
 }: React.ComponentProps<typeof SelectPrimitive.Content>) {
@@ -59,7 +59,7 @@ function SelectContent({
         data-slot="select-content"
         className={cn(
           menuContentClass,
-          'relative max-h-(--radix-select-content-available-height) origin-(--radix-select-content-transform-origin) p-0 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95',
+          'relative max-h-(--radix-select-content-available-height) origin-(--radix-select-content-transform-origin) p-0 ',
           position === 'popper' &&
             'data-[side=bottom]:translate-y-1 data-[side=left]:-translate-x-1 data-[side=right]:translate-x-1 data-[side=top]:-translate-y-1',
           className,
@@ -114,7 +114,7 @@ function SelectItem({
         className="absolute right-2 flex size-3.5 items-center justify-center"
       >
         <SelectPrimitive.ItemIndicator>
-          <CheckIcon className="size-4" />
+          <CheckIcon className="size-3.5" />
         </SelectPrimitive.ItemIndicator>
       </span>
       <SelectPrimitive.ItemText>{children}</SelectPrimitive.ItemText>

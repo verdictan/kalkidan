@@ -29,8 +29,8 @@
   align-items: center;
   justify-content: flex-start;
   gap: var(--space-1);
-  padding-inline: var(--space-3);
-  border-right: 1px solid var(--border);
+  /* The 16px toggle icon lines up with the sidebar icon column (12px panel + 8px row inset). */
+  padding-inline: 14px;
   background: var(--chrome);
 }
 .navigation-history {
@@ -46,7 +46,10 @@
   align-items: center;
   justify-content: space-between;
   gap: var(--space-2);
-  padding-inline: var(--space-3);
+  /* The trail starts at the x of the page title: the 8px content gutter, the 1px card border
+     and the page padding. Below 640px of content, the page padding is 16px, so the trail
+     starts 16px before the title there. */
+  padding-inline: calc(var(--space-2) + 1px + var(--page-padding-x)) var(--space-3);
 }
 .topbar-actions {
   margin-left: auto;
@@ -115,7 +118,6 @@
 }
 .navigation-collapsed .topbar-brand {
   width: auto;
-  border-right: 0;
 }
 .page-content {
   flex: 1;
@@ -148,19 +150,8 @@
   position: relative;
   margin: 0 0 var(--space-3);
 }
-.search > svg {
-  position: absolute;
-  left: var(--space-2);
-  top: 50%;
-  transform: translateY(-50%);
-  width: 16px;
-  height: 16px;
-  color: var(--muted-foreground);
-  pointer-events: none;
-}
-.search input {
-  padding-left: var(--space-8);
-  padding-right: 40px;
+.search input::-webkit-search-cancel-button {
+  display: none;
 }
 .search .search-kbd {
   position: absolute;
@@ -189,25 +180,15 @@
   padding: 0 var(--space-1) 0 var(--space-2);
   color: var(--muted-foreground);
 }
-.tree-heading-link {
-  padding: 0;
-  border: 0;
-  background: none;
-  font: inherit;
-  letter-spacing: inherit;
-  color: inherit;
-  cursor: default;
+.tree-section {
+  margin-bottom: var(--space-3);
 }
-.tree-heading-link:hover {
-  color: var(--foreground);
+.tree-projects-heading {
+  margin-top: var(--space-1);
 }
-.tree-heading-link:focus-visible {
-  outline: none;
-  border-radius: var(--radius-xs);
-  box-shadow: var(--focus-ring);
-}
-/* Explorer rows: every row is inset with a 6px radius. Row content starts 8px in,
-   so headings and first-level icons share one edge. Each level adds 16px. */
+/* Explorer rows: one shape for every row. 8px inset, a 16px icon slot, an 8px gap, so every
+   first-level label starts 44px from the sidebar edge (12px panel padding + 32px). Each level
+   adds 16px. Rows have a 6px radius and draw the keyboard focus ring inside. */
 .tree-row {
   display: flex;
   align-items: center;
@@ -217,34 +198,76 @@
   padding: 0 var(--space-1) 0 var(--space-2);
   border-radius: var(--radius-md);
 }
-.tree-row span,
-.tree-row strong {
-  font-weight: 400;
+.tree-row-button {
+  height: 100%;
 }
-.tree-row.selected span,
-.tree-row.selected strong {
-  font-weight: 500;
+.tree-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 16px;
+  width: 16px;
+  height: 16px;
+  color: var(--muted-foreground);
 }
-/* A project that contains the current page: medium text, no background. */
-.tree-row.contains-current strong {
-  font-weight: 500;
-  color: var(--foreground);
-}
-.project-group {
-  margin-bottom: var(--space-1);
-}
-.project-group-heading {
-  gap: 0;
-}
-.project-select strong,
-.repo-select span,
-.pinned-session-row > button:first-child span {
+.tree-label {
   flex: 1;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   text-align: left;
   white-space: nowrap;
+}
+/* Selected rows keep weight 400. Only the surface shows the selection. */
+.tree-row span,
+.tree-row strong {
+  font-weight: 400;
+}
+/* A project that contains the current page: full text color, no background. */
+.tree-row.contains-current .tree-label {
+  color: var(--foreground);
+}
+.project-group {
+  margin-bottom: var(--space-1);
+}
+/* The icon slot of a project row is its collapse button. Hover or focus shows the chevron. */
+.tree-toggle {
+  position: relative;
+  height: 16px;
+  min-width: 16px;
+  /* With the 4px row gap, the label starts 8px after the icon, like the other rows. */
+  margin-right: var(--space-1);
+  padding: 0;
+  border-radius: var(--radius-sm);
+}
+.tree-toggle .tree-chevron {
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  opacity: 0;
+  color: var(--muted-foreground);
+}
+.project-group-heading:hover .tree-toggle .project-folder-icon,
+.tree-toggle:focus-visible .project-folder-icon,
+.tree-toggle[data-state='closed'] .project-folder-icon {
+  opacity: 0;
+}
+.project-group-heading:hover .tree-toggle .tree-chevron,
+.tree-toggle:focus-visible .tree-chevron,
+.tree-toggle[data-state='closed'] .tree-chevron {
+  opacity: 1;
+}
+.tree-toggle[data-state='closed'] .tree-chevron {
+  transform: rotate(-90deg);
+}
+/* A collapsed project shows its folder icon again when the row is not hovered. */
+.project-group-heading:not(:hover) .tree-toggle[data-state='closed']:not(:focus-visible) {
+  .project-folder-icon {
+    opacity: 1;
+  }
+  .tree-chevron {
+    opacity: 0;
+  }
 }
 .project-group-children {
   position: relative;
@@ -256,14 +279,11 @@
   position: absolute;
   top: 0;
   bottom: 0;
-  /* Centered under the 12px chevron: row padding 8px + 6px, less half the line. */
-  left: 13.5px;
+  /* Centered under the project icon: 8px inset + half the 16px slot, less half the line. */
+  left: 15.5px;
   width: 1px;
   background: var(--border);
   pointer-events: none;
-}
-.project-group-heading .tree-toggle[data-state='closed'] > svg {
-  transform: rotate(-90deg);
 }
 .project-group-actions {
   display: flex;
@@ -271,51 +291,82 @@
   flex-shrink: 0;
   gap: 0;
 }
-/* Second-level rows: their icons start 4px after the project folder icon. */
+/* Second level: Tasks, Docs, host, code folders, empty and clone rows. */
+.project-subpage-row,
 .repo-row,
-.project-subpage-row {
-  padding-left: 28px;
+.tree-host,
+.tree-empty,
+.tree-cloning {
+  padding-left: calc(var(--space-2) + 16px);
 }
-/* Worktrees show one more level in, under their repository. */
-.repo-row.worktree-row {
-  padding-left: 44px;
+/* Third level: branch copies and the recent chats of a code folder. */
+.repo-row.worktree-row,
+.tree-session-row {
+  padding-left: calc(var(--space-2) + 32px);
 }
-.tree-empty {
+.tree-session-row.tree-session-deep {
+  padding-left: calc(var(--space-2) + 48px);
+}
+/* Chats under a code folder are lighter and shorter than the folder rows. */
+.tree-session-row {
+  height: var(--control-sm);
+  color: var(--muted-foreground);
+}
+.tree-session-row:hover,
+.tree-session-row.selected {
+  color: var(--foreground);
+}
+.tree-empty,
+.tree-cloning {
+  height: var(--control-sm);
+  gap: var(--space-2);
   color: var(--muted-foreground);
   font-size: var(--text-xs);
   line-height: 16px;
-  padding: var(--space-1) var(--space-2) var(--space-1) 48px;
+}
+.tree-empty-action {
+  height: auto;
+  padding: 0;
+  font-size: var(--text-xs);
+  line-height: 16px;
 }
 /* The remote host of an SSH project, below the Docs row. */
 .tree-host {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  height: var(--control-xs);
-  padding: 0 var(--space-1) 0 28px;
+  gap: var(--space-2);
+  height: var(--control-sm);
   font-size: var(--text-xs);
   line-height: 16px;
   color: var(--muted-foreground);
 }
 .tree-host small {
-  margin-left: auto;
+  flex-shrink: 0;
   font-size: var(--text-2xs);
+  line-height: 16px;
 }
-.tree-host > span {
+.tree-host-action {
+  flex-shrink: 0;
+}
+.tree-host-dot {
   width: 6px;
   height: 6px;
-  flex-shrink: 0;
   border-radius: 50%;
   background: var(--muted-foreground);
 }
-.tree-host .host-connected {
+.tree-host-dot.host-connected {
   background: var(--success);
+}
+.tree-host-dot.host-error {
+  background: var(--destructive);
 }
 .project-content {
   border: 1px solid var(--border);
   border-radius: var(--radius-xl);
   overflow: hidden;
   background: var(--background);
+}
+/* In dark mode the card stands out by its color. A border adds a third hairline. */
+.dark .project-content {
+  border-color: transparent;
 }
 .project-content,
 .management-pane {
@@ -338,6 +389,11 @@
 .management-pane:has(> .page) {
   padding: 0;
 }
+/* The table bleeds 8px on each side, so the hover fill has an inset and the text still
+   starts at the page title. */
+.project-directory {
+  margin-inline: calc(-1 * var(--space-2));
+}
 .project-directory table {
   table-layout: fixed;
   min-width: 440px;
@@ -357,26 +413,11 @@
 .project-row {
   height: var(--row-height-lg);
 }
+.project-row > td {
+  padding-block: 6px;
+}
 .project-directory .project-open > .min-w-0 {
   overflow-wrap: anywhere;
-}
-.agent-mark {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  border-radius: 10px;
-  color: var(--foreground);
-  background: var(--secondary);
-  width: 36px;
-  height: 36px;
-}
-.agent-mark {
-  width: 28px;
-  height: 28px;
-}
-.agent-mark.claude {
-  font-size: 23px;
 }
 .path-button {
   max-width: 100%;
@@ -401,9 +442,7 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.session-meta,
-.session-path,
-.session-id {
+.session-meta {
   color: var(--muted-foreground);
   font-size: 12px;
   line-height: 16px;
@@ -437,11 +476,53 @@
   align-items: center;
   padding-bottom: var(--space-3);
 }
-.session-options {
-  display: flex;
-  gap: 8px;
+.session-branch svg {
+  display: inline;
+  vertical-align: -2px;
+  margin-right: 2px;
 }
-/* Worktree rows use .list-row: 56px, 12px block padding. */
+.session-archived-link {
+  margin-top: var(--space-2);
+  padding-inline: 0;
+}
+/* Session and branch copy rows: 48px, 6px block padding, like the other list rows. */
+.session-list > .list-row,
+.worktree.list-row {
+  min-height: var(--row-height-lg);
+  padding-block: 6px;
+}
+/* A multi-line branch copy row keeps its icon at the first line. */
+.worktree.list-row {
+  align-items: flex-start;
+}
+.section-help {
+  margin: calc(-1 * var(--space-2)) 0 var(--space-2);
+  color: var(--muted-foreground);
+  font-size: var(--text-xs);
+  line-height: 16px;
+}
+.worktree-preview {
+  display: grid;
+  gap: var(--space-1);
+  font-size: var(--text-xs);
+  line-height: 16px;
+}
+.worktree-preview > div {
+  display: flex;
+  gap: var(--space-2);
+  min-width: 0;
+}
+.worktree-preview dt {
+  flex-shrink: 0;
+  width: 80px;
+  color: var(--muted-foreground);
+}
+.worktree-preview dd {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .worktree-text {
   flex: 1;
   min-width: 0;
@@ -471,33 +552,26 @@
   line-height: 16px;
   margin: var(--space-2) 0;
 }
-.notice {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-3);
-  margin-bottom: var(--space-2);
-  padding: var(--space-1) var(--space-1) var(--space-1) var(--space-3);
-  min-height: var(--control-md);
-  font-size: 13px;
-  line-height: 20px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  background: var(--secondary);
-  flex-shrink: 0;
-}
-.notice.error {
-  color: var(--destructive);
-}
 .warnings {
   flex-shrink: 0;
   margin-bottom: var(--space-2);
+}
+.warnings-toggle {
+  height: auto;
+  padding: 0;
+  color: inherit;
   font-size: var(--text-xs);
   line-height: 16px;
-  color: var(--muted-foreground);
 }
-.warnings p {
-  padding: var(--space-1) var(--space-3);
+.warnings-toggle[data-state='open'] svg {
+  transform: rotate(180deg);
+}
+.warnings-list {
+  display: grid;
+  gap: var(--space-1);
+  margin-top: var(--space-1);
+  font-size: var(--text-xs);
+  line-height: 16px;
 }
 .project-tracker {
   display: flex;
@@ -506,8 +580,12 @@
   height: 100%;
   min-height: 0;
   background: var(--background);
+  container: tracker / inline-size;
 }
-/* The page header and filters keep their height. The board or list fills the rest. */
+/*
+ * The board is full width on purpose: more columns fit on wide screens. The header and the
+ * filter bar stay in line with the board edges. The overview keeps the page width.
+ */
 .project-tracker > * {
   flex-shrink: 0;
 }
@@ -533,6 +611,15 @@
   gap: var(--space-2);
   padding-bottom: var(--space-4);
 }
+.project-tracker[data-page='overview'] .tracker-filterbar {
+  padding-bottom: var(--space-6);
+}
+.tracker-filter-divider {
+  width: 1px;
+  height: 16px;
+  margin-inline: var(--space-1);
+  background: var(--border);
+}
 .tracker-filter-end {
   display: flex;
   align-items: center;
@@ -541,9 +628,45 @@
 }
 .tracker-count {
   color: var(--muted-foreground);
-  font-size: 13px;
-  line-height: 20px;
+  font-size: 12px;
+  line-height: 16px;
   white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.tracker-filter-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: var(--radius-sm);
+  background: var(--secondary);
+  font-size: 11px;
+  line-height: 16px;
+  font-variant-numeric: tabular-nums;
+}
+.tracker-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: calc(-1 * var(--space-2));
+  padding-bottom: var(--space-4);
+}
+/* On a narrow page, the task count moves into the subtitle, so it does not wrap alone. */
+.tracker-subtitle-count {
+  display: none;
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+}
+@container tracker (max-width: 760px) {
+  .tracker-subtitle-count {
+    display: inline;
+  }
+  .tracker-filter-end .tracker-count {
+    display: none;
+  }
 }
 .tracker-board {
   display: flex;
@@ -606,6 +729,7 @@
 .tracker-column-heading > span {
   color: var(--muted-foreground);
   font-size: 12px;
+  line-height: 16px;
   font-variant-numeric: tabular-nums;
 }
 .tracker-column-add {
@@ -622,29 +746,43 @@
   overflow-y: auto;
 }
 .tracker-column-empty {
-  border: 1px dashed var(--border);
-  border-radius: var(--radius-lg);
+  margin: 0;
+  padding: var(--space-3) var(--space-1);
+  color: var(--muted-foreground);
+  font-size: 12px;
+  line-height: 16px;
 }
 .tracker-task {
-  background: var(--card);
-  transition: border-color 0.15s;
+  transition: border-color var(--motion-fast);
 }
 .tracker-task:hover {
   border-color: color-mix(in srgb, var(--foreground) 20%, var(--border));
 }
-/* The card menu shows on hover, on keyboard focus, and while it is open. */
-.tracker-task-menu {
-  opacity: 0;
+.tracker-task-meta {
+  margin: 0;
+  color: var(--muted-foreground);
+  font-size: 12px;
+  line-height: 16px;
+  overflow-wrap: anywhere;
 }
-.tracker-task:hover .tracker-task-menu,
-.tracker-task:focus-within .tracker-task-menu,
-.tracker-task-menu[data-state='open'] {
-  opacity: 1;
+.tracker-task-footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+  min-width: 0;
 }
-@media (hover: none) {
-  .tracker-task-menu {
-    opacity: 1;
-  }
+/* The status pill opens "Move to". It always shows, so that no drag is necessary. */
+.tracker-task-status {
+  max-width: 100%;
+  border-radius: 999px;
+  color: var(--muted-foreground);
+  font-weight: 400;
+}
+.tracker-task-status:hover,
+.tracker-task-status[data-state='open'] {
+  color: var(--foreground);
 }
 .tracker-board [data-drop-target='true'] {
   outline: 2px solid var(--ring);
@@ -656,7 +794,7 @@
 .tracker-board [data-dragging='true'] {
   opacity: 0.45;
 }
-.tracker-empty-result {
+.empty-state.tracker-empty-result {
   padding-top: 0;
 }
 .tracker-list-view {
@@ -684,6 +822,7 @@
   padding-right: calc(var(--control-sm) + var(--space-3));
   color: var(--muted-foreground);
   font-size: 12px;
+  line-height: 16px;
 }
 .tracker-issue-nav > div {
   display: flex;
@@ -701,6 +840,7 @@
 .tracker-issue-properties dt {
   color: var(--muted-foreground);
   font-size: 12px;
+  line-height: 16px;
 }
 .tracker-issue-properties dd {
   display: flex;
@@ -709,63 +849,351 @@
   min-height: var(--control-sm);
   margin: 0;
 }
+/* Lists, code, quotes and links come from .prose-ui. */
 .tracker-issue-description {
   overflow-wrap: anywhere;
 }
 .tracker-issue-description > :last-child {
   margin-bottom: 0;
 }
-/* Padding, code, quotes and link color come from .prose-ui. */
-.tracker-issue-description ul {
-  list-style: disc;
+.tracker-related-docs {
+  display: grid;
+  gap: var(--space-1);
 }
-.tracker-issue-description ol {
-  list-style: decimal;
+.tracker-doc-list {
+  display: grid;
+  margin: 0;
+  padding: 0;
+  list-style: none;
 }
-.tracker-issue-description a {
-  text-decoration: underline;
+.tracker-doc-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  min-height: var(--row-height);
+  padding-right: var(--space-1);
+  border-radius: var(--radius-sm);
+}
+.tracker-doc-open {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  min-height: var(--row-height);
+  padding: 0 var(--space-2);
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-size: 13px;
+  line-height: 20px;
+  text-align: left;
+  outline: none;
+}
+.tracker-doc-open svg {
+  flex-shrink: 0;
+  width: 14px;
+  height: 14px;
+  color: var(--muted-foreground);
 }
 .tracker-work {
-  margin-top: var(--space-2);
-  padding-top: var(--space-6);
+  margin-top: 0;
+  padding-top: var(--space-4);
   border-top: 1px solid var(--border);
+}
+.tracker-checkout {
+  display: grid;
+  gap: var(--space-2);
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.tracker-checkout legend {
+  margin-bottom: var(--space-2);
+  padding: 0;
+}
+.tracker-checkout-option {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  font-size: 13px;
+  line-height: 20px;
+}
+.tracker-checkout-option:has(:checked) {
+  border-color: color-mix(in srgb, var(--foreground) 35%, var(--border));
+  background: var(--surface-selected);
+}
+.tracker-checkout-option:has(:focus-visible) {
+  box-shadow: var(--focus-ring);
+}
+.tracker-checkout-option input {
+  flex-shrink: 0;
+  width: 14px;
+  height: 14px;
+  margin-top: 3px;
+  accent-color: var(--primary);
+  outline: none;
+}
+.tracker-checkout:disabled .tracker-checkout-option {
+  opacity: 0.5;
+}
+.tracker-work-empty {
+  display: grid;
+  justify-items: start;
+  gap: var(--space-3);
+  color: var(--muted-foreground);
+  font-size: 13px;
+  line-height: 20px;
 }
 .tracker-issue-footer {
   flex-shrink: 0;
   padding: var(--space-4) var(--space-6);
   border-top: 1px solid var(--border);
-  background: var(--background);
+  background: var(--card);
 }
 
-.project-group-actions,
+/* Project overview: code folders and sessions, with tasks and docs at the side. */
+.project-home {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-content: start;
+  gap: var(--section-gap);
+  max-width: var(--page-max-width);
+  padding-bottom: var(--space-12);
+}
+@container tracker (min-width: 820px) {
+  .project-home {
+    grid-template-columns: minmax(0, 1fr) 280px;
+    gap: var(--space-8);
+  }
+}
+.project-home-main,
+.project-home-side {
+  display: grid;
+  align-content: start;
+  gap: var(--section-gap);
+  min-width: 0;
+}
+.project-home-side {
+  gap: var(--space-4);
+}
+.project-home-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.project-home-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-height: var(--row-height-2line);
+  padding-right: var(--space-2);
+  border-radius: var(--radius-md);
+}
+.project-home-open {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: var(--space-3);
+  min-width: 0;
+  min-height: var(--row-height-2line);
+  padding: var(--space-2);
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  outline: none;
+}
+.project-home-row:not(.row-focus) .project-home-open:focus-visible {
+  border-radius: var(--radius-md);
+  box-shadow: inset var(--focus-ring);
+}
+.project-home-text {
+  display: grid;
+  flex: 1;
+  min-width: 0;
+}
+.project-home-title {
+  overflow: hidden;
+  font-size: 13px;
+  line-height: 20px;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.project-home-meta {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  min-width: 0;
+  color: var(--muted-foreground);
+  font-size: 12px;
+  line-height: 16px;
+}
+.project-home-time {
+  flex-shrink: 0;
+  color: var(--subtle-foreground);
+  font-size: 12px;
+  line-height: 16px;
+  font-variant-numeric: tabular-nums;
+}
+.project-home-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+}
+.project-home-card .section-header {
+  margin-bottom: 0;
+}
+.project-home-card-text {
+  margin: 0;
+  color: var(--muted-foreground);
+  font-size: 12px;
+  line-height: 16px;
+}
+.project-home-status-list,
+.project-home-doc-list {
+  display: grid;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.project-home-status-list li {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 28px;
+  font-size: 13px;
+  line-height: 20px;
+}
+.project-home-doc {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  /* The row bleeds 8px on each side, so that the icon lines up with the heading. */
+  width: calc(100% + 2 * var(--space-2));
+  min-height: 28px;
+  margin-inline: calc(-1 * var(--space-2));
+  padding: 0 var(--space-2);
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-size: 13px;
+  line-height: 20px;
+  text-align: left;
+}
+.project-home-doc:focus-visible {
+  outline: none;
+  box-shadow: inset var(--focus-ring);
+}
+.project-home-doc svg {
+  flex-shrink: 0;
+  width: 14px;
+  height: 14px;
+  color: var(--muted-foreground);
+}
+
+/* Row actions show on hover, on focus and on the selected row. "Add a code folder" and
+   "New project" always show. */
 .tree-row-menu {
   opacity: 0;
 }
-.project-group-heading:hover .project-group-actions,
-.project-group-heading:focus-within .project-group-actions,
-.project-group-heading.selected .project-group-actions,
-.repo-row:hover .tree-row-menu,
-.repo-row:focus-within .tree-row-menu,
-.repo-row.selected .tree-row-menu,
-.pinned-session-row:hover .tree-row-menu,
-.pinned-session-row:focus-within .tree-row-menu,
-.pinned-session-row.selected .tree-row-menu,
+.tree-row:hover .tree-row-menu,
+.tree-row:focus-within .tree-row-menu,
+.tree-row.selected .tree-row-menu,
 .tree-row-menu[data-state='open'] {
   opacity: 1;
 }
 @media (hover: none) {
-  .project-group-actions,
   .tree-row-menu {
     opacity: 1;
   }
 }
 .tree-row-menu,
-.project-group-actions button {
+.tree-row-action {
   flex-shrink: 0;
   color: var(--muted-foreground);
 }
-.pinned-sessions {
-  margin-bottom: var(--space-3);
+/* A hidden action takes no room, so the label can use the full row. Focus on the row
+   shows the actions, so the keyboard still reaches them. */
+@media (hover: hover) {
+  .tree-row:not(:hover, :focus-within, .selected) .tree-row-menu:not([data-state='open']) {
+    display: none;
+  }
+}
+/* Settings and the shortcuts button share the last sidebar row. */
+.sidebar-footer-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+/* The chat trail in the title bar: Projects › project › code folder › chat, then Close. */
+.conversation-heading {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  min-width: 0;
+  padding-right: var(--space-2);
+  border-right: 1px solid var(--border);
+}
+.conversation-heading > .conversation-toolbar {
+  flex: 1;
+  border-right: 0;
+}
+.conversation-trail .topbar-crumb {
+  flex-shrink: 2;
+  max-width: 20%;
+  white-space: nowrap;
+  font-size: var(--text-sm);
+  line-height: 20px;
+}
+.conversation-close {
+  flex-shrink: 0;
+  color: var(--muted-foreground);
+  -webkit-app-region: no-drag;
+}
+/* Help › Keyboard shortcuts. */
+.shortcuts-sheet {
+  display: grid;
+  gap: var(--space-6);
+}
+.shortcuts-title {
+  margin-bottom: var(--space-2);
+  font-size: var(--text-sm);
+  line-height: 20px;
+  font-weight: 600;
+}
+.shortcuts-list {
+  display: grid;
+  margin: 0;
+}
+.shortcuts-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  min-height: var(--row-height);
+  border-bottom: 1px solid var(--border);
+  font-size: var(--text-sm);
+  line-height: 20px;
+}
+.shortcuts-row:last-child {
+  border-bottom: 0;
+}
+.shortcuts-row dd {
+  flex-shrink: 0;
+  margin: 0;
 }
 
 .sidebar-resizer {
@@ -825,6 +1253,19 @@
   line-height: 20px;
   cursor: default;
 }
+.search-option-action {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.search-option-action .search-option-title {
+  flex: 1;
+}
+.search-option-title .activity-dot {
+  display: inline-block;
+  margin-left: 6px;
+  vertical-align: 1px;
+}
 .workspace-search-results .search-option:hover {
   background: var(--surface-hover);
 }
@@ -852,7 +1293,7 @@
   overflow: hidden;
 }
 .workspace-search-results mark {
-  border-radius: 2px;
+  border-radius: var(--radius-xs);
   background: color-mix(in srgb, var(--warning) 25%, transparent);
   color: inherit;
 }
@@ -860,12 +1301,7 @@
   background: var(--surface-selected);
 }
 .workspace-search-results .search-error {
-  margin: 8px;
-  padding: 8px;
-  border: 1px solid color-mix(in srgb, var(--destructive) 40%, transparent);
-  border-radius: var(--radius-md);
-  color: var(--destructive);
-  font-size: 12px;
+  padding: var(--space-1) var(--space-2);
 }
 .search .search-clear {
   position: absolute;
@@ -892,11 +1328,13 @@
   display: flex;
   align-items: center;
   gap: var(--space-3);
-  width: 100%;
+  /* The hover fill bleeds 8px past the text edge, like the project table. */
+  width: calc(100% + 2 * var(--space-2));
+  margin-inline: calc(-1 * var(--space-2));
   min-height: var(--row-height-lg);
-  padding: var(--space-1) 0;
+  padding: 6px var(--space-2);
   border: 0;
-  border-radius: 0;
+  border-radius: var(--radius-md);
   background: none;
   color: inherit;
   font: inherit;
@@ -905,7 +1343,7 @@
 }
 .project-recent-row:focus-visible {
   outline: none;
-  box-shadow: var(--focus-ring);
+  box-shadow: inset var(--focus-ring);
 }
 .project-recent-text {
   flex: 1;
@@ -913,8 +1351,11 @@
   display: grid;
 }
 .project-recent-title {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
   overflow: hidden;
-  text-overflow: ellipsis;
   white-space: nowrap;
   font-size: 13px;
   line-height: 20px;
@@ -936,14 +1377,13 @@
   flex-wrap: wrap;
   gap: var(--space-1);
   /* The ghost chips bleed so their icons line up with the branch name. */
-  margin: var(--space-1) 0 0 calc(var(--space-2) * -1);
+  margin: var(--space-1) 0 0 -6px;
 }
 .worktree-sessions:empty {
   display: none;
 }
 .worktree-sessions > button {
   max-width: 100%;
-  justify-content: flex-start;
 }
 .worktree-sessions > button > svg {
   color: var(--muted-foreground);
@@ -982,7 +1422,7 @@
   gap: var(--space-2);
   min-width: 0;
   min-height: 0;
-  padding: var(--space-3);
+  padding: var(--space-2);
   border-right: 1px solid var(--border);
   background: var(--navigation);
 }
@@ -1014,12 +1454,6 @@
   min-height: var(--control-sm);
   padding: 0 var(--space-1) 0 var(--space-2);
 }
-.wiki-pages-label > span {
-  color: var(--muted-foreground);
-  font-size: 11px;
-  line-height: 16px;
-  font-weight: 600;
-}
 .wiki-tree-scroll {
   flex: 1 1 auto;
   min-height: 0;
@@ -1032,12 +1466,12 @@
   margin: 0;
 }
 /*
- * The guide line is under the parent toggle (center 20px). The child toggle is under the
- * parent page icon (center 43px): 19px margin + 1px line + 3px padding + 20px.
+ * The guide line is under the parent toggle (center 16px: 8px padding + 8px). The child toggle
+ * is under the parent page icon (center 36px): 15px margin + 1px line + 4px padding + 16px.
  */
 .wiki-tree-children {
-  margin-left: 19px;
-  padding-left: 3px;
+  margin-left: 15px;
+  padding-left: var(--space-1);
   border-left: 1px solid var(--border);
 }
 .wiki-tree-row {
@@ -1050,9 +1484,9 @@
   border-radius: var(--radius-md);
   color: var(--foreground);
   font-size: 13px;
+  line-height: 20px;
 }
-.wiki-tree-row:hover,
-.wiki-tree-row:focus-within {
+.wiki-tree-row:hover {
   background: var(--surface-hover);
 }
 .wiki-tree-row[data-selected='true'] {
@@ -1061,7 +1495,7 @@
 .wiki-tree-toggle,
 .wiki-tree-spacer {
   flex-shrink: 0;
-  width: var(--control-xs);
+  width: 16px;
 }
 .doc-tree-page span {
   overflow: hidden;
@@ -1074,7 +1508,7 @@
   opacity: 0;
 }
 .wiki-tree-row:hover .wiki-tree-actions,
-.wiki-tree-row:focus-within .wiki-tree-actions,
+.wiki-tree-row:has(:focus-visible) .wiki-tree-actions,
 .wiki-tree-row[data-selected='true'] .wiki-tree-actions,
 .wiki-tree-actions:has([data-state='open']) {
   opacity: 1;
@@ -1084,12 +1518,29 @@
     opacity: 1;
   }
 }
+/* Deleted pages: the same row as a page in the list, in the muted color. */
+.docs-trash-row {
+  flex-shrink: 0;
+  gap: var(--space-2);
+  width: 100%;
+  color: var(--muted-foreground);
+  text-align: left;
+}
+.docs-trash-row:hover {
+  color: var(--foreground);
+}
+.docs-trash-row:focus-visible {
+  outline: none;
+  box-shadow: inset var(--focus-ring);
+}
+.docs-trash-row:disabled {
+  opacity: 0.5;
+}
+/* The dialog body scrolls, so the list has no height limit. */
 .wiki-deleted-list {
   list-style: none;
   margin: 0;
   padding: 0;
-  max-height: 50vh;
-  overflow: auto;
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
 }
@@ -1112,13 +1563,17 @@
   align-items: center;
   justify-content: space-between;
   gap: var(--space-3);
-  height: 48px;
+  height: var(--control-lg);
   padding: 0 var(--space-6);
   position: sticky;
   top: 0;
   z-index: 5;
   background: var(--background);
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid transparent;
+  transition: border-color var(--motion-fast);
+}
+.doc-workspace[data-scrolled] .wiki-document-bar {
+  border-bottom-color: var(--border);
 }
 .wiki-breadcrumbs {
   display: flex;
@@ -1171,9 +1626,26 @@
 .wiki-page {
   max-width: calc(var(--reading-width) + 2 * var(--space-12));
   margin: 0 auto;
-  padding: var(--space-12) var(--space-12) 96px;
+  padding: var(--space-12) var(--space-12) var(--space-24);
 }
-/* The title input is the first line of the page (see .doc-title in project-docs.tsx). */
+/* The page title is a plain text field. It looks like the first heading of the page. */
+.doc-title {
+  display: block;
+  width: 100%;
+  margin: 0 0 var(--space-2);
+  padding: 0;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: var(--foreground);
+  font-size: 32px;
+  line-height: 40px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+.doc-title::placeholder {
+  color: var(--subtle-foreground);
+}
 .wiki-writing-area {
   position: relative;
 }
@@ -1188,15 +1660,6 @@
 }
 .wiki-prose :is(h1, h2, h3) {
   letter-spacing: -0.01em;
-}
-.wiki-prose ul {
-  list-style: disc;
-}
-.wiki-prose ol {
-  list-style: decimal;
-}
-.wiki-prose a {
-  text-decoration: underline;
 }
 .wiki-prose li :is(p, ul, ol) {
   margin: 0;
@@ -1249,6 +1712,7 @@
 }
 /* The format toolbar and the slash menu use the menu tokens. */
 .wiki-bubble {
+  z-index: 20;
   display: flex;
   gap: 2px;
   padding: var(--space-1);
@@ -1306,6 +1770,7 @@
   white-space: nowrap;
   color: var(--muted-foreground);
   font-size: 12px;
+  line-height: 16px;
 }
 .wiki-outline {
   display: none;
@@ -1318,18 +1783,6 @@
   background: transparent;
   font-size: 13px;
   line-height: 20px;
-}
-.wiki-table-tools {
-  display: flex;
-  gap: var(--space-1);
-  flex-wrap: wrap;
-  margin-bottom: var(--space-3);
-}
-.wiki-notice {
-  margin-bottom: var(--space-3);
-  color: var(--muted-foreground);
-  font-size: 12px;
-  line-height: 16px;
 }
 .docs-empty {
   display: grid;
@@ -1374,7 +1827,7 @@
     grid-template-columns: min(var(--docs-library-width, 240px), 200px) minmax(0, 1fr);
   }
   .wiki-page {
-    padding: 40px 32px 80px;
+    padding: var(--space-8) var(--space-8) var(--space-16);
   }
   .wiki-document-bar {
     padding: 0 var(--space-4);
@@ -1386,6 +1839,10 @@
   }
   .wiki-page {
     padding-inline: var(--space-5);
+  }
+  .doc-title {
+    font-size: 24px;
+    line-height: 32px;
   }
   .wiki-document-actions > [role='status'] {
     display: none;
@@ -1413,9 +1870,12 @@
   gap: var(--space-3);
   text-align: left;
 }
+/* The legend looks like a .form-label. */
 .project-settings-colors legend {
-  font-size: var(--text-sm);
-  line-height: 20px;
+  font-size: 12px;
+  line-height: 16px;
+  font-weight: 500;
+  color: var(--muted-foreground);
   margin-bottom: var(--space-2);
 }
 .project-settings-colors button[aria-pressed='true'] {
@@ -1432,7 +1892,7 @@
   align-items: center;
   font-size: var(--text-sm);
   line-height: 20px;
-  font-weight: 500;
+  font-weight: 600;
   margin-bottom: var(--space-3);
 }
 .project-settings-repositories h3 span {

@@ -8,6 +8,11 @@ test('tool pane resizes, keeps the composer visible, and preserves independent t
   await page.locator('.repo-select').first().click();
   await page.getByRole('button', { name: 'New Codex session', exact: true }).click();
   await page.getByLabel('Message agent').fill('Keep this draft');
+  // The title bar shows the session tools with their names.
+  const sessionTools = page.getByRole('group', { name: 'Session tools', exact: true });
+  for (const name of ['Terminal', 'Browser'])
+    await expect(sessionTools.getByRole('button', { name, exact: true })).toBeVisible();
+  await expect(sessionTools.getByRole('button', { name: /^Changes/ })).toBeVisible();
   await openTool(page, 'Terminal');
   await expect(page.getByLabel('Message agent')).toBeVisible();
   const divider = page.getByRole('separator', { name: 'Resize session and tools' });

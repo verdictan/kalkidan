@@ -19,4 +19,5 @@ export * from './select';
 export * from './switch';
 export * from './table';
 export * from './textarea';
+export * from './toast';
 export * from './tooltip';

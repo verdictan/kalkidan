@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 test('sidebar resizes, clamps, persists, and restores after collapse', async ({ page }) => {
-  await page.setViewportSize({ width: 773, height: 988 });
+  await page.setViewportSize({ width: 1100, height: 988 });
   await page.goto('http://127.0.0.1:5173');
   const divider = page.getByRole('separator', { name: 'Resize sidebar' });
   const panel = page.locator('.library-panel');
@@ -19,15 +19,15 @@ test('sidebar resizes, clamps, persists, and restores after collapse', async ({ 
   await page.keyboard.press('ArrowLeft');
   await expect(divider).toHaveAttribute('aria-valuenow', '220');
   await page.keyboard.press('End');
-  await expect(divider).toHaveAttribute('aria-valuenow', '413');
+  await expect(divider).toHaveAttribute('aria-valuenow', '460');
   await page.keyboard.press('ArrowRight');
-  await expect(divider).toHaveAttribute('aria-valuenow', '413');
-  expect((await panel.boundingBox())!.width).toBe(413);
-  expect((await page.locator('.topbar-brand').boundingBox())!.width).toBe(413);
+  await expect(divider).toHaveAttribute('aria-valuenow', '460');
+  expect((await panel.boundingBox())!.width).toBe(460);
+  expect((await page.locator('.topbar-brand').boundingBox())!.width).toBe(460);
   await page.getByRole('button', { name: 'Toggle sidebar' }).click();
   await expect(divider).toHaveCount(0);
   await page.getByRole('button', { name: 'Toggle sidebar' }).click();
-  await expect(divider).toHaveAttribute('aria-valuenow', '413');
+  await expect(divider).toHaveAttribute('aria-valuenow', '460');
   await divider.dblclick();
   await expect(divider).toHaveAttribute('aria-valuenow', '260');
   await page.screenshot({ path: 'test-results/sidebar-resize.png' });

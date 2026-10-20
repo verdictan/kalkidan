@@ -1,6 +1,5 @@
 import { Circle, CircleDashed, CircleCheck, CircleDot, MessageSquare } from 'lucide-react';
 import type { TrackerBoard, TrackerItem, Session } from '../types';
-import { Badge } from './ui/badge';
 import { Button } from './ui/button';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table';
 import { Choice } from './choice';
@@ -84,9 +83,11 @@ export function TrackerList({
                       >
                         {item.title}
                       </Button>
-                      <Badge variant="secondary" size="sm">
-                        {item.number ? `#${item.number}` : 'Draft task'}
-                      </Badge>
+                      {item.number ? (
+                        <span className="text-xs text-muted-foreground tabular-nums">
+                          #{item.number}
+                        </span>
+                      ) : null}
                       {count > 0 && (
                         <span
                           className="inline-flex shrink-0 items-center gap-1 text-xs text-muted-foreground"
@@ -103,7 +104,7 @@ export function TrackerList({
                     className="max-w-0 truncate text-muted-foreground"
                     title={item.repository || undefined}
                   >
-                    {item.repository ? pathBasename(item.repository) : '—'}
+                    {item.repository ? pathBasename(item.repository) : 'Not linked'}
                   </TableCell>
                   <TableCell>
                     {board.statusField && (

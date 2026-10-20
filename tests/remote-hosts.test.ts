@@ -85,9 +85,29 @@ test('host setup installs the bundled agent and routes RPC through an SSH transp
     const restored = new RemoteHosts(join(root, 'hosts.json'), bundle);
     await restored.load();
     assert.equal(restored.list()[0].status, 'disconnected');
+    // The host agent finds repositories in a remote folder.
+    await mkdir(join(root, 'code', 'one', '.git'), { recursive: true });
+    await writeFile(join(root, 'code', 'one', '.git', 'HEAD'), 'ref: refs/heads/main\n');
+    const scan = await hosts.call(host.id, 'scan-repositories', [join(root, 'code')]);
+    assert.deepEqual(
+      scan.repositories.map((repo: { name: string; branch?: string }) => [repo.name, repo.branch]),
+      [['one', 'main']],
+    );
     hosts.disconnect(host.id);
     await assert.rejects(hosts.call(host.id, 'hello', []), /offline/);
-    assert.equal((await hosts.connect(host.id)).status, 'connected');
+    // A failed connection keeps its reason for the UI. Reconnect clears it.
+    const broken = join(root, 'broken');
+    await mkdir(broken);
+    await writeFile(join(broken, 'ssh'), '#!/bin/sh\necho "Connection refused" >&2\nexit 255\n');
+    await chmod(join(broken, 'ssh'), 0o755);
+    process.env.PATH = broken + ':' + oldPath;
+    await assert.rejects(hosts.connect(host.id));
+    assert.equal(hosts.list()[0].status, 'error');
+    assert.match(hosts.list()[0].error || '', /Connection refused/);
+    process.env.PATH = bin + ':' + oldPath;
+    const reconnected = await hosts.connect(host.id);
+    assert.equal(reconnected.status, 'connected');
+    assert.equal(reconnected.error, undefined);
   } finally {
     hosts.close();
     process.env.PATH = oldPath;

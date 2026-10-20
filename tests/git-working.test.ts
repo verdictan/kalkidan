@@ -7,9 +7,14 @@ import { exec } from '../electron/core';
 import {
   gitCommit,
   gitPullRequest,
+  gitSwitchNewBranch,
+  parseWorkingFiles,
   parseWorkingStatus,
   removeWorktree,
+  workingFiles,
   workingStatus,
+  worktreeFolder,
+  worktreePreview,
 } from '../electron/git-working';
 import { readAppearanceMode, saveAppearanceMode, withScheme } from '../electron/storage/appearance';
 
@@ -189,6 +194,135 @@ test('appearance persists for the next start and sets the scheme of the start UR
       withScheme('file:///app/index.html', false, '#session=x'),
       'file:///app/index.html?scheme=light#session=x',
     );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('parses porcelain v1 file entries with renames, conflicts and untracked files', () => {
+  const output = [
+    ' M src/a.ts',
+    'M  src/staged.ts',
+    'A  added.ts',
+    ' D gone.ts',
+    'R  src/new.ts',
+    'src/old.ts',
+    'UU conflict.ts',
+    'AA both-added.ts',
+    '?? notes/new file.txt',
+    '!! ignored.log',
+    '',
+  ].join('\0');
+  assert.deepEqual(parseWorkingFiles(output), [
+    { path: 'src/a.ts', status: 'modified' },
+    { path: 'src/staged.ts', status: 'modified' },
+    { path: 'added.ts', status: 'added' },
+    { path: 'gone.ts', status: 'deleted' },
+    { path: 'src/new.ts', status: 'renamed', from: 'src/old.ts' },
+    { path: 'conflict.ts', status: 'conflicted' },
+    { path: 'both-added.ts', status: 'conflicted' },
+    { path: 'notes/new file.txt', status: 'untracked' },
+  ]);
+  assert.deepEqual(parseWorkingFiles(''), []);
+});
+
+test('commit with files commits only those files and keeps other changes', async () => {
+  const { root, repo } = await repository();
+  try {
+    await writeFile(join(repo, 'README.md'), 'Changed\n');
+    await mkdir(join(repo, 'docs'));
+    await writeFile(join(repo, 'docs', 'a*.md'), 'Star\n');
+    await writeFile(join(repo, 'docs', 'ab.md'), 'Other\n');
+    await writeFile(join(repo, 'staged.txt'), 'Staged\n');
+    await exec('git', ['-C', repo, 'add', '--', 'staged.txt']);
+    assert.deepEqual(
+      (await workingFiles(repo)).map((file) => [file.path, file.status]),
+      [
+        ['README.md', 'modified'],
+        ['staged.txt', 'added'],
+        ['docs/a*.md', 'untracked'],
+        ['docs/ab.md', 'untracked'],
+      ],
+    );
+    await assert.rejects(gitCommit(repo, 'Nothing', []), /at least one file/);
+    await assert.rejects(gitCommit(repo, 'Clean', ['LICENSE']), /no changes to commit/);
+    await gitCommit(repo, 'Docs and readme', ['README.md', 'docs/a*.md']);
+    const committed = (
+      await exec('git', ['-C', repo, 'show', '--name-only', '--format=', 'HEAD'])
+    ).stdout
+      .trim()
+      .split('\n');
+    assert.deepEqual(committed.sort(), ['README.md', 'docs/a*.md']);
+    // The other files did not change. The staged file stays staged.
+    assert.deepEqual(
+      (await workingFiles(repo)).map((file) => [file.path, file.status]),
+      [
+        ['staged.txt', 'added'],
+        ['docs/ab.md', 'untracked'],
+      ],
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('commit with files includes both paths of a rename and deletions', async () => {
+  const { root, repo } = await repository();
+  try {
+    await writeFile(join(repo, 'old.txt'), 'Old\n');
+    await writeFile(join(repo, 'remove.txt'), 'Remove\n');
+    await gitCommit(repo, 'Add files');
+    await exec('git', ['-C', repo, 'mv', 'old.txt', 'new.txt']);
+    await rm(join(repo, 'remove.txt'));
+    const files = await workingFiles(repo);
+    assert.deepEqual(
+      files.find((file) => file.path === 'new.txt'),
+      {
+        path: 'new.txt',
+        status: 'renamed',
+        from: 'old.txt',
+      },
+    );
+    await gitCommit(repo, 'Rename and remove', ['new.txt', 'remove.txt']);
+    assert.deepEqual(await workingFiles(repo), []);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('switch to a new branch keeps the changes and rejects invalid names', async () => {
+  const { root, repo } = await repository();
+  try {
+    await writeFile(join(repo, 'README.md'), 'Draft\n');
+    await assert.rejects(gitSwitchNewBranch(repo, 'bad name'), /not a valid branch name/);
+    await assert.rejects(gitSwitchNewBranch(repo, '-x'), /valid new branch name/);
+    await gitSwitchNewBranch(repo, 'feature/draft');
+    const status = await workingStatus(repo);
+    assert.equal(status.branch, 'feature/draft');
+    assert.equal(status.changed, 1);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('worktree preview shows the base branch and the folder that it creates', async () => {
+  const { root, repo } = await repository();
+  try {
+    const projectRoot = join(root, 'project');
+    const none = () => false;
+    assert.deepEqual(await worktreePreview(repo, 'feature/x', projectRoot, none), {
+      base: 'main',
+      path: join(projectRoot, 'worktrees', 'repo-feature-x'),
+    });
+    await assert.rejects(worktreePreview(repo, 'a..b', projectRoot, none), /not a valid/);
+    const taken = new Set([join(projectRoot, 'worktrees', 'repo-feature-x')]);
+    assert.equal(
+      worktreeFolder(projectRoot, 'repo', 'feature/x', (path) => taken.has(path)),
+      join(projectRoot, 'worktrees', 'repo-feature-x-2'),
+    );
+    await exec('git', ['-C', repo, 'switch', '-q', '--detach']);
+    const detached = await worktreePreview(repo, 'topic', projectRoot, none);
+    assert.match(detached.base, /^[0-9a-f]{7,}$/);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

@@ -56,11 +56,11 @@ export function AgentActivity({
           aria-label="Agent approval"
           data-approval-pending=""
           tabIndex={-1}
-          className="panel space-y-3 bg-card"
+          className="space-y-3 rounded-lg bg-muted p-3 focus-visible:shadow-[var(--focus-ring)] focus-visible:outline-none"
         >
           <div className="flex items-center gap-2">
             <ShieldCheck size={16} aria-hidden="true" />
-            <h3 className="font-medium">{approval.title}</h3>
+            <h3 className="font-semibold">{approval.title}</h3>
           </div>
           <p className="text-xs text-muted-foreground">
             {agentLabel(run.agent)} is waiting.{' '}
@@ -100,20 +100,19 @@ export function AgentActivity({
           <CollapsibleTrigger asChild>
             <Button variant="ghost" size="sm" className="group gap-2 text-muted-foreground">
               <ChevronRight
-                size={14}
                 aria-hidden="true"
-                className="transition-transform group-data-[state=open]:rotate-90"
+                className="size-3.5 transition-transform group-data-[state=open]:rotate-90"
               />
               Activity · {run.tools.length} {run.tools.length === 1 ? 'step' : 'steps'}
             </Button>
           </CollapsibleTrigger>
           <CollapsibleContent className="space-y-2 pt-2">
             {run.tools.map((tool) => (
-              <Collapsible key={tool.id} className="rounded-lg border">
+              <Collapsible key={tool.id} className="rounded-lg bg-muted">
                 <CollapsibleTrigger asChild>
                   <Button
                     variant="ghost"
-                    className="h-auto w-full justify-between gap-3 whitespace-normal p-3 text-left"
+                    className="h-auto w-full justify-between gap-3 whitespace-normal rounded-lg p-3 text-left"
                   >
                     <span className="min-w-0 break-words">{tool.title}</span>
                     <span className="shrink-0 text-xs text-muted-foreground">

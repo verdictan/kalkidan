@@ -7,6 +7,12 @@ import { Button } from './ui/button';
 import { EmptyState } from './ui/empty-state';
 import { Hint } from './hint';
 
+/** The folder part of a path, without the file name. Empty for a file at the root. */
+function folderOf(path: string) {
+  const name = pathBasename(path);
+  return path.length > name.length ? path.slice(0, -name.length).replace(/[\\/]+$/, '') : '';
+}
+
 /** Shows why an attach button is disabled. */
 export function AttachHint({ reason, children }: { reason: string; children: ReactElement }) {
   return reason ? <Hint label={reason}>{children}</Hint> : children;
@@ -149,9 +155,7 @@ export function DiffReview({
               onClick={() => setSelection(file.key)}
             >
               <span className="diff-file-name">{pathBasename(file.path)}</span>
-              {pathBasename(file.path) !== file.path && (
-                <span className="diff-file-path">{file.path}</span>
-              )}
+              {folderOf(file.path) && <span className="diff-file-path">{folderOf(file.path)}</span>}
               <span className="diff-count-add">+{file.added}</span>
               <span className="diff-count-remove">−{file.removed}</span>
             </button>

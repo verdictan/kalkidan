@@ -442,13 +442,20 @@ try {
     /Choose a project/,
   );
   await page.evaluate(({ id, groupId }) => window.workspace.moveRepo(id, groupId), { id, groupId });
+  // The preview shows the base branch and the folder before the worktree exists.
+  const preview = await page.evaluate(
+    (id) => window.workspace.worktreePreview(id, 'feature/parallel'),
+    id,
+  );
+  assert.equal(basename(preview.path), 'project with spaces-feature-parallel');
+  assert.ok(preview.base);
   // A task worktree goes in the worktrees folder of its project. No save dialog opens.
   const taskRepo = await page.evaluate(
     (id) => window.workspace.taskWorktree(id, 'feature/parallel'),
     id,
   );
   assert.equal(basename(dirname(taskRepo.path)), 'worktrees');
-  assert.match(basename(taskRepo.path), /^project with spaces-feature-parallel-[0-9a-f]{8}$/);
+  assert.equal(basename(taskRepo.path), basename(preview.path));
   assert.ok(
     (await page.evaluate(() => window.workspace.snapshot())).groups[0].repoIds.includes(
       taskRepo.id,

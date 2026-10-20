@@ -46,7 +46,7 @@ test('overview refreshes only its repository and keeps cached content while reva
   await page.getByRole('button', { name: 'Test repo', exact: true }).click();
   await expect(page.locator('.worktree')).toContainText('main');
   const before = await page.evaluate(() => ({ ...(window as any).ioCalls }));
-  await page.getByRole('button', { name: 'Refresh worktrees' }).click();
+  await page.getByRole('button', { name: 'Refresh branch copies' }).click();
   await expect
     .poll(() => page.evaluate(() => (window as any).ioCalls.repository))
     .toBe(before.repository + 1);

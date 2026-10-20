@@ -153,6 +153,16 @@ export class ProjectGroups {
       group.tracker = { ...connection, statusMapping: mapping };
     });
   }
+  /** Moves several repositories into one project with one save. */
+  moveMany(repoIds: string[], groupId: string) {
+    return this.change((groups) => {
+      const target = groups.find((g) => g.id === groupId);
+      if (!target) throw new Error('Project not found');
+      const moving = new Set(repoIds);
+      for (const group of groups) group.repoIds = group.repoIds.filter((id) => !moving.has(id));
+      target.repoIds.push(...moving);
+    });
+  }
   move(repoId: string, groupId: string | null) {
     return this.change((groups) => {
       const target = groups.find((g) => g.id === groupId);

@@ -27,7 +27,7 @@ export function TrackerWorkflow({
   connection: TrackerConnection;
   board: TrackerBoard;
   open: boolean;
-  /** The status names that the provider sets when a choice is "Provider default". */
+  /** The status names that the provider sets when a choice is "Default". */
   defaults?: { progress: string; done: string };
   onOpenChange(open: boolean): void;
   onSaved(): Promise<void>;
@@ -46,7 +46,7 @@ export function TrackerWorkflow({
   const statuses =
     board.statusField?.options.map((option) => ({ value: option.id, label: option.name })) || [];
   const options = (name?: string) => [
-    { value: 'default', label: name ? `Provider default (${name})` : 'Provider default' },
+    { value: 'default', label: name ? `Default (${name})` : 'Default' },
     ...statuses,
   ];
   async function save() {
@@ -69,10 +69,10 @@ export function TrackerWorkflow({
     <Dialog open={open} onOpenChange={(value) => !busy && onOpenChange(value)}>
       <DialogContent size="sm">
         <DialogHeader>
-          <DialogTitle>Task workflow</DialogTitle>
+          <DialogTitle>Status changes from sessions</DialogTitle>
           <DialogDescription>
-            Choose the statuses that sessions set on a task. A task is complete only when you
-            approve it.
+            A session can move its task on the board. Choose the status for each step. A task is
+            done only when you approve it.
           </DialogDescription>
         </DialogHeader>
         <label className="form-label">
@@ -107,7 +107,7 @@ export function TrackerWorkflow({
             Cancel
           </Button>
           <Button disabled={busy} onClick={() => void save()}>
-            {busy ? 'Saving…' : 'Save workflow'}
+            {busy ? 'Saving…' : 'Save'}
           </Button>
         </DialogFooter>
       </DialogContent>

@@ -28,16 +28,27 @@ test('session actions rename, pin, fork, and open an independent side session', 
   ).toBeVisible();
   await menu();
   await expect(page.getByRole('menuitem', { name: /^Unpin/ })).toBeVisible();
-  await page.getByRole('menuitem', { name: 'Fork', exact: true }).hover();
-  await page.getByRole('menuitem', { name: 'In current checkout' }).click();
+  await page.getByRole('menuitem', { name: 'Duplicate chat', exact: true }).hover();
+  await page.getByRole('menuitem', { name: 'Continue here' }).click();
   await expect(page.locator('.conversation-toolbar-title:visible')).toContainText(
     'Fork of Release review',
   );
   await menu();
-  await page.getByRole('menuitem', { name: /New side session/ }).click();
+  await page.getByRole('menuitem', { name: /Open a second chat beside this one/ }).click();
   await expect(page.getByLabel('Message agent')).toHaveCount(3);
   await expect(page.getByRole('button', { name: 'Close side session' })).toBeVisible();
   await page.screenshot({ animations: 'disabled', path: 'test-results/side-session.png' });
   await page.getByRole('button', { name: 'Close side session' }).click();
   await expect(page.getByRole('button', { name: 'Close side session' })).toHaveCount(0);
+});
+test('archive closes the session at once and the toast can undo it', async ({ page }) => {
+  await openSession(page);
+  const title = await page.locator('.conversation-toolbar-title').innerText();
+  await page.getByRole('button', { name: 'Session actions', exact: true }).click();
+  await page.getByRole('menuitem', { name: /^Archive/ }).click();
+  await expect(page.getByRole('status').filter({ hasText: 'Chat archived' })).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Session', exact: true })).toHaveCount(0);
+  await page.getByRole('button', { name: 'Undo', exact: true }).click();
+  await expect(page.getByRole('status').filter({ hasText: 'Chat restored' })).toBeVisible();
+  await expect(page.getByText(title, { exact: true }).first()).toBeVisible();
 });

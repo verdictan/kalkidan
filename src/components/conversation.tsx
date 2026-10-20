@@ -1,7 +1,11 @@
 import { interfaceConfig } from '../config/interface';
 import { trackerConnection } from '../domain/tracker';
 import { trackerClient } from '../lib/tracker-client';
-import { ConversationTools, type ConversationContext } from './conversation-tools';
+import {
+  ConversationTools,
+  type ConversationContext,
+  type ToolRequest,
+} from './conversation-tools';
 import { AgentActivity } from './agent-activity';
 import {
   Dialog,
@@ -15,22 +19,44 @@ import { changeTaskStatus } from '../lib/task-status';
 import { agentLabel } from '../config/agents';
 import { ConfirmDialog } from './confirm-dialog';
 import { CommitDialog } from './session-menu';
-import { useEffect, useRef, useState } from 'react';
-import { ArrowUp, LoaderCircle, ShieldAlert, Square, X } from 'lucide-react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import {
+  ArrowUp,
+  FileDiff,
+  FileText,
+  Globe,
+  LoaderCircle,
+  Lock,
+  Paperclip,
+  ShieldAlert,
+  Square,
+  SquareTerminal,
+  X,
+} from 'lucide-react';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Choice } from './choice';
-import { Badge } from './ui/badge';
 import { Alert, AlertDescription } from './ui/alert';
 import { MoreButton } from './ui/more-button';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from './ui/dropdown-menu';
+import { Hint } from './hint';
+import { DocPagePicker } from './doc-page-picker';
 import { cn } from '../lib/utils';
 import { plural } from '../lib/platform';
+import type { WorkingStatus } from '../api/contracts';
 import type { SessionActivityState } from './activity-dot';
 import { Button } from './ui/button';
 import { Textarea } from './ui/textarea';
@@ -67,9 +93,53 @@ function savePermission(repositoryId: string | undefined, value: 'edit' | 'read'
   }
 }
 
-// The composer controls share one chip look: 28px, fully round, 12px muted text.
-const chipClass =
-  'h-7 rounded-full border-0 bg-transparent px-2.5 text-xs font-medium text-muted-foreground shadow-none hover:bg-[var(--surface-hover)] hover:text-foreground data-[state=open]:bg-[var(--surface-hover)] data-[state=open]:text-foreground dark:bg-transparent dark:hover:bg-[var(--surface-hover)]';
+const permissionModes = {
+  read: {
+    label: 'Can read only',
+    description: 'The agent reads files and answers. It cannot change files.',
+  },
+  edit: {
+    label: 'Can edit files',
+    description: 'The agent can change files in this folder. Review the changes before you commit.',
+  },
+} as const;
+
+// Starter prompts for an empty session. A click puts the text in the composer.
+const starterPrompts = [
+  {
+    label: 'Explain this code',
+    prompt:
+      'Explore this repository and explain its architecture, main entry points, and how to run and test it. Do not change files yet.',
+  },
+  {
+    label: 'Plan a change',
+    prompt:
+      'Help me plan a change in this repository. First read the project conventions and tests, then ask me what I want to build.',
+  },
+  {
+    label: 'Find an improvement',
+    prompt:
+      'Find one concrete reliability or performance improvement in this repository. Explain the evidence and how to verify it before you change files.',
+  },
+];
+
+// The words that agents use when a read-only run cannot change a file: Codex reports the
+// read-only sandbox, Claude Code reports plan mode or a permission denial.
+const writeRefusal =
+  /read[- ]only (sandbox|mode|file ?system)|plan mode|permission to (use )?(write|edit)|denied by the agent permission policy|haven(?:'|’)t granted|not (allowed|permitted) to (write|edit|modify|change)|(cannot|can(?:'|’)t|unable to) (write|edit|modify|change|create) (files|the file|this file)|EROFS|EACCES|operation not permitted/i;
+/** True when a run tried to change files but its read-only permission stopped it. */
+function refusedWrite(run: ChatRun) {
+  if (run.error && writeRefusal.test(run.error)) return true;
+  if (
+    run.tools?.some(
+      (tool) =>
+        ['declined', 'failed'].includes(tool.status) &&
+        writeRefusal.test(`${tool.title}\n${tool.detail || ''}`),
+    )
+  )
+    return true;
+  return run.messages.some((message) => message.role !== 'user' && writeRefusal.test(message.text));
+}
 
 /** Only web and mail links open outside Kalkidan. Other links show as text. */
 function safeLink(href: string | undefined) {
@@ -109,6 +179,18 @@ export function Conversation({
   onSessionCreated?: (id: string, title: string) => void;
 }) {
   const [toolOpen, setToolOpen] = useState(false);
+  const [toolRequest, setToolRequest] = useState<ToolRequest | null>(null);
+  const showTool = (kind: ToolRequest['kind']) =>
+    setToolRequest((previous) => ({ kind, n: (previous?.n || 0) + 1 }));
+  const [docPickerOpen, setDocPickerOpen] = useState(false);
+  const [working, setWorking] = useState<WorkingStatus | null>(null);
+  const [runsFinished, setRunsFinished] = useState(0);
+  // Show "{n} files changed" after a run in this view. A new message hides it.
+  const [changesNotice, setChangesNotice] = useState(false);
+  const [editsRefused, setEditsRefused] = useState(false);
+  const runEdits = useRef(false);
+  const permissionTouched = useRef(false);
+  const textarea = useRef<HTMLTextAreaElement>(null);
   const [linkOpen, setLinkOpen] = useState(false);
   const [linkItems, setLinkItems] = useState<TrackerItem[]>([]);
   const [linkChoice, setLinkChoice] = useState('');
@@ -191,6 +273,21 @@ export function Conversation({
     }
   }
   const [taskId, setTaskId] = useState(session.task?.id || session.organization?.taskId || '');
+  /** Reads the branch and the number of changed files of the checkout. */
+  const readWorking = useRef<() => void>(() => {});
+  readWorking.current = () => {
+    if (!repositoryId || !api.workingStatus) return;
+    api
+      .workingStatus(repositoryId)
+      .then((next) => {
+        if (mounted.current) setWorking(next);
+      })
+      .catch(() => {
+        // The status is not available, for example on an SSH host. The count does not show.
+      });
+  };
+  useEffect(() => readWorking.current(), [api, repositoryId]);
+  const changedFiles = working ? working.changed + working.untracked : 0;
   // A resumed session has only the task id. Load the board to show the task title.
   useEffect(() => {
     const connection = trackerConnection(projectGroup);
@@ -226,11 +323,25 @@ export function Conversation({
       current = false;
     };
   }, [api, session.agent]);
-  // A new session uses the last choice in its repository. A task session allows edits by default.
-  const [allowEdits, setAllowEdits] = useState(() => {
-    const stored = session.projectId ? readPermission(repositoryId) : null;
-    return stored ? stored === 'edit' : !!session.projectId && !!taskId;
-  });
+  // A new session uses the last choice in its repository. A task session allows edits by
+  // default, except on the default branch: there it starts read only, so the main checkout
+  // stays clean.
+  const storedPermission = session.projectId ? readPermission(repositoryId) : null;
+  const [allowEdits, setAllowEdits] = useState(() =>
+    storedPermission ? storedPermission === 'edit' : !!session.projectId && !!taskId,
+  );
+  const onDefaultBranch = !!working && working.branch === working.defaultBranch;
+  const taskOnDefault = !!session.projectId && !!taskId && !storedPermission && onDefaultBranch;
+  useEffect(() => {
+    if (taskOnDefault && !permissionTouched.current && !startedTasks.current.size)
+      setAllowEdits(false);
+  }, [taskOnDefault]);
+  function choosePermission(value: 'edit' | 'read') {
+    permissionTouched.current = true;
+    setAllowEdits(value === 'edit');
+    setEditsRefused(false);
+    if (session.projectId) savePermission(repositoryId, value);
+  }
   const [pastActivity, setPastActivity] = useState<ChatRun[]>([]);
   const finished = useRef(new Set<string>());
   const [run, setRun] = useState<ChatRun | null>(null);
@@ -276,6 +387,10 @@ export function Conversation({
       );
     }
     if (next.error) setError(next.error);
+    if (!runEdits.current && next.status !== 'stopped' && refusedWrite(next)) setEditsRefused(true);
+    setRunsFinished((n) => n + 1);
+    setChangesNotice(true);
+    readWorking.current();
     if (
       next.errorCode === 'session_busy' &&
       !next.messages.length &&
@@ -377,9 +492,15 @@ export function Conversation({
     target.scrollIntoView({ behavior: 'smooth', block: 'center' });
     target.focus({ preventScroll: true });
   }
-  async function send() {
-    if (!prompt.trim() || active || taskBusy || startingRef.current || loading) return;
-    const text = [prompt, ...contexts.map((context) => context.text)].join('\n\n');
+  /** Sends the composer text. A retry sends the last message again with other permissions. */
+  async function send(retry?: { allowEdits: boolean }) {
+    const again = retry ? submitted.current : null;
+    if (retry ? !again : !prompt.trim()) return;
+    if (active || taskBusy || startingRef.current || loading) return;
+    const edits = retry ? retry.allowEdits : allowEdits;
+    const text = again
+      ? again.text
+      : [prompt, ...contexts.map((context) => context.text)].join('\n\n');
     if (text.length > 100000) {
       setError(
         'Message and context exceed 100,000 characters. Remove an attachment or shorten the message.',
@@ -391,24 +512,21 @@ export function Conversation({
     setError('');
     setReviewTask(false);
     setTaskNotice('');
+    setEditsRefused(false);
+    setChangesNotice(false);
+    runEdits.current = edits;
     try {
       const next =
         session.projectId && !providerSession.current
-          ? await api.chatCreate(session.projectId, session.agent, text, allowEdits, {
+          ? await api.chatCreate(session.projectId, session.agent, text, edits, {
               forkFrom: session.forkFrom,
               model: model || undefined,
               taskId: taskId || undefined,
             })
-          : await api.chatStart(
-              session.agent,
-              providerSession.current || session.id,
-              text,
-              allowEdits,
-              {
-                model: model || undefined,
-                taskId: taskId || undefined,
-              },
-            );
+          : await api.chatStart(session.agent, providerSession.current || session.id, text, edits, {
+              model: model || undefined,
+              taskId: taskId || undefined,
+            });
       if (!mounted.current) {
         await api.chatStop(next.id);
         return;
@@ -420,15 +538,17 @@ export function Conversation({
         id: runRef.current!.id + ':' + message.id,
       }));
       const messageId = crypto.randomUUID();
-      submitted.current = { runId: next.id, messageId, text, prompt };
+      submitted.current = { runId: next.id, messageId, text, prompt: again?.prompt ?? prompt };
       setMessages((existing) => [
         ...existing,
         ...previousMessages,
         { id: messageId, role: 'user', text },
       ]);
       syncStartedTask(next);
-      setPrompt('');
-      setContexts([]);
+      if (!again) {
+        setPrompt('');
+        setContexts([]);
+      }
       runRef.current = next;
       setRun(next);
       follow.current = true;
@@ -483,6 +603,63 @@ export function Conversation({
       setLinkBusy(false);
     }
   }
+  // A session on an SSH host fails when the host disconnects. Offer to connect again.
+  const [reconnecting, setReconnecting] = useState(false);
+  const hostError =
+    !!session.hostId &&
+    !!error &&
+    /host|ssh|disconnect|not connected|connection|ECONNRESET|EPIPE|timed out/i.test(error);
+  async function reconnect() {
+    if (!session.hostId) return;
+    setReconnecting(true);
+    try {
+      const host = await api.remoteConnect(session.hostId);
+      if (host.error) throw new Error(host.error);
+      setError('');
+      readWorking.current();
+      completed.current();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setReconnecting(false);
+    }
+  }
+  async function attachDoc(doc: { id: string; title: string }) {
+    if (!projectGroup) return;
+    try {
+      const page = await api.docsRead(projectGroup.id, doc.id);
+      const title = page.title || doc.title || 'Untitled';
+      setContexts((previous) => [
+        ...previous,
+        {
+          id: crypto.randomUUID(),
+          label: `Doc: ${title}`,
+          text: `Project doc page "${title}" (from the project docs):\n${page.markdown}`.slice(
+            0,
+            interfaceConfig.attachmentCharacters,
+          ),
+        },
+      ]);
+    } catch (e) {
+      setError('Could not attach the doc page: ' + (e instanceof Error ? e.message : String(e)));
+    }
+  }
+  // A classic scrollbar (Windows, Linux) takes width on the right of the messages only. The
+  // CSS subtracts it from the right padding, so messages and composer share one column.
+  const panel = useRef<HTMLElement>(null);
+  useLayoutEffect(() => {
+    const element = scroll.current;
+    if (!element) return;
+    const measure = () =>
+      panel.current?.style.setProperty(
+        '--scrollbar-width',
+        `${Math.max(0, element.offsetWidth - element.clientWidth)}px`,
+      );
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
   const empty = !loading && !messages.length && !run;
   const nextActivity =
     run?.activity && !run.activity.startsWith('message:')
@@ -511,9 +688,18 @@ export function Conversation({
         setError(e instanceof Error ? e.message : String(e));
       });
   }
+  const modelName = models.find((m) => m.id === model)?.name || model;
+  const mode = permissionModes[allowEdits ? 'edit' : 'read'];
+  const linkTaskAvailable = !!trackerConnection(projectGroup) && !taskId;
+  const showChanges = changesNotice && !active && changedFiles > 0 && !!repositoryId;
   return (
     <ConversationTools
       reviewRequest={reviewChanges}
+      toolRequest={toolRequest}
+      changeCount={repositoryId ? changedFiles : null}
+      runsFinished={runsFinished}
+      onChangesRead={() => readWorking.current()}
+      onCommit={repositoryId ? () => setCommitOpen(true) : undefined}
       onToolChange={setToolOpen}
       visible={open && titlebarVisible}
       remote={!!session.hostId}
@@ -524,6 +710,7 @@ export function Conversation({
       onAttach={(context) => setContexts((previous) => [...previous, context])}
     >
       <section
+        ref={panel}
         className={'conversation-panel' + (empty ? ' conversation-empty' : '')}
         aria-label="Session"
         data-tool-open={toolOpen}
@@ -538,7 +725,7 @@ export function Conversation({
         >
           {loading && (
             <div className="chat-loading">
-              <LoaderCircle className="size-4 animate-spin" aria-hidden="true" /> Loading session…
+              <LoaderCircle className="size-3.5 animate-spin" aria-hidden="true" /> Loading session…
             </div>
           )}
           {truncated && (
@@ -555,6 +742,24 @@ export function Conversation({
                   ? `Plan, build, and review with ${agentName}.`
                   : 'Send a message to pick up where you left off.'}
               </p>
+              {session.projectId && !prompt.trim() && (
+                <div className="conversation-starters" role="group" aria-label="Starter prompts">
+                  {starterPrompts.map((starter) => (
+                    <Hint key={starter.label} label={starter.prompt}>
+                      <Button
+                        variant="chip"
+                        className="bg-secondary text-secondary-foreground"
+                        onClick={() => {
+                          setPrompt(starter.prompt);
+                          requestAnimationFrame(() => textarea.current?.focus());
+                        }}
+                      >
+                        {starter.label}
+                      </Button>
+                    </Hint>
+                  ))}
+                </div>
+              )}
             </div>
           )}
           <div
@@ -628,8 +833,31 @@ export function Conversation({
             <div className="approval-banner" role="status">
               <ShieldAlert size={16} aria-hidden="true" />
               <span>The agent is waiting for your approval</span>
-              <Button size="xs" variant="outline" onClick={reviewApproval}>
+              <Button size="sm" variant="outline" onClick={reviewApproval}>
                 Review
+              </Button>
+            </div>
+          )}
+          {showChanges && (
+            <div className="run-changes" role="status">
+              <FileDiff className="size-3.5" aria-hidden="true" />
+              <span>{plural(changedFiles, 'file')} changed</span>
+              <span aria-hidden="true">·</span>
+              <Button variant="chip" onClick={() => setReviewChanges((n) => n + 1)}>
+                Review
+              </Button>
+              <span aria-hidden="true">·</span>
+              <Button variant="chip" onClick={() => setCommitOpen(true)}>
+                Commit…
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon-2xs"
+                className="ml-auto"
+                aria-label="Hide changed files notice"
+                onClick={() => setChangesNotice(false)}
+              >
+                <X />
               </Button>
             </div>
           )}
@@ -637,13 +865,12 @@ export function Conversation({
             {!!contexts.length && (
               <div className="context-attachments" aria-label="Attached context">
                 {contexts.map((context) => (
-                  <div key={context.id}>
-                    <span className="truncate" title={context.label}>
-                      {context.label}
-                    </span>
+                  <div key={context.id} title={context.label}>
+                    <span className="truncate">{context.label}</span>
                     <Button
                       variant="ghost"
                       size="icon-2xs"
+                      className="rounded-full"
                       aria-label={`Remove ${context.label}`}
                       disabled={!!active}
                       onClick={() =>
@@ -656,16 +883,54 @@ export function Conversation({
                 ))}
               </div>
             )}
+            {editsRefused && !allowEdits && !active && (
+              <div className="composer-notice" role="group" aria-label="Allow edits">
+                <Lock className="size-3.5 shrink-0" aria-hidden="true" />
+                <span className="min-w-0 flex-1">This chat can read only. Allow edits?</span>
+                {submitted.current && (
+                  <Button
+                    size="sm"
+                    onClick={() => {
+                      choosePermission('edit');
+                      void send({ allowEdits: true });
+                    }}
+                  >
+                    Allow edits and retry
+                  </Button>
+                )}
+                <Button
+                  size="sm"
+                  variant={submitted.current ? 'outline' : 'default'}
+                  onClick={() => choosePermission('edit')}
+                >
+                  Allow edits
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon-xs"
+                  aria-label="Keep read only"
+                  title="Keep read only"
+                  onClick={() => setEditsRefused(false)}
+                >
+                  <X />
+                </Button>
+              </div>
+            )}
             {taskId && taskNotice && (
               <p role="status" className="text-xs text-muted-foreground">
                 {taskNotice}
               </p>
             )}
+            {taskOnDefault && !allowEdits && !messages.length && !run && (
+              <p className="form-help px-2">
+                You are on {working?.branch}, so this task chat starts with Can read only. Your
+                checkout stays clean. Allow edits when you are ready.
+              </p>
+            )}
             {taskId && !reviewTask && (
               <Button
-                variant="ghost"
-                size="sm"
-                className={cn(chipClass, 'self-start')}
+                variant="chip"
+                className="self-start"
                 disabled={!!active || taskBusy}
                 onClick={() => setReviewTask(true)}
               >
@@ -673,7 +938,11 @@ export function Conversation({
               </Button>
             )}
             {taskId && reviewTask && (
-              <div className="panel space-y-2" role="group" aria-label="Review task completion">
+              <div
+                className="space-y-2 rounded-lg bg-muted p-3"
+                role="group"
+                aria-label="Review task completion"
+              >
                 <p className="text-sm font-medium">Complete this task?</p>
                 <p className="text-xs text-muted-foreground">
                   Review the changes and verify the result before marking the linked tracker task
@@ -716,9 +985,20 @@ export function Conversation({
               </div>
             )}
             {error && (
-              <Alert variant="destructive" className="max-h-32 overflow-auto px-3 py-2">
+              <Alert variant="destructive" size="sm" className="max-h-32 overflow-auto">
                 <AlertDescription className="text-xs whitespace-pre-wrap">
                   {error.replace(/^Error invoking remote method '[^']+': Error: /, '')}
+                  {hostError && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="mt-1"
+                      disabled={reconnecting}
+                      onClick={() => void reconnect()}
+                    >
+                      {reconnecting ? 'Reconnecting…' : 'Reconnect'}
+                    </Button>
+                  )}
                   {run?.errorCode === 'session_busy' && (
                     <Button
                       variant="outline"
@@ -734,8 +1014,9 @@ export function Conversation({
               </Alert>
             )}
             <Textarea
+              ref={textarea}
               data-composer=""
-              className="max-h-[clamp(80px,20vh,180px)] min-h-10 resize-none rounded-none border-0 bg-transparent px-2 py-1 text-base shadow-none focus-visible:ring-0 dark:bg-transparent"
+              className="max-h-[clamp(80px,20vh,180px)] min-h-8 resize-none rounded-none border-0 bg-transparent px-2 py-1 text-base shadow-none focus-visible:ring-0 dark:bg-transparent"
               aria-label="Message agent"
               aria-description="Press Enter to send. Press Shift+Enter for a new line."
               placeholder="Ask anything…"
@@ -752,124 +1033,200 @@ export function Conversation({
             />
             <div className="composer-actions">
               <div className="composer-settings">
-                <div className="composer-model">
-                  <Choice
-                    label="Model"
-                    size="sm"
-                    className={cn(chipClass, 'max-w-[180px]')}
-                    disabled={!!active}
-                    value={model}
-                    onChange={setModel}
-                    options={[
-                      { value: '', label: `${agentName} · Default` },
-                      ...models.map((m) => ({ value: m.id, label: m.name })),
-                    ]}
-                  />
-                </div>
-                <Choice
-                  label="Agent permissions"
-                  size="sm"
-                  className={cn(
-                    chipClass,
-                    // Show a warning dot when the agent can change files.
-                    allowEdits &&
-                      "before:size-1.5 before:shrink-0 before:rounded-full before:bg-warning before:content-['']",
-                  )}
-                  disabled={!!active}
+                <DropdownMenu>
+                  <Hint label={attachReason || 'Attach context'} disabled={!!attachReason}>
+                    <DropdownMenuTrigger asChild>
+                      <Button
+                        variant="chip"
+                        size="icon-sm"
+                        className="w-7 px-0 has-[>svg]:px-0"
+                        aria-label="Attach context"
+                        disabled={!!attachReason}
+                      >
+                        <Paperclip />
+                      </Button>
+                    </DropdownMenuTrigger>
+                  </Hint>
+                  <DropdownMenuContent align="start" className="w-60">
+                    <DropdownMenuLabel>Attach to this message</DropdownMenuLabel>
+                    {projectGroup && (
+                      <DropdownMenuItem onSelect={() => setDocPickerOpen(true)}>
+                        <FileText />
+                        Attach a doc page…
+                      </DropdownMenuItem>
+                    )}
+                    <DropdownMenuItem onSelect={() => showTool('diff')}>
+                      <FileDiff />
+                      Changed files…
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onSelect={() => showTool('terminal')}>
+                      <SquareTerminal />
+                      Terminal output…
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onSelect={() => showTool('browser')}>
+                      <Globe />
+                      Browser element…
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+                <Select
                   value={allowEdits ? 'edit' : 'read'}
-                  onChange={(value) => {
-                    setAllowEdits(value === 'edit');
-                    if (session.projectId) savePermission(repositoryId, value as 'edit' | 'read');
-                  }}
-                  options={[
-                    { value: 'read', label: 'Read only' },
-                    { value: 'edit', label: 'Allow edits' },
-                  ]}
-                />
-                {trackerConnection(projectGroup) && !taskId && (
-                  <>
-                    <Button
-                      variant="ghost"
+                  disabled={!!active}
+                  onValueChange={(value) => choosePermission(value as 'edit' | 'read')}
+                >
+                  <Hint label={`${mode.label}: ${mode.description}`} disabled={!!active}>
+                    <SelectTrigger
+                      variant="chip"
                       size="sm"
-                      className={cn(chipClass, '@max-[35rem]/composer:hidden')}
-                      disabled={!!active}
+                      aria-label="Agent permissions"
+                      className={cn(
+                        'min-w-0',
+                        // Show a warning dot when the agent can change files.
+                        allowEdits &&
+                          "before:size-1.5 before:shrink-0 before:rounded-full before:bg-warning before:content-['']",
+                      )}
+                    >
+                      <SelectValue>{mode.label}</SelectValue>
+                    </SelectTrigger>
+                  </Hint>
+                  <SelectContent align="start" className="w-72">
+                    {(['read', 'edit'] as const).map((value) => (
+                      <SelectItem key={value} value={value} className="h-auto items-start py-1.5">
+                        <span className="grid gap-0.5">
+                          <span>{permissionModes[value].label}</span>
+                          <span className="text-xs whitespace-normal text-muted-foreground">
+                            {permissionModes[value].description}
+                          </span>
+                        </span>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {model && (
+                  <Button
+                    variant="chip"
+                    className="min-w-0 max-w-[180px]"
+                    title={`Model: ${modelName}. Select to use the default model.`}
+                    disabled={!!active}
+                    onClick={() => setModel('')}
+                  >
+                    <span className="truncate">{modelName}</span>
+                    <X aria-hidden="true" />
+                  </Button>
+                )}
+                {linkTaskAvailable && (
+                  <Button
+                    variant="chip"
+                    className="@max-[35rem]/composer:hidden"
+                    disabled={!!active}
+                    onClick={() => void openTaskLink()}
+                  >
+                    Link task
+                  </Button>
+                )}
+                {taskId && (
+                  <span className="composer-task min-w-0" title={`Task · ${taskTitle}`}>
+                    <Button
+                      variant="chip"
+                      className="min-w-0 bg-secondary text-secondary-foreground"
+                      disabled={!!active || !trackerConnection(projectGroup)}
+                      aria-label={`Task: ${taskTitle}. Change task`}
                       onClick={() => void openTaskLink()}
                     >
-                      Link task
+                      <span className="truncate">Task · {taskTitle}</span>
                     </Button>
-                    {/* In a narrow composer, "Link task" moves into a menu so Send stays on
-                        the same row as the chips. */}
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <MoreButton
-                          size="sm"
-                          label="More session options"
-                          className="hidden rounded-full text-muted-foreground @max-[35rem]/composer:inline-flex"
-                          disabled={!!active}
-                        />
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="start">
-                        <DropdownMenuItem onSelect={() => void openTaskLink()}>
-                          Link task
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </>
+                    <Button
+                      variant="ghost"
+                      size="icon-2xs"
+                      className="rounded-full"
+                      aria-label="Unlink task"
+                      title="Unlink task"
+                      disabled={!!active}
+                      onClick={() => setUnlinkOpen(true)}
+                    >
+                      <X />
+                    </Button>
+                  </span>
                 )}
+                <DropdownMenu>
+                  <Hint label="More options">
+                    <DropdownMenuTrigger asChild>
+                      <MoreButton
+                        size="sm"
+                        label="More options"
+                        className="rounded-full text-muted-foreground"
+                        disabled={!!active}
+                      />
+                    </DropdownMenuTrigger>
+                  </Hint>
+                  <DropdownMenuContent align="start" className="w-60">
+                    <DropdownMenuSub>
+                      <DropdownMenuSubTrigger>
+                        Model
+                        <span className="ml-auto max-w-28 truncate pl-2 text-xs text-muted-foreground">
+                          {model ? modelName : 'Default'}
+                        </span>
+                      </DropdownMenuSubTrigger>
+                      <DropdownMenuSubContent className="max-h-80 w-56 overflow-y-auto">
+                        <DropdownMenuRadioGroup value={model} onValueChange={setModel}>
+                          <DropdownMenuRadioItem value="">
+                            {agentName} · Default
+                          </DropdownMenuRadioItem>
+                          {models.map((m) => (
+                            <DropdownMenuRadioItem key={m.id} value={m.id} title={m.name}>
+                              <span className="truncate">{m.name}</span>
+                            </DropdownMenuRadioItem>
+                          ))}
+                        </DropdownMenuRadioGroup>
+                        {modelsFailed && (
+                          <p className="px-2 py-1.5 text-xs text-muted-foreground">
+                            Could not load models. The default model is used.
+                          </p>
+                        )}
+                      </DropdownMenuSubContent>
+                    </DropdownMenuSub>
+                    {linkTaskAvailable && (
+                      <>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem onSelect={() => void openTaskLink()}>
+                          Link task…
+                        </DropdownMenuItem>
+                      </>
+                    )}
+                  </DropdownMenuContent>
+                </DropdownMenu>
               </div>
               <span className="composer-shortcut" aria-hidden="true">
                 Enter to send · Shift+Enter for new line
               </span>
               {active ? (
-                <Button
-                  className="composer-send rounded-full"
-                  aria-label="Stop"
-                  title="Stop response"
-                  variant="default"
-                  size="icon-sm"
-                  disabled={starting}
-                  onClick={() => void stop()}
-                >
-                  <Square className="size-3" />
-                </Button>
+                <Hint label="Stop response">
+                  <Button
+                    className="composer-send rounded-full"
+                    aria-label="Stop"
+                    variant="default"
+                    size="icon-sm"
+                    disabled={starting}
+                    onClick={() => void stop()}
+                  >
+                    <Square className="size-3" />
+                  </Button>
+                </Hint>
               ) : (
-                <Button
-                  className="composer-send rounded-full"
-                  aria-label="Send"
-                  aria-keyshortcuts="Enter"
-                  size="icon-sm"
-                  disabled={taskBusy || !prompt.trim() || loading}
-                  onClick={() => void send()}
-                >
-                  <ArrowUp />
-                </Button>
+                <Hint label="Send (Enter)">
+                  <Button
+                    className="composer-send rounded-full"
+                    aria-label="Send"
+                    aria-keyshortcuts="Enter"
+                    size="icon-sm"
+                    disabled={taskBusy || !prompt.trim() || loading}
+                    onClick={() => void send()}
+                  >
+                    <ArrowUp />
+                  </Button>
+                </Hint>
               )}
             </div>
-            {modelsFailed && (
-              <p role="status" className="text-xs text-muted-foreground">
-                Could not load models. Default model is used.
-              </p>
-            )}
-            {taskId && (
-              <div className="flex min-w-0 items-center gap-1">
-                <Badge
-                  variant="outline"
-                  className="block min-w-0 truncate leading-6"
-                  title={`Task · ${taskTitle}`}
-                >
-                  Task · {taskTitle}
-                </Badge>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className={chipClass}
-                  disabled={!!active}
-                  onClick={() => setUnlinkOpen(true)}
-                >
-                  Unlink task
-                </Button>
-              </div>
-            )}
           </div>
         </div>
         <Dialog open={linkOpen} onOpenChange={(value) => !linkBusy && setLinkOpen(value)}>
@@ -940,12 +1297,30 @@ export function Conversation({
             repositoryId={repositoryId}
             open={commitOpen}
             onOpenChange={setCommitOpen}
+            onReview={() => setReviewChanges((n) => n + 1)}
+            onCommitted={() => {
+              readWorking.current();
+              setRunsFinished((n) => n + 1);
+            }}
             message={sessionTitle}
             pullRequestBody={
               taskId && linkedTask
                 ? [`Task: ${linkedTask.title}`, linkedTask.url].filter(Boolean).join('\n')
                 : `Changes from the Kalkidan session "${sessionTitle}".`
             }
+          />
+        )}
+        {projectGroup && (
+          <DocPagePicker
+            api={api}
+            groupId={projectGroup.id}
+            open={docPickerOpen}
+            onOpenChange={setDocPickerOpen}
+            title="Attach a doc page"
+            onPick={(doc) => {
+              setDocPickerOpen(false);
+              void attachDoc(doc);
+            }}
           />
         )}
         <ConfirmDialog
