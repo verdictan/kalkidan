@@ -9,6 +9,7 @@ import {
   legacyDocs,
   importLegacyDocs,
 } from './storage/project-location';
+import { memoryDirectory, readProjectMemory } from './storage/project-memory';
 import { ProjectDocs } from './storage/project-docs';
 import { dataDirectory } from './storage/data-directory';
 import { HistoryImport } from './history-import';
@@ -531,10 +532,33 @@ app.whenReady().then(async () => {
   handle('github-status', (id, item, option) => github.setStatus(linked(id), item, option));
   handle('github-draft', (id, title, body) => github.addDraft(linked(id), title, body));
   handle('github-add-issue', (id, url) => github.addIssue(linked(id), url));
+  handle('memory-list', async (id) => {
+    const group = projectGroups.groups.find((g) => g.id === id);
+    if (!group) throw new Error('Project not found.');
+    const root = await projectRoot(id);
+    return group.hostId
+      ? remote.call(group.hostId, 'project-memory', [id, root, 'list'])
+      : readProjectMemory(root);
+  });
   const projectPrompt = createProjectPrompt({
+    memoryPath: async (group) => {
+      const root = await projectRoot(group.id);
+      return group.hostId
+        ? remote.call(group.hostId, 'project-memory', [group.id, root, 'path'])
+        : memoryDirectory(root);
+    },
     projects: () => projects,
     groups: () => projectGroups.groups,
     trackers,
+    searchDocs: async (group, query) =>
+      group.hostId
+        ? remote.call(group.hostId, 'project-docs', [
+            group.id,
+            await projectRoot(group.id),
+            'search',
+            [query],
+          ])
+        : docs.search(group.id, query),
   });
   handle('snapshot', async () => {
     const result = await history(codexRoot, claudeRoot);

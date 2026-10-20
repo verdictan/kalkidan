@@ -14,6 +14,7 @@ import {
   FolderGit2,
   FolderPlus,
   BookOpen,
+  Brain,
   GitBranch,
   Plus,
   Pin,
@@ -96,6 +97,7 @@ export function ProjectTree({
   onProject,
   onOverview,
   onDocs,
+  onMemory,
   projectPage,
   run,
   onNotice,
@@ -116,7 +118,8 @@ export function ProjectTree({
   onNotice?: (message: string, error?: boolean) => void;
   onOverview: () => void;
   onDocs: (group: ProjectGroup) => void;
-  projectPage: 'board' | 'docs';
+  onMemory: (group: ProjectGroup) => void;
+  projectPage: 'board' | 'docs' | 'memory';
   hosts?: RemoteHost[];
   api: API;
   repos: Project[];
@@ -366,6 +369,7 @@ export function ProjectTree({
         const containsCurrent =
           !boardCurrent &&
           (docsCurrent ||
+            (activeGroup === group.id && projectPage === 'memory') ||
             allRepos.some((repo) => group.repoIds.includes(repo.id) && isCurrent(repo)));
         const host = hosts.find((h) => h.id === group.hostId);
         return (
@@ -471,6 +475,26 @@ export function ProjectTree({
                 >
                   <BookOpen size={14} />
                   <span>Docs</span>
+                </Button>
+              </div>
+              <div
+                className={
+                  'tree-row project-subpage-row row-hover' +
+                  (activeGroup === group.id && projectPage === 'memory'
+                    ? ' selected row-selected'
+                    : '')
+                }
+              >
+                <Button
+                  variant="ghost"
+                  className={'project-subpage ' + rowButton}
+                  aria-current={
+                    activeGroup === group.id && projectPage === 'memory' ? 'page' : undefined
+                  }
+                  onClick={() => onMemory(group)}
+                >
+                  <Brain size={14} />
+                  <span>Memory</span>
                 </Button>
               </div>
               {group.hostId && (

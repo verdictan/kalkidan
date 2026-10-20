@@ -4,6 +4,7 @@ import {
   prepareProjectLocation,
   importLegacyDocs,
 } from './storage/project-location';
+import { memoryDirectory, readProjectMemory } from './storage/project-memory';
 import { ProjectDocs } from './storage/project-docs';
 import { PtyTerminal } from './pty-terminal';
 // Private stdio RPC service. OpenSSH provides authentication and encryption; no listening port.
@@ -65,6 +66,12 @@ async function dispatch(method: string, args: any[]): Promise<any> {
       await importLegacyDocs(root, c);
       return true;
     }
+    case 'project-memory': {
+      const root = await locations.get(a, b);
+      if (c === 'path') return memoryDirectory(root);
+      if (c === 'list') return readProjectMemory(root);
+      throw new Error('Unknown memory operation.');
+    }
     case 'project-docs': {
       const root = await locations.get(a, b);
       let docs = projectDocs.get(root);
@@ -78,6 +85,8 @@ async function dispatch(method: string, args: any[]): Promise<any> {
       }
       try {
         switch (c) {
+          case 'search':
+            return await docs.search(a, d[0]);
           case 'metadata':
             return await docs.metadata(a);
           case 'read':

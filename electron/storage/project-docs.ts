@@ -1,3 +1,4 @@
+import { DocsRetrievalIndex, docSearchTerms } from './docs-retrieval';
 import { mkdir, readdir, readFile, writeFile, rename, rm, lstat, open } from 'node:fs/promises';
 import { StringDecoder } from 'node:string_decoder';
 import { join } from 'node:path';
@@ -12,6 +13,8 @@ export class ProjectDocs {
   private queues = new Map<string, Promise<unknown>>();
   private bodies = new Map<string, { stamp: string; doc: ProjectDoc }>();
   private headers = new Map<string, { stamp: string; meta: ProjectDocMetadata }>();
+  private activeSearches = new Set<string>();
+  private searchIndexes = new Map<string, DocsRetrievalIndex>();
   readonly metrics = { bodyReads: 0, headerReads: 0 };
   private stamp(info: Awaited<ReturnType<typeof lstat>>) {
     return [info.dev, info.ino, info.size, info.mtimeMs, info.ctimeMs].join(':');
@@ -75,6 +78,40 @@ export class ProjectDocs {
         .sort()
         .map((f) => this.read(dir, f.slice(0, -3))),
     );
+  }
+  /** Refresh changed pages only. Deleted and trashed pages leave the index immediately. */
+  async search(group: string, query: string) {
+    if (typeof query !== 'string') throw new Error('Enter a document search query.');
+    const dir = await this.directory(group);
+    if (!docSearchTerms(query).length) return [];
+    return this.change(group, async () => {
+      let index = this.searchIndexes.get(dir);
+      if (!index) index = new DocsRetrievalIndex();
+      this.searchIndexes.delete(dir);
+      this.searchIndexes.set(dir, index);
+      this.activeSearches.add(dir);
+      try {
+        const names = (await readdir(dir)).filter((name) => name.endsWith('.md')).sort();
+        const ids = new Set(names.map((name) => name.slice(0, -3)));
+        for (const id of index.stamps.keys()) if (!ids.has(id)) index.remove(id);
+        for (const id of ids) {
+          const info = await lstat(this.file(dir, id));
+          if (info.isSymbolicLink()) throw new Error('Page cannot be a symbolic link');
+          const stamp = this.stamp(info);
+          if (index.stamps.get(id) !== stamp) index.update(await this.read(dir, id), stamp);
+        }
+        return index.search(query);
+      } finally {
+        this.activeSearches.delete(dir);
+        for (const [key, cached] of this.searchIndexes) {
+          if (this.searchIndexes.size <= 8) break;
+          if (!this.activeSearches.has(key)) {
+            cached.close();
+            this.searchIndexes.delete(key);
+          }
+        }
+      }
+    });
   }
   async get(group: string, id: string) {
     return this.read(await this.directory(group), id);

@@ -25,3 +25,13 @@ export interface DocsAPI {
   docsTrash(groupId: string): Promise<DeletedProjectDoc[]>;
   docsRestore(groupId: string, trashId: string): Promise<ProjectDoc>;
 }
+
+/** A bounded search result. Source line numbers refer to the Markdown file on disk. */
+export interface DocPassage {
+  id: string;
+  title: string;
+  heading: string;
+  revision: string;
+  source: string;
+  excerpt: string;
+}

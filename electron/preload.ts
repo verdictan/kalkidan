@@ -2,6 +2,7 @@ import { contextBridge, ipcRenderer } from 'electron';
 import type { API, MenuCommand } from '../src/types';
 import { menuCommands } from '../src/api/contracts';
 const api: API = {
+  memoryList: (group) => ipcRenderer.invoke('memory-list', group),
   docsMetadata: (group) => ipcRenderer.invoke('docs-metadata', group),
   docsRead: (group, id) => ipcRenderer.invoke('docs-read', group, id),
   docsList: (...args) => ipcRenderer.invoke('docs-list', ...args),

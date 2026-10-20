@@ -1,4 +1,5 @@
 import { Onboarding, onboardingDismissed, dismissOnboarding } from './components/onboarding';
+import { ProjectMemoryPanel } from './components/project-memory';
 import { ProjectDocsPanel } from './components/project-docs';
 import { WorkspaceSearch } from './components/workspace-search';
 import { useSidebarWidth } from './hooks/use-sidebar-width';
@@ -118,7 +119,7 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
   const [connectRequest, setConnectRequest] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
-  const [projectPage, setProjectPage] = useState<'board' | 'docs'>('board');
+  const [projectPage, setProjectPage] = useState<'board' | 'docs' | 'memory'>('board');
   const [boardGroup, setBoardGroup] = useState<string | null>(null);
   const [selected, setSelected] = useState('');
   const [query, setQuery] = useState('');
@@ -476,7 +477,7 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
   }
   // A docs page or task chosen in search. The panel opens it once after it loads.
   const [searchTarget, setSearchTarget] = useState<{ page?: string; task?: string }>({});
-  function openGroup(group: ProjectGroup, page: 'board' | 'docs' = 'board') {
+  function openGroup(group: ProjectGroup, page: 'board' | 'docs' | 'memory' = 'board') {
     setHome(false);
     setChatOpen(false);
     setBoardGroup(group.id);
@@ -509,7 +510,7 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
       ? []
       : [
           { label: 'Projects', name: 'Projects overview', open: openOverview },
-          ...(trailGroup && (projectPage === 'docs' || !currentGroup)
+          ...(trailGroup && (projectPage !== 'board' || !currentGroup)
             ? [
                 {
                   label: trailGroup.name,
@@ -769,6 +770,7 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
             activity={repoActivity}
             projectPage={projectPage}
             onDocs={(group) => openGroup(group, 'docs')}
+            onMemory={(group) => openGroup(group, 'memory')}
             onOverview={openOverview}
             onEditRepository={editRepository}
             onConnect={(group) => connectTracker(group)}
@@ -880,7 +882,13 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
                     onResume={openConversation}
                   />
                 ) : boardGroup && data.groups?.find((g) => g.id === boardGroup) ? (
-                  projectPage === 'docs' ? (
+                  projectPage === 'memory' ? (
+                    <ProjectMemoryPanel
+                      key={boardGroup}
+                      api={api}
+                      group={data.groups.find((g) => g.id === boardGroup)!}
+                    />
+                  ) : projectPage === 'docs' ? (
                     <ProjectDocsPanel
                       key={boardGroup}
                       initialPageId={searchTarget.page}

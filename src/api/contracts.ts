@@ -246,9 +246,13 @@ export interface MenuAPI {
   /** Reports full screen changes. macOS hides the window buttons in full screen. */
   onFullScreenChange?(callback: (fullScreen: boolean) => void): () => void;
 }
+export interface MemoryAPI {
+  memoryList(groupId: string): Promise<import('../domain/memory').ProjectMemory>;
+}
 export interface API
   extends
     DocsAPI,
+    MemoryAPI,
     TrackerAPI,
     AgentAPI,
     BrowserAPI,
