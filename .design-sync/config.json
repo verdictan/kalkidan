@@ -1,0 +1,37 @@
+{
+  "pkg": "@kalkidan/ui",
+  "globalName": "KalkidanUI",
+  "shape": "storybook",
+  "storybookConfigDir": ".storybook",
+  "storybookStatic": ".design-sync/sb-reference",
+  "entry": "dist-ui/index.js",
+  "buildCmd": "node scripts/build-ui-kit.mjs && npx storybook build -o .design-sync/sb-reference",
+  "provider": {
+    "component": "TooltipProvider",
+    "props": {
+      "delayDuration": 350
+    }
+  },
+  "storyImports": {
+    "shim": ["src/components/ui/"]
+  },
+  "overrides": {
+    "Dialog": {
+      "cardMode": "single",
+      "primaryStory": "Confirmation"
+    },
+    "DropdownMenu": {
+      "cardMode": "single",
+      "primaryStory": "Actions"
+    },
+    "Select": {
+      "cardMode": "single",
+      "primaryStory": "Open"
+    },
+    "Tooltip": {
+      "cardMode": "single",
+      "primaryStory": "Default"
+    }
+  },
+  "readmeHeader": ".design-sync/conventions.md"
+}
