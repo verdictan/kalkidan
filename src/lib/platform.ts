@@ -23,7 +23,8 @@ export function revealLabel(target: DesktopPlatform = platform) {
   return `Show in ${fileManagerName(target)}`;
 }
 
-export type ShortcutKey = 'mod' | 'shift' | 'alt';
+/** `ctrl` is the Control key on all platforms. `mod` is Command on macOS and Ctrl elsewhere. */
+export type ShortcutKey = 'mod' | 'ctrl' | 'shift' | 'alt';
 
 /**
  * Formats a shortcut for display. `shortcutLabel(['mod', 'shift'], 'A')` is
@@ -35,8 +36,8 @@ export function shortcutLabel(
   target: DesktopPlatform = platform,
 ) {
   if (target === 'mac') {
-    const order: ShortcutKey[] = ['alt', 'shift', 'mod'];
-    const glyph = { alt: '⌥', shift: '⇧', mod: '⌘' };
+    const order: ShortcutKey[] = ['ctrl', 'alt', 'shift', 'mod'];
+    const glyph = { ctrl: '⌃', alt: '⌥', shift: '⇧', mod: '⌘' };
     return (
       order
         .filter((m) => modifiers.includes(m))
@@ -44,9 +45,11 @@ export function shortcutLabel(
         .join('') + key
     );
   }
-  const order: ShortcutKey[] = ['mod', 'alt', 'shift'];
-  const name = { mod: 'Ctrl', alt: 'Alt', shift: 'Shift' };
-  return [...order.filter((m) => modifiers.includes(m)).map((m) => name[m]), key].join('+');
+  const order: ShortcutKey[] = ['mod', 'ctrl', 'alt', 'shift'];
+  const name = { mod: 'Ctrl', ctrl: 'Ctrl', alt: 'Alt', shift: 'Shift' };
+  const names = order.filter((m) => modifiers.includes(m)).map((m) => name[m]);
+  // On Windows and Linux, `mod` and `ctrl` are the same key.
+  return [...new Set(names), key].join('+');
 }
 
 /**

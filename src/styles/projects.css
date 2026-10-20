@@ -1,11 +1,12 @@
 .app-shell {
-  min-height: 100vh;
-  --navigation-width: 260px;
-  --titlebar-height: 48px;
+  height: 100dvh;
+  display: flex;
+  flex-direction: column;
 }
 .app-shell > main {
+  flex: 1;
   min-width: 0;
-  height: 100dvh;
+  min-height: 0;
   display: flex;
   flex-direction: column;
 }
@@ -75,22 +76,42 @@
     100vw - env(titlebar-area-x, 0px) - env(titlebar-area-width, calc(100vw - 140px))
   );
 }
+/* The trail to the page. Its text starts 12px after the sidebar edge, the same place as
+   the session breadcrumb. */
 .topbar-title {
   flex-shrink: 1;
   min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
   overflow: hidden;
-  text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 13px;
+  font-size: var(--text-sm);
   line-height: 20px;
   color: var(--muted-foreground);
 }
-.topbar-title-separator {
-  margin-inline: 6px;
+.topbar-title > svg {
+  flex-shrink: 0;
 }
-.topbar-title [aria-current] {
+.topbar-crumb {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: default;
+  -webkit-app-region: no-drag;
+}
+.topbar-crumb:hover {
   color: var(--foreground);
-  font-weight: 500;
+}
+.topbar-crumb:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
 }
 .navigation-collapsed .topbar-brand {
   width: auto;
@@ -168,17 +189,6 @@
   padding: 0 var(--space-1) 0 var(--space-2);
   color: var(--muted-foreground);
 }
-.tree-heading-title {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin: 0;
-  font-size: 11px;
-  line-height: 16px;
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  color: var(--muted-foreground);
-}
 .tree-heading-link {
   padding: 0;
   border: 0;
@@ -215,6 +225,11 @@
 .tree-row.selected strong {
   font-weight: 500;
 }
+/* A project that contains the current page: medium text, no background. */
+.tree-row.contains-current strong {
+  font-weight: 500;
+  color: var(--foreground);
+}
 .project-group {
   margin-bottom: var(--space-1);
 }
@@ -241,8 +256,8 @@
   position: absolute;
   top: 0;
   bottom: 0;
-  /* Centered under the 12px chevron: row padding 8px + 6px. */
-  left: 13px;
+  /* Centered under the 12px chevron: row padding 8px + 6px, less half the line. */
+  left: 13.5px;
   width: 1px;
   background: var(--border);
   pointer-events: none;
@@ -256,16 +271,45 @@
   flex-shrink: 0;
   gap: 0;
 }
-/* Second-level rows: 8px row padding + 16px indent. */
+/* Second-level rows: their icons start 4px after the project folder icon. */
 .repo-row,
 .project-subpage-row {
-  padding-left: var(--space-6);
+  padding-left: 28px;
+}
+/* Worktrees show one more level in, under their repository. */
+.repo-row.worktree-row {
+  padding-left: 44px;
 }
 .tree-empty {
   color: var(--muted-foreground);
-  font-size: 12px;
+  font-size: var(--text-xs);
   line-height: 16px;
-  padding: var(--space-1) var(--space-2) var(--space-1) 44px;
+  padding: var(--space-1) var(--space-2) var(--space-1) 48px;
+}
+/* The remote host of an SSH project, below the Docs row. */
+.tree-host {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: var(--control-xs);
+  padding: 0 var(--space-1) 0 28px;
+  font-size: var(--text-xs);
+  line-height: 16px;
+  color: var(--muted-foreground);
+}
+.tree-host small {
+  margin-left: auto;
+  font-size: var(--text-2xs);
+}
+.tree-host > span {
+  width: 6px;
+  height: 6px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: var(--muted-foreground);
+}
+.tree-host .host-connected {
+  background: var(--success);
 }
 .project-content {
   border: 1px solid var(--border);
@@ -285,20 +329,14 @@
   display: none;
 }
 .management-pane {
-  padding: 24px 28px;
+  /* The same edges as .page, so every page starts at one place. */
+  padding: var(--page-padding-top) var(--page-padding-x);
   overflow: auto;
   scrollbar-gutter: stable;
 }
 /* Pages that use .page set their own padding. */
 .management-pane:has(> .page) {
   padding: 0;
-}
-/* The table bleeds 8px so row text lines up with the page title. */
-.project-directory :is(th, td):first-child {
-  padding-left: 0;
-}
-.project-directory :is(th, td):last-child {
-  padding-right: 0;
 }
 .project-directory table {
   table-layout: fixed;
@@ -317,32 +355,10 @@
   width: 100%;
 }
 .project-row {
-  height: 48px;
+  height: var(--row-height-lg);
 }
 .project-directory .project-open > .min-w-0 {
   overflow-wrap: anywhere;
-}
-.project-empty {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 12px;
-  padding: 48px 24px;
-  text-align: center;
-  color: var(--muted-foreground);
-}
-.project-empty h3 {
-  color: var(--foreground);
-  font-size: 14px;
-  font-weight: 500;
-}
-.project-empty p {
-  max-width: 400px;
-  font-size: 13px;
-  line-height: 1.7;
-}
-.detail {
-  min-width: 0;
 }
 .agent-mark {
   display: inline-flex;
@@ -374,33 +390,13 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.session {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  min-height: var(--row-height-2line);
-  padding: 12px 0;
-  border-bottom: 1px solid var(--border);
-}
-.session:last-child {
-  border: 0;
-}
 .session-title {
   color: var(--foreground);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.organized-session button.session-title {
-  height: auto;
-  padding: 0;
-  line-height: 20px;
-  max-width: 100%;
-  text-align: left;
-  font-size: 13px;
-  font-weight: 500;
-}
-.organized-session .session-title span {
+.session-title span {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -434,22 +430,12 @@
   gap: 4px;
   color: var(--muted-foreground);
 }
-.collection-label {
-  margin-left: 8px;
-  padding: 2px 6px;
-  background: var(--secondary);
-  border-radius: 4px;
-}
 .session-filters {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
   align-items: center;
   padding-bottom: var(--space-3);
-}
-.session-filters [data-slot='select-trigger'] {
-  width: auto;
-  min-width: 130px;
 }
 .session-options {
   display: flex;
@@ -481,27 +467,9 @@
 }
 .help-text {
   color: var(--muted-foreground);
-  font-size: 12px;
-  line-height: 1.7;
-  margin: 10px 0;
-}
-.empty-small {
-  text-align: center;
-  padding: 36px 20px;
-  color: var(--muted-foreground);
-}
-.empty-small svg {
-  margin: 0 auto 16px;
-}
-.empty-small h3 {
-  color: var(--foreground);
-  font-weight: 500;
-}
-.empty-small p {
-  font-size: 13px;
-  line-height: 1.7;
-  max-width: 360px;
-  margin: 12px auto 20px;
+  font-size: var(--text-xs);
+  line-height: 16px;
+  margin: var(--space-2) 0;
 }
 .notice {
   display: flex;
@@ -522,8 +490,14 @@
   color: var(--destructive);
 }
 .warnings {
-  font-size: 12px;
+  flex-shrink: 0;
+  margin-bottom: var(--space-2);
+  font-size: var(--text-xs);
+  line-height: 16px;
   color: var(--muted-foreground);
+}
+.warnings p {
+  padding: var(--space-1) var(--space-3);
 }
 .project-tracker {
   display: flex;
@@ -567,8 +541,8 @@
 }
 .tracker-count {
   color: var(--muted-foreground);
-  font-size: 12px;
-  line-height: 16px;
+  font-size: 13px;
+  line-height: 20px;
   white-space: nowrap;
 }
 .tracker-board {
@@ -579,8 +553,11 @@
   gap: var(--space-4);
   overflow-x: auto;
   min-width: 0;
+  /* The columns keep a 4px inset for focus rings. Cards line up with the filter bar. */
+  margin-inline: calc(-1 * var(--space-1));
   padding: 0 0 var(--space-4);
   outline: none;
+  scrollbar-width: thin;
 }
 .tracker-board:focus-visible {
   box-shadow: var(--focus-ring);
@@ -645,13 +622,8 @@
   overflow-y: auto;
 }
 .tracker-column-empty {
-  padding: var(--space-4) 0;
   border: 1px dashed var(--border);
   border-radius: var(--radius-lg);
-  text-align: center;
-  color: var(--muted-foreground);
-  font-size: 12px;
-  line-height: 16px;
 }
 .tracker-task {
   background: var(--card);
@@ -659,6 +631,20 @@
 }
 .tracker-task:hover {
   border-color: color-mix(in srgb, var(--foreground) 20%, var(--border));
+}
+/* The card menu shows on hover, on keyboard focus, and while it is open. */
+.tracker-task-menu {
+  opacity: 0;
+}
+.tracker-task:hover .tracker-task-menu,
+.tracker-task:focus-within .tracker-task-menu,
+.tracker-task-menu[data-state='open'] {
+  opacity: 1;
+}
+@media (hover: none) {
+  .tracker-task-menu {
+    opacity: 1;
+  }
 }
 .tracker-board [data-drop-target='true'] {
   outline: 2px solid var(--ring);
@@ -694,19 +680,14 @@
   align-items: center;
   justify-content: space-between;
   min-height: var(--control-sm);
-  padding-right: 40px;
+  /* Room for the close button. */
+  padding-right: calc(var(--control-sm) + var(--space-3));
   color: var(--muted-foreground);
   font-size: 12px;
 }
 .tracker-issue-nav > div {
   display: flex;
   gap: var(--space-1);
-}
-.tracker-issue-title {
-  font-size: 20px;
-  line-height: 28px;
-  font-weight: 600;
-  overflow-wrap: anywhere;
 }
 .tracker-issue-properties {
   display: grid;
@@ -734,23 +715,15 @@
 .tracker-issue-description > :last-child {
   margin-bottom: 0;
 }
+/* Padding, code, quotes and link color come from .prose-ui. */
 .tracker-issue-description ul {
   list-style: disc;
-  padding-left: 20px;
 }
 .tracker-issue-description ol {
   list-style: decimal;
-  padding-left: 20px;
-}
-.tracker-issue-description pre {
-  overflow-x: auto;
-  background: var(--muted);
-  padding: var(--space-3);
-  border-radius: var(--radius-md);
 }
 .tracker-issue-description a {
   text-decoration: underline;
-  color: var(--link);
 }
 .tracker-work {
   margin-top: var(--space-2);
@@ -827,12 +800,8 @@
   overflow-y: auto;
 }
 .workspace-search-results h3 {
-  padding: var(--space-3) var(--space-2) var(--space-1);
-  font-size: 11px;
-  line-height: 16px;
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  color: var(--muted-foreground);
+  margin-top: var(--space-2);
+  padding-inline: var(--space-2);
 }
 .workspace-search-results .search-status {
   padding: var(--space-1) var(--space-2);
@@ -862,9 +831,17 @@
 .search-option-title {
   min-width: 0;
 }
+.search-option-agent {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+.search-option-agent > svg {
+  flex-shrink: 0;
+}
 .search-option-context,
 .search-option-excerpt {
-  font-size: 12px;
+  font-size: var(--text-xs);
   line-height: 16px;
   color: var(--muted-foreground);
 }
@@ -898,24 +875,28 @@
   color: var(--muted-foreground);
 }
 
-/* Recent sessions on the overview page. */
+/* Recent sessions on the overview page. The rows match the project table rows: the same
+   left edge, height, divider and hover. */
 .project-recent {
   margin-top: var(--section-gap);
 }
 .project-recent-list {
-  margin: 0 calc(var(--space-2) * -1);
+  margin: 0;
   padding: 0;
   list-style: none;
+}
+.project-recent-list > li + li {
+  border-top: 1px solid var(--border);
 }
 .project-recent-row {
   display: flex;
   align-items: center;
   gap: var(--space-3);
   width: 100%;
-  min-height: 48px;
-  padding: var(--space-2);
+  min-height: var(--row-height-lg);
+  padding: var(--space-1) 0;
   border: 0;
-  border-radius: var(--radius-md);
+  border-radius: 0;
   background: none;
   color: inherit;
   font: inherit;
@@ -954,7 +935,7 @@
   display: flex;
   flex-wrap: wrap;
   gap: var(--space-1);
-  /* The ghost chips bleed so their text lines up with the branch name. */
+  /* The ghost chips bleed so their icons line up with the branch name. */
   margin: var(--space-1) 0 0 calc(var(--space-2) * -1);
 }
 .worktree-sessions:empty {
@@ -964,7 +945,7 @@
   max-width: 100%;
   justify-content: flex-start;
 }
-.worktree-sessions > button > span:first-child {
+.worktree-sessions > button > svg {
   color: var(--muted-foreground);
 }
 
@@ -984,15 +965,18 @@
   flex-direction: column;
   height: 100%;
   min-height: 0;
+  /* The docs layout follows its own width, not the window width. */
+  container-type: inline-size;
 }
 .docs-layout {
   display: grid;
-  grid-template-columns: 240px minmax(0, 1fr);
+  grid-template-columns: var(--docs-library-width, 240px) minmax(0, 1fr);
   flex: 1 1 auto;
   min-height: 0;
 }
 /* The page list: a header, a tree that scrolls, and Deleted pages at the bottom. */
 .docs-library {
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
@@ -1001,6 +985,27 @@
   padding: var(--space-3);
   border-right: 1px solid var(--border);
   background: var(--navigation);
+}
+.docs-library-resizer {
+  position: absolute;
+  z-index: 6;
+  top: 0;
+  right: -3px;
+  bottom: 0;
+  width: 6px;
+  cursor: col-resize;
+  touch-action: none;
+  user-select: none;
+}
+.docs-library-resizer:hover,
+.docs-library-resizer:focus-visible,
+.docs-library-resizer[data-dragging] {
+  background: var(--ring);
+  outline: none;
+}
+.docs-layout:has(.docs-library-resizer[data-dragging]) {
+  cursor: col-resize;
+  user-select: none;
 }
 .wiki-pages-label {
   display: flex;
@@ -1026,9 +1031,13 @@
   padding: 0;
   margin: 0;
 }
+/*
+ * The guide line is under the parent toggle (center 20px). The child toggle is under the
+ * parent page icon (center 43px): 19px margin + 1px line + 3px padding + 20px.
+ */
 .wiki-tree-children {
-  margin-left: 20px;
-  padding-left: var(--space-1);
+  margin-left: 19px;
+  padding-left: 3px;
   border-left: 1px solid var(--border);
 }
 .wiki-tree-row {
@@ -1075,13 +1084,6 @@
     opacity: 1;
   }
 }
-.docs-library .wiki-deleted-pages {
-  flex-shrink: 0;
-  justify-content: flex-start;
-  gap: var(--space-2);
-  padding-inline: var(--space-2);
-  color: var(--muted-foreground);
-}
 .wiki-deleted-list {
   list-style: none;
   margin: 0;
@@ -1104,7 +1106,7 @@
   min-width: 0;
   overflow-y: auto;
 }
-/* The document bar is the page header: breadcrumb on the left, save state and actions on the right. */
+/* The document bar is the page header: parent and page on the left, save state and actions on the right. */
 .wiki-document-bar {
   display: flex;
   align-items: center;
@@ -1154,11 +1156,6 @@
   font-size: 12px;
   line-height: 16px;
 }
-.doc-alert {
-  width: auto;
-  margin: var(--space-3) var(--space-6) 0;
-  padding: var(--space-2) var(--space-3);
-}
 .doc-alert-body {
   display: flex;
   flex-wrap: wrap;
@@ -1170,18 +1167,19 @@
   gap: var(--space-2);
   margin-left: auto;
 }
+/* The text column is the reading width. The padding is outside it. */
 .wiki-page {
-  max-width: 760px;
+  max-width: calc(var(--reading-width) + 2 * var(--space-12));
   margin: 0 auto;
-  padding: 48px 48px 96px;
+  padding: var(--space-12) var(--space-12) 96px;
 }
 /* The title input is the first line of the page (see .doc-title in project-docs.tsx). */
 .wiki-writing-area {
   position: relative;
 }
-/* Font sizes and heading sizes come from .prose-ui. */
+/* Font sizes, code, quotes and links come from .prose-ui. Only docs rules are here. */
 .wiki-prose {
-  min-height: 430px;
+  min-height: 432px;
   outline: none;
   overflow-wrap: anywhere;
 }
@@ -1193,11 +1191,12 @@
 }
 .wiki-prose ul {
   list-style: disc;
-  padding-left: 24px;
 }
 .wiki-prose ol {
   list-style: decimal;
-  padding-left: 24px;
+}
+.wiki-prose a {
+  text-decoration: underline;
 }
 .wiki-prose li :is(p, ul, ol) {
   margin: 0;
@@ -1213,27 +1212,6 @@
 }
 .wiki-prose ul[data-type='taskList'] > li > div {
   flex: 1;
-}
-.wiki-prose blockquote {
-  border-left: 3px solid var(--border);
-  padding-left: var(--space-4);
-  color: var(--muted-foreground);
-}
-.wiki-prose pre {
-  padding: var(--space-4) var(--space-5);
-  background: var(--muted);
-  border-radius: var(--radius-md);
-  overflow-x: auto;
-  font-size: 13px;
-}
-.wiki-prose :not(pre) > code {
-  background: var(--muted);
-  padding: 2px 4px;
-  border-radius: var(--radius-xs);
-}
-.wiki-prose a {
-  text-decoration: underline;
-  color: var(--link);
 }
 .wiki-prose table {
   border-collapse: collapse;
@@ -1284,9 +1262,9 @@
 }
 .wiki-slash {
   position: fixed;
-  z-index: 60;
-  width: 280px;
-  max-height: 315px;
+  z-index: 50;
+  width: 320px;
+  max-height: 320px;
   overflow-y: auto;
   padding: var(--space-1);
   border: 1px solid var(--border);
@@ -1334,13 +1312,12 @@
 }
 .wiki-source {
   width: 100%;
-  min-height: 450px;
+  min-height: 432px;
   outline: 0;
   resize: vertical;
   background: transparent;
-  font:
-    13px/1.9 ui-monospace,
-    monospace;
+  font-size: 13px;
+  line-height: 20px;
 }
 .wiki-table-tools {
   display: flex;
@@ -1348,17 +1325,23 @@
   flex-wrap: wrap;
   margin-bottom: var(--space-3);
 }
+.wiki-notice {
+  margin-bottom: var(--space-3);
+  color: var(--muted-foreground);
+  font-size: 12px;
+  line-height: 16px;
+}
 .docs-empty {
   display: grid;
   place-items: center;
   min-height: 0;
   overflow-y: auto;
 }
-@media (min-width: 1500px) {
+@container (min-width: 1200px) {
   /* Room for the outline on the right, only when the page has an outline. */
   .wiki-page:has(.wiki-outline) {
-    max-width: 960px;
-    padding-right: 248px;
+    max-width: calc(var(--reading-width) + 2 * var(--space-12) + 200px);
+    padding-right: calc(var(--space-12) + 200px);
   }
   .wiki-outline {
     display: flex;
@@ -1386,9 +1369,9 @@
     color: var(--foreground);
   }
 }
-@media (max-width: 1000px) {
+@container (max-width: 760px) {
   .docs-layout {
-    grid-template-columns: 200px minmax(0, 1fr);
+    grid-template-columns: min(var(--docs-library-width, 240px), 200px) minmax(0, 1fr);
   }
   .wiki-page {
     padding: 40px 32px 80px;
@@ -1397,9 +1380,9 @@
     padding: 0 var(--space-4);
   }
 }
-@media (max-width: 800px) {
+@container (max-width: 600px) {
   .docs-layout {
-    grid-template-columns: 180px minmax(0, 1fr);
+    grid-template-columns: min(var(--docs-library-width, 240px), 180px) minmax(0, 1fr);
   }
   .wiki-page {
     padding-inline: var(--space-5);
@@ -1417,13 +1400,13 @@
 .split-button {
   display: inline-flex;
 }
+.repository-session-filter {
+  width: 200px;
+}
 .repository-overview-section {
   min-width: 0;
 }
 
-.project-settings-dialog {
-  gap: var(--space-6);
-}
 .project-settings-heading {
   display: flex;
   align-items: center;
@@ -1431,44 +1414,38 @@
   text-align: left;
 }
 .project-settings-colors legend {
-  font-size: 13px;
-  margin-bottom: 10px;
+  font-size: var(--text-sm);
+  line-height: 20px;
+  margin-bottom: var(--space-2);
 }
 .project-settings-colors button[aria-pressed='true'] {
-  background: var(--accent);
   box-shadow: inset 0 0 0 1px var(--ring);
 }
 .project-settings-repositories {
   border-top: 1px solid var(--border);
-  padding-top: 20px;
+  padding-top: var(--space-5);
   min-width: 0;
 }
 .project-settings-repositories h3 {
   display: flex;
-  gap: 8px;
+  gap: var(--space-2);
   align-items: center;
-  font-size: 13px;
+  font-size: var(--text-sm);
+  line-height: 20px;
   font-weight: 500;
-  margin-bottom: 12px;
+  margin-bottom: var(--space-3);
 }
 .project-settings-repositories h3 span {
   color: var(--muted-foreground);
   font-weight: 400;
 }
-.project-settings-repositories ul {
-  max-height: 190px;
-  overflow-y: auto;
-  border: 1px solid var(--border);
-  border-radius: 8px;
+/* Two-line rows in a .list-box. */
+.project-settings-repositories .list-box {
+  margin: 0;
 }
-.project-settings-repositories li {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 12px;
-}
-.project-settings-repositories li + li {
-  border-top: 1px solid var(--border);
+.project-settings-repositories .list-box-row {
+  gap: var(--space-3);
+  min-height: var(--row-height-2line);
 }
 .project-settings-repositories li > svg {
   color: var(--muted-foreground);
@@ -1479,7 +1456,8 @@
 }
 .project-settings-repositories strong {
   display: block;
-  font-size: 13px;
+  font-size: var(--text-sm);
+  line-height: 20px;
   font-weight: 500;
 }
 .project-settings-repositories li span {
@@ -1488,14 +1466,8 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   color: var(--muted-foreground);
-  font-size: 12px;
-  margin-top: 3px;
-}
-.project-settings-repositories > p,
-.danger-zone p {
-  font-size: 12px;
-  line-height: 1.6;
-  color: var(--muted-foreground);
+  font-size: var(--text-xs);
+  line-height: 16px;
 }
 /* A destructive action with its description, below the form fields. */
 .danger-zone {
@@ -1507,10 +1479,13 @@
   padding-top: var(--space-4);
 }
 .danger-zone strong {
-  font-size: 13px;
+  font-size: var(--text-sm);
   line-height: 20px;
   font-weight: 500;
 }
 .danger-zone p {
   margin-top: 2px;
+  font-size: var(--text-xs);
+  line-height: 16px;
+  color: var(--muted-foreground);
 }

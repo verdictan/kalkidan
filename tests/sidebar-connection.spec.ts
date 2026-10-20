@@ -28,7 +28,7 @@ test('sidebar hides verified connections and restores the action when access is 
     };
   });
   await page.goto('http://127.0.0.1:5173');
-  await expect(page.getByRole('heading', { name: 'Projects', level: 2 })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Projects', level: 1 })).toBeVisible();
   const button = page.locator('.sidebar-github-connect');
   await expect(button).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Settings', exact: true })).toBeVisible();

@@ -3,15 +3,16 @@ import { interfaceConfig } from '../config/interface';
 import { useTracker } from '../hooks/use-tracker';
 import { RemoteHostPicker } from './remote-host-picker';
 import { Choice } from './choice';
-import { useEffect, useRef, useState } from 'react';
-import { Hint } from './hint';
+import { useEffect, useId, useRef, useState } from 'react';
 import type { API, TrackerAuthState, ProjectGroup } from '../types';
 import { TrackerProjectPicker } from './tracker-project-picker';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { SectionHeader } from './ui/page-header';
+import { SegmentedControl } from './ui/segmented-control';
 import {
   Dialog,
+  DialogBody,
   DialogContent,
   DialogHeader,
   DialogTitle,
@@ -45,6 +46,11 @@ export function CreateProject({
   const [name, setName] = useState('');
   const [rootPath, setRootPath] = useState('');
   const [url, setUrl] = useState('');
+  // The tracker is optional. "later" creates the project without one.
+  const [tracker, setTracker] = useState<'later' | 'connect'>('later');
+  const connecting = tracker === 'connect';
+  const formId = useId();
+  const reasonId = useId();
   const [creating, setCreating] = useState(false);
   const [hostBusy, setHostBusy] = useState(false);
   const [pickerBusy, setPickerBusy] = useState(false);
@@ -69,10 +75,11 @@ export function CreateProject({
       setLocation('local');
       setHostId('');
       setHostReady(false);
+      setTracker('later');
     }
   }, [open]);
   useEffect(() => {
-    if (!open || !ready) return;
+    if (!open || !ready || !connecting) return;
     setUrl('');
     setError('');
     let active = true;
@@ -91,9 +98,10 @@ export function CreateProject({
       active = false;
       if (started.current) void client.cancelAuth();
     };
-  }, [open, client, ready]);
+  }, [open, client, ready, connecting]);
   useEffect(() => {
-    if (!open || !started.current || !['checking', 'waiting'].includes(auth.status)) return;
+    if (!open || !connecting || !started.current || !['checking', 'waiting'].includes(auth.status))
+      return;
     let active = true;
     const timer = setInterval(() => {
       void client
@@ -109,14 +117,15 @@ export function CreateProject({
       active = false;
       clearInterval(timer);
     };
-  }, [open, auth.status, client]);
+  }, [open, connecting, auth.status, client]);
   async function create() {
+    if (busy || blocked) return;
     setCreating(true);
     setError('');
     try {
       const id = await api.createGroup(
         name.trim(),
-        url,
+        connecting ? url : '',
         location === 'remote' ? hostId : undefined,
         provider,
         rootPath.trim() || undefined,
@@ -134,41 +143,39 @@ export function CreateProject({
   }
   // Tells the user why Create project is not available yet.
   const blocked = !name.trim()
-    ? 'Enter a project name'
-    : auth.status !== 'ready'
-      ? `Connect ${providerName} first`
-      : !url
-        ? `Choose a ${providerName} project`
-        : location === 'remote' && (!hostId || !hostReady)
-          ? 'Connect the remote host first'
+    ? 'Enter a project name.'
+    : location === 'remote' && (!hostId || !hostReady)
+      ? 'Connect the remote host first.'
+      : connecting && auth.status !== 'ready'
+        ? `Connect ${providerName}, or choose Connect later.`
+        : connecting && !url
+          ? `Choose a ${providerName} project, or choose Connect later.`
           : '';
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent size="md" className="flex flex-col gap-0 overflow-hidden p-0">
-        <DialogHeader className="shrink-0 px-6 pt-6 pb-4">
-          <DialogTitle>Create project</DialogTitle>
+      <DialogContent size="md" layout="scroll">
+        <DialogHeader>
+          <DialogTitle>New project</DialogTitle>
           <DialogDescription>
-            Choose or create a {providerName} project, then bring its repositories and sessions
-            together.
+            A project keeps repositories, docs, and agent sessions together. You can connect a
+            tracker now or later.
           </DialogDescription>
         </DialogHeader>
-        <div className="grid min-h-0 gap-4 overflow-y-auto px-6 pb-6">
-          {providers.length > 1 && (
-            <label className="form-label">
-              Project tracker
-              <Choice
-                label="Project tracker"
-                value={provider}
-                disabled={busy}
-                onChange={setProvider}
-                options={providers.map((p) => ({ value: p.id, label: p.name }))}
-              />
-            </label>
-          )}
+        <DialogBody className="grid content-start gap-4">
+          {/* The fields use the form attribute, so that the remote host form is not nested. */}
+          <form
+            id={formId}
+            hidden
+            onSubmit={(event) => {
+              event.preventDefault();
+              void create();
+            }}
+          />
           <label className="form-label">
             Project name
             <Input
               autoFocus
+              form={formId}
               aria-label="Project name"
               maxLength={150}
               value={name}
@@ -189,7 +196,7 @@ export function CreateProject({
                 { value: 'remote', label: 'Remote SSH host' },
               ]}
             />
-            <span className="-mt-0.5 text-xs font-normal">
+            <span className="text-xs font-normal">
               Repositories and agent sessions stay on the selected machine.
             </span>
           </div>
@@ -207,6 +214,7 @@ export function CreateProject({
             <div className="relative">
               <Input
                 id="project-root-folder"
+                form={formId}
                 aria-label="Project folder"
                 className="pr-9"
                 value={rootPath}
@@ -223,69 +231,109 @@ export function CreateProject({
                 onSelect={setRootPath}
               />
             </div>
-            <span className="-mt-0.5 text-xs font-normal">
+            <span className="text-xs font-normal">
               Docs, cloned repositories, and worktrees are stored here on the selected machine.
               Leave blank to create a dedicated folder automatically.
             </span>
           </div>
-          <section aria-label={`${providerName} project`}>
-            <SectionHeader className="mb-2 min-h-0" title={`${providerName} project`} />
-            {auth.status === 'ready' ? (
-              <TrackerProjectPicker
-                key={provider}
-                provider={provider}
-                api={api}
-                defaultTitle={name || 'New project'}
-                value={url}
-                onChange={setUrl}
-                onBusy={setPickerBusy}
-              />
+          <section aria-label="Tracker" className="grid gap-3">
+            <SectionHeader className="mb-0 min-h-0" title="Tracker (optional)" />
+            <SegmentedControl
+              className="justify-self-start"
+              label="Tracker connection"
+              value={tracker}
+              onChange={(value) => {
+                setTracker(value);
+                setUrl('');
+              }}
+              options={[
+                { value: 'later', label: 'Connect later', disabled: busy },
+                { value: 'connect', label: `Use ${providerName}`, disabled: busy },
+              ]}
+            />
+            {!connecting ? (
+              <p className="text-xs text-muted-foreground">
+                The project has no task board yet. Connect a {providerName} project from the project
+                page when you need one.
+              </p>
             ) : (
-              <div className="panel space-y-3" aria-live="polite">
-                <p className="text-sm">
-                  {auth.status === 'checking'
-                    ? `Checking ${providerName} access…`
-                    : auth.status === 'waiting'
-                      ? 'Approve Projects access in your browser to continue.'
-                      : auth.message ||
-                        `Each project uses a ${providerName} project to track its tasks. Connect ${providerName} to choose one. Your browser opens to approve access.`}
-                </p>
-                {auth.code && (
-                  <Input aria-label="Authorization device code" readOnly value={auth.code} />
+              <>
+                {providers.length > 1 && (
+                  <label className="form-label">
+                    Project tracker
+                    <Choice
+                      label="Project tracker"
+                      value={provider}
+                      disabled={busy}
+                      onChange={setProvider}
+                      options={providers.map((p) => ({ value: p.id, label: p.name }))}
+                    />
+                  </label>
                 )}
-                <Button
-                  variant="outline"
-                  disabled={auth.status === 'checking'}
-                  onClick={() =>
-                    void (auth.status === 'waiting'
-                      ? client.openAuth().catch((e) => setError(e.message))
-                      : authorize())
-                  }
-                >
-                  {auth.status === 'waiting'
-                    ? `Open ${providerName}`
-                    : auth.status === 'error'
-                      ? `Try ${providerName} again`
-                      : `Connect ${providerName}`}
-                </Button>
-              </div>
+                {auth.status === 'ready' ? (
+                  <TrackerProjectPicker
+                    key={provider}
+                    provider={provider}
+                    api={api}
+                    defaultTitle={name || 'New project'}
+                    value={url}
+                    onChange={setUrl}
+                    onBusy={setPickerBusy}
+                  />
+                ) : (
+                  <div className="panel space-y-3" aria-live="polite">
+                    <p className="text-sm">
+                      {auth.status === 'checking'
+                        ? `Checking ${providerName} access…`
+                        : auth.status === 'waiting'
+                          ? 'Approve Projects access in your browser to continue.'
+                          : auth.message ||
+                            `Connect ${providerName} to choose a project for tasks. Your browser opens to approve access.`}
+                    </p>
+                    {auth.code && (
+                      <Input aria-label="Authorization device code" readOnly value={auth.code} />
+                    )}
+                    <Button
+                      variant="outline"
+                      disabled={auth.status === 'checking'}
+                      onClick={() =>
+                        void (auth.status === 'waiting'
+                          ? client.openAuth().catch((e) => setError(e.message))
+                          : authorize())
+                      }
+                    >
+                      {auth.status === 'waiting'
+                        ? `Open ${providerName}`
+                        : auth.status === 'error'
+                          ? `Try ${providerName} again`
+                          : `Connect ${providerName}`}
+                    </Button>
+                  </div>
+                )}
+              </>
             )}
           </section>
-          {(error || providerError) && (
-            <p role="alert" className="text-sm text-destructive">
+          {(error || (connecting && providerError)) && (
+            <p role="alert" className="field-error">
               {error || providerError}
             </p>
           )}
-        </div>
-        <DialogFooter className="shrink-0 border-t px-6 py-4">
+        </DialogBody>
+        <DialogFooter className="sm:items-center">
+          <p id={reasonId} aria-live="polite" className="text-xs text-muted-foreground sm:mr-auto">
+            {blocked}
+          </p>
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
-          <Hint label={blocked || 'Create project'}>
-            <Button disabled={busy || !!blocked} onClick={() => void create()}>
-              {creating ? 'Creating…' : 'Create project'}
-            </Button>
-          </Hint>
+          <Button
+            type="submit"
+            form={formId}
+            aria-describedby={blocked ? reasonId : undefined}
+            disabled={busy || !!blocked}
+          >
+            {creating ? 'Creating…' : 'Create project'}
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

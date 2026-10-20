@@ -5,6 +5,9 @@ import { createHash, randomUUID } from 'node:crypto';
 import type { DeletedProjectDoc, ProjectDoc, ProjectDocMetadata } from '../../src/domain/docs';
 
 const hash = (text: string) => createHash('sha256').update(text).digest('hex');
+/** Returns the sibling order of a page header, or nothing when the header has no valid order. */
+const orderOf = (value: unknown) =>
+  typeof value === 'number' && Number.isFinite(value) ? { order: value } : {};
 export class ProjectDocs {
   private queues = new Map<string, Promise<unknown>>();
   private bodies = new Map<string, { stamp: string; doc: ProjectDoc }>();
@@ -51,6 +54,7 @@ export class ProjectDocs {
       id,
       title: meta.title,
       parentId: meta.parentId,
+      ...orderOf(meta.order),
       markdown: text.slice(end + 1),
       revision: hash(text),
     };
@@ -109,7 +113,12 @@ export class ProjectDocs {
       if (!header.startsWith('<!-- kalkidan ') || end < 0)
         throw new Error('Invalid page metadata: ' + name);
       const value = JSON.parse(header.slice(14, end - 4));
-      const meta = { id: name.slice(0, -3), title: value.title, parentId: value.parentId };
+      const meta: ProjectDocMetadata = {
+        id: name.slice(0, -3),
+        title: value.title,
+        parentId: value.parentId,
+        ...orderOf(value.order),
+      };
       if (this.stamp(await lstat(path)) === stamp) this.headers.set(path, { stamp, meta });
       result.push(meta);
     }
@@ -130,9 +139,11 @@ export class ProjectDocs {
   private async write(dir: string, doc: ProjectDoc) {
     if (!doc.title.trim() || doc.title.length > 200 || doc.markdown.length > 2000000)
       throw new Error('Enter a title up to 200 characters and content under 2 MB');
+    const { order: requested, ...rest } = doc;
+    const order = orderOf(requested);
     const text =
       '<!-- kalkidan ' +
-      JSON.stringify({ title: doc.title.trim(), parentId: doc.parentId }) +
+      JSON.stringify({ title: doc.title.trim(), parentId: doc.parentId, ...order }) +
       ' -->\n' +
       doc.markdown;
     const file = this.file(dir, doc.id);
@@ -143,7 +154,7 @@ export class ProjectDocs {
     } finally {
       await rm(temp, { force: true });
     }
-    return { ...doc, title: doc.title.trim(), revision: hash(text) };
+    return { ...rest, ...order, title: doc.title.trim(), revision: hash(text) };
   }
   create(group: string, title: string, parentId: string | null) {
     return this.change(group, async () => {

@@ -22,7 +22,7 @@ function DropdownMenuTrigger({
 
 function DropdownMenuContent({
   className,
-  sideOffset = 4,
+  sideOffset = 6,
   ...props
 }: React.ComponentProps<typeof DropdownMenuPrimitive.Content>) {
   return (
@@ -61,7 +61,7 @@ function DropdownMenuItem({
       data-variant={variant}
       className={cn(
         menuItemClass,
-        "data-[inset]:pl-8 data-[variant=destructive]:text-destructive data-[variant=destructive]:focus:bg-destructive/10 data-[variant=destructive]:focus:text-destructive dark:data-[variant=destructive]:focus:bg-destructive/20 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 [&_svg:not([class*='text-'])]:text-muted-foreground data-[variant=destructive]:*:[svg]:text-destructive!",
+        'data-[inset]:pl-8 data-[variant=destructive]:text-destructive data-[variant=destructive]:focus:bg-destructive/10 data-[variant=destructive]:focus:text-destructive dark:data-[variant=destructive]:focus:bg-destructive/20 data-[variant=destructive]:*:[svg]:text-destructive',
         className,
       )}
       {...props}
@@ -84,7 +84,7 @@ function DropdownMenuCheckboxItem({
     >
       <span className="pointer-events-none absolute left-2 flex size-3.5 items-center justify-center">
         <DropdownMenuPrimitive.ItemIndicator>
-          <CheckIcon className="size-4" />
+          <CheckIcon className="size-3.5" />
         </DropdownMenuPrimitive.ItemIndicator>
       </span>
       {children}
@@ -179,7 +179,7 @@ function DropdownMenuSubTrigger({
       {...props}
     >
       {children}
-      <ChevronRightIcon className="ml-auto size-4" />
+      <ChevronRightIcon className="ml-auto size-3.5" />
     </DropdownMenuPrimitive.SubTrigger>
   );
 }

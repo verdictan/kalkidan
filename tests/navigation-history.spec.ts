@@ -19,7 +19,7 @@ test('titlebar history traverses boards, repositories and chats, preserves draft
     .click();
   await page.getByLabel('Message agent').fill('Keep this draft while navigating');
   await back.click();
-  await expect(page.locator('section.detail')).toBeVisible();
+  await expect(page.locator('.repository-overview')).toBeVisible();
   await back.click();
   await expect(page.getByRole('region', { name: 'Project tracker', exact: true })).toBeVisible();
   await back.click();

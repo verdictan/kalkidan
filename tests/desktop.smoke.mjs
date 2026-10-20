@@ -61,9 +61,18 @@ try {
     page.evaluate(() => window.workspace.cloneRepository('example/repo')),
     /Choose a project/,
   );
+  // An empty tracker reference creates a project without a tracker.
+  const untracked = await page.evaluate(() => window.workspace.createGroup('Unplanned', ''));
+  assert.equal(typeof untracked, 'string');
+  const untrackedGroup = JSON.parse(
+    await readFile(join(env.KALKIDAN_TEST_DATA, 'project-groups.json'), 'utf8'),
+  ).find((group) => group.id === untracked);
+  assert.equal(untrackedGroup.name, 'Unplanned');
+  assert.equal('tracker' in untrackedGroup, false);
+  assert.equal('github' in untrackedGroup, false);
   await assert.rejects(
-    page.evaluate(() => window.workspace.createGroup('Platform')),
-    /Choose a tracker project/,
+    page.evaluate(() => window.workspace.createGroup('Platform', 'not a project')),
+    /Invalid URL/,
   );
   const groupId = 'legacy';
   await page.evaluate(() => window.workspace.updateGroup('legacy', 'Platform'));

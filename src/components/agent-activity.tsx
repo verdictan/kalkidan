@@ -6,6 +6,10 @@ import { Button } from './ui/button';
 import { agentLabel } from '../config/agents';
 import { errorMessage } from '../lib/errors';
 
+// Approval details, tool output and diffs use the shared .prose-ui code block and one
+// maximum height.
+const outputClass = 'm-0 max-h-64 overflow-auto whitespace-pre-wrap break-words';
+
 export function AgentActivity({
   api,
   run,
@@ -64,9 +68,9 @@ export function AgentActivity({
               ? 'Permissions apply until this turn ends.'
               : 'Approval applies only to this request.'}
           </p>
-          <pre className="max-h-48 overflow-auto whitespace-pre-wrap break-words rounded-md bg-muted p-3 text-xs">
-            {approval.detail}
-          </pre>
+          <div className="prose-ui" data-size="sm">
+            <pre className={outputClass}>{approval.detail}</pre>
+          </div>
           <div className="flex gap-2">
             <Button
               size="sm"
@@ -87,7 +91,7 @@ export function AgentActivity({
         </section>
       ))}
       {error && (
-        <p role="alert" className="text-sm text-destructive">
+        <p role="alert" className="field-error">
           {error}
         </p>
       )}
@@ -125,8 +129,8 @@ export function AgentActivity({
                     </span>
                   </Button>
                 </CollapsibleTrigger>
-                <CollapsibleContent className="px-3 pb-3">
-                  <pre className="max-h-64 overflow-auto whitespace-pre-wrap break-words rounded-md bg-muted p-3 text-xs">
+                <CollapsibleContent className="prose-ui px-3 pb-3" data-size="sm">
+                  <pre className={outputClass}>
                     {tool.diff || tool.detail || 'No additional output.'}
                   </pre>
                 </CollapsibleContent>
@@ -142,10 +146,8 @@ export function AgentActivity({
               View changes
             </Button>
           </CollapsibleTrigger>
-          <CollapsibleContent className="pt-3">
-            <pre className="max-h-80 overflow-auto whitespace-pre-wrap break-words rounded-lg border bg-muted p-3 font-mono text-xs">
-              {run.diff}
-            </pre>
+          <CollapsibleContent className="prose-ui pt-3" data-size="sm">
+            <pre className={outputClass}>{run.diff}</pre>
           </CollapsibleContent>
         </Collapsible>
       )}

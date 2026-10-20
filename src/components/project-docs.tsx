@@ -1,4 +1,12 @@
-import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+  type FormEvent,
+  type ReactNode,
+} from 'react';
 import { WikiEditor } from './wiki-editor';
 import { ActionMenu } from './action-menu';
 import {
@@ -37,12 +45,42 @@ import {
 } from './ui/dialog';
 import { errorMessage } from '../lib/errors';
 
-type TreeCommand = { id: string; kind: 'move' | 'rename' | 'delete'; serial: number };
+type TreeCommand = {
+  id: string;
+  kind: 'move' | 'rename' | 'delete' | 'order';
+  /** The new sibling position for kind 'order'. */
+  order?: number;
+  serial: number;
+};
 
-function sortedSiblings(pages: ProjectDocMetadata[], parentId: string | null) {
-  return pages
-    .filter((p) => p.parentId === parentId)
-    .sort((a, b) => a.title.localeCompare(b.title));
+/** Sorts sibling pages by their order, then by title. Pages without an order come last. */
+export function compareDocs(
+  a: ProjectDocMetadata,
+  b: ProjectDocMetadata,
+  titleOf: (page: ProjectDocMetadata) => string = (page) => page.title,
+) {
+  const left = a.order ?? Number.POSITIVE_INFINITY;
+  const right = b.order ?? Number.POSITIVE_INFINITY;
+  if (left !== right) return left < right ? -1 : 1;
+  return titleOf(a).localeCompare(titleOf(b));
+}
+
+export function sortedSiblings(pages: ProjectDocMetadata[], parentId: string | null) {
+  return pages.filter((p) => p.parentId === parentId).sort((a, b) => compareDocs(a, b));
+}
+
+/** Returns all pages in tree order with their depth. A page in a parent loop is not included. */
+export function docTreeOrder(pages: ProjectDocMetadata[]) {
+  const result: { page: ProjectDocMetadata; depth: number }[] = [];
+  const visit = (parentId: string | null, depth: number, seen: Set<string>) => {
+    for (const page of sortedSiblings(pages, parentId)) {
+      if (seen.has(page.id)) continue;
+      result.push({ page, depth });
+      visit(page.id, depth + 1, new Set(seen).add(page.id));
+    }
+  };
+  visit(null, 0, new Set());
+  return result;
 }
 
 /**
@@ -63,6 +101,74 @@ export function pageAfterDelete(pages: ProjectDocMetadata[], deletedId: string) 
 }
 
 const selectionKey = (groupId: string) => 'kalkidan-docs-selected:' + groupId;
+const libraryWidthKey = 'kalkidan-docs-library-width';
+const libraryWidth = { min: 200, max: 360, initial: 240 };
+
+function readLibraryWidth() {
+  try {
+    const value = Number(localStorage.getItem(libraryWidthKey));
+    return value >= libraryWidth.min && value <= libraryWidth.max ? value : libraryWidth.initial;
+  } catch {
+    return libraryWidth.initial;
+  }
+}
+
+/** The drag handle on the right edge of the page list. Arrow keys also change the width. */
+function LibraryResizer({ width, onResize }: { width: number; onResize: (value: number) => void }) {
+  const drag = useRef<{ x: number; width: number } | null>(null);
+  const [dragging, setDragging] = useState(false);
+  const stop = () => {
+    drag.current = null;
+    setDragging(false);
+  };
+  return (
+    <div
+      className="docs-library-resizer"
+      data-dragging={dragging || undefined}
+      role="separator"
+      aria-label="Resize page list"
+      aria-orientation="vertical"
+      aria-valuemin={libraryWidth.min}
+      aria-valuemax={libraryWidth.max}
+      aria-valuenow={width}
+      tabIndex={0}
+      title="Drag to resize the page list. Double-click to reset."
+      onPointerDown={(e) => {
+        if (e.button !== 0) return;
+        e.preventDefault();
+        drag.current = { x: e.clientX, width };
+        e.currentTarget.setPointerCapture(e.pointerId);
+        setDragging(true);
+      }}
+      onPointerMove={(e) => {
+        if (drag.current) onResize(drag.current.width + e.clientX - drag.current.x);
+      }}
+      onPointerUp={(e) => {
+        stop();
+        e.currentTarget.releasePointerCapture(e.pointerId);
+      }}
+      onPointerCancel={stop}
+      onLostPointerCapture={stop}
+      onDoubleClick={() => onResize(libraryWidth.initial)}
+      onKeyDown={(e) => {
+        const value =
+          e.key === 'ArrowLeft'
+            ? width - 10
+            : e.key === 'ArrowRight'
+              ? width + 10
+              : e.key === 'Home'
+                ? libraryWidth.min
+                : e.key === 'End'
+                  ? libraryWidth.max
+                  : null;
+        if (value !== null) {
+          e.preventDefault();
+          onResize(value);
+        }
+      }}
+    />
+  );
+}
 
 /** Returns the stored page when it still exists, else the first page. */
 export function initialPage(pages: ProjectDocMetadata[], stored: string | null) {
@@ -93,16 +199,20 @@ function DocEditor({
   onSaved,
   onDelete,
   pages,
-  groupName,
   onSubpage,
   onNavigate,
+  onReorder,
+  onTitleEditing,
   treeCommand,
   onTreeCommandHandled,
 }: {
   onTreeCommandHandled: () => void;
   treeCommand?: TreeCommand;
-  groupName: string;
   onSubpage: () => void;
+  /** Moves the page one place up (-1) or down (1). Undefined when it cannot move that way. */
+  onReorder: { up?: () => void; down?: () => void };
+  /** Called when the title field gets or loses focus. The page list does not sort meanwhile. */
+  onTitleEditing: (editing: boolean) => void;
   onNavigate: (id: string) => void;
   pages: ProjectDocMetadata[];
   api: API;
@@ -136,7 +246,10 @@ function DocEditor({
     if (treeCommand?.id !== initial.id) return;
     if (treeCommand.kind === 'move') startMove();
     else if (treeCommand.kind === 'delete') requestDelete();
-    else rename();
+    else if (treeCommand.kind === 'order') {
+      update({ ...latest.current, order: treeCommand.order });
+      void flush();
+    } else rename();
     onTreeCommandHandled();
   }, [treeCommand, initial.id]);
   const [editorVersion, setEditorVersion] = useState(0);
@@ -169,10 +282,6 @@ function DocEditor({
     clearTimeout(timer.current);
     const value = pending.current;
     if (!value || failed.current) return queue.current;
-    if (!value.title.trim()) {
-      setStatus('Add a page title');
-      return queue.current;
-    }
     pending.current = null;
     queue.current = queue.current.then(async () => {
       if (failed.current) {
@@ -180,7 +289,12 @@ function DocEditor({
         return;
       }
       try {
-        const saved = await api.docsSave(groupId, { ...value, revision: revision.current });
+        // A page with an empty title is saved as "Untitled".
+        const saved = await api.docsSave(groupId, {
+          ...value,
+          title: value.title.trim() || 'Untitled',
+          revision: revision.current,
+        });
         revision.current = saved.revision;
         onSaved(saved);
         if (latest.current === value) {
@@ -236,7 +350,7 @@ function DocEditor({
   return (
     <section className="doc-editor" aria-label="Document editor">
       {recovery && (
-        <Alert role={undefined} className="doc-alert">
+        <Alert role={undefined} className="mx-6 mt-3 w-auto px-3 py-2">
           <AlertDescription className="doc-alert-body">
             An unsaved draft is available.
             <span className="doc-alert-actions">
@@ -266,12 +380,11 @@ function DocEditor({
         </Alert>
       )}
       <div className="wiki-document-bar">
+        {/* The title bar shows the project and Docs. Here, show only the parent page and the page. */}
         <nav className="wiki-breadcrumbs" aria-label="Document breadcrumb">
-          <span title={`${groupName} docs`}>Docs</span>
-          <ChevronRight size={12} aria-hidden="true" />
-          {draft.parentId && (
+          {draft.parentId && parentTitle && (
             <>
-              <button title={parentTitle || undefined} onClick={() => onNavigate(draft.parentId!)}>
+              <button title={parentTitle} onClick={() => onNavigate(draft.parentId!)}>
                 {parentTitle}
               </button>
               <ChevronRight size={12} aria-hidden="true" />
@@ -296,7 +409,7 @@ function DocEditor({
               Retry
             </Button>
           )}
-          <Hint label={mode === 'read' ? 'Edit' : 'Preview'}>
+          <Hint label={mode === 'read' ? 'Back to editing' : 'Preview'}>
             <Button
               variant="ghost"
               size="icon-sm"
@@ -312,6 +425,16 @@ function DocEditor({
             items={[
               { label: 'Rename page', action: rename },
               { label: 'Move page', action: startMove },
+              {
+                label: 'Move up',
+                disabled: !onReorder.up,
+                action: () => onReorder.up?.(),
+              },
+              {
+                label: 'Move down',
+                disabled: !onReorder.down,
+                action: () => onReorder.down?.(),
+              },
               { label: 'Add subpage', action: onSubpage },
               {
                 label: mode === 'source' ? 'Rich text editor' : 'Markdown source',
@@ -334,8 +457,9 @@ function DocEditor({
             onChange={setMoveTarget}
             options={[
               { value: 'root', label: 'Top-level page' },
-              ...pages
-                .filter((p) => {
+              // The list shows the tree. Each level adds a dash before the title.
+              ...docTreeOrder(pages)
+                .filter(({ page: p }) => {
                   let cursor: ProjectDocMetadata | undefined = p;
                   const seen = new Set<string>();
                   while (cursor) {
@@ -345,7 +469,10 @@ function DocEditor({
                   }
                   return true;
                 })
-                .map((p) => ({ value: p.id, label: p.title })),
+                .map(({ page: p, depth }) => ({
+                  value: p.id,
+                  label: `${'— '.repeat(depth)}${p.title}`,
+                })),
             ]}
           />
           <DialogFooter>
@@ -355,7 +482,12 @@ function DocEditor({
             <Button
               disabled={moveTarget === (draft.parentId || 'root')}
               onClick={() => {
-                update({ ...latest.current, parentId: moveTarget === 'root' ? null : moveTarget });
+                // The page goes to the end of its new parent's list.
+                update({
+                  ...latest.current,
+                  parentId: moveTarget === 'root' ? null : moveTarget,
+                  order: undefined,
+                });
                 void flush();
                 setMoving(false);
               }}
@@ -366,23 +498,28 @@ function DocEditor({
         </DialogContent>
       </Dialog>
       {error && (
-        <Alert variant="destructive" className="doc-alert">
+        <Alert variant="destructive" className="mx-6 mt-3 w-auto px-3 py-2">
           <AlertDescription>{error} Your draft is kept locally for recovery.</AlertDescription>
         </Alert>
       )}
       <div className="wiki-page">
         <Input
           ref={titleInput}
-          className="doc-title mb-2 h-10 rounded-none border-0 bg-transparent p-0 text-[32px] leading-10 font-semibold tracking-[-0.01em] shadow-none focus-visible:ring-0 dark:bg-transparent max-[800px]:h-8 max-[800px]:text-2xl max-[800px]:leading-8"
+          className="doc-title mb-2 h-10 rounded-none border-0 bg-transparent p-0 text-3xl font-semibold tracking-[-0.01em] shadow-none focus-visible:ring-0 dark:bg-transparent @max-[600px]:h-8 @max-[600px]:text-2xl"
           aria-label="Page title"
+          placeholder="Untitled"
           value={draft.title}
           readOnly={mode === 'read'}
           onChange={(e) => update({ ...latest.current, title: e.target.value })}
-          onBlur={() => void flush()}
+          onFocus={() => onTitleEditing(true)}
+          onBlur={() => {
+            onTitleEditing(false);
+            void flush();
+          }}
         />
         {mode === 'source' ? (
           <textarea
-            className="wiki-source"
+            className="wiki-source font-mono"
             aria-label="Markdown content"
             value={draft.markdown}
             onChange={(e) => update({ ...latest.current, markdown: e.target.value })}
@@ -401,7 +538,16 @@ function DocEditor({
   );
 }
 
-export function ProjectDocsPanel({ api, group }: { api: API; group: ProjectGroup }) {
+export function ProjectDocsPanel({
+  api,
+  group,
+  initialPageId,
+}: {
+  api: API;
+  group: ProjectGroup;
+  /** Opens this page, for example from a search result. */
+  initialPageId?: string;
+}) {
   const [pages, setPages] = useState<ProjectDocMetadata[]>([]);
   const [selected, setSelected] = useState('');
   const [treeCommand, setTreeCommand] = useState<TreeCommand>();
@@ -415,6 +561,20 @@ export function ProjectDocsPanel({ api, group }: { api: API; group: ProjectGroup
   const [deletedPages, setDeletedPages] = useState<DeletedProjectDoc[] | null>(null);
   const [page, setPage] = useState<ProjectDoc | null>(null);
   const [pageLoading, setPageLoading] = useState(false);
+  // While a title is edited, the list sorts by the titles from before the edit.
+  const [frozenTitles, setFrozenTitles] = useState<Map<string, string> | null>(null);
+  const [width, setWidth] = useState(readLibraryWidth);
+  // Only Rename moves focus to the page title. Other menu items return focus to the menu.
+  const focusTitle = useRef(false);
+  function resizeLibrary(value: number) {
+    const next = Math.round(Math.min(libraryWidth.max, Math.max(libraryWidth.min, value)));
+    setWidth(next);
+    try {
+      localStorage.setItem(libraryWidthKey, String(next));
+    } catch {
+      // Storage can be unavailable. The width then resets on the next visit.
+    }
+  }
   useEffect(() => {
     let live = true;
     setPage(null);
@@ -440,6 +600,7 @@ export function ProjectDocsPanel({ api, group }: { api: API; group: ProjectGroup
   }, [api, group.id, selected]);
   useEffect(() => {
     if (selected) writeSelection(group.id, selected);
+    setFrozenTitles(null);
   }, [group.id, selected]);
   useEffect(() => {
     let live = true;
@@ -448,7 +609,7 @@ export function ProjectDocsPanel({ api, group }: { api: API; group: ProjectGroup
       .then((value) => {
         if (live) {
           setPages(value);
-          setSelected(initialPage(value, readSelection(group.id)));
+          setSelected(initialPage(value, initialPageId || readSelection(group.id)));
         }
       })
       .catch((e) => {
@@ -461,6 +622,9 @@ export function ProjectDocsPanel({ api, group }: { api: API; group: ProjectGroup
       live = false;
     };
   }, [api, group.id]);
+  useEffect(() => {
+    if (initialPageId && pages.some((p) => p.id === initialPageId)) setSelected(initialPageId);
+  }, [initialPageId, pages.length > 0]);
   async function action(fn: () => Promise<void>) {
     setBusy(true);
     setError('');
@@ -502,9 +666,42 @@ export function ProjectDocsPanel({ api, group }: { api: API; group: ProjectGroup
       siblings.push(doc);
       map.set(doc.parentId, siblings);
     }
-    for (const siblings of map.values()) siblings.sort((a, b) => a.title.localeCompare(b.title));
+    const titleOf = (doc: ProjectDocMetadata) => frozenTitles?.get(doc.id) ?? doc.title;
+    for (const siblings of map.values()) siblings.sort((a, b) => compareDocs(a, b, titleOf));
     return map;
-  }, [pages]);
+  }, [pages, frozenTitles]);
+  /** Returns the function that moves a page up (-1) or down (1), if it can move. */
+  function reorder(id: string, offset: -1 | 1) {
+    const doc = pages.find((p) => p.id === id);
+    if (!doc) return undefined;
+    const siblings = children.get(doc.parentId) || [];
+    const index = siblings.findIndex((p) => p.id === id);
+    const target = index + offset;
+    if (index < 0 || target < 0 || target >= siblings.length) return undefined;
+    return () => {
+      const next = [...siblings];
+      [next[index], next[target]] = [next[target], next[index]];
+      void action(async () => {
+        // Write the position of each sibling whose position changed. The open page saves
+        // through its editor, so that the editor keeps the current revision.
+        for (const [order, sibling] of next.entries()) {
+          if (sibling.order === order) continue;
+          if (sibling.id === page?.id)
+            setTreeCommand((current) => ({
+              id: sibling.id,
+              kind: 'order',
+              order,
+              serial: (current?.serial ?? 0) + 1,
+            }));
+          else {
+            const full = await api.docsRead(group.id, sibling.id);
+            await api.docsSave(group.id, { ...full, order });
+          }
+          setPages((current) => current.map((p) => (p.id === sibling.id ? { ...p, order } : p)));
+        }
+      });
+    };
+  }
   const hasSubpages = !!page && !!children.get(page.id)?.length;
   useEffect(() => {
     const ancestors: string[] = [];
@@ -520,11 +717,13 @@ export function ProjectDocsPanel({ api, group }: { api: API; group: ProjectGroup
       return { ...current, ...Object.fromEntries(ancestors.map((id) => [id, false])) };
     });
   }, [selected, pages]);
-  function tree(parentId: string | null, depth = 0, visited = new Set<string>()): React.ReactNode {
+  function tree(parentId: string | null, depth = 0, visited = new Set<string>()): ReactNode {
     return (children.get(parentId) || []).map((p) => {
       if (visited.has(p.id)) return null;
       const next = new Set(visited).add(p.id);
       const hasChildren = !!children.get(p.id)?.length;
+      const up = reorder(p.id, -1);
+      const down = reorder(p.id, 1);
       return (
         <li key={p.id}>
           <div className="wiki-tree-row" data-selected={selected === p.id}>
@@ -543,8 +742,8 @@ export function ProjectDocsPanel({ api, group }: { api: API; group: ProjectGroup
               <span className="wiki-tree-spacer" />
             )}
             <Button
-              variant="ghost"
-              className="doc-tree-page h-8 min-w-0 flex-1 justify-start gap-2 px-1 text-sm font-normal hover:bg-transparent aria-[current=page]:font-medium"
+              variant="bare"
+              className="doc-tree-page h-8 min-w-0 flex-1 gap-1.5 px-0 text-sm font-normal aria-[current=page]:font-medium"
               title={p.title}
               aria-current={selected === p.id ? 'page' : undefined}
               onClick={() => setSelected(p.id)}
@@ -560,13 +759,28 @@ export function ProjectDocsPanel({ api, group }: { api: API; group: ProjectGroup
                 <DropdownMenuContent
                   align="end"
                   sideOffset={6}
-                  onCloseAutoFocus={(event) => event.preventDefault()}
+                  onCloseAutoFocus={(event) => {
+                    if (!focusTitle.current) return;
+                    focusTitle.current = false;
+                    event.preventDefault();
+                  }}
                 >
-                  <DropdownMenuItem onSelect={() => command(p.id, 'rename')}>
+                  <DropdownMenuItem
+                    onSelect={() => {
+                      focusTitle.current = true;
+                      command(p.id, 'rename');
+                    }}
+                  >
                     Rename page
                   </DropdownMenuItem>
                   <DropdownMenuItem onSelect={() => command(p.id, 'move')}>
                     Move page
+                  </DropdownMenuItem>
+                  <DropdownMenuItem disabled={!up} onSelect={() => up?.()}>
+                    Move up
+                  </DropdownMenuItem>
+                  <DropdownMenuItem disabled={!down} onSelect={() => down?.()}>
+                    Move down
                   </DropdownMenuItem>
                   <DropdownMenuItem onSelect={() => newPage(p.id)}>Add subpage</DropdownMenuItem>
                   <DropdownMenuItem variant="destructive" onSelect={() => command(p.id, 'delete')}>
@@ -586,11 +800,14 @@ export function ProjectDocsPanel({ api, group }: { api: API; group: ProjectGroup
   return (
     <section className="project-docs" aria-label="Project docs">
       {error && (
-        <Alert variant="destructive" className="doc-alert">
+        <Alert variant="destructive" className="mx-6 mt-3 w-auto px-3 py-2">
           <AlertDescription>{error}</AlertDescription>
         </Alert>
       )}
-      <div className="docs-layout">
+      <div
+        className="docs-layout"
+        style={{ '--docs-library-width': `${width}px` } as CSSProperties}
+      >
         <aside className="docs-library" aria-label="Document pages">
           <div className="wiki-pages-label">
             <span>Pages</span>
@@ -612,7 +829,7 @@ export function ProjectDocsPanel({ api, group }: { api: API; group: ProjectGroup
           <Button
             variant="ghost"
             size="sm"
-            className="wiki-deleted-pages justify-start"
+            className="shrink-0 justify-start gap-1.5 px-2 text-muted-foreground has-[>svg]:px-2"
             disabled={busy}
             onClick={() =>
               void action(async () => {
@@ -622,6 +839,7 @@ export function ProjectDocsPanel({ api, group }: { api: API; group: ProjectGroup
           >
             <Trash2 size={14} /> Deleted pages
           </Button>
+          <LibraryResizer width={width} onResize={resizeLibrary} />
         </aside>
         {page && page.id === selected ? (
           <div className="doc-workspace">
@@ -631,9 +849,12 @@ export function ProjectDocsPanel({ api, group }: { api: API; group: ProjectGroup
               onTreeCommandHandled={() => setTreeCommand(undefined)}
               treeCommand={treeCommand}
               groupId={group.id}
-              groupName={group.name}
               onNavigate={setSelected}
               onSubpage={() => newPage(page.id)}
+              onReorder={{ up: reorder(page.id, -1), down: reorder(page.id, 1) }}
+              onTitleEditing={(editing) =>
+                setFrozenTitles(editing ? new Map(pages.map((doc) => [doc.id, doc.title])) : null)
+              }
               initial={page}
               pages={pages}
               onSaved={saved}
@@ -688,9 +909,9 @@ export function ProjectDocsPanel({ api, group }: { api: API; group: ProjectGroup
               maxLength={200}
             />
             {error && (
-              <Alert variant="destructive">
-                <AlertDescription>{error}</AlertDescription>
-              </Alert>
+              <p role="alert" className="field-error">
+                {error}
+              </p>
             )}
             <DialogFooter>
               <Button type="button" variant="outline" onClick={() => setCreating(null)}>
@@ -706,7 +927,7 @@ export function ProjectDocsPanel({ api, group }: { api: API; group: ProjectGroup
       <Dialog open={deleting} onOpenChange={(open) => !busy && setDeleting(open)}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Delete this page?</DialogTitle>
+            <DialogTitle>Delete “{page?.title || 'Untitled'}”?</DialogTitle>
             <DialogDescription>
               {hasSubpages
                 ? 'This page has subpages. Move or delete its subpages first.'
@@ -714,9 +935,9 @@ export function ProjectDocsPanel({ api, group }: { api: API; group: ProjectGroup
             </DialogDescription>
           </DialogHeader>
           {error && (
-            <Alert variant="destructive">
-              <AlertDescription>{error}</AlertDescription>
-            </Alert>
+            <p role="alert" className="field-error">
+              {error}
+            </p>
           )}
           <DialogFooter>
             <Button variant="outline" onClick={() => setDeleting(false)}>
@@ -761,9 +982,9 @@ export function ProjectDocsPanel({ api, group }: { api: API; group: ProjectGroup
             </DialogDescription>
           </DialogHeader>
           {error && (
-            <Alert variant="destructive">
-              <AlertDescription>{error}</AlertDescription>
-            </Alert>
+            <p role="alert" className="field-error">
+              {error}
+            </p>
           )}
           {deletedPages?.length ? (
             <ul className="wiki-deleted-list">
@@ -787,7 +1008,12 @@ export function ProjectDocsPanel({ api, group }: { api: API; group: ProjectGroup
                         const doc = await api.docsRestore(group.id, item.trashId);
                         setPages((current) => [
                           ...current,
-                          { id: doc.id, title: doc.title, parentId: doc.parentId },
+                          {
+                            id: doc.id,
+                            title: doc.title,
+                            parentId: doc.parentId,
+                            order: doc.order,
+                          },
                         ]);
                         setDeletedPages((current) =>
                           (current || []).filter((d) => d.trashId !== item.trashId),
@@ -802,7 +1028,7 @@ export function ProjectDocsPanel({ api, group }: { api: API; group: ProjectGroup
               ))}
             </ul>
           ) : (
-            <p className="text-sm text-muted-foreground">No deleted pages.</p>
+            <EmptyState compact>No deleted pages.</EmptyState>
           )}
           <DialogFooter>
             <Button variant="outline" onClick={() => setDeletedPages(null)}>

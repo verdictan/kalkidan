@@ -1,4 +1,4 @@
-import type { ReactElement } from 'react';
+import { useId, type ReactElement } from 'react';
 import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip';
 // A disabled button gets no pointer events, so its tooltip never opens. Wrap a
 // disabled child in a focusable span that receives hover and focus instead.
@@ -13,18 +13,18 @@ export function Hint({
   children: ReactElement;
 }) {
   const disabled = disabledProp ?? !!(children.props as { disabled?: boolean }).disabled;
+  const reasonId = useId();
   return (
     <Tooltip>
       <TooltipTrigger asChild>
         {disabled ? (
-          <span
-            className="hint-disabled"
-            role="button"
-            tabIndex={0}
-            aria-disabled="true"
-            aria-label={label}
-          >
+          // The wrapper only receives hover and focus. The child keeps its own name, and
+          // the reason is its description.
+          <span className="hint-disabled" tabIndex={0} aria-describedby={reasonId}>
             {children}
+            <span id={reasonId} className="sr-only">
+              {label}
+            </span>
           </span>
         ) : (
           children

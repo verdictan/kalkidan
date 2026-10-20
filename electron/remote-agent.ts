@@ -19,6 +19,8 @@ import { codexTranscript } from './codex-store';
 import { createAgentRuntimes } from './agents/runtime';
 import { CommandTerminal, repositoryDiff } from './conversation-tools';
 import { modelOptions } from './models';
+import { executable } from './chat';
+import { gitCommit, gitPullRequest, removeWorktree, workingStatus } from './git-working';
 const locations = new ProjectLocationCache(join(homedir(), '.kalkidan', 'projects'));
 const projectDocs = new Map<string, ProjectDocs>();
 const pty = new PtyTerminal();
@@ -188,6 +190,14 @@ async function dispatch(method: string, args: any[]): Promise<any> {
       await git(cwd, ['worktree', 'add', '-b', b, '--', path]);
       return { path: await folder(path), name: basename(path) };
     }
+    case 'worktree-remove':
+      return removeWorktree(await folder(a), b === true);
+    case 'working-status':
+      return workingStatus(await folder(a));
+    case 'git-commit':
+      return gitCommit(await folder(a), b);
+    case 'git-pull-request':
+      return gitPullRequest(await folder(a), b, c, () => executable('gh'));
     case 'repositoryDiff':
       return repositoryDiff(await folder(a));
     case 'terminalStart':

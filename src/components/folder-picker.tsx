@@ -4,9 +4,12 @@ import type { API } from '../types';
 import type { DirectoryListing } from '../domain/project';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
+import { SearchInput } from './ui/search-input';
 import { Hint } from './hint';
+import { EmptyState } from './ui/empty-state';
 import {
   Dialog,
+  DialogBody,
   DialogContent,
   DialogHeader,
   DialogTitle,
@@ -98,7 +101,8 @@ export function FolderPicker({
           if (!next) request.current++;
         }}
       >
-        <DialogContent size="lg">
+        {/* A fixed height: only the list of entries scrolls when a folder changes. */}
+        <DialogContent size="lg" layout="scroll" className="h-[min(640px,calc(100dvh-2rem))]">
           <DialogHeader>
             <DialogTitle>Choose project folder</DialogTitle>
             <DialogDescription>
@@ -108,101 +112,107 @@ export function FolderPicker({
               Files show for context. Choose a folder for your project.
             </DialogDescription>
           </DialogHeader>
-          <form
-            className="flex gap-2"
-            onSubmit={(event) => {
-              event.preventDefault();
-              void browse(path);
-            }}
-          >
-            <Input
-              aria-label="Browse folder path"
-              value={path}
-              onChange={(event) => setPath(event.target.value)}
-            />
-            <Button type="submit" variant="outline" disabled={loading || !path.trim()}>
-              Go
-            </Button>
-          </form>
-          <div className="-mt-1 flex flex-wrap items-center gap-1">
-            <Button
-              variant="ghost"
-              size="sm"
-              disabled={loading || !listing || listing.path === listing.parent}
-              onClick={() => void browse(listing!.parent)}
+          <DialogBody className="flex flex-col gap-3 overflow-hidden">
+            <form
+              className="flex gap-2"
+              onSubmit={(event) => {
+                event.preventDefault();
+                // This dialog can open from a form in another dialog. Keep this submit local.
+                event.stopPropagation();
+                void browse(path);
+              }}
             >
-              <ArrowUp /> Parent folder
-            </Button>
-            <Button variant="ghost" size="sm" disabled={loading} onClick={() => void browse('~')}>
-              <House /> Home
-            </Button>
-            <Hint label="Refresh folder">
-              <Button
-                variant="ghost"
-                size="icon-sm"
-                aria-label="Refresh folder"
-                disabled={loading}
-                onClick={() => void browse(path)}
-              >
-                <RefreshCw />
-              </Button>
-            </Hint>
-            <label className="ml-auto flex items-center gap-2 text-sm text-muted-foreground">
-              <input
-                type="checkbox"
-                className="size-3.5 accent-primary"
-                checked={hidden}
-                onChange={(event) => setHidden(event.target.checked)}
+              <Input
+                aria-label="Browse folder path"
+                value={path}
+                onChange={(event) => setPath(event.target.value)}
               />
-              Show hidden
-            </label>
-          </div>
-          <Input
-            aria-label="Filter folder entries"
-            placeholder="Filter files and folders…"
-            value={filter}
-            onChange={(event) => setFilter(event.target.value)}
-          />
-          <div
-            role="group"
-            className="list-box h-60 content-start"
-            aria-label="Folder entries"
-            aria-busy={loading}
-          >
-            {loading && (
-              <p role="status" className="px-2 py-1.5 text-sm text-muted-foreground">
-                Loading folder…
-              </p>
-            )}
-            {error && (
-              <p role="alert" className="px-2 py-1.5 text-sm text-destructive">
-                {error}
-              </p>
-            )}
-            {listing && !entries.length && (
-              <p className="px-2 py-1.5 text-sm text-muted-foreground">
-                {listing.entries.length ? 'No matching entries.' : 'This folder is empty.'}
-              </p>
-            )}
-            {entries.map((entry) => (
-              <Button
-                key={entry.path}
-                variant="ghost"
-                className="w-full justify-start px-2 font-normal disabled:opacity-60 [&_svg]:size-3.5 [&_svg]:text-muted-foreground"
-                disabled={entry.kind === 'file'}
-                onClick={() => void browse(entry.path)}
-              >
-                {entry.kind === 'directory' ? (
-                  <Folder />
-                ) : entry.kind === 'symlink' ? (
-                  <Link />
-                ) : (
-                  <File />
-                )}
-                <span className="truncate">{entry.name}</span>
+              <Button type="submit" variant="outline" disabled={loading || !path.trim()}>
+                Go
               </Button>
-            ))}
-          </div>
+            </form>
+            <div className="flex flex-wrap items-center gap-1">
+              <Button
+                variant="ghost"
+                size="sm"
+                disabled={loading || !listing || listing.path === listing.parent}
+                onClick={() => void browse(listing!.parent)}
+              >
+                <ArrowUp /> Parent folder
+              </Button>
+              <Button variant="ghost" size="sm" disabled={loading} onClick={() => void browse('~')}>
+                <House /> Home
+              </Button>
+              <Hint label="Refresh folder">
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  aria-label="Refresh folder"
+                  disabled={loading}
+                  onClick={() => void browse(path)}
+                >
+                  <RefreshCw />
+                </Button>
+              </Hint>
+              <label className="ml-auto flex items-center gap-2 text-sm text-muted-foreground">
+                <input
+                  type="checkbox"
+                  className="size-3.5 accent-primary"
+                  checked={hidden}
+                  onChange={(event) => setHidden(event.target.checked)}
+                />
+                Show hidden
+              </label>
+            </div>
+            <SearchInput
+              aria-label="Filter folder entries"
+              placeholder="Filter files and folders…"
+              value={filter}
+              onChange={(event) => setFilter(event.target.value)}
+            />
+            <div
+              role="group"
+              className="list-box max-h-none min-h-0 flex-1 content-start"
+              aria-label="Folder entries"
+              aria-busy={loading}
+            >
+              {loading && (
+                <p role="status" className="px-2 py-1.5 text-sm text-muted-foreground">
+                  Loading folder…
+                </p>
+              )}
+              {error && (
+                <p role="alert" className="field-error px-2 py-1.5">
+                  {error}
+                </p>
+              )}
+              {listing && !entries.length && (
+                <EmptyState
+                  compact
+                  title={listing.entries.length ? 'No matching entries' : 'This folder is empty'}
+                />
+              )}
+              {entries.map((entry) => (
+                <button
+                  type="button"
+                  key={entry.path}
+                  title={entry.name}
+                  className="list-box-row text-sm disabled:opacity-60 [&_svg]:size-3.5 [&_svg]:shrink-0 [&_svg]:text-muted-foreground"
+                  disabled={entry.kind === 'file'}
+                  onClick={() => void browse(entry.path)}
+                >
+                  {entry.kind === 'directory' ? (
+                    <Folder />
+                  ) : entry.kind === 'symlink' ? (
+                    <Link />
+                  ) : (
+                    <File />
+                  )}
+                  <span className="truncate">{entry.name}</span>
+                </button>
+              ))}
+            </div>
+          </DialogBody>
           <DialogFooter>
             <Button variant="outline" onClick={() => setOpen(false)}>
               Cancel

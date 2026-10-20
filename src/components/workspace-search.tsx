@@ -1,11 +1,19 @@
 import { useEffect, useId, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react';
 import { Search, X } from 'lucide-react';
+import { agentLabel } from '../config/agents';
+import { trackerConnection, type TrackerItem } from '../domain/tracker';
+import type { ProjectDocMetadata } from '../domain/docs';
 import { sessionAPI } from '../lib/remote-api';
 import { sessionRepo } from '../lib/session-repository';
+import { trackerClient } from '../lib/tracker-client';
 import { plural, shortcutLabel } from '../lib/platform';
 import type { API, Project, ProjectGroup, Session } from '../types';
+import { relativeTime } from './project-overview';
+import { AgentIcon } from './ui/agent-icon';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
+
+type Transcript = { messages: { text: string }[]; truncated: boolean };
 
 interface SearchOption {
   key: string;
@@ -41,10 +49,16 @@ export function WorkspaceSearch({
   groups,
   sessions,
   onProject,
+  onDoc,
+  onTask,
   onRepository,
   onSession,
   children,
 }: {
+  /** Opens a docs page of a project. */
+  onDoc?: (group: ProjectGroup, doc: ProjectDocMetadata) => void;
+  /** Opens a task on the project board. */
+  onTask?: (group: ProjectGroup, task: TrackerItem) => void;
   api: API;
   inputRef?: RefObject<HTMLInputElement | null>;
   query: string;
@@ -63,10 +77,58 @@ export function WorkspaceSearch({
   const matches = (text: string) => text.toLocaleLowerCase().includes(term);
   const [history, setHistory] = useState<{ session: Session; excerpt: string }[]>([]);
   const [busy, setBusy] = useState(false);
-  const [failed, setFailed] = useState(0);
   const [partial, setPartial] = useState(0);
   const [active, setActive] = useState(-1);
   useEffect(() => setActive(-1), [term]);
+  // Transcripts stay cached by session and update time, so a refresh reads only changed
+  // sessions. Failures, docs and tasks stay cached until the search is cleared.
+  const transcripts = useRef(new Map<string, Transcript | 'failed'>());
+  const docs = useRef(new Map<string, ProjectDocMetadata[]>());
+  const tasks = useRef(new Map<string, TrackerItem[]>());
+  const [, setLoaded] = useState(0);
+  const searching = term.length > 0;
+  useEffect(() => {
+    if (searching) return;
+    for (const [key, value] of transcripts.current)
+      if (value === 'failed') transcripts.current.delete(key);
+    docs.current.clear();
+    tasks.current.clear();
+  }, [searching]);
+  // Load the docs and tasks of each project once for each search.
+  useEffect(() => {
+    if (!searching) return;
+    let live = true;
+    for (const group of groups) {
+      if (onDoc && !docs.current.has(group.id)) {
+        docs.current.set(group.id, []);
+        Promise.resolve()
+          .then(() => api.docsMetadata(group.id))
+          .then((pages) => {
+            docs.current.set(group.id, pages);
+            if (live) setLoaded((value) => value + 1);
+          })
+          .catch(() => {
+            /* A project without docs gives no results. */
+          });
+      }
+      const connection = trackerConnection(group);
+      if (onTask && connection && !tasks.current.has(group.id)) {
+        tasks.current.set(group.id, []);
+        Promise.resolve()
+          .then(() => trackerClient(api, connection.provider).board(group.id))
+          .then((board) => {
+            tasks.current.set(group.id, board.items);
+            if (live) setLoaded((value) => value + 1);
+          })
+          .catch(() => {
+            /* A tracker that is not available gives no results. */
+          });
+      }
+    }
+    return () => {
+      live = false;
+    };
+  }, [api, searching, groups]);
   // The session list is a new array after each refresh. Scan again only when a
   // session is added, removed, or updated.
   const sessionsKey = useMemo(
@@ -74,6 +136,7 @@ export function WorkspaceSearch({
       sessions.map((s) => `${s.hostId ?? ''}:${s.agent}:${s.id}:${s.updatedAt ?? ''}`).join('|'),
     [sessions],
   );
+  const transcriptKey = (s: Session) => `${s.hostId ?? ''}:${s.agent}:${s.id}:${s.updatedAt ?? ''}`;
   const latestSessions = useRef(sessions);
   latestSessions.current = sessions;
   const scannedTerm = useRef('');
@@ -85,45 +148,50 @@ export function WorkspaceSearch({
     scannedTerm.current = term;
     if (!rescan) {
       setHistory([]);
-      setFailed(0);
       setPartial(0);
     }
     setBusy(term.length >= 2);
     if (term.length < 2) return;
     const timer = setTimeout(async () => {
       let cursor = 0,
-        failures = 0,
         truncated = 0;
       const results: { session: Session; excerpt: string }[] = [];
       const candidates = latestSessions.current.filter((s) => !s.id.startsWith('draft-'));
+      const read = async (session: Session) => {
+        const key = transcriptKey(session);
+        const cached = transcripts.current.get(key);
+        if (cached) return cached;
+        try {
+          const value = await sessionAPI(api, session).transcript(session.agent, session.id);
+          transcripts.current.set(key, value);
+          return value;
+        } catch {
+          transcripts.current.set(key, 'failed');
+          return 'failed' as const;
+        }
+      };
       await Promise.all(
         Array.from({ length: Math.min(3, candidates.length) }, async () => {
           while (!cancelled && cursor < candidates.length) {
             const session = candidates[cursor++];
-            try {
-              const transcript = await sessionAPI(api, session).transcript(
-                session.agent,
-                session.id,
-              );
-              if (cancelled) return;
-              if (transcript.truncated) truncated++;
-              const message = transcript.messages.find((m) =>
-                m.text.toLocaleLowerCase().includes(term),
-              );
-              if (message) {
-                const index = message.text.toLocaleLowerCase().indexOf(term);
-                const start = Math.max(0, index - 50);
-                results.push({
-                  session,
-                  excerpt:
-                    (start ? '…' : '') +
-                    message.text.slice(start, index + term.length + 100) +
-                    (index + term.length + 100 < message.text.length ? '…' : ''),
-                });
-                if (!rescan) setHistory([...results]);
-              }
-            } catch {
-              failures++;
+            const transcript = await read(session);
+            if (cancelled) return;
+            if (transcript === 'failed') continue;
+            if (transcript.truncated) truncated++;
+            const message = transcript.messages.find((m) =>
+              m.text.toLocaleLowerCase().includes(term),
+            );
+            if (message) {
+              const index = message.text.toLocaleLowerCase().indexOf(term);
+              const start = Math.max(0, index - 50);
+              results.push({
+                session,
+                excerpt:
+                  (start ? '…' : '') +
+                  message.text.slice(start, index + term.length + 100) +
+                  (index + term.length + 100 < message.text.length ? '…' : ''),
+              });
+              if (!rescan) setHistory([...results]);
             }
           }
         }),
@@ -131,7 +199,6 @@ export function WorkspaceSearch({
       if (!cancelled) {
         setHistory(results);
         setBusy(false);
-        setFailed(failures);
         setPartial(truncated);
       }
     }, 300);
@@ -140,7 +207,26 @@ export function WorkspaceSearch({
       clearTimeout(timer);
     };
   }, [api, term, sessionsKey]);
+  // Count failures from the cache, so the alert does not show again for each new query.
+  const failed =
+    term.length >= 2
+      ? sessions.filter((s) => transcripts.current.get(transcriptKey(s)) === 'failed').length
+      : 0;
   const projectMatches = term ? groups.filter((g) => matches(g.name)) : [];
+  const docMatches = term
+    ? groups.flatMap((group) =>
+        (docs.current.get(group.id) || [])
+          .filter((doc) => matches(doc.title))
+          .map((doc) => ({ group, doc })),
+      )
+    : [];
+  const taskMatches = term
+    ? groups.flatMap((group) =>
+        (tasks.current.get(group.id) || [])
+          .filter((task) => matches(task.title + (task.number ? ' #' + task.number : '')))
+          .map((task) => ({ group, task })),
+      )
+    : [];
   const repoMatches = term ? projects.filter((p) => matches(p.name + ' ' + p.path)) : [];
   const sessionMatches = term
     ? sessions.filter((s) =>
@@ -172,6 +258,14 @@ export function WorkspaceSearch({
     ...projectMatches.map((g) => ({ key: 'project:' + g.id, open: () => onProject(g) })),
     ...repoMatches.map((p) => ({ key: 'repo:' + p.id, open: () => onRepository(p) })),
     ...sessionResults.map((s) => ({ key: 'session:' + sessionKey(s), open: () => onSession(s) })),
+    ...docMatches.map(({ group, doc }) => ({
+      key: `doc:${group.id}:${doc.id}`,
+      open: () => onDoc?.(group, doc),
+    })),
+    ...taskMatches.map(({ group, task }) => ({
+      key: `task:${group.id}:${task.id}`,
+      open: () => onTask?.(group, task),
+    })),
   ];
   const optionId = (key: string) => `${id}-${key.replace(/[^\w-]/g, '_')}`;
   const activeOption = options[active];
@@ -247,7 +341,7 @@ export function WorkspaceSearch({
               inputRef?.current?.focus();
             }}
           >
-            <X size={14} />
+            <X />
           </Button>
         ) : (
           <kbd className="kbd search-kbd">{shortcutLabel(['mod'], 'K')}</kbd>
@@ -266,7 +360,9 @@ export function WorkspaceSearch({
           <div id={listId} role="listbox" aria-label="Results">
             {!!projectMatches.length && (
               <div role="group" aria-labelledby={`${id}-projects`}>
-                <h3 id={`${id}-projects`}>Projects</h3>
+                <h3 id={`${id}-projects`} className="sidebar-label">
+                  Projects
+                </h3>
                 {projectMatches.map((g) =>
                   option('project:' + g.id, <Highlight text={g.name} term={term} />, {
                     title: g.name,
@@ -276,7 +372,9 @@ export function WorkspaceSearch({
             )}
             {!!repoMatches.length && (
               <div role="group" aria-labelledby={`${id}-repositories`}>
-                <h3 id={`${id}-repositories`}>Repositories</h3>
+                <h3 id={`${id}-repositories`} className="sidebar-label">
+                  Repositories
+                </h3>
                 {repoMatches.map((p) =>
                   option(
                     'repo:' + p.id,
@@ -295,13 +393,16 @@ export function WorkspaceSearch({
             )}
             {!!sessionResults.length && (
               <div role="group" aria-labelledby={`${id}-sessions`}>
-                <h3 id={`${id}-sessions`}>Sessions</h3>
+                <h3 id={`${id}-sessions`} className="sidebar-label">
+                  Sessions
+                </h3>
                 {sessionResults.map((s) => {
                   const repo = sessionRepo(s, projects);
                   const found = excerpts.get(sessionKey(s));
                   // Skip an excerpt that only repeats the title.
                   const excerpt = found?.replace(/^…|…$/g, '') === title(s) ? undefined : found;
                   const where = context(projectOf(repo), repo?.name);
+                  const when = relativeTime(s.updatedAt);
                   return option(
                     'session:' + sessionKey(s),
                     <>
@@ -309,7 +410,10 @@ export function WorkspaceSearch({
                         <Highlight text={title(s)} term={term} />
                         {s.organization?.archived ? ' · Archived' : ''}
                       </span>
-                      {where && <span className="search-option-context">{where}</span>}
+                      <span className="search-option-context search-option-agent">
+                        <AgentIcon agent={s.agent} className="size-3" />
+                        {[agentLabel(s.agent), when, where].filter(Boolean).join(' · ')}
+                      </span>
                       {excerpt && (
                         <span className="search-option-excerpt">
                           <Highlight text={excerpt} term={term} />
@@ -319,6 +423,46 @@ export function WorkspaceSearch({
                     { className: excerpt ? 'history-search-hit' : undefined, title: title(s) },
                   );
                 })}
+              </div>
+            )}
+            {!!docMatches.length && (
+              <div role="group" aria-labelledby={`${id}-docs`}>
+                <h3 id={`${id}-docs`} className="sidebar-label">
+                  Docs
+                </h3>
+                {docMatches.map(({ group, doc }) =>
+                  option(
+                    `doc:${group.id}:${doc.id}`,
+                    <>
+                      <span className="search-option-title">
+                        <Highlight text={doc.title} term={term} />
+                      </span>
+                      <span className="search-option-context">{group.name}</span>
+                    </>,
+                    { title: doc.title },
+                  ),
+                )}
+              </div>
+            )}
+            {!!taskMatches.length && (
+              <div role="group" aria-labelledby={`${id}-tasks`}>
+                <h3 id={`${id}-tasks`} className="sidebar-label">
+                  Tasks
+                </h3>
+                {taskMatches.map(({ group, task }) =>
+                  option(
+                    `task:${group.id}:${task.id}`,
+                    <>
+                      <span className="search-option-title">
+                        <Highlight text={task.title} term={term} />
+                      </span>
+                      <span className="search-option-context">
+                        {context(group.name, task.number ? '#' + task.number : undefined)}
+                      </span>
+                    </>,
+                    { title: task.title },
+                  ),
+                )}
               </div>
             )}
           </div>

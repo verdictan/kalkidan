@@ -27,8 +27,8 @@ export function ActionMenu({
   restoreFocus?: boolean;
   label: string;
   disabled?: boolean;
-  /** sm (28px) in headers and toolbars, xs (24px) in list and tree rows. */
-  size?: 'sm' | 'xs';
+  /** md (32px) in page headers, sm (28px) in toolbars, xs (24px) in list and tree rows. */
+  size?: 'md' | 'sm' | 'xs';
   className?: string;
   items: ActionMenuItem[];
 }) {
@@ -41,7 +41,6 @@ export function ActionMenu({
       </Hint>
       <DropdownMenuContent
         align="end"
-        sideOffset={6}
         onCloseAutoFocus={(event) => {
           if (!restoreFocus) event.preventDefault();
         }}

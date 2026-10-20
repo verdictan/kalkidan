@@ -1,9 +1,16 @@
-import { useState } from 'react';
+import { useState, type ReactElement } from 'react';
 import { ChevronLeft, ChevronRight, Paperclip } from 'lucide-react';
 import type { RepositoryDiff } from '../types';
 import { diffFiles } from '../lib/diff-files';
 import { pathBasename, plural } from '../lib/platform';
 import { Button } from './ui/button';
+import { EmptyState } from './ui/empty-state';
+import { Hint } from './hint';
+
+/** Shows why an attach button is disabled. */
+export function AttachHint({ reason, children }: { reason: string; children: ReactElement }) {
+  return reason ? <Hint label={reason}>{children}</Hint> : children;
+}
 
 type DiffLineKind = 'header' | 'hunk' | 'add' | 'remove' | 'context';
 interface DiffLine {
@@ -54,11 +61,14 @@ export function DiffReview({
   scope,
   onAttach,
   disabled,
+  disabledReason = '',
 }: {
   diff: RepositoryDiff;
   scope: string;
   onAttach: (label: string, text: string) => void;
   disabled: boolean;
+  /** Why the attach button is disabled. */
+  disabledReason?: string;
 }) {
   const [selection, setSelection] = useState('');
   const changed = diffFiles(scope === 'staged' ? diff.staged : diff.unstaged).map(
@@ -99,10 +109,7 @@ export function DiffReview({
     files.findIndex((file) => file.key === selection),
   );
   const current = files[index];
-  if (!current)
-    return (
-      <p className="py-8 text-center text-sm text-muted-foreground">No changes in this scope.</p>
-    );
+  if (!current) return <EmptyState compact title="No changes in this scope" />;
   return (
     <section aria-label="File change review" className="diff-review">
       <div className="flex shrink-0 flex-wrap items-center gap-2">
@@ -152,7 +159,7 @@ export function DiffReview({
         ))}
       </ul>
       <div className="flex shrink-0 flex-wrap gap-2 text-xs">
-        <span className="min-w-0 flex-1 break-all font-mono">{current.path}</span>
+        <span className="min-w-0 flex-1 font-mono break-all">{current.path}</span>
         <span className="text-diff-add">+{current.added}</span>
         <span className="text-diff-remove">−{current.removed}</span>
       </div>
@@ -179,16 +186,18 @@ export function DiffReview({
             ))
           : 'No text preview available.'}
       </pre>
-      <Button
-        size="sm"
-        variant="outline"
-        className="self-start"
-        disabled={disabled || !current.patch}
-        onClick={() => onAttach(current.path, current.patch)}
-      >
-        <Paperclip size={14} aria-hidden="true" />
-        Attach file to message
-      </Button>
+      <AttachHint reason={current.patch ? disabledReason : ''}>
+        <Button
+          size="sm"
+          variant="outline"
+          className="shrink-0 self-start"
+          disabled={disabled || !current.patch}
+          onClick={() => onAttach(current.path, current.patch)}
+        >
+          <Paperclip aria-hidden="true" />
+          Attach file to message
+        </Button>
+      </AttachHint>
     </section>
   );
 }

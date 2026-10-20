@@ -56,13 +56,15 @@ export function appMenuTemplate({
         },
         separator,
         ...(mac
-          ? [{ role: 'close', label: 'Close window' } satisfies MenuItemConstructorOptions]
+          ? []
           : ([
               { label: 'Settings', accelerator: 'Ctrl+,', click: command('settings') },
               separator,
-              { role: 'close', label: 'Close window' },
-              { role: 'quit', label: 'Quit' },
             ] satisfies MenuItemConstructorOptions[])),
+        // The renderer closes the open tool tab or session. With no session, it closes the window.
+        { label: 'Close tab', accelerator: 'CmdOrCtrl+W', click: command('close-tab') },
+        { role: 'close', label: 'Close window', accelerator: 'Shift+CmdOrCtrl+W' },
+        ...(mac ? [] : ([{ role: 'quit', label: 'Quit' }] satisfies MenuItemConstructorOptions[])),
       ],
     },
     {
@@ -121,7 +123,9 @@ export function appMenuTemplate({
               separator,
               { role: 'front', label: 'Bring all to front' },
             ] satisfies MenuItemConstructorOptions[])
-          : ([{ role: 'close', label: 'Close' }] satisfies MenuItemConstructorOptions[])),
+          : ([
+              { role: 'close', label: 'Close', accelerator: 'Shift+CmdOrCtrl+W' },
+            ] satisfies MenuItemConstructorOptions[])),
       ],
     },
     {

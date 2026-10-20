@@ -21,6 +21,7 @@ test('Settings checks GitHub CLI and retries without hiding agent status', async
   });
   await page.goto('http://127.0.0.1:5173');
   await page.getByRole('button', { name: 'Settings', exact: true }).click();
+  await page.getByRole('tab', { name: 'Agents & tools' }).click();
   const row = page.getByLabel('GitHub CLI status');
   await expect(row).toContainText('Not found');
   await page.evaluate(() => ((window as any).ghState = 'signed-out'));

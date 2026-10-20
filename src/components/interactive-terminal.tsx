@@ -5,9 +5,14 @@ import '@xterm/xterm/css/xterm.css';
 import type { API } from '../types';
 import { Button } from './ui/button';
 import { ConfirmDialog } from './confirm-dialog';
+import { AttachHint } from './diff-review';
 import { errorMessage } from '../lib/errors';
 
-const terminalFont = "'SF Mono', Menlo, Consolas, 'DejaVu Sans Mono', monospace";
+/** xterm draws on a canvas, so it needs the font family value, not the CSS variable. */
+function terminalFont() {
+  const value = getComputedStyle(document.documentElement).getPropertyValue('--font-mono').trim();
+  return value || 'monospace';
+}
 
 // ANSI colors for each scheme. Each color has good contrast on the background of
 // its scheme. On the light background, "white" and "bright white" are gray, so
@@ -70,6 +75,7 @@ export function InteractiveTerminal({
   cwd,
   visible,
   disabled,
+  disabledReason = '',
   focusRequest = 0,
   onAttach,
   onLeave,
@@ -78,6 +84,8 @@ export function InteractiveTerminal({
   cwd: string;
   visible: boolean;
   disabled: boolean;
+  /** Why "Attach output" is disabled. */
+  disabledReason?: string;
   /** Increase this number to move focus into the terminal. Use it only when the user opens it. */
   focusRequest?: number;
   onAttach: (text: string) => void;
@@ -97,7 +105,7 @@ export function InteractiveTerminal({
   useEffect(() => {
     const term = new Terminal({
       fontSize: 12,
-      fontFamily: terminalFont,
+      fontFamily: terminalFont(),
       cursorBlink: true,
       scrollback: 3000,
       theme: terminalTheme(),
@@ -215,9 +223,11 @@ export function InteractiveTerminal({
           {exited ? 'Shell exited' : cwd}
         </span>
         <div className="flex gap-1">
-          <Button size="sm" variant="ghost" disabled={disabled} onClick={attach}>
-            Attach output
-          </Button>
+          <AttachHint reason={disabledReason}>
+            <Button size="sm" variant="ghost" disabled={disabled} onClick={attach}>
+              Attach output
+            </Button>
+          </AttachHint>
           <Button
             size="sm"
             variant="ghost"
@@ -228,7 +238,7 @@ export function InteractiveTerminal({
         </div>
       </div>
       {error && (
-        <p role="alert" className="max-h-16 overflow-auto px-3 text-xs text-destructive">
+        <p role="alert" className="field-error max-h-16 shrink-0 overflow-auto px-3 py-1">
           {error}
         </p>
       )}

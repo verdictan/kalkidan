@@ -3,10 +3,13 @@ import { test, expect } from '@playwright/test';
 test('project creation is GitHub-backed without client fields or navigation', async ({ page }) => {
   await page.goto('http://127.0.0.1:5173');
   await expect(page.getByRole('combobox', { name: 'Filter projects by client' })).toHaveCount(0);
-  await page.getByRole('button', { name: 'New project', exact: true }).click();
-  const dialog = page.getByRole('dialog', { name: 'Create project', exact: true });
+  await page.getByRole('main').getByRole('button', { name: 'New project', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'New project', exact: true });
   await expect(dialog.getByLabel('Client label', { exact: true })).toHaveCount(0);
   await dialog.getByLabel('Project name', { exact: true }).fill('Platform');
+  // The tracker is optional, so a name is sufficient to create the project.
+  await expect(dialog.getByRole('button', { name: 'Create project', exact: true })).toBeEnabled();
+  await dialog.getByRole('button', { name: 'Use GitHub', exact: true }).click();
   await expect(dialog.getByRole('button', { name: 'Create project', exact: true })).toBeDisabled();
   await dialog.getByRole('button', { name: 'Atlas roadmap #1', exact: true }).click();
   await dialog.getByRole('button', { name: 'Create project', exact: true }).click();
@@ -162,11 +165,14 @@ test('task worktree cancellation keeps the task open and a created worktree beco
   const dialog = page.getByRole('dialog');
   await dialog.getByRole('combobox', { name: 'Task checkout' }).click();
   await page.getByRole('option', { name: 'New worktree', exact: true }).click();
-  await expect(dialog.getByRole('button', { name: 'Open in Codex' })).toBeDisabled();
+  // The branch field is filled from the task. An empty branch blocks the start.
+  await expect(dialog.getByLabel('Task branch')).not.toHaveValue('');
+  await dialog.getByLabel('Task branch').clear();
+  await expect(dialog.getByRole('button', { name: 'Start Codex session' })).toBeDisabled();
   await dialog.getByLabel('Task branch').fill('feature/client-task');
-  await dialog.getByRole('button', { name: 'Open in Codex' }).click();
+  await dialog.getByRole('button', { name: 'Start Codex session' }).click();
   await expect(dialog).toBeVisible();
-  await dialog.getByRole('button', { name: 'Open in Codex' }).click();
+  await dialog.getByRole('button', { name: 'Start Codex session' }).click();
   await expect(dialog).not.toBeVisible();
   // The tool launcher names the session folder.
   await page.getByRole('button', { name: 'New tool tab', exact: true }).click();
@@ -255,7 +261,7 @@ test('project board moves tasks and starts work in the selected repository', asy
   await expect(page.getByRole('combobox', { name: 'Task repository', exact: true })).toContainText(
     'atlas-web',
   );
-  await page.getByRole('button', { name: 'Open in Codex', exact: true }).click();
+  await page.getByRole('button', { name: 'Start Codex session', exact: true }).click();
   await expect(page.getByLabel('Message agent')).toContainText('Build the project overview');
   await expect(
     page.getByRole('navigation', { name: 'Breadcrumb' }).getByRole('button', { name: /atlas-web/ }),

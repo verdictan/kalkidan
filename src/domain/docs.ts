@@ -4,8 +4,10 @@ export interface ProjectDoc {
   parentId: string | null;
   markdown: string;
   revision: string;
+  /** The position among sibling pages. Pages without an order come last, sorted by title. */
+  order?: number;
 }
-export type ProjectDocMetadata = Pick<ProjectDoc, 'id' | 'title' | 'parentId'>;
+export type ProjectDocMetadata = Pick<ProjectDoc, 'id' | 'title' | 'parentId' | 'order'>;
 /** A deleted page in the project's .trash folder. */
 export interface DeletedProjectDoc {
   trashId: string;

@@ -14,13 +14,23 @@ import {
 import { changeTaskStatus } from '../lib/task-status';
 import { agentLabel } from '../config/agents';
 import { ConfirmDialog } from './confirm-dialog';
+import { CommitDialog } from './session-menu';
 import { useEffect, useRef, useState } from 'react';
 import { ArrowUp, LoaderCircle, ShieldAlert, Square, X } from 'lucide-react';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Choice } from './choice';
 import { Badge } from './ui/badge';
+import { Alert, AlertDescription } from './ui/alert';
+import { MoreButton } from './ui/more-button';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from './ui/dropdown-menu';
 import { cn } from '../lib/utils';
+import { plural } from '../lib/platform';
 import type { SessionActivityState } from './activity-dot';
 import { Button } from './ui/button';
 import { Textarea } from './ui/textarea';
@@ -33,6 +43,29 @@ import type {
   ProjectGroup,
   TrackerItem,
 } from '../types';
+
+/** Unsent text and attachments. They stay when the session view is unmounted. */
+export type ConversationDraft = { prompt: string; contexts: ConversationContext[] };
+
+// The permission choice of the last new session in each repository.
+const permissionKey = (repositoryId: string) => `kalkidan-session-permission:${repositoryId}`;
+function readPermission(repositoryId: string | undefined) {
+  if (!repositoryId) return null;
+  try {
+    const value = localStorage.getItem(permissionKey(repositoryId));
+    return value === 'edit' || value === 'read' ? value : null;
+  } catch {
+    return null;
+  }
+}
+function savePermission(repositoryId: string | undefined, value: 'edit' | 'read') {
+  if (!repositoryId) return;
+  try {
+    localStorage.setItem(permissionKey(repositoryId), value);
+  } catch {
+    /* The choice applies to this session only. */
+  }
+}
 
 // The composer controls share one chip look: 28px, fully round, 12px muted text.
 const chipClass =
@@ -53,8 +86,11 @@ export function Conversation({
   api,
   session,
   projectGroup,
+  repositoryId,
   titlebarVisible = true,
   open,
+  draft,
+  onDraftChange,
   onComplete,
   onActivityChange,
   onSessionCreated,
@@ -62,6 +98,10 @@ export function Conversation({
   api: API;
   titlebarVisible?: boolean;
   projectGroup?: ProjectGroup;
+  /** The repository entry of the session checkout. */
+  repositoryId?: string;
+  draft?: ConversationDraft;
+  onDraftChange?: (draft: ConversationDraft | null) => void;
   session: Session;
   open: boolean;
   onComplete: () => void;
@@ -75,8 +115,13 @@ export function Conversation({
   const [linkError, setLinkError] = useState('');
   const [linkBusy, setLinkBusy] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
-  const [contexts, setContexts] = useState<ConversationContext[]>([]);
-  const [prompt, setPrompt] = useState(session.initialPrompt || '');
+  const [contexts, setContexts] = useState<ConversationContext[]>(draft?.contexts || []);
+  const [prompt, setPrompt] = useState(draft?.prompt ?? (session.initialPrompt || ''));
+  const reportDraft = useRef(onDraftChange);
+  reportDraft.current = onDraftChange;
+  useEffect(() => {
+    reportDraft.current?.(prompt || contexts.length ? { prompt, contexts } : null);
+  }, [prompt, contexts]);
   const [model, setModel] = useState('');
   const [models, setModels] = useState<ModelOption[]>([]);
   const [modelsFailed, setModelsFailed] = useState(false);
@@ -85,6 +130,8 @@ export function Conversation({
   const [reviewChanges, setReviewChanges] = useState(0);
   const [taskBusy, setTaskBusy] = useState(false);
   const [taskNotice, setTaskNotice] = useState('');
+  const [uncommitted, setUncommitted] = useState(0);
+  const [commitOpen, setCommitOpen] = useState(false);
   const taskUpdates = useRef(Promise.resolve());
   const startedTasks = useRef(new Set<string>());
   function syncStartedTask(next: ChatRun) {
@@ -109,7 +156,27 @@ export function Conversation({
       }
     });
   }
+  /** Checks for uncommitted changes first. The user can commit them or continue. */
+  async function requestDone() {
+    if (repositoryId && api.workingStatus) {
+      setTaskBusy(true);
+      try {
+        const status = await api.workingStatus(repositoryId);
+        const count = status.changed + status.untracked;
+        if (count) {
+          setUncommitted(count);
+          return;
+        }
+      } catch {
+        // The status is not available, for example in the browser demo. Continue without it.
+      } finally {
+        setTaskBusy(false);
+      }
+    }
+    await markDone();
+  }
   async function markDone() {
+    setUncommitted(0);
     setTaskBusy(true);
     try {
       await taskUpdates.current;
@@ -124,6 +191,24 @@ export function Conversation({
     }
   }
   const [taskId, setTaskId] = useState(session.task?.id || session.organization?.taskId || '');
+  // A resumed session has only the task id. Load the board to show the task title.
+  useEffect(() => {
+    const connection = trackerConnection(projectGroup);
+    if (!taskId || !projectGroup || !connection || session.task?.title) return;
+    if (linkItems.some((item) => item.id === taskId)) return;
+    let current = true;
+    trackerClient(api, connection.provider)
+      .board(projectGroup.id)
+      .then((board) => {
+        if (current) setLinkItems(board.items);
+      })
+      .catch(() => {
+        /* The badge shows "Linked task" without the title. */
+      });
+    return () => {
+      current = false;
+    };
+  }, [api, projectGroup?.id, taskId]);
   useEffect(() => {
     let current = true;
     setModels([]);
@@ -141,7 +226,11 @@ export function Conversation({
       current = false;
     };
   }, [api, session.agent]);
-  const [allowEdits, setAllowEdits] = useState(false);
+  // A new session uses the last choice in its repository. A task session allows edits by default.
+  const [allowEdits, setAllowEdits] = useState(() => {
+    const stored = session.projectId ? readPermission(repositoryId) : null;
+    return stored ? stored === 'edit' : !!session.projectId && !!taskId;
+  });
   const [pastActivity, setPastActivity] = useState<ChatRun[]>([]);
   const finished = useRef(new Set<string>());
   const [run, setRun] = useState<ChatRun | null>(null);
@@ -155,7 +244,12 @@ export function Conversation({
   const startingRef = useRef(false);
   const runRef = useRef<ChatRun | null>(null);
   const providerSession = useRef<string | null>(null);
-  const submitted = useRef<{ runId: string; messageId: string; text: string } | null>(null);
+  const submitted = useRef<{
+    runId: string;
+    messageId: string;
+    text: string;
+    prompt: string;
+  } | null>(null);
   function finishRun(next: ChatRun) {
     if (finished.current.has(next.id)) return;
     finished.current.add(next.id);
@@ -177,7 +271,8 @@ export function Conversation({
           );
       onSessionCreated?.(
         next.sessionId,
-        submitted.current?.text.trim().slice(0, 100) || session.title,
+        // The title comes from the message only, not from the attached context.
+        submitted.current?.prompt.trim().slice(0, 100) || session.title,
       );
     }
     if (next.error) setError(next.error);
@@ -186,9 +281,9 @@ export function Conversation({
       !next.messages.length &&
       submitted.current?.runId === next.id
     ) {
-      const draft = submitted.current;
-      setPrompt(draft.text);
-      setMessages((previous) => previous.filter((message) => message.id !== draft.messageId));
+      const sent = submitted.current;
+      setPrompt(sent.text);
+      setMessages((previous) => previous.filter((message) => message.id !== sent.messageId));
       submitted.current = null;
     }
     completed.current();
@@ -325,7 +420,7 @@ export function Conversation({
         id: runRef.current!.id + ':' + message.id,
       }));
       const messageId = crypto.randomUUID();
-      submitted.current = { runId: next.id, messageId, text };
+      submitted.current = { runId: next.id, messageId, text, prompt };
       setMessages((existing) => [
         ...existing,
         ...previousMessages,
@@ -396,6 +491,14 @@ export function Conversation({
   // The status poll runs every 400 ms. Keep the announced text until it really changes.
   const [activityText, setActivityText] = useState(nextActivity);
   if (active && activityText !== nextActivity) setActivityText(nextActivity);
+  const linkedTask = linkItems.find((i) => i.id === taskId) || session.task;
+  const taskTitle = linkedTask?.title || 'Linked task';
+  const sessionTitle = session.organization?.title || session.title;
+  const attachReason = active
+    ? 'Wait for the response'
+    : contexts.length >= interfaceConfig.maxAttachments
+      ? 'Remove an attachment first'
+      : '';
   function unlinkTask() {
     setUnlinkOpen(false);
     const previous = taskId;
@@ -416,7 +519,8 @@ export function Conversation({
       remote={!!session.hostId}
       api={api}
       cwd={session.cwd}
-      disabled={!!active || contexts.length >= interfaceConfig.maxAttachments}
+      disabled={!!attachReason}
+      disabledReason={attachReason}
       onAttach={(context) => setContexts((previous) => [...previous, context])}
     >
       <section
@@ -434,7 +538,7 @@ export function Conversation({
         >
           {loading && (
             <div className="chat-loading">
-              <LoaderCircle className="animate-spin" size={18} /> Loading session…
+              <LoaderCircle className="size-4 animate-spin" aria-hidden="true" /> Loading session…
             </div>
           )}
           {truncated && (
@@ -511,7 +615,7 @@ export function Conversation({
           )}
           {active && (
             <div className="chat-activity">
-              <LoaderCircle size={14} className="animate-spin" aria-hidden="true" />
+              <LoaderCircle className="size-3.5 animate-spin" aria-hidden="true" />
               <span role="status">{activityText}</span>
             </div>
           )}
@@ -529,7 +633,7 @@ export function Conversation({
               </Button>
             </div>
           )}
-          <div className="conversation-composer">
+          <div className="conversation-composer @container/composer">
             {!!contexts.length && (
               <div className="context-attachments" aria-label="Attached context">
                 {contexts.map((context) => (
@@ -539,15 +643,14 @@ export function Conversation({
                     </span>
                     <Button
                       variant="ghost"
-                      size="icon-xs"
-                      className="size-5"
+                      size="icon-2xs"
                       aria-label={`Remove ${context.label}`}
                       disabled={!!active}
                       onClick={() =>
                         setContexts((previous) => previous.filter((item) => item.id !== context.id))
                       }
                     >
-                      <X className="size-3" />
+                      <X />
                     </Button>
                   </div>
                 ))}
@@ -584,7 +687,21 @@ export function Conversation({
                   >
                     Review changes
                   </Button>
-                  <Button size="sm" disabled={taskBusy || !!active} onClick={() => void markDone()}>
+                  {repositoryId && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={taskBusy || !!active}
+                      onClick={() => setCommitOpen(true)}
+                    >
+                      Commit changes…
+                    </Button>
+                  )}
+                  <Button
+                    size="sm"
+                    disabled={taskBusy || !!active}
+                    onClick={() => void requestDone()}
+                  >
                     {taskBusy ? 'Updating…' : 'Mark task done'}
                   </Button>
                   <Button
@@ -599,23 +716,26 @@ export function Conversation({
               </div>
             )}
             {error && (
-              <p className="chat-error" role="alert">
-                {error.replace(/^Error invoking remote method '[^']+': Error: /, '')}
-                {run?.errorCode === 'session_busy' && (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="mt-2"
-                    disabled={!!active || !prompt.trim()}
-                    onClick={() => void send()}
-                  >
-                    Retry session
-                  </Button>
-                )}
-              </p>
+              <Alert variant="destructive" className="max-h-32 overflow-auto px-3 py-2">
+                <AlertDescription className="text-xs whitespace-pre-wrap">
+                  {error.replace(/^Error invoking remote method '[^']+': Error: /, '')}
+                  {run?.errorCode === 'session_busy' && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="mt-1"
+                      disabled={!!active || !prompt.trim()}
+                      onClick={() => void send()}
+                    >
+                      Retry session
+                    </Button>
+                  )}
+                </AlertDescription>
+              </Alert>
             )}
             <Textarea
-              className="max-h-[clamp(80px,20vh,180px)] min-h-10 resize-none rounded-none border-0 bg-transparent px-2 py-1 text-[15px] leading-6 shadow-none focus-visible:ring-0 md:text-[15px] dark:bg-transparent"
+              data-composer=""
+              className="max-h-[clamp(80px,20vh,180px)] min-h-10 resize-none rounded-none border-0 bg-transparent px-2 py-1 text-base shadow-none focus-visible:ring-0 dark:bg-transparent"
               aria-label="Message agent"
               aria-description="Press Enter to send. Press Shift+Enter for a new line."
               placeholder="Ask anything…"
@@ -657,22 +777,44 @@ export function Conversation({
                   )}
                   disabled={!!active}
                   value={allowEdits ? 'edit' : 'read'}
-                  onChange={(value) => setAllowEdits(value === 'edit')}
+                  onChange={(value) => {
+                    setAllowEdits(value === 'edit');
+                    if (session.projectId) savePermission(repositoryId, value as 'edit' | 'read');
+                  }}
                   options={[
                     { value: 'read', label: 'Read only' },
                     { value: 'edit', label: 'Allow edits' },
                   ]}
                 />
                 {trackerConnection(projectGroup) && !taskId && (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className={chipClass}
-                    disabled={!!active}
-                    onClick={() => void openTaskLink()}
-                  >
-                    Link task
-                  </Button>
+                  <>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className={cn(chipClass, '@max-[35rem]/composer:hidden')}
+                      disabled={!!active}
+                      onClick={() => void openTaskLink()}
+                    >
+                      Link task
+                    </Button>
+                    {/* In a narrow composer, "Link task" moves into a menu so Send stays on
+                        the same row as the chips. */}
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <MoreButton
+                          size="sm"
+                          label="More session options"
+                          className="hidden rounded-full text-muted-foreground @max-[35rem]/composer:inline-flex"
+                          disabled={!!active}
+                        />
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="start">
+                        <DropdownMenuItem onSelect={() => void openTaskLink()}>
+                          Link task
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </>
                 )}
               </div>
               <span className="composer-shortcut" aria-hidden="true">
@@ -684,18 +826,18 @@ export function Conversation({
                   aria-label="Stop"
                   title="Stop response"
                   variant="default"
-                  size="icon"
+                  size="icon-sm"
                   disabled={starting}
                   onClick={() => void stop()}
                 >
-                  <Square className="size-3.5" />
+                  <Square className="size-3" />
                 </Button>
               ) : (
                 <Button
                   className="composer-send rounded-full"
                   aria-label="Send"
                   aria-keyshortcuts="Enter"
-                  size="icon"
+                  size="icon-sm"
                   disabled={taskBusy || !prompt.trim() || loading}
                   onClick={() => void send()}
                 >
@@ -710,11 +852,12 @@ export function Conversation({
             )}
             {taskId && (
               <div className="flex min-w-0 items-center gap-1">
-                <Badge variant="outline" className="min-w-0 truncate">
-                  Task ·{' '}
-                  {linkItems.find((i) => i.id === taskId)?.title ||
-                    session.task?.title ||
-                    'Linked task'}
+                <Badge
+                  variant="outline"
+                  className="block min-w-0 truncate leading-6"
+                  title={`Task · ${taskTitle}`}
+                >
+                  Task · {taskTitle}
                 </Badge>
                 <Button
                   variant="ghost"
@@ -749,7 +892,7 @@ export function Conversation({
               ]}
             />
             {linkError && (
-              <p role="alert" className="text-sm text-destructive">
+              <p role="alert" className="field-error">
                 {linkError}
               </p>
             )}
@@ -763,6 +906,48 @@ export function Conversation({
             </DialogFooter>
           </DialogContent>
         </Dialog>
+        <Dialog open={!!uncommitted} onOpenChange={(value) => !value && setUncommitted(0)}>
+          <DialogContent size="sm">
+            <DialogHeader>
+              <DialogTitle>Uncommitted changes</DialogTitle>
+              <DialogDescription>
+                {plural(uncommitted, 'file')} {uncommitted === 1 ? 'has' : 'have'} uncommitted
+                changes.
+              </DialogDescription>
+            </DialogHeader>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setUncommitted(0)}>
+                Cancel
+              </Button>
+              <Button variant="outline" disabled={taskBusy} onClick={() => void markDone()}>
+                Mark done anyway
+              </Button>
+              <Button
+                autoFocus
+                onClick={() => {
+                  setUncommitted(0);
+                  setCommitOpen(true);
+                }}
+              >
+                Commit…
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+        {repositoryId && (
+          <CommitDialog
+            api={api}
+            repositoryId={repositoryId}
+            open={commitOpen}
+            onOpenChange={setCommitOpen}
+            message={sessionTitle}
+            pullRequestBody={
+              taskId && linkedTask
+                ? [`Task: ${linkedTask.title}`, linkedTask.url].filter(Boolean).join('\n')
+                : `Changes from the Kalkidan session "${sessionTitle}".`
+            }
+          />
+        )}
         <ConfirmDialog
           open={unlinkOpen}
           title="Unlink task"

@@ -99,7 +99,12 @@ function persistDocs() {
 }
 export const demo: API = {
   docsMetadata: async (group) =>
-    (demoDocs[group] || []).map(({ id, title, parentId }) => ({ id, title, parentId })),
+    (demoDocs[group] || []).map(({ id, title, parentId, order }) => ({
+      id,
+      title,
+      parentId,
+      ...(order === undefined ? {} : { order }),
+    })),
   docsRead: async (group, id) => {
     const doc = demoDocs[group]?.find((doc) => doc.id === id);
     if (!doc) throw new Error('Page not found');
@@ -195,6 +200,7 @@ export const demo: API = {
   remoteInstall: nativeOnly,
   remoteConnect: nativeOnly,
   remoteDisconnect: nativeOnly,
+  remoteRemove: nativeOnly,
   remoteCall: nativeOnly as API['remoteCall'],
   directoryList: nativeOnly,
   remoteFolders: nativeOnly,
@@ -303,14 +309,13 @@ export const demo: API = {
   githubAddIssue: nativeOnly,
 
   createGroup: async (name, url, hostId, provider, rootPath) => {
-    if (!url) throw new Error('Choose a GitHub Project first.');
     const id = crypto.randomUUID();
     groups.push({
       id,
       name,
       rootPath: rootPath || '~/.kalkidan/projects/' + id,
       hostId,
-      github: { ...board.project, url },
+      ...(url ? { github: { ...board.project, url } } : {}),
       repoIds: [],
     });
     return id;
@@ -421,6 +426,27 @@ export const demo: API = {
   worktree: async () => {
     await nativeOnly();
     return false;
+  },
+  worktreeRemove: async (id) => {
+    if (!projects.some((p) => p.id === id)) throw new Error('Project not found');
+    projects = projects.filter((p) => p.id !== id);
+    groups = groups.map((g) => ({ ...g, repoIds: g.repoIds.filter((r) => r !== id) }));
+  },
+  workingStatus: async () => ({
+    branch: 'main',
+    changed: 2,
+    untracked: 1,
+    ahead: 0,
+    published: true,
+    defaultBranch: 'main',
+  }),
+  gitCommit: async (_id, message) => {
+    if (!message.trim()) throw new Error('Enter a commit message.');
+    return { commit: crypto.randomUUID().replaceAll('-', '').slice(0, 7) };
+  },
+  gitPullRequest: async (_id, title) => {
+    if (!title.trim()) throw new Error('Enter a pull request title.');
+    return { url: 'https://github.com/example/atlas-web/pull/42' };
   },
   onMenuCommand: () => () => {},
 };

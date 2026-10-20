@@ -1,24 +1,36 @@
 import { interfaceConfig } from '../config/interface';
 import { RemoteRepositoryPicker } from './remote-repository-picker';
 import { CreateProject } from './create-project';
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import {
+  useEffect,
+  useRef,
+  useState,
+  type ComponentProps,
+  type KeyboardEvent,
+  type ReactNode,
+} from 'react';
 import { Plus, RefreshCw } from 'lucide-react';
 import type { API, GitHubAuthState, GitHubRepository, Snapshot } from '../types';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
+import { SearchInput } from './ui/search-input';
 import { Badge } from './ui/badge';
+import { EmptyState } from './ui/empty-state';
 import { Choice } from './choice';
-import { SegmentedControl } from './ui/segmented-control';
+import { Hint } from './hint';
 import { cn } from '../lib/utils';
 import { fileManagerName } from '../lib/platform';
 import {
   Dialog,
+  DialogBody,
   DialogContent,
   DialogHeader,
   DialogTitle,
   DialogDescription,
   DialogFooter,
 } from './ui/dialog';
+
+type Source = 'github' | 'local' | 'library';
 
 export function AddRepository({
   api,
@@ -28,6 +40,7 @@ export function AddRepository({
   disabled,
   className,
   variant = 'ghost',
+  size,
   onNotice,
 }: {
   /** Reports the result of work that continues after the dialog closes. */
@@ -39,9 +52,15 @@ export function AddRepository({
   disabled?: boolean;
   className?: string;
   variant?: 'ghost' | 'default' | 'outline';
+  /** The size of the button that opens the dialog, for example 'lg' or 'icon-xs'. */
+  size?: ComponentProps<typeof Button>['size'];
 }) {
   const [open, setOpen] = useState(false);
-  const [mode, setMode] = useState('github');
+  const [mode, setMode] = useState<Source>('github');
+  // True after the first list of GitHub repositories loads or fails for this dialog.
+  const [reposLoaded, setReposLoaded] = useState(false);
+  // False while the dialog checks which source to show first.
+  const [sourceReady, setSourceReady] = useState(false);
   const [snapshot, setSnapshot] = useState<Snapshot>();
   const [target, setTarget] = useState(groupId || '');
   const [creatingProject, setCreatingProject] = useState(false);
@@ -58,6 +77,7 @@ export function AddRepository({
   const remoteGroup = snapshot?.groups?.find((g) => g.id === target && g.hostId);
   async function loadRepos() {
     setLoading(true);
+    setReposLoaded(true);
     setError('');
     try {
       setRepos(await api.githubRepositories());
@@ -67,6 +87,10 @@ export function AddRepository({
       setLoading(false);
     }
   }
+  // Load GitHub repositories only when a part of the dialog uses them.
+  useEffect(() => {
+    if (open && sourceReady && !reposLoaded && (mode === 'github' || remoteGroup)) void loadRepos();
+  }, [open, sourceReady, reposLoaded, mode, remoteGroup]);
   async function show() {
     setOpen(true);
     setCreatingProject(false);
@@ -76,12 +100,18 @@ export function AddRepository({
     setManual('');
     setError('');
     setAuth({ status: 'idle' });
-    try {
-      setSnapshot(await api.snapshot());
-    } catch {
-      setError('Could not load your projects. Close this dialog and try again.');
-    }
-    void loadRepos();
+    setRepos([]);
+    setReposLoaded(false);
+    setSourceReady(false);
+    // Start with GitHub only when the GitHub CLI is ready. Otherwise local folders work first.
+    const [projects, gh] = await Promise.allSettled([
+      Promise.resolve().then(() => api.snapshot()),
+      Promise.resolve().then(() => api.githubCliCheck()),
+    ]);
+    setMode(gh.status === 'fulfilled' && gh.value.status === 'ready' ? 'github' : 'local');
+    if (projects.status === 'fulfilled') setSnapshot(projects.value);
+    else setError('Could not load your projects. Close this dialog and try again.');
+    setSourceReady(true);
   }
   // Work in progress continues after the dialog closes. `perform` reports its result.
   function close() {
@@ -150,36 +180,39 @@ export function AddRepository({
       return mode === 'github' ? 'Repository cloned and added to the project.' : undefined;
     });
   }
+  const shown = repos.filter((r) => r.nameWithOwner.toLowerCase().includes(query.toLowerCase()));
   return (
     <>
       <Button
         variant={variant}
+        size={size}
         disabled={disabled}
         className={className}
         onClick={() => void show()}
       >
         {children || (
           <>
-            <Plus size={14} /> Add repositories
+            <Plus /> Add repositories
           </>
         )}
       </Button>
-      <Dialog open={open} onOpenChange={(value) => !value && close()}>
-        <DialogContent size="lg" className="flex flex-col gap-0 overflow-hidden p-0">
-          <DialogHeader className="shrink-0 px-6 pt-6 pb-4">
+      {/* The dialog hides while the Create project dialog that it opens shows. */}
+      <Dialog open={open && !creatingProject} onOpenChange={(value) => !value && close()}>
+        <DialogContent size="lg" layout="scroll">
+          <DialogHeader>
             <DialogTitle>Add repositories</DialogTitle>
             <DialogDescription>
               Clone from GitHub, choose local folders, or organize repositories already in your
               library.
             </DialogDescription>
           </DialogHeader>
-          <div className="grid min-h-0 gap-4 overflow-y-auto px-6 pb-6">
+          <DialogBody className="grid content-start gap-4">
             <div className="form-label">
               <div className="flex items-center justify-between gap-2">
                 <span>Project</span>
                 <Button
-                  variant="link"
-                  className="h-auto p-0 text-xs"
+                  variant="bare"
+                  className="h-auto p-0 text-xs text-link hover:underline"
                   disabled={busy}
                   onClick={() => setCreatingProject(true)}
                 >
@@ -212,240 +245,216 @@ export function AddRepository({
                 }}
               />
             ) : (
-              <>
-                <div className="form-label">
-                  <span>Source</span>
-                  <SegmentedControl
-                    className="justify-self-start"
-                    label="Repository source"
-                    value={mode}
-                    onChange={(value) => {
-                      setMode(value);
-                      setSelected('');
-                      setError('');
-                    }}
-                    options={[
-                      { value: 'github', label: 'Clone from GitHub', disabled: busy },
-                      { value: 'local', label: 'Local folders', disabled: busy },
-                      { value: 'library', label: 'From library', disabled: busy },
-                    ]}
-                  />
-                </div>
-                {mode === 'github' && (
-                  <>
-                    <div className="flex gap-2">
-                      <Input
-                        aria-label="Search GitHub repositories"
-                        placeholder="Search owner or repository…"
-                        value={query}
-                        disabled={busy}
-                        onChange={(e) => setQuery(e.target.value)}
-                      />
-                      <Button
-                        variant="outline"
-                        size="icon"
-                        aria-label="Refresh repositories"
-                        disabled={busy || loading}
-                        onClick={() => void loadRepos()}
-                      >
-                        <RefreshCw size={14} />
-                      </Button>
-                    </div>
-                    <div
-                      role="group"
-                      className="list-box min-h-20 content-start"
-                      aria-label="Available repositories"
-                    >
-                      {loading ? (
-                        <p className="px-2 py-1.5 text-sm text-muted-foreground">
-                          Loading repositories…
-                        </p>
-                      ) : (
-                        repos
-                          .filter((r) =>
-                            r.nameWithOwner.toLowerCase().includes(query.toLowerCase()),
-                          )
-                          .map((repo) => {
-                            const active = selected === repo.nameWithOwner;
-                            return (
-                              <button
-                                type="button"
-                                key={repo.nameWithOwner}
-                                disabled={busy}
-                                aria-pressed={active}
-                                className={cn(
-                                  'row-hover flex w-full items-start gap-3 rounded-md px-2 py-2 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50',
-                                  active && 'row-selected',
-                                )}
-                                onClick={() => {
-                                  setSelected(repo.nameWithOwner);
-                                  setManual('');
-                                }}
-                              >
-                                <span
-                                  aria-hidden="true"
-                                  className={cn(
-                                    'mt-0.5 flex size-4 shrink-0 items-center justify-center rounded-full border',
-                                    active && 'border-primary',
-                                  )}
-                                >
-                                  {active && <span className="size-2 rounded-full bg-primary" />}
-                                </span>
-                                <span className="min-w-0 flex-1">
-                                  <span className="block text-sm font-medium break-all">
-                                    {repo.nameWithOwner}
-                                  </span>
-                                  {repo.description && (
-                                    <span className="block text-xs break-words text-muted-foreground">
-                                      {repo.description}
-                                    </span>
-                                  )}
-                                </span>
-                                <Badge variant="outline" size="sm" className="shrink-0">
-                                  {repo.isArchived
-                                    ? 'Archived'
-                                    : repo.isPrivate
-                                      ? 'Private'
-                                      : 'Public'}
-                                </Badge>
-                              </button>
-                            );
-                          })
-                      )}
-                      {!loading &&
-                        !repos.some((r) =>
-                          r.nameWithOwner.toLowerCase().includes(query.toLowerCase()),
-                        ) && (
-                          <p className="px-2 py-1.5 text-sm text-muted-foreground">
-                            No matching repositories. Enter owner/repository below, or connect
-                            GitHub.
-                          </p>
-                        )}
-                    </div>
-                    <p className="-mt-3 text-xs text-muted-foreground">
-                      {repos.length} repositories · {repos.filter((repo) => repo.isPrivate).length}{' '}
-                      private · personal and organization access
-                    </p>
-                    <Input
-                      aria-label="GitHub repository name"
-                      placeholder="Or enter owner/repository"
+              sourceReady && (
+                <>
+                  <div className="form-label">
+                    <span id="add-repository-source">Source</span>
+                    <RadioList
+                      labelledBy="add-repository-source"
+                      className="grid-cols-3"
+                      value={mode}
                       disabled={busy}
-                      value={manual}
-                      onChange={(e) => {
-                        setManual(e.target.value);
+                      onChange={(value) => {
+                        setMode(value as Source);
                         setSelected('');
+                        setError('');
                       }}
+                      options={[
+                        { value: 'github', label: 'Clone from GitHub' },
+                        { value: 'local', label: 'Local folders' },
+                        { value: 'library', label: 'From library' },
+                      ]}
                     />
-                    <p className="-mt-3 text-xs text-muted-foreground">
-                      Is a repository missing?{' '}
-                      <Button
-                        variant="link"
-                        className="h-auto p-0 text-xs"
-                        disabled={busy || ['checking', 'waiting'].includes(auth.status)}
-                        onClick={() => void authorize()}
-                      >
-                        {auth.status === 'checking'
-                          ? 'Starting GitHub authorization…'
-                          : auth.status === 'waiting'
-                            ? 'Waiting for GitHub approval…'
-                            : auth.status === 'ready'
-                              ? 'Authorize GitHub again'
-                              : 'Connect or authorize GitHub'}
-                      </Button>
-                    </p>
-                    {auth.status === 'checking' && (
-                      <p role="status" className="text-sm text-muted-foreground">
-                        Checking GitHub CLI and opening browser authorization…
-                      </p>
-                    )}
-                    {auth.status === 'ready' && (
-                      <p role="status" className="text-sm">
-                        GitHub connected. Your repository list has been refreshed.
-                      </p>
-                    )}
-                    {auth.status === 'waiting' && (
-                      <div className="panel space-y-3" aria-live="polite">
-                        <p className="text-sm">
-                          Approve access in your browser.
-                          {auth.code ? ' Enter this code:' : ' Requesting code…'}
-                        </p>
-                        {auth.code && (
-                          <>
-                            <Input
-                              aria-label="GitHub device code"
-                              readOnly
-                              value={auth.code}
-                              onFocus={(e) => e.target.select()}
-                            />
-                            <Button
-                              variant="outline"
-                              onClick={() =>
-                                void api
-                                  .githubAuthOpen()
-                                  .catch(() =>
-                                    setError(
-                                      'Could not open your browser. Visit https://github.com/login/device and enter the displayed code.',
-                                    ),
-                                  )
-                              }
-                            >
-                              Open GitHub
-                            </Button>
-                          </>
+                  </div>
+                  {mode === 'github' && (
+                    <>
+                      <div className="flex gap-2">
+                        <SearchInput
+                          className="flex-1"
+                          aria-label="Search GitHub repositories"
+                          placeholder="Search owner or repository…"
+                          value={query}
+                          disabled={busy}
+                          onChange={(e) => setQuery(e.target.value)}
+                        />
+                        <Hint label="Refresh repositories">
+                          <Button
+                            variant="outline"
+                            size="icon"
+                            aria-label="Refresh repositories"
+                            disabled={busy || loading}
+                            onClick={() => void loadRepos()}
+                          >
+                            <RefreshCw className={loading ? 'animate-spin' : ''} />
+                          </Button>
+                        </Hint>
+                      </div>
+                      <div className="grid gap-2">
+                        {loading ? (
+                          <div className="list-box min-h-20 content-start" aria-busy="true">
+                            <p role="status" className="px-2 py-1.5 text-sm text-muted-foreground">
+                              Loading repositories…
+                            </p>
+                          </div>
+                        ) : shown.length ? (
+                          <RadioList
+                            label="Available repositories"
+                            className="min-h-20"
+                            value={selected}
+                            disabled={busy}
+                            onChange={(value) => {
+                              setSelected(value);
+                              setManual('');
+                            }}
+                            options={shown.map((repo) => ({
+                              value: repo.nameWithOwner,
+                              label: repo.nameWithOwner,
+                              description: repo.description || undefined,
+                              badge: repo.isArchived
+                                ? 'Archived'
+                                : repo.isPrivate
+                                  ? 'Private'
+                                  : 'Public',
+                            }))}
+                          />
+                        ) : (
+                          <EmptyState
+                            compact
+                            className="rounded-lg border"
+                            title={repos.length ? 'No matching repositories' : 'No repositories'}
+                          >
+                            Enter owner/repository below, or connect GitHub.
+                          </EmptyState>
                         )}
                         <p className="text-xs text-muted-foreground">
-                          {auth.message || 'This dialog updates automatically after approval.'}
+                          {repos.length} repositories ·{' '}
+                          {repos.filter((repo) => repo.isPrivate).length} private · personal and
+                          organization access
                         </p>
                       </div>
-                    )}
-                    {auth.status === 'error' && (
-                      <p role="alert" className="text-sm text-destructive">
-                        {auth.message}
+                      <div className="grid gap-2">
+                        <Input
+                          aria-label="GitHub repository name"
+                          placeholder="Or enter owner/repository"
+                          disabled={busy}
+                          value={manual}
+                          onChange={(e) => {
+                            setManual(e.target.value);
+                            setSelected('');
+                          }}
+                        />
+                        <p className="text-xs text-muted-foreground">
+                          Is a repository missing?{' '}
+                          <Button
+                            variant="bare"
+                            className="h-auto p-0 text-xs text-link hover:underline"
+                            disabled={busy || ['checking', 'waiting'].includes(auth.status)}
+                            onClick={() => void authorize()}
+                          >
+                            {auth.status === 'checking'
+                              ? 'Starting GitHub authorization…'
+                              : auth.status === 'waiting'
+                                ? 'Waiting for GitHub approval…'
+                                : auth.status === 'ready'
+                                  ? 'Authorize GitHub again'
+                                  : 'Connect or authorize GitHub'}
+                          </Button>
+                        </p>
+                      </div>
+                      {auth.status === 'checking' && (
+                        <p role="status" className="text-sm text-muted-foreground">
+                          Checking GitHub CLI and opening browser authorization…
+                        </p>
+                      )}
+                      {auth.status === 'ready' && (
+                        <p role="status" className="text-sm">
+                          GitHub connected. Your repository list has been refreshed.
+                        </p>
+                      )}
+                      {auth.status === 'waiting' && (
+                        <div className="panel space-y-3" aria-live="polite">
+                          <p className="text-sm">
+                            Approve access in your browser.
+                            {auth.code ? ' Enter this code:' : ' Requesting code…'}
+                          </p>
+                          {auth.code && (
+                            <>
+                              <Input
+                                aria-label="GitHub device code"
+                                readOnly
+                                value={auth.code}
+                                onFocus={(e) => e.target.select()}
+                              />
+                              <Button
+                                variant="outline"
+                                onClick={() =>
+                                  void api
+                                    .githubAuthOpen()
+                                    .catch(() =>
+                                      setError(
+                                        'Could not open your browser. Visit https://github.com/login/device and enter the displayed code.',
+                                      ),
+                                    )
+                                }
+                              >
+                                Open GitHub
+                              </Button>
+                            </>
+                          )}
+                          <p className="text-xs text-muted-foreground">
+                            {auth.message || 'This dialog updates automatically after approval.'}
+                          </p>
+                        </div>
+                      )}
+                      {auth.status === 'error' && (
+                        <p role="alert" className="field-error">
+                          {auth.message}
+                        </p>
+                      )}
+                      <p className="text-xs text-muted-foreground">
+                        Kalkidan clones the repository into the repos folder of the project and adds
+                        it to the selected project.
                       </p>
-                    )}
-                    <p className="text-xs text-muted-foreground">
-                      Kalkidan will clone the repository into the project’s repos folder and add it
+                    </>
+                  )}
+                  {mode === 'local' && (
+                    <p className="text-sm text-muted-foreground">
+                      Choose one or more existing folders in {fileManagerName()}. Kalkidan adds them
                       to the selected project.
                     </p>
-                  </>
-                )}
-                {mode === 'local' && (
-                  <p className="text-sm text-muted-foreground">
-                    Choose one or more existing folders in {fileManagerName()}. Kalkidan adds them
-                    to the selected project.
-                  </p>
-                )}
-                {mode === 'library' && (
-                  <Choice
-                    className="w-full"
-                    label="Repository from library"
-                    value={selected}
-                    disabled={busy}
-                    onChange={setSelected}
-                    options={[
-                      { value: '', label: 'Choose a repository' },
-                      ...(snapshot?.projects || [])
-                        .filter((p) => !p.hostId)
-                        .map((p) => ({ value: p.id, label: p.name + ' · ' + p.path })),
-                    ]}
-                  />
-                )}
-              </>
+                  )}
+                  {mode === 'library' && (
+                    <Choice
+                      className="w-full"
+                      label="Repository from library"
+                      value={selected}
+                      disabled={busy}
+                      onChange={setSelected}
+                      options={[
+                        { value: '', label: 'Choose a repository' },
+                        ...(snapshot?.projects || [])
+                          .filter((p) => !p.hostId)
+                          .map((p) => ({ value: p.id, label: p.name + ' · ' + p.path })),
+                      ]}
+                    />
+                  )}
+                </>
+              )
             )}
             {error && (
-              <p role="alert" className="text-sm text-destructive">
+              <p role="alert" className="field-error">
                 {error}
               </p>
             )}
             {busy && (
               <p role="status" className="text-sm text-muted-foreground">
                 {mode === 'github'
-                  ? 'Cloning… A large repository can take several minutes. You can close this window. The clone continues.'
+                  ? 'Cloning… A large repository can take several minutes. You can close this dialog. The clone continues.'
                   : 'Working…'}
               </p>
             )}
-          </div>
-          <DialogFooter className="shrink-0 border-t px-6 py-4">
+          </DialogBody>
+          <DialogFooter>
             <Button variant="outline" onClick={close}>
               {busy ? 'Close' : 'Cancel'}
             </Button>
@@ -455,6 +464,7 @@ export function AddRepository({
                 busy ||
                 !target ||
                 !snapshot ||
+                !sourceReady ||
                 (mode !== 'local' && !selected && !(mode === 'github' && manual.trim()))
               }
               onClick={() => void add()}
@@ -479,5 +489,107 @@ export function AddRepository({
         }}
       />
     </>
+  );
+}
+
+/**
+ * A list of options where one is chosen. Arrow keys move the choice, and only the chosen
+ * option is in the tab order.
+ */
+function RadioList({
+  label,
+  labelledBy,
+  value,
+  options,
+  disabled,
+  className,
+  onChange,
+}: {
+  label?: string;
+  labelledBy?: string;
+  value: string;
+  options: { value: string; label: string; description?: string; badge?: string }[];
+  disabled?: boolean;
+  className?: string;
+  onChange: (value: string) => void;
+}) {
+  const list = useRef<HTMLDivElement>(null);
+  const focusable = options.some((o) => o.value === value) ? value : options[0]?.value;
+  function move(event: KeyboardEvent, index: number) {
+    const last = options.length - 1;
+    const next =
+      event.key === 'ArrowDown' || event.key === 'ArrowRight'
+        ? index === last
+          ? 0
+          : index + 1
+        : event.key === 'ArrowUp' || event.key === 'ArrowLeft'
+          ? index === 0
+            ? last
+            : index - 1
+          : event.key === 'Home'
+            ? 0
+            : event.key === 'End'
+              ? last
+              : -1;
+    if (next < 0) return;
+    event.preventDefault();
+    onChange(options[next].value);
+    list.current?.querySelectorAll<HTMLElement>('[role="radio"]')[next]?.focus();
+  }
+  return (
+    <div
+      ref={list}
+      role="radiogroup"
+      aria-label={label}
+      aria-labelledby={labelledBy}
+      className={cn('list-box content-start', className)}
+    >
+      {options.map((option, index) => {
+        const checked = option.value === value;
+        return (
+          <button
+            type="button"
+            role="radio"
+            key={option.value}
+            aria-checked={checked}
+            tabIndex={option.value === focusable ? 0 : -1}
+            disabled={disabled}
+            title={option.label}
+            className={cn(
+              'list-box-row text-sm disabled:opacity-50',
+              option.description && 'items-start py-1.5',
+            )}
+            onClick={() => onChange(option.value)}
+            onKeyDown={(event) => move(event, index)}
+          >
+            <span
+              aria-hidden="true"
+              className={cn(
+                'flex size-3.5 shrink-0 items-center justify-center rounded-full border',
+                option.description && 'mt-[3px]',
+                checked && 'border-primary',
+              )}
+            >
+              {checked && <span className="size-1.5 rounded-full bg-primary" />}
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className={cn('block truncate', option.description && 'font-medium')}>
+                {option.label}
+              </span>
+              {option.description && (
+                <span className="block text-xs break-words text-muted-foreground">
+                  {option.description}
+                </span>
+              )}
+            </span>
+            {option.badge && (
+              <Badge variant="outline" size="sm" className="shrink-0">
+                {option.badge}
+              </Badge>
+            )}
+          </button>
+        );
+      })}
+    </div>
   );
 }

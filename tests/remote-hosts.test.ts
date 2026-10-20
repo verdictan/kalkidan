@@ -96,3 +96,23 @@ test('host setup installs the bundled agent and routes RPC through an SSH transp
     await rm(root, { recursive: true, force: true });
   }
 });
+
+test('a removed host leaves the saved host list', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'remote-remove-'));
+  try {
+    const file = join(root, 'hosts.json');
+    const hosts = new RemoteHosts(file, join(root, 'agent.cjs'));
+    const kept = await hosts.add('Build', 'build-host');
+    const removed = await hosts.add('Old', 'old-host');
+    await hosts.remove(removed.id);
+    await assert.rejects(hosts.remove(removed.id), /Remote host not found/);
+    const restored = new RemoteHosts(file, join(root, 'agent.cjs'));
+    await restored.load();
+    assert.deepEqual(
+      restored.list().map((h) => h.id),
+      [kept.id],
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});

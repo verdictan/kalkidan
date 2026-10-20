@@ -7,6 +7,7 @@ import { Card, CardContent } from './ui/card';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
 import { MoreButton } from './ui/more-button';
+import { EmptyState } from './ui/empty-state';
 import {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -163,12 +164,12 @@ export function TrackerBoard({
                       setOver(null);
                     }}
                     data-dragging={dragged === item.id || undefined}
-                    className="tracker-task relative gap-0 rounded-lg p-3 pr-8 shadow-none has-[.tracker-task-title:focus-visible]:shadow-[var(--focus-ring)]"
+                    className="tracker-task relative gap-0 rounded-lg p-3 pr-9 shadow-none has-[.tracker-task-title:focus-visible]:shadow-[var(--focus-ring)]"
                   >
                     <CardContent className="flex flex-col items-start gap-1 p-0">
                       <Button
-                        variant="ghost"
-                        className="tracker-task-title h-auto max-w-full justify-start p-0 text-left text-sm leading-5 font-medium whitespace-normal break-words hover:bg-transparent focus-visible:ring-0"
+                        variant="bare"
+                        className="tracker-task-title max-w-full px-0 text-left text-sm leading-5 font-medium whitespace-normal break-words focus-visible:ring-0"
                         onClick={() => onOpen(item)}
                       >
                         {item.title}
@@ -178,7 +179,7 @@ export function TrackerBoard({
                         {item.number ? ` #${item.number}` : ''}
                       </p>
                       {count > 0 && (
-                        <Badge variant="outline" className="mt-1">
+                        <Badge variant="outline" size="sm" className="mt-1">
                           <MessageSquare size={12} />
                           {plural(count, 'linked session')}
                         </Badge>
@@ -188,7 +189,7 @@ export function TrackerBoard({
                           <DropdownMenuTrigger asChild>
                             <MoreButton
                               size="xs"
-                              className="tracker-task-menu absolute top-2 right-2 text-muted-foreground"
+                              className="tracker-task-menu absolute top-2.5 right-2.5 text-muted-foreground"
                               label={`Move task: ${item.title}`}
                               disabled={busy}
                             />
@@ -212,7 +213,11 @@ export function TrackerBoard({
                   </Card>
                 );
               })}
-              {!tasks.length && <p className="tracker-column-empty">No tasks</p>}
+              {!tasks.length && (
+                <EmptyState compact className="tracker-column-empty">
+                  No tasks
+                </EmptyState>
+              )}
             </div>
           </section>
         );

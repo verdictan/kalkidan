@@ -2,7 +2,6 @@
 export type Appearance = 'system' | 'light' | 'dark';
 
 export const appearanceStorageKey = 'kalkidan-appearance';
-const themeColors = { dark: '#22272b', light: '#eef0f2' };
 
 export function isAppearance(value: unknown): value is Appearance {
   return value === 'system' || value === 'light' || value === 'dark';
@@ -27,6 +26,16 @@ export function saveAppearance(mode: Appearance) {
   }
 }
 
+/**
+ * The appearance in a "?scheme=" or "?theme=" query, for example "?scheme=dark".
+ * Returns null when the query has no valid value.
+ */
+export function schemeFromSearch(search = location.search): 'dark' | 'light' | null {
+  const query = new URLSearchParams(search);
+  const value = query.get('scheme') ?? query.get('theme');
+  return value === 'dark' || value === 'light' ? value : null;
+}
+
 let stopFollowingSystem: (() => void) | undefined;
 
 /**
@@ -40,9 +49,10 @@ export function applyAppearance(mode: Appearance) {
   const apply = () => {
     const dark = mode === 'dark' || (mode === 'system' && darkScheme.matches);
     document.documentElement.classList.toggle('dark', dark);
-    document
-      .querySelector('meta[name="theme-color"]')
-      ?.setAttribute('content', dark ? themeColors.dark : themeColors.light);
+    // The window frame uses the same colour as the title bar. Read it from the theme
+    // after the class changes, so that the colour has one source.
+    const chrome = getComputedStyle(document.documentElement).getPropertyValue('--chrome').trim();
+    if (chrome) document.querySelector('meta[name="theme-color"]')?.setAttribute('content', chrome);
   };
   apply();
   if (mode !== 'system') return;

@@ -16,6 +16,12 @@ import { isAgent } from '../src/config/agents';
 import { createProjectPrompt } from './projects/prompt';
 import { sessionHostMethods } from '../src/domain/host';
 import { writeJSON } from './storage/atomic-json';
+import {
+  isAppearanceMode,
+  readAppearanceMode,
+  saveAppearanceMode,
+  withScheme,
+} from './storage/appearance';
 import { runtimeConfig } from './config/runtime';
 import { TrackerRegistry } from './trackers/registry';
 import { githubTracker } from './trackers/github';
@@ -38,6 +44,8 @@ import { pathToFileURL } from 'node:url';
 import * as TOML from '@iarna/toml';
 import type { Project, Agent } from '../src/types';
 import { exec, launchCommand, parseWorktrees } from './core';
+import { executable } from './chat';
+import { gitCommit, gitPullRequest, removeWorktree, workingStatus } from './git-working';
 import { history } from './history';
 import { codexTranscript } from './codex-store';
 import { ProjectGroups } from './project-groups';
@@ -199,8 +207,11 @@ async function git(path: string, args: string[]) {
   return (await exec('git', ['-C', path, ...args], { timeout: 15000, maxBuffer: 2 * 1024 * 1024 }))
     .stdout;
 }
+const appearanceFile = join(dataRoot, 'appearance.json');
 app.whenReady().then(async () => {
   if (!app.isPackaged && existsSync(appIcon)) app.dock?.setIcon(appIcon);
+  // Apply the saved appearance before the first window opens, so it opens in the right colors.
+  nativeTheme.themeSource = await readAppearanceMode(appearanceFile);
   const browserProfile = new BrowserProfile();
   await browserProfile.load();
   const projectGroups = new ProjectGroups(join(app.getPath('userData'), 'project-groups.json'));
@@ -410,6 +421,11 @@ app.whenReady().then(async () => {
   handle('remote-install', (id) => remote.install(id));
   handle('remote-connect', (id) => remote.connect(id));
   handle('remote-disconnect', (id) => remote.disconnect(id));
+  handle('remote-remove', async (id) => {
+    if (projectGroups.groups.some((g) => g.hostId === id) || projects.some((p) => p.hostId === id))
+      throw new Error('Move or remove the projects on this host first.');
+    await remote.remove(id);
+  });
   handle('directory-list', (path, hostId) =>
     hostId ? remote.call(hostId, 'directory-list', [path]) : listDirectory(path),
   );
@@ -487,10 +503,12 @@ app.whenReady().then(async () => {
   handle('github-auth-cancel', () => githubAuth.cancel());
   handle('github-auth-open', () => shell.openExternal('https://github.com/login/device'));
   // The saved appearance sets the native theme, so the page and the title bar overlay follow it.
-  handle('appearance', (mode) => {
-    if (mode !== 'system' && mode !== 'light' && mode !== 'dark')
-      throw new Error('Invalid appearance');
+  // The choice is also saved for the next start.
+  handle('appearance', async (mode) => {
+    if (!isAppearanceMode(mode)) throw new Error('Invalid appearance');
+    if (nativeTheme.themeSource === mode) return;
     nativeTheme.themeSource = mode;
+    await saveAppearanceMode(appearanceFile, mode);
   });
   handle('app-menu', () => {
     const window = BrowserWindow.getFocusedWindow() ?? win;
@@ -632,13 +650,17 @@ app.whenReady().then(async () => {
   handle(
     'group-create',
     async (name, url, hostId, provider = trackers.defaultProvider, requestedRoot?: string) => {
-      if (typeof url !== 'string' || !url.trim())
+      // An empty reference creates a project without a tracker. Connect one later.
+      if (url !== undefined && url !== null && typeof url !== 'string')
         throw new Error('Choose a tracker project first.');
+      const reference = typeof url === 'string' ? url.trim() : '';
       if (hostId && !remote.list().some((h) => h.id === hostId && h.status === 'connected'))
         throw new Error('Connect the remote host before creating this project.');
       if (typeof name !== 'string' || !name.trim() || name.trim().length > 150)
         throw new Error('Project name must contain 1–150 characters');
-      const connection = { provider, project: await trackers.get(provider).resolve(url) };
+      const connection = reference
+        ? { provider, project: await trackers.get(provider).resolve(reference) }
+        : null;
       const id = randomUUID();
       const root = hostId
         ? await remote.call(hostId, 'project-prepare', [id, requestedRoot])
@@ -934,12 +956,47 @@ app.whenReady().then(async () => {
     return project(projects.find((repo) => !repo.hostId && repo.path === canonicalWorktree)!.id);
   }
   handle('worktree', async (id, branch) => !!(await createWorktree(id, branch)));
+  /** Runs a Git operation on the execution host of the repository. */
+  async function hostGit<T>(id: string, method: string, args: unknown[], local: () => Promise<T>) {
+    const p = project(id);
+    if (!p.hostId) return local();
+    try {
+      return (await remote.call(p.hostId, method, [p.path, ...args])) as T;
+    } catch (error: any) {
+      if (error?.message === 'Unsupported remote operation')
+        throw new Error('Reinstall the Kalkidan agent on this host to use this action.');
+      throw error;
+    }
+  }
+  handle('worktree-remove', async (id, force) => {
+    const p = project(id);
+    const folderExists = p.hostId || existsSync(p.path);
+    // A missing folder has nothing to remove. Remove only the repository entry.
+    if (folderExists)
+      await hostGit(id, 'worktree-remove', [force === true], () =>
+        removeWorktree(p.path, force === true),
+      );
+    await projectGroups.move(id, null);
+    projects = projects.filter((repo) => repo.id !== id);
+    await save();
+  });
+  handle('working-status', (id) =>
+    hostGit(id, 'working-status', [], () => workingStatus(project(id).path)),
+  );
+  handle('git-commit', (id, message) =>
+    hostGit(id, 'git-commit', [message], () => gitCommit(project(id).path, message)),
+  );
+  handle('git-pull-request', (id, title, body) =>
+    hostGit(id, 'git-pull-request', [title, body], () =>
+      gitPullRequest(project(id).path, title, body, () => executable('gh')),
+    ),
+  );
   handle('task-worktree', createWorktree);
   // The window chrome follows the light or dark appearance of the system.
   function windowColors() {
     return nativeTheme.shouldUseDarkColors
       ? { chrome: '#22272b', symbol: '#e1e4e7', background: '#101316' }
-      : { chrome: '#eef0f2', symbol: '#1f2328', background: '#ffffff' };
+      : { chrome: '#eef0f2', symbol: '#1f2328', background: '#fbfbfc' };
   }
   function titleBarOverlay() {
     const colors = windowColors();
@@ -988,11 +1045,13 @@ app.whenReady().then(async () => {
     const base = dev
       ? 'http://127.0.0.1:5173'
       : pathToFileURL(join(__dirname, '../dist/index.html')).href;
-    const url =
-      base +
-      (session
+    const url = withScheme(
+      base,
+      nativeTheme.shouldUseDarkColors,
+      session
         ? '#session=' + encodeURIComponent(JSON.stringify({ agent: session.agent, id: session.id }))
-        : '');
+        : '',
+    );
     // The app never opens its own windows from links. Web and mail links open in the
     // default application of the system.
     window.webContents.setWindowOpenHandler(({ url }) => {

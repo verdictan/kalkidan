@@ -62,16 +62,19 @@ export class ProjectGroups {
   }
   async create(
     name: string,
-    github: GitHubProject | TrackerConnection,
+    /** `null` creates a project without a tracker. Connect one later. */
+    github: GitHubProject | TrackerConnection | null,
     hostId?: string,
     rootPath?: string,
     id = randomUUID(),
   ) {
     const connection =
-      github && 'provider' in github
-        ? github
-        : { provider: 'github', project: github as GitHubProject };
-    if (!isTrackerConnection(connection))
+      github === null
+        ? null
+        : github && 'provider' in github
+          ? github
+          : { provider: 'github', project: github as GitHubProject };
+    if (connection !== null && !isTrackerConnection(connection))
       throw new Error('Choose a tracker project before creating a project.');
     const title = this.name(name);
     await this.change((groups) =>
@@ -80,8 +83,8 @@ export class ProjectGroups {
         name: title,
         repoIds: [],
         ...(rootPath ? { rootPath } : {}),
-        tracker: connection,
-        ...(connection.provider === 'github'
+        ...(connection ? { tracker: connection } : {}),
+        ...(connection?.provider === 'github'
           ? { github: connection.project as GitHubProject }
           : {}),
         ...(hostId ? { hostId } : {}),
