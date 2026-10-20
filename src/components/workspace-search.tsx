@@ -1,5 +1,5 @@
 import { useEffect, useId, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react';
-import { Search, X } from 'lucide-react';
+import { X } from 'lucide-react';
 import { agentLabel } from '../config/agents';
 import { trackerConnection, type TrackerItem } from '../domain/tracker';
 import type { ProjectDocMetadata } from '../domain/docs';
@@ -8,16 +8,27 @@ import { sessionRepo } from '../lib/session-repository';
 import { trackerClient } from '../lib/tracker-client';
 import { plural, shortcutLabel } from '../lib/platform';
 import type { API, Project, ProjectGroup, Session } from '../types';
-import { relativeTime } from './project-overview';
+import { relativeTime } from '../lib/relative-time';
+import { ActivityDot, activityKey, type SessionActivityState } from './activity-dot';
 import { AgentIcon } from './ui/agent-icon';
 import { Button } from './ui/button';
-import { Input } from './ui/input';
+import { SearchInput } from './ui/search-input';
 
 type Transcript = { messages: { text: string }[]; truncated: boolean };
 
 interface SearchOption {
   key: string;
   open: () => void;
+}
+/** A command in the search field, such as "Open settings". */
+export interface SearchAction {
+  key: string;
+  label: string;
+  /** More words that find the action, such as "preferences" for "Open settings". */
+  keywords?: string;
+  /** A keyboard shortcut to show next to the label. */
+  shortcut?: string;
+  run: () => void;
 }
 
 /** Shows each match of `term` in `text` with a subtle highlight. */
@@ -53,8 +64,14 @@ export function WorkspaceSearch({
   onTask,
   onRepository,
   onSession,
+  actions = [],
+  activity = {},
   children,
 }: {
+  /** Commands that show in the results when they match the query. */
+  actions?: SearchAction[];
+  /** Background state of open sessions, by `activityKey`. */
+  activity?: Record<string, SessionActivityState>;
   /** Opens a docs page of a project. */
   onDoc?: (group: ProjectGroup, doc: ProjectDocMetadata) => void;
   /** Opens a task on the project board. */
@@ -241,6 +258,9 @@ export function WorkspaceSearch({
         ),
       )
     : [];
+  const actionMatches = term
+    ? actions.filter((action) => matches(action.label + ' ' + (action.keywords || '')))
+    : [];
   const title = (s: Session) => s.organization?.title || s.title;
   const sessionKey = (s: Session) => s.hostId + ':' + s.agent + ':' + s.id;
   // One row for each session. A message match adds an excerpt under the session row.
@@ -265,6 +285,14 @@ export function WorkspaceSearch({
     ...taskMatches.map(({ group, task }) => ({
       key: `task:${group.id}:${task.id}`,
       open: () => onTask?.(group, task),
+    })),
+    // Commands come last, so Enter on a name opens the item, not a command.
+    ...actionMatches.map((action) => ({
+      key: 'action:' + action.key,
+      open: () => {
+        onQueryChange('');
+        action.run();
+      },
     })),
   ];
   const optionId = (key: string) => `${id}-${key.replace(/[^\w-]/g, '_')}`;
@@ -297,17 +325,17 @@ export function WorkspaceSearch({
   return (
     <>
       <div className="search">
-        <Search size={16} aria-hidden="true" />
-        <Input
+        <SearchInput
           ref={inputRef}
-          className="pr-10 pl-8"
+          variant="filled"
+          style={{ paddingRight: query ? 32 : 44 }}
           role="combobox"
           aria-label="Search projects and sessions"
           aria-expanded={!!term}
           aria-controls={term ? listId : undefined}
           aria-autocomplete="list"
           aria-activedescendant={activeOption ? optionId(activeOption.key) : undefined}
-          placeholder="Search…"
+          placeholder="Search or run a command…"
           value={query}
           onChange={(e) => onQueryChange(e.target.value)}
           onKeyDown={(event) => {
@@ -409,6 +437,7 @@ export function WorkspaceSearch({
                       <span className="search-option-title">
                         <Highlight text={title(s)} term={term} />
                         {s.organization?.archived ? ' · Archived' : ''}
+                        <ActivityDot state={activity[activityKey(s.agent, s.id)]} />
                       </span>
                       <span className="search-option-context search-option-agent">
                         <AgentIcon agent={s.agent} className="size-3" />
@@ -465,10 +494,29 @@ export function WorkspaceSearch({
                 )}
               </div>
             )}
+            {!!actionMatches.length && (
+              <div role="group" aria-labelledby={`${id}-actions`}>
+                <h3 id={`${id}-actions`} className="sidebar-label">
+                  Actions
+                </h3>
+                {actionMatches.map((action) =>
+                  option(
+                    'action:' + action.key,
+                    <span className="search-option-action">
+                      <span className="search-option-title">
+                        <Highlight text={action.label} term={term} />
+                      </span>
+                      {action.shortcut && <kbd className="kbd">{action.shortcut}</kbd>}
+                    </span>,
+                    { title: action.label },
+                  ),
+                )}
+              </div>
+            )}
           </div>
           {!shortTerm && !busy && !total && <p className="search-status">No matches found.</p>}
           {!!failed && (
-            <p role="alert" className="search-error">
+            <p role="alert" className="field-error search-error">
               {plural(failed, 'session')} could not be searched. Check the host connection and try
               again.
             </p>

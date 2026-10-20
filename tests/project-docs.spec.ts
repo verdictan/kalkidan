@@ -1,4 +1,8 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, type Page } from '@playwright/test';
+
+/** The save state of the open page. Toasts also use the status role, so look in the editor. */
+const saveState = (page: Page) =>
+  page.getByRole('region', { name: 'Document editor' }).getByRole('status');
 
 test('project Board and Docs pages support live Markdown, subpages and persistence', async ({
   page,
@@ -19,7 +23,7 @@ test('project Board and Docs pages support live Markdown, subpages and persisten
     await page.getByRole('menuitem', { name: 'Rich text editor', exact: true }).click();
   }
   await expect(page.getByRole('heading', { name: 'Getting started' })).toBeVisible();
-  await expect(page.getByRole('status')).toHaveText('Saved');
+  await expect(saveState(page)).toHaveText('Saved');
   await page.getByRole('button', { name: 'Document actions' }).click();
   await page.getByRole('menuitem', { name: 'Add subpage' }).click();
   await page.getByLabel('New page title').fill('Setup');
@@ -30,7 +34,7 @@ test('project Board and Docs pages support live Markdown, subpages and persisten
   await page.getByRole('button', { name: 'Document actions' }).click();
   await page.getByRole('menuitem', { name: 'Markdown source', exact: true }).click();
   await page.getByLabel('Markdown content').fill('Child documentation');
-  await expect(page.getByRole('status')).toHaveText('Saved');
+  await expect(saveState(page)).toHaveText('Saved');
   await page.locator('.project-tree').getByRole('button', { name: 'Atlas', exact: true }).click();
   await expect(page.getByRole('region', { name: 'Project tracker', exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Docs', exact: true }).click();
@@ -50,14 +54,14 @@ test('project Board and Docs pages support live Markdown, subpages and persisten
   }
   await expect(page.getByRole('heading', { name: 'Getting started' })).toBeVisible();
   await page.getByLabel('Page title', { exact: true }).fill('Team handbook');
-  await expect(page.getByRole('status')).toHaveText('Saved');
+  await expect(saveState(page)).toHaveText('Saved');
   await page.getByRole('button', { name: 'Setup', exact: true }).click();
   await page.getByRole('button', { name: 'Document actions' }).click();
   await page.getByRole('menuitem', { name: 'Move page', exact: true }).click();
   await page.getByRole('combobox', { name: 'Parent page' }).click();
   await page.getByRole('option', { name: 'Top-level page', exact: true }).click();
   await page.getByRole('button', { name: 'Move', exact: true }).click();
-  await expect(page.getByRole('status')).toHaveText('Saved');
+  await expect(saveState(page)).toHaveText('Saved');
   await page.getByRole('button', { name: 'Document actions' }).click();
   await page.getByRole('menuitem', { name: 'Delete page', exact: true }).click();
   await page.getByRole('dialog').getByRole('button', { name: 'Delete page', exact: true }).click();
@@ -100,7 +104,7 @@ test('rich editor formats in place, supports slash blocks, and saves Markdown', 
   await expect(editor.locator('ul:not([data-type="taskList"]) > li').nth(1)).toHaveText(
     'Second step',
   );
-  await expect(page.getByRole('status')).toHaveText('Saved');
+  await expect(saveState(page)).toHaveText('Saved');
   await page.getByRole('button', { name: 'Document actions' }).click();
   await page.getByRole('menuitem', { name: 'Markdown source', exact: true }).click();
   await expect(page.getByLabel('Markdown content')).toHaveValue(
@@ -159,7 +163,7 @@ test('rich editor preserves tables, links, code, and formatting through save and
   await page.getByRole('button', { name: 'Bold', exact: true }).click();
   await expect(editor.locator('strong')).toHaveText('A useful paragraph.');
   await editor.locator('input[type="checkbox"]').check();
-  await expect(page.getByRole('status')).toHaveText('Saved');
+  await expect(saveState(page)).toHaveText('Saved');
   await page.getByRole('button', { name: 'Document actions' }).click();
   await page.getByRole('menuitem', { name: 'Markdown source', exact: true }).click();
   await expect(page.getByLabel('Markdown content')).toHaveValue(/\*\*A useful paragraph\.\*\*/);
@@ -197,7 +201,7 @@ test('document context menu preserves selection and supports keyboard block edit
   await menu.getByRole('menuitem', { name: 'Blocks', exact: true }).hover();
   await page.getByRole('menuitem', { name: 'Heading 2', exact: true }).click();
   await expect(editor.locator('h2')).toHaveText('Selected words');
-  await expect(page.getByRole('status')).toHaveText('Saved');
+  await expect(saveState(page)).toHaveText('Saved');
   await expect(
     page.locator('.wiki-page-icon, .wiki-page-meta, .wiki-collection, .wiki-library-search'),
   ).toHaveCount(0);
@@ -231,9 +235,33 @@ test('sidebar organizes nested pages and reveals a newly created child', async (
   await page.getByRole('combobox', { name: 'Parent page' }).click();
   await page.getByRole('option', { name: 'Top-level page' }).click();
   await page.getByRole('button', { name: 'Move', exact: true }).click();
-  await expect(page.getByRole('status')).toHaveText('Saved');
+  await expect(saveState(page)).toHaveText('Saved');
   await expect(sidebar.locator('.wiki-tree-children')).not.toContainText('Contributing');
   await sidebar.getByRole('button', { name: 'Actions for Contributing' }).click();
   await page.getByRole('menuitem', { name: 'Rename page', exact: true }).click();
   await expect(page.getByLabel('Page title', { exact: true })).toBeFocused();
+});
+
+test('link dialog links to another doc page, and the link opens that page', async ({ page }) => {
+  await page.goto('http://127.0.0.1:5173');
+  await page.getByRole('button', { name: 'Docs', exact: true }).click();
+  await page.getByRole('button', { name: 'New page', exact: true }).click();
+  await page.getByLabel('New page title').fill('Release checklist');
+  await page.getByRole('button', { name: 'Create page', exact: true }).click();
+  await page.getByRole('button', { name: 'New page', exact: true }).click();
+  await page.getByLabel('New page title').fill('Launch plan');
+  await page.getByRole('button', { name: 'Create page', exact: true }).click();
+  const editor = page.getByRole('textbox', { name: 'Document content' });
+  await editor.click();
+  await editor.press('ControlOrMeta+k');
+  await page.getByRole('button', { name: 'Link a page…' }).click();
+  const picker = page.getByRole('dialog', { name: 'Link a page' });
+  await picker.getByLabel('Search doc pages').fill('release');
+  await picker.getByLabel('Search doc pages').press('Enter');
+  await expect(picker).toHaveCount(0);
+  const link = editor.getByRole('link', { name: 'Release checklist' });
+  await expect(link).toHaveAttribute('href', /^\.\/[\w-]+\.md$/);
+  await expect(saveState(page)).toHaveText('Saved');
+  await link.click();
+  await expect(page.getByLabel('Page title', { exact: true })).toHaveValue('Release checklist');
 });

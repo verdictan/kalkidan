@@ -27,10 +27,12 @@ test('dark desktop workflow preserves drafts across resizable tool panes and the
     animations: 'disabled',
     path: 'test-results/reference-conversation.png',
   });
-  // Tools open from the title bar launcher, not from separate title bar buttons.
-  await expect(
-    page.locator('.topbar').getByRole('button', { name: 'Terminal', exact: true }),
-  ).toHaveCount(0);
+  // The title bar groups the session tools. Each tool has one button there.
+  const sessionTools = page
+    .locator('.topbar')
+    .getByRole('group', { name: 'Session tools', exact: true });
+  await expect(sessionTools.getByRole('button', { name: 'Terminal', exact: true })).toHaveCount(1);
+  await expect(sessionTools.getByRole('button', { name: 'Browser', exact: true })).toHaveCount(1);
   // In the composer, the shortcut goes to the text field. Move the focus out first.
   await page.getByLabel('Message agent').blur();
   await page.keyboard.press('ControlOrMeta+t');

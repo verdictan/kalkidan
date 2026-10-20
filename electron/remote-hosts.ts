@@ -54,14 +54,16 @@ export class RemoteHosts {
       if (!Array.isArray(data)) throw new Error('Invalid remote hosts');
       this.hosts = data.map((h: any) => {
         sshTarget(h.target);
-        return { ...h, status: 'disconnected' };
+        const { error: _error, ...saved } = h;
+        return { ...saved, status: 'disconnected' };
       });
     } catch (e: any) {
       if (e.code !== 'ENOENT') throw e;
     }
   }
   private save() {
-    const content = structuredClone(this.hosts.map(({ status, ...h }) => h));
+    // The status and the last error describe this app session only.
+    const content = structuredClone(this.hosts.map(({ status, error, ...h }) => h));
     const task = this.writes
       .catch(() => {})
       .then(async () => {
@@ -112,15 +114,18 @@ export class RemoteHosts {
       );
       const info = JSON.parse(stdout.trim().split('\n').at(-1)!);
       host.status = this.connections.has(id) ? 'connected' : 'checked';
+      delete host.error;
       host.node = info.node;
       host.platform = info.platform;
       await this.save();
       return { ...host };
     } catch (e: any) {
       host.status = 'error';
-      throw new Error(
+      const error = new Error(
         `SSH check failed for ${host.target}. ${String(e.stderr || e.message).slice(-1500)}\nUse a known host with key-based SSH access and Node.js 22 or later installed.`,
       );
+      host.error = error.message;
+      throw error;
     }
   }
   async install(id: string) {
@@ -164,15 +169,25 @@ export class RemoteHosts {
     await this.save();
     return this.connect(id);
   }
-  async connect(id: string) {
+  async connect(id: string): Promise<RemoteHost> {
     const host = this.host(id);
     if (this.connections.has(id)) {
-      await this.call(id, 'hello', []);
+      try {
+        await this.call(id, 'hello', []);
+      } catch {
+        // The connection does not answer. Close it and make a new one.
+        this.disconnect(id);
+        return this.connect(id);
+      }
       host.status = 'connected';
+      delete host.error;
       return { ...host };
     }
-    if (!host.version || !/^[a-f0-9]{20}$/.test(host.version))
-      throw new Error('Install the Kalkidan agent first.');
+    if (!host.version || !/^[a-f0-9]{20}$/.test(host.version)) {
+      host.status = 'error';
+      host.error = 'Install the Kalkidan agent first.';
+      throw new Error(host.error);
+    }
     const child = spawn(
       'ssh',
       [
@@ -189,6 +204,7 @@ export class RemoteHosts {
       if (this.connections.get(id) !== connection) return;
       this.connections.delete(id);
       host.status = 'disconnected';
+      host.error = error.message.trim();
       for (const p of connection.pending.values()) {
         clearTimeout(p.timer);
         p.reject(error);
@@ -219,12 +235,18 @@ export class RemoteHosts {
       const info = await this.call(id, 'hello', []);
       if (info.protocol !== 1) throw new Error('Agent version mismatch. Reinstall the agent.');
       host.status = 'connected';
+      delete host.error;
       host.node = info.node;
       host.platform = info.platform;
       await this.save();
       return { ...host };
-    } catch (e) {
+    } catch (e: any) {
       this.disconnect(id);
+      // Keep the reason, so the UI can show it next to Reconnect.
+      host.status = 'error';
+      const message = String(e?.message || 'The connection failed.').trim();
+      const detail = connection.stderr.trim().slice(-800);
+      host.error = detail && !message.includes(detail) ? `${message} ${detail}` : message;
       throw e;
     }
   }
@@ -258,7 +280,10 @@ export class RemoteHosts {
       connection.child.kill();
     }
     const host = this.hosts.find((h) => h.id === id);
-    if (host) host.status = 'disconnected';
+    if (host) {
+      host.status = 'disconnected';
+      delete host.error;
+    }
   }
   /** Disconnects a host and removes it from the saved list. */
   async remove(id: string) {

@@ -11,14 +11,14 @@ export async function changeTaskStatus(
 ) {
   const connection = trackerConnection(group);
   if (!group || !connection)
-    throw new Error('Connect this repository’s project to a tracker to update its task.');
+    throw new Error('Connect a GitHub Projects board to this project to update its task.');
   const client = trackerClient(api, connection.provider);
   const descriptor = (await client.providers()).find((p) => p.id === connection.provider);
   if (!descriptor?.capabilities.updateStatus)
-    throw new Error('This tracker does not support task status changes.');
+    throw new Error('This board does not support status changes.');
   const board = await client.board(group.id);
   const item = board.items.find((item) => item.id === taskId);
-  if (!item) throw new Error('The linked task was removed or archived. Refresh the tracker.');
+  if (!item) throw new Error('The linked task was removed or archived. Refresh the board.');
   const name = descriptor.statusNames[phase];
   const configured = connection.statusMapping?.[phase];
   const option = board.statusField?.options.find((option) =>
@@ -26,7 +26,7 @@ export async function changeTaskStatus(
   );
   if (!option)
     throw new Error(
-      `This tracker project has no “${name}” status. Update the task manually in the tracker.`,
+      `The board has no “${name}” status. Change the status of the task on the board.`,
     );
   if (item.statusId !== option.id) await client.status(group.id, taskId, option.id);
   return item.title;

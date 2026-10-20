@@ -81,6 +81,25 @@ const board = {
     },
   ],
 };
+// The names of the sample repositories that the preview finds in any folder.
+const scanNames = [
+  { name: 'atlas-web', branch: 'main' },
+  { name: 'design-system', branch: 'main' },
+  { name: 'api-service', branch: 'feature/rate-limits' },
+];
+const folderPath = (path: string) => path.replace(/\/+$/, '') || '/';
+/** A simple check like `git check-ref-format --branch` for the preview. */
+function previewBranch(branch: string) {
+  if (
+    typeof branch !== 'string' ||
+    !branch.trim() ||
+    branch.startsWith('-') ||
+    branch.length > 200 ||
+    /\.\.|[\s~^:?*[\\]|\/$|\.$|^\/|\.lock$|@\{/.test(branch)
+  )
+    throw new Error(`"${branch}" is not a valid branch name.`);
+  return branch;
+}
 const nativeOnly = async () => {
   throw new Error('Open the desktop app to use native folder and Terminal actions.');
 };
@@ -327,7 +346,10 @@ export const demo: API = {
   updateGroup: async (id, name) => {
     groups = groups.map((g) => (g.id === id ? { ...g, name } : g));
   },
-  removeGroup: async (id) => {
+  removeGroup: async (id, withRepositories) => {
+    const group = groups.find((g) => g.id === id);
+    if (!group) throw new Error('Project not found');
+    if (withRepositories) projects = projects.filter((p) => !group.repoIds.includes(p.id));
     groups = groups.filter((g) => g.id !== id);
   },
   moveRepo: async (id, groupId) => {
@@ -411,6 +433,61 @@ export const demo: API = {
     await nativeOnly();
     return { added: 0 };
   },
+  chooseFolder: async () => '~/code/atlas',
+  scanRepositories: async (path) => {
+    const root = folderPath(path);
+    return {
+      root,
+      rootIsRepository: false,
+      repositories: scanNames.map(({ name, branch }) => ({
+        path: `${root === '/' ? '' : root}/${name}`,
+        name,
+        branch,
+        added: projects.some((p) => !p.hostId && p.path === `${root}/${name}`),
+      })),
+      truncated: false,
+    };
+  },
+  addRepositories: async (groupId, paths) => {
+    if (!groups.some((g) => g.id === groupId))
+      throw new Error('Choose a project before adding repositories.');
+    const ids: string[] = [];
+    for (const path of new Set(paths.map(folderPath))) {
+      if (projects.some((p) => !p.hostId && p.path === path)) continue;
+      const id = crypto.randomUUID();
+      projects.push({
+        id,
+        name: path.split('/').pop() || path,
+        path,
+        notes: '',
+        favorite: false,
+        addedAt: new Date().toISOString(),
+      });
+      ids.push(id);
+    }
+    groups = groups.map((g) => (g.id === groupId ? { ...g, repoIds: [...g.repoIds, ...ids] } : g));
+    return { added: ids.length };
+  },
+  worktreePreview: async (id, branch) => {
+    previewBranch(branch);
+    const repo = projects.find((p) => p.id === id);
+    if (!repo) throw new Error('Project not found');
+    const group = groups.find((g) => g.repoIds.includes(id));
+    if (!group) throw new Error('Assign this repository to a project before creating a worktree.');
+    const root = group.rootPath || `~/.kalkidan/projects/${group.id}`;
+    return {
+      base: 'main',
+      path: `${root}/worktrees/${repo.name}-${branch.replace(/[\\/]/g, '-')}`,
+    };
+  },
+  gitSwitchNewBranch: async (_id, branch) => {
+    previewBranch(branch);
+  },
+  workingFiles: async () => [
+    { path: 'src/components/project-tree.tsx', status: 'modified' },
+    { path: 'src/styles/projects.css', status: 'modified' },
+    { path: 'docs/navigation.md', status: 'untracked' },
+  ],
   update: async (id, changes) => {
     projects = projects.map((p) => (p.id === id ? { ...p, ...changes } : p));
   },
@@ -441,8 +518,9 @@ export const demo: API = {
     published: true,
     defaultBranch: 'main',
   }),
-  gitCommit: async (_id, message) => {
+  gitCommit: async (_id, message, files) => {
     if (!message.trim()) throw new Error('Enter a commit message.');
+    if (files && !files.length) throw new Error('Choose at least one file to commit.');
     return { commit: crypto.randomUUID().replaceAll('-', '').slice(0, 7) };
   },
   gitPullRequest: async (_id, title) => {

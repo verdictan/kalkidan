@@ -105,8 +105,10 @@ export function InteractiveTerminal({
   useEffect(() => {
     const term = new Terminal({
       fontSize: 12,
+      lineHeight: 1.34,
       fontFamily: terminalFont(),
-      cursorBlink: true,
+      // A blinking cursor is motion. Keep it still when the user asks for reduced motion.
+      cursorBlink: !window.matchMedia?.('(prefers-reduced-motion: reduce)').matches,
       scrollback: 3000,
       theme: terminalTheme(),
     });

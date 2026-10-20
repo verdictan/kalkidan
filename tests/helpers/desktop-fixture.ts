@@ -362,15 +362,16 @@ export async function desktopFixture(platform = 'linux', failure = '') {
     parseWorktrees: () => [{ path: '/tree' }],
     launchCommand: () => 'cd /repo',
   });
-  stub(
-    'git-working',
-    Object.fromEntries(
+  stub('git-working', {
+    worktreeFolder: (root: string, repo: string, branch: string) =>
+      `${root}/worktrees/${repo}-${branch}`,
+    ...Object.fromEntries(
       ['gitCommit', 'gitPullRequest', 'removeWorktree', 'workingStatus'].map((n) => [
         n,
         asyncRecord(n),
       ]),
     ),
-  );
+  });
   stub('repositories', {
     repositoryName: (name: string) => name,
     listRepositories: asyncRecord('repositories'),

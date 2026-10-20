@@ -47,7 +47,7 @@ test('chat event fallbacks preserve session identity and report failures without
     openExternal: (url) => links.push(url),
   });
   const help = template.find((item) => item.role === 'help')!;
-  for (const item of help.submenu as any[]) item.click();
+  for (const item of help.submenu as any[]) item.click?.();
   assert.equal(links.length, 2);
 });
 

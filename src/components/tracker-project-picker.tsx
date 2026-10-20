@@ -8,6 +8,12 @@ import { Choice } from './choice';
 import { SegmentedControl } from './ui/segmented-control';
 import { SearchInput } from './ui/search-input';
 import { EmptyState } from './ui/empty-state';
+import { cn } from '../lib/utils';
+
+/** The name of the board on the tracker side, for example "GitHub Projects board". */
+export function boardLabel(providerName: string) {
+  return providerName === 'GitHub' ? 'GitHub Projects board' : `${providerName} board`;
+}
 
 export function TrackerProjectPicker({
   api,
@@ -25,6 +31,7 @@ export function TrackerProjectPicker({
   onBusy: (busy: boolean) => void;
 }) {
   const { client, name: providerName, descriptor } = useTracker(api, provider);
+  const board = boardLabel(providerName);
   const [mode, setMode] = useState('pick');
   const [owners, setOwners] = useState<TrackerOwner[]>([]);
   const [ownerId, setOwnerId] = useState('');
@@ -98,7 +105,7 @@ export function TrackerProjectPicker({
       onChange(project.url);
       setMode('pick');
       setNotice(
-        `Created “${project.title}” on ${providerName}. Complete this dialog to link it to ${defaultTitle}.`,
+        `Created “${project.title}” on ${providerName}. Finish this dialog to connect it to ${defaultTitle}.`,
       );
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -111,7 +118,7 @@ export function TrackerProjectPicker({
     <div className="space-y-3">
       <SegmentedControl
         size="sm"
-        label="Project connection method"
+        label="Board connection method"
         value={mode}
         onChange={(next) => {
           setMode(next);
@@ -153,22 +160,22 @@ export function TrackerProjectPicker({
               disabled={creating}
               onClick={() => setRevision((n) => n + 1)}
             >
-              Retry loading projects
+              Load boards again
             </Button>
           </AlertDescription>
         </Alert>
       )}
       {mode === 'url' ? (
         <Input
-          aria-label={`${providerName} URL`}
-          placeholder="Project URL"
+          aria-label={`${board} URL`}
+          placeholder="Board URL"
           value={value}
           onChange={(e) => onChange(e.target.value)}
         />
       ) : mode === 'create' ? (
         <>
           <Input
-            aria-label={`New ${providerName} project name`}
+            aria-label={`New ${board} name`}
             maxLength={256}
             value={title}
             disabled={creating}
@@ -176,46 +183,56 @@ export function TrackerProjectPicker({
               setTitleEdited(true);
               setTitle(e.target.value);
             }}
-            placeholder="Project name"
+            placeholder="Board name"
           />
           <p className="text-xs text-muted-foreground">
-            Creates a {providerName} project owned by {owner?.login || 'the selected account'}.
-            Organization permissions may restrict creation.
+            Creates a {board} owned by {owner?.login || 'the selected account'}. The permissions of
+            an organization can prevent this.
           </p>
           <Button
             disabled={!owner || loading || creating || !title.trim()}
             onClick={() => void create()}
           >
-            {creating ? 'Creating…' : `Create ${providerName} project`}
+            {creating ? 'Creating…' : `Create ${board}`}
           </Button>
         </>
       ) : (
         <>
           <SearchInput
-            aria-label={`Search ${providerName} projects`}
-            placeholder={`Search ${providerName} projects…`}
+            aria-label={`Search ${board}s`}
+            placeholder={`Search ${board}s…`}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
           />
-          <div className="list-box" role="group" aria-label={`Available ${providerName} projects`}>
+          <div className="list-box" role="group" aria-label={`Available ${board}s`}>
             {loading ? (
-              <EmptyState compact>Loading projects…</EmptyState>
+              <EmptyState compact>Loading boards…</EmptyState>
             ) : (
               projects
                 .filter((p) => `${p.title} ${p.number}`.toLowerCase().includes(query.toLowerCase()))
                 .map((project) => (
-                  <Button
+                  <button
+                    type="button"
                     key={project.id}
-                    variant={value === project.url ? 'secondary' : 'ghost'}
                     aria-pressed={value === project.url}
-                    className="h-auto w-full justify-start whitespace-normal break-words px-3 py-3 text-left"
+                    aria-label={
+                      project.number ? `${project.title} #${project.number}` : project.title
+                    }
+                    className={cn(
+                      'list-box-row text-sm',
+                      value === project.url && 'text-foreground',
+                    )}
                     onClick={() => onChange(project.url)}
                   >
-                    {project.title}
-                    <span className="ml-auto pl-3 text-xs text-muted-foreground">
-                      {project.number ? `#${project.number}` : ''}
+                    <span className="min-w-0 flex-1 truncate" title={project.title}>
+                      {project.title}
                     </span>
-                  </Button>
+                    {project.number ? (
+                      <span className="shrink-0 text-xs text-muted-foreground">
+                        #{project.number}
+                      </span>
+                    ) : null}
+                  </button>
                 ))
             )}
             {!loading &&
@@ -225,8 +242,10 @@ export function TrackerProjectPicker({
               ) && (
                 <EmptyState compact>
                   {query
-                    ? 'No matching projects.'
-                    : 'No open projects yet. Choose Create new to get started.'}
+                    ? 'No matching boards.'
+                    : descriptor?.capabilities.createProject
+                      ? 'No open boards yet. Select Create new to make one.'
+                      : 'No open boards yet.'}
                 </EmptyState>
               )}
           </div>

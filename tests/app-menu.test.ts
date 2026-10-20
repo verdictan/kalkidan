@@ -73,3 +73,72 @@ for (const mac of [true, false])
     assert.equal(all.filter((item) => item.accelerator === 'CmdOrCtrl+W').length, 1);
     assert.ok(all.every((item) => item.role !== 'close' || item.accelerator));
   });
+
+function menu(mac: boolean, sent: string[] = []) {
+  return appMenuTemplate({
+    mac,
+    packaged: true,
+    appName: 'Kalkidan',
+    command: (name) => () => sent.push(name),
+    openExternal: () => {},
+  });
+}
+function submenu(template: MenuItemConstructorOptions[], label: string) {
+  return template.find((item) => item.label === label)!.submenu as MenuItemConstructorOptions[];
+}
+function item(items: MenuItemConstructorOptions[], label: string) {
+  const found = items.find((entry) => entry.label === label);
+  assert.ok(found, `${label} is missing`);
+  return found;
+}
+
+for (const mac of [true, false])
+  test(`Session, File and Help menus send their commands (mac: ${mac})`, () => {
+    const sent: string[] = [];
+    const template = menu(mac, sent);
+    const expected: [string, string, string][] = [
+      ['File', 'Add code folder…', 'add-code-folder'],
+      ['File', 'New task', 'new-task'],
+      ['Session', 'New session', 'session-new'],
+      ['Session', 'Terminal', 'session-terminal'],
+      ['Session', 'Changes', 'session-changes'],
+      ['Session', 'Rename…', 'session-rename'],
+      ['Session', 'Pin', 'session-pin'],
+      ['Session', 'Open a second chat beside this one', 'session-side-chat'],
+      ['Session', 'Commit…', 'session-commit'],
+      ['Session', 'Archive', 'session-archive'],
+      ['Help', 'Get started', 'get-started'],
+      ['Help', 'Keyboard shortcuts', 'shortcuts'],
+    ];
+    for (const [menuLabel, label] of expected)
+      (item(submenu(template, menuLabel), label).click as () => void)();
+    assert.deepEqual(
+      sent,
+      expected.map(([, , command]) => command),
+    );
+    // The Session menu comes before the Window menu.
+    const order = template.map((entry) => entry.label);
+    assert.ok(order.indexOf('Session') < order.indexOf('Window'));
+  });
+
+for (const mac of [true, false])
+  test(`no two menu items register the same accelerator (mac: ${mac})`, () => {
+    const all = menu(mac).flatMap((entry) =>
+      Array.isArray(entry.submenu) ? entry.submenu : [],
+    ) as MenuItemConstructorOptions[];
+    // Two items with the same role do the same thing, so they can share a key.
+    const registered = all
+      .filter((entry) => entry.accelerator && entry.registerAccelerator !== false)
+      .map(
+        (entry) =>
+          String(entry.accelerator).replace('Shift+CmdOrCtrl', 'CmdOrCtrl+Shift') +
+          (entry.role ? ` ${entry.role}` : ` ${entry.label}`),
+      );
+    const keys = [...new Set(registered)].map((entry) => entry.split(' ')[0]);
+    assert.equal(new Set(keys).size, keys.length, keys.join(', '));
+    // The session view handles these keys, so the menu must not take them first.
+    const session = submenu(menu(mac), 'Session');
+    assert.equal(item(session, 'Terminal').registerAccelerator, false);
+    assert.equal(item(session, 'Changes').registerAccelerator, false);
+    assert.equal(item(session, 'New session').accelerator, 'CmdOrCtrl+Shift+N');
+  });

@@ -24,6 +24,7 @@ import type { DeletedProjectDoc, ProjectDoc, ProjectDocMetadata } from '../domai
 import { hasPrimaryModifier } from '../lib/platform';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
+import { showToast } from './ui/toast';
 import { Choice } from './choice';
 import { Hint } from './hint';
 import { Alert, AlertDescription } from './ui/alert';
@@ -38,6 +39,7 @@ import {
 import {
   Dialog,
   DialogContent,
+  DialogBody,
   DialogHeader,
   DialogTitle,
   DialogDescription,
@@ -99,6 +101,9 @@ export function pageAfterDelete(pages: ProjectDocMetadata[], deletedId: string) 
   }
   return sortedSiblings(remaining, null)[0]?.id || remaining[0]?.id || '';
 }
+
+/** Alerts in the editor: under the document bar, at the width of the text column. */
+const docAlertClass = 'mx-auto mt-3 w-[min(var(--reading-width),calc(100%-3rem))]';
 
 const selectionKey = (groupId: string) => 'kalkidan-docs-selected:' + groupId;
 const libraryWidthKey = 'kalkidan-docs-library-width';
@@ -349,36 +354,6 @@ function DocEditor({
   const parentTitle = draft.parentId && pages.find((p) => p.id === draft.parentId)?.title;
   return (
     <section className="doc-editor" aria-label="Document editor">
-      {recovery && (
-        <Alert role={undefined} className="mx-6 mt-3 w-auto px-3 py-2">
-          <AlertDescription className="doc-alert-body">
-            An unsaved draft is available.
-            <span className="doc-alert-actions">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => {
-                  update({ ...recovery, revision: initial.revision });
-                  setEditorVersion((v) => v + 1);
-                  setRecovery(null);
-                }}
-              >
-                Restore draft
-              </Button>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => {
-                  storeDraft(null);
-                  setRecovery(null);
-                }}
-              >
-                Discard draft
-              </Button>
-            </span>
-          </AlertDescription>
-        </Alert>
-      )}
       <div className="wiki-document-bar">
         {/* The title bar shows the project and Docs. Here, show only the parent page and the page. */}
         <nav className="wiki-breadcrumbs" aria-label="Document breadcrumb">
@@ -445,6 +420,41 @@ function DocEditor({
           />
         </div>
       </div>
+      {recovery && (
+        <Alert role={undefined} size="sm" className={docAlertClass}>
+          <AlertDescription className="doc-alert-body">
+            An unsaved draft is available.
+            <span className="doc-alert-actions">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  update({ ...recovery, revision: initial.revision });
+                  setEditorVersion((v) => v + 1);
+                  setRecovery(null);
+                }}
+              >
+                Restore draft
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  storeDraft(null);
+                  setRecovery(null);
+                }}
+              >
+                Discard draft
+              </Button>
+            </span>
+          </AlertDescription>
+        </Alert>
+      )}
+      {error && (
+        <Alert variant="destructive" size="sm" className={docAlertClass}>
+          <AlertDescription>{error} Your draft is kept locally for recovery.</AlertDescription>
+        </Alert>
+      )}
       <Dialog open={moving} onOpenChange={setMoving}>
         <DialogContent>
           <DialogHeader>
@@ -497,15 +507,10 @@ function DocEditor({
           </DialogFooter>
         </DialogContent>
       </Dialog>
-      {error && (
-        <Alert variant="destructive" className="mx-6 mt-3 w-auto px-3 py-2">
-          <AlertDescription>{error} Your draft is kept locally for recovery.</AlertDescription>
-        </Alert>
-      )}
       <div className="wiki-page">
-        <Input
+        <input
           ref={titleInput}
-          className="doc-title mb-2 h-10 rounded-none border-0 bg-transparent p-0 text-3xl font-semibold tracking-[-0.01em] shadow-none focus-visible:ring-0 dark:bg-transparent @max-[600px]:h-8 @max-[600px]:text-2xl"
+          className="doc-title"
           aria-label="Page title"
           placeholder="Untitled"
           value={draft.title}
@@ -531,6 +536,11 @@ function DocEditor({
             markdown={draft.markdown}
             readOnly={mode === 'read'}
             onChange={(markdown) => update({ ...latest.current, markdown })}
+            groupId={groupId}
+            onOpenPage={(id) => {
+              if (pages.some((p) => p.id === id)) onNavigate(id);
+              else showToast({ message: 'This page is not in these docs.', tone: 'error' });
+            }}
           />
         )}
       </div>
@@ -726,12 +736,12 @@ export function ProjectDocsPanel({
       const down = reorder(p.id, 1);
       return (
         <li key={p.id}>
-          <div className="wiki-tree-row" data-selected={selected === p.id}>
+          <div className="wiki-tree-row row-focus" data-selected={selected === p.id}>
             {hasChildren ? (
               <Button
                 variant="ghost"
-                size="icon-xs"
-                className="wiki-tree-toggle"
+                size="icon-2xs"
+                className="wiki-tree-toggle size-4"
                 aria-label={`Toggle ${p.title} subpages`}
                 aria-expanded={!collapsed[p.id]}
                 onClick={() => setCollapsed((c) => ({ ...c, [p.id]: !c[p.id] }))}
@@ -743,12 +753,12 @@ export function ProjectDocsPanel({
             )}
             <Button
               variant="bare"
-              className="doc-tree-page h-8 min-w-0 flex-1 gap-1.5 px-0 text-sm font-normal aria-[current=page]:font-medium"
+              className="doc-tree-page h-8 min-w-0 flex-1 justify-start gap-2 rounded-none text-sm font-normal focus-visible:ring-0"
               title={p.title}
               aria-current={selected === p.id ? 'page' : undefined}
               onClick={() => setSelected(p.id)}
             >
-              <FileText size={14} className="text-muted-foreground" />
+              <FileText size={16} className="text-muted-foreground" />
               <span>{p.title}</span>
             </Button>
             <div className="wiki-tree-actions">
@@ -800,7 +810,7 @@ export function ProjectDocsPanel({
   return (
     <section className="project-docs" aria-label="Project docs">
       {error && (
-        <Alert variant="destructive" className="mx-6 mt-3 w-auto px-3 py-2">
+        <Alert variant="destructive" size="sm" className="mx-6 mt-3 w-auto">
           <AlertDescription>{error}</AlertDescription>
         </Alert>
       )}
@@ -810,7 +820,7 @@ export function ProjectDocsPanel({
       >
         <aside className="docs-library" aria-label="Document pages">
           <div className="wiki-pages-label">
-            <span>Pages</span>
+            <h2 className="sidebar-label">Pages</h2>
             <Hint label="New page">
               <Button
                 variant="ghost"
@@ -826,10 +836,9 @@ export function ProjectDocsPanel({
           <nav className="wiki-tree-scroll" aria-label="Document structure">
             <ul className="wiki-page-tree">{tree(null)}</ul>
           </nav>
-          <Button
-            variant="ghost"
-            size="sm"
-            className="shrink-0 justify-start gap-1.5 px-2 text-muted-foreground has-[>svg]:px-2"
+          <button
+            type="button"
+            className="wiki-tree-row docs-trash-row"
             disabled={busy}
             onClick={() =>
               void action(async () => {
@@ -837,12 +846,18 @@ export function ProjectDocsPanel({
               })
             }
           >
-            <Trash2 size={14} /> Deleted pages
-          </Button>
+            <Trash2 size={16} aria-hidden="true" /> Deleted pages
+          </button>
           <LibraryResizer width={width} onResize={resizeLibrary} />
         </aside>
         {page && page.id === selected ? (
-          <div className="doc-workspace">
+          <div
+            className="doc-workspace"
+            // The document bar shows its bottom border only after the page scrolls.
+            onScroll={(e) =>
+              e.currentTarget.toggleAttribute('data-scrolled', e.currentTarget.scrollTop > 0)
+            }
+          >
             <DocEditor
               key={page.id}
               api={api}
@@ -873,7 +888,7 @@ export function ProjectDocsPanel({
                   ? 'Loading pages…'
                   : pages.length
                     ? 'Select a page'
-                    : 'Your project wiki starts here'
+                    : 'No docs yet'
               }
               action={
                 !loading &&
@@ -888,7 +903,7 @@ export function ProjectDocsPanel({
               {!loading && !pageLoading
                 ? pages.length
                   ? 'Select a page in the list.'
-                  : 'Create a page for plans, decisions, or guides.'
+                  : 'Write plans, decisions and guides for this project.'
                 : null}
             </EmptyState>
           </div>
@@ -973,7 +988,7 @@ export function ProjectDocsPanel({
         open={deletedPages !== null}
         onOpenChange={(open) => !open && !busy && setDeletedPages(null)}
       >
-        <DialogContent>
+        <DialogContent layout="scroll">
           <DialogHeader>
             <DialogTitle>Deleted pages</DialogTitle>
             <DialogDescription>
@@ -981,55 +996,57 @@ export function ProjectDocsPanel({
               deleted.
             </DialogDescription>
           </DialogHeader>
-          {error && (
-            <p role="alert" className="field-error">
-              {error}
-            </p>
-          )}
-          {deletedPages?.length ? (
-            <ul className="wiki-deleted-list">
-              {deletedPages.map((item) => (
-                <li key={item.trashId}>
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate" title={item.title}>
-                      {item.title}
+          <DialogBody>
+            {error && (
+              <p role="alert" className="field-error mb-2">
+                {error}
+              </p>
+            )}
+            {deletedPages?.length ? (
+              <ul className="wiki-deleted-list">
+                {deletedPages.map((item) => (
+                  <li key={item.trashId}>
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate" title={item.title}>
+                        {item.title}
+                      </span>
+                      <span className="block text-xs text-muted-foreground">
+                        Deleted {new Date(item.deletedAt).toLocaleString()}
+                      </span>
                     </span>
-                    <span className="block text-xs text-muted-foreground">
-                      Deleted {new Date(item.deletedAt).toLocaleString()}
-                    </span>
-                  </span>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    aria-label={`Restore ${item.title}`}
-                    disabled={busy}
-                    onClick={() =>
-                      void action(async () => {
-                        const doc = await api.docsRestore(group.id, item.trashId);
-                        setPages((current) => [
-                          ...current,
-                          {
-                            id: doc.id,
-                            title: doc.title,
-                            parentId: doc.parentId,
-                            order: doc.order,
-                          },
-                        ]);
-                        setDeletedPages((current) =>
-                          (current || []).filter((d) => d.trashId !== item.trashId),
-                        );
-                        setSelected(doc.id);
-                      })
-                    }
-                  >
-                    Restore
-                  </Button>
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <EmptyState compact>No deleted pages.</EmptyState>
-          )}
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      aria-label={`Restore ${item.title}`}
+                      disabled={busy}
+                      onClick={() =>
+                        void action(async () => {
+                          const doc = await api.docsRestore(group.id, item.trashId);
+                          setPages((current) => [
+                            ...current,
+                            {
+                              id: doc.id,
+                              title: doc.title,
+                              parentId: doc.parentId,
+                              order: doc.order,
+                            },
+                          ]);
+                          setDeletedPages((current) =>
+                            (current || []).filter((d) => d.trashId !== item.trashId),
+                          );
+                          setSelected(doc.id);
+                        })
+                      }
+                    >
+                      Restore
+                    </Button>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <EmptyState compact>No deleted pages.</EmptyState>
+            )}
+          </DialogBody>
           <DialogFooter>
             <Button variant="outline" onClick={() => setDeletedPages(null)}>
               Done

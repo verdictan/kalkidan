@@ -1,4 +1,14 @@
-import { useEffect, useId, useRef, useState, type FormEvent } from 'react';
+import {
+  useEffect,
+  useId,
+  useRef,
+  useState,
+  type ComponentProps,
+  type FormEvent,
+  type RefObject,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type MouseEvent as ReactMouseEvent,
+} from 'react';
 import { createPortal } from 'react-dom';
 import { EditorContent, useEditor, type Editor } from '@tiptap/react';
 import { BubbleMenu } from '@tiptap/react/menus';
@@ -9,7 +19,7 @@ import TaskList from '@tiptap/extension-task-list';
 import TaskItem from '@tiptap/extension-task-item';
 import { TableKit } from '@tiptap/extension-table';
 import Image from '@tiptap/extension-image';
-import { Bold, Italic, Strikethrough, Code, Link as LinkIcon } from 'lucide-react';
+import { Bold, Italic, Strikethrough, Code, FileText, Link as LinkIcon } from 'lucide-react';
 import { Button } from './ui/button';
 import {
   Dialog,
@@ -20,11 +30,53 @@ import {
   DialogFooter,
 } from './ui/dialog';
 import { Input } from './ui/input';
+import { showToast } from './ui/toast';
+import { DocPagePicker } from './doc-page-picker';
 import { WikiContextMenu } from './wiki-context-menu';
-import { hasPrimaryModifier, shortcutLabel } from '../lib/platform';
+import { hasPrimaryModifier } from '../lib/platform';
 
 type Slash = { from: number; to: number; query: string; left: number; top: number };
-const commands = [
+type Command = { label: string; hint: string; run: (e: Editor) => unknown };
+
+/** A link to another page of these docs. All pages are in one folder, so the link works on disk. */
+export const pageHref = (id: string) => `./${id}.md`;
+/** Returns the page ID of a docs page link, or null for other links. */
+export function pageIdFromHref(href: string | null | undefined) {
+  return /^(?:\.\/)?([\w-]+)\.md$/.exec(href?.trim() || '')?.[1] ?? null;
+}
+
+const reducedMotion = () => window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+
+type BubbleProps = ComponentProps<typeof BubbleMenu>;
+/**
+ * The table tools show above the table while the cursor is in it. With selected text, the format
+ * toolbar shows instead. The props must not change between renders: a change updates the menu,
+ * and that update renders the editor again.
+ */
+function tableMenuProps(tableToolbar: RefObject<HTMLDivElement | null>) {
+  const shouldShow: NonNullable<BubbleProps['shouldShow']> = ({ editor, view, state }) =>
+    editor.isEditable &&
+    editor.isActive('table') &&
+    state.selection.empty &&
+    (view.hasFocus() || !!tableToolbar.current?.contains(document.activeElement));
+  let view: Editor['view'] | null = null;
+  return {
+    shouldShow: ((props) => {
+      view = props.view;
+      return shouldShow(props);
+    }) as NonNullable<BubbleProps['shouldShow']>,
+    anchor: () => {
+      if (!view) return null;
+      const { node } = view.domAtPos(view.state.selection.from);
+      const element = node instanceof Element ? node : node.parentElement;
+      const table = element?.closest('table');
+      return table ? { getBoundingClientRect: () => table.getBoundingClientRect() } : null;
+    },
+    options: { placement: 'top-start', offset: 8, flip: true } satisfies BubbleProps['options'],
+  };
+}
+
+const commands: Command[] = [
   {
     label: 'Heading 1',
     hint: 'Large section heading',
@@ -81,21 +133,28 @@ export function WikiEditor({
   markdown,
   readOnly,
   onChange,
+  groupId,
+  onOpenPage,
 }: {
   markdown: string;
   readOnly: boolean;
   onChange: (text: string) => void;
+  /** The project of these docs. With it, the editor can link to other pages. */
+  groupId?: string;
+  /** Opens a page from a docs page link. */
+  onOpenPage?: (id: string) => void;
 }) {
   const [slash, setSlash] = useState<Slash | null>(null);
   const [index, setIndex] = useState(0);
   const [linkOpen, setLinkOpen] = useState(false);
   const [url, setUrl] = useState('');
   const [editingLink, setEditingLink] = useState(false);
-  const [notice, setNotice] = useState('');
-  const noticeTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-  useEffect(() => () => clearTimeout(noticeTimer.current), []);
-  // The format toolbar has one tab stop. Arrow keys move between its buttons.
+  const [pickerOpen, setPickerOpen] = useState(false);
+  // The format toolbar and the table toolbar each have one tab stop. Arrow keys move between
+  // the buttons.
   const toolbar = useRef<HTMLDivElement>(null);
+  const tableToolbar = useRef<HTMLDivElement>(null);
+  const [tableMenu] = useState(() => tableMenuProps(tableToolbar));
   const [toolIndex, setToolIndex] = useState(0);
   const slashId = useId();
   const keyHandler = useRef<(event: KeyboardEvent) => boolean>(() => false);
@@ -162,7 +221,17 @@ export function WikiEditor({
   useEffect(() => {
     if (editor && editor.isEditable === readOnly) editor.setEditable(!readOnly, false);
   }, [editor, readOnly]);
-  const filtered = commands.filter((c) =>
+  const allCommands: Command[] = groupId
+    ? [
+        ...commands,
+        {
+          label: 'Link to page',
+          hint: 'Link to a page in these docs',
+          run: () => setPickerOpen(true),
+        },
+      ]
+    : commands;
+  const filtered = allCommands.filter((c) =>
     c.label.toLowerCase().includes(slash?.query.toLowerCase() || ''),
   );
   const activeOption = slash && !readOnly && filtered[index] ? `${slashId}-${index}` : '';
@@ -190,27 +259,89 @@ export function WikiEditor({
     setUrl(href);
     setLinkOpen(true);
   }
-  const validUrl = /^(https?:\/\/|mailto:|#)/i.test(url.trim());
+  const validUrl = /^(https?:\/\/|mailto:|#)/i.test(url.trim()) || !!pageIdFromHref(url);
   function applyLink(event: FormEvent) {
     event.preventDefault();
     if (!validUrl) return;
     editor?.chain().focus().extendMarkRange('link').setLink({ href: url.trim() }).run();
     setLinkOpen(false);
   }
-  function removeTable() {
-    editor?.chain().focus().deleteTable().run();
-    setNotice(`Table removed. Press ${shortcutLabel(['mod'], 'Z')} to undo.`);
-    clearTimeout(noticeTimer.current);
-    noticeTimer.current = setTimeout(() => setNotice(''), 5000);
+  /** Links the selected text to a page. With no selected text, it adds the page title as a link. */
+  function linkPage(doc: { id: string; title: string }) {
+    if (!editor) return;
+    const href = pageHref(doc.id);
+    const chain = editor.chain().focus();
+    if (editor.state.selection.empty && !editor.isActive('link'))
+      chain
+        .insertContent({
+          type: 'text',
+          text: doc.title || 'Untitled',
+          marks: [{ type: 'link', attrs: { href } }],
+        })
+        .unsetMark('link')
+        .run();
+    else chain.extendMarkRange('link').setLink({ href }).run();
   }
+  function removeTable() {
+    if (!editor) return;
+    editor.chain().focus().deleteTable().run();
+    showToast({
+      message: 'Table removed.',
+      actions: [{ label: 'Undo', onClick: () => editor.chain().focus().undo().run() }],
+    });
+  }
+  /** Returns the buttons of the toolbar that shows now: the format toolbar or the table toolbar. */
   function toolbarButtons() {
-    return [...(toolbar.current?.querySelectorAll<HTMLButtonElement>('button') || [])];
+    const visible = [toolbar.current, tableToolbar.current].find(
+      (element) =>
+        element?.isConnected &&
+        element.closest<HTMLElement>('.wiki-bubble')?.style.visibility !== 'hidden',
+    );
+    return [...(visible?.querySelectorAll<HTMLButtonElement>('button') || [])];
+  }
+  /** Arrow keys, Home and End move focus in a toolbar. Escape goes back to the text. */
+  function toolbarKeyDown(event: ReactKeyboardEvent<HTMLDivElement>) {
+    if (!editor) return;
+    const buttons = [...event.currentTarget.querySelectorAll<HTMLButtonElement>('button')];
+    const current = buttons.indexOf(document.activeElement as HTMLButtonElement);
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      editor.view.focus();
+      return;
+    }
+    if (hasPrimaryModifier(event.nativeEvent) && event.key.toLowerCase() === 'k') {
+      event.preventDefault();
+      openLink();
+      return;
+    }
+    const next =
+      event.key === 'ArrowRight'
+        ? (current + 1) % buttons.length
+        : event.key === 'ArrowLeft'
+          ? (current - 1 + buttons.length) % buttons.length
+          : event.key === 'Home'
+            ? 0
+            : event.key === 'End'
+              ? buttons.length - 1
+              : -1;
+    if (next < 0 || current < 0) return;
+    event.preventDefault();
+    setToolIndex(next);
+    buttons[next].focus();
   }
   function choose(i: number) {
     if (!editor || !slash || !filtered[i]) return;
     editor.chain().focus().deleteRange({ from: slash.from, to: slash.to }).run();
     filtered[i].run(editor);
     setSlash(null);
+  }
+  /** A click on a docs page link opens that page. Other links do not open from the editor. */
+  function openPageLink(event: ReactMouseEvent<HTMLDivElement>) {
+    const link = (event.target as Element).closest?.('a[href]');
+    const id = pageIdFromHref(link?.getAttribute('href'));
+    if (!link || !id || !onOpenPage) return;
+    event.preventDefault();
+    onOpenPage(id);
   }
   keyHandler.current = (event) => {
     if (readOnly || event.isComposing) return false;
@@ -228,7 +359,7 @@ export function WikiEditor({
     if (event.altKey && event.key === 'F10') {
       const buttons = toolbarButtons();
       if (!buttons.length) return false;
-      (buttons[toolIndex] || buttons[0]).focus();
+      (buttons[Math.min(toolIndex, buttons.length - 1)] || buttons[0]).focus();
       return true;
     }
     if (!slash) return false;
@@ -257,7 +388,7 @@ export function WikiEditor({
   });
   return (
     <div className="wiki-writing-area" data-shortcut-scope="editor">
-      <div className="wiki-editor-body">
+      <div className="wiki-editor-body" onClick={openPageLink}>
         {editor && !readOnly && (
           <BubbleMenu editor={editor} className="wiki-bubble">
             {/* The menu element does not pass key events correctly, so the toolbar is a child. */}
@@ -267,34 +398,7 @@ export function WikiEditor({
               role="toolbar"
               aria-label="Text formatting"
               aria-orientation="horizontal"
-              onKeyDown={(event) => {
-                const buttons = toolbarButtons();
-                const current = buttons.indexOf(document.activeElement as HTMLButtonElement);
-                if (event.key === 'Escape') {
-                  event.preventDefault();
-                  editor.view.focus();
-                  return;
-                }
-                if (hasPrimaryModifier(event.nativeEvent) && event.key.toLowerCase() === 'k') {
-                  event.preventDefault();
-                  openLink();
-                  return;
-                }
-                const next =
-                  event.key === 'ArrowRight'
-                    ? (current + 1) % buttons.length
-                    : event.key === 'ArrowLeft'
-                      ? (current - 1 + buttons.length) % buttons.length
-                      : event.key === 'Home'
-                        ? 0
-                        : event.key === 'End'
-                          ? buttons.length - 1
-                          : -1;
-                if (next < 0 || current < 0) return;
-                event.preventDefault();
-                setToolIndex(next);
-                buttons[next].focus();
-              }}
+              onKeyDown={toolbarKeyDown}
             >
               {[
                 {
@@ -326,7 +430,8 @@ export function WikiEditor({
                 <Button
                   key={name}
                   variant="ghost"
-                  size="icon-sm"
+                  size="icon-xs"
+                  className="rounded-sm"
                   aria-label={name}
                   aria-pressed={editor.isActive(mark)}
                   tabIndex={i === toolIndex ? 0 : -1}
@@ -339,7 +444,8 @@ export function WikiEditor({
               ))}
               <Button
                 variant="ghost"
-                size="icon-sm"
+                size="icon-xs"
+                className="rounded-sm"
                 aria-label={editor.isActive('link') ? 'Edit link' : 'Add link'}
                 aria-pressed={editor.isActive('link')}
                 tabIndex={toolIndex === 4 ? 0 : -1}
@@ -352,36 +458,49 @@ export function WikiEditor({
             </div>
           </BubbleMenu>
         )}
-        {editor?.isActive('table') && !readOnly && (
-          <div className="wiki-table-tools">
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => editor.chain().focus().addRowAfter().run()}
+        {editor && !readOnly && (
+          <BubbleMenu
+            editor={editor}
+            pluginKey="wikiTableMenu"
+            className="wiki-bubble"
+            shouldShow={tableMenu.shouldShow}
+            getReferencedVirtualElement={tableMenu.anchor}
+            options={tableMenu.options}
+          >
+            <div
+              ref={tableToolbar}
+              className="flex gap-0.5"
+              role="toolbar"
+              aria-label="Table tools"
+              aria-orientation="horizontal"
+              onKeyDown={toolbarKeyDown}
             >
-              Add row
-            </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => editor.chain().focus().addColumnAfter().run()}
-            >
-              Add column
-            </Button>
-            <Button variant="ghost" size="sm" onClick={removeTable}>
-              Remove table
-            </Button>
-          </div>
-        )}
-        {notice && (
-          <p className="wiki-notice" role="status">
-            {notice}
-          </p>
+              {[
+                { label: 'Add row', action: () => editor.chain().focus().addRowAfter().run() },
+                {
+                  label: 'Add column',
+                  action: () => editor.chain().focus().addColumnAfter().run(),
+                },
+                { label: 'Remove table', action: removeTable },
+              ].map(({ label, action }, i) => (
+                <Button
+                  key={label}
+                  variant="ghost"
+                  size="xs"
+                  tabIndex={i === 0 ? 0 : -1}
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={action}
+                >
+                  {label}
+                </Button>
+              ))}
+            </div>
+          </BubbleMenu>
         )}
         {editor && !readOnly ? (
           <WikiContextMenu
             editor={editor}
-            commands={commands}
+            commands={allCommands}
             onLink={openLink}
             onRemoveTable={removeTable}
           >
@@ -402,7 +521,10 @@ export function WikiEditor({
                 if (!editor) return;
                 const node = editor.view.nodeDOM(h.pos);
                 if (node instanceof HTMLElement)
-                  node.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                  node.scrollIntoView({
+                    behavior: reducedMotion() ? 'auto' : 'smooth',
+                    block: 'center',
+                  });
               }}
             >
               {h.text || 'Untitled heading'}
@@ -449,6 +571,7 @@ export function WikiEditor({
               <DialogTitle>{editingLink ? 'Edit link' : 'Add link'}</DialogTitle>
               <DialogDescription>
                 Type a web address, an email link, or a heading link.
+                {groupId && ' Or link to a page in these docs.'}
               </DialogDescription>
             </DialogHeader>
             <Input
@@ -458,6 +581,20 @@ export function WikiEditor({
               onChange={(e) => setUrl(e.target.value)}
               placeholder="https://…"
             />
+            {groupId && (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="justify-self-start"
+                onClick={() => {
+                  setLinkOpen(false);
+                  setPickerOpen(true);
+                }}
+              >
+                <FileText /> Link a page…
+              </Button>
+            )}
             <DialogFooter>
               {editingLink && (
                 <Button
@@ -482,6 +619,19 @@ export function WikiEditor({
           </form>
         </DialogContent>
       </Dialog>
+      {groupId && (
+        <DocPagePicker
+          groupId={groupId}
+          open={pickerOpen}
+          onOpenChange={setPickerOpen}
+          onPick={linkPage}
+          title="Link a page"
+          onCloseAutoFocus={(event) => {
+            event.preventDefault();
+            editor?.view.focus();
+          }}
+        />
+      )}
     </div>
   );
 }

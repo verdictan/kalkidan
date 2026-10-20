@@ -5,11 +5,13 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import {
   ChevronRight,
   FileDiff,
+  GitCommitHorizontal,
   Globe,
   LayoutGrid,
   LoaderCircle,
   PanelRightClose,
   Paperclip,
+  Plus,
   RefreshCw,
   Terminal,
   X,
@@ -17,6 +19,7 @@ import {
 import { Button } from './ui/button';
 import { Alert, AlertDescription } from './ui/alert';
 import { EmptyState } from './ui/empty-state';
+import { EntityIcon } from './ui/entity-icon';
 import { PageHeader } from './ui/page-header';
 import { Choice } from './choice';
 import { Hint } from './hint';
@@ -34,6 +37,8 @@ import type { API, RepositoryDiff } from '../types';
 import { errorMessage } from '../lib/errors';
 export type ConversationContext = { id: string; label: string; text: string };
 type ToolKind = 'terminal' | 'browser' | 'diff' | 'home';
+/** A request from the session view to show a tool. Increase `n` to send it again. */
+export type ToolRequest = { kind: 'terminal' | 'browser' | 'diff'; n: number };
 type ToolTab = { id: string; kind: ToolKind; title: string; url?: string };
 
 // Command+` cycles windows on macOS, so the terminal uses Control+` there, as VS Code does.
@@ -45,10 +50,34 @@ const shortcuts = {
   diff: shortcutLabel(['mod', 'shift'], 'G'),
 };
 const launcherRows = [
-  { kind: 'browser', title: 'Browser', icon: Globe, shortcut: '' },
-  { kind: 'terminal', title: 'Terminal', icon: Terminal, shortcut: shortcuts.terminal },
-  { kind: 'diff', title: 'Changes', icon: FileDiff, shortcut: shortcuts.diff },
+  {
+    kind: 'terminal',
+    title: 'Terminal',
+    description: 'Run commands in this folder',
+    icon: Terminal,
+    shortcut: shortcuts.terminal,
+  },
+  {
+    kind: 'browser',
+    title: 'Browser',
+    description: 'Preview your app and point the agent at an element',
+    icon: Globe,
+    shortcut: '',
+  },
+  {
+    kind: 'diff',
+    title: 'Changes',
+    description: 'Review, attach and commit the changed files',
+    icon: FileDiff,
+    shortcut: shortcuts.diff,
+  },
 ] as const;
+/** True when the diff scope has a change. Unstaged changes include new, untracked files. */
+function scopeHasChanges(diff: RepositoryDiff, scope: string) {
+  return scope === 'staged'
+    ? !!diff.staged.trim()
+    : !!diff.unstaged.trim() || !!diff.untracked.length;
+}
 function isTerminalShortcut(e: KeyboardEvent) {
   if (e.key !== '`' && e.code !== 'Backquote') return false;
   if (e.altKey || e.shiftKey) return false;
@@ -77,9 +106,24 @@ export function ConversationTools({
   remote = false,
   visible = true,
   onToolChange,
+  toolRequest,
+  changeCount,
+  runsFinished = 0,
+  onChangesRead,
+  onCommit,
 }: {
   children: ReactNode;
   reviewRequest?: number;
+  /** Opens a tool when `n` changes. */
+  toolRequest?: ToolRequest | null;
+  /** The number of changed files in the checkout. The Changes button shows it. */
+  changeCount?: number | null;
+  /** Increase this number when an agent run ends. An open Changes tab reads the diff again. */
+  runsFinished?: number;
+  /** Called after the Changes tab reads the diff, so the session can update the count. */
+  onChangesRead?: () => void;
+  /** Opens the commit dialog. Without it, the Changes toolbar has no Commit button. */
+  onCommit?: () => void;
   onToolChange: (open: boolean) => void;
   visible?: boolean;
   remote?: boolean;
@@ -132,6 +176,25 @@ export function ConversationTools({
       setBusy(false);
     }
   }
+  /** Reads the Git changes. The first scope with a change opens, unless the user chose one. */
+  const scopeChosen = useRef(false);
+  function readDiff() {
+    void action(async () => {
+      const next = await api.repositoryDiff(cwd);
+      setDiff(next);
+      if (!scopeChosen.current)
+        setDiffTab((scope) =>
+          scopeHasChanges(next, scope)
+            ? scope
+            : scopeHasChanges(next, scope === 'staged' ? 'unstaged' : 'staged')
+              ? scope === 'staged'
+                ? 'unstaged'
+                : 'staged'
+              : scope,
+        );
+      onChangesRead?.();
+    });
+  }
   function attach(label: string, text: string) {
     onAttach({
       id: crypto.randomUUID(),
@@ -164,7 +227,7 @@ export function ConversationTools({
     setActive(tab.id);
     setExpanded(true);
     if (kind === 'terminal') focusTerminal(tab.id);
-    if (kind === 'diff') void action(async () => setDiff(await api.repositoryDiff(cwd)));
+    if (kind === 'diff') readDiff();
   }
   function open(kind: ToolKind | null) {
     if (!kind) {
@@ -176,7 +239,7 @@ export function ConversationTools({
       setActive(tab.id);
       setExpanded(true);
       if (kind === 'terminal') focusTerminal(tab.id);
-      if (kind === 'diff') void action(async () => setDiff(await api.repositoryDiff(cwd)));
+      if (kind === 'diff') readDiff();
     } else add(kind); // add() reads the diff for a new Changes tab.
   }
   function close(id: string) {
@@ -265,6 +328,24 @@ export function ConversationTools({
   useEffect(() => {
     if (reviewRequest) open('diff');
   }, [reviewRequest]);
+  useEffect(() => {
+    if (toolRequest) open(toolRequest.kind);
+  }, [toolRequest?.n]);
+  // An agent run can change files. Read the diff again when the Changes tab shows.
+  useEffect(() => {
+    if (runsFinished && tool === 'diff') readDiff();
+  }, [runsFinished]);
+  // The application menu sends these commands. Only the visible session handles them.
+  useEffect(() => {
+    if (!visible) return;
+    const command = (event: Event) => {
+      const name = (event as CustomEvent<{ command?: string }>).detail?.command;
+      if (name === 'session-terminal') open('terminal');
+      else if (name === 'session-changes') open('diff');
+    };
+    window.addEventListener('kalkidan-session-command', command);
+    return () => window.removeEventListener('kalkidan-session-command', command);
+  }, [visible, tool, tabs]);
   // All changes in the scope. Unstaged changes include new, untracked files.
   const allChanges = diff
     ? [
@@ -400,6 +481,7 @@ export function ConversationTools({
                       size="icon-2xs"
                       className="tool-tab-close"
                       tabIndex={-1}
+                      title={'Close ' + tab.title}
                       aria-label={'Close ' + tab.title}
                       onClick={() => requestClose(tab)}
                     >
@@ -410,7 +492,43 @@ export function ConversationTools({
               })}
             </div>
             {expanded && <span className="tool-tabbar-divider" aria-hidden="true" />}
-            <Hint label={`Open tool (${shortcuts.tab})`}>
+            <div className="tool-launch" role="group" aria-label="Session tools">
+              {launcherRows.map((row) => {
+                const count = row.kind === 'diff' ? changeCount || 0 : 0;
+                const selected = tool === row.kind;
+                return (
+                  <Hint
+                    key={row.kind}
+                    label={
+                      (selected ? `Show ${row.title}` : row.description) +
+                      (row.shortcut ? ` (${row.shortcut})` : '')
+                    }
+                  >
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="tool-launch-button"
+                      data-selected={selected || undefined}
+                      aria-label={
+                        row.kind === 'diff' && count
+                          ? `Changes, ${count} ${count === 1 ? 'file' : 'files'} changed`
+                          : row.title
+                      }
+                      onClick={() => open(row.kind)}
+                    >
+                      <row.icon aria-hidden="true" />
+                      <span className="tool-launch-label">{row.title}</span>
+                      {!!count && (
+                        <span className="tool-launch-count" aria-hidden="true">
+                          {count}
+                        </span>
+                      )}
+                    </Button>
+                  </Hint>
+                );
+              })}
+            </div>
+            <Hint label={`New tool tab (${shortcuts.tab})`}>
               <Button
                 variant="ghost"
                 size="icon-sm"
@@ -418,7 +536,7 @@ export function ConversationTools({
                 aria-keyshortcuts={isMac ? 'Meta+T' : 'Control+T'}
                 onClick={() => add('home')}
               >
-                <LayoutGrid />
+                <Plus />
               </Button>
             </Hint>
             {expanded && (
@@ -462,8 +580,11 @@ export function ConversationTools({
                     {launcherRows.map((row) => (
                       <Button
                         key={row.kind}
-                        variant="secondary"
-                        className="h-9 w-full justify-start px-3 font-normal"
+                        variant="ghost"
+                        size="lg"
+                        aria-label={row.title}
+                        aria-description={row.description}
+                        className="h-auto min-h-[var(--row-height-lg)] w-full justify-start gap-3 px-2 py-2 font-normal has-[>svg]:px-2"
                         onClick={() => {
                           setTabs((previous) =>
                             previous.map((t) =>
@@ -471,18 +592,25 @@ export function ConversationTools({
                             ),
                           );
                           if (row.kind === 'terminal') focusTerminal(tab.id);
-                          if (row.kind === 'diff')
-                            void action(async () => setDiff(await api.repositoryDiff(cwd)));
+                          if (row.kind === 'diff') readDiff();
                         }}
                       >
-                        <row.icon aria-hidden="true" />
-                        <span>{row.title}</span>
+                        <EntityIcon>
+                          <row.icon />
+                        </EntityIcon>
+                        <span className="tool-launcher-text">
+                          <span className="tool-launcher-title">{row.title}</span>
+                          <span className="tool-launcher-description">{row.description}</span>
+                        </span>
                         {row.shortcut && (
-                          <kbd className="kbd" aria-hidden="true">
+                          <kbd className="kbd tool-launcher-kbd" aria-hidden="true">
                             {row.shortcut}
                           </kbd>
                         )}
-                        <ChevronRight size={14} aria-hidden="true" />
+                        <ChevronRight
+                          className="size-3.5 text-muted-foreground"
+                          aria-hidden="true"
+                        />
                       </Button>
                     ))}
                   </div>
@@ -536,34 +664,54 @@ export function ConversationTools({
                     <div className="diff-panel">
                       {tool === 'diff' && (
                         <>
-                          <div className="tool-toolbar">
+                          <div className="tool-toolbar flex-nowrap">
                             <Choice
                               size="sm"
-                              className="text-xs"
+                              className="min-w-0 text-xs"
                               label="Diff scope"
                               value={diffTab}
-                              onChange={setDiffTab}
+                              onChange={(value) => {
+                                scopeChosen.current = true;
+                                setDiffTab(value);
+                              }}
                               options={[
-                                { value: 'unstaged', label: 'Unstaged changes' },
-                                { value: 'staged', label: 'Staged changes' },
+                                {
+                                  value: 'unstaged',
+                                  label: 'Changes not yet staged (includes new files)',
+                                },
+                                { value: 'staged', label: 'Staged for commit' },
                               ]}
                             />
-                            <Button
-                              variant="ghost"
-                              size="icon-sm"
-                              aria-label="Refresh diff"
-                              disabled={busy}
-                              onClick={() =>
-                                void action(async () => setDiff(await api.repositoryDiff(cwd)))
-                              }
-                            >
-                              <RefreshCw />
-                            </Button>
+                            <Hint label="Refresh changes">
+                              <Button
+                                variant="ghost"
+                                size="icon-sm"
+                                aria-label="Refresh changes"
+                                disabled={busy}
+                                onClick={readDiff}
+                              >
+                                <RefreshCw />
+                              </Button>
+                            </Hint>
+                            {onCommit && (
+                              <Button
+                                size="sm"
+                                className="ml-auto"
+                                disabled={busy || disabled}
+                                onClick={onCommit}
+                              >
+                                <GitCommitHorizontal aria-hidden="true" />
+                                Commit…
+                              </Button>
+                            )}
                           </div>
                           <div className="diff-panel-body">
                             {busy ? (
                               <p className="flex items-center gap-2 text-sm text-muted-foreground">
-                                <LoaderCircle className="size-4 animate-spin" aria-hidden="true" />
+                                <LoaderCircle
+                                  className="size-3.5 animate-spin"
+                                  aria-hidden="true"
+                                />
                                 Reading Git changes…
                               </p>
                             ) : diff ? (
@@ -580,7 +728,7 @@ export function ConversationTools({
                                 }
                               />
                             ) : error ? (
-                              <Alert variant="destructive">
+                              <Alert variant="destructive" size="sm">
                                 <AlertDescription>
                                   Changes are not available. {error}
                                 </AlertDescription>

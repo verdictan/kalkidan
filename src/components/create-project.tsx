@@ -4,12 +4,17 @@ import { useTracker } from '../hooks/use-tracker';
 import { RemoteHostPicker } from './remote-host-picker';
 import { Choice } from './choice';
 import { useEffect, useId, useRef, useState } from 'react';
+import { ChevronRight, FolderOpen, X } from 'lucide-react';
 import type { API, TrackerAuthState, ProjectGroup } from '../types';
-import { TrackerProjectPicker } from './tracker-project-picker';
+import { TrackerProjectPicker, boardLabel } from './tracker-project-picker';
+import { codeFolders, folderName, useFolderImport, type FolderImport } from './repository-import';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { SectionHeader } from './ui/page-header';
 import { SegmentedControl } from './ui/segmented-control';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from './ui/collapsible';
+import { showToast } from './ui/toast';
+import { Hint } from './hint';
 import {
   Dialog,
   DialogBody,
@@ -46,6 +51,11 @@ export function CreateProject({
   const [name, setName] = useState('');
   const [rootPath, setRootPath] = useState('');
   const [url, setUrl] = useState('');
+  const [more, setMore] = useState(false);
+  // The code folders to add after the project is created.
+  const [folders, setFolders] = useState<FolderImport | null>(null);
+  const folderImport = useFolderImport(api);
+  const board = boardLabel(providerName);
   // The tracker is optional. "later" creates the project without one.
   const [tracker, setTracker] = useState<'later' | 'connect'>('later');
   const connecting = tracker === 'connect';
@@ -76,8 +86,21 @@ export function CreateProject({
       setHostId('');
       setHostReady(false);
       setTracker('later');
+      setMore(false);
+      setFolders(null);
     }
   }, [open]);
+  async function chooseFolder() {
+    setError('');
+    try {
+      const result = await folderImport.choose('Choose a code folder', 'Choose');
+      if (!result) return;
+      setFolders(result);
+      setName((current) => current || folderName(result.root));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  }
   useEffect(() => {
     if (!open || !ready || !connecting) return;
     setUrl('');
@@ -130,6 +153,17 @@ export function CreateProject({
         provider,
         rootPath.trim() || undefined,
       );
+      if (folders?.paths.length && location === 'local') {
+        // The project exists now. A failed add must not ask the user to create it again.
+        await api.addRepositories(id, folders.paths).catch((e) =>
+          showToast({
+            tone: 'error',
+            message: `Project created, but Kalkidan could not add the code folders. ${
+              e instanceof Error ? e.message : String(e)
+            }`,
+          }),
+        );
+      }
       const snapshot = await api.snapshot();
       const group = snapshot.groups?.find((g) => g.id === id);
       if (!group) throw new Error('Project created. Refresh the project list to open it.');
@@ -149,7 +183,7 @@ export function CreateProject({
       : connecting && auth.status !== 'ready'
         ? `Connect ${providerName}, or choose Connect later.`
         : connecting && !url
-          ? `Choose a ${providerName} project, or choose Connect later.`
+          ? `Choose a ${board}, or choose Connect later.`
           : '';
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -157,8 +191,7 @@ export function CreateProject({
         <DialogHeader>
           <DialogTitle>New project</DialogTitle>
           <DialogDescription>
-            A project keeps repositories, docs, and agent sessions together. You can connect a
-            tracker now or later.
+            A project keeps your code folders, docs, and agent sessions together.
           </DialogDescription>
         </DialogHeader>
         <DialogBody className="grid content-start gap-4">
@@ -183,136 +216,202 @@ export function CreateProject({
               placeholder="Customer platform"
             />
           </label>
-          <div className="form-label">
-            <span>Where work runs</span>
-            <Choice
-              className="w-full"
-              label="Project execution host"
-              disabled={busy}
-              value={location}
-              onChange={setLocation}
-              options={[
-                { value: 'local', label: 'This computer' },
-                { value: 'remote', label: 'Remote SSH host' },
-              ]}
-            />
-            <span className="text-xs font-normal">
-              Repositories and agent sessions stay on the selected machine.
-            </span>
-          </div>
-          {location === 'remote' && (
-            <RemoteHostPicker
-              api={api}
-              value={hostId}
-              onChange={setHostId}
-              onReady={setHostReady}
-              onBusy={setHostBusy}
-            />
-          )}
-          <div className="form-label">
-            <label htmlFor="project-root-folder">Project folder</label>
-            <div className="relative">
-              <Input
-                id="project-root-folder"
-                form={formId}
-                aria-label="Project folder"
-                className="pr-9"
-                value={rootPath}
-                disabled={busy}
-                onChange={(e) => setRootPath(e.target.value)}
-                placeholder="~/.kalkidan/projects/ (automatic)"
-              />
-              <FolderPicker
-                api={api}
-                value={rootPath}
-                hostId={location === 'remote' ? hostId : undefined}
-                className="absolute top-0.5 right-0.5"
-                disabled={busy || (location === 'remote' && (!hostId || !hostReady))}
-                onSelect={setRootPath}
-              />
-            </div>
-            <span className="text-xs font-normal">
-              Docs, cloned repositories, and worktrees are stored here on the selected machine.
-              Leave blank to create a dedicated folder automatically.
-            </span>
-          </div>
-          <section aria-label="Tracker" className="grid gap-3">
-            <SectionHeader className="mb-0 min-h-0" title="Tracker (optional)" />
-            <SegmentedControl
-              className="justify-self-start"
-              label="Tracker connection"
-              value={tracker}
-              onChange={(value) => {
-                setTracker(value);
-                setUrl('');
-              }}
-              options={[
-                { value: 'later', label: 'Connect later', disabled: busy },
-                { value: 'connect', label: `Use ${providerName}`, disabled: busy },
-              ]}
-            />
-            {!connecting ? (
-              <p className="text-xs text-muted-foreground">
-                The project has no task board yet. Connect a {providerName} project from the project
-                page when you need one.
-              </p>
-            ) : (
-              <>
-                {providers.length > 1 && (
-                  <label className="form-label">
-                    Project tracker
-                    <Choice
-                      label="Project tracker"
-                      value={provider}
-                      disabled={busy}
-                      onChange={setProvider}
-                      options={providers.map((p) => ({ value: p.id, label: p.name }))}
-                    />
-                  </label>
-                )}
-                {auth.status === 'ready' ? (
-                  <TrackerProjectPicker
-                    key={provider}
-                    provider={provider}
-                    api={api}
-                    defaultTitle={name || 'New project'}
-                    value={url}
-                    onChange={setUrl}
-                    onBusy={setPickerBusy}
+          {folderImport.supported && location === 'local' && (
+            <div className="form-label">
+              <span id={`${formId}-folder`}>Code folder</span>
+              {folders ? (
+                <div className="flex min-w-0 items-center gap-2 rounded-md border px-3 py-1.5">
+                  <FolderOpen
+                    className="size-4 shrink-0 text-muted-foreground"
+                    aria-hidden="true"
                   />
+                  <Hint label={folders.root}>
+                    <span tabIndex={0} className="min-w-0 flex-1 truncate text-sm text-foreground">
+                      {codeFolders(folders.paths.length)} from {folderName(folders.root)}
+                    </span>
+                  </Hint>
+                  <Button
+                    variant="ghost"
+                    size="xs"
+                    disabled={busy}
+                    onClick={() => void chooseFolder()}
+                  >
+                    Change
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon-xs"
+                    aria-label="Remove code folder"
+                    disabled={busy}
+                    onClick={() => setFolders(null)}
+                  >
+                    <X />
+                  </Button>
+                </div>
+              ) : (
+                <Button
+                  variant="outline"
+                  className="justify-self-start"
+                  aria-describedby={`${formId}-folder`}
+                  disabled={busy}
+                  onClick={() => void chooseFolder()}
+                >
+                  <FolderOpen /> Choose code folder
+                </Button>
+              )}
+              <span className="form-help">
+                Optional. If the folder holds more than one Git repository, Kalkidan adds each one.
+              </span>
+            </div>
+          )}
+          <Collapsible open={more} onOpenChange={setMore} className="grid gap-4">
+            <CollapsibleTrigger asChild>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="-ml-2 justify-self-start text-muted-foreground [&[data-state=open]>svg]:rotate-90"
+              >
+                <ChevronRight className="transition-transform" />
+                More options
+              </Button>
+            </CollapsibleTrigger>
+            <CollapsibleContent className="grid gap-4">
+              <div className="form-label">
+                <span>Where work runs</span>
+                <Choice
+                  className="w-full"
+                  label="Project execution host"
+                  disabled={busy}
+                  value={location}
+                  onChange={setLocation}
+                  options={[
+                    { value: 'local', label: 'This computer' },
+                    { value: 'remote', label: 'Remote SSH host' },
+                  ]}
+                />
+                <span className="form-help">
+                  Code folders and agent sessions stay on the machine that you select.
+                </span>
+              </div>
+              {location === 'remote' && (
+                <RemoteHostPicker
+                  api={api}
+                  value={hostId}
+                  onChange={setHostId}
+                  onReady={setHostReady}
+                  onBusy={setHostBusy}
+                />
+              )}
+              <div className="form-label">
+                <label htmlFor="project-root-folder">Project folder</label>
+                <div className="relative">
+                  <Input
+                    id="project-root-folder"
+                    form={formId}
+                    aria-label="Project folder"
+                    className="pr-9"
+                    value={rootPath}
+                    disabled={busy}
+                    onChange={(e) => setRootPath(e.target.value)}
+                    placeholder="~/.kalkidan/projects/ (automatic)"
+                  />
+                  <FolderPicker
+                    api={api}
+                    value={rootPath}
+                    hostId={location === 'remote' ? hostId : undefined}
+                    className="absolute top-0.5 right-0.5"
+                    disabled={busy || (location === 'remote' && (!hostId || !hostReady))}
+                    onSelect={setRootPath}
+                  />
+                </div>
+                <span className="form-help">
+                  Kalkidan keeps docs, clones, and branch copies here. Leave it empty to use an
+                  automatic folder. Code folders that you add do not move.
+                </span>
+              </div>
+              <section aria-label={board} className="grid gap-3">
+                <SectionHeader size="sm" title={`${board} (optional)`} />
+                <SegmentedControl
+                  className="justify-self-start"
+                  label={`${board} connection`}
+                  value={tracker}
+                  onChange={(value) => {
+                    setTracker(value);
+                    setUrl('');
+                  }}
+                  options={[
+                    { value: 'later', label: 'Connect later', disabled: busy },
+                    { value: 'connect', label: 'Connect now', disabled: busy },
+                  ]}
+                />
+                {!connecting ? (
+                  <p className="text-xs text-muted-foreground">
+                    A board shows the tasks of the project. You can connect one later from the
+                    project page.
+                  </p>
                 ) : (
-                  <div className="panel space-y-3" aria-live="polite">
-                    <p className="text-sm">
-                      {auth.status === 'checking'
-                        ? `Checking ${providerName} access…`
-                        : auth.status === 'waiting'
-                          ? 'Approve Projects access in your browser to continue.'
-                          : auth.message ||
-                            `Connect ${providerName} to choose a project for tasks. Your browser opens to approve access.`}
-                    </p>
-                    {auth.code && (
-                      <Input aria-label="Authorization device code" readOnly value={auth.code} />
+                  <>
+                    {providers.length > 1 && (
+                      <label className="form-label">
+                        Project tracker
+                        <Choice
+                          label="Project tracker"
+                          value={provider}
+                          disabled={busy}
+                          onChange={setProvider}
+                          options={providers.map((p) => ({ value: p.id, label: p.name }))}
+                        />
+                      </label>
                     )}
-                    <Button
-                      variant="outline"
-                      disabled={auth.status === 'checking'}
-                      onClick={() =>
-                        void (auth.status === 'waiting'
-                          ? client.openAuth().catch((e) => setError(e.message))
-                          : authorize())
-                      }
-                    >
-                      {auth.status === 'waiting'
-                        ? `Open ${providerName}`
-                        : auth.status === 'error'
-                          ? `Try ${providerName} again`
-                          : `Connect ${providerName}`}
-                    </Button>
-                  </div>
+                    {auth.status === 'ready' ? (
+                      <TrackerProjectPicker
+                        key={provider}
+                        provider={provider}
+                        api={api}
+                        defaultTitle={name || 'New project'}
+                        value={url}
+                        onChange={setUrl}
+                        onBusy={setPickerBusy}
+                      />
+                    ) : (
+                      <div className="panel space-y-3" aria-live="polite">
+                        <p className="text-sm">
+                          {auth.status === 'checking'
+                            ? `Checking ${providerName} access…`
+                            : auth.status === 'waiting'
+                              ? 'Approve the access in your browser to continue.'
+                              : auth.message ||
+                                `Connect ${providerName} to choose a ${board}. Your browser opens to approve the access.`}
+                        </p>
+                        {auth.code && (
+                          <Input
+                            aria-label="Authorization device code"
+                            readOnly
+                            value={auth.code}
+                          />
+                        )}
+                        <Button
+                          variant="outline"
+                          disabled={auth.status === 'checking'}
+                          onClick={() =>
+                            void (auth.status === 'waiting'
+                              ? client.openAuth().catch((e) => setError(e.message))
+                              : authorize())
+                          }
+                        >
+                          {auth.status === 'waiting'
+                            ? `Open ${providerName}`
+                            : auth.status === 'error'
+                              ? `Try ${providerName} again`
+                              : `Connect ${providerName}`}
+                        </Button>
+                      </div>
+                    )}
+                  </>
                 )}
-              </>
-            )}
-          </section>
+              </section>
+            </CollapsibleContent>
+          </Collapsible>
           {(error || (connecting && providerError)) && (
             <p role="alert" className="field-error">
               {error || providerError}
@@ -336,6 +435,7 @@ export function CreateProject({
           </Button>
         </DialogFooter>
       </DialogContent>
+      {folderImport.dialog}
     </Dialog>
   );
 }

@@ -47,6 +47,12 @@ export function appMenuTemplate({
       label: 'File',
       submenu: [
         { label: 'New project', accelerator: 'CmdOrCtrl+N', click: command('new-project') },
+        {
+          label: 'Add code folder…',
+          accelerator: 'CmdOrCtrl+Shift+O',
+          click: command('add-code-folder'),
+        },
+        { label: 'New task', click: command('new-task') },
         // The renderer handles this key at once, so typed text does not reach the focused field.
         {
           label: 'Search',
@@ -112,6 +118,34 @@ export function appMenuTemplate({
       ],
     },
     {
+      // The renderer sends these commands to the open session.
+      label: 'Session',
+      submenu: [
+        { label: 'New session', accelerator: 'CmdOrCtrl+Shift+N', click: command('session-new') },
+        separator,
+        // The renderer handles these keys in the session view, so the menu only shows them.
+        {
+          label: 'Terminal',
+          accelerator: 'Ctrl+`',
+          registerAccelerator: false,
+          click: command('session-terminal'),
+        },
+        {
+          label: 'Changes',
+          accelerator: 'CmdOrCtrl+Shift+G',
+          registerAccelerator: false,
+          click: command('session-changes'),
+        },
+        separator,
+        { label: 'Rename…', click: command('session-rename') },
+        { label: 'Pin', click: command('session-pin') },
+        { label: 'Open a second chat beside this one', click: command('session-side-chat') },
+        { label: 'Commit…', click: command('session-commit') },
+        separator,
+        { label: 'Archive', click: command('session-archive') },
+      ],
+    },
+    {
       // The window role makes macOS add the open windows to this menu.
       role: 'window',
       label: 'Window',
@@ -132,6 +166,9 @@ export function appMenuTemplate({
       role: 'help',
       label: 'Help',
       submenu: [
+        { label: 'Get started', click: command('get-started') },
+        { label: 'Keyboard shortcuts', accelerator: 'CmdOrCtrl+/', click: command('shortcuts') },
+        separator,
         {
           label: `${appName} user guide`,
           click: () =>

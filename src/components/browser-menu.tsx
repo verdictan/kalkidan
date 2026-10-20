@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Download, KeyRound, Minus, Plus } from 'lucide-react';
-import { Button } from './ui/button';
+import { Button, buttonVariants } from './ui/button';
 import { Input } from './ui/input';
 import { MoreButton } from './ui/more-button';
 import { Switch } from './ui/switch';
@@ -12,13 +12,11 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuSeparator,
-  DropdownMenuSub,
-  DropdownMenuSubTrigger,
-  DropdownMenuSubContent,
   DropdownMenuShortcut,
 } from './ui/dropdown-menu';
 import { Hint } from './hint';
 import { revealLabel } from '../lib/platform';
+import { cn } from '../lib/utils';
 import { errorMessage } from '../lib/errors';
 import type { API, BrowserProfileData } from '../types';
 
@@ -49,6 +47,8 @@ const clearOptions = [
   },
 ] as const;
 type ClearOption = (typeof clearOptions)[number];
+// The zoom controls are menu items with the icon button look, so the menu stays open.
+const zoomButtonClass = cn(buttonVariants({ variant: 'ghost', size: 'icon-sm' }), 'p-0');
 const downloadState: Record<string, string> = {
   progressing: 'Downloading',
   paused: 'Paused',
@@ -171,7 +171,7 @@ export function BrowserMenu({
             <div className="flex items-center">
               {/* Menu items keep the zoom controls in the keyboard order. The menu stays open. */}
               <DropdownMenuItem
-                className="size-7 justify-center p-0"
+                className={zoomButtonClass}
                 aria-label="Zoom out"
                 disabled={busy || zoom <= 0.25}
                 onSelect={(e) => {
@@ -179,10 +179,13 @@ export function BrowserMenu({
                   void act('zoom', Math.max(0.25, Math.round((zoom - 0.1) * 100) / 100));
                 }}
               >
-                <Minus className="size-3.5" aria-hidden="true" />
+                <Minus aria-hidden="true" />
               </DropdownMenuItem>
               <DropdownMenuItem
-                className="h-7 justify-center px-2 tabular-nums"
+                className={cn(
+                  buttonVariants({ variant: 'ghost', size: 'sm' }),
+                  'min-w-12 justify-center font-normal tabular-nums',
+                )}
                 aria-label={`Reset zoom (now ${Math.round(zoom * 100)}%)`}
                 disabled={busy}
                 onSelect={(e) => {
@@ -193,7 +196,7 @@ export function BrowserMenu({
                 {Math.round(zoom * 100)}%
               </DropdownMenuItem>
               <DropdownMenuItem
-                className="size-7 justify-center p-0"
+                className={zoomButtonClass}
                 aria-label="Zoom in"
                 disabled={busy || zoom >= 3}
                 onSelect={(e) => {
@@ -201,7 +204,7 @@ export function BrowserMenu({
                   void act('zoom', Math.min(3, Math.round((zoom + 0.1) * 100) / 100));
                 }}
               >
-                <Plus className="size-3.5" aria-hidden="true" />
+                <Plus aria-hidden="true" />
               </DropdownMenuItem>
             </div>
           </div>
@@ -210,27 +213,6 @@ export function BrowserMenu({
             Take screenshot…
           </DropdownMenuItem>
           <DropdownMenuSeparator />
-          <DropdownMenuSub>
-            <DropdownMenuSubTrigger>Import cookies and passwords…</DropdownMenuSubTrigger>
-            <DropdownMenuSubContent>
-              <DropdownMenuItem
-                onSelect={() => {
-                  openPanel('Import');
-                  void act('import', 'cookies');
-                }}
-              >
-                Cookies from JSON…
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                onSelect={() => {
-                  openPanel('Import');
-                  void act('import', 'passwords');
-                }}
-              >
-                Passwords from CSV…
-              </DropdownMenuItem>
-            </DropdownMenuSubContent>
-          </DropdownMenuSub>
           <DropdownMenuItem onSelect={() => void show('Passwords and autofill')}>
             Passwords and autofill
           </DropdownMenuItem>
@@ -254,9 +236,7 @@ export function BrowserMenu({
                 ? 'Credentials are encrypted with your operating system’s secure storage. Fill only the exact saved origin, then submit the form yourself.'
                 : panel === 'Clear browsing data'
                   ? 'Clear data from Kalkidan’s embedded browser. Your external browser is unaffected.'
-                  : panel === 'Import'
-                    ? 'Import a JSON cookie array or a password CSV with url, username, and password columns. Direct Chrome profile import is not supported.'
-                    : 'Manage your Kalkidan browser.'}
+                  : 'Manage your Kalkidan browser.'}
             </DialogDescription>
           </DialogHeader>
           {notice && (
@@ -294,11 +274,44 @@ export function BrowserMenu({
                 Remember browsing history
                 <Switch checked={remember} onCheckedChange={setRemember} />
               </label>
-              <p className="text-xs text-muted-foreground">
+              <p className="form-help">
                 Browser cookies persist between launches. Camera, microphone, location, and
                 notifications remain blocked.
               </p>
               <Button disabled={busy}>Save browser settings</Button>
+              <section className="grid gap-2 border-t pt-4" aria-labelledby="browser-import">
+                <h3 id="browser-import" className="text-sm font-semibold">
+                  Import sign-in data
+                </h3>
+                <p className="form-help">
+                  Import a JSON cookie array, or a password CSV with url, username, and password
+                  columns. Direct Chrome profile import is not supported.
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    disabled={busy}
+                    onClick={() => void act('import', 'cookies')}
+                  >
+                    Import cookies from JSON…
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    disabled={busy}
+                    onClick={() =>
+                      void attempt('import', 'passwords').then((outcome) =>
+                        outcome.ok ? refresh() : undefined,
+                      )
+                    }
+                  >
+                    Import passwords from CSV…
+                  </Button>
+                </div>
+              </section>
             </form>
           )}
           {panel === 'Clear browsing data' && (

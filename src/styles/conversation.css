@@ -36,13 +36,21 @@
   container: conversation / size;
 }
 /* Messages use the reading width. The composer dock is 17px wider on each side, so the
-   composer text (1px border + 8px padding + 8px text inset) aligns with the message text. */
+   composer text (1px border + 8px padding + 8px text inset) aligns with the message text.
+   A classic scrollbar takes width on the right only. The session view measures it as
+   --scrollbar-width, and the right padding is smaller by that width, so the message column
+   stays centred over the composer. */
 .conversation-messages {
   flex: 1;
   min-height: 0;
   overflow: auto;
-  padding: 28px max(24px, calc((100% - var(--reading-width)) / 2)) 24px;
-  scrollbar-gutter: stable both-edges;
+  padding-block: 28px 24px;
+  padding-left: max(24px, calc((100% - var(--reading-width)) / 2));
+  padding-right: max(
+    calc(24px - var(--scrollbar-width, 0px)),
+    calc((100% - var(--reading-width)) / 2 - var(--scrollbar-width, 0px))
+  );
+  scrollbar-gutter: stable;
 }
 .chat-log {
   display: contents;
@@ -96,12 +104,6 @@
 .chat-markdown > :last-child {
   margin-bottom: 0;
 }
-.chat-markdown ul {
-  list-style: disc;
-}
-.chat-markdown ol {
-  list-style: decimal;
-}
 .chat-markdown table {
   display: block;
   max-width: 100%;
@@ -119,9 +121,9 @@
   text-underline-offset: 2px;
 }
 .chat-link:focus-visible {
-  outline: 2px solid var(--ring);
-  outline-offset: 2px;
+  outline: none;
   border-radius: var(--radius-xs);
+  box-shadow: var(--focus-ring);
 }
 .chat-context-note {
   text-align: center;
@@ -136,6 +138,7 @@
   align-items: center;
   gap: 8px;
   font-size: 12px;
+  line-height: 16px;
   color: var(--muted-foreground);
   margin: 12px 0;
   overflow-wrap: anywhere;
@@ -159,8 +162,9 @@
   color: var(--card-foreground);
 }
 .conversation-composer:focus-within {
-  border-color: var(--ring);
+  border-color: color-mix(in oklab, var(--ring) 50%, var(--border));
 }
+/* Attachments are pills like the composer chips: 28px, secondary fill, no border. */
 .context-attachments {
   display: flex;
   flex-wrap: wrap;
@@ -171,12 +175,36 @@
   align-items: center;
   gap: 2px;
   max-width: 100%;
-  height: 24px;
-  padding: 0 2px 0 8px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  background: var(--muted);
+  height: var(--control-sm);
+  padding: 0 4px 0 10px;
+  border-radius: 9999px;
+  background: var(--secondary);
+  color: var(--secondary-foreground);
   font-size: 12px;
+  line-height: 16px;
+  font-weight: 500;
+}
+/* An inline question in the composer, for example "Allow edits?" after a refused write. */
+.composer-notice {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 8px 8px 12px;
+  border-radius: var(--radius-lg);
+  background: var(--muted);
+  font-size: 13px;
+  line-height: 20px;
+}
+.composer-notice > svg {
+  color: var(--warning);
+}
+/* The task chip and its unlink button. */
+.composer-task {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  max-width: 240px;
 }
 .composer-actions {
   display: flex;
@@ -191,9 +219,6 @@
   min-width: 0;
   align-items: center;
   gap: 4px;
-}
-.composer-model {
-  min-width: 0;
 }
 /* The shortcut hint shows only while the empty composer has focus. */
 .composer-shortcut {
@@ -221,12 +246,30 @@
   align-items: center;
   gap: 8px;
   margin: 0 0 8px;
-  padding: 8px 12px;
-  border: 1px solid var(--warning);
-  border-radius: var(--radius-xl);
+  padding: 6px 6px 6px 12px;
+  border: 1px solid color-mix(in oklab, var(--warning) 45%, var(--border));
+  border-radius: var(--radius-2xl);
   background: var(--card);
   color: var(--foreground);
   font-size: 12px;
+  line-height: 16px;
+}
+/* "{n} files changed · Review · Commit" after a run. */
+.run-changes {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin: 0 0 8px;
+  padding: 2px 4px 2px 12px;
+  border-radius: var(--radius-2xl);
+  background: var(--muted);
+  color: var(--muted-foreground);
+  font-size: 12px;
+  line-height: 16px;
+}
+.run-changes > span:first-of-type {
+  color: var(--foreground);
+  font-weight: 500;
 }
 .approval-banner svg {
   color: var(--warning);
@@ -251,6 +294,13 @@
   font-size: 13px;
   line-height: 20px;
   color: var(--muted-foreground);
+}
+.conversation-starters {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 16px;
 }
 .conversation-empty .conversation-messages {
   display: flex;
@@ -281,14 +331,6 @@
     max-height: 30%;
   }
 }
-@media (prefers-reduced-motion: reduce) {
-  *,
-  *::before,
-  *::after {
-    transition: none !important;
-    animation: none !important;
-  }
-}
 
 /* A normal outline button. It shows only while the tracker is not connected. */
 .sidebar-github-connect {
@@ -309,6 +351,51 @@
 
 .session-menu-status {
   white-space: nowrap;
+}
+
+/* The file list in the commit dialog: a checkbox, the name, the folder and the change. */
+.commit-file-list {
+  max-height: 220px;
+}
+.commit-file {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-width: 0;
+  min-height: var(--row-height);
+  font-size: 13px;
+  line-height: 20px;
+  cursor: pointer;
+}
+.commit-file-list .list-box-row:hover {
+  background: var(--surface-hover);
+}
+.commit-file-list .list-box-row:has(:focus-visible) {
+  box-shadow: inset var(--focus-ring);
+}
+.commit-file-list input:focus-visible {
+  outline: none;
+}
+.commit-file-name {
+  flex-shrink: 0;
+  font-weight: 500;
+}
+.commit-file-path {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--muted-foreground);
+}
+.commit-file-status {
+  flex-shrink: 0;
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--muted-foreground);
 }
 
 /* The session breadcrumb in the title bar: repository › session title. The repository name

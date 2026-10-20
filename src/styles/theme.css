@@ -4,7 +4,7 @@
   --color-foreground: var(--foreground);
   --color-card: var(--card);
   --color-card-foreground: var(--foreground);
-  --color-popover: var(--card);
+  --color-popover: var(--popover);
   --color-popover-foreground: var(--foreground);
   --color-primary: var(--primary);
   --color-primary-foreground: var(--primary-foreground);
@@ -12,6 +12,7 @@
   --color-secondary-foreground: var(--foreground);
   --color-muted: var(--muted);
   --color-muted-foreground: var(--muted-foreground);
+  --color-subtle-foreground: var(--subtle-foreground);
   --color-accent: var(--accent);
   --color-accent-foreground: var(--foreground);
   --color-destructive: var(--destructive);
@@ -70,11 +71,11 @@
   --ring: #87939d;
   --destructive: #f28b82;
   --navigation: #15191c;
-  --chrome: #22272b;
-  --composer: #292e33;
+  /* The title bar uses the sidebar surface, so the window chrome is one surface. */
+  --chrome: var(--navigation);
+  --subtle-foreground: #6f777e;
   --success: #71c78a;
   --warning: #e3b341;
-  --danger-surface: #3a2326;
   --link: #82baff;
   --diff-add: #8fd3a3;
   --diff-add-surface: #1a3225;
@@ -91,6 +92,8 @@
   --space-6: 24px;
   --space-8: 32px;
   --space-12: 48px;
+  --space-16: 64px;
+  --space-24: 96px;
   /* Controls and rows */
   --control-xs: 24px;
   --control-sm: 28px;
@@ -98,7 +101,9 @@
   --control-lg: 36px;
   --row-height: 32px;
   --row-height-2line: 56px;
+  --row-height-lg: 48px;
   /* Layout */
+  --titlebar-height: 48px;
   --page-max-width: 1120px;
   --page-padding-x: 32px;
   --page-padding-top: 24px;
@@ -110,14 +115,18 @@
   /* States and elevation */
   --surface-hover: color-mix(in srgb, var(--foreground) 5%, transparent);
   --surface-selected: color-mix(in srgb, var(--foreground) 9%, transparent);
-  --popover: var(--card);
-  --focus-ring: 0 0 0 2px var(--ring);
+  /* Elevation ladder: page < sidebar and title bar < card < menus and dialogs. */
+  --popover: #1e2226;
+  --focus-color: color-mix(in srgb, var(--ring) 70%, transparent);
+  --focus-ring: 0 0 0 2px var(--focus-color);
   --overlay: rgb(0 0 0 / 0.5);
-  --shadow-subtle: 0 1px 2px rgb(0 0 0 / 0.35);
+  --shadow-subtle: 0 1px 1px rgb(0 0 0 / 0.2);
   --destructive-foreground: #1a0f0e;
-  --row-height-lg: 48px;
-  --titlebar-height: 48px;
-  --shadow-raised: 0 1px 2px rgb(0 0 0 / 0.2);
+  /* Motion. Wrapped by a reduced-motion rule in components.css. */
+  --motion-fast: 120ms;
+  --motion-base: 200ms;
+  --ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --shadow-raised: 0 1px 2px rgb(0 0 0 / 0.3);
   --shadow-popover: 0 4px 16px rgb(0 0 0 / 0.32);
   --shadow-dialog: 0 16px 48px rgb(0 0 0 / 0.45);
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
@@ -139,20 +148,19 @@
   --ring: #8c959f;
   --destructive: #cf222e;
   --navigation: #f6f8fa;
-  --chrome: #eef0f2;
-  --composer: #f6f8fa;
+  --subtle-foreground: #8a939c;
+  --popover: #ffffff;
   --success: #1a7f37;
   --warning: #9a6700;
-  --danger-surface: #ffebe9;
   --link: #0969da;
   --diff-add: #1a7f37;
   --diff-add-surface: #dafbe1;
   --diff-remove: #cf222e;
   --diff-remove-surface: #ffebe9;
   --overlay: rgb(15 20 25 / 0.32);
-  --shadow-subtle: 0 1px 2px rgb(15 20 25 / 0.06);
+  --shadow-subtle: 0 1px 2px rgb(15 20 25 / 0.04);
   --destructive-foreground: #ffffff;
-  --shadow-raised: 0 1px 2px rgb(15 20 25 / 0.06);
+  --shadow-raised: 0 1px 2px rgb(15 20 25 / 0.08);
   --shadow-popover: 0 4px 16px rgb(15 20 25 / 0.12);
   --shadow-dialog: 0 16px 48px rgb(15 20 25 / 0.18);
 }

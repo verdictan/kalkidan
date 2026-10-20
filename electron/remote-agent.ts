@@ -21,7 +21,18 @@ import { createAgentRuntimes } from './agents/runtime';
 import { CommandTerminal, repositoryDiff } from './conversation-tools';
 import { modelOptions } from './models';
 import { executable } from './chat';
-import { gitCommit, gitPullRequest, removeWorktree, workingStatus } from './git-working';
+import {
+  gitCommit,
+  gitPullRequest,
+  gitSwitchNewBranch,
+  removeWorktree,
+  workingFiles,
+  workingStatus,
+  worktreeFolder,
+  worktreePreview,
+} from './git-working';
+import { scanRepositories } from './repository-scan';
+import { existsSync } from 'node:fs';
 const locations = new ProjectLocationCache(join(homedir(), '.kalkidan', 'projects'));
 const projectDocs = new Map<string, ProjectDocs>();
 const pty = new PtyTerminal();
@@ -191,20 +202,26 @@ async function dispatch(method: string, args: any[]): Promise<any> {
         throw new Error('Invalid branch');
       await git(cwd, ['check-ref-format', '--branch', b]);
       if (typeof c !== 'string' || !c.startsWith('/')) throw new Error('Project location required');
-      const path = join(
-        c,
-        'worktrees',
-        basename(cwd) + '-' + b.replaceAll('/', '-') + '-' + randomUUID().slice(0, 8),
-      );
+      const path = worktreeFolder(c, basename(cwd), b, existsSync);
       await git(cwd, ['worktree', 'add', '-b', b, '--', path]);
       return { path: await folder(path), name: basename(path) };
     }
+    case 'worktree-preview': {
+      if (typeof c !== 'string' || !c.startsWith('/')) throw new Error('Project location required');
+      return worktreePreview(await folder(a), b, c, existsSync);
+    }
+    case 'scan-repositories':
+      return scanRepositories(await folder(a));
     case 'worktree-remove':
       return removeWorktree(await folder(a), b === true);
     case 'working-status':
       return workingStatus(await folder(a));
     case 'git-commit':
-      return gitCommit(await folder(a), b);
+      return gitCommit(await folder(a), b, c);
+    case 'working-files':
+      return workingFiles(await folder(a));
+    case 'git-switch-new-branch':
+      return gitSwitchNewBranch(await folder(a), b);
     case 'git-pull-request':
       return gitPullRequest(await folder(a), b, c, () => executable('gh'));
     case 'repositoryDiff':

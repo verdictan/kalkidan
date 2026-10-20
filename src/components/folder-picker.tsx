@@ -7,6 +7,7 @@ import { Input } from './ui/input';
 import { SearchInput } from './ui/search-input';
 import { Hint } from './hint';
 import { EmptyState } from './ui/empty-state';
+import { checkboxClass } from './repository-import';
 import {
   Dialog,
   DialogBody,
@@ -109,7 +110,7 @@ export function FolderPicker({
               {hostId
                 ? 'Browse folders on the selected remote host.'
                 : 'Browse folders on this machine.'}{' '}
-              Files show for context. Choose a folder for your project.
+              Files show only for context. Open a folder, then select Use this folder.
             </DialogDescription>
           </DialogHeader>
           <DialogBody className="flex flex-col gap-3 overflow-hidden">
@@ -154,10 +155,10 @@ export function FolderPicker({
                   <RefreshCw />
                 </Button>
               </Hint>
-              <label className="ml-auto flex items-center gap-2 text-sm text-muted-foreground">
+              <label className="ml-auto flex cursor-pointer items-center gap-2 text-sm text-muted-foreground">
                 <input
                   type="checkbox"
-                  className="size-3.5 accent-primary"
+                  className={checkboxClass}
                   checked={hidden}
                   onChange={(event) => setHidden(event.target.checked)}
                 />
@@ -197,7 +198,7 @@ export function FolderPicker({
                   type="button"
                   key={entry.path}
                   title={entry.name}
-                  className="list-box-row text-sm disabled:opacity-60 [&_svg]:size-3.5 [&_svg]:shrink-0 [&_svg]:text-muted-foreground"
+                  className="list-box-row text-sm disabled:opacity-50 [&_svg]:size-3.5 [&_svg]:shrink-0 [&_svg]:text-muted-foreground"
                   disabled={entry.kind === 'file'}
                   onClick={() => void browse(entry.path)}
                 >

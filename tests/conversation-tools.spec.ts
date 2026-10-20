@@ -101,7 +101,7 @@ test('conversation tools preview evidence, attach it to the draft, and send it o
     dialog.getByRole('list', { name: 'Changed files' }).locator('[aria-current="true"]'),
   ).toContainText('new.ts');
   await dialog.getByRole('combobox', { name: 'Diff scope' }).click();
-  await page.getByRole('option', { name: 'Staged changes', exact: true }).click();
+  await page.getByRole('option', { name: 'Staged for commit', exact: true }).click();
   await expect(dialog.getByLabel('Git diff')).toContainText('+staged change');
   await dialog.getByRole('button', { name: 'Attach all changes to message' }).click();
   await openTool(page, 'Browser');

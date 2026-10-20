@@ -6,9 +6,12 @@ test('board quick creation, issue inspector and status changes share the tracker
   await page.setViewportSize({ width: 773, height: 988 });
   await page.goto('http://127.0.0.1:5173');
   await page.locator('.project-tree').getByRole('button', { name: 'Atlas', exact: true }).click();
-  await page.getByRole('button', { name: 'Connect GitHub', exact: true }).click();
+  await page
+    .getByRole('region', { name: 'Project tracker' })
+    .getByRole('button', { name: 'Connect a GitHub Projects board', exact: true })
+    .click();
   await page.getByRole('button', { name: 'Atlas roadmap #1', exact: true }).click();
-  await page.getByRole('button', { name: 'Connect project', exact: true }).click();
+  await page.getByRole('button', { name: 'Connect board', exact: true }).click();
   const board = page.getByRole('region', { name: 'Tracker board', exact: true });
   await board.getByRole('button', { name: 'New task in In progress', exact: true }).click();
   const create = page.getByRole('dialog');
@@ -36,14 +39,15 @@ test('board quick creation, issue inspector and status changes share the tracker
   ).toBeVisible();
   await page.screenshot({ path: 'test-results/tracker-inspector.png' });
   await page.keyboard.press('Escape');
-  await page.getByRole('button', { name: 'Refresh GitHub project', exact: true }).click();
+  await page.getByRole('button', { name: 'Refresh board', exact: true }).click();
   await expect(
     board
       .getByRole('region', { name: 'Done column', exact: true })
       .getByRole('button', { name: 'Polish the issue workflow', exact: true }),
   ).toBeVisible();
-  await page.getByRole('combobox', { name: 'Sort tasks', exact: true }).click();
-  await page.getByRole('option', { name: 'Title A–Z', exact: true }).click();
+  // Few tasks need no filters: the search shows, the Filter button does not.
+  await expect(page.getByLabel('Search tasks')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Filter', exact: true })).toHaveCount(0);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.screenshot({ path: 'test-results/tracker-workspace.png' });
 });
@@ -101,10 +105,8 @@ test('failed initial status leaves one created item available for a status retry
     };
   });
   await page.goto('http://127.0.0.1:5173');
-  await page
-    .locator('.project-tree')
-    .getByRole('button', { name: 'Platform', exact: true })
-    .click();
+  // The project row opens the overview. The Tasks row opens the board.
+  await page.locator('.project-tree').getByRole('button', { name: 'Tasks', exact: true }).click();
   await page.getByRole('button', { name: 'New task in Building', exact: true }).click();
   await page.getByLabel('Task title').fill('Only create once');
   await page.getByRole('button', { name: 'Add to GitHub', exact: true }).click();
@@ -114,7 +116,9 @@ test('failed initial status leaves one created item available for a status retry
   );
   const board = page.getByRole('region', { name: 'Tracker board', exact: true });
   await expect(board.getByRole('button', { name: 'Only create once', exact: true })).toHaveCount(1);
-  await board.getByRole('button', { name: 'Move task: Only create once', exact: true }).click();
+  await board
+    .getByRole('button', { name: 'Move task: Only create once. Status: No status' })
+    .click();
   await page.getByRole('menuitem', { name: 'Building', exact: true }).click();
   await expect(
     board

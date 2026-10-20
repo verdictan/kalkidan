@@ -6,6 +6,11 @@ export interface RemoteHost {
   name: string;
   target: string;
   status: 'disconnected' | 'checked' | 'connecting' | 'connected' | 'error';
+  /**
+   * Why the last check or connection failed, or why the connection closed. It is cleared when
+   * the host connects. Call remoteConnect again to reconnect.
+   */
+  error?: string;
   version?: string;
   node?: string;
   platform?: string;

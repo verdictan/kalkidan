@@ -251,8 +251,9 @@ export function EmbeddedBrowser({
         <Input
           ref={address}
           variant="filled"
+          size="sm"
           aria-label="Preview URL"
-          className="h-7 w-20 min-w-0 flex-1 text-xs"
+          className="w-20 min-w-0 flex-1"
           value={url}
           onFocus={() => {
             editingURL.current = true;
@@ -275,7 +276,7 @@ export function EmbeddedBrowser({
             </Button>
           </Hint>
         )}
-        <Hint label="Select element to annotate">
+        <Hint label="Select an element and tell the agent what to change">
           <Button
             type="button"
             variant="ghost"
@@ -328,7 +329,8 @@ export function EmbeddedBrowser({
             aria-label="Find in page"
             aria-keyshortcuts="Enter"
             placeholder="Find in page…"
-            className="h-7 w-20 min-w-0 flex-1 text-xs"
+            size="sm"
+            className="w-20 min-w-0 flex-1"
             value={findText}
             onChange={(e) => {
               setFindText(e.target.value);
@@ -387,7 +389,8 @@ export function EmbeddedBrowser({
           />
           <Input
             aria-label="Device width"
-            className="h-7 w-16 px-1 text-xs"
+            size="sm"
+            className="w-16 px-1"
             type="number"
             min={240}
             max={3840}
@@ -397,7 +400,8 @@ export function EmbeddedBrowser({
           <span>×</span>
           <Input
             aria-label="Device height"
-            className="h-7 w-16 px-1 text-xs"
+            size="sm"
+            className="w-16 px-1"
             type="number"
             min={240}
             max={3840}
@@ -437,6 +441,9 @@ export function EmbeddedBrowser({
               <X />
             </Button>
           </div>
+          <p className="form-help">
+            The agent gets this element and your note with your next message.
+          </p>
           <Textarea
             aria-label="Browser annotation"
             placeholder="Describe the change…"
@@ -463,9 +470,21 @@ export function EmbeddedBrowser({
       ) : (
         <div ref={viewport} className="browser-viewport" aria-label="Embedded browser">
           {!ready && (
-            <p className="px-4 text-center break-all">
-              {url.trim() ? `Press Enter to open ${url.trim()}.` : 'Type a URL to preview it here.'}
-            </p>
+            <div className="grid max-w-80 gap-2 px-4 text-center">
+              <p className="break-all">
+                {url.trim()
+                  ? `Press Enter to open ${url.trim()}.`
+                  : 'Type a URL to preview it here.'}
+              </p>
+              <p className="form-help">
+                Select{' '}
+                <MousePointer2
+                  className="inline size-3.5 align-[-2px]"
+                  aria-label="Select element"
+                />{' '}
+                then click an element to send feedback about it to the agent.
+              </p>
+            </div>
           )}
         </div>
       )}

@@ -1,15 +1,23 @@
-import type { GitHubCliStatus } from '../domain/conversation';
 import { agentCatalog } from '../config/agents';
 import { RemoteHostPicker } from './remote-host-picker';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Tabs as TabsPrimitive } from 'radix-ui';
-import { Bot, ExternalLink, Info, RefreshCw, Server, SlidersHorizontal } from 'lucide-react';
+import {
+  Bot,
+  ExternalLink,
+  Info,
+  RefreshCw,
+  Server,
+  SlidersHorizontal,
+  UserRound,
+} from 'lucide-react';
 import type { API, Agent, AgentInstallation } from '../types';
 import { Button } from './ui/button';
 import { Hint } from './hint';
 import { Choice } from './choice';
 import { AgentIcon } from './ui/agent-icon';
 import { EntityIcon } from './ui/entity-icon';
+import { CommandHelp, GitHubAccount, HelpLink } from './github-account';
 import { SegmentedControl } from './ui/segmented-control';
 import { Dialog, DialogBody, DialogContent, DialogHeader, DialogTitle } from './ui/dialog';
 import { errorMessage } from '../lib/errors';
@@ -29,14 +37,48 @@ import { cn } from '../lib/utils';
 /** The agent that the user prefers for new sessions. Use readPreferredAgent in new code. */
 export const readDefaultAgent = readPreferredAgent;
 
-export type SettingsSectionId = 'general' | 'agents' | 'remote' | 'about';
+export type SettingsSectionId = 'general' | 'agents' | 'accounts' | 'remote' | 'about';
 
 const sections: { value: SettingsSectionId; label: string; icon: ReactNode }[] = [
   { value: 'general', label: 'General', icon: <SlidersHorizontal /> },
-  { value: 'agents', label: 'Agents & tools', icon: <Bot /> },
+  { value: 'agents', label: 'Agents', icon: <Bot /> },
+  { value: 'accounts', label: 'Accounts', icon: <UserRound /> },
   { value: 'remote', label: 'Remote hosts', icon: <Server /> },
   { value: 'about', label: 'About', icon: <Info /> },
 ];
+
+/** How to install each agent CLI. */
+const agentInstall: Record<string, { command: string; href: string }> = {
+  codex: { command: 'npm i -g @openai/codex', href: 'https://github.com/openai/codex' },
+  claude: {
+    command: 'npm i -g @anthropic-ai/claude-code',
+    href: 'https://docs.anthropic.com/en/docs/claude-code/setup',
+  },
+};
+
+/** Install help for an agent that Kalkidan cannot find: the command, Copy, and a link. */
+export function AgentInstallHelp({ agent }: { agent: string }) {
+  const name = agentCatalog.find((item) => item.id === agent)?.name || agent;
+  const install = agentInstall[agent];
+  if (!install)
+    return (
+      <p className="mt-1 text-xs text-muted-foreground">
+        {name} is not installed. Install it, then select Check again.
+      </p>
+    );
+  return (
+    <div>
+      <CommandHelp command={install.command}>
+        {name} is not installed. Run <code>{install.command}</code>, then select Check again.
+      </CommandHelp>
+      <HelpLink href={install.href}>How to install</HelpLink>
+    </div>
+  );
+}
+
+function sectionId(value: string | undefined): SettingsSectionId {
+  return sections.some((item) => item.value === value) ? (value as SettingsSectionId) : 'general';
+}
 
 export function SettingsDialog({
   open,
@@ -49,36 +91,15 @@ export function SettingsDialog({
   onOpenChange: (open: boolean) => void;
   api: API;
   onRefresh: () => Promise<void>;
-  /** The section that shows when the dialog opens. */
-  section?: SettingsSectionId;
+  /** The section that shows when the dialog opens, for example 'accounts'. */
+  section?: SettingsSectionId | string;
 }) {
-  const [tab, setTab] = useState<SettingsSectionId>(section);
+  const [tab, setTab] = useState<SettingsSectionId>(sectionId(section));
   useEffect(() => {
-    if (open) setTab(section);
+    if (open) setTab(sectionId(section));
   }, [open, section]);
   const [installations, setInstallations] = useState<AgentInstallation[]>([]);
   const [checkRevision, setCheckRevision] = useState(0);
-  const [gh, setGh] = useState<GitHubCliStatus>();
-  const [ghChecking, setGhChecking] = useState(false);
-  useEffect(() => {
-    if (!open) return;
-    let live = true;
-    setGhChecking(true);
-    Promise.resolve()
-      .then(() => api.githubCliCheck())
-      .then((value) => {
-        if (live) setGh(value);
-      })
-      .catch(() => {
-        if (live) setGh({ status: 'error' });
-      })
-      .finally(() => {
-        if (live) setGhChecking(false);
-      });
-    return () => {
-      live = false;
-    };
-  }, [open, api, checkRevision]);
   const [checking, setChecking] = useState(false);
   const [checkError, setCheckError] = useState('');
   useEffect(() => {
@@ -121,17 +142,6 @@ export function SettingsDialog({
     if (status === 'unavailable') return 'Desktop only';
     return 'Check failed';
   }
-  const ghStatus = ghChecking
-    ? 'Checking…'
-    : gh?.status === 'ready'
-      ? 'Signed in'
-      : gh?.status === 'signed-out'
-        ? 'Sign-in required'
-        : gh?.status === 'missing'
-          ? 'Not found'
-          : gh?.status === 'unavailable'
-            ? 'Desktop only'
-            : 'Check failed';
   // Remote host work continues on the host after this dialog closes.
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -158,13 +168,13 @@ export function SettingsDialog({
           >
             <TabsPrimitive.List
               aria-label="Settings sections"
-              className="flex w-44 shrink-0 flex-col gap-0.5 border-r p-3"
+              className="flex w-44 shrink-0 flex-col gap-0.5 border-r px-3 py-4"
             >
               {sections.map((item) => (
                 <TabsPrimitive.Trigger
                   key={item.value}
                   value={item.value}
-                  className="flex h-[var(--row-height)] items-center gap-2 rounded-md px-2 text-left text-sm text-muted-foreground outline-none transition-colors hover:bg-[var(--surface-hover)] hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring data-[state=active]:bg-[var(--surface-selected)] data-[state=active]:font-medium data-[state=active]:text-foreground [&_svg]:size-4 [&_svg]:shrink-0"
+                  className="flex h-[var(--row-height)] items-center gap-2 rounded-md px-2 text-left text-sm text-muted-foreground outline-none transition-colors hover:bg-[var(--surface-hover)] hover:text-foreground focus-visible:shadow-[var(--focus-ring)] data-[state=active]:bg-[var(--surface-selected)] data-[state=active]:text-foreground [&_svg]:size-4 [&_svg]:shrink-0"
                 >
                   {item.icon}
                   {item.label}
@@ -194,7 +204,7 @@ export function SettingsDialog({
                         { value: 'dark', label: 'Dark' },
                       ]}
                     />
-                    <span className="text-xs font-normal">
+                    <span className="form-help">
                       System uses the light or dark setting of your computer.
                     </span>
                   </div>
@@ -213,7 +223,7 @@ export function SettingsDialog({
                         label: agent.name,
                       }))}
                     />
-                    <span className="text-xs font-normal">
+                    <span className="form-help">
                       The agent for new sessions. When you choose an agent for a new session,
                       Kalkidan remembers it here.
                     </span>
@@ -221,15 +231,16 @@ export function SettingsDialog({
                 </div>
               </SettingsSection>
               <SettingsSection value="agents">
-                <section aria-label="Local agents and tools" className="grid gap-3">
+                <section aria-label="Agents on this computer" className="grid gap-3">
                   <div className="flex items-center justify-between gap-4">
                     <p className="text-xs text-muted-foreground">
-                      Kalkidan finds these command-line tools on this computer.
+                      Kalkidan finds these agent command-line tools on this computer. Each agent
+                      uses its own sign-in.
                     </p>
                     <Button
                       variant="outline"
                       size="sm"
-                      disabled={checking || ghChecking}
+                      disabled={checking}
                       onClick={() => setCheckRevision((n) => n + 1)}
                     >
                       <RefreshCw className={checking ? 'animate-spin' : ''} />
@@ -246,42 +257,21 @@ export function SettingsDialog({
                         path={installations.find((item) => item.agent === id)?.path}
                         status={agentStatus(id)}
                         ready={agentStatus(id) === 'Installed'}
-                      />
+                      >
+                        {!checking &&
+                          installations.find((item) => item.agent === id)?.status === 'missing' && (
+                            <AgentInstallHelp agent={id} />
+                          )}
+                      </ToolRow>
                     ))}
-                    <ToolRow
-                      label="GitHub CLI status"
-                      icon={
-                        <span
-                          className="tracker-provider-mark size-4"
-                          style={{ maskImage: 'url(./icons/github.svg)' }}
-                        />
-                      }
-                      name="GitHub CLI"
-                      vendor="gh · github.com"
-                      path={gh?.path}
-                      status={ghStatus}
-                      ready={ghStatus === 'Signed in'}
-                    >
-                      {!ghChecking && gh?.status === 'missing' && (
-                        <p className="text-xs text-muted-foreground">
-                          Install gh, then check again.
-                        </p>
-                      )}
-                      {!ghChecking && gh?.status === 'signed-out' && (
-                        <p className="text-xs text-muted-foreground">
-                          Run <code>gh auth login</code>, then check again.
-                        </p>
-                      )}
-                    </ToolRow>
                   </ul>
                   {/* One live region announces the result of all checks together. */}
                   <p role="status" className="sr-only">
-                    {checking || ghChecking
-                      ? 'Checking agents and tools…'
-                      : [
-                          ...agentCatalog.map(({ id, name }) => `${name}: ${agentStatus(id)}.`),
-                          `GitHub CLI: ${ghStatus}.`,
-                        ].join(' ')}
+                    {checking
+                      ? 'Checking agents…'
+                      : agentCatalog
+                          .map(({ id, name }) => `${name}: ${agentStatus(id)}.`)
+                          .join(' ')}
                   </p>
                   {checkError && (
                     <p role="alert" className="field-error">
@@ -289,6 +279,9 @@ export function SettingsDialog({
                     </p>
                   )}
                 </section>
+              </SettingsSection>
+              <SettingsSection value="accounts">
+                <GitHubAccount api={api} open={open} />
               </SettingsSection>
               <SettingsSection value="remote">
                 <RemoteHostPicker
@@ -419,7 +412,7 @@ function ExternalLinkRow({ href, children }: { href: string; children: ReactNode
       href={href}
       target="_blank"
       rel="noreferrer"
-      className="inline-flex h-8 items-center gap-2 -mx-2 rounded-md px-2 text-sm text-link outline-none hover:bg-[var(--surface-hover)] focus-visible:ring-2 focus-visible:ring-ring"
+      className="-mx-2 inline-flex h-8 items-center gap-2 rounded-md px-2 text-sm text-link outline-none hover:bg-[var(--surface-hover)] focus-visible:shadow-[var(--focus-ring)]"
     >
       {children}
       <ExternalLink className="size-3.5" aria-hidden="true" />

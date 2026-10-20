@@ -87,6 +87,7 @@ test('remote project flow checks and installs the host, picks remote folders, an
   await page.getByRole('main').getByRole('button', { name: 'New project', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: 'New project', exact: true });
   await dialog.getByLabel('Project name', { exact: true }).fill('Remote platform');
+  await dialog.getByRole('button', { name: 'More options', exact: true }).click();
   await dialog.getByRole('combobox', { name: 'Project execution host' }).click();
   await page.getByRole('option', { name: 'Remote SSH host', exact: true }).click();
   await dialog.getByLabel('Host name', { exact: true }).fill('Development');
@@ -97,16 +98,18 @@ test('remote project flow checks and installs the host, picks remote folders, an
     .getByRole('button', { name: 'Install the Kalkidan helper and connect', exact: true })
     .click();
   await expect(dialog.getByRole('status')).toContainText('Connected');
-  await dialog.getByRole('button', { name: 'Use GitHub', exact: true }).click();
+  await dialog.getByRole('button', { name: 'Connect now', exact: true }).click();
   await dialog.getByRole('button', { name: 'Connect GitHub', exact: true }).click();
   await dialog.getByRole('button', { name: 'Use URL', exact: true }).click();
-  await dialog.getByLabel('GitHub URL').fill('https://github.com/orgs/example/projects/1');
+  await dialog
+    .getByLabel('GitHub Projects board URL')
+    .fill('https://github.com/orgs/example/projects/1');
   await page.screenshot({ path: 'test-results/remote-project-setup.png', fullPage: true });
   await dialog.getByRole('button', { name: 'Create project', exact: true }).click();
   await page
-    .getByRole('button', { name: 'Add repositories to Remote platform', exact: true })
+    .getByRole('button', { name: 'Add code folders to Remote platform', exact: true })
     .click();
-  const add = page.getByRole('dialog', { name: 'Add repositories', exact: true });
+  const add = page.getByRole('dialog', { name: 'Add code folders', exact: true });
   await add.getByRole('combobox', { name: 'Add to project' }).click();
   await page.getByRole('option', { name: 'Remote platform', exact: true }).click();
   await expect(add.getByRole('region', { name: 'Remote repository picker' })).toBeVisible();

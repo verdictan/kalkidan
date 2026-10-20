@@ -102,12 +102,16 @@ test('remote RPC validates envelopes, dispatches supported operations, reports f
       [source('conversation-tools')]: { CommandTerminal: Terminal, repositoryDiff: record('diff') },
       [source('models')]: { modelOptions: record('models') },
       [source('chat')]: { executable: record('executable') },
-      [source('git-working')]: Object.fromEntries(
-        ['gitCommit', 'gitPullRequest', 'removeWorktree', 'workingStatus'].map((key) => [
-          key,
-          record(key),
-        ]),
-      ),
+      [source('git-working')]: {
+        worktreeFolder: (root: string, repo: string, branch: string) =>
+          `${root}/worktrees/${repo}-${branch}`,
+        ...Object.fromEntries(
+          ['gitCommit', 'gitPullRequest', 'removeWorktree', 'workingStatus'].map((key) => [
+            key,
+            record(key),
+          ]),
+        ),
+      },
       [source('history')]: {
         history: async (_c: string, _a: string, sources?: Map<string, string>) => {
           sources?.set('codex:codex', '/codex.jsonl');

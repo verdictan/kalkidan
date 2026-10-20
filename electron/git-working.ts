@@ -1,6 +1,7 @@
 import { realpath } from 'node:fs/promises';
+import { basename, join } from 'node:path';
 import { exec, parseWorktrees } from './core';
-import type { WorkingStatus } from '../src/api/contracts';
+import type { WorkingFile, WorkingFileStatus, WorkingStatus } from '../src/api/contracts';
 
 type Run = (cwd: string, args: string[], timeout?: number) => Promise<string>;
 type GitHubCli = () => Promise<{ path: string; env: NodeJS.ProcessEnv; args?: string[] }>;
@@ -104,15 +105,137 @@ export async function workingStatus(cwd: string, run: Run = runGit): Promise<Wor
   };
 }
 
-export async function gitCommit(cwd: string, message: string, run: Run = runGit) {
+/** Parses `git status --porcelain=v1 -z`. Ignored files are not included. */
+export function parseWorkingFiles(output: string): WorkingFile[] {
+  const fields = output.split('\0');
+  const files: WorkingFile[] = [];
+  for (let i = 0; i < fields.length; i++) {
+    const field = fields[i];
+    if (field.length < 4) continue;
+    const x = field[0];
+    const y = field[1];
+    const path = field.slice(3);
+    if (x === '!') continue;
+    if (x === '?') {
+      files.push({ path, status: 'untracked' });
+      continue;
+    }
+    if (x === 'R' || x === 'C' || y === 'R' || y === 'C') {
+      // A rename or copy entry has the original path in the next field.
+      const from = fields[++i];
+      if (x === 'R' || y === 'R')
+        files.push({ path, status: 'renamed', ...(from ? { from } : {}) });
+      else files.push({ path, status: 'added' });
+      continue;
+    }
+    const status: WorkingFileStatus =
+      x === 'U' || y === 'U' || (x === 'A' && y === 'A') || (x === 'D' && y === 'D')
+        ? 'conflicted'
+        : x === 'A'
+          ? 'added'
+          : x === 'D' || y === 'D'
+            ? 'deleted'
+            : 'modified';
+    files.push({ path, status });
+  }
+  return files;
+}
+
+export async function workingFiles(cwd: string, run: Run = runGit) {
+  return parseWorkingFiles(
+    await run(cwd, ['status', '--porcelain=v1', '-z', '--untracked-files=all']),
+  );
+}
+
+/**
+ * Stages and commits changes. With `files`, it commits only those paths. Other staged changes
+ * stay staged. Without `files`, it stages and commits all changes.
+ */
+export async function gitCommit(cwd: string, message: string, files?: string[], run: Run = runGit) {
   if (typeof message !== 'string' || !message.trim()) throw new Error('Enter a commit message.');
   if (message.length > 20000) throw new Error('The commit message is too long.');
-  const status = await run(cwd, ['status', '--porcelain']);
-  if (!status.trim()) throw new Error('There are no changes to commit.');
-  await run(cwd, ['add', '-A']);
-  // Commit hooks can take some time.
-  await run(cwd, ['commit', '-m', message.trim()], 120000);
+  if (files === undefined || files === null) {
+    const status = await run(cwd, ['status', '--porcelain']);
+    if (!status.trim()) throw new Error('There are no changes to commit.');
+    await run(cwd, ['add', '-A']);
+    // Commit hooks can take some time.
+    await run(cwd, ['commit', '-m', message.trim()], 120000);
+  } else {
+    if (!Array.isArray(files) || files.some((file) => typeof file !== 'string' || !file))
+      throw new Error('Choose the files to commit.');
+    if (!files.length) throw new Error('Choose at least one file to commit.');
+    const changed = new Map((await workingFiles(cwd, run)).map((file) => [file.path, file]));
+    const paths = new Set<string>();
+    const add = new Set<string>();
+    for (const file of files) {
+      const entry = changed.get(file);
+      if (!entry) throw new Error(`${file} has no changes to commit.`);
+      if (entry.status === 'conflicted') throw new Error(`Resolve the conflict in ${file} first.`);
+      paths.add(file);
+      add.add(file);
+      // Commit both sides of a rename, so the old path is not left behind.
+      if (entry.from) paths.add(entry.from);
+    }
+    // Literal pathspecs keep characters such as "*" in file names from matching other files.
+    // The old path of a staged rename is not in the index or the folder, so do not stage it.
+    await run(cwd, ['--literal-pathspecs', 'add', '-A', '--', ...add]);
+    await run(
+      cwd,
+      ['--literal-pathspecs', 'commit', '--only', '-m', message.trim(), '--', ...paths],
+      120000,
+    );
+  }
   return { commit: (await run(cwd, ['rev-parse', '--short', 'HEAD'])).trim() };
+}
+
+async function validBranch(cwd: string, branch: string, run: Run) {
+  if (typeof branch !== 'string' || !branch.trim() || branch.startsWith('-') || branch.length > 200)
+    throw new Error('Enter a valid new branch name.');
+  try {
+    await run(cwd, ['check-ref-format', '--branch', branch]);
+  } catch {
+    throw new Error(`"${branch}" is not a valid branch name.`);
+  }
+  return branch;
+}
+
+/** Creates a branch from the current state and switches to it. Uncommitted changes stay. */
+export async function gitSwitchNewBranch(cwd: string, branch: string, run: Run = runGit) {
+  await run(cwd, ['switch', '-c', await validBranch(cwd, branch, run)]);
+}
+
+/**
+ * Returns the folder for a new worktree. The name is "{repository}-{branch}". When that
+ * folder exists, a number is added: "-2", "-3", and so on.
+ */
+export function worktreeFolder(
+  root: string,
+  repository: string,
+  branch: string,
+  exists: (path: string) => boolean,
+) {
+  const base = join(root, 'worktrees', repository + '-' + branch.replace(/[\\/]/g, '-'));
+  if (!exists(base)) return base;
+  for (let n = 2; n < 1000; n++) if (!exists(`${base}-${n}`)) return `${base}-${n}`;
+  return `${base}-${Date.now()}`;
+}
+
+/**
+ * Returns where a new worktree starts and the folder it uses. The worktree starts from the
+ * current branch, or from the current commit when no branch is checked out.
+ */
+export async function worktreePreview(
+  cwd: string,
+  branch: string,
+  root: string,
+  exists: (path: string) => boolean,
+  run: Run = runGit,
+) {
+  await validBranch(cwd, branch, run);
+  let base = (await run(cwd, ['rev-parse', '--abbrev-ref', 'HEAD']).catch(() => '')).trim();
+  if (!base || base === 'HEAD')
+    base = (await run(cwd, ['rev-parse', '--short', 'HEAD']).catch(() => '')).trim() || 'HEAD';
+  return { base, path: worktreeFolder(root, basename(cwd), branch, exists) };
 }
 
 /**

@@ -15,32 +15,12 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '.
 import type { API, ProjectGroup, Project, Session } from '../types';
 import { sessionRepo } from '../lib/session-repository';
 import { plural } from '../lib/platform';
+import { fullTime, relativeTime } from '../lib/relative-time';
+import { ActivityDot, activityKey, type SessionActivityState } from './activity-dot';
 
 const recentLimit = 5;
-// The first and last cells have no outer padding, so row text lines up with the page title.
-const edgeClass = 'first:pl-0 last:pr-0';
-const relativeFormat = new Intl.RelativeTimeFormat(undefined, { numeric: 'auto' });
-/** A short relative time, such as "3 hours ago" or "yesterday". */
-export function relativeTime(value?: string) {
-  const time = value ? Date.parse(value) : NaN;
-  if (Number.isNaN(time)) return '';
-  const seconds = (time - Date.now()) / 1000;
-  const steps: [Intl.RelativeTimeFormatUnit, number][] = [
-    ['second', 60],
-    ['minute', 60],
-    ['hour', 24],
-    ['day', 7],
-    ['week', 4.35],
-    ['month', 12],
-    ['year', Infinity],
-  ];
-  let amount = seconds;
-  for (const [unit, size] of steps) {
-    if (Math.abs(amount) < size) return relativeFormat.format(Math.round(amount), unit);
-    amount /= size;
-  }
-  return '';
-}
+/** The relative time moved to src/lib/relative-time.ts. Other modules import it here too. */
+export { relativeTime };
 
 export function ProjectOverview({
   api,
@@ -51,7 +31,13 @@ export function ProjectOverview({
   onSelect,
   onResume,
   onRefresh,
+  onAllSessions,
+  activity = {},
 }: {
+  /** Opens the list of all sessions in every project. */
+  onAllSessions?: () => void;
+  /** Background state of open sessions, by `activityKey`. */
+  activity?: Record<string, SessionActivityState>;
   api: API;
   groups: ProjectGroup[];
   repos: Project[];
@@ -81,7 +67,7 @@ export function ProjectOverview({
     <section className="page" aria-label="Project overview">
       <PageHeader
         title="Projects"
-        subtitle="Projects, repositories, and the work in progress."
+        subtitle="Your projects, their code folders and the agent chats in progress."
         actions={
           // With no projects, the empty state shows the only "New project" action.
           !!groups.length && (
@@ -102,9 +88,9 @@ export function ProjectOverview({
             </colgroup>
             <TableHeader>
               <TableRow className="hover:bg-transparent">
-                <TableHead className={edgeClass}>Project</TableHead>
-                <TableHead className={edgeClass}>Repositories</TableHead>
-                <TableHead className={edgeClass}>Sessions</TableHead>
+                <TableHead>Project</TableHead>
+                <TableHead>Code folders</TableHead>
+                <TableHead>Sessions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -118,10 +104,10 @@ export function ProjectOverview({
                 return (
                   // The whole row opens the project. The button keeps it reachable by keyboard.
                   <TableRow key={group.id} className="project-row" onClick={() => onSelect(group)}>
-                    <TableCell className={edgeClass}>
+                    <TableCell>
                       <Button
                         variant="bare"
-                        className="project-open h-auto max-w-full justify-start gap-3 p-0 text-left whitespace-normal has-[>svg]:px-0"
+                        className="project-open max-w-full justify-start gap-3 text-left whitespace-normal"
                         onClick={(event) => {
                           event.stopPropagation();
                           onSelect(group);
@@ -141,16 +127,16 @@ export function ProjectOverview({
                         )}
                       </Button>
                     </TableCell>
-                    <TableCell className={edgeClass}>
+                    <TableCell>
                       <span
                         className="inline-flex items-center gap-1.5 text-muted-foreground"
                         title={repositories.map((r) => r.name).join(', ')}
                       >
                         <GitBranch size={14} />
-                        {plural(repositories.length, 'repository', 'repositories')}
+                        {plural(repositories.length, 'code folder')}
                       </span>
                     </TableCell>
-                    <TableCell className={edgeClass}>
+                    <TableCell>
                       <span className="inline-flex items-center gap-1.5 text-muted-foreground">
                         <MessageSquare size={14} />
                         {plural(count, 'session')}
@@ -166,7 +152,7 @@ export function ProjectOverview({
       {!visible.length && (
         <EmptyState
           icon={<FolderPlus />}
-          title={groups.length ? 'No matching projects' : 'Your work starts with a project'}
+          title={groups.length ? 'No matching projects' : 'Create your first project'}
           action={
             !groups.length && (
               <Button size="lg" onClick={() => setOpen(true)}>
@@ -177,13 +163,22 @@ export function ProjectOverview({
           }
         >
           {groups.length
-            ? 'Try another project or repository name.'
-            : 'Connect a project tracker, then add the repositories where its work happens.'}
+            ? 'Try another project or code folder name.'
+            : 'A project holds your code folders, agent chats and notes. Create one to start. You can connect GitHub later.'}
         </EmptyState>
       )}
       {!!recent.length && onResume && (
         <section className="project-recent" aria-label="Recent sessions">
-          <SectionHeader title="Recent sessions" />
+          <SectionHeader
+            title="Recent sessions"
+            actions={
+              onAllSessions && (
+                <Button variant="ghost" size="sm" onClick={onAllSessions}>
+                  See all sessions
+                </Button>
+              )
+            }
+          />
           <ul className="project-recent-list">
             {recent.map(({ session, repo }) => {
               const title = session.organization?.title || session.title;
@@ -199,12 +194,19 @@ export function ProjectOverview({
                       <AgentIcon agent={session.agent} />
                     </EntityIcon>
                     <span className="project-recent-text">
-                      <span className="project-recent-title">{title}</span>
+                      <span className="project-recent-title">
+                        <span className="truncate">{title}</span>
+                        <ActivityDot state={activity[activityKey(session.agent, session.id)]} />
+                      </span>
                       <span className="project-recent-meta">
                         {agentLabel(session.agent)} · {repo!.name}
                       </span>
                     </span>
-                    <time dateTime={session.updatedAt} className="project-recent-time">
+                    <time
+                      dateTime={session.updatedAt}
+                      title={fullTime(session.updatedAt)}
+                      className="project-recent-time"
+                    >
                       {relativeTime(session.updatedAt)}
                     </time>
                   </button>
