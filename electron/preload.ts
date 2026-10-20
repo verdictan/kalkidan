@@ -2,7 +2,22 @@ import { contextBridge, ipcRenderer } from 'electron';
 import type { API, MenuCommand } from '../src/types';
 import { menuCommands } from '../src/api/contracts';
 const api: API = {
+  verdictanSetup: () => ipcRenderer.invoke('verdictan-setup'),
+  verdictanSelect: (agent, selection) => ipcRenderer.invoke('verdictan-select', agent, selection),
+  verdictanStatus: () => ipcRenderer.invoke('verdictan-status'),
+  verdictanCheck: () => ipcRenderer.invoke('verdictan-check'),
+  verdictanAuthorize: (intent) => ipcRenderer.invoke('verdictan-authorize', intent),
+  verdictanCancel: () => ipcRenderer.invoke('verdictan-cancel'),
+  verdictanRenew: () => ipcRenderer.invoke('verdictan-renew'),
+  verdictanLogout: () => ipcRenderer.invoke('verdictan-logout'),
+  componentUpdates: (...args) => ipcRenderer.invoke('component-updates', ...args),
+  runtimeUpdateStatus: (hostId) => ipcRenderer.invoke('runtime-update-status', hostId),
+  runtimeUpdateCheck: (hostId) => ipcRenderer.invoke('runtime-update-check', hostId),
+  runtimeUpdateInstall: (hostId) => ipcRenderer.invoke('runtime-update-install', hostId),
+  runtimeUpdateCancel: (hostId) => ipcRenderer.invoke('runtime-update-cancel', hostId),
   memoryList: (group) => ipcRenderer.invoke('memory-list', group),
+  projectResourceRevision: (group, kind) =>
+    ipcRenderer.invoke('project-resource-revision', group, kind),
   docsMetadata: (group) => ipcRenderer.invoke('docs-metadata', group),
   docsRead: (group, id) => ipcRenderer.invoke('docs-read', group, id),
   docsList: (...args) => ipcRenderer.invoke('docs-list', ...args),
@@ -11,6 +26,22 @@ const api: API = {
   docsDelete: (...args) => ipcRenderer.invoke('docs-delete', ...args),
   docsTrash: (group) => ipcRenderer.invoke('docs-trash', group),
   docsRestore: (...args) => ipcRenderer.invoke('docs-restore', ...args),
+  trackerProjectAction: (...args) => ipcRenderer.invoke('tracker-project-action', ...args),
+  trackerContent: (...args) => ipcRenderer.invoke('tracker-content', ...args),
+  trackerContentChange: (...args) => ipcRenderer.invoke('tracker-content-change', ...args),
+  trackerRelations: (...args) => ipcRenderer.invoke('tracker-relations', ...args),
+  trackerRelationChange: (...args) => ipcRenderer.invoke('tracker-relation-change', ...args),
+  trackerSavedView: (...args) => ipcRenderer.invoke('tracker-saved-view', ...args),
+  trackerResources: (...args) => ipcRenderer.invoke('tracker-resources', ...args),
+  trackerResourceChange: (...args) => ipcRenderer.invoke('tracker-resource-change', ...args),
+  trackerSettings: (...args) => ipcRenderer.invoke('tracker-settings', ...args),
+  trackerSettingsUpdate: (...args) => ipcRenderer.invoke('tracker-settings-update', ...args),
+  trackerPortfolio: (...args) => ipcRenderer.invoke('tracker-portfolio', ...args),
+  trackerDocsPlan: (...args) => ipcRenderer.invoke('tracker-docs-plan', ...args),
+  trackerMutationHistory: (...args) => ipcRenderer.invoke('tracker-mutation-history', ...args),
+  trackerBatch: (...args) => ipcRenderer.invoke('tracker-batch', ...args),
+  trackerField: (...args) => ipcRenderer.invoke('tracker-field', ...args),
+  trackerItemAction: (...args) => ipcRenderer.invoke('tracker-item-action', ...args),
   trackerProviders: (...args) => ipcRenderer.invoke('tracker-providers', ...args),
   trackerAuthStart: (...args) => ipcRenderer.invoke('tracker-auth-start', ...args),
   trackerAuthStatus: (...args) => ipcRenderer.invoke('tracker-auth-status', ...args),
@@ -64,7 +95,7 @@ const api: API = {
   models: (agent) => ipcRenderer.invoke('models', agent),
   githubAuthStart: (force) => ipcRenderer.invoke('github-auth-start', force),
   githubAuthStatus: () => ipcRenderer.invoke('github-auth-status'),
-  githubAuthCancel: () => ipcRenderer.invoke('github-auth-cancel'),
+  githubAuthCancel: (attemptId) => ipcRenderer.invoke('github-auth-cancel', attemptId),
   githubAuthOpen: () => ipcRenderer.invoke('github-auth-open'),
   githubOwners: () => ipcRenderer.invoke('github-owners'),
   githubProjects: (owner) => ipcRenderer.invoke('github-projects', owner),
@@ -88,7 +119,9 @@ const api: API = {
     ipcRenderer.invoke('chat-start', agent, id, prompt, allowEdits, options),
   chatStatus: (id) => ipcRenderer.invoke('chat-status', id),
   chatApprove: (id, approval, allow) => ipcRenderer.invoke('chat-approve', id, approval, allow),
-  taskWorktree: (id, branch) => ipcRenderer.invoke('task-worktree', id, branch),
+  chatRespond: (id, request, answers) => ipcRenderer.invoke('chat-respond', id, request, answers),
+  taskWorktree: (id, branch, operationId) =>
+    ipcRenderer.invoke('task-worktree', id, branch, operationId),
   chatStop: (id) => ipcRenderer.invoke('chat-stop', id),
   updateSession: (agent, id, changes) => ipcRenderer.invoke('session-update', agent, id, changes),
   repositorySnapshot: (id) => ipcRenderer.invoke('repository-snapshot', id),
@@ -111,6 +144,8 @@ const api: API = {
   worktree: (id, branch) => ipcRenderer.invoke('worktree', id, branch),
   worktreeRemove: (id, force) => ipcRenderer.invoke('worktree-remove', id, force),
   workingStatus: (id) => ipcRenderer.invoke('working-status', id),
+  gitPublish: (...args) => ipcRenderer.invoke('git-publish', ...args),
+  gitPublishStatus: (...args) => ipcRenderer.invoke('git-publish-status', ...args),
   gitCommit: (id, message, files) => ipcRenderer.invoke('git-commit', id, message, files),
   gitPullRequest: (id, title, body) => ipcRenderer.invoke('git-pull-request', id, title, body),
   showAppMenu: () => ipcRenderer.invoke('app-menu'),
@@ -125,6 +160,24 @@ const api: API = {
     return () => {
       ipcRenderer.removeListener('notification-click', listener);
     };
+  },
+  onRemoteHostsChange: (callback) => {
+    const listener = () => callback();
+    ipcRenderer.on('remote-hosts-changed', listener);
+    return () => ipcRenderer.removeListener('remote-hosts-changed', listener);
+  },
+  onTrackerChange: (callback) => {
+    const listener = () => callback();
+    ipcRenderer.on('tracker-changed', listener);
+    return () => ipcRenderer.removeListener('tracker-changed', listener);
+  },
+  onProjectResourceChange: (callback) => {
+    const listener = (_event: unknown, value: { groupId: string; resource: 'docs' | 'memory' }) => {
+      if (value && typeof value.groupId === 'string' && ['docs', 'memory'].includes(value.resource))
+        callback(value);
+    };
+    ipcRenderer.on('project-resource-changed', listener);
+    return () => ipcRenderer.removeListener('project-resource-changed', listener);
   },
   onMenuCommand: (callback) => {
     const listener = (_event: unknown, command: unknown) => {

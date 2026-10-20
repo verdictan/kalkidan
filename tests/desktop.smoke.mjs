@@ -89,7 +89,11 @@ try {
 
   await assert.rejects(
     page.evaluate(() => window.workspace.chatApprove('missing', 'missing', true)),
-    /no longer pending/,
+    /another window or host/,
+  );
+  await assert.rejects(
+    page.evaluate(() => window.workspace.chatRespond('missing', 'missing', {})),
+    /another window or host/,
   );
   assert.equal(
     (await page.evaluate((groupId) => window.workspace.discover(groupId), groupId)).added,

@@ -1,0 +1,26 @@
+@Library('keeptrusts') _
+
+properties([
+    disableConcurrentBuilds(),
+    buildDiscarder(logRotator(numToKeepStr: '20')),
+    pipelineTriggers([cron('H H * * 1')]),
+    parameters([
+        credentials(name: 'GITHUB_READ_CREDENTIAL', defaultValue: '', credentialType: 'org.jenkinsci.plugins.plaincredentials.StringCredentials', required: true, description: 'Read-only GitHub token for schema introspection')
+    ])
+])
+timeout(time: 15, unit: 'MINUTES') {
+    node('ubuntu-vm') {
+        try {
+            checkout(scm)
+            verdictanNodeToolchain {
+                withCredentials([string(credentialsId: params.GITHUB_READ_CREDENTIAL, variable: 'GH_TOKEN')]) {
+                    stage('Compare GitHub Projects schema') {
+                        sh 'node scripts/sync-github-project-schema.mjs --check'
+                    }
+                }
+            }
+        } finally {
+            archiveArtifacts artifacts: 'ci-results/github-projects-schema.next.json', allowEmptyArchive: true
+        }
+    }
+}

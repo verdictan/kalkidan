@@ -1,45 +1,17 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import Markdown from 'react-markdown';
 import { Brain, RefreshCw } from 'lucide-react';
 import { Button } from './ui/button';
 import type { API, ProjectGroup } from '../types';
-import type { ProjectMemory } from '../domain/memory';
+import { useProjectResource } from '../hooks/use-project-resource';
 
 export function ProjectMemoryPanel({ api, group }: { api: API; group: ProjectGroup }) {
-  const [memory, setMemory] = useState<ProjectMemory>();
+  const { state, refresh } = useProjectResource(api, group, 'memory', () =>
+    api.memoryList(group.id),
+  );
+  const memory = state.value;
+  const error = state.error || '';
   const [selected, setSelected] = useState('');
-  const [error, setError] = useState('');
-  const [revision, setRevision] = useState(0);
-  useEffect(() => {
-    let cancelled = false;
-    let running = false;
-    async function load() {
-      if (running) return;
-      running = true;
-      try {
-        const next = await api.memoryList(group.id);
-        if (!cancelled) {
-          setMemory(next);
-          setError('');
-        }
-      } catch (reason) {
-        if (!cancelled)
-          setError(reason instanceof Error ? reason.message : 'Cannot load project memory.');
-      } finally {
-        running = false;
-      }
-    }
-    void load();
-    const timer = window.setInterval(() => {
-      if (!document.hidden) void load();
-    }, 15000);
-    window.addEventListener('focus', load);
-    return () => {
-      cancelled = true;
-      window.clearInterval(timer);
-      window.removeEventListener('focus', load);
-    };
-  }, [api, group.id, revision]);
   const page = memory?.pages.find((item) => item.name === selected) || memory?.pages[0];
   return (
     <section className="project-memory" aria-label="Project memory">
@@ -57,11 +29,21 @@ export function ProjectMemoryPanel({ api, group }: { api: API; group: ProjectGro
           variant="ghost"
           size="icon"
           aria-label="Refresh memory"
-          onClick={() => setRevision((value) => value + 1)}
+          disabled={state.status === 'loading' || state.status === 'refreshing'}
+          onClick={() => void refresh()}
         >
           <RefreshCw size={16} />
         </Button>
       </header>
+      {memory?.extraction && (
+        <p className="py-3 text-sm text-muted-foreground" role="status">
+          Memory extraction: {memory.extraction.status}
+          {memory.extraction.saved !== undefined
+            ? ` · ${memory.extraction.saved} sourced entries`
+            : ''}
+          .{memory.extraction.error && ' ' + memory.extraction.error}
+        </p>
+      )}
       {error && (
         <p role="alert" className="py-4 text-destructive">
           {error}
@@ -94,13 +76,13 @@ export function ProjectMemoryPanel({ api, group }: { api: API; group: ProjectGro
                 onClick={() => setSelected(item.name)}
               >
                 <span className="truncate">
-                  {item.name.replace(/\.md$/, '').replace(/[-_]/g, ' ')}
+                  {item.topic || item.name.replace(/\.md$/, '').replace(/[-_]/g, ' ')}
                 </span>
               </Button>
             ))}
           </nav>
           <article className="min-w-0 break-words">
-            <h2 className="text-lg font-semibold">{page.name}</h2>
+            <h2 className="text-lg font-semibold">{page.topic || page.name}</h2>
             <p className="mb-6 mt-1 text-xs text-muted-foreground">
               Updated {new Date(page.updatedAt).toLocaleString()}
             </p>

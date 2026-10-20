@@ -1,3 +1,19 @@
+import { ProjectPortfolio } from './project-portfolio';
+import { ProjectReadiness } from './project-readiness';
+import { DocsToIssues } from './docs-to-issues';
+import { IterationPlanner } from './iteration-planner';
+import { GitHubWriteHistory } from './github-write-history';
+import { ProjectBatch } from './project-batch';
+import { GitHubViewLayout } from './github-view-layout';
+import { GitHubSavedViews } from './github-saved-views';
+import type { SavedProjectView } from '../domain/github-resources';
+import { ProjectHealth } from './project-health';
+import { TrackerRoadmap } from './tracker-roadmap';
+import { GitHubProjectResourcesDialog } from './github-project-resources';
+import { GitHubProjectSettingsDialog } from './github-project-settings';
+import { trackerAuthPending } from '../domain/tracker';
+import { GitHubItemEditor } from './github-item-editor';
+import { useProjectBoard } from '../hooks/use-project-board';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { ChevronDown, ChevronLeft, ChevronRight, FolderPlus, ListFilter, X } from 'lucide-react';
@@ -20,6 +36,7 @@ import {
   useEffect,
   useRef,
   useState,
+  useCallback,
   type ComponentProps,
   type KeyboardEvent,
   type ReactElement,
@@ -70,7 +87,6 @@ import type {
   API,
   ProjectGroup,
   Project,
-  TrackerBoard as TrackerBoardData,
   TrackerItem,
   Agent,
   Session,
@@ -175,7 +191,7 @@ function readFilters(key: string): TrackerFilters {
       status: text('status'),
       repoFilter: text('repoFilter'),
       sort: text('sort'),
-      view: text('view') === 'list' ? 'list' : 'board',
+      view: ['list', 'roadmap'].includes(text('view')) ? text('view') : 'board',
     };
   } catch {
     return defaultFilters;
@@ -264,6 +280,8 @@ export function ProjectTrackerPanel({
   } = useTracker(api, connection?.provider);
   const linkedProject = connection?.project;
   const [workflowOpen, setWorkflowOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [resourcesOpen, setResourcesOpen] = useState(false);
   const filterStorage = filterKey(group.id, embedded);
   const [savedFilters] = useState(() => readFilters(filterStorage));
   const [repoFilter, setRepoFilter] = useState(savedFilters.repoFilter);
@@ -300,11 +318,20 @@ export function ProjectTrackerPanel({
   const [taskBranch, setTaskBranch] = useState('');
   const [taskBusy, setTaskBusy] = useState(false);
   const [taskError, setTaskError] = useState('');
-  const authActive = useRef(false);
   const [auth, setAuth] = useState<TrackerAuthState>({ status: 'idle' });
-  const [board, setBoard] = useState<TrackerBoardData | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState('');
+  const { state: boardState, refresh: reloadBoard } = useProjectBoard(
+    api,
+    client,
+    provider,
+    group.id,
+    linkedProject,
+    revision,
+  );
+  const board = boardState.value ?? null;
+  const [mutating, setBusy] = useState(false);
+  const busy = mutating || boardState.status === 'loading' || boardState.status === 'refreshing';
+  const [actionError, setError] = useState('');
+  const error = actionError || boardState.error || '';
   // Each dialog shows its own error. The page error stays on the page.
   const [modalError, setModalError] = useState('');
   const [url, setUrl] = useState('');
@@ -313,15 +340,30 @@ export function ProjectTrackerPanel({
   const [modal, setModal] = useState<'draft' | 'issue' | 'connect' | null>(null);
   const [draftStatus, setDraftStatus] = useState('');
   const [sort, setSort] = useState(savedFilters.sort);
-  const [view, setView] = useState<'board' | 'list'>(
-    savedFilters.view === 'list' ? 'list' : 'board',
+  const [view, setView] = useState<'board' | 'list' | 'roadmap'>(
+    savedFilters.view === 'roadmap' ? 'roadmap' : savedFilters.view === 'list' ? 'list' : 'board',
   );
+  const [savedView, setSavedView] = useState<SavedProjectView | null>(null);
+  const [savedViewPending, setSavedViewPending] = useState(false);
+  const changeSavedView = useCallback((value: SavedProjectView | null, pending: boolean) => {
+    setSavedView(value);
+    setSavedViewPending(pending);
+    if (value)
+      setView(
+        value.layout === 'TABLE_LAYOUT'
+          ? 'list'
+          : value.layout === 'ROADMAP_LAYOUT'
+            ? 'roadmap'
+            : 'board',
+      );
+  }, []);
   useEffect(() => {
     writeFilters(filterStorage, { query, status, repoFilter, sort, view });
   }, [filterStorage, query, status, repoFilter, sort, view]);
   const [title, setTitle] = useState('');
   const [body, setBody] = useState('');
   const [task, setTask] = useState<TrackerItem | null>(null);
+  const [archived, setArchived] = useState(false);
   const [repoId, setRepoId] = useState(repos[0]?.id || '');
   const [preferredAgent, setPreferredAgent] = useState(readPreferredAgent);
   useEffect(() => onPreferredAgentChange(setPreferredAgent), []);
@@ -339,7 +381,6 @@ export function ProjectTrackerPanel({
     if (isAgent(agent)) savePreferredAgent(agent);
   };
   async function authorize() {
-    authActive.current = true;
     setAuth({ status: 'checking' });
     setModalError('');
     try {
@@ -370,15 +411,10 @@ export function ProjectTrackerPanel({
     return () => clearTimeout(timer);
   }, [connectRequested]);
   function closeModal() {
-    if (modal === 'connect') {
-      authActive.current = false;
-      void client.cancelAuth();
-      setAuth({ status: 'idle' });
-    }
     setModal(null);
   }
   useEffect(() => {
-    if (modal !== 'connect' || !['checking', 'waiting'].includes(auth.status)) return;
+    if (modal !== 'connect' || !trackerAuthPending(auth)) return;
     let active = true;
     const timer = setInterval(() => {
       void client
@@ -399,12 +435,6 @@ export function ProjectTrackerPanel({
       clearInterval(timer);
     };
   }, [modal, auth.status, client]);
-  useEffect(
-    () => () => {
-      if (authActive.current) void client.cancelAuth();
-    },
-    [client, group.id],
-  );
   function chooseTask(item: TrackerItem) {
     setTask(item);
     setCheckout('current');
@@ -426,8 +456,13 @@ export function ProjectTrackerPanel({
     setTaskBusy(true);
     setTaskError('');
     try {
+      const key = `kalkidan-task-checkout:${group.id}:${task.id}:${repo.id}:${taskBranch.trim()}`;
+      const operationId = localStorage.getItem(key) || crypto.randomUUID();
+      if (checkout === 'worktree') localStorage.setItem(key, operationId);
       const target =
-        checkout === 'worktree' ? await api.taskWorktree(repo.id, taskBranch.trim()) : repo;
+        checkout === 'worktree'
+          ? await api.taskWorktree(repo.id, taskBranch.trim(), operationId)
+          : repo;
       if (!target) {
         setTaskError('Could not create the branch copy.');
         return;
@@ -507,10 +542,13 @@ export function ProjectTrackerPanel({
     chooseTask(item);
   }, [initialTaskId, board]);
   async function refreshBoard() {
-    const next = await client.board(group.id);
-    setBoard(next);
+    const next = await reloadBoard();
+    if (!next) return;
     setTask((previous) =>
-      previous ? next.items.find((item) => item.id === previous.id) || previous : null,
+      previous
+        ? [...next.items, ...(next.archivedItems || [])].find((item) => item.id === previous.id) ||
+          null
+        : null,
     );
   }
   async function action(
@@ -529,33 +567,20 @@ export function ProjectTrackerPanel({
       setBusy(false);
     }
   }
-  useEffect(() => {
-    let current = true;
-    setBoard(null);
-    if (!linkedProject) return;
-    setBusy(true);
-    client
-      .board(group.id)
-      .then((value) => {
-        if (current) setBoard(value);
-      })
-      .catch((e) => {
-        if (current) setError(errorMessage(e));
-      })
-      .finally(() => {
-        if (current) setBusy(false);
-      });
-    return () => {
-      current = false;
-    };
-  }, [group.id, linkedProject?.id, client, revision]);
   const currentRepository = embedded
     ? repos.find((repo) => repo.id === preferredRepoId)
     : undefined;
   const repositoryName = currentRepository && pathBasename(currentRepository.path);
   const items =
-    board?.items.filter(
+    (savedView
+      ? [...(board?.items || []), ...(board?.archivedItems || [])]
+      : archived
+        ? board?.archivedItems
+        : board?.items
+    )?.filter(
       (item) =>
+        !savedViewPending &&
+        (!savedView || savedView.itemIds.includes(item.id)) &&
         (!embedded ||
           (!!currentRepository &&
             !!item.repository &&
@@ -566,7 +591,13 @@ export function ProjectTrackerPanel({
         `${item.title} ${item.repository || ''}`.toLowerCase().includes(query.toLowerCase()),
     ) || [];
   const sortedItems =
-    sort === 'title' ? [...items].sort((a, b) => a.title.localeCompare(b.title)) : items;
+    sort === 'title'
+      ? [...items].sort((a, b) => a.title.localeCompare(b.title))
+      : savedView
+        ? [...items].sort(
+            (a, b) => savedView.itemIds.indexOf(a.id) - savedView.itemIds.indexOf(b.id),
+          )
+        : items;
   function newItem(statusId = '') {
     setTitle('');
     setBody('');
@@ -662,7 +693,7 @@ export function ProjectTrackerPanel({
       ? `Synced with ${providerName}`
       : '';
   const filterCount = (status !== 'all' ? 1 : 0) + (repoFilter !== 'all' ? 1 : 0);
-  const filtered = !!query || filterCount > 0;
+  const filtered = !!query || filterCount > 0 || !!savedView || savedViewPending;
   const total = board?.items.length || 0;
   // Few tasks need no filters. A saved filter keeps the button, so that it can be cleared.
   const showFilterButton = total > filterThreshold || filterCount > 0 || sort !== 'project';
@@ -731,6 +762,7 @@ export function ProjectTrackerPanel({
           options={[
             { value: 'board', label: 'Board', icon: <Columns3 aria-hidden="true" /> },
             { value: 'list', label: 'List', icon: <List aria-hidden="true" /> },
+            { value: 'roadmap', label: 'Roadmap' },
           ]}
         />
       </div>
@@ -759,6 +791,12 @@ export function ProjectTrackerPanel({
                 },
               },
             ]
+          : []),
+        ...(connection?.provider === 'github' && typeof api.trackerSettings === 'function'
+          ? [{ label: 'GitHub project settings…', action: () => setSettingsOpen(true) }]
+          : []),
+        ...(connection?.provider === 'github' && typeof api.trackerResources === 'function'
+          ? [{ label: 'Fields, views, and reports…', action: () => setResourcesOpen(true) }]
           : []),
         { label: `Change ${boardName}…`, action: connect },
       ]}
@@ -851,6 +889,31 @@ export function ProjectTrackerPanel({
           ) : null
         }
       />
+      {resourcesOpen && (
+        <GitHubProjectResourcesDialog
+          key={'resources:' + group.id}
+          api={api}
+          groupId={group.id}
+          onClose={() => setResourcesOpen(false)}
+          onChanged={() => {
+            void action(refreshBoard, false);
+            onRefresh();
+          }}
+        />
+      )}
+      {settingsOpen && (
+        <GitHubProjectSettingsDialog
+          key={'settings:' + group.id}
+          api={api}
+          groupId={group.id}
+          open={settingsOpen}
+          onOpenChange={setSettingsOpen}
+          onSaved={() => {
+            void action(refreshBoard, false);
+            onRefresh();
+          }}
+        />
+      )}
       {connection && board && (
         <TrackerWorkflow
           api={api}
@@ -1001,7 +1064,48 @@ export function ProjectTrackerPanel({
       )}
       {board &&
         !showOverview &&
-        (view === 'list' ? (
+        connection?.provider === 'github' &&
+        typeof api.trackerSavedView === 'function' && (
+          <GitHubSavedViews
+            key={'views:' + group.id}
+            api={api}
+            groupId={group.id}
+            revision={board.cache?.revision}
+            onChange={changeSavedView}
+          />
+        )}
+      {board && !showOverview && (
+        <div className="flex items-center gap-3 py-2">
+          {!!board.archivedItems?.length && (
+            <Button size="sm" variant="ghost" onClick={() => setArchived(!archived)}>
+              {archived ? 'Show active items' : `Archived items (${board.archivedItems.length})`}
+            </Button>
+          )}
+          {!!board.restrictedItems && (
+            <span className="text-xs text-muted-foreground">
+              {board.restrictedItems} restricted items. Request access on GitHub to view them.
+            </span>
+          )}
+        </div>
+      )}
+      {board &&
+        !showOverview &&
+        (view === 'roadmap' ? (
+          <TrackerRoadmap
+            key={'roadmap:' + group.id}
+            board={board}
+            items={sortedItems}
+            onOpen={chooseTask}
+          />
+        ) : savedView ? (
+          <GitHubViewLayout
+            board={board}
+            items={sortedItems}
+            view={savedView}
+            mode={view}
+            onOpen={chooseTask}
+          />
+        ) : view === 'list' ? (
           <div className="tracker-list-view">
             <TrackerList
               board={board}
@@ -1027,6 +1131,57 @@ export function ProjectTrackerPanel({
             onStatus={(item, value) => void action(() => client.status(group.id, item.id, value))}
           />
         ))}
+      {board && !showOverview && connection?.provider === 'github' && (
+        <div key={'health:' + group.id + ':' + board.project.id}>
+          {typeof api.trackerBatch === 'function' && (
+            <ProjectBatch
+              api={api}
+              groupId={group.id}
+              board={board}
+              onSaved={() => action(async () => {})}
+            />
+          )}
+          {typeof api.trackerBatch === 'function' && typeof api.trackerRelations === 'function' && (
+            <IterationPlanner
+              api={api}
+              groupId={group.id}
+              board={board}
+              sessions={projectSessions}
+              onSaved={refreshBoard}
+              onOpen={(id) => {
+                const item = board.items.find((item) => item.id === id);
+                if (item) chooseTask(item);
+              }}
+            />
+          )}
+          {typeof api.trackerDocsPlan === 'function' && (
+            <DocsToIssues api={api} groupId={group.id} board={board} onSaved={refreshBoard} />
+          )}
+          {typeof api.trackerContent === 'function' &&
+            typeof api.trackerRelations === 'function' && (
+              <ProjectReadiness
+                api={api}
+                groupId={group.id}
+                board={board}
+                sessions={projectSessions}
+                onOpen={(id) => {
+                  const item = board.items.find((item) => item.id === id);
+                  if (item) {
+                    chooseTask(item);
+                    setCheckout('worktree');
+                  }
+                }}
+              />
+            )}
+          {typeof api.trackerPortfolio === 'function' && <ProjectPortfolio api={api} />}
+          {typeof api.trackerMutationHistory === 'function' && (
+            <GitHubWriteHistory api={api} groupId={group.id} url={board.project.url} />
+          )}
+          {typeof api.trackerResources === 'function' && (
+            <ProjectHealth api={api} groupId={group.id} />
+          )}
+        </div>
+      )}
       <Dialog open={!!modal} onOpenChange={(open) => !open && !busy && closeModal()}>
         <DialogContent size="md">
           <DialogHeader>
@@ -1049,7 +1204,7 @@ export function ProjectTrackerPanel({
           </DialogHeader>
           {modal === 'connect' && (
             <div className="space-y-3" aria-live="polite">
-              {auth.status === 'checking' && (
+              {['checking', 'verifying'].includes(auth.status) && (
                 <p className="text-sm text-muted-foreground">Checking {providerName} access…</p>
               )}
               {auth.status === 'waiting' && (
@@ -1084,7 +1239,7 @@ export function ProjectTrackerPanel({
               {auth.status === 'ready' && (
                 <Badge variant="secondary">{providerName} access granted</Badge>
               )}
-              {auth.status === 'error' && (
+              {!trackerAuthPending(auth) && auth.status !== 'ready' && (
                 <>
                   <Alert variant="destructive">
                     <AlertDescription>{auth.message}</AlertDescription>
@@ -1269,6 +1424,16 @@ export function ProjectTrackerPanel({
                   Open issue on {providerName}
                 </a>
               </Button>
+            )}
+            {provider === 'github' && board?.writable && task && (
+              <GitHubItemEditor
+                key={task.id}
+                api={api}
+                groupId={group.id}
+                board={board}
+                item={task}
+                onSaved={refreshBoard}
+              />
             )}
             {docsAvailable && (
               <section className="tracker-related-docs" aria-label="Related docs">

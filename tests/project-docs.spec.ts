@@ -256,7 +256,12 @@ test('link dialog links to another doc page, and the link opens that page', asyn
   await editor.press('ControlOrMeta+k');
   await page.getByRole('button', { name: 'Link a page…' }).click();
   const picker = page.getByRole('dialog', { name: 'Link a page' });
+  await expect(page.getByRole('dialog', { name: 'Add link', exact: true })).toHaveCount(0);
+  await expect(picker.getByLabel('Search doc pages')).toBeFocused();
   await picker.getByLabel('Search doc pages').fill('release');
+  await expect(
+    picker.getByRole('option', { name: 'Release checklist', exact: true }),
+  ).toBeVisible();
   await picker.getByLabel('Search doc pages').press('Enter');
   await expect(picker).toHaveCount(0);
   const link = editor.getByRole('link', { name: 'Release checklist' });

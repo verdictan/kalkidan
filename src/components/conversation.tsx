@@ -217,6 +217,17 @@ export function Conversation({
   const taskUpdates = useRef(Promise.resolve());
   const startedTasks = useRef(new Set<string>());
   function syncStartedTask(next: ChatRun) {
+    if (next.taskExecution) {
+      setTaskNotice(
+        next.taskExecution.message ||
+          (next.taskExecution.sync === 'confirmed'
+            ? 'Task status confirmed on GitHub.'
+            : next.taskExecution.sync === 'pending'
+              ? 'Waiting for the agent before updating task status.'
+              : `Task sync: ${next.taskExecution.sync}`),
+      );
+      return;
+    }
     if (
       !taskId ||
       startedTasks.current.has(next.id) ||
@@ -249,8 +260,12 @@ export function Conversation({
           setUncommitted(count);
           return;
         }
-      } catch {
-        // The status is not available, for example in the browser demo. Continue without it.
+      } catch (error) {
+        setTaskNotice(
+          'Could not inspect the checkout. Retry before marking Done: ' +
+            (error instanceof Error ? error.message : String(error)),
+        );
+        return;
       } finally {
         setTaskBusy(false);
       }
@@ -353,6 +368,7 @@ export function Conversation({
   const follow = useRef(true);
   const mounted = useRef(true);
   const startingRef = useRef(false);
+  const stopRequested = useRef(false);
   const runRef = useRef<ChatRun | null>(null);
   const providerSession = useRef<string | null>(null);
   const submitted = useRef<{
@@ -432,7 +448,7 @@ export function Conversation({
     };
   }, [api, session.agent, session.id]);
   useEffect(() => {
-    if (!run || run.status !== 'running') return;
+    if (!run || (run.status !== 'running' && (!run.governance || run.governance.finalized))) return;
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout>;
     async function poll() {
@@ -442,7 +458,7 @@ export function Conversation({
         runRef.current = next;
         syncStartedTask(next);
         setRun(next);
-        if (next.status !== 'running') {
+        if (next.status !== 'running' && (!next.governance || next.governance.finalized)) {
           finishRun(next);
           return;
         }
@@ -456,11 +472,13 @@ export function Conversation({
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [api, run?.id, run?.status]);
+  }, [api, run?.id, run?.status, run?.governance?.finalized]);
   useEffect(() => {
     if (follow.current && scroll.current) scroll.current.scrollTop = scroll.current.scrollHeight;
   }, [messages, run, loading, open]);
-  const pendingApprovals = (run?.approvals || []).filter((a) => a.status === 'pending').length;
+  const pendingApprovals =
+    (run?.approvals || []).filter((a) => a.status === 'pending').length +
+    (run?.requests || []).filter((r) => r.status === 'pending').length;
   const activity: SessionActivityState | null = pendingApprovals
     ? 'approval'
     : active
@@ -507,6 +525,7 @@ export function Conversation({
       );
       return;
     }
+    stopRequested.current = false;
     startingRef.current = true;
     setStarting(true);
     setError('');
@@ -516,21 +535,37 @@ export function Conversation({
     setChangesNotice(false);
     runEdits.current = edits;
     try {
+      const signature = Array.from(
+        new Uint8Array(
+          await crypto.subtle.digest(
+            'SHA-256',
+            new TextEncoder().encode(
+              JSON.stringify([text, edits, model, taskId, session.forkFrom]),
+            ),
+          ),
+        ),
+        (byte) => byte.toString(16).padStart(2, '0'),
+      ).join('');
+      const key = `kalkidan-send:${session.hostId || 'local'}:${session.agent}:${session.id}`;
+      const saved = JSON.parse(localStorage.getItem(key) || 'null');
+      const operationId = saved?.signature === signature ? saved.id : crypto.randomUUID();
+      localStorage.setItem(key, JSON.stringify({ id: operationId, signature }));
       const next =
         session.projectId && !providerSession.current
           ? await api.chatCreate(session.projectId, session.agent, text, edits, {
+              operationId,
               forkFrom: session.forkFrom,
               model: model || undefined,
               taskId: taskId || undefined,
             })
           : await api.chatStart(session.agent, providerSession.current || session.id, text, edits, {
+              operationId,
               model: model || undefined,
               taskId: taskId || undefined,
             });
-      if (!mounted.current) {
-        await api.chatStop(next.id);
-        return;
-      }
+      localStorage.removeItem(key);
+      if (stopRequested.current) await api.chatStop(next.id);
+      if (!mounted.current) return;
       if (runRef.current && (runRef.current.tools?.length || runRef.current.diff))
         setPastActivity((previous) => [...previous.slice(-19), runRef.current!]);
       const previousMessages = (runRef.current?.messages || []).map((message) => ({
@@ -562,6 +597,7 @@ export function Conversation({
     }
   }
   async function stop() {
+    stopRequested.current = true;
     if (!run) return;
     try {
       await api.chatStop(run.id);
@@ -812,6 +848,7 @@ export function Conversation({
               api={api}
               run={run}
               onUpdate={(next) => {
+                if (runRef.current?.id !== next.id) return;
                 runRef.current = next;
                 setRun(next);
                 if (next.status !== 'running') finishRun(next);
@@ -832,7 +869,7 @@ export function Conversation({
           {approvalHidden && (
             <div className="approval-banner" role="status">
               <ShieldAlert size={16} aria-hidden="true" />
-              <span>The agent is waiting for your approval</span>
+              <span>The agent is waiting for your response</span>
               <Button size="sm" variant="outline" onClick={reviewApproval}>
                 Review
               </Button>
@@ -1206,7 +1243,6 @@ export function Conversation({
                     aria-label="Stop"
                     variant="default"
                     size="icon-sm"
-                    disabled={starting}
                     onClick={() => void stop()}
                   >
                     <Square className="size-3" />

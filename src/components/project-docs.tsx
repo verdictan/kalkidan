@@ -3,11 +3,14 @@ import {
   useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
   type CSSProperties,
   type FormEvent,
   type ReactNode,
 } from 'react';
+import { DocSaveMachine } from '../domain/doc-save';
 import { WikiEditor } from './wiki-editor';
+import { useProjectResource, setProjectResource } from '../hooks/use-project-resource';
 import { ActionMenu } from './action-menu';
 import {
   BookOpen,
@@ -200,6 +203,9 @@ function writeSelection(groupId: string, id: string) {
 function DocEditor({
   api,
   groupId,
+  storageIdentity,
+  onCopied,
+  onDirtyChange,
   initial,
   onSaved,
   onDelete,
@@ -222,11 +228,13 @@ function DocEditor({
   pages: ProjectDocMetadata[];
   api: API;
   groupId: string;
+  storageIdentity: string;
+  onCopied: (doc: ProjectDoc) => void;
+  onDirtyChange: (dirty: boolean) => void;
   initial: ProjectDoc;
   onSaved: (doc: ProjectDoc) => void;
   onDelete: () => void;
 }) {
-  const [draft, setDraft] = useState(initial);
   const [mode, setMode] = useState('write');
   const [moving, setMoving] = useState(false);
   const [moveTarget, setMoveTarget] = useState('root');
@@ -243,8 +251,12 @@ function DocEditor({
     setMoving(true);
   }
   function requestDelete() {
+    if (recovery) {
+      setActionError('Restore or discard the recovered draft first.');
+      return;
+    }
     void flush().then(() => {
-      if (!failed.current) onDelete();
+      if (machine.read().status === 'clean') onDelete();
     });
   }
   useEffect(() => {
@@ -258,80 +270,102 @@ function DocEditor({
     onTreeCommandHandled();
   }, [treeCommand, initial.id]);
   const [editorVersion, setEditorVersion] = useState(0);
-  const [status, setStatus] = useState('Saved');
-  const revision = useRef(initial.revision);
-  const latest = useRef(initial);
-  const pending = useRef<ProjectDoc | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-  const queue = useRef(Promise.resolve());
-  // A failed save stops later saves until the next edit or a retry.
-  const failed = useRef(false);
-  const [error, setError] = useState('');
-  const recoveryKey = 'kalkidan-doc-draft:' + groupId + ':' + initial.id;
+  const recoveryKey = 'kalkidan-doc-draft:' + storageIdentity + ':' + initial.id;
+  const legacyRecoveryKey = 'kalkidan-doc-draft:' + groupId + ':' + initial.id;
+  const legacyClaimed = useRef(false);
+  function storeDraft(value: ProjectDoc | null) {
+    try {
+      if (value) localStorage.setItem(recoveryKey, JSON.stringify(value));
+      else {
+        localStorage.removeItem(recoveryKey);
+        if (legacyClaimed.current) localStorage.removeItem(legacyRecoveryKey);
+      }
+    } catch {
+      /* Autosave remains available when browser storage is full. */
+    }
+  }
   const [recovery, setRecovery] = useState<ProjectDoc | null>(() => {
     try {
-      return JSON.parse(localStorage.getItem(recoveryKey) || 'null');
+      const value = JSON.parse(
+        localStorage.getItem(recoveryKey) || localStorage.getItem(legacyRecoveryKey) || 'null',
+      );
+      return value?.id === initial.id &&
+        typeof value.markdown === 'string' &&
+        typeof value.title === 'string' &&
+        typeof value.revision === 'string' &&
+        value.markdown.length <= 2000000
+        ? value
+        : null;
     } catch {
       return null;
     }
   });
-  function storeDraft(value: ProjectDoc | null) {
-    try {
-      if (value) localStorage.setItem(recoveryKey, JSON.stringify(value));
-      else localStorage.removeItem(recoveryKey);
-    } catch {
-      // Storage can be unavailable. Autosave still runs.
-    }
-  }
+  const [machine] = useState(
+    () => new DocSaveMachine(initial, (doc) => api.docsSave(groupId, doc), onSaved, storeDraft),
+  );
+  const saveState = useSyncExternalStore(machine.subscribe, machine.read);
+  useEffect(() => {
+    onDirtyChange(saveState.status !== 'clean' || !!recovery);
+  }, [saveState.status, recovery]);
+  const draft = saveState.draft;
+  const latest = useRef(draft);
+  latest.current = draft;
+  const [actionError, setActionError] = useState('');
+  const [resolving, setResolving] = useState(false);
+  const copy = useRef<ProjectDoc | null>(null);
+  const error = actionError || saveState.error || '';
+  const status =
+    saveState.status === 'clean'
+      ? 'Saved'
+      : ['dirty', 'saving'].includes(saveState.status)
+        ? 'Saving…'
+        : 'Not saved';
+  const conflict = ['conflict', 'deleted'].includes(saveState.status);
+  useEffect(() => {
+    if (!recovery) machine.refresh(initial);
+  }, [initial.revision, recovery]);
   function flush() {
     clearTimeout(timer.current);
-    const value = pending.current;
-    if (!value || failed.current) return queue.current;
-    pending.current = null;
-    queue.current = queue.current.then(async () => {
-      if (failed.current) {
-        pending.current ??= value;
-        return;
-      }
-      try {
-        // A page with an empty title is saved as "Untitled".
-        const saved = await api.docsSave(groupId, {
-          ...value,
-          title: value.title.trim() || 'Untitled',
-          revision: revision.current,
-        });
-        revision.current = saved.revision;
-        onSaved(saved);
-        if (latest.current === value) {
-          setStatus('Saved');
-          setError('');
-          storeDraft(null);
-        }
-      } catch (e) {
-        failed.current = true;
-        // Keep the newest draft so that a retry can save it.
-        pending.current ??= latest.current;
-        setError(errorMessage(e));
-        setStatus('Not saved');
-      }
-    });
-    return queue.current;
+    return machine.flush();
   }
   function retry() {
-    failed.current = false;
-    pending.current ??= latest.current;
-    setStatus('Saving…');
-    void flush();
+    void machine.retry();
   }
   function update(value: ProjectDoc) {
+    if (recovery) return;
+    machine.edit(value);
     latest.current = value;
-    pending.current = value;
-    failed.current = false;
-    setDraft(value);
-    setStatus('Saving…');
-    storeDraft(value);
     clearTimeout(timer.current);
     timer.current = setTimeout(flush, 600);
+  }
+  async function resolveConflict(asCopy: boolean) {
+    if (resolving) return;
+    setResolving(true);
+    setActionError('');
+    try {
+      if (asCopy) {
+        copy.current ??= await api.docsCreate(
+          groupId,
+          (latest.current.title || 'Untitled') + ' (recovered)',
+          null,
+        );
+        const saved = await api.docsSave(groupId, {
+          ...copy.current,
+          markdown: latest.current.markdown,
+        });
+        storeDraft(null);
+        onCopied(saved);
+      } else {
+        machine.discard(await api.docsRead(groupId, initial.id));
+        setRecovery(null);
+        setEditorVersion((v) => v + 1);
+      }
+    } catch (error) {
+      setActionError(errorMessage(error));
+    } finally {
+      setResolving(false);
+    }
   }
   useEffect(() => {
     const unload = () => {
@@ -379,7 +413,7 @@ function DocEditor({
               The page is not saved.
             </span>
           )}
-          {status === 'Not saved' && (
+          {saveState.status === 'save-error' && (
             <Button variant="outline" size="sm" onClick={retry}>
               Retry
             </Button>
@@ -428,8 +462,12 @@ function DocEditor({
               <Button
                 variant="outline"
                 size="sm"
+                disabled={['saving', 'dirty'].includes(saveState.status)}
                 onClick={() => {
-                  update({ ...recovery, revision: initial.revision });
+                  legacyClaimed.current = true;
+                  machine.restore(recovery);
+                  latest.current = recovery;
+                  void flush();
                   setEditorVersion((v) => v + 1);
                   setRecovery(null);
                 }}
@@ -440,12 +478,43 @@ function DocEditor({
                 variant="ghost"
                 size="sm"
                 onClick={() => {
+                  legacyClaimed.current = true;
                   storeDraft(null);
                   setRecovery(null);
                 }}
               >
                 Discard draft
               </Button>
+            </span>
+          </AlertDescription>
+        </Alert>
+      )}
+      {conflict && (
+        <Alert size="sm" className={docAlertClass}>
+          <AlertDescription className="doc-alert-body">
+            {saveState.status === 'deleted'
+              ? 'This page was deleted.'
+              : 'This page changed on disk.'}{' '}
+            Your draft has not replaced it.
+            <span className="doc-alert-actions">
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={resolving}
+                onClick={() => void resolveConflict(true)}
+              >
+                Save as new page
+              </Button>
+              {saveState.status !== 'deleted' && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  disabled={resolving}
+                  onClick={() => void resolveConflict(false)}
+                >
+                  Discard draft and reload
+                </Button>
+              )}
             </span>
           </AlertDescription>
         </Alert>
@@ -514,7 +583,7 @@ function DocEditor({
           aria-label="Page title"
           placeholder="Untitled"
           value={draft.title}
-          readOnly={mode === 'read'}
+          readOnly={mode === 'read' || resolving || !!recovery}
           onChange={(e) => update({ ...latest.current, title: e.target.value })}
           onFocus={() => onTitleEditing(true)}
           onBlur={() => {
@@ -526,6 +595,7 @@ function DocEditor({
           <textarea
             className="wiki-source font-mono"
             aria-label="Markdown content"
+            readOnly={resolving || !!recovery}
             value={draft.markdown}
             onChange={(e) => update({ ...latest.current, markdown: e.target.value })}
             onBlur={() => void flush()}
@@ -534,7 +604,7 @@ function DocEditor({
           <WikiEditor
             key={editorVersion + ':' + (mode === 'source' ? 'source' : 'rich')}
             markdown={draft.markdown}
-            readOnly={mode === 'read'}
+            readOnly={mode === 'read' || resolving || !!recovery}
             onChange={(markdown) => update({ ...latest.current, markdown })}
             groupId={groupId}
             onOpenPage={(id) => {
@@ -558,19 +628,33 @@ export function ProjectDocsPanel({
   /** Opens this page, for example from a search result. */
   initialPageId?: string;
 }) {
-  const [pages, setPages] = useState<ProjectDocMetadata[]>([]);
   const [selected, setSelected] = useState('');
+  const dirtyPages = useRef(new Set<string>());
+  const metadata = useProjectResource(api, group, 'docs-metadata', () =>
+    api.docsMetadata(group.id),
+  );
+  const pages = metadata.state.value || [];
+  const setPages = (fn: (pages: ProjectDocMetadata[]) => ProjectDocMetadata[]) =>
+    metadata.update((previous) => fn(previous || []));
+  const content = useProjectResource(
+    api,
+    group,
+    'docs-page',
+    () => api.docsRead(group.id, selected),
+    selected,
+    !!selected && pages.some((p) => p.id === selected),
+  );
+  const page = content.state.value || null;
   const [treeCommand, setTreeCommand] = useState<TreeCommand>();
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
   const [error, setError] = useState('');
-  const [loading, setLoading] = useState(true);
+  const loading = ['idle', 'loading'].includes(metadata.state.status);
   const [busy, setBusy] = useState(false);
   const [creating, setCreating] = useState<{ parentId: string | null } | null>(null);
   const [title, setTitle] = useState('');
   const [deleting, setDeleting] = useState(false);
   const [deletedPages, setDeletedPages] = useState<DeletedProjectDoc[] | null>(null);
-  const [page, setPage] = useState<ProjectDoc | null>(null);
-  const [pageLoading, setPageLoading] = useState(false);
+  const pageLoading = ['idle', 'loading'].includes(content.state.status) && !!selected;
   // While a title is edited, the list sorts by the titles from before the edit.
   const [frozenTitles, setFrozenTitles] = useState<Map<string, string> | null>(null);
   const [width, setWidth] = useState(readLibraryWidth);
@@ -586,52 +670,20 @@ export function ProjectDocsPanel({
     }
   }
   useEffect(() => {
-    let live = true;
-    setPage(null);
-    if (!selected) return;
-    setPageLoading(true);
-    api
-      .docsRead(group.id, selected)
-      .then((doc) => {
-        if (live) {
-          setPage(doc);
-          setError('');
-        }
-      })
-      .catch((error) => {
-        if (live) setError(errorMessage(error));
-      })
-      .finally(() => {
-        if (live) setPageLoading(false);
-      });
-    return () => {
-      live = false;
-    };
-  }, [api, group.id, selected]);
+    setError(metadata.state.error || content.state.error || '');
+  }, [metadata.state.error, content.state.error]);
   useEffect(() => {
     if (selected) writeSelection(group.id, selected);
     setFrozenTitles(null);
   }, [group.id, selected]);
   useEffect(() => {
-    let live = true;
-    api
-      .docsMetadata(group.id)
-      .then((value) => {
-        if (live) {
-          setPages(value);
-          setSelected(initialPage(value, initialPageId || readSelection(group.id)));
-        }
-      })
-      .catch((e) => {
-        if (live) setError(errorMessage(e));
-      })
-      .finally(() => {
-        if (live) setLoading(false);
-      });
-    return () => {
-      live = false;
-    };
-  }, [api, group.id]);
+    if (
+      metadata.state.value &&
+      !pages.some((p) => p.id === selected) &&
+      !dirtyPages.current.has(selected)
+    )
+      setSelected(initialPage(pages, initialPageId || readSelection(group.id)));
+  }, [group.id, metadata.state.value]);
   useEffect(() => {
     if (initialPageId && pages.some((p) => p.id === initialPageId)) setSelected(initialPageId);
   }, [initialPageId, pages.length > 0]);
@@ -640,6 +692,7 @@ export function ProjectDocsPanel({
     setError('');
     try {
       await fn();
+      void metadata.refresh();
     } catch (e) {
       setError(errorMessage(e));
     } finally {
@@ -647,7 +700,7 @@ export function ProjectDocsPanel({
     }
   }
   function saved(doc: ProjectDoc) {
-    setPage((current) => (current?.id === doc.id ? doc : current));
+    if (selected === doc.id) content.update(doc);
     setPages((current) => current.map((p) => (p.id === doc.id ? doc : p)));
   }
   function newPage(parentId: string | null) {
@@ -660,7 +713,8 @@ export function ProjectDocsPanel({
     if (busy || !title.trim()) return;
     void action(async () => {
       const doc = await api.docsCreate(group.id, title.trim(), creating?.parentId || null);
-      setPages((p) => [...p, doc]);
+      setProjectResource(api, group, 'docs-page', doc, doc.id);
+      setPages((p) => [...p.filter((page) => page.id !== doc.id), doc]);
       setSelected(doc.id);
       setCreating(null);
     });
@@ -859,11 +913,21 @@ export function ProjectDocsPanel({
             }
           >
             <DocEditor
-              key={page.id}
+              key={JSON.stringify([group.hostId, group.rootPath, group.id, page.id])}
               api={api}
               onTreeCommandHandled={() => setTreeCommand(undefined)}
               treeCommand={treeCommand}
               groupId={group.id}
+              onDirtyChange={(dirty) => {
+                if (dirty) dirtyPages.current.add(page.id);
+                else dirtyPages.current.delete(page.id);
+              }}
+              storageIdentity={JSON.stringify([group.hostId || '', group.rootPath || '', group.id])}
+              onCopied={(doc) => {
+                setProjectResource(api, group, 'docs-page', doc, doc.id);
+                setPages((pages) => [...pages.filter((page) => page.id !== doc.id), doc]);
+                setSelected(doc.id);
+              }}
               onNavigate={setSelected}
               onSubpage={() => newPage(page.id)}
               onReorder={{ up: reorder(page.id, -1), down: reorder(page.id, 1) }}
@@ -1022,6 +1086,7 @@ export function ProjectDocsPanel({
                       onClick={() =>
                         void action(async () => {
                           const doc = await api.docsRestore(group.id, item.trashId);
+                          setProjectResource(api, group, 'docs-page', doc, doc.id);
                           setPages((current) => [
                             ...current,
                             {

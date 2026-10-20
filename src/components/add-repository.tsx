@@ -74,7 +74,7 @@ export function AddRepository({
   openRef.current = open;
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const folderImport = useFolderImport(api);
+  const folderImport = useFolderImport(api, `${open}:${target}:${mode}`);
   const remoteGroup = snapshot?.groups?.find((g) => g.id === target && g.hostId);
   async function loadRepos() {
     setLoading(true);

@@ -28,7 +28,7 @@ export function RemoteRepositoryPicker({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const request = useRef(0);
-  const folderImport = useFolderImport(api);
+  const folderImport = useFolderImport(api, `${group.id}:${group.hostId}`);
   const parent =
     error && path.startsWith('/')
       ? path.replace(/\/+$/, '').replace(/\/[^/]*$/, '') || '/'
@@ -74,10 +74,7 @@ export function RemoteRepositoryPicker({
     try {
       if (mode === 'clone') await api.remoteAddRepository(group.id, '', repository);
       else {
-        // Find the Git repositories in the folder. A host without the scan adds the folder.
-        const result = await folderImport
-          .scanFolder(path, group.hostId)
-          .catch(() => ({ root: path, paths: [path] }));
+        const result = await folderImport.scanFolder(path, group.hostId);
         if (!result) return;
         for (const folder of result.paths) await api.remoteAddRepository(group.id, folder);
       }

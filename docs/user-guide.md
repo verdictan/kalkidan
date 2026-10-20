@@ -45,13 +45,17 @@ You can also download installers from [Kalkidan releases](https://github.com/ver
 | Requirement                                               | Purpose                                                           |
 | --------------------------------------------------------- | ----------------------------------------------------------------- |
 | macOS, Windows 10 (1809+) or Windows 11, or desktop Linux | Run the desktop app.                                              |
-| Node.js **22.12+** and npm                                | Install dependencies and run the source code.                     |
+| Node.js **24.21.0+** and npm **12.2.0**                   | Install dependencies and run the source code.                     |
 | Git                                                       | Read repository status and manage worktrees.                      |
 | Codex CLI or Claude Code CLI                              | Run the selected agent. You can install both.                     |
 | GitHub CLI (`gh`)                                         | Connect projects and find or clone repositories.                  |
 | Python 3                                                  | Run interactive terminals on macOS or Linux. Windows uses ConPTY. |
 
-Sign in to each agent CLI that you will use. Make sure that `codex` or `claude` runs in your shell. Kalkidan uses the installed CLI and its credentials.
+Install the supported Codex or Claude Code binary and check it in Settings.
+Complete Verdictan setup for the selected execution host. Kalkidan requires the
+managed runtime, account authorization, and launch checks. It does not use a
+native CLI login as a fallback. Managed native execution is available on accepted
+macOS and Linux hosts. Windows managed execution stays blocked.
 
 ### Run the source code
 
@@ -531,6 +535,70 @@ Remove credentials and private content before you submit a report. Include scree
 
 Open **Memory** below **Docs** in the project sidebar. This page is read only. It shows Markdown files that agents save in `<project folder>/memory`. Remote projects keep memory on the selected host.
 
-Codex and Claude Code receive the memory folder path when you send a project message. They are instructed to save verified conventions, decisions, recurring fixes, and user preferences. They should update existing topics, correct stale facts, and avoid secrets and transcripts. File writes use the agent's normal permissions. Memory saves depend on the agent following these instructions; the app does not extract knowledge from every message.
+Codex and Claude Code use project-scoped Memory tools. Saved entries require source
+references and revision checks. Successful turns can start a bounded extraction
+job in a separate context. This can use additional model tokens. The Memory page
+shows its result. See [Managed project Memory](managed-memory.md).
 
-Memory content is not attached to each request. Agents read relevant topic files when needed. Docs still require the `@docs` prefix. The Memory page refreshes every 15 seconds while visible and when the window gains focus. You can also select **Refresh memory**. Large libraries and files have bounded previews; the original files remain unchanged.
+Memory content is not attached to every request. Agents retrieve relevant excerpts
+when needed. Docs still require an explicit request, such as the `@docs` prefix.
+
+## GitHub project controls
+
+Open the project's Tasks page. Use **Board actions → GitHub project settings** to
+change metadata, visibility, templates, linked repositories or teams, and access
+roles. Copy and deletion have explicit forms. Removing an item from the project
+does not delete its issue or pull request.
+
+Use **Fields, views, and reports** to manage custom fields, select options,
+iterations, saved views, and status updates. The saved-view picker uses GitHub to
+evaluate filters. Local layout switches do not change the shared view. Use GitHub
+for settings that the public API does not expose.
+
+The task inspector edits custom fields and issue/PR properties. It also shows
+comments, reviews, checks, hierarchy, and blocking relationships. Repository
+permissions can differ from project permissions.
+
+Open **Batch fields and iteration planning** to select up to 50 tasks. Choose a
+field and value, review the before/after values, then select **Apply reviewed
+batch**. Results are per item. Resume inspects uncertain writes and does not send
+them again. A conflict requires a new preview.
+
+Open **GitHub write history** after a lost response. Inspect the result on GitHub
+before recording your review. Review does not assert success. Starting an agent
+can set the configured In progress value. Agent completion means Ready for review;
+it does not automatically move the issue to Done.
+
+## Updates and recovery
+
+Settings shows the running desktop build, available downloads, the managed
+runtime, and SSH helper versions. Install a desktop download and restart the app
+to use it. Download availability does not replace the running application.
+
+Managed runtime installation validates the approved version and archive digest.
+It records progress and supports cancellation and rollback. Finish active work
+before updating an SSH helper. Externally installed Codex and Claude Code remain
+under their installer or package manager.
+
+Remote hosts connect in the background. Retry state does not block local project
+navigation. Explicit disconnect stops retries for the current app session.
+Reconnection refreshes state; it does not replay prompts, approvals, or writes.
+
+## Plan work from GitHub Tasks
+
+Open the project's Tasks page. Expand the tool you need.
+
+- **Plan issues from Docs:** choose a document. Level-two headings become proposed
+  issues. Review the text, repository, parent issues, and blockers. Confirm the
+  preview before publishing. Source references are optional. Memory is excluded.
+  Resume the same plan after a failure. Created issues stay in GitHub.
+- **Plan an iteration:** choose an estimate field, iteration, and remaining capacity.
+  Select tasks and prepare the allocation. Review excluded tasks and apply the
+  selected field changes. Existing allocations are not subtracted from your input.
+- **Agent and release readiness:** select tasks and inspect current evidence.
+  Open each ready task to start it in a separate worktree. Proposed waves limit
+  concurrency; they do not start agents. Check links include Jenkins results when
+  GitHub reports them. Refresh the snapshot before a release decision.
+- **Portfolio and personal work:** select connected GitHub projects. Load their
+  tasks and optionally enter a GitHub login to filter assignments. Each task links
+  to its source. Access errors remain visible for the affected project.

@@ -5,6 +5,15 @@ export interface TrackerProject {
   url: string;
   owner?: string;
   number?: number;
+  statusFieldId?: string;
+}
+export interface TrackerField {
+  id: string;
+  name: string;
+  dataType: string;
+  options?: { id: string; name: string }[];
+  iterations?: { id: string; title: string; startDate: string; duration: number }[];
+  raw: Record<string, unknown>;
 }
 export interface TrackerItem {
   id: string;
@@ -15,10 +24,18 @@ export interface TrackerItem {
   number?: number;
   status?: string;
   statusId?: string;
+  kind?: string;
+  archived?: boolean;
+  fieldValues?: Record<string, unknown>[];
 }
 export interface TrackerBoard {
+  cache?: { revision: string; fetchedAt: number };
   project: TrackerProject;
   items: TrackerItem[];
+  archivedItems?: TrackerItem[];
+  restrictedItems?: number;
+  writable?: boolean;
+  fields?: TrackerField[];
   statusField?: { id: string; options: { id: string; name: string }[] };
 }
 export interface TrackerOwner {
@@ -27,9 +44,24 @@ export interface TrackerOwner {
   kind: 'user' | 'organization' | 'team';
 }
 export interface TrackerAuthState {
-  status: 'idle' | 'checking' | 'waiting' | 'ready' | 'error';
+  status:
+    | 'idle'
+    | 'checking'
+    | 'waiting'
+    | 'verifying'
+    | 'ready'
+    | 'signed-out'
+    | 'permission-required'
+    | 'expired'
+    | 'canceled'
+    | 'error';
+  attemptId?: string;
+  reason?: 'missing-cli' | 'network' | 'sso' | 'token-override' | 'permissions' | 'verification';
   code?: string;
   message?: string;
+}
+export function trackerAuthPending(state: TrackerAuthState) {
+  return ['checking', 'waiting', 'verifying'].includes(state.status);
 }
 export interface TrackerCapabilities {
   createProject: boolean;
@@ -47,6 +79,7 @@ export interface TrackerConnection {
   provider: string;
   project: TrackerProject;
   statusMapping?: Partial<Record<'progress' | 'done', string>>;
+  statusFieldId?: string;
 }
 export function trackerConnection(
   group: { tracker?: TrackerConnection; github?: TrackerProject } | undefined,
@@ -75,6 +108,11 @@ export function isTrackerConnection(value: unknown): value is TrackerConnection 
     ) ||
     !project.id ||
     !project.url
+  )
+    return false;
+  if (
+    v.statusFieldId !== undefined &&
+    (typeof v.statusFieldId !== 'string' || !/^[A-Za-z0-9_-]{1,200}$/.test(v.statusFieldId))
   )
     return false;
   return (

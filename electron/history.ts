@@ -177,3 +177,37 @@ export async function history(
   value.sources.forEach((path, id) => sources?.set(id, path));
   return structuredClone(value.result);
 }
+
+/** Managed homes are separate from personal CLI credentials, but use native history formats. */
+export async function historyWithManaged(
+  managedRoot: string,
+  codexRoot: string,
+  claudeRoot: string,
+  sources?: Map<string, string>,
+) {
+  const legacy = await history(codexRoot, claudeRoot, sources);
+  let homes;
+  try {
+    homes = await readdir(join(managedRoot, 'managed-agent-homes'), { withFileTypes: true });
+  } catch (error: any) {
+    if (error.code === 'ENOENT') return legacy;
+    throw error;
+  }
+  const seen = new Set(legacy.sessions.map((s) => `${s.agent}:${s.id}`));
+  for (const home of homes
+    .filter((h) => h.isDirectory() && /^[a-f0-9]{64}$/.test(h.name))
+    .slice(0, 1000)) {
+    const root = join(managedRoot, 'managed-agent-homes', home.name);
+    const result = await history(join(root, 'codex'), join(root, 'claude'), sources);
+    for (const session of result.sessions) {
+      const key = `${session.agent}:${session.id}`;
+      if (!seen.has(key)) {
+        seen.add(key);
+        legacy.sessions.push(session);
+      }
+    }
+    legacy.warnings.push(...result.warnings);
+  }
+  legacy.sessions.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  return legacy;
+}

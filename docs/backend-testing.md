@@ -9,6 +9,9 @@ Use the Node version in `.node-version`. Run `npm ci` before the tests.
 - `npm run test:backend:coverage`: run the isolated suite and write HTML, LCOV, and JSON reports to `coverage/backend/`.
 - `npm run test:backend:coverage:strict`: require 100% statements, branches, functions, and lines in each backend file. This command fails while coverage gaps remain.
 - `npm test`: run all unit tests and native transport tests.
+- `node tests/memory-processes.mjs`: check real cross-process Memory ownership,
+  competing revisions, extraction deduplication, and recovery from a killed owner.
+  CI runs this separately from the isolated coverage suite.
 
 ## Scope and isolation
 

@@ -31,6 +31,7 @@ export function sessionAPI(api: API, session: Session): API {
     chatStatus: (id) => call('chatStatus', id).then(qualify),
     chatStop: (id) => call('chatStop', id),
     chatApprove: (id, approval, allow) => call('chatApprove', id, approval, allow),
+    chatRespond: (id, request, answers) => call('chatRespond', id, request, answers),
     terminalStart: (cwd, command) => call('terminalStart', cwd, command),
     terminalStatus: (id) => call('terminalStatus', id),
     terminalInput: (id, value) => call('terminalInput', id, value),

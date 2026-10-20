@@ -37,7 +37,7 @@ test('memory reads agent Markdown updates, isolates projects, and bounds preview
   }
 });
 
-test('agent prompts share only the scoped memory path and tolerate unavailable storage', async () => {
+test('agent prompts use managed memory tools and tolerate unavailable storage', async () => {
   const group = { id: 'one', name: 'One', repoIds: ['repo'] };
   let fail = false;
   let calls = 0;
@@ -60,8 +60,9 @@ test('agent prompts share only the scoped memory path and tolerate unavailable s
   assert.equal(await prompt('/elsewhere', 'Implement a feature'), 'Implement a feature');
   assert.equal(calls, 0);
   const result = await prompt('/repo', 'Implement a feature');
-  assert.match(result, /\/projects\/one\/memory/);
-  assert.match(result, /Do not load the whole folder/);
+  assert.match(result, /kalkidan-memory MCP tools/);
+  assert.doesNotMatch(result, /\/projects\/one\/memory/);
+  assert.match(result, /or load the whole library/);
   assert.doesNotMatch(result, /Docs search is unavailable/);
   fail = true;
   assert.match(await prompt('/repo', 'Implement a feature'), /Project memory is unavailable/);

@@ -4,9 +4,11 @@ import {
   trackerConnection,
   type TrackerConnection,
 } from '../src/domain/tracker';
-import { readFile } from 'node:fs/promises';
+import { mkdir, readFile } from 'node:fs/promises';
+import { dirname } from 'node:path';
+import { withDirectoryLock } from './storage/directory-lock';
 import { writeJSON } from './storage/atomic-json';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import type { ProjectGroup, GitHubProject } from '../src/types';
 export class ProjectGroups {
   groups: ProjectGroup[] = [];
@@ -47,10 +49,20 @@ export class ProjectGroups {
     const task = this.writes
       .catch(() => {})
       .then(async () => {
-        const next = structuredClone(this.groups);
-        edit(next);
-        await writeJSON(this.file, next);
-        this.groups = next;
+        const directory = dirname(this.file);
+        await mkdir(directory, { recursive: true, mode: 0o700 });
+        await withDirectoryLock(
+          directory,
+          async (assertOwned) => {
+            await this.load();
+            const next = structuredClone(this.groups);
+            edit(next);
+            assertOwned();
+            await writeJSON(this.file, next);
+            this.groups = next;
+          },
+          createHash('sha256').update(this.file).digest('hex'),
+        );
       });
     this.writes = task;
     return task;
@@ -66,7 +78,7 @@ export class ProjectGroups {
     github: GitHubProject | TrackerConnection | null,
     hostId?: string,
     rootPath?: string,
-    id = randomUUID(),
+    id: string = randomUUID(),
   ) {
     const connection =
       github === null
@@ -77,7 +89,13 @@ export class ProjectGroups {
     if (connection !== null && !isTrackerConnection(connection))
       throw new Error('Choose a tracker project before creating a project.');
     const title = this.name(name);
-    await this.change((groups) =>
+    await this.change((groups) => {
+      const existing = groups.find((group) => group.id === id);
+      if (existing) {
+        if (existing.name !== title || existing.hostId !== hostId || existing.rootPath !== rootPath)
+          throw new Error('Project identity is already in use.');
+        return;
+      }
       groups.push({
         id,
         name: title,
@@ -88,8 +106,8 @@ export class ProjectGroups {
           ? { github: connection.project as GitHubProject }
           : {}),
         ...(hostId ? { hostId } : {}),
-      }),
-    );
+      });
+    });
     return id;
   }
   update(id: string, name: string) {
@@ -145,12 +163,16 @@ export class ProjectGroups {
       else delete group.github;
     });
   }
-  configure(id: string, mapping: TrackerConnection['statusMapping']) {
+  configure(id: string, mapping: TrackerConnection['statusMapping'], statusFieldId?: string) {
     return this.change((groups) => {
       const group = groups.find((g) => g.id === id);
       const connection = trackerConnection(group);
       if (!group || !connection) throw new Error('Connect a tracker first');
-      group.tracker = { ...connection, statusMapping: mapping };
+      group.tracker = {
+        ...connection,
+        statusMapping: mapping,
+        ...(statusFieldId === undefined ? {} : { statusFieldId }),
+      };
     });
   }
   /** Moves several repositories into one project with one save. */

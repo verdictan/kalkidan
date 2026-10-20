@@ -440,6 +440,8 @@ export function CommitDialog({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [result, setResult] = useState<{ commit?: string; url?: string } | null>(null);
+  const submitting = useRef(false);
+  const operationId = useRef<string | null>(null);
   const [newBranch, setNewBranch] = useState<string | null>(null);
   /** Reads the status and the files. A reload keeps the user's choice of files. */
   async function load(keep = false) {
@@ -453,6 +455,7 @@ export function CommitDialog({
     setSelected((previous) =>
       keep ? new Set(paths.filter((path) => previous.has(path))) : new Set(paths),
     );
+    return { nextStatus, nextFiles };
   }
   useEffect(() => {
     if (!open) return;
@@ -463,7 +466,26 @@ export function CommitDialog({
     setResult(null);
     setNewBranch(null);
     setMessage(initialMessage);
-    load().catch((e) => current && setError(errorMessage(e)));
+    try {
+      operationId.current = localStorage.getItem(`kalkidan-publish:${repositoryId}`);
+    } catch {
+      operationId.current = null;
+    }
+    const saved = operationId.current;
+    void load()
+      .then(async ({ nextStatus, nextFiles }) => {
+        if (!saved) return;
+        const operation = await api.gitPublishStatus(repositoryId, saved);
+        if (!current || !operation) return;
+        if (operation.phase === 'completed') {
+          operationId.current = null;
+          if (nextFiles?.length || nextStatus.changed + nextStatus.untracked > 0) return;
+        }
+        setResult({ commit: operation.commit, url: operation.url });
+        if (operation.error) setError(operation.error);
+        if (operation.phase === 'completed') operationId.current = null;
+      })
+      .catch((e) => current && setError(errorMessage(e)));
     return () => {
       current = false;
     };
@@ -474,30 +496,45 @@ export function CommitDialog({
   const onDefault = !!status && status.branch === status.defaultBranch;
   const canPullRequest = !!status && !onDefault;
   async function submit(pullRequest: boolean) {
+    if (submitting.current) return;
+    submitting.current = true;
     setBusy(true);
     setError('');
     try {
-      const next: { commit?: string; url?: string } = {};
-      if (commitCount) {
-        // Commit all changes when every file is selected, so that Git also stages deletions
-        // and renames the same way as before.
-        const paths = files && chosen.length < files.length ? chosen.map((f) => f.path) : undefined;
-        next.commit = (await api.gitCommit(repositoryId, message.trim(), paths)).commit;
+      const isNew = !operationId.current;
+      const id = (operationId.current ||= crypto.randomUUID());
+      try {
+        localStorage.setItem(`kalkidan-publish:${repositoryId}`, id);
+      } catch {
+        throw new Error(
+          'Cannot save publish recovery information. Enable local storage before publishing.',
+        );
       }
-      if (pullRequest) {
-        const title = message.trim().split('\n')[0];
-        next.url = (await api.gitPullRequest(repositoryId, title, pullRequestBody)).url;
-      }
+      const paths =
+        files && chosen.length < files.length ? chosen.map((file) => file.path) : undefined;
+      const operation = await api.gitPublish(repositoryId, {
+        id,
+        ...(isNew && commitCount && !result?.commit
+          ? { commit: { message: message.trim(), files: paths } }
+          : {}),
+        ...(pullRequest
+          ? { pullRequest: { title: message.trim().split('\n')[0], body: pullRequestBody } }
+          : {}),
+      });
+      const next = { commit: operation.commit, url: operation.url };
+      setResult(next);
+      if (operation.error) throw new Error(operation.error);
       setResult(next);
       onCommitted?.();
       if (next.commit)
         showToast(
           `Committed ${next.commit.slice(0, 7)}${pullRequest ? ' and opened a pull request' : ''}.`,
         );
-      await load().catch(() => {});
     } catch (e) {
       setError(errorMessage(e));
     } finally {
+      await load(true).catch(() => {});
+      submitting.current = false;
       setBusy(false);
     }
   }
@@ -709,11 +746,13 @@ export function CommitDialog({
               disabled={busy || !status || (!!commitCount && !message.trim()) || !!result?.url}
               onClick={() => void submit(true)}
             >
-              {commitCount ? 'Commit and open pull request' : 'Open pull request'}
+              {commitCount && !result?.commit
+                ? 'Commit and open pull request'
+                : 'Open pull request'}
             </Button>
           )}
           <Button
-            disabled={busy || !status || !commitCount || !message.trim()}
+            disabled={busy || !status || !commitCount || !message.trim() || !!result?.commit}
             onClick={() => void submit(false)}
           >
             {busy

@@ -1,0 +1,5049 @@
+{
+  "host": "github.com",
+  "mutations": [
+    {
+      "name": "addAssigneesToAssignable",
+      "isDeprecated": false,
+      "deprecationReason": null,
+      "args": [
+        {
+          "name": "input",
+          "type": {
+            "kind": "NON_NULL",
+            "name": null,
+            "ofType": {
+              "kind": "INPUT_OBJECT",
+              "name": "AddAssigneesToAssignableInput",
+              "ofType": null
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "addBlockedBy",
+      "isDeprecated": false,
+      "deprecationReason": null,
+      "args": [
+        {
+          "name": "input",
+          "type": {
+            "kind": "NON_NULL",
+            "name": null,
+            "ofType": {
+              "kind": "INPUT_OBJECT",
+              "name": "AddBlockedByInput",
+              "ofType": null
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "addComment",
+      "isDeprecated": false,
+      "deprecationReason": null,
+      "args": [
+        {
+          "name": "input",
+          "type": {
+            "kind": "NON_NULL",
+            "name": null,
+            "ofType": {
+              "kind": "INPUT_OBJECT",
+              "name": "AddCommentInput",
+              "ofType": null
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "addLabelsToLabelable",
+      "isDeprecated": false,
+      "deprecationReason": null,
+      "args": [
+        {
+          "name": "input",
+          "type": {
+            "kind": "NON_NULL",
+            "name": null,
+            "ofType": {
+              "kind": "INPUT_OBJECT",
+              "name": "AddLabelsToLabelableInput",
+              "ofType": null
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "addProjectV2DraftIssue",
+      "isDeprecated": false,
+      "deprecationReason": null,
+      "args": [
+        {
+          "name": "input",
+          "type": {
+            "kind": "NON_NULL",
+            "name": null,
+            "ofType": {
+              "kind": "INPUT_OBJECT",
+              "name": "AddProjectV2DraftIssueInput",
+              "ofType": null
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "addProjectV2ItemById",
+      "isDeprecated": false,
+      "deprecationReason": null,
+      "args": [
+        {
+          "name": "input",
+          "type": {
+            "kind": "NON_NULL",
+            "name": null,
+            "ofType": {
+              "kind": "INPUT_OBJECT",
+              "name": "AddProjectV2ItemByIdInput",
+              "ofType": null
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "addPullRequestReview",
+      "isDeprecated": false,
+      "deprecationReason": null,
+      "args": [
+        {
+          "name": "input",
+          "type": {
+            "kind": "NON_NULL",
+            "name": null,
+            "ofType": {
+              "kind": "INPUT_OBJECT",
+              "name": "AddPullRequestReviewInput",
+              "ofType": null
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "addSubIssue",
+      "isDeprecated": false,
+      "deprecationReason": null,
+      "args": [
+        {
+          "name": "input",
+          "type": {
+            "kind": "NON_NULL",
+            "name": null,
+            "ofType": {
+              "kind": "INPUT_OBJECT",
+              "name": "AddSubIssueInput",
+              "ofType": null
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "archiveProjectV2Item",
+      "isDeprecated": false,
+      "deprecationReason": null,
+      "args": [
+        {
+          "name": "input",
+          "type": {
+            "kind": "NON_NULL",
+            "name": null,
+            "ofType": {
+              "kind": "INPUT_OBJECT",
+              "name": "ArchiveProjectV2ItemInput",
+              "ofType": null
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "clearProjectV2ItemFieldValue",
+      "isDeprecated": false,
+      "deprecationReason": null,
+      "args": [
+        {
+          "name": "input",
+          "type": {
+            "kind": "NON_NULL",
+            "name": null,
+            "ofType": {
+              "kind": "INPUT_OBJECT",
+              "name": "ClearProjectV2ItemFieldValueInput",
+              "ofType": null
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "closeIssue",
+      "isDeprecated": false,
+      "deprecationReason": null,
+      "args": [
+        {
+          "name": "input",
+          "type": {
+            "kind": "NON_NULL",
+            "name": null,
+            "ofType": {
+              "kind": "INPUT_OBJECT",
+              "name": "CloseIssueInput",
+              "ofType": null
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "closePullRequest",
+      "isDeprecated": false,
+      "deprecationReason": null,
+      "args": [
+        {
+          "name": "input",
+          "type": {
+            "kind": "NON_NULL",
+            "name": null,
+            "ofType": {
+              "kind": "INPUT_OBJECT",
+              "name": "ClosePullRequestInput",
+              "ofType": null
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "convertProjectV2DraftIssueItemToIssue",
+      "isDeprecated": false,
+      "deprecationReason": null,
+      "args": [
+        {
+          "name": "input",
+          "type": {
+            "kind": "NON_NULL",
+            "name": null,
+            "ofType": {
+              "kind": "INPUT_OBJECT",
+              "name": "ConvertProjectV2DraftIssueItemToIssueInput",
+              "ofType": null
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "copyProjectV2",
+      "isDeprecated": false,
+      "deprecationReason": null,
+      "args": [
+        {
+          "name": "input",
+          "type": {
+            "kind": "NON_NULL",
+            "name": null,
+            "ofType": {
+              "kind": "INPUT_OBJECT",
+              "name": "CopyProjectV2Input",
+              "ofType": null
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "createProjectV2",
+      "isDeprecated": false,
+      "deprecationReason": null,
+      "args": [
+        {
+          "name": "input",
+          "type": {
+            "kind": "NON_NULL",
+            "name": null,
+            "ofType": {
+              "kind": "INPUT_OBJECT",
+              "name": "CreateProjectV2Input",
+              "ofType": null
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "createProjectV2Field",
+      "isDeprecated": false,
+      "deprecationReason": null,
+      "args": [
+        {
+          "name": "input",
+          "type": {
+            "kind": "NON_NULL",
+            "name": null,
+            "ofType": {
+              "kind": "INPUT_OBJECT",
+              "name": "CreateProjectV2FieldInput",
+              "ofType": null
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "createProjectV2IssueField",
+      "isDeprecated": false,
+      "deprecationReason": null,
+      "args": [
+        {
+          "name": "input",
+          "type": {
+            "kind": "NON_NULL",
+            "name": null,
+            "ofType": {
+              "kind": "INPUT_OBJECT",
+              "name": "CreateProjectV2IssueFieldInput",
+              "ofType": null
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "createProjectV2StatusUpdate",
+      "isDeprecated": false,
+      "deprecationReason": null,
+      "args": [
+        {
+          "name": "input",
+          "type": {
+            "kind": "NON_NULL",
+            "name": null,
+            "ofType": {
+              "kind": "INPUT_OBJECT",
+              "name": "CreateProjectV2StatusUpdateInput",
+              "ofType": null
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "createProjectV2View",
+      "isDeprecated": false,
+      "deprecationReason": null,
+      "args": [
+        {
+          "name": "input",
+          "type": {
+            "kind": "NON_NULL",
+            "name": null,
+            "ofType": {
+              "kind": "INPUT_OBJECT",
+              "name": "CreateProjectV2ViewInput",
+              "ofType": null
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "deleteProjectV2",
+      "isDeprecated": false,
+      "deprecationReason": null,
+      "args": [
+        {
+          "name": "input",
+          "type": {
+            "kind": "NON_NULL",
+            "name": null,
+            "ofType": {
+              "kind": "INPUT_OBJECT",
+              "name": "DeleteProjectV2Input",
+              "ofType": null
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "deleteProjectV2Field",
+      "isDeprecated": false,
+      "deprecationReason": null,
+      "args": [
+        {
+          "name": "input",
+          "type": {
+            "kind": "NON_NULL",
+            "name": null,
+            "ofType": {
+              "kind": "INPUT_OBJECT",
+              "name": "DeleteProjectV2FieldInput",
+              "ofType": null
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "deleteProjectV2Item",
+      "isDeprecated": false,
+      "deprecationReason": null,
+      "args": [
+        {
+          "name": "input",
+          "type": {
+            "kind": "NON_NULL",
+            "name": null,
+            "ofType": {
+              "kind": "INPUT_OBJECT",
+              "name": "DeleteProjectV2ItemInput",
+              "ofType": null
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "deleteProjectV2StatusUpdate",
+      "isDeprecated": false,
+      "deprecationReason": null,
+      "args": [
+        {
+          "name": "input",
+          "type": {
+            "kind": "NON_NULL",
+            "name": null,
+            "ofType": {
+              "kind": "INPUT_OBJECT",
+              "name": "DeleteProjectV2StatusUpdateInput",
+              "ofType": null
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "deleteProjectV2View",
+      "isDeprecated": false,
+      "deprecationReason": null,
+      "args": [
+        {
+          "name": "input",
+          "type": {
+            "kind": "NON_NULL",
+            "name": null,
+            "ofType": {
+              "kind": "INPUT_OBJECT",
+              "name": "DeleteProjectV2ViewInput",
+              "ofType": null
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "deleteProjectV2Workflow",
+      "isDeprecated": false,
+      "deprecationReason": null,
+      "args": [
+        {
+          "name": "input",
+          "type": {
+            "kind": "NON_NULL",
+            "name": null,
+            "ofType": {
+              "kind": "INPUT_OBJECT",
+              "name": "DeleteProjectV2WorkflowInput",
+              "ofType": null
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "linkProjectV2ToRepository",
+      "isDeprecated": false,
+      "deprecationReason": null,
+      "args": [
+        {
+          "name": "input",
+          "type": {
+            "kind": "NON_NULL",
+            "name": null,
+            "ofType": {
+              "kind": "INPUT_OBJECT",
+              "name": "LinkProjectV2ToRepositoryInput",
+              "ofType": null
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "linkProjectV2ToTeam",
+      "isDeprecated": false,
+      "deprecationReason": null,
+      "args": [
+        {
+          "name": "input",
+          "type": {
+            "kind": "NON_NULL",
+            "name": null,
+            "ofType": {
+              "kind": "INPUT_OBJECT",
+              "name": "LinkProjectV2ToTeamInput",
+              "ofType": null
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "markProjectV2AsTemplate",
+      "isDeprecated": false,
+      "deprecationReason": null,
+      "args": [
+        {
+          "name": "input",
+          "type": {
+            "kind": "NON_NULL",
+            "name": null,
+            "ofType": {
+              "kind": "INPUT_OBJECT",
+              "name": "MarkProjectV2AsTemplateInput",
+              "ofType": null
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "removeAssigneesFromAssignable",
+      "isDeprecated": false,
+      "deprecationReason": null,
+      "args": [
+        {
+          "name": "input",
+          "type": {
+            "kind": "NON_NULL",
+            "name": null,
+            "ofType": {
+              "kind": "INPUT_OBJECT",
+              "name": "RemoveAssigneesFromAssignableInput",
+              "ofType": null
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "removeBlockedBy",
+      "isDeprecated": false,
+      "deprecationReason": null,
+      "args": [
+        {
+          "name": "input",
+          "type": {
+            "kind": "NON_NULL",
+            "name": null,
+            "ofType": {
+              "kind": "INPUT_OBJECT",
+              "name": "RemoveBlockedByInput",
+              "ofType": null
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "removeLabelsFromLabelable",
+      "isDeprecated": false,
+      "deprecationReason": null,
+      "args": [
+        {
+          "name": "input",
+          "type": {
+            "kind": "NON_NULL",
+            "name": null,
+            "ofType": {
+              "kind": "INPUT_OBJECT",
+              "name": "RemoveLabelsFromLabelableInput",
+              "ofType": null
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "removeSubIssue",
+      "isDeprecated": false,
+      "deprecationReason": null,
+      "args": [
+        {
+          "name": "input",
+          "type": {
+            "kind": "NON_NULL",
+            "name": null,
+            "ofType": {
+              "kind": "INPUT_OBJECT",
+              "name": "RemoveSubIssueInput",
+              "ofType": null
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "reopenIssue",
+      "isDeprecated": false,
+      "deprecationReason": null,
+      "args": [
+        {
+          "name": "input",
+          "type": {
+            "kind": "NON_NULL",
+            "name": null,
+            "ofType": {
+              "kind": "INPUT_OBJECT",
+              "name": "ReopenIssueInput",
+              "ofType": null
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "reopenPullRequest",
+      "isDeprecated": false,
+      "deprecationReason": null,
+      "args": [
+        {
+          "name": "input",
+          "type": {
+            "kind": "NON_NULL",
+            "name": null,
+            "ofType": {
+              "kind": "INPUT_OBJECT",
+              "name": "ReopenPullRequestInput",
+              "ofType": null
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "reprioritizeSubIssue",
+      "isDeprecated": false,
+      "deprecationReason": null,
+      "args": [
+        {
+          "name": "input",
+          "type": {
+            "kind": "NON_NULL",
+            "name": null,
+            "ofType": {
+              "kind": "INPUT_OBJECT",
+              "name": "ReprioritizeSubIssueInput",
+              "ofType": null
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "requestReviews",
+      "isDeprecated": false,
+      "deprecationReason": null,
+      "args": [
+        {
+          "name": "input",
+          "type": {
+            "kind": "NON_NULL",
+            "name": null,
+            "ofType": {
+              "kind": "INPUT_OBJECT",
+              "name": "RequestReviewsInput",
+              "ofType": null
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "unarchiveProjectV2Item",
+      "isDeprecated": false,
+      "deprecationReason": null,
+      "args": [
+        {
+          "name": "input",
+          "type": {
+            "kind": "NON_NULL",
+            "name": null,
+            "ofType": {
+              "kind": "INPUT_OBJECT",
+              "name": "UnarchiveProjectV2ItemInput",
+              "ofType": null
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "unlinkProjectV2FromRepository",
+      "isDeprecated": false,
+      "deprecationReason": null,
+      "args": [
+        {
+          "name": "input",
+          "type": {
+            "kind": "NON_NULL",
+            "name": null,
+            "ofType": {
+              "kind": "INPUT_OBJECT",
+              "name": "UnlinkProjectV2FromRepositoryInput",
+              "ofType": null
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "unlinkProjectV2FromTeam",
+      "isDeprecated": false,
+      "deprecationReason": null,
+      "args": [
+        {
+          "name": "input",
+          "type": {
+            "kind": "NON_NULL",
+            "name": null,
+            "ofType": {
+              "kind": "INPUT_OBJECT",
+              "name": "UnlinkProjectV2FromTeamInput",
+              "ofType": null
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "unmarkProjectV2AsTemplate",
+      "isDeprecated": false,
+      "deprecationReason": null,
+      "args": [
+        {
+          "name": "input",
+          "type": {
+            "kind": "NON_NULL",
+            "name": null,
+            "ofType": {
+              "kind": "INPUT_OBJECT",
+              "name": "UnmarkProjectV2AsTemplateInput",
+              "ofType": null
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "updateIssue",
+      "isDeprecated": false,
+      "deprecationReason": null,
+      "args": [
+        {
+          "name": "input",
+          "type": {
+            "kind": "NON_NULL",
+            "name": null,
+            "ofType": {
+              "kind": "INPUT_OBJECT",
+              "name": "UpdateIssueInput",
+              "ofType": null
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "updateProjectV2",
+      "isDeprecated": false,
+      "deprecationReason": null,
+      "args": [
+        {
+          "name": "input",
+          "type": {
+            "kind": "NON_NULL",
+            "name": null,
+            "ofType": {
+              "kind": "INPUT_OBJECT",
+              "name": "UpdateProjectV2Input",
+              "ofType": null
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "updateProjectV2Collaborators",
+      "isDeprecated": false,
+      "deprecationReason": null,
+      "args": [
+        {
+          "name": "input",
+          "type": {
+            "kind": "NON_NULL",
+            "name": null,
+            "ofType": {
+              "kind": "INPUT_OBJECT",
+              "name": "UpdateProjectV2CollaboratorsInput",
+              "ofType": null
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "updateProjectV2DraftIssue",
+      "isDeprecated": false,
+      "deprecationReason": null,
+      "args": [
+        {
+          "name": "input",
+          "type": {
+            "kind": "NON_NULL",
+            "name": null,
+            "ofType": {
+              "kind": "INPUT_OBJECT",
+              "name": "UpdateProjectV2DraftIssueInput",
+              "ofType": null
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "updateProjectV2Field",
+      "isDeprecated": false,
+      "deprecationReason": null,
+      "args": [
+        {
+          "name": "input",
+          "type": {
+            "kind": "NON_NULL",
+            "name": null,
+            "ofType": {
+              "kind": "INPUT_OBJECT",
+              "name": "UpdateProjectV2FieldInput",
+              "ofType": null
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "updateProjectV2ItemFieldValue",
+      "isDeprecated": false,
+      "deprecationReason": null,
+      "args": [
+        {
+          "name": "input",
+          "type": {
+            "kind": "NON_NULL",
+            "name": null,
+            "ofType": {
+              "kind": "INPUT_OBJECT",
+              "name": "UpdateProjectV2ItemFieldValueInput",
+              "ofType": null
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "updateProjectV2ItemPosition",
+      "isDeprecated": false,
+      "deprecationReason": null,
+      "args": [
+        {
+          "name": "input",
+          "type": {
+            "kind": "NON_NULL",
+            "name": null,
+            "ofType": {
+              "kind": "INPUT_OBJECT",
+              "name": "UpdateProjectV2ItemPositionInput",
+              "ofType": null
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "updateProjectV2StatusUpdate",
+      "isDeprecated": false,
+      "deprecationReason": null,
+      "args": [
+        {
+          "name": "input",
+          "type": {
+            "kind": "NON_NULL",
+            "name": null,
+            "ofType": {
+              "kind": "INPUT_OBJECT",
+              "name": "UpdateProjectV2StatusUpdateInput",
+              "ofType": null
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "updateProjectV2View",
+      "isDeprecated": false,
+      "deprecationReason": null,
+      "args": [
+        {
+          "name": "input",
+          "type": {
+            "kind": "NON_NULL",
+            "name": null,
+            "ofType": {
+              "kind": "INPUT_OBJECT",
+              "name": "UpdateProjectV2ViewInput",
+              "ofType": null
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "updatePullRequest",
+      "isDeprecated": false,
+      "deprecationReason": null,
+      "args": [
+        {
+          "name": "input",
+          "type": {
+            "kind": "NON_NULL",
+            "name": null,
+            "ofType": {
+              "kind": "INPUT_OBJECT",
+              "name": "UpdatePullRequestInput",
+              "ofType": null
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "types": {
+    "AddAssigneesToAssignableInput": {
+      "name": "AddAssigneesToAssignableInput",
+      "kind": "INPUT_OBJECT",
+      "inputFields": [
+        {
+          "name": "clientMutationId",
+          "defaultValue": null,
+          "description": "A unique identifier for the client performing the mutation.",
+          "type": {
+            "kind": "SCALAR",
+            "name": "String",
+            "ofType": null
+          }
+        },
+        {
+          "name": "assignableId",
+          "defaultValue": null,
+          "description": "The id of the assignable object to add assignees to.",
+          "type": {
+            "kind": "NON_NULL",
+            "name": null,
+            "ofType": {
+              "kind": "SCALAR",
+              "name": "ID",
+              "ofType": null
+            }
+          }
+        },
+        {
+          "name": "assigneeIds",
+          "defaultValue": null,
+          "description": "The ids of actors (users or bots) to add as assignees. Mutually exclusive with `assignees`.",
+          "type": {
+            "kind": "LIST",
+            "name": null,
+            "ofType": {
+              "kind": "NON_NULL",
+              "name": null,
+              "ofType": {
+                "kind": "SCALAR",
+                "name": "ID",
+                "ofType": null
+              }
+            }
+          }
+        },
+        {
+          "name": "assignees",
+          "defaultValue": null,
+          "description": "An array of actors to add as assignees, each with optional rationale or suggest flag. Mutually exclusive with `assigneeIds`.",
+          "type": {
+            "kind": "LIST",
+            "name": null,
+            "ofType": {
+              "kind": "NON_NULL",
+              "name": null,
+              "ofType": {
+                "kind": "INPUT_OBJECT",
+                "name": "AssigneeUpdateInput",
+                "ofType": null
+              }
+            }
+          }
+        },
+        {
+          "name": "agentAssignment",
+          "defaultValue": null,
+          "description": "Configuration for assigning Copilot to this issue.",
+          "type": {
+            "kind": "INPUT_OBJECT",
+            "name": "AgentAssignmentInput",
+            "ofType": null
+          }
+        }
+      ],
+      "enumValues": null
+    },
+    "AddBlockedByInput": {
+      "name": "AddBlockedByInput",
+      "kind": "INPUT_OBJECT",
+      "inputFields": [
+        {
+          "name": "clientMutationId",
+          "defaultValue": null,
+          "description": "A unique identifier for the client performing the mutation.",
+          "type": {
+            "kind": "SCALAR",
+            "name": "String",
+            "ofType": null
+          }
+        },
+        {
+          "name": "issueId",
+          "defaultValue": null,
+          "description": "The ID of the issue to be blocked.",
+          "type": {
+            "kind": "NON_NULL",
+            "name": null,
+            "ofType": {
+              "kind": "SCALAR",
+              "name": "ID",
+              "ofType": null
+            }
+          }
+        },
+        {
+          "name": "blockingIssueId",
+          "defaultValue": null,
+          "description": "The ID of the issue that blocks the given issue.",
+          "type": {
+            "kind": "NON_NULL",
+            "name": null,
+            "ofType": {
+              "kind": "SCALAR",
+              "name": "ID",
+              "ofType": null
+            }
+          }
+        }
+      ],
+      "enumValues": null
+    },
+    "AddCommentInput": {
+      "name": "AddCommentInput",
+      "kind": "INPUT_OBJECT",
+      "inputFields": [
+        {
+          "name": "clientMutationId",
+          "defaultValue": null,
+          "description": "A unique identifier for the client performing the mutation.",
+          "type": {
+            "kind": "SCALAR",
+            "name": "String",
+            "ofType": null
+          }
+        },
+        {
+          "name": "subjectId",
+          "defaultValue": null,
+          "description": "The Node ID of the subject to modify.",
+          "type": {
+            "kind": "NON_NULL",
+            "name": null,
+            "ofType": {
+              "kind": "SCALAR",
+              "name": "ID",
+              "ofType": null
+            }
+          }
+        },
+        {
+          "name": "body",
+          "defaultValue": null,
+          "description": "The contents of the comment.",
+          "type": {
+            "kind": "NON_NULL",
+            "name": null,
+            "ofType": {
+              "kind": "SCALAR",
+              "name": "String",
+              "ofType": null
+            }
+          }
+        }
+      ],
+      "enumValues": null
+    },
+    "AddLabelsToLabelableInput": {
+      "name": "AddLabelsToLabelableInput",
+      "kind": "INPUT_OBJECT",
+      "inputFields": [
+        {
+          "name": "clientMutationId",
+          "defaultValue": null,
+          "description": "A unique identifier for the client performing the mutation.",
+          "type": {
+            "kind": "SCALAR",
+            "name": "String",
+            "ofType": null
+          }
+        },
+        {
+          "name": "labelableId",
+          "defaultValue": null,
+          "description": "The id of the labelable object to add labels to.",
+          "type": {
+            "kind": "NON_NULL",
+            "name": null,
+            "ofType": {
+              "kind": "SCALAR",
+              "name": "ID",
+              "ofType": null
+            }
+          }
+        },
+        {
+          "name": "labelIds",
+          "defaultValue": null,
+          "description": "The ids of the labels to add.",
+          "type": {
+            "kind": "LIST",
+            "name": null,
+            "ofType": {
+              "kind": "NON_NULL",
+              "name": null,
+              "ofType": {
+                "kind": "SCALAR",
+                "name": "ID",
+                "ofType": null
+              }
+            }
+          }
+        },
+        {
+          "name": "labels",
+          "defaultValue": null,
+          "description": "The labels to add, each with optional `rationale` or a `suggest` flag that stores the addition as a pending suggestion. Mutually exclusive with `labelIds`.",
+          "type": {
+            "kind": "LIST",
+            "name": null,
+            "ofType": {
+              "kind": "NON_NULL",
+              "name": null,
+              "ofType": {
+                "kind": "INPUT_OBJECT",
+                "name": "LabelUpdateInput",
+                "ofType": null
+              }
+            }
+          }
+        }
+      ],
+      "enumValues": null
+    },
+    "AddProjectV2DraftIssueInput": {
+      "name": "AddProjectV2DraftIssueInput",
+      "kind": "INPUT_OBJECT",
+      "inputFields": [
+        {
+          "name": "clientMutationId",
+          "defaultValue": null,
+          "description": "A unique identifier for the client performing the mutation.",
+          "type": {
+            "kind": "SCALAR",
+            "name": "String",
+            "ofType": null
+          }
+        },
+        {
+          "name": "projectId",
+          "defaultValue": null,
+          "description": "The ID of the Project to add the draft issue to.",
+          "type": {
+            "kind": "NON_NULL",
+            "name": null,
+            "ofType": {
+              "kind": "SCALAR",
+              "name": "ID",
+              "ofType": null
+            }
+          }
+        },
+        {
+          "name": "title",
+          "defaultValue": null,
+          "description": "The title of the draft issue. A project item can also be created by providing the URL of an Issue or Pull Request if you have access.",
+          "type": {
+            "kind": "NON_NULL",
+            "name": null,
+            "ofType": {
+              "kind": "SCALAR",
+              "name": "String",
+              "ofType": null
+            }
+          }
+        },
+        {
+          "name": "body",
+          "defaultValue": null,
+          "description": "The body of the draft issue.",
+          "type": {
+            "kind": "SCALAR",
+            "name": "String",
+            "ofType": null
+          }
+        },
+        {
+          "name": "assigneeIds",
+          "defaultValue": null,
+          "description": "The IDs of the assignees of the draft issue.",
+          "type": {
+            "kind": "LIST",
+            "name": null,
+            "ofType": {
+              "kind": "NON_NULL",
+              "name": null,
+              "ofType": {
+                "kind": "SCALAR",
+                "name": "ID",
+                "ofType": null
+              }
+            }
+          }
+        }
+      ],
+      "enumValues": null
+    },
+    "AddProjectV2ItemByIdInput": {
+      "name": "AddProjectV2ItemByIdInput",
+      "kind": "INPUT_OBJECT",
+      "inputFields": [
+        {
+          "name": "clientMutationId",
+          "defaultValue": null,
+          "description": "A unique identifier for the client performing the mutation.",
+          "type": {
+            "kind": "SCALAR",
+            "name": "String",
+            "ofType": null
+          }
+        },
+        {
+          "name": "projectId",
+          "defaultValue": null,
+          "description": "The ID of the Project to add the item to.",
+          "type": {
+            "kind": "NON_NULL",
+            "name": null,
+            "ofType": {
+              "kind": "SCALAR",
+              "name": "ID",
+              "ofType": null
+            }
+          }
+        },
+        {
+          "name": "contentId",
+          "defaultValue": null,
+          "description": "The id of the Issue or Pull Request to add.",
+          "type": {
+            "kind": "NON_NULL",
+            "name": null,
+            "ofType": {
+              "kind": "SCALAR",
+              "name": "ID",
+              "ofType": null
+            }
+          }
+        }
+      ],
+      "enumValues": null
+    },
+    "AddPullRequestReviewInput": {
+      "name": "AddPullRequestReviewInput",
+      "kind": "INPUT_OBJECT",
+      "inputFields": [
+        {
+          "name": "clientMutationId",
+          "defaultValue": null,
+          "description": "A unique identifier for the client performing the mutation.",
+          "type": {
+            "kind": "SCALAR",
+            "name": "String",
+            "ofType": null
+          }
+        },
+        {
+          "name": "pullRequestId",
+          "defaultValue": null,
+          "description": "The Node ID of the pull request to modify.",
+          "type": {
+            "kind": "NON_NULL",
+            "name": null,
+            "ofType": {
+              "kind": "SCALAR",
+              "name": "ID",
+              "ofType": null
+            }
+          }
+        },
+        {
+          "name": "commitOID",
+          "defaultValue": null,
+          "description": "The commit OID the review pertains to.",
+          "type": {
+            "kind": "SCALAR",
+            "name": "GitObjectID",
+            "ofType": null
+          }
+        },
+        {
+          "name": "body",
+          "defaultValue": null,
+          "description": "The contents of the review body comment.",
+          "type": {
+            "kind": "SCALAR",
+            "name": "String",
+            "ofType": null
+          }
+        },
+        {
+          "name": "event",
+          "defaultValue": null,
+          "description": "The event to perform on the pull request review.",
+          "type": {
+            "kind": "ENUM",
+            "name": "PullRequestReviewEvent",
+            "ofType": null
+          }
+        },
+        {
+          "name": "comments",
+          "defaultValue": null,
+          "description": "The review line comments.\n\n**Upcoming Change on 2023-10-01 UTC**\n**Description:** `comments` will be removed. use the `threads` argument instead\n**Reason:** We are deprecating comment fields that use diff-relative positioning\n",
+          "type": {
+            "kind": "LIST",
+            "name": null,
+            "ofType": {
+              "kind": "INPUT_OBJECT",
+              "name": "DraftPullRequestReviewComment",
+              "ofType": null
+            }
+          }
+        },
+        {
+          "name": "threads",
+          "defaultValue": null,
+          "description": "The review line comment threads.",
+          "type": {
+            "kind": "LIST",
+            "name": null,
+            "ofType": {
+              "kind": "INPUT_OBJECT",
+              "name": "DraftPullRequestReviewThread",
+              "ofType": null
+            }
+          }
+        }
+      ],
+      "enumValues": null
+    },
+    "AddSubIssueInput": {
+      "name": "AddSubIssueInput",
+      "kind": "INPUT_OBJECT",
+      "inputFields": [
+        {
+          "name": "clientMutationId",
+          "defaultValue": null,
+          "description": "A unique identifier for the client performing the mutation.",
+          "type": {
+            "kind": "SCALAR",
+            "name": "String",
+            "ofType": null
+          }
+        },
+        {
+          "name": "issueId",
+          "defaultValue": null,
+          "description": "The id of the issue.",
+          "type": {
+            "kind": "NON_NULL",
+            "name": null,
+            "ofType": {
+              "kind": "SCALAR",
+              "name": "ID",
+              "ofType": null
+            }
+          }
+        },
+        {
+          "name": "subIssueId",
+          "defaultValue": null,
+          "description": "The id of the sub-issue.",
+          "type": {
+            "kind": "SCALAR",
+            "name": "ID",
+            "ofType": null
+          }
+        },
+        {
+          "name": "subIssueUrl",
+          "defaultValue": null,
+          "description": "The url of the sub-issue.",
+          "type": {
+            "kind": "SCALAR",
+            "name": "String",
+            "ofType": null
+          }
+        },
+        {
+          "name": "replaceParent",
+          "defaultValue": null,
+          "description": "Option to replace parent issue if one already exists",
+          "type": {
+            "kind": "SCALAR",
+            "name": "Boolean",
+            "ofType": null
+          }
+        }
+      ],
+      "enumValues": null
+    },
+    "AgentAssignmentInput": {
+      "name": "AgentAssignmentInput",
+      "kind": "INPUT_OBJECT",
+      "inputFields": [
+        {
+          "name": "targetRepositoryId",
+          "defaultValue": null,
+          "description": "The Node ID of the target repository where Copilot should work. Defaults to the issue's repository if not provided.",
+          "type": {
+            "kind": "SCALAR",
+            "name": "ID",
+            "ofType": null
+          }
+        },
+        {
+          "name": "baseRef",
+          "defaultValue": null,
+          "description": "The base ref/branch for the repository. Defaults to the default branch if not provided.",
+          "type": {
+            "kind": "SCALAR",
+            "name": "String",
+            "ofType": null
+          }
+        },
+        {
+          "name": "customInstructions",
+          "defaultValue": null,
+          "description": "Custom instructions for Copilot.",
+          "type": {
+            "kind": "SCALAR",
+            "name": "String",
+            "ofType": null
+          }
+        },
+        {
+          "name": "customAgent",
+          "defaultValue": null,
+          "description": "Custom agent for Copilot.",
+          "type": {
+            "kind": "SCALAR",
+            "name": "String",
+            "ofType": null
+          }
+        }
+      ],
+      "enumValues": null
+    },
+    "ArchiveProjectV2ItemInput": {
+      "name": "ArchiveProjectV2ItemInput",
+      "kind": "INPUT_OBJECT",
+      "inputFields": [
+        {
+          "name": "clientMutationId",
+          "defaultValue": null,
+          "description": "A unique identifier for the client performing the mutation.",
+          "type": {
+            "kind": "SCALAR",
+            "name": "String",
+            "ofType": null
+          }
+        },
+        {
+          "name": "projectId",
+          "defaultValue": null,
+          "description": "The ID of the Project to archive the item from.",
+          "type": {
+            "kind": "NON_NULL",
+            "name": null,
+            "ofType": {
+              "kind": "SCALAR",
+              "name": "ID",
+              "ofType": null
+            }
+          }
+        },
+        {
+          "name": "itemId",
+          "defaultValue": null,
+          "description": "The ID of the ProjectV2Item to archive.",
+          "type": {
+            "kind": "NON_NULL",
+            "name": null,
+            "ofType": {
+              "kind": "SCALAR",
+              "name": "ID",
+              "ofType": null
+            }
+          }
+        }
+      ],
+      "enumValues": null
+    },
+    "AssigneeUpdateInput": {
+      "name": "AssigneeUpdateInput",
+      "kind": "INPUT_OBJECT",
+      "inputFields": [
+        {
+          "name": "rationale",
+          "defaultValue": null,
+          "description": "Optional rationale describing why this value was selected. Max 280 characters.",
+          "type": {
+            "kind": "SCALAR",
+            "name": "String",
+            "ofType": null
+          }
+        },
+        {
+          "name": "suggest",
+          "defaultValue": null,
+          "description": "If true, the value is stored as a pending suggestion for human review rather than being applied directly.",
+          "type": {
+            "kind": "SCALAR",
+            "name": "Boolean",
+            "ofType": null
+          }
+        },
+        {
+          "name": "confidence",
+          "defaultValue": null,
+          "description": "The confidence level the agent had when selecting this value.",
+          "type": {
+            "kind": "ENUM",
+            "name": "IssueEventConfidenceLevel",
+            "ofType": null
+          }
+        },
+        {
+          "name": "actorId",
+          "defaultValue": null,
+          "description": "The ID of the actor (user or bot) to assign.",
+          "type": {
+            "kind": "NON_NULL",
+            "name": null,
+            "ofType": {
+              "kind": "SCALAR",
+              "name": "ID",
+              "ofType": null
+            }
+          }
+        }
+      ],
+      "enumValues": null
+    },
+    "ClearProjectV2ItemFieldValueInput": {
+      "name": "ClearProjectV2ItemFieldValueInput",
+      "kind": "INPUT_OBJECT",
+      "inputFields": [
+        {
+          "name": "clientMutationId",
+          "defaultValue": null,
+          "description": "A unique identifier for the client performing the mutation.",
+          "type": {
+            "kind": "SCALAR",
+            "name": "String",
+            "ofType": null
+          }
+        },
+        {
+          "name": "projectId",
+          "defaultValue": null,
+          "description": "The ID of the Project.",
+          "type": {
+            "kind": "NON_NULL",
+            "name": null,
+            "ofType": {
+              "kind": "SCALAR",
+              "name": "ID",
+              "ofType": null
+            }
+          }
+        },
+        {
+          "name": "itemId",
+          "defaultValue": null,
+          "description": "The ID of the item to be cleared.",
+          "type": {
+            "kind": "NON_NULL",
+            "name": null,
+            "ofType": {
+              "kind": "SCALAR",
+              "name": "ID",
+              "ofType": null
+            }
+          }
+        },
+        {
+          "name": "fieldId",
+          "defaultValue": null,
+          "description": "The ID of the field to be cleared.",
+          "type": {
+            "kind": "NON_NULL",
+            "name": null,
+            "ofType": {
+              "kind": "SCALAR",
+              "name": "ID",
+              "ofType": null
+            }
+          }
+        }
+      ],
+      "enumValues": null
+    },
+    "CloseIssueInput": {
+      "name": "CloseIssueInput",
+      "kind": "INPUT_OBJECT",
+      "inputFields": [
+        {
+          "name": "clientMutationId",
+          "defaultValue": null,
+          "description": "A unique identifier for the client performing the mutation.",
+          "type": {
+            "kind": "SCALAR",
+            "name": "String",
+            "ofType": null
+          }
+        },
+        {
+          "name": "issueId",
+          "defaultValue": null,
+          "description": "ID of the issue to be closed.",
+          "type": {
+            "kind": "NON_NULL",
+            "name": null,
+            "ofType": {
+              "kind": "SCALAR",
+              "name": "ID",
+              "ofType": null
+            }
+          }
+        },
+        {
+          "name": "stateReason",
+          "defaultValue": null,
+          "description": "The reason the issue is to be closed.",
+          "type": {
+            "kind": "ENUM",
+            "name": "IssueClosedStateReason",
+            "ofType": null
+          }
+        },
+        {
+          "name": "duplicateIssueId",
+          "defaultValue": null,
+          "description": "ID of the issue that this is a duplicate of.",
+          "type": {
+            "kind": "SCALAR",
+            "name": "ID",
+            "ofType": null
+          }
+        },
+        {
+          "name": "rationale",
+          "defaultValue": null,
+          "description": "Optional rationale describing why the issue should be closed. Max 280 characters.",
+          "type": {
+            "kind": "SCALAR",
+            "name": "String",
+            "ofType": null
+          }
+        },
+        {
+          "name": "isSuggestion",
+          "defaultValue": null,
+          "description": "If true, the close action is stored as a pending suggestion for human review rather than being applied directly.",
+          "type": {
+            "kind": "SCALAR",
+            "name": "Boolean",
+            "ofType": null
+          }
+        },
+        {
+          "name": "confidence",
+          "defaultValue": null,
+          "description": "The confidence level the agent had when suggesting this close. Only meaningful when isSuggestion is true.",
+          "type": {
+            "kind": "ENUM",
+            "name": "IssueEventConfidenceLevel",
+            "ofType": null
+          }
+        }
+      ],
+      "enumValues": null
+    },
+    "ClosePullRequestInput": {
+      "name": "ClosePullRequestInput",
+      "kind": "INPUT_OBJECT",
+      "inputFields": [
+        {
+          "name": "clientMutationId",
+          "defaultValue": null,
+          "description": "A unique identifier for the client performing the mutation.",
+          "type": {
+            "kind": "SCALAR",
+            "name": "String",
+            "ofType": null
+          }
+        },
+        {
+          "name": "pullRequestId",
+          "defaultValue": null,
+          "description": "ID of the pull request to be closed.",
+          "type": {
+            "kind": "NON_NULL",
+            "name": null,
+            "ofType": {
+              "kind": "SCALAR",
+              "name": "ID",
+              "ofType": null
+            }
+          }
+        }
+      ],
+      "enumValues": null
+    },
+    "ConvertProjectV2DraftIssueItemToIssueInput": {
+      "name": "ConvertProjectV2DraftIssueItemToIssueInput",
+      "kind": "INPUT_OBJECT",
+      "inputFields": [
+        {
+          "name": "clientMutationId",
+          "defaultValue": null,
+          "description": "A unique identifier for the client performing the mutation.",
+          "type": {
+            "kind": "SCALAR",
+            "name": "String",
+            "ofType": null
+          }
+        },
+        {
+          "name": "itemId",
+          "defaultValue": null,
+          "description": "The ID of the draft issue ProjectV2Item to convert.",
+          "type": {
+            "kind": "NON_NULL",
+            "name": null,
+            "ofType": {
+              "kind": "SCALAR",
+              "name": "ID",
+              "ofType": null
+            }
+          }
+        },
+        {
+          "name": "repositoryId",
+          "defaultValue": null,
+          "description": "The ID of the repository to create the issue in.",
+          "type": {
+            "kind": "NON_NULL",
+            "name": null,
+            "ofType": {
+              "kind": "SCALAR",
+              "name": "ID",
+              "ofType": null
+            }
+          }
+        }
+      ],
+      "enumValues": null
+    },
+    "CopyProjectV2Input": {
+      "name": "CopyProjectV2Input",
+      "kind": "INPUT_OBJECT",
+      "inputFields": [
+        {
+          "name": "clientMutationId",
+          "defaultValue": null,
+          "description": "A unique identifier for the client performing the mutation.",
+          "type": {
+            "kind": "SCALAR",
+            "name": "String",
+            "ofType": null
+          }
+        },
+        {
+          "name": "projectId",
+          "defaultValue": null,
+          "description": "The ID of the source Project to copy.",
+          "type": {
+            "kind": "NON_NULL",
+            "name": null,
+            "ofType": {
+              "kind": "SCALAR",
+              "name": "ID",
+              "ofType": null
+            }
+          }
+        },
+        {
+          "name": "ownerId",
+          "defaultValue": null,
+          "description": "The owner ID of the new project.",
+          "type": {
+            "kind": "NON_NULL",
+            "name": null,
+            "ofType": {
+              "kind": "SCALAR",
+              "name": "ID",
+              "ofType": null
+            }
+          }
+        },
+        {
+          "name": "title",
+          "defaultValue": null,
+          "description": "The title of the project.",
+          "type": {
+            "kind": "NON_NULL",
+            "name": null,
+            "ofType": {
+              "kind": "SCALAR",
+              "name": "String",
+              "ofType": null
+            }
+          }
+        },
+        {
+          "name": "includeDraftIssues",
+          "defaultValue": "false",
+          "description": "Include draft issues in the new project",
+          "type": {
+            "kind": "SCALAR",
+            "name": "Boolean",
+            "ofType": null
+          }
+        }
+      ],
+      "enumValues": null
+    },
+    "CreateProjectV2FieldInput": {
+      "name": "CreateProjectV2FieldInput",
+      "kind": "INPUT_OBJECT",
+      "inputFields": [
+        {
+          "name": "clientMutationId",
+          "defaultValue": null,
+          "description": "A unique identifier for the client performing the mutation.",
+          "type": {
+            "kind": "SCALAR",
+            "name": "String",
+            "ofType": null
+          }
+        },
+        {
+          "name": "projectId",
+          "defaultValue": null,
+          "description": "The ID of the Project to create the field in.",
+          "type": {
+            "kind": "NON_NULL",
+            "name": null,
+            "ofType": {
+              "kind": "SCALAR",
+              "name": "ID",
+              "ofType": null
+            }
+          }
+        },
+        {
+          "name": "dataType",
+          "defaultValue": null,
+          "description": "The data type of the field.",
+          "type": {
+            "kind": "NON_NULL",
+            "name": null,
+            "ofType": {
+              "kind": "ENUM",
+              "name": "ProjectV2CustomFieldType",
+              "ofType": null
+            }
+          }
+        },
+        {
+          "name": "name",
+          "defaultValue": null,
+          "description": "The name of the field.",
+          "type": {
+            "kind": "NON_NULL",
+            "name": null,
+            "ofType": {
+              "kind": "SCALAR",
+              "name": "String",
+              "ofType": null
+            }
+          }
+        },
+        {
+          "name": "singleSelectOptions",
+          "defaultValue": null,
+          "description": "Options for a single select field. At least one value is required if data_type is SINGLE_SELECT",
+          "type": {
+            "kind": "LIST",
+            "name": null,
+            "ofType": {
+              "kind": "NON_NULL",
+              "name": null,
+              "ofType": {
+                "kind": "INPUT_OBJECT",
+                "name": "ProjectV2SingleSelectFieldOptionInput",
+                "ofType": null
+              }
+            }
+          }
+        },
+        {
+          "name": "multiSelectOptions",
+          "defaultValue": null,
+          "description": "Options for a multi select field. At least one value is required if data_type is MULTI_SELECT",
+          "type": {
+            "kind": "LIST",
+            "name": null,
+            "ofType": {
+              "kind": "NON_NULL",
+              "name": null,
+              "ofType": {
+                "kind": "INPUT_OBJECT",
+                "name": "ProjectV2MultiSelectFieldOptionInput",
+                "ofType": null
+              }
+            }
+          }
+        },
+        {
+          "name": "iterationConfiguration",
+          "defaultValue": null,
+          "description": "Configuration for an iteration field.",
+          "type": {
+            "kind": "INPUT_OBJECT",
+            "name": "ProjectV2IterationFieldConfigurationInput",
+            "ofType": null
+          }
+        }
+      ],
+      "enumValues": null
+    },
+    "CreateProjectV2Input": {
+      "name": "CreateProjectV2Input",
+      "kind": "INPUT_OBJECT",
+      "inputFields": [
+        {
+          "name": "clientMutationId",
+          "defaultValue": null,
+          "description": "A unique identifier for the client performing the mutation.",
+          "type": {
+            "kind": "SCALAR",
+            "name": "String",
+            "ofType": null
+          }
+        },
+        {
+          "name": "ownerId",
+          "defaultValue": null,
+          "description": "The owner ID to create the project under.",
+          "type": {
+            "kind": "NON_NULL",
+            "name": null,
+            "ofType": {
+              "kind": "SCALAR",
+              "name": "ID",
+              "ofType": null
+            }
+          }
+        },
+        {
+          "name": "title",
+          "defaultValue": null,
+          "description": "The title of the project.",
+          "type": {
+            "kind": "NON_NULL",
+            "name": null,
+            "ofType": {
+              "kind": "SCALAR",
+              "name": "String",
+              "ofType": null
+            }
+          }
+        },
+        {
+          "name": "repositoryId",
+          "defaultValue": null,
+          "description": "The repository to link the project to.",
+          "type": {
+            "kind": "SCALAR",
+            "name": "ID",
+            "ofType": null
+          }
+        },
+        {
+          "name": "teamId",
+          "defaultValue": null,
+          "description": "The team to link the project to. The team will be granted read permissions.",
+          "type": {
+            "kind": "SCALAR",
+            "name": "ID",
+            "ofType": null
+          }
+        }
+      ],
+      "enumValues": null
+    },
+    "CreateProjectV2IssueFieldInput": {
+      "name": "CreateProjectV2IssueFieldInput",
+      "kind": "INPUT_OBJECT",
+      "inputFields": [
+        {
+          "name": "clientMutationId",
+          "defaultValue": null,
+          "description": "A unique identifier for the client performing the mutation.",
+          "type": {
+            "kind": "SCALAR",
+            "name": "String",
+            "ofType": null
+          }
+        },
+        {
+          "name": "projectId",
+          "defaultValue": null,
+          "description": "The ID of the Project to create the field in.",
+          "type": {
+            "kind": "NON_NULL",
+            "name": null,
+            "ofType": {
+              "kind": "SCALAR",
+              "name": "ID",
+              "ofType": null
+            }
+          }
+        },
+        {
+          "name": "issueFieldId",
+          "defaultValue": null,
+          "description": "The ID of the IssueField to create the field for.",
+          "type": {
+            "kind": "NON_NULL",
+            "name": null,
+            "ofType": {
+              "kind": "SCALAR",
+              "name": "ID",
+              "ofType": null
+            }
+          }
+        }
+      ],
+      "enumValues": null
+    },
+    "CreateProjectV2StatusUpdateInput": {
+      "name": "CreateProjectV2StatusUpdateInput",
+      "kind": "INPUT_OBJECT",
+      "inputFields": [
+        {
+          "name": "clientMutationId",
+          "defaultValue": null,
+          "description": "A unique identifier for the client performing the mutation.",
+          "type": {
+            "kind": "SCALAR",
+            "name": "String",
+            "ofType": null
+          }
+        },
+        {
+          "name": "projectId",
+          "defaultValue": null,
+          "description": "The ID of the Project to create the status update in.",
+          "type": {
+            "kind": "NON_NULL",
+            "name": null,
+            "ofType": {
+              "kind": "SCALAR",
+              "name": "ID",
+              "ofType": null
+            }
+          }
+        },
+        {
+          "name": "startDate",
+          "defaultValue": null,
+          "description": "The start date of the status update.",
+          "type": {
+            "kind": "SCALAR",
+            "name": "Date",
+            "ofType": null
+          }
+        },
+        {
+          "name": "targetDate",
+          "defaultValue": null,
+          "description": "The target date of the status update.",
+          "type": {
+            "kind": "SCALAR",
+            "name": "Date",
+            "ofType": null
+          }
+        },
+        {
+          "name": "status",
+          "defaultValue": null,
+          "description": "The status of the status update.",
+          "type": {
+            "kind": "ENUM",
+            "name": "ProjectV2StatusUpdateStatus",
+            "ofType": null
+          }
+        },
+        {
+          "name": "body",
+          "defaultValue": null,
+          "description": "The body of the status update.",
+          "type": {
+            "kind": "SCALAR",
+            "name": "String",
+            "ofType": null
+          }
+        }
+      ],
+      "enumValues": null
+    },
+    "CreateProjectV2ViewInput": {
+      "name": "CreateProjectV2ViewInput",
+      "kind": "INPUT_OBJECT",
+      "inputFields": [
+        {
+          "name": "clientMutationId",
+          "defaultValue": null,
+          "description": "A unique identifier for the client performing the mutation.",
+          "type": {
+            "kind": "SCALAR",
+            "name": "String",
+            "ofType": null
+          }
+        },
+        {
+          "name": "projectId",
+          "defaultValue": null,
+          "description": "The ID of the project to create a view in.",
+          "type": {
+            "kind": "NON_NULL",
+            "name": null,
+            "ofType": {
+              "kind": "SCALAR",
+              "name": "ID",
+              "ofType": null
+            }
+          }
+        },
+        {
+          "name": "name",
+          "defaultValue": null,
+          "description": "The name of the view.",
+          "type": {
+            "kind": "NON_NULL",
+            "name": null,
+            "ofType": {
+              "kind": "SCALAR",
+              "name": "String",
+              "ofType": null
+            }
+          }
+        },
+        {
+          "name": "layout",
+          "defaultValue": null,
+          "description": "The layout of the view.",
+          "type": {
+            "kind": "NON_NULL",
+            "name": null,
+            "ofType": {
+              "kind": "ENUM",
+              "name": "ProjectV2ViewLayout",
+              "ofType": null
+            }
+          }
+        },
+        {
+          "name": "configuration",
+          "defaultValue": null,
+          "description": "The configuration for the view.",
+          "type": {
+            "kind": "INPUT_OBJECT",
+            "name": "ProjectV2ViewConfigurationInput",
+            "ofType": null
+          }
+        }
+      ],
+      "enumValues": null
+    },
+    "DeleteProjectV2FieldInput": {
+      "name": "DeleteProjectV2FieldInput",
+      "kind": "INPUT_OBJECT",
+      "inputFields": [
+        {
+          "name": "clientMutationId",
+          "defaultValue": null,
+          "description": "A unique identifier for the client performing the mutation.",
+          "type": {
+            "kind": "SCALAR",
+            "name": "String",
+            "ofType": null
+          }
+        },
+        {
+          "name": "fieldId",
+          "defaultValue": null,
+          "description": "The ID of the field to delete.",
+          "type": {
+            "kind": "NON_NULL",
+            "name": null,
+            "ofType": {
+              "kind": "SCALAR",
+              "name": "ID",
+              "ofType": null
+            }
+          }
+        }
+      ],
+      "enumValues": null
+    },
+    "DeleteProjectV2Input": {
+      "name": "DeleteProjectV2Input",
+      "kind": "INPUT_OBJECT",
+      "inputFields": [
+        {
+          "name": "clientMutationId",
+          "defaultValue": null,
+          "description": "A unique identifier for the client performing the mutation.",
+          "type": {
+            "kind": "SCALAR",
+            "name": "String",
+            "ofType": null
+          }
+        },
+        {
+          "name": "projectId",
+          "defaultValue": null,
+          "description": "The ID of the Project to delete.",
+          "type": {
+            "kind": "NON_NULL",
+            "name": null,
+            "ofType": {
+              "kind": "SCALAR",
+              "name": "ID",
+              "ofType": null
+            }
+          }
+        }
+      ],
+      "enumValues": null
+    },
+    "DeleteProjectV2ItemInput": {
+      "name": "DeleteProjectV2ItemInput",
+      "kind": "INPUT_OBJECT",
+      "inputFields": [
+        {
+          "name": "clientMutationId",
+          "defaultValue": null,
+          "description": "A unique identifier for the client performing the mutation.",
+          "type": {
+            "kind": "SCALAR",
+            "name": "String",
+            "ofType": null
+          }
+        },
+        {
+          "name": "projectId",
+          "defaultValue": null,
+          "description": "The ID of the Project from which the item should be removed.",
+          "type": {
+            "kind": "NON_NULL",
+            "name": null,
+            "ofType": {
+              "kind": "SCALAR",
+              "name": "ID",
+              "ofType": null
+            }
+          }
+        },
+        {
+          "name": "itemId",
+          "defaultValue": null,
+          "description": "The ID of the item to be removed.",
+          "type": {
+            "kind": "NON_NULL",
+            "name": null,
+            "ofType": {
+              "kind": "SCALAR",
+              "name": "ID",
+              "ofType": null
+            }
+          }
+        }
+      ],
+      "enumValues": null
+    },
+    "DeleteProjectV2StatusUpdateInput": {
+      "name": "DeleteProjectV2StatusUpdateInput",
+      "kind": "INPUT_OBJECT",
+      "inputFields": [
+        {
+          "name": "clientMutationId",
+          "defaultValue": null,
+          "description": "A unique identifier for the client performing the mutation.",
+          "type": {
+            "kind": "SCALAR",
+            "name": "String",
+            "ofType": null
+          }
+        },
+        {
+          "name": "statusUpdateId",
+          "defaultValue": null,
+          "description": "The ID of the status update to be removed.",
+          "type": {
+            "kind": "NON_NULL",
+            "name": null,
+            "ofType": {
+              "kind": "SCALAR",
+              "name": "ID",
+              "ofType": null
+            }
+          }
+        }
+      ],
+      "enumValues": null
+    },
+    "DeleteProjectV2ViewInput": {
+      "name": "DeleteProjectV2ViewInput",
+      "kind": "INPUT_OBJECT",
+      "inputFields": [
+        {
+          "name": "clientMutationId",
+          "defaultValue": null,
+          "description": "A unique identifier for the client performing the mutation.",
+          "type": {
+            "kind": "SCALAR",
+            "name": "String",
+            "ofType": null
+          }
+        },
+        {
+          "name": "viewId",
+          "defaultValue": null,
+          "description": "The ID of the view to delete.",
+          "type": {
+            "kind": "NON_NULL",
+            "name": null,
+            "ofType": {
+              "kind": "SCALAR",
+              "name": "ID",
+              "ofType": null
+            }
+          }
+        }
+      ],
+      "enumValues": null
+    },
+    "DeleteProjectV2WorkflowInput": {
+      "name": "DeleteProjectV2WorkflowInput",
+      "kind": "INPUT_OBJECT",
+      "inputFields": [
+        {
+          "name": "clientMutationId",
+          "defaultValue": null,
+          "description": "A unique identifier for the client performing the mutation.",
+          "type": {
+            "kind": "SCALAR",
+            "name": "String",
+            "ofType": null
+          }
+        },
+        {
+          "name": "workflowId",
+          "defaultValue": null,
+          "description": "The ID of the workflow to be removed.",
+          "type": {
+            "kind": "NON_NULL",
+            "name": null,
+            "ofType": {
+              "kind": "SCALAR",
+              "name": "ID",
+              "ofType": null
+            }
+          }
+        }
+      ],
+      "enumValues": null
+    },
+    "DiffSide": {
+      "name": "DiffSide",
+      "kind": "ENUM",
+      "inputFields": null,
+      "enumValues": [
+        {
+          "name": "LEFT",
+          "isDeprecated": false
+        },
+        {
+          "name": "RIGHT",
+          "isDeprecated": false
+        }
+      ]
+    },
+    "DraftPullRequestReviewComment": {
+      "name": "DraftPullRequestReviewComment",
+      "kind": "INPUT_OBJECT",
+      "inputFields": [
+        {
+          "name": "path",
+          "defaultValue": null,
+          "description": "Path to the file being commented on.",
+          "type": {
+            "kind": "NON_NULL",
+            "name": null,
+            "ofType": {
+              "kind": "SCALAR",
+              "name": "String",
+              "ofType": null
+            }
+          }
+        },
+        {
+          "name": "position",
+          "defaultValue": null,
+          "description": "Position in the file to leave a comment on.",
+          "type": {
+            "kind": "NON_NULL",
+            "name": null,
+            "ofType": {
+              "kind": "SCALAR",
+              "name": "Int",
+              "ofType": null
+            }
+          }
+        },
+        {
+          "name": "body",
+          "defaultValue": null,
+          "description": "Body of the comment to leave.",
+          "type": {
+            "kind": "NON_NULL",
+            "name": null,
+            "ofType": {
+              "kind": "SCALAR",
+              "name": "String",
+              "ofType": null
+            }
+          }
+        }
+      ],
+      "enumValues": null
+    },
+    "DraftPullRequestReviewThread": {
+      "name": "DraftPullRequestReviewThread",
+      "kind": "INPUT_OBJECT",
+      "inputFields": [
+        {
+          "name": "path",
+          "defaultValue": null,
+          "description": "Path to the file being commented on. Required if not using positioning.",
+          "type": {
+            "kind": "SCALAR",
+            "name": "String",
+            "ofType": null
+          }
+        },
+        {
+          "name": "line",
+          "defaultValue": null,
+          "description": "The line of the blob to which the thread refers. The end of the line range for multi-line comments. Required if not using positioning.",
+          "type": {
+            "kind": "SCALAR",
+            "name": "Int",
+            "ofType": null
+          }
+        },
+        {
+          "name": "side",
+          "defaultValue": "RIGHT",
+          "description": "The side of the diff on which the line resides. For multi-line comments, this is the side for the end of the line range.",
+          "type": {
+            "kind": "ENUM",
+            "name": "DiffSide",
+            "ofType": null
+          }
+        },
+        {
+          "name": "startLine",
+          "defaultValue": null,
+          "description": "The first line of the range to which the comment refers.",
+          "type": {
+            "kind": "SCALAR",
+            "name": "Int",
+            "ofType": null
+          }
+        },
+        {
+          "name": "startSide",
+          "defaultValue": "RIGHT",
+          "description": "The side of the diff on which the start line resides.",
+          "type": {
+            "kind": "ENUM",
+            "name": "DiffSide",
+            "ofType": null
+          }
+        },
+        {
+          "name": "body",
+          "defaultValue": null,
+          "description": "Body of the comment to leave.",
+          "type": {
+            "kind": "NON_NULL",
+            "name": null,
+            "ofType": {
+              "kind": "SCALAR",
+              "name": "String",
+              "ofType": null
+            }
+          }
+        }
+      ],
+      "enumValues": null
+    },
+    "IssueClosedStateReason": {
+      "name": "IssueClosedStateReason",
+      "kind": "ENUM",
+      "inputFields": null,
+      "enumValues": [
+        {
+          "name": "COMPLETED",
+          "isDeprecated": false
+        },
+        {
+          "name": "NOT_PLANNED",
+          "isDeprecated": false
+        },
+        {
+          "name": "DUPLICATE",
+          "isDeprecated": false
+        }
+      ]
+    },
+    "IssueEventConfidenceLevel": {
+      "name": "IssueEventConfidenceLevel",
+      "kind": "ENUM",
+      "inputFields": null,
+      "enumValues": [
+        {
+          "name": "LOW",
+          "isDeprecated": false
+        },
+        {
+          "name": "MEDIUM",
+          "isDeprecated": false
+        },
+        {
+          "name": "HIGH",
+          "isDeprecated": false
+        }
+      ]
+    },
+    "IssueFieldUpdateInput": {
+      "name": "IssueFieldUpdateInput",
+      "kind": "INPUT_OBJECT",
+      "inputFields": [
+        {
+          "name": "fieldName",
+          "defaultValue": null,
+          "description": "The name of the issue field.",
+          "type": {
+            "kind": "NON_NULL",
+            "name": null,
+            "ofType": {
+              "kind": "SCALAR",
+              "name": "String",
+              "ofType": null
+            }
+          }
+        },
+        {
+          "name": "operation",
+          "defaultValue": null,
+          "description": "The operation to perform.",
+          "type": {
+            "kind": "NON_NULL",
+            "name": null,
+            "ofType": {
+              "kind": "ENUM",
+              "name": "IssueFieldUpdateOperation",
+              "ofType": null
+            }
+          }
+        },
+        {
+          "name": "value",
+          "defaultValue": null,
+          "description": "The value or comma-separated option names for the operation.",
+          "type": {
+            "kind": "SCALAR",
+            "name": "String",
+            "ofType": null
+          }
+        }
+      ],
+      "enumValues": null
+    },
+    "IssueFieldUpdateOperation": {
+      "name": "IssueFieldUpdateOperation",
+      "kind": "ENUM",
+      "inputFields": null,
+      "enumValues": [
+        {
+          "name": "SET",
+          "isDeprecated": false
+        },
+        {
+          "name": "ADD",
+          "isDeprecated": false
+        },
+        {
+          "name": "REMOVE",
+          "isDeprecated": false
+        },
+        {
+          "name": "CLEAR",
+          "isDeprecated": false
+        }
+      ]
+    },
+    "IssueState": {
+      "name": "IssueState",
+      "kind": "ENUM",
+      "inputFields": null,
+      "enumValues": [
+        {
+          "name": "OPEN",
+          "isDeprecated": false
+        },
+        {
+          "name": "CLOSED",
+          "isDeprecated": false
+        }
+      ]
+    },
+    "IssueStateUpdateInput": {
+      "name": "IssueStateUpdateInput",
+      "kind": "INPUT_OBJECT",
+      "inputFields": [
+        {
+          "name": "value",
+          "defaultValue": null,
+          "description": "The target state.",
+          "type": {
+            "kind": "NON_NULL",
+            "name": null,
+            "ofType": {
+              "kind": "ENUM",
+              "name": "IssueState",
+              "ofType": null
+            }
+          }
+        },
+        {
+          "name": "stateReason",
+          "defaultValue": null,
+          "description": "The reason for closing the issue. Only meaningful when `value` is `CLOSED`.",
+          "type": {
+            "kind": "ENUM",
+            "name": "IssueClosedStateReason",
+            "ofType": null
+          }
+        },
+        {
+          "name": "duplicateIssueId",
+          "defaultValue": null,
+          "description": "The ID of the issue that this is a duplicate of. Only meaningful when `value` is `CLOSED` and `stateReason` is `DUPLICATE`.",
+          "type": {
+            "kind": "SCALAR",
+            "name": "ID",
+            "ofType": null
+          }
+        },
+        {
+          "name": "rationale",
+          "defaultValue": null,
+          "description": "Optional rationale describing why the issue is being closed. Only meaningful when `value` is `CLOSED`. Max 280 characters.",
+          "type": {
+            "kind": "SCALAR",
+            "name": "String",
+            "ofType": null
+          }
+        },
+        {
+          "name": "suggest",
+          "defaultValue": null,
+          "description": "If true, the close is stored as a pending suggestion for human review rather than being applied directly. Only meaningful when `value` is `CLOSED`; silently ignored otherwise.",
+          "type": {
+            "kind": "SCALAR",
+            "name": "Boolean",
+            "ofType": null
+          }
+        },
+        {
+          "name": "confidence",
+          "defaultValue": null,
+          "description": "The confidence level the agent had when suggesting this close. Only meaningful when `value` is `CLOSED`.",
+          "type": {
+            "kind": "ENUM",
+            "name": "IssueEventConfidenceLevel",
+            "ofType": null
+          }
+        }
+      ],
+      "enumValues": null
+    },
+    "IssueTypeUpdateInput": {
+      "name": "IssueTypeUpdateInput",
+      "kind": "INPUT_OBJECT",
+      "inputFields": [
+        {
+          "name": "rationale",
+          "defaultValue": null,
+          "description": "Optional rationale describing why this value was selected. Max 280 characters.",
+          "type": {
+            "kind": "SCALAR",
+            "name": "String",
+            "ofType": null
+          }
+        },
+        {
+          "name": "suggest",
+          "defaultValue": null,
+          "description": "If true, the value is stored as a pending suggestion for human review rather than being applied directly.",
+          "type": {
+            "kind": "SCALAR",
+            "name": "Boolean",
+            "ofType": null
+          }
+        },
+        {
+          "name": "confidence",
+          "defaultValue": null,
+          "description": "The confidence level the agent had when selecting this value.",
+          "type": {
+            "kind": "ENUM",
+            "name": "IssueEventConfidenceLevel",
+            "ofType": null
+          }
+        },
+        {
+          "name": "issueTypeId",
+          "defaultValue": null,
+          "description": "The ID of the Issue Type to set on this issue. Pass null to clear the issue type.",
+          "type": {
+            "kind": "SCALAR",
+            "name": "ID",
+            "ofType": null
+          }
+        }
+      ],
+      "enumValues": null
+    },
+    "LabelUpdateInput": {
+      "name": "LabelUpdateInput",
+      "kind": "INPUT_OBJECT",
+      "inputFields": [
+        {
+          "name": "rationale",
+          "defaultValue": null,
+          "description": "Optional rationale describing why this value was selected. Max 280 characters.",
+          "type": {
+            "kind": "SCALAR",
+            "name": "String",
+            "ofType": null
+          }
+        },
+        {
+          "name": "suggest",
+          "defaultValue": null,
+          "description": "If true, the value is stored as a pending suggestion for human review rather than being applied directly.",
+          "type": {
+            "kind": "SCALAR",
+            "name": "Boolean",
+            "ofType": null
+          }
+        },
+        {
+          "name": "confidence",
+          "defaultValue": null,
+          "description": "The confidence level the agent had when selecting this value.",
+          "type": {
+            "kind": "ENUM",
+            "name": "IssueEventConfidenceLevel",
+            "ofType": null
+          }
+        },
+        {
+          "name": "labelId",
+          "defaultValue": null,
+          "description": "The ID of the Label.",
+          "type": {
+            "kind": "NON_NULL",
+            "name": null,
+            "ofType": {
+              "kind": "SCALAR",
+              "name": "ID",
+              "ofType": null
+            }
+          }
+        }
+      ],
+      "enumValues": null
+    },
+    "LinkProjectV2ToRepositoryInput": {
+      "name": "LinkProjectV2ToRepositoryInput",
+      "kind": "INPUT_OBJECT",
+      "inputFields": [
+        {
+          "name": "clientMutationId",
+          "defaultValue": null,
+          "description": "A unique identifier for the client performing the mutation.",
+          "type": {
+            "kind": "SCALAR",
+            "name": "String",
+            "ofType": null
+          }
+        },
+        {
+          "name": "projectId",
+          "defaultValue": null,
+          "description": "The ID of the project to link to the repository.",
+          "type": {
+            "kind": "NON_NULL",
+            "name": null,
+            "ofType": {
+              "kind": "SCALAR",
+              "name": "ID",
+              "ofType": null
+            }
+          }
+        },
+        {
+          "name": "repositoryId",
+          "defaultValue": null,
+          "description": "The ID of the repository to link to the project.",
+          "type": {
+            "kind": "NON_NULL",
+            "name": null,
+            "ofType": {
+              "kind": "SCALAR",
+              "name": "ID",
+              "ofType": null
+            }
+          }
+        }
+      ],
+      "enumValues": null
+    },
+    "LinkProjectV2ToTeamInput": {
+      "name": "LinkProjectV2ToTeamInput",
+      "kind": "INPUT_OBJECT",
+      "inputFields": [
+        {
+          "name": "clientMutationId",
+          "defaultValue": null,
+          "description": "A unique identifier for the client performing the mutation.",
+          "type": {
+            "kind": "SCALAR",
+            "name": "String",
+            "ofType": null
+          }
+        },
+        {
+          "name": "projectId",
+          "defaultValue": null,
+          "description": "The ID of the project to link to the team.",
+          "type": {
+            "kind": "NON_NULL",
+            "name": null,
+            "ofType": {
+              "kind": "SCALAR",
+              "name": "ID",
+              "ofType": null
+            }
+          }
+        },
+        {
+          "name": "teamId",
+          "defaultValue": null,
+          "description": "The ID of the team to link to the project.",
+          "type": {
+            "kind": "NON_NULL",
+            "name": null,
+            "ofType": {
+              "kind": "SCALAR",
+              "name": "ID",
+              "ofType": null
+            }
+          }
+        }
+      ],
+      "enumValues": null
+    },
+    "MarkProjectV2AsTemplateInput": {
+      "name": "MarkProjectV2AsTemplateInput",
+      "kind": "INPUT_OBJECT",
+      "inputFields": [
+        {
+          "name": "clientMutationId",
+          "defaultValue": null,
+          "description": "A unique identifier for the client performing the mutation.",
+          "type": {
+            "kind": "SCALAR",
+            "name": "String",
+            "ofType": null
+          }
+        },
+        {
+          "name": "projectId",
+          "defaultValue": null,
+          "description": "The ID of the Project to mark as a template.",
+          "type": {
+            "kind": "NON_NULL",
+            "name": null,
+            "ofType": {
+              "kind": "SCALAR",
+              "name": "ID",
+              "ofType": null
+            }
+          }
+        }
+      ],
+      "enumValues": null
+    },
+    "ProjectV2Collaborator": {
+      "name": "ProjectV2Collaborator",
+      "kind": "INPUT_OBJECT",
+      "inputFields": [
+        {
+          "name": "userId",
+          "defaultValue": null,
+          "description": "The ID of the user as a collaborator.",
+          "type": {
+            "kind": "SCALAR",
+            "name": "ID",
+            "ofType": null
+          }
+        },
+        {
+          "name": "teamId",
+          "defaultValue": null,
+          "description": "The ID of the team as a collaborator.",
+          "type": {
+            "kind": "SCALAR",
+            "name": "ID",
+            "ofType": null
+          }
+        },
+        {
+          "name": "role",
+          "defaultValue": null,
+          "description": "The role to grant the collaborator",
+          "type": {
+            "kind": "NON_NULL",
+            "name": null,
+            "ofType": {
+              "kind": "ENUM",
+              "name": "ProjectV2Roles",
+              "ofType": null
+            }
+          }
+        }
+      ],
+      "enumValues": null
+    },
+    "ProjectV2CustomFieldType": {
+      "name": "ProjectV2CustomFieldType",
+      "kind": "ENUM",
+      "inputFields": null,
+      "enumValues": [
+        {
+          "name": "TEXT",
+          "isDeprecated": false
+        },
+        {
+          "name": "SINGLE_SELECT",
+          "isDeprecated": false
+        },
+        {
+          "name": "MULTI_SELECT",
+          "isDeprecated": false
+        },
+        {
+          "name": "NUMBER",
+          "isDeprecated": false
+        },
+        {
+          "name": "DATE",
+          "isDeprecated": false
+        },
+        {
+          "name": "ITERATION",
+          "isDeprecated": false
+        }
+      ]
+    },
+    "ProjectV2FieldValue": {
+      "name": "ProjectV2FieldValue",
+      "kind": "INPUT_OBJECT",
+      "inputFields": [
+        {
+          "name": "text",
+          "defaultValue": null,
+          "description": "The text to set on the field.",
+          "type": {
+            "kind": "SCALAR",
+            "name": "String",
+            "ofType": null
+          }
+        },
+        {
+          "name": "number",
+          "defaultValue": null,
+          "description": "The number to set on the field.",
+          "type": {
+            "kind": "SCALAR",
+            "name": "Float",
+            "ofType": null
+          }
+        },
+        {
+          "name": "date",
+          "defaultValue": null,
+          "description": "The ISO 8601 date to set on the field.",
+          "type": {
+            "kind": "SCALAR",
+            "name": "Date",
+            "ofType": null
+          }
+        },
+        {
+          "name": "singleSelectOptionId",
+          "defaultValue": null,
+          "description": "The id of the single select option to set on the field.",
+          "type": {
+            "kind": "SCALAR",
+            "name": "String",
+            "ofType": null
+          }
+        },
+        {
+          "name": "multiSelectOptionIds",
+          "defaultValue": null,
+          "description": "The ids of the multi select options to set on the field.",
+          "type": {
+            "kind": "LIST",
+            "name": null,
+            "ofType": {
+              "kind": "NON_NULL",
+              "name": null,
+              "ofType": {
+                "kind": "SCALAR",
+                "name": "String",
+                "ofType": null
+              }
+            }
+          }
+        },
+        {
+          "name": "iterationId",
+          "defaultValue": null,
+          "description": "The id of the iteration to set on the field.",
+          "type": {
+            "kind": "SCALAR",
+            "name": "String",
+            "ofType": null
+          }
+        }
+      ],
+      "enumValues": null
+    },
+    "ProjectV2Iteration": {
+      "name": "ProjectV2Iteration",
+      "kind": "INPUT_OBJECT",
+      "inputFields": [
+        {
+          "name": "id",
+          "defaultValue": null,
+          "description": "The ID of an existing iteration. Include this to preserve the iteration's identity during replacement updates.",
+          "type": {
+            "kind": "SCALAR",
+            "name": "String",
+            "ofType": null
+          }
+        },
+        {
+          "name": "startDate",
+          "defaultValue": null,
+          "description": "The start date for the iteration.",
+          "type": {
+            "kind": "NON_NULL",
+            "name": null,
+            "ofType": {
+              "kind": "SCALAR",
+              "name": "Date",
+              "ofType": null
+            }
+          }
+        },
+        {
+          "name": "duration",
+          "defaultValue": null,
+          "description": "The duration of the iteration, in days.",
+          "type": {
+            "kind": "NON_NULL",
+            "name": null,
+            "ofType": {
+              "kind": "SCALAR",
+              "name": "Int",
+              "ofType": null
+            }
+          }
+        },
+        {
+          "name": "title",
+          "defaultValue": null,
+          "description": "The title for the iteration.",
+          "type": {
+            "kind": "NON_NULL",
+            "name": null,
+            "ofType": {
+              "kind": "SCALAR",
+              "name": "String",
+              "ofType": null
+            }
+          }
+        }
+      ],
+      "enumValues": null
+    },
+    "ProjectV2IterationFieldConfigurationInput": {
+      "name": "ProjectV2IterationFieldConfigurationInput",
+      "kind": "INPUT_OBJECT",
+      "inputFields": [
+        {
+          "name": "startDate",
+          "defaultValue": null,
+          "description": "The start date for the first iteration.",
+          "type": {
+            "kind": "NON_NULL",
+            "name": null,
+            "ofType": {
+              "kind": "SCALAR",
+              "name": "Date",
+              "ofType": null
+            }
+          }
+        },
+        {
+          "name": "duration",
+          "defaultValue": null,
+          "description": "The duration of each iteration, in days.",
+          "type": {
+            "kind": "NON_NULL",
+            "name": null,
+            "ofType": {
+              "kind": "SCALAR",
+              "name": "Int",
+              "ofType": null
+            }
+          }
+        },
+        {
+          "name": "iterations",
+          "defaultValue": null,
+          "description": "Zero or more iterations for the field.",
+          "type": {
+            "kind": "NON_NULL",
+            "name": null,
+            "ofType": {
+              "kind": "LIST",
+              "name": null,
+              "ofType": {
+                "kind": "NON_NULL",
+                "name": null,
+                "ofType": {
+                  "kind": "INPUT_OBJECT",
+                  "name": "ProjectV2Iteration",
+                  "ofType": null
+                }
+              }
+            }
+          }
+        }
+      ],
+      "enumValues": null
+    },
+    "ProjectV2MultiSelectFieldOptionInput": {
+      "name": "ProjectV2MultiSelectFieldOptionInput",
+      "kind": "INPUT_OBJECT",
+      "inputFields": [
+        {
+          "name": "id",
+          "defaultValue": null,
+          "description": "The ID of an existing multi select option. Include this to preserve the option's identity during updates, preventing item field values from being cleared.",
+          "type": {
+            "kind": "SCALAR",
+            "name": "String",
+            "ofType": null
+          }
+        },
+        {
+          "name": "name",
+          "defaultValue": null,
+          "description": "The name of the option",
+          "type": {
+            "kind": "NON_NULL",
+            "name": null,
+            "ofType": {
+              "kind": "SCALAR",
+              "name": "String",
+              "ofType": null
+            }
+          }
+        },
+        {
+          "name": "color",
+          "defaultValue": null,
+          "description": "The display color of the option",
+          "type": {
+            "kind": "NON_NULL",
+            "name": null,
+            "ofType": {
+              "kind": "ENUM",
+              "name": "ProjectV2SingleSelectFieldOptionColor",
+              "ofType": null
+            }
+          }
+        },
+        {
+          "name": "description",
+          "defaultValue": null,
+          "description": "The description text of the option",
+          "type": {
+            "kind": "NON_NULL",
+            "name": null,
+            "ofType": {
+              "kind": "SCALAR",
+              "name": "String",
+              "ofType": null
+            }
+          }
+        }
+      ],
+      "enumValues": null
+    },
+    "ProjectV2Roles": {
+      "name": "ProjectV2Roles",
+      "kind": "ENUM",
+      "inputFields": null,
+      "enumValues": [
+        {
+          "name": "NONE",
+          "isDeprecated": false
+        },
+        {
+          "name": "READER",
+          "isDeprecated": false
+        },
+        {
+          "name": "WRITER",
+          "isDeprecated": false
+        },
+        {
+          "name": "ADMIN",
+          "isDeprecated": false
+        }
+      ]
+    },
+    "ProjectV2SingleSelectFieldOptionColor": {
+      "name": "ProjectV2SingleSelectFieldOptionColor",
+      "kind": "ENUM",
+      "inputFields": null,
+      "enumValues": [
+        {
+          "name": "GRAY",
+          "isDeprecated": false
+        },
+        {
+          "name": "BLUE",
+          "isDeprecated": false
+        },
+        {
+          "name": "GREEN",
+          "isDeprecated": false
+        },
+        {
+          "name": "YELLOW",
+          "isDeprecated": false
+        },
+        {
+          "name": "ORANGE",
+          "isDeprecated": false
+        },
+        {
+          "name": "RED",
+          "isDeprecated": false
+        },
+        {
+          "name": "PINK",
+          "isDeprecated": false
+        },
+        {
+          "name": "PURPLE",
+          "isDeprecated": false
+        }
+      ]
+    },
+    "ProjectV2SingleSelectFieldOptionInput": {
+      "name": "ProjectV2SingleSelectFieldOptionInput",
+      "kind": "INPUT_OBJECT",
+      "inputFields": [
+        {
+          "name": "id",
+          "defaultValue": null,
+          "description": "The ID of an existing single select option. Include this to preserve the option's identity during updates, preventing item field values from being cleared.",
+          "type": {
+            "kind": "SCALAR",
+            "name": "String",
+            "ofType": null
+          }
+        },
+        {
+          "name": "name",
+          "defaultValue": null,
+          "description": "The name of the option",
+          "type": {
+            "kind": "NON_NULL",
+            "name": null,
+            "ofType": {
+              "kind": "SCALAR",
+              "name": "String",
+              "ofType": null
+            }
+          }
+        },
+        {
+          "name": "color",
+          "defaultValue": null,
+          "description": "The display color of the option",
+          "type": {
+            "kind": "NON_NULL",
+            "name": null,
+            "ofType": {
+              "kind": "ENUM",
+              "name": "ProjectV2SingleSelectFieldOptionColor",
+              "ofType": null
+            }
+          }
+        },
+        {
+          "name": "description",
+          "defaultValue": null,
+          "description": "The description text of the option",
+          "type": {
+            "kind": "NON_NULL",
+            "name": null,
+            "ofType": {
+              "kind": "SCALAR",
+              "name": "String",
+              "ofType": null
+            }
+          }
+        }
+      ],
+      "enumValues": null
+    },
+    "ProjectV2StatusUpdateStatus": {
+      "name": "ProjectV2StatusUpdateStatus",
+      "kind": "ENUM",
+      "inputFields": null,
+      "enumValues": [
+        {
+          "name": "INACTIVE",
+          "isDeprecated": false
+        },
+        {
+          "name": "ON_TRACK",
+          "isDeprecated": false
+        },
+        {
+          "name": "AT_RISK",
+          "isDeprecated": false
+        },
+        {
+          "name": "OFF_TRACK",
+          "isDeprecated": false
+        },
+        {
+          "name": "COMPLETE",
+          "isDeprecated": false
+        }
+      ]
+    },
+    "ProjectV2ViewConfigurationInput": {
+      "name": "ProjectV2ViewConfigurationInput",
+      "kind": "INPUT_OBJECT",
+      "inputFields": [
+        {
+          "name": "visibleFieldIds",
+          "defaultValue": null,
+          "description": "The ordered IDs of the fields visible in the view.",
+          "type": {
+            "kind": "LIST",
+            "name": null,
+            "ofType": {
+              "kind": "NON_NULL",
+              "name": null,
+              "ofType": {
+                "kind": "SCALAR",
+                "name": "ID",
+                "ofType": null
+              }
+            }
+          }
+        }
+      ],
+      "enumValues": null
+    },
+    "ProjectV2ViewLayout": {
+      "name": "ProjectV2ViewLayout",
+      "kind": "ENUM",
+      "inputFields": null,
+      "enumValues": [
+        {
+          "name": "BOARD_LAYOUT",
+          "isDeprecated": false
+        },
+        {
+          "name": "TABLE_LAYOUT",
+          "isDeprecated": false
+        },
+        {
+          "name": "ROADMAP_LAYOUT",
+          "isDeprecated": false
+        }
+      ]
+    },
+    "PullRequestReviewEvent": {
+      "name": "PullRequestReviewEvent",
+      "kind": "ENUM",
+      "inputFields": null,
+      "enumValues": [
+        {
+          "name": "COMMENT",
+          "isDeprecated": false
+        },
+        {
+          "name": "APPROVE",
+          "isDeprecated": false
+        },
+        {
+          "name": "REQUEST_CHANGES",
+          "isDeprecated": false
+        },
+        {
+          "name": "DISMISS",
+          "isDeprecated": false
+        }
+      ]
+    },
+    "PullRequestUpdateState": {
+      "name": "PullRequestUpdateState",
+      "kind": "ENUM",
+      "inputFields": null,
+      "enumValues": [
+        {
+          "name": "OPEN",
+          "isDeprecated": false
+        },
+        {
+          "name": "CLOSED",
+          "isDeprecated": false
+        }
+      ]
+    },
+    "RemoveAssigneesFromAssignableInput": {
+      "name": "RemoveAssigneesFromAssignableInput",
+      "kind": "INPUT_OBJECT",
+      "inputFields": [
+        {
+          "name": "clientMutationId",
+          "defaultValue": null,
+          "description": "A unique identifier for the client performing the mutation.",
+          "type": {
+            "kind": "SCALAR",
+            "name": "String",
+            "ofType": null
+          }
+        },
+        {
+          "name": "assignableId",
+          "defaultValue": null,
+          "description": "The id of the assignable object to remove assignees from.",
+          "type": {
+            "kind": "NON_NULL",
+            "name": null,
+            "ofType": {
+              "kind": "SCALAR",
+              "name": "ID",
+              "ofType": null
+            }
+          }
+        },
+        {
+          "name": "assigneeIds",
+          "defaultValue": null,
+          "description": "The ids of actors to remove as assignees.",
+          "type": {
+            "kind": "NON_NULL",
+            "name": null,
+            "ofType": {
+              "kind": "LIST",
+              "name": null,
+              "ofType": {
+                "kind": "NON_NULL",
+                "name": null,
+                "ofType": {
+                  "kind": "SCALAR",
+                  "name": "ID",
+                  "ofType": null
+                }
+              }
+            }
+          }
+        }
+      ],
+      "enumValues": null
+    },
+    "RemoveBlockedByInput": {
+      "name": "RemoveBlockedByInput",
+      "kind": "INPUT_OBJECT",
+      "inputFields": [
+        {
+          "name": "clientMutationId",
+          "defaultValue": null,
+          "description": "A unique identifier for the client performing the mutation.",
+          "type": {
+            "kind": "SCALAR",
+            "name": "String",
+            "ofType": null
+          }
+        },
+        {
+          "name": "issueId",
+          "defaultValue": null,
+          "description": "The ID of the blocked issue.",
+          "type": {
+            "kind": "NON_NULL",
+            "name": null,
+            "ofType": {
+              "kind": "SCALAR",
+              "name": "ID",
+              "ofType": null
+            }
+          }
+        },
+        {
+          "name": "blockingIssueId",
+          "defaultValue": null,
+          "description": "The ID of the blocking issue.",
+          "type": {
+            "kind": "NON_NULL",
+            "name": null,
+            "ofType": {
+              "kind": "SCALAR",
+              "name": "ID",
+              "ofType": null
+            }
+          }
+        }
+      ],
+      "enumValues": null
+    },
+    "RemoveLabelsFromLabelableInput": {
+      "name": "RemoveLabelsFromLabelableInput",
+      "kind": "INPUT_OBJECT",
+      "inputFields": [
+        {
+          "name": "clientMutationId",
+          "defaultValue": null,
+          "description": "A unique identifier for the client performing the mutation.",
+          "type": {
+            "kind": "SCALAR",
+            "name": "String",
+            "ofType": null
+          }
+        },
+        {
+          "name": "labelableId",
+          "defaultValue": null,
+          "description": "The id of the Labelable to remove labels from.",
+          "type": {
+            "kind": "NON_NULL",
+            "name": null,
+            "ofType": {
+              "kind": "SCALAR",
+              "name": "ID",
+              "ofType": null
+            }
+          }
+        },
+        {
+          "name": "labelIds",
+          "defaultValue": null,
+          "description": "The ids of labels to remove.",
+          "type": {
+            "kind": "NON_NULL",
+            "name": null,
+            "ofType": {
+              "kind": "LIST",
+              "name": null,
+              "ofType": {
+                "kind": "NON_NULL",
+                "name": null,
+                "ofType": {
+                  "kind": "SCALAR",
+                  "name": "ID",
+                  "ofType": null
+                }
+              }
+            }
+          }
+        }
+      ],
+      "enumValues": null
+    },
+    "RemoveSubIssueInput": {
+      "name": "RemoveSubIssueInput",
+      "kind": "INPUT_OBJECT",
+      "inputFields": [
+        {
+          "name": "clientMutationId",
+          "defaultValue": null,
+          "description": "A unique identifier for the client performing the mutation.",
+          "type": {
+            "kind": "SCALAR",
+            "name": "String",
+            "ofType": null
+          }
+        },
+        {
+          "name": "issueId",
+          "defaultValue": null,
+          "description": "The id of the issue.",
+          "type": {
+            "kind": "NON_NULL",
+            "name": null,
+            "ofType": {
+              "kind": "SCALAR",
+              "name": "ID",
+              "ofType": null
+            }
+          }
+        },
+        {
+          "name": "subIssueId",
+          "defaultValue": null,
+          "description": "The id of the sub-issue.",
+          "type": {
+            "kind": "NON_NULL",
+            "name": null,
+            "ofType": {
+              "kind": "SCALAR",
+              "name": "ID",
+              "ofType": null
+            }
+          }
+        }
+      ],
+      "enumValues": null
+    },
+    "ReopenIssueInput": {
+      "name": "ReopenIssueInput",
+      "kind": "INPUT_OBJECT",
+      "inputFields": [
+        {
+          "name": "clientMutationId",
+          "defaultValue": null,
+          "description": "A unique identifier for the client performing the mutation.",
+          "type": {
+            "kind": "SCALAR",
+            "name": "String",
+            "ofType": null
+          }
+        },
+        {
+          "name": "issueId",
+          "defaultValue": null,
+          "description": "ID of the issue to be opened.",
+          "type": {
+            "kind": "NON_NULL",
+            "name": null,
+            "ofType": {
+              "kind": "SCALAR",
+              "name": "ID",
+              "ofType": null
+            }
+          }
+        }
+      ],
+      "enumValues": null
+    },
+    "ReopenPullRequestInput": {
+      "name": "ReopenPullRequestInput",
+      "kind": "INPUT_OBJECT",
+      "inputFields": [
+        {
+          "name": "clientMutationId",
+          "defaultValue": null,
+          "description": "A unique identifier for the client performing the mutation.",
+          "type": {
+            "kind": "SCALAR",
+            "name": "String",
+            "ofType": null
+          }
+        },
+        {
+          "name": "pullRequestId",
+          "defaultValue": null,
+          "description": "ID of the pull request to be reopened.",
+          "type": {
+            "kind": "NON_NULL",
+            "name": null,
+            "ofType": {
+              "kind": "SCALAR",
+              "name": "ID",
+              "ofType": null
+            }
+          }
+        }
+      ],
+      "enumValues": null
+    },
+    "ReprioritizeSubIssueInput": {
+      "name": "ReprioritizeSubIssueInput",
+      "kind": "INPUT_OBJECT",
+      "inputFields": [
+        {
+          "name": "clientMutationId",
+          "defaultValue": null,
+          "description": "A unique identifier for the client performing the mutation.",
+          "type": {
+            "kind": "SCALAR",
+            "name": "String",
+            "ofType": null
+          }
+        },
+        {
+          "name": "issueId",
+          "defaultValue": null,
+          "description": "The id of the parent issue.",
+          "type": {
+            "kind": "NON_NULL",
+            "name": null,
+            "ofType": {
+              "kind": "SCALAR",
+              "name": "ID",
+              "ofType": null
+            }
+          }
+        },
+        {
+          "name": "subIssueId",
+          "defaultValue": null,
+          "description": "The id of the sub-issue to reprioritize.",
+          "type": {
+            "kind": "NON_NULL",
+            "name": null,
+            "ofType": {
+              "kind": "SCALAR",
+              "name": "ID",
+              "ofType": null
+            }
+          }
+        },
+        {
+          "name": "afterId",
+          "defaultValue": null,
+          "description": "The id of the sub-issue to be prioritized after (either positional argument after OR before should be specified).",
+          "type": {
+            "kind": "SCALAR",
+            "name": "ID",
+            "ofType": null
+          }
+        },
+        {
+          "name": "beforeId",
+          "defaultValue": null,
+          "description": "The id of the sub-issue to be prioritized before (either positional argument after OR before should be specified).",
+          "type": {
+            "kind": "SCALAR",
+            "name": "ID",
+            "ofType": null
+          }
+        }
+      ],
+      "enumValues": null
+    },
+    "RequestReviewsInput": {
+      "name": "RequestReviewsInput",
+      "kind": "INPUT_OBJECT",
+      "inputFields": [
+        {
+          "name": "clientMutationId",
+          "defaultValue": null,
+          "description": "A unique identifier for the client performing the mutation.",
+          "type": {
+            "kind": "SCALAR",
+            "name": "String",
+            "ofType": null
+          }
+        },
+        {
+          "name": "pullRequestId",
+          "defaultValue": null,
+          "description": "The Node ID of the pull request to modify.",
+          "type": {
+            "kind": "NON_NULL",
+            "name": null,
+            "ofType": {
+              "kind": "SCALAR",
+              "name": "ID",
+              "ofType": null
+            }
+          }
+        },
+        {
+          "name": "userIds",
+          "defaultValue": null,
+          "description": "The Node IDs of the user to request.",
+          "type": {
+            "kind": "LIST",
+            "name": null,
+            "ofType": {
+              "kind": "NON_NULL",
+              "name": null,
+              "ofType": {
+                "kind": "SCALAR",
+                "name": "ID",
+                "ofType": null
+              }
+            }
+          }
+        },
+        {
+          "name": "botIds",
+          "defaultValue": null,
+          "description": "The Node IDs of the bot to request.",
+          "type": {
+            "kind": "LIST",
+            "name": null,
+            "ofType": {
+              "kind": "NON_NULL",
+              "name": null,
+              "ofType": {
+                "kind": "SCALAR",
+                "name": "ID",
+                "ofType": null
+              }
+            }
+          }
+        },
+        {
+          "name": "teamIds",
+          "defaultValue": null,
+          "description": "The Node IDs of the team to request.",
+          "type": {
+            "kind": "LIST",
+            "name": null,
+            "ofType": {
+              "kind": "NON_NULL",
+              "name": null,
+              "ofType": {
+                "kind": "SCALAR",
+                "name": "ID",
+                "ofType": null
+              }
+            }
+          }
+        },
+        {
+          "name": "union",
+          "defaultValue": "false",
+          "description": "Add users to the set rather than replace.",
+          "type": {
+            "kind": "SCALAR",
+            "name": "Boolean",
+            "ofType": null
+          }
+        }
+      ],
+      "enumValues": null
+    },
+    "UnarchiveProjectV2ItemInput": {
+      "name": "UnarchiveProjectV2ItemInput",
+      "kind": "INPUT_OBJECT",
+      "inputFields": [
+        {
+          "name": "clientMutationId",
+          "defaultValue": null,
+          "description": "A unique identifier for the client performing the mutation.",
+          "type": {
+            "kind": "SCALAR",
+            "name": "String",
+            "ofType": null
+          }
+        },
+        {
+          "name": "projectId",
+          "defaultValue": null,
+          "description": "The ID of the Project to archive the item from.",
+          "type": {
+            "kind": "NON_NULL",
+            "name": null,
+            "ofType": {
+              "kind": "SCALAR",
+              "name": "ID",
+              "ofType": null
+            }
+          }
+        },
+        {
+          "name": "itemId",
+          "defaultValue": null,
+          "description": "The ID of the ProjectV2Item to unarchive.",
+          "type": {
+            "kind": "NON_NULL",
+            "name": null,
+            "ofType": {
+              "kind": "SCALAR",
+              "name": "ID",
+              "ofType": null
+            }
+          }
+        }
+      ],
+      "enumValues": null
+    },
+    "UnlinkProjectV2FromRepositoryInput": {
+      "name": "UnlinkProjectV2FromRepositoryInput",
+      "kind": "INPUT_OBJECT",
+      "inputFields": [
+        {
+          "name": "clientMutationId",
+          "defaultValue": null,
+          "description": "A unique identifier for the client performing the mutation.",
+          "type": {
+            "kind": "SCALAR",
+            "name": "String",
+            "ofType": null
+          }
+        },
+        {
+          "name": "projectId",
+          "defaultValue": null,
+          "description": "The ID of the project to unlink from the repository.",
+          "type": {
+            "kind": "NON_NULL",
+            "name": null,
+            "ofType": {
+              "kind": "SCALAR",
+              "name": "ID",
+              "ofType": null
+            }
+          }
+        },
+        {
+          "name": "repositoryId",
+          "defaultValue": null,
+          "description": "The ID of the repository to unlink from the project.",
+          "type": {
+            "kind": "NON_NULL",
+            "name": null,
+            "ofType": {
+              "kind": "SCALAR",
+              "name": "ID",
+              "ofType": null
+            }
+          }
+        }
+      ],
+      "enumValues": null
+    },
+    "UnlinkProjectV2FromTeamInput": {
+      "name": "UnlinkProjectV2FromTeamInput",
+      "kind": "INPUT_OBJECT",
+      "inputFields": [
+        {
+          "name": "clientMutationId",
+          "defaultValue": null,
+          "description": "A unique identifier for the client performing the mutation.",
+          "type": {
+            "kind": "SCALAR",
+            "name": "String",
+            "ofType": null
+          }
+        },
+        {
+          "name": "projectId",
+          "defaultValue": null,
+          "description": "The ID of the project to unlink from the team.",
+          "type": {
+            "kind": "NON_NULL",
+            "name": null,
+            "ofType": {
+              "kind": "SCALAR",
+              "name": "ID",
+              "ofType": null
+            }
+          }
+        },
+        {
+          "name": "teamId",
+          "defaultValue": null,
+          "description": "The ID of the team to unlink from the project.",
+          "type": {
+            "kind": "NON_NULL",
+            "name": null,
+            "ofType": {
+              "kind": "SCALAR",
+              "name": "ID",
+              "ofType": null
+            }
+          }
+        }
+      ],
+      "enumValues": null
+    },
+    "UnmarkProjectV2AsTemplateInput": {
+      "name": "UnmarkProjectV2AsTemplateInput",
+      "kind": "INPUT_OBJECT",
+      "inputFields": [
+        {
+          "name": "clientMutationId",
+          "defaultValue": null,
+          "description": "A unique identifier for the client performing the mutation.",
+          "type": {
+            "kind": "SCALAR",
+            "name": "String",
+            "ofType": null
+          }
+        },
+        {
+          "name": "projectId",
+          "defaultValue": null,
+          "description": "The ID of the Project to unmark as a template.",
+          "type": {
+            "kind": "NON_NULL",
+            "name": null,
+            "ofType": {
+              "kind": "SCALAR",
+              "name": "ID",
+              "ofType": null
+            }
+          }
+        }
+      ],
+      "enumValues": null
+    },
+    "UpdateIssueInput": {
+      "name": "UpdateIssueInput",
+      "kind": "INPUT_OBJECT",
+      "inputFields": [
+        {
+          "name": "clientMutationId",
+          "defaultValue": null,
+          "description": "A unique identifier for the client performing the mutation.",
+          "type": {
+            "kind": "SCALAR",
+            "name": "String",
+            "ofType": null
+          }
+        },
+        {
+          "name": "id",
+          "defaultValue": null,
+          "description": "The ID of the Issue to modify.",
+          "type": {
+            "kind": "NON_NULL",
+            "name": null,
+            "ofType": {
+              "kind": "SCALAR",
+              "name": "ID",
+              "ofType": null
+            }
+          }
+        },
+        {
+          "name": "title",
+          "defaultValue": null,
+          "description": "The title for the issue.",
+          "type": {
+            "kind": "SCALAR",
+            "name": "String",
+            "ofType": null
+          }
+        },
+        {
+          "name": "body",
+          "defaultValue": null,
+          "description": "The body for the issue description.",
+          "type": {
+            "kind": "SCALAR",
+            "name": "String",
+            "ofType": null
+          }
+        },
+        {
+          "name": "assigneeIds",
+          "defaultValue": null,
+          "description": "An array of Node IDs of users or bots for this issue.",
+          "type": {
+            "kind": "LIST",
+            "name": null,
+            "ofType": {
+              "kind": "NON_NULL",
+              "name": null,
+              "ofType": {
+                "kind": "SCALAR",
+                "name": "ID",
+                "ofType": null
+              }
+            }
+          }
+        },
+        {
+          "name": "assignees",
+          "defaultValue": null,
+          "description": "An array of actors to assign to this issue, each with optional rationale or suggest flag. Mutually exclusive with `assigneeIds`.",
+          "type": {
+            "kind": "LIST",
+            "name": null,
+            "ofType": {
+              "kind": "NON_NULL",
+              "name": null,
+              "ofType": {
+                "kind": "INPUT_OBJECT",
+                "name": "AssigneeUpdateInput",
+                "ofType": null
+              }
+            }
+          }
+        },
+        {
+          "name": "milestoneId",
+          "defaultValue": null,
+          "description": "The Node ID of the milestone for this issue.",
+          "type": {
+            "kind": "SCALAR",
+            "name": "ID",
+            "ofType": null
+          }
+        },
+        {
+          "name": "labelIds",
+          "defaultValue": null,
+          "description": "An array of Node IDs of labels for this issue.",
+          "type": {
+            "kind": "LIST",
+            "name": null,
+            "ofType": {
+              "kind": "NON_NULL",
+              "name": null,
+              "ofType": {
+                "kind": "SCALAR",
+                "name": "ID",
+                "ofType": null
+              }
+            }
+          }
+        },
+        {
+          "name": "labels",
+          "defaultValue": null,
+          "description": "An array of labels to set on this issue, each with optional rationale or suggest flag. Mutually exclusive with `labelIds`.",
+          "type": {
+            "kind": "LIST",
+            "name": null,
+            "ofType": {
+              "kind": "NON_NULL",
+              "name": null,
+              "ofType": {
+                "kind": "INPUT_OBJECT",
+                "name": "LabelUpdateInput",
+                "ofType": null
+              }
+            }
+          }
+        },
+        {
+          "name": "state",
+          "defaultValue": null,
+          "description": "The desired issue state.",
+          "type": {
+            "kind": "ENUM",
+            "name": "IssueState",
+            "ofType": null
+          }
+        },
+        {
+          "name": "stateInput",
+          "defaultValue": null,
+          "description": "The desired issue state, with optional rationale, state reason, or duplicate reference. Mutually exclusive with `state`.",
+          "type": {
+            "kind": "INPUT_OBJECT",
+            "name": "IssueStateUpdateInput",
+            "ofType": null
+          }
+        },
+        {
+          "name": "projectIds",
+          "defaultValue": null,
+          "description": "An array of Node IDs for projects associated with this issue.",
+          "type": {
+            "kind": "LIST",
+            "name": null,
+            "ofType": {
+              "kind": "NON_NULL",
+              "name": null,
+              "ofType": {
+                "kind": "SCALAR",
+                "name": "ID",
+                "ofType": null
+              }
+            }
+          }
+        },
+        {
+          "name": "issueTypeId",
+          "defaultValue": null,
+          "description": "The ID of the Issue Type for this issue.",
+          "type": {
+            "kind": "SCALAR",
+            "name": "ID",
+            "ofType": null
+          }
+        },
+        {
+          "name": "issueType",
+          "defaultValue": null,
+          "description": "The Issue Type to set on this issue, with optional rationale. Mutually exclusive with `issueTypeId`.",
+          "type": {
+            "kind": "INPUT_OBJECT",
+            "name": "IssueTypeUpdateInput",
+            "ofType": null
+          }
+        },
+        {
+          "name": "issueFieldUpdates",
+          "defaultValue": null,
+          "description": "Issue field updates resolved by field and option names.",
+          "type": {
+            "kind": "LIST",
+            "name": null,
+            "ofType": {
+              "kind": "NON_NULL",
+              "name": null,
+              "ofType": {
+                "kind": "INPUT_OBJECT",
+                "name": "IssueFieldUpdateInput",
+                "ofType": null
+              }
+            }
+          }
+        },
+        {
+          "name": "agentAssignment",
+          "defaultValue": null,
+          "description": "Configuration for assigning an AI agent to this issue.",
+          "type": {
+            "kind": "INPUT_OBJECT",
+            "name": "AgentAssignmentInput",
+            "ofType": null
+          }
+        }
+      ],
+      "enumValues": null
+    },
+    "UpdateProjectV2CollaboratorsInput": {
+      "name": "UpdateProjectV2CollaboratorsInput",
+      "kind": "INPUT_OBJECT",
+      "inputFields": [
+        {
+          "name": "clientMutationId",
+          "defaultValue": null,
+          "description": "A unique identifier for the client performing the mutation.",
+          "type": {
+            "kind": "SCALAR",
+            "name": "String",
+            "ofType": null
+          }
+        },
+        {
+          "name": "projectId",
+          "defaultValue": null,
+          "description": "The ID of the project to update the collaborators for.",
+          "type": {
+            "kind": "NON_NULL",
+            "name": null,
+            "ofType": {
+              "kind": "SCALAR",
+              "name": "ID",
+              "ofType": null
+            }
+          }
+        },
+        {
+          "name": "collaborators",
+          "defaultValue": null,
+          "description": "The collaborators to update.",
+          "type": {
+            "kind": "NON_NULL",
+            "name": null,
+            "ofType": {
+              "kind": "LIST",
+              "name": null,
+              "ofType": {
+                "kind": "NON_NULL",
+                "name": null,
+                "ofType": {
+                  "kind": "INPUT_OBJECT",
+                  "name": "ProjectV2Collaborator",
+                  "ofType": null
+                }
+              }
+            }
+          }
+        }
+      ],
+      "enumValues": null
+    },
+    "UpdateProjectV2DraftIssueInput": {
+      "name": "UpdateProjectV2DraftIssueInput",
+      "kind": "INPUT_OBJECT",
+      "inputFields": [
+        {
+          "name": "clientMutationId",
+          "defaultValue": null,
+          "description": "A unique identifier for the client performing the mutation.",
+          "type": {
+            "kind": "SCALAR",
+            "name": "String",
+            "ofType": null
+          }
+        },
+        {
+          "name": "draftIssueId",
+          "defaultValue": null,
+          "description": "The ID of the draft issue to update.",
+          "type": {
+            "kind": "NON_NULL",
+            "name": null,
+            "ofType": {
+              "kind": "SCALAR",
+              "name": "ID",
+              "ofType": null
+            }
+          }
+        },
+        {
+          "name": "title",
+          "defaultValue": null,
+          "description": "The title of the draft issue.",
+          "type": {
+            "kind": "SCALAR",
+            "name": "String",
+            "ofType": null
+          }
+        },
+        {
+          "name": "body",
+          "defaultValue": null,
+          "description": "The body of the draft issue.",
+          "type": {
+            "kind": "SCALAR",
+            "name": "String",
+            "ofType": null
+          }
+        },
+        {
+          "name": "assigneeIds",
+          "defaultValue": null,
+          "description": "The IDs of the assignees of the draft issue.",
+          "type": {
+            "kind": "LIST",
+            "name": null,
+            "ofType": {
+              "kind": "NON_NULL",
+              "name": null,
+              "ofType": {
+                "kind": "SCALAR",
+                "name": "ID",
+                "ofType": null
+              }
+            }
+          }
+        }
+      ],
+      "enumValues": null
+    },
+    "UpdateProjectV2FieldInput": {
+      "name": "UpdateProjectV2FieldInput",
+      "kind": "INPUT_OBJECT",
+      "inputFields": [
+        {
+          "name": "clientMutationId",
+          "defaultValue": null,
+          "description": "A unique identifier for the client performing the mutation.",
+          "type": {
+            "kind": "SCALAR",
+            "name": "String",
+            "ofType": null
+          }
+        },
+        {
+          "name": "fieldId",
+          "defaultValue": null,
+          "description": "The ID of the field to update.",
+          "type": {
+            "kind": "NON_NULL",
+            "name": null,
+            "ofType": {
+              "kind": "SCALAR",
+              "name": "ID",
+              "ofType": null
+            }
+          }
+        },
+        {
+          "name": "name",
+          "defaultValue": null,
+          "description": "The name to update.",
+          "type": {
+            "kind": "SCALAR",
+            "name": "String",
+            "ofType": null
+          }
+        },
+        {
+          "name": "singleSelectOptions",
+          "defaultValue": null,
+          "description": "Options for a field of type SINGLE_SELECT. Empty input is ignored, provided values overwrite existing options, and existing options should be fetched for partial updates.",
+          "type": {
+            "kind": "LIST",
+            "name": null,
+            "ofType": {
+              "kind": "NON_NULL",
+              "name": null,
+              "ofType": {
+                "kind": "INPUT_OBJECT",
+                "name": "ProjectV2SingleSelectFieldOptionInput",
+                "ofType": null
+              }
+            }
+          }
+        },
+        {
+          "name": "multiSelectOptions",
+          "defaultValue": null,
+          "description": "Options for a field of type MULTI_SELECT. Empty input is ignored, provided values overwrite existing options, and existing options should be fetched for partial updates.",
+          "type": {
+            "kind": "LIST",
+            "name": null,
+            "ofType": {
+              "kind": "NON_NULL",
+              "name": null,
+              "ofType": {
+                "kind": "INPUT_OBJECT",
+                "name": "ProjectV2MultiSelectFieldOptionInput",
+                "ofType": null
+              }
+            }
+          }
+        },
+        {
+          "name": "iterationConfiguration",
+          "defaultValue": null,
+          "description": "Configuration for a field of type ITERATION. Empty input is ignored, provided values overwrite the existing configuration, and existing configuration should be fetched for partial updates.",
+          "type": {
+            "kind": "INPUT_OBJECT",
+            "name": "ProjectV2IterationFieldConfigurationInput",
+            "ofType": null
+          }
+        }
+      ],
+      "enumValues": null
+    },
+    "UpdateProjectV2Input": {
+      "name": "UpdateProjectV2Input",
+      "kind": "INPUT_OBJECT",
+      "inputFields": [
+        {
+          "name": "clientMutationId",
+          "defaultValue": null,
+          "description": "A unique identifier for the client performing the mutation.",
+          "type": {
+            "kind": "SCALAR",
+            "name": "String",
+            "ofType": null
+          }
+        },
+        {
+          "name": "projectId",
+          "defaultValue": null,
+          "description": "The ID of the Project to update.",
+          "type": {
+            "kind": "NON_NULL",
+            "name": null,
+            "ofType": {
+              "kind": "SCALAR",
+              "name": "ID",
+              "ofType": null
+            }
+          }
+        },
+        {
+          "name": "title",
+          "defaultValue": null,
+          "description": "Set the title of the project.",
+          "type": {
+            "kind": "SCALAR",
+            "name": "String",
+            "ofType": null
+          }
+        },
+        {
+          "name": "shortDescription",
+          "defaultValue": null,
+          "description": "Set the short description of the project.",
+          "type": {
+            "kind": "SCALAR",
+            "name": "String",
+            "ofType": null
+          }
+        },
+        {
+          "name": "readme",
+          "defaultValue": null,
+          "description": "Set the readme description of the project.",
+          "type": {
+            "kind": "SCALAR",
+            "name": "String",
+            "ofType": null
+          }
+        },
+        {
+          "name": "closed",
+          "defaultValue": null,
+          "description": "Set the project to closed or open.",
+          "type": {
+            "kind": "SCALAR",
+            "name": "Boolean",
+            "ofType": null
+          }
+        },
+        {
+          "name": "public",
+          "defaultValue": null,
+          "description": "Set the project to public or private.",
+          "type": {
+            "kind": "SCALAR",
+            "name": "Boolean",
+            "ofType": null
+          }
+        }
+      ],
+      "enumValues": null
+    },
+    "UpdateProjectV2ItemFieldValueInput": {
+      "name": "UpdateProjectV2ItemFieldValueInput",
+      "kind": "INPUT_OBJECT",
+      "inputFields": [
+        {
+          "name": "clientMutationId",
+          "defaultValue": null,
+          "description": "A unique identifier for the client performing the mutation.",
+          "type": {
+            "kind": "SCALAR",
+            "name": "String",
+            "ofType": null
+          }
+        },
+        {
+          "name": "projectId",
+          "defaultValue": null,
+          "description": "The ID of the Project.",
+          "type": {
+            "kind": "NON_NULL",
+            "name": null,
+            "ofType": {
+              "kind": "SCALAR",
+              "name": "ID",
+              "ofType": null
+            }
+          }
+        },
+        {
+          "name": "itemId",
+          "defaultValue": null,
+          "description": "The ID of the item to be updated.",
+          "type": {
+            "kind": "NON_NULL",
+            "name": null,
+            "ofType": {
+              "kind": "SCALAR",
+              "name": "ID",
+              "ofType": null
+            }
+          }
+        },
+        {
+          "name": "fieldId",
+          "defaultValue": null,
+          "description": "The ID of the field to be updated.",
+          "type": {
+            "kind": "NON_NULL",
+            "name": null,
+            "ofType": {
+              "kind": "SCALAR",
+              "name": "ID",
+              "ofType": null
+            }
+          }
+        },
+        {
+          "name": "value",
+          "defaultValue": null,
+          "description": "The value which will be set on the field.",
+          "type": {
+            "kind": "NON_NULL",
+            "name": null,
+            "ofType": {
+              "kind": "INPUT_OBJECT",
+              "name": "ProjectV2FieldValue",
+              "ofType": null
+            }
+          }
+        }
+      ],
+      "enumValues": null
+    },
+    "UpdateProjectV2ItemPositionInput": {
+      "name": "UpdateProjectV2ItemPositionInput",
+      "kind": "INPUT_OBJECT",
+      "inputFields": [
+        {
+          "name": "clientMutationId",
+          "defaultValue": null,
+          "description": "A unique identifier for the client performing the mutation.",
+          "type": {
+            "kind": "SCALAR",
+            "name": "String",
+            "ofType": null
+          }
+        },
+        {
+          "name": "projectId",
+          "defaultValue": null,
+          "description": "The ID of the Project.",
+          "type": {
+            "kind": "NON_NULL",
+            "name": null,
+            "ofType": {
+              "kind": "SCALAR",
+              "name": "ID",
+              "ofType": null
+            }
+          }
+        },
+        {
+          "name": "itemId",
+          "defaultValue": null,
+          "description": "The ID of the item to be moved.",
+          "type": {
+            "kind": "NON_NULL",
+            "name": null,
+            "ofType": {
+              "kind": "SCALAR",
+              "name": "ID",
+              "ofType": null
+            }
+          }
+        },
+        {
+          "name": "afterId",
+          "defaultValue": null,
+          "description": "The ID of the item to position this item after. If omitted or set to null the item will be moved to top.",
+          "type": {
+            "kind": "SCALAR",
+            "name": "ID",
+            "ofType": null
+          }
+        }
+      ],
+      "enumValues": null
+    },
+    "UpdateProjectV2StatusUpdateInput": {
+      "name": "UpdateProjectV2StatusUpdateInput",
+      "kind": "INPUT_OBJECT",
+      "inputFields": [
+        {
+          "name": "clientMutationId",
+          "defaultValue": null,
+          "description": "A unique identifier for the client performing the mutation.",
+          "type": {
+            "kind": "SCALAR",
+            "name": "String",
+            "ofType": null
+          }
+        },
+        {
+          "name": "statusUpdateId",
+          "defaultValue": null,
+          "description": "The ID of the status update to be updated.",
+          "type": {
+            "kind": "NON_NULL",
+            "name": null,
+            "ofType": {
+              "kind": "SCALAR",
+              "name": "ID",
+              "ofType": null
+            }
+          }
+        },
+        {
+          "name": "startDate",
+          "defaultValue": null,
+          "description": "The start date of the status update.",
+          "type": {
+            "kind": "SCALAR",
+            "name": "Date",
+            "ofType": null
+          }
+        },
+        {
+          "name": "targetDate",
+          "defaultValue": null,
+          "description": "The target date of the status update.",
+          "type": {
+            "kind": "SCALAR",
+            "name": "Date",
+            "ofType": null
+          }
+        },
+        {
+          "name": "status",
+          "defaultValue": null,
+          "description": "The status of the status update.",
+          "type": {
+            "kind": "ENUM",
+            "name": "ProjectV2StatusUpdateStatus",
+            "ofType": null
+          }
+        },
+        {
+          "name": "body",
+          "defaultValue": null,
+          "description": "The body of the status update.",
+          "type": {
+            "kind": "SCALAR",
+            "name": "String",
+            "ofType": null
+          }
+        }
+      ],
+      "enumValues": null
+    },
+    "UpdateProjectV2ViewInput": {
+      "name": "UpdateProjectV2ViewInput",
+      "kind": "INPUT_OBJECT",
+      "inputFields": [
+        {
+          "name": "clientMutationId",
+          "defaultValue": null,
+          "description": "A unique identifier for the client performing the mutation.",
+          "type": {
+            "kind": "SCALAR",
+            "name": "String",
+            "ofType": null
+          }
+        },
+        {
+          "name": "viewId",
+          "defaultValue": null,
+          "description": "The ID of the view to update.",
+          "type": {
+            "kind": "NON_NULL",
+            "name": null,
+            "ofType": {
+              "kind": "SCALAR",
+              "name": "ID",
+              "ofType": null
+            }
+          }
+        },
+        {
+          "name": "name",
+          "defaultValue": null,
+          "description": "The new name for the view.",
+          "type": {
+            "kind": "SCALAR",
+            "name": "String",
+            "ofType": null
+          }
+        },
+        {
+          "name": "layout",
+          "defaultValue": null,
+          "description": "The new layout for the view.",
+          "type": {
+            "kind": "ENUM",
+            "name": "ProjectV2ViewLayout",
+            "ofType": null
+          }
+        },
+        {
+          "name": "filter",
+          "defaultValue": null,
+          "description": "The new filter for the view.",
+          "type": {
+            "kind": "SCALAR",
+            "name": "String",
+            "ofType": null
+          }
+        },
+        {
+          "name": "configuration",
+          "defaultValue": null,
+          "description": "The new configuration for the view.",
+          "type": {
+            "kind": "INPUT_OBJECT",
+            "name": "ProjectV2ViewConfigurationInput",
+            "ofType": null
+          }
+        }
+      ],
+      "enumValues": null
+    },
+    "UpdatePullRequestInput": {
+      "name": "UpdatePullRequestInput",
+      "kind": "INPUT_OBJECT",
+      "inputFields": [
+        {
+          "name": "clientMutationId",
+          "defaultValue": null,
+          "description": "A unique identifier for the client performing the mutation.",
+          "type": {
+            "kind": "SCALAR",
+            "name": "String",
+            "ofType": null
+          }
+        },
+        {
+          "name": "pullRequestId",
+          "defaultValue": null,
+          "description": "The Node ID of the pull request.",
+          "type": {
+            "kind": "NON_NULL",
+            "name": null,
+            "ofType": {
+              "kind": "SCALAR",
+              "name": "ID",
+              "ofType": null
+            }
+          }
+        },
+        {
+          "name": "baseRefName",
+          "defaultValue": null,
+          "description": "The name of the branch you want your changes pulled into. This should be an existing branch\non the current repository.\n",
+          "type": {
+            "kind": "SCALAR",
+            "name": "String",
+            "ofType": null
+          }
+        },
+        {
+          "name": "title",
+          "defaultValue": null,
+          "description": "The title of the pull request.",
+          "type": {
+            "kind": "SCALAR",
+            "name": "String",
+            "ofType": null
+          }
+        },
+        {
+          "name": "body",
+          "defaultValue": null,
+          "description": "The contents of the pull request.",
+          "type": {
+            "kind": "SCALAR",
+            "name": "String",
+            "ofType": null
+          }
+        },
+        {
+          "name": "state",
+          "defaultValue": null,
+          "description": "The target state of the pull request.",
+          "type": {
+            "kind": "ENUM",
+            "name": "PullRequestUpdateState",
+            "ofType": null
+          }
+        },
+        {
+          "name": "maintainerCanModify",
+          "defaultValue": null,
+          "description": "Indicates whether maintainers can modify the pull request.",
+          "type": {
+            "kind": "SCALAR",
+            "name": "Boolean",
+            "ofType": null
+          }
+        },
+        {
+          "name": "assigneeIds",
+          "defaultValue": null,
+          "description": "An array of Node IDs of users for this pull request.",
+          "type": {
+            "kind": "LIST",
+            "name": null,
+            "ofType": {
+              "kind": "NON_NULL",
+              "name": null,
+              "ofType": {
+                "kind": "SCALAR",
+                "name": "ID",
+                "ofType": null
+              }
+            }
+          }
+        },
+        {
+          "name": "milestoneId",
+          "defaultValue": null,
+          "description": "The Node ID of the milestone for this pull request.",
+          "type": {
+            "kind": "SCALAR",
+            "name": "ID",
+            "ofType": null
+          }
+        },
+        {
+          "name": "labelIds",
+          "defaultValue": null,
+          "description": "An array of Node IDs of labels for this pull request.",
+          "type": {
+            "kind": "LIST",
+            "name": null,
+            "ofType": {
+              "kind": "NON_NULL",
+              "name": null,
+              "ofType": {
+                "kind": "SCALAR",
+                "name": "ID",
+                "ofType": null
+              }
+            }
+          }
+        },
+        {
+          "name": "projectIds",
+          "defaultValue": null,
+          "description": "An array of Node IDs for projects associated with this pull request.",
+          "type": {
+            "kind": "LIST",
+            "name": null,
+            "ofType": {
+              "kind": "NON_NULL",
+              "name": null,
+              "ofType": {
+                "kind": "SCALAR",
+                "name": "ID",
+                "ofType": null
+              }
+            }
+          }
+        }
+      ],
+      "enumValues": null
+    }
+  },
+  "sha256": "885d1c5a14b43e266a9ac405da90d83915ef05f118cdd8291b1a4074aa2b3605"
+}

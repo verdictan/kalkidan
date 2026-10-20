@@ -89,13 +89,30 @@ test('remote RPC validates envelopes, dispatches supported operations, reports f
         readProjectMemory: record('memoryList'),
       },
       [source('storage/project-docs')]: { ProjectDocs: Docs },
+      [source('storage/resource-revision')]: { resourceRevision: record('revision') },
       [source('pty-terminal')]: { PtyTerminal: Pty },
+      [source('operations/worktree')]: {
+        WorktreeCreation: class {
+          async run(cwd: string, branch: string, root: string) {
+            return `${root}/worktrees/${cwd.split('/').pop()}-${branch}`;
+          }
+        },
+      },
+      [source('operations/agent-start')]: {
+        AgentStarts: class {
+          run(_id: string, _identity: unknown, start: () => Promise<unknown>) {
+            return start();
+          }
+        },
+      },
       [source('agents/runtime')]: {
         createAgentRuntimes: () => ({
+          withCheckoutIdle: async (_path: string, action: () => Promise<unknown>) => action(),
           start: record('chatStart'),
           status: record('chatStatus'),
           stop: record('chatStop'),
           approve: record('chatApprove'),
+          respond: record('chatRespond'),
           dispose: record('dispose'),
         }),
       },
@@ -113,7 +130,12 @@ test('remote RPC validates envelopes, dispatches supported operations, reports f
         ),
       },
       [source('history')]: {
-        history: async (_c: string, _a: string, sources?: Map<string, string>) => {
+        historyWithManaged: async (
+          _root: string,
+          _c: string,
+          _a: string,
+          sources?: Map<string, string>,
+        ) => {
           sources?.set('codex:codex', '/codex.jsonl');
           sources?.set('claude:claude', '/claude.jsonl');
           return { sessions, warnings: [] };
@@ -173,7 +195,7 @@ test('remote RPC validates envelopes, dispatches supported operations, reports f
   input.emit('line', '{}');
   input.emit('line', 'x'.repeat(16000001));
   assert.equal(outputs.length, 0);
-  assert.equal((await request('hello')).result.protocol, 1);
+  assert.equal((await request('hello')).result.protocol, 4);
   assert.match((await request('unsupported')).error, /Unsupported/);
   assert.match((await request('validate', [null])).error, /Choose/);
   directory = false;
@@ -211,6 +233,7 @@ test('remote RPC validates envelopes, dispatches supported operations, reports f
     /Unknown document/,
   );
   assert.ok(calls.some((call) => call[0] === 'invalidate'));
+  assert.ok((await request('project-resource-revision', ['/root', 'memory'])).result);
   for (const op of ['path', 'list'])
     assert.ok((await request('project-memory', ['project', '/root', op])).result);
   assert.match(
@@ -241,6 +264,7 @@ test('remote RPC validates envelopes, dispatches supported operations, reports f
     'chatStatus',
     'chatStop',
     'chatApprove',
+    'chatRespond',
   ])
     assert.ok((await request(op, ['/repo', 'arg', 'arg'])).result, op);
   assert.match((await request('transcript', ['codex', 'missing'])).error, /not found/);

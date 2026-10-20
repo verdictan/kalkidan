@@ -565,7 +565,12 @@ export function WikiEditor({
           document.body,
         )}
       <Dialog open={linkOpen} onOpenChange={setLinkOpen}>
-        <DialogContent>
+        <DialogContent
+          onCloseAutoFocus={(event) => {
+            // The page picker now owns focus. Closing this dialog must not take it back.
+            if (pickerOpen) event.preventDefault();
+          }}
+        >
           <form className="contents" onSubmit={applyLink}>
             <DialogHeader>
               <DialogTitle>{editingLink ? 'Edit link' : 'Add link'}</DialogTitle>

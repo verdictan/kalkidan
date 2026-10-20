@@ -23,6 +23,8 @@ test('Memory renders agent files and refreshes changes without editing controls'
 }) => {
   await page.addInitScript(() => {
     (window as any).memoryBody = 'Run npm test.';
+    (window as any).memoryReads = 0;
+    (window as any).memoryRevisionReads = 0;
     (window as any).workspace = {
       trackerProviders: async () => [],
       snapshot: async () => ({
@@ -32,17 +34,24 @@ test('Memory renders agent files and refreshes changes without editing controls'
         warnings: [],
         platform: 'darwin',
       }),
-      memoryList: async () => ({
-        pages: [
-          {
-            name: 'testing.md',
-            content: '# Test conventions\n\n' + (window as any).memoryBody,
-            updatedAt: '2026-10-20T12:00:00Z',
-            truncated: false,
-          },
-        ],
-        limited: false,
-      }),
+      projectResourceRevision: async () => {
+        (window as any).memoryRevisionReads++;
+        return (window as any).memoryBody;
+      },
+      memoryList: async () => {
+        (window as any).memoryReads++;
+        return {
+          pages: [
+            {
+              name: 'testing.md',
+              content: '# Test conventions\n\n' + (window as any).memoryBody,
+              updatedAt: '2026-10-20T12:00:00Z',
+              truncated: false,
+            },
+          ],
+          limited: false,
+        };
+      },
     };
   });
   await page.goto('http://127.0.0.1:5173');
@@ -50,6 +59,11 @@ test('Memory renders agent files and refreshes changes without editing controls'
   const panel = page.getByRole('region', { name: 'Project memory', exact: true });
   await expect(panel.getByRole('heading', { name: 'Test conventions' })).toBeVisible();
   await expect(panel).toContainText('Run npm test.');
+  await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+  await expect
+    .poll(() => page.evaluate(() => (window as any).memoryRevisionReads))
+    .toBeGreaterThan(1);
+  await expect.poll(() => page.evaluate(() => (window as any).memoryReads)).toBe(1);
   await page.evaluate(() => {
     (window as any).memoryBody = 'Run npm test and lint.';
   });
@@ -58,4 +72,46 @@ test('Memory renders agent files and refreshes changes without editing controls'
   await expect(panel.locator('textarea, input, [contenteditable="true"]')).toHaveCount(0);
   await page.setViewportSize({ width: 757, height: 988 });
   await expect(panel.getByRole('heading', { name: 'Test conventions' })).toBeVisible();
+});
+
+test('late Memory reads cannot display content in another project', async ({ page }) => {
+  await page.addInitScript(() => {
+    (window as any).workspace = {
+      trackerProviders: async () => [],
+      snapshot: async () => ({
+        projects: [],
+        sessions: [],
+        warnings: [],
+        platform: 'darwin',
+        groups: [
+          { id: 'a', name: 'Alpha', repoIds: [] },
+          { id: 'b', name: 'Beta', repoIds: [] },
+        ],
+      }),
+      memoryList: async (id: string) => {
+        if (id === 'a')
+          return new Promise((resolve) => {
+            (window as any).resolveAlpha = resolve;
+          });
+        throw Error('Beta is offline');
+      },
+    };
+  });
+  await page.goto('http://127.0.0.1:5173');
+  await page.getByRole('button', { name: 'Memory', exact: true }).first().click();
+  await expect
+    .poll(() => page.evaluate(() => typeof (window as any).resolveAlpha))
+    .toBe('function');
+  await page.getByRole('button', { name: 'Memory', exact: true }).nth(1).click();
+  await expect(page.getByRole('heading', { name: 'Beta memory' })).toBeVisible();
+  await expect(page.getByRole('alert')).toContainText('Beta is offline');
+  await page.evaluate(() =>
+    (window as any).resolveAlpha({
+      pages: [
+        { name: 'private.md', content: 'Alpha private fact', updatedAt: '', truncated: false },
+      ],
+      limited: false,
+    }),
+  );
+  await expect(page.getByText('Alpha private fact')).toHaveCount(0);
 });

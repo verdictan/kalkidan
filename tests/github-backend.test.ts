@@ -16,10 +16,23 @@ test('GitHub API failures redact arguments and project resolution validates ever
       },
     },
     [resolve('electron/core.ts')]: {
-      exec: async (...args: any[]) => {
+      exec: (...args: any[]) => {
         calls.push(args);
-        if (fail) throw { stderr: 'Command failed: SECRET\nDenied' };
-        return { stdout: JSON.stringify(response) };
+        return Object.assign(
+          fail
+            ? Promise.reject({ stderr: 'Command failed: SECRET\nDenied' })
+            : Promise.resolve({ stdout: JSON.stringify(response) }),
+          {
+            child: {
+              stdin: {
+                on() {},
+                end(input: string) {
+                  calls.at(-1).push(JSON.parse(input));
+                },
+              },
+            },
+          },
+        );
       },
     },
   })(resolve('electron/github-projects.ts'));
@@ -27,14 +40,15 @@ test('GitHub API failures redact arguments and project resolution validates ever
   accessible = true;
   assert.equal(await githubExecutable(), '/opt/homebrew/bin/gh');
   await githubGraphQL('query', { count: 1, text: 'value', nil: null, missing: undefined });
-  assert.ok(calls[0][1].includes('-F'));
-  assert.ok(!calls[0][1].some((v: string) => v.includes('nil=')));
+  assert.ok(calls[0][1].includes('--input'));
+  assert.ok(!calls[0][1].some((v: string) => v.includes('value')));
+  assert.deepEqual(calls[0][3].variables, { count: 1, text: 'value', nil: null });
   response = { errors: [{ message: 'denied' }] };
   await assert.rejects(githubGraphQL('query', {}), /could not complete/);
   fail = true;
   await assert.rejects(
     githubGraphQL('SECRET', {}),
-    (error: any) => !error.message.includes('SECRET') && error.message.includes('Denied'),
+    (error: any) => !error.message.includes('SECRET') && !error.message.includes('Denied'),
   );
   let data: any = {};
   const github = new GitHubProjects(async () => data);
@@ -89,11 +103,14 @@ test('GitHub device login handles generation races, process failures, environmen
         clearTimeout: () => {},
       },
     )(resolve('electron/github-auth.ts'));
+    let checks = 0;
     const auth = new GitHubAuth(
       async () => {
         throw Error('browser failed');
       },
       async () => {
+        checks++;
+        if (mode === 'ready' && checks > 1) return { stdout: 'Token scopes: project', stderr: '' };
         if (mode === 'canceled')
           return new Promise((resolve) => {
             resolveCheck = resolve;
@@ -114,7 +131,7 @@ test('GitHub device login handles generation races, process failures, environmen
     }
     const state = await start;
     if (['env', 'missing'].includes(mode)) {
-      assert.equal(state.status, 'error');
+      assert.equal(state.status, mode === 'env' ? 'permission-required' : 'error');
       assert.ok(!state.message.includes('private'));
       continue;
     }
@@ -139,6 +156,10 @@ test('GitHub device login handles generation races, process failures, environmen
     }
     if (mode === 'declined' || mode === 'ready') {
       child.emit('close', mode === 'ready' ? 0 : 1);
+      if (mode === 'ready') {
+        assert.equal(auth.snapshot().status, 'verifying');
+        for (let i = 0; i < 5; i++) await Promise.resolve();
+      }
       assert.equal(auth.snapshot().status, mode === 'ready' ? 'ready' : 'error');
     }
     child.stdin.emit('error', Error('closed'));

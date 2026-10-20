@@ -46,6 +46,10 @@ test('desktop routes project, docs, agent, terminal and remote handlers to the e
   await assert.rejects(call('docs-list', 'g'), /docs failed/);
   f.state.docsError = false;
   assert.ok(f.calls.some((c) => c[0] === 'invalidate'));
+  assert.equal(await call('project-resource-revision', 'g', 'docs'), 'revision-1');
+  await call('project-resource-revision', 'remote', 'memory');
+  await assert.rejects(call('project-resource-revision', 'missing', 'docs'), /not found/);
+  await assert.rejects(call('project-resource-revision', 'g', 'bad'), /Invalid project resource/);
   await call('memory-list', 'g');
   await call('memory-list', 'remote');
   await assert.rejects(call('memory-list', 'missing'), /not found/);
@@ -80,12 +84,14 @@ test('desktop routes project, docs, agent, terminal and remote handlers to the e
     'github-auth-cancel': [],
     'github-auth-open': [],
     'tracker-auth-open': ['github'],
+    'tracker-field': ['g', 'item', 'field', { text: 'Value' }],
+    'tracker-item-action': ['g', 'item', { kind: 'archive' }],
     'app-menu': [],
     models: ['codex'],
     'github-link': ['g', null],
     'github-owners': [],
-    'github-projects': [{}],
-    'github-create-project': [{}, 'Title'],
+    'github-projects': [{ id: 'owner', login: 'example', kind: 'organization' }],
+    'github-create-project': [{ id: 'owner', login: 'example', kind: 'organization' }, 'Title'],
     'github-board': ['g'],
     'github-status': ['g', 'task', 'status'],
     'github-draft': ['g', 'title', 'body'],
@@ -99,9 +105,10 @@ test('desktop routes project, docs, agent, terminal and remote handlers to the e
     'history-import': [{}],
     'chat-status': ['chat'],
     'chat-stop': ['chat'],
-    'chat-approve': ['chat', 'approval', true],
   }))
     await call(method, ...args);
+  await assert.rejects(call('chat-approve', 'unowned', 'approval', true), /another window or host/);
+  await assert.rejects(call('chat-respond', 'unowned', 'question', {}), /another window or host/);
   await call('directory-list', '/', 'host');
   await call('github-link', 'g', 'url');
   await assert.rejects(call('pty-open', null), /Choose a repository/);
@@ -126,9 +133,18 @@ test('desktop routes project, docs, agent, terminal and remote handlers to the e
   await assert.rejects(call('appearance', 'bad'), /Invalid appearance/);
   await assert.rejects(call('github-link', 'missing', 'url'), /not found/);
   await assert.rejects(call('github-board', 'empty'), /Connect a GitHub/);
+  const initial = await call('snapshot');
+  assert.ok(!initial.sessions.some((s: any) => s.id === 'host::s'));
+  await new Promise((resolve) => setImmediate(resolve));
   const snapshot = await call('snapshot');
   assert.ok(snapshot.sessions.some((s: any) => s.id === 'host::s'));
+  const hosts = await call('remote-hosts');
+  hosts[0].status = 'disconnected';
+  await call('snapshot');
+  hosts[0].status = 'connected';
   f.state.remoteError = 'offline';
+  await call('snapshot');
+  await new Promise((resolve) => setImmediate(resolve));
   assert.ok((await call('snapshot')).warnings.includes('Host: offline'));
   f.state.remoteError = '';
   await call('session-update', 'codex', 's', {});

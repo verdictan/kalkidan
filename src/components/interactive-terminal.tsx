@@ -173,12 +173,14 @@ export function InteractiveTerminal({
             }
             timer = setTimeout(poll, 75);
           } catch (e) {
+            if (disposed) return;
             report(e);
             setExited(true);
           }
         };
         await poll();
       } catch (e) {
+        if (disposed) return;
         report(e);
         setExited(true);
       }

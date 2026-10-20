@@ -5,15 +5,43 @@ export interface RemoteHost {
   id: string;
   name: string;
   target: string;
-  status: 'disconnected' | 'checked' | 'connecting' | 'connected' | 'error';
+  status:
+    'disconnected' | 'checked' | 'queued' | 'connecting' | 'connected' | 'retry-wait' | 'error';
   /**
    * Why the last check or connection failed, or why the connection closed. It is cleared when
    * the host connects. Call remoteConnect again to reconnect.
    */
   error?: string;
+  attempt?: number;
+  retryAt?: number;
   version?: string;
+  installedDigest?: string;
+  runningDigest?: string;
   node?: string;
   platform?: string;
+  setupHistory?: {
+    id: string;
+    phase: string;
+    targetDigest?: string;
+    previousDigest?: string;
+    updatedAt?: number;
+  }[];
+  setup?: {
+    id: string;
+    phase:
+      | 'checking'
+      | 'installing'
+      | 'verifying'
+      | 'ready'
+      | 'failed'
+      | 'canceled'
+      | 'interrupted'
+      | 'rolled-back';
+    targetDigest?: string;
+    previousDigest?: string;
+    updatedAt?: number;
+    error?: string;
+  };
 }
 export interface RemoteFolders {
   path: string;

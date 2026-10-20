@@ -92,7 +92,7 @@ export function EmbeddedBrowser({
       }
     };
     sync();
-    const timer = setInterval(sync, 100);
+    const timer = visible ? setInterval(sync, 100) : undefined;
     const changes = new MutationObserver(sync);
     changes.observe(document.body, {
       subtree: true,
@@ -100,11 +100,19 @@ export function EmbeddedBrowser({
       attributes: true,
       attributeFilter: ['hidden', 'data-state', 'style'],
     });
+    let polling = false;
     const update = async () => {
+      if (polling || !visible) return;
+      polling = true;
       try {
         const value = await api.browserState(id);
         if (!cancelled) {
           setState(value);
+          if (
+            selection?.navigationGeneration !== undefined &&
+            value.navigationGeneration !== selection.navigationGeneration
+          )
+            setSelection(null);
           if (value.command === 'f') openFind();
           if (value.command === 'l') address.current?.select();
           if (value.command === 't') callbacks.current.onNewTab();
@@ -116,10 +124,13 @@ export function EmbeddedBrowser({
             lastURL.current = value.url;
           }
         }
-      } catch {}
+      } catch {
+      } finally {
+        polling = false;
+      }
     };
     void update();
-    const status = setInterval(() => void update(), 700);
+    const status = visible ? setInterval(() => void update(), 700) : undefined;
     return () => {
       cancelled = true;
       changes.disconnect();

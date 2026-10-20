@@ -1,3 +1,12 @@
+import {
+  routeKey,
+  reconcileRoute,
+  resolveRouteSession,
+  type WorkspaceRoute,
+  type ProjectPage,
+} from './domain/workspace-route';
+import { retainProjectResources } from './hooks/use-project-resource';
+import { useProjectDetails } from './hooks/use-project-details';
 import { Onboarding, onboardingDismissed, dismissOnboarding } from './components/onboarding';
 import { ProjectMemoryPanel } from './components/project-memory';
 import { ProjectDocsPanel } from './components/project-docs';
@@ -88,22 +97,12 @@ import {
 } from './components/activity-dot';
 import { AgentWorkspace } from './components/agent-workspace';
 import type { MenuCommand } from './api/contracts';
-import type {
-  API,
-  Snapshot,
-  GitInfo,
-  Agent,
-  Project,
-  ProjectGroup,
-  Session,
-  TrackerItem,
-} from './types';
+import type { API, Snapshot, Agent, Project, ProjectGroup, Session, TrackerItem } from './types';
 
 // The footer buttons of the sidebar: full width and start aligned. Utilities, so they win
 // over the Button padding.
 const sidebarAction = 'sidebar-action w-full justify-start px-2 has-[>svg]:px-2';
 type RepositoryModal = 'worktree' | 'edit' | 'remove' | 'remove-worktree';
-type ProjectPage = 'board' | 'docs' | 'tasks' | 'memory';
 /** The notification target of a session: its agent and ID. */
 const notificationTarget = (session: { agent: string; id: string }) =>
   JSON.stringify({ agent: session.agent, id: session.id });
@@ -120,7 +119,24 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
     warnings: [],
     platform: '',
   });
-  const [home, setHome] = useState(true);
+  useEffect(() => {
+    if (data.groups) retainProjectResources(api, data.groups);
+  }, [api, data.groups]);
+  const [route, navigate] = useState<WorkspaceRoute>({ kind: 'home' });
+  const basePage = route.kind === 'conversation' ? route.parent : route;
+  const home = route.kind === 'home';
+  const sessionsPage = route.kind === 'sessions';
+  const chatOpen = route.kind === 'conversation';
+  const boardGroup = basePage.kind === 'project' ? basePage.groupId : null;
+  const projectPage: ProjectPage = basePage.kind === 'project' ? basePage.page : 'board';
+  function setProjectPage(page: ProjectPage) {
+    navigate((current) => {
+      if (current.kind === 'project') return { ...current, page };
+      if (current.kind === 'conversation' && current.parent.kind === 'project')
+        return { ...current, parent: { ...current.parent, page } };
+      return current;
+    });
+  }
   const [onboardingOpen, setOnboardingOpen] = useState(false);
   const onboardingChecked = useRef(false);
   const sidebar = useSidebarWidth();
@@ -134,16 +150,17 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
   }
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
-  const [projectPage, setProjectPage] = useState<ProjectPage>('board');
   // The list of all sessions in every project.
-  const [sessionsPage, setSessionsPage] = useState(false);
   const [openChats, setOpenChats] = useState<OpenChat[]>([]);
   const [cloning, setCloning] = useState<CloneProgress[]>([]);
-  const [boardGroup, setBoardGroup] = useState<string | null>(null);
-  const [selected, setSelected] = useState('');
+  const [lastRepository, setLastRepository] = useState('');
+  const selected =
+    route.kind === 'repository'
+      ? route.repositoryId
+      : route.kind === 'conversation'
+        ? route.repositoryId || lastRepository
+        : lastRepository;
   const [query, setQuery] = useState('');
-  const [git, setGit] = useState<GitInfo | null>(null);
-  const [gitError, setGitError] = useState('');
   // True while a user action that changes data runs. A refresh does not set it.
   const [busy, setBusy] = useState(false);
   // Page errors show as error toasts. Dialogs show their own errors.
@@ -195,39 +212,14 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
   const [revision, setRevision] = useState(0);
   const [drafts, setDrafts] = useState<Session[]>([]);
   const [chatSession, setChatSession] = useState<Session | null>(null);
-  const [chatOpen, setChatOpen] = useState(false);
-  const navigation = useNavigationHistory(
-    { home, boardGroup, projectPage, selected, chatOpen, chatSession, sessionsPage },
-    (route) =>
-      route.home
-        ? 'home'
-        : route.chatOpen && route.chatSession
-          ? `chat:${route.chatSession.hostId || ''}:${route.chatSession.agent}:${route.chatSession.id}`
-          : route.sessionsPage
-            ? 'sessions'
-            : route.boardGroup
-              ? `${route.projectPage}:${route.boardGroup}`
-              : `repo:${route.selected}`,
-    (route) => {
-      const valid =
-        route.home ||
-        route.sessionsPage ||
-        (route.boardGroup
-          ? data.groups?.some((group) => group.id === route.boardGroup)
-          : data.projects.some((project) => project.id === route.selected));
-      setHome(!valid || route.home);
-      setSessionsPage(!!valid && route.sessionsPage);
-      setBoardGroup(valid ? route.boardGroup : null);
-      setProjectPage(route.projectPage);
-      setSelected(route.selected);
-      setChatOpen(!!valid && route.chatOpen);
-      if (route.chatOpen && route.chatSession) setChatSession(route.chatSession);
-    },
-  );
+  const navigation = useNavigationHistory(route, routeKey, (next) => {
+    const valid = reconcileRoute(next, data.groups || [], data.projects);
+    navigate(valid);
+    if (valid.kind === 'conversation') setChatSession(valid.session);
+  });
   const searchRef = useRef<HTMLInputElement>(null);
   const sidebarRef = useRef<HTMLElement>(null);
   const sidebarToggleRef = useRef<HTMLButtonElement>(null);
-  const [gitLoading, setGitLoading] = useState(false);
   // Window listeners read the latest history through this ref.
   const navigationRef = useRef(navigation);
   navigationRef.current = navigation;
@@ -402,8 +394,11 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
   function notify(message: string, failed = false) {
     showToast(failed ? { message, tone: 'error' } : message);
   }
+  const refreshSequence = useRef(0);
   async function refresh() {
+    const request = ++refreshSequence.current;
     const value = await api.snapshot();
+    if (request !== refreshSequence.current) return;
     setData(value);
     if (!onboardingChecked.current) {
       onboardingChecked.current = true;
@@ -416,7 +411,8 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
       )
         setOnboardingOpen(true);
     }
-    setSelected((id) =>
+    navigate((current) => reconcileRoute(current, value.groups || [], value.projects));
+    setLastRepository((id) =>
       value.projects.some((p) => p.id === id) ? id : value.projects[0]?.id || '',
     );
     setRevision((r) => r + 1);
@@ -442,6 +438,20 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
   useEffect(() => {
     void reload();
   }, []);
+  useEffect(() => {
+    // Coalesce bursts of connection events into one library refresh.
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const unsubscribe = api.onRemoteHostsChange?.(() => {
+      clearTimeout(timer);
+      timer = setTimeout(() => {
+        void reloadRef.current();
+      }, 150);
+    });
+    return () => {
+      clearTimeout(timer);
+      unsubscribe?.();
+    };
+  }, [api]);
   const routed = useRef(false);
   useEffect(() => {
     if (routed.current || !data.sessions.length || !location.hash.startsWith('#session=')) return;
@@ -455,49 +465,19 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
       setError('Invalid session link.');
     }
   }, [data.sessions]);
-  const repositoryCache = useRef(new Map<string, import('./domain/project').RepositorySnapshot>());
-  const [repositoryView, setRepositoryView] = useState<{
-    id: string;
-    value: import('./domain/project').RepositorySnapshot;
-  } | null>(null);
   const [repositoryRevision, setRepositoryRevision] = useState(0);
-  useEffect(() => {
-    if (home || chatOpen || boardGroup || !selected) return;
-    let live = true;
-    let pending = false;
-    const cached = repositoryCache.current.get(selected);
-    setGit(cached?.git || null);
-    setRepositoryView(cached ? { id: selected, value: cached } : null);
-    setGitError('');
-    setGitLoading(!cached);
-    const update = async () => {
-      if (pending || document.visibilityState === 'hidden') return;
-      pending = true;
-      try {
-        const value = await api.repositorySnapshot(selected);
-        if (!live) return;
-        repositoryCache.current.set(selected, value);
-        setGit(value.git);
-        setRepositoryView({ id: selected, value });
-        setGitError(value.warnings.join(' '));
-      } catch (error) {
-        if (live) setGitError(error instanceof Error ? error.message : String(error));
-      } finally {
-        pending = false;
-        if (live) setGitLoading(false);
-      }
-    };
-    void update();
-    const timer = window.setInterval(update, 15000);
-    window.addEventListener('focus', update);
-    return () => {
-      live = false;
-      window.clearInterval(timer);
-      window.removeEventListener('focus', update);
-    };
-  }, [home, chatOpen, boardGroup, selected, revision, repositoryRevision]);
-  const visibleSessions =
-    repositoryView?.id === selected ? repositoryView.value.sessions : data.sessions;
+  const repositoryState = useProjectDetails(
+    api,
+    data.projects,
+    selected,
+    !home && !chatOpen && !boardGroup,
+    revision,
+    repositoryRevision,
+  );
+  const git = repositoryState.value?.git ?? null;
+  const gitLoading = repositoryState.status === 'idle' || repositoryState.status === 'loading';
+  const gitError = repositoryState.error || repositoryState.value?.warnings.join(' ') || '';
+  const visibleSessions = repositoryState.value?.sessions ?? data.sessions;
   const project = data.projects.find((p) => p.id === selected);
   const connectionGroup =
     (!home &&
@@ -599,7 +579,7 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
     [api, openChats, data.sessions],
   );
   const ownSessions =
-    repositoryView?.id === selected
+    repositoryState.value !== undefined
       ? visibleSessions
       : data.sessions.filter((s) => sessionRepo(s, data.projects)?.id === project?.id);
   // The branch copies of this code folder. Their chats show on this page with a branch badge.
@@ -623,26 +603,16 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
     ...copySessions.filter((s) => !ownSessions.some((o) => o.agent === s.agent && o.id === s.id)),
   ];
   function openProject(p: Project) {
-    setHome(false);
-    setSessionsPage(false);
-    setChatOpen(false);
-    setBoardGroup(null);
-    setSelected(p.id);
+    setLastRepository(p.id);
+    navigate({ kind: 'repository', repositoryId: p.id });
   }
   // A docs page or task chosen in search. The panel opens it once after it loads.
   const [searchTarget, setSearchTarget] = useState<{ page?: string; task?: string }>({});
   function openGroup(group: ProjectGroup, page: ProjectPage = 'board') {
-    setHome(false);
-    setSessionsPage(false);
-    setChatOpen(false);
-    setBoardGroup(group.id);
-    setProjectPage(page);
+    navigate({ kind: 'project', groupId: group.id, page });
   }
   function openAllSessions() {
-    setHome(false);
-    setChatOpen(false);
-    setBoardGroup(null);
-    setSessionsPage(true);
+    navigate({ kind: 'sessions' });
   }
   function connectTracker(group = connectionGroup) {
     if (!group) return;
@@ -650,10 +620,7 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
     setConnectRequest(group.id);
   }
   function openOverview() {
-    setHome(true);
-    setSessionsPage(false);
-    setChatOpen(false);
-    setBoardGroup(null);
+    navigate({ kind: 'home' });
   }
   /** The project of the current page, or the only project. */
   function currentProjectGroup() {
@@ -720,7 +687,7 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
   // Closing a session returns to the view before it. Without history, show the repository.
   function closeConversation() {
     if (navigation.canBack) navigation.back();
-    else setChatOpen(false);
+    else navigate((current) => (current.kind === 'conversation' ? current.parent : current));
   }
   const currentGroup = boardGroup ? data.groups?.find((g) => g.id === boardGroup) : undefined;
   const projectGroup = project
@@ -746,15 +713,17 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
         ];
   openRef.current = (session: Session) => openConversation(session);
   function openConversation(session: Session) {
-    setHome(false);
-    setSessionsPage(false);
     const repo = sessionRepo(session, data.projects);
-    if (repo) setSelected(repo.id);
-    setBoardGroup((current) =>
-      data.groups?.find((g) => g.id === current)?.repoIds.includes(repo?.id || '') ? current : null,
-    );
+    if (repo) setLastRepository(repo.id);
+    const parent =
+      basePage.kind === 'project' &&
+      data.groups?.find((group) => group.id === basePage.groupId)?.repoIds.includes(repo?.id || '')
+        ? basePage
+        : repo
+          ? { kind: 'repository' as const, repositoryId: repo.id }
+          : { kind: 'sessions' as const };
     setChatSession(session);
-    setChatOpen(true);
+    navigate({ kind: 'conversation', session, repositoryId: repo?.id, parent });
   }
   const launchTerminal = () =>
     project && run(() => api.launch(project.id, 'terminal'), 'Opened in Terminal.');
@@ -766,9 +735,7 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
     cwd = repo?.path,
   ) {
     if (!repo) return;
-    setHome(false);
-    setSessionsPage(false);
-    setSelected(repo.id);
+    setLastRepository(repo.id);
     const draft: Session = {
       id: 'draft-' + crypto.randomUUID(),
       projectId: repo.id,
@@ -785,8 +752,7 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
       updatedAt: new Date().toISOString(),
     };
     setDrafts((previous) => [...previous, draft]);
-    setChatSession(draft);
-    setChatOpen(true);
+    openConversation(draft);
   }
   // The split button starts the preferred agent. Settings and every "New session" menu
   // change the preference.
@@ -1482,6 +1448,11 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
                           }
                         />
                         <p className="section-help">{branchCopyHelp}</p>
+                        {repositoryState.status === 'refreshing' && (
+                          <p className="help-text" role="status">
+                            Updating project details…
+                          </p>
+                        )}
                         {gitError && (
                           <p role="alert" className="field-error">
                             {gitError}
@@ -1569,6 +1540,13 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
                               );
                             })}
                           </div>
+                        ) : gitError ? (
+                          <Button
+                            variant="outline"
+                            onClick={() => setRepositoryRevision((r) => r + 1)}
+                          >
+                            Retry loading project
+                          </Button>
                         ) : gitLoading ? (
                           <p className="help-text" role="status">
                             Checking branch copies…
@@ -1621,18 +1599,20 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
                   onDraft={(draft) => {
                     setDrafts((previous) => [...previous.filter((s) => s.id !== draft.id), draft]);
                     setChatSession((current) => (current?.id === draft.id ? draft : current));
+                    navigate((current) => resolveRouteSession(current, draft, draft));
                   }}
                   onCreated={(draft, id, title) => {
                     navigation.replace((route) =>
-                      route.chatSession?.id === draft.id && route.chatSession.agent === draft.agent
-                        ? { ...route, chatSession: { ...route.chatSession, id, title } }
-                        : route,
+                      resolveRouteSession(route, draft, { ...draft, id, title }),
                     );
 
                     setDrafts((previous) =>
                       previous.map((s) =>
                         s.id === draft.id && s.agent === draft.agent ? { ...s, id, title } : s,
                       ),
+                    );
+                    navigate((current) =>
+                      resolveRouteSession(current, draft, { ...draft, id, title }),
                     );
                     setChatSession((current) =>
                       current?.id === draft.id && current.agent === draft.agent
@@ -1693,7 +1673,6 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
             connectTracker(group);
           }}
           onStart={(agent, repo, prompt) => {
-            setBoardGroup(null);
             newSession(agent, repo, undefined, prompt);
           }}
         />

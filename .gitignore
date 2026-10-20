@@ -186,3 +186,6 @@ Desktop.ini
 .design-sync/node_modules
 .ds-sync/
 ds-bundle/
+.history/
+docs/implementation-gaps.md
+docs/verdictan-integration-implementation.md

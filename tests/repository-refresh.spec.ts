@@ -58,3 +58,59 @@ test('overview refreshes only its repository and keeps cached content while reva
   expect(after.snapshot).toBe(before.snapshot);
   expect(after.git).toBe(0);
 });
+
+test('switching projects reuses details and keeps cached content after a failed refresh', async ({
+  page,
+}) => {
+  await page.addInitScript(() => {
+    const calls: Record<string, number> = {};
+    (window as any).detailCalls = calls;
+    const projects = ['Alpha', 'Beta'].map((name) => ({
+      id: name,
+      name,
+      path: `/tmp/${name}`,
+      favorite: false,
+      notes: '',
+      addedAt: '',
+    }));
+    (window as any).workspace = {
+      trackerProviders: async () => [],
+      githubAuthCancel: async () => ({ status: 'idle' }),
+      snapshot: async () => ({
+        projects,
+        groups: [{ id: 'group', name: 'Test project', repoIds: ['Alpha', 'Beta'] }],
+        sessions: [],
+        warnings: [],
+        platform: 'darwin',
+      }),
+      repositorySnapshot: async (id: string) => {
+        calls[id] = (calls[id] || 0) + 1;
+        if ((window as any).failDetails) throw Error('Host is unavailable');
+        return {
+          git: { branch: id, changes: 0, worktrees: [{ path: `/tmp/${id}`, branch: id }] },
+          sessions: [],
+          warnings: [],
+        };
+      },
+    };
+  });
+  await page.goto('http://127.0.0.1:5173');
+  await page.getByRole('button', { name: 'Alpha', exact: true }).click();
+  await expect(page.locator('.worktree')).toContainText('Alpha');
+  await page.getByRole('button', { name: 'Beta', exact: true }).click();
+  await expect(page.locator('.worktree')).toContainText('Beta');
+  await page.getByRole('button', { name: 'Alpha', exact: true }).click();
+  await expect(page.locator('.worktree')).toContainText('Alpha');
+  expect(await page.evaluate(() => (window as any).detailCalls)).toEqual({ Alpha: 1, Beta: 1 });
+  await page.evaluate(() => {
+    (window as any).failDetails = true;
+    window.dispatchEvent(new Event('focus'));
+  });
+  await expect(page.getByText('Host is unavailable', { exact: true })).toBeVisible();
+  await expect(page.locator('.worktree')).toContainText('Alpha');
+  await page.evaluate(() => {
+    (window as any).failDetails = false;
+    window.dispatchEvent(new Event('focus'));
+  });
+  await expect(page.getByText('Host is unavailable', { exact: true })).toHaveCount(0);
+});

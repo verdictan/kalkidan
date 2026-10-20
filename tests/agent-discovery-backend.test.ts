@@ -121,7 +121,9 @@ test('runtime routing removes evicted runs and disposes shared adapters once', a
       },
     },
   })(resolve('electron/agents/runtime.ts'));
-  const defaults = createAgentRuntimes();
+  const defaults = createAgentRuntimes(async () => {
+    throw new Error('Managed launch required');
+  });
   assert.equal(defaults.runningCount(), 0);
   defaults.dispose();
 });
@@ -147,4 +149,56 @@ test('project prompts enforce linked task membership, input bounds, and task-bod
   assert.ok(!result.includes('x'.repeat(20001)));
   items = [];
   await assert.rejects(prompt('/repo', 'task', { taskId: 'task' }), /removed or archived/);
+});
+
+test('worktree removal reserves the checkout against new runs and rejects active or unknown ownership', async () => {
+  let busy = true,
+    starts = 0;
+  const runtime: any = {
+    checkoutBusy: () => busy,
+    start: async () => {
+      starts++;
+      return { id: 'r' };
+    },
+    status: () => ({}),
+  };
+  const router = new AgentRuntimes([{ id: 'codex', runtime }]);
+  await assert.rejects(
+    router.withCheckoutIdle('/repo', async () => {}),
+    /Stop the agents/,
+  );
+  busy = false;
+  let finish!: () => void;
+  const removing = router.withCheckoutIdle(
+    '/repo',
+    () =>
+      new Promise<void>((resolve) => {
+        finish = resolve;
+      }),
+  );
+  await assert.rejects(
+    router.start({ id: 's', agent: 'codex', cwd: '/repo/sub' } as any, 'task', true),
+    /operation in progress/,
+  );
+  await assert.rejects(
+    router.withCheckoutIdle('/repo/sub', async () => {}),
+    /already in progress/,
+  );
+  await router.start({ id: 's', agent: 'codex', cwd: '/repo-other' } as any, 'task', true);
+  finish();
+  await removing;
+  await router.start({ id: 's', agent: 'codex', cwd: '/repo' } as any, 'task', true);
+  assert.equal(starts, 2);
+  await assert.rejects(
+    router.withCheckoutIdle('/repo', async () => {
+      throw Error('dirty worktree');
+    }),
+    /dirty/,
+  );
+  await router.withCheckoutIdle('/repo', async () => {});
+  delete runtime.checkoutBusy;
+  await assert.rejects(
+    router.withCheckoutIdle('/repo', async () => {}),
+    /Stop the agents/,
+  );
 });

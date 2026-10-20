@@ -167,12 +167,15 @@ test('repository cloning retains filesystem errors and memory readers close skip
       lstat: async () => ({ isSymbolicLink: () => false }),
       readdir: async () =>
         ['directory.md', 'empty.md'].map((name) => ({ name, isFile: () => true })),
-      open: async (path: string) => ({
-        stat: async () => ({ isFile: () => !path.endsWith('directory.md'), size: 0 }),
-        close: async () => {
-          closed.push(path);
-        },
-      }),
+      open: async (path: string) => {
+        if (path.endsWith('.json')) throw Object.assign(Error('missing'), { code: 'ENOENT' });
+        return {
+          stat: async () => ({ isFile: () => !path.endsWith('directory.md'), size: 0 }),
+          close: async () => {
+            closed.push(path);
+          },
+        };
+      },
     },
   })(resolve('electron/storage/project-memory.ts'));
   assert.deepEqual(await memory.readProjectMemory('/repo'), { pages: [], limited: true });

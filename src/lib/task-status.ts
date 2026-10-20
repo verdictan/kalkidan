@@ -16,7 +16,7 @@ export async function changeTaskStatus(
   const descriptor = (await client.providers()).find((p) => p.id === connection.provider);
   if (!descriptor?.capabilities.updateStatus)
     throw new Error('This board does not support status changes.');
-  const board = await client.board(group.id);
+  const board = await client.board(group.id, true);
   const item = board.items.find((item) => item.id === taskId);
   if (!item) throw new Error('The linked task was removed or archived. Refresh the board.');
   const name = descriptor.statusNames[phase];
