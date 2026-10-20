@@ -22,8 +22,11 @@ export function TreeContextMenu({
   children,
   actions,
   folderColor,
+  label = 'Item actions',
 }: {
   children: ReactElement;
+  /** The accessible name of the menu, such as "Project actions". */
+  label?: string;
   actions: TreeAction[];
   folderColor?: {
     value?: ProjectColor;
@@ -53,7 +56,7 @@ export function TreeContextMenu({
         {children}
       </ContextMenu.Trigger>
       <ContextMenu.Portal>
-        <ContextMenu.Content className={menuContentClass} aria-label="Explorer actions">
+        <ContextMenu.Content className={menuContentClass} aria-label={label}>
           {folderColor && (
             <>
               <ContextMenu.Label className={menuLabelClass}>Folder color</ContextMenu.Label>

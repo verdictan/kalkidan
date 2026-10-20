@@ -3,7 +3,8 @@ import { trackerConnection } from '../domain/tracker';
 import { agentLabel } from '../config/agents';
 import { CreateProject } from './create-project';
 import { useState } from 'react';
-import { Folder, FolderPlus, Plus, GitBranch, MessageSquare, Terminal } from 'lucide-react';
+import { Folder, FolderPlus, Plus, GitBranch, MessageSquare } from 'lucide-react';
+import { AgentIcon } from './ui/agent-icon';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
 import { EmptyState } from './ui/empty-state';
@@ -16,10 +17,11 @@ import { sessionRepo } from '../lib/session-repository';
 import { plural } from '../lib/platform';
 
 const recentLimit = 5;
-const headClass = 'h-8 text-xs font-medium text-muted-foreground';
+// The first and last cells have no outer padding, so row text lines up with the page title.
+const edgeClass = 'first:pl-0 last:pr-0';
 const relativeFormat = new Intl.RelativeTimeFormat(undefined, { numeric: 'auto' });
 /** A short relative time, such as "3 hours ago" or "yesterday". */
-function relativeTime(value?: string) {
+export function relativeTime(value?: string) {
   const time = value ? Date.parse(value) : NaN;
   if (Number.isNaN(time)) return '';
   const seconds = (time - Date.now()) / 1000;
@@ -76,7 +78,7 @@ export function ProjectOverview({
     .sort((a, b) => (b.session.updatedAt || '').localeCompare(a.session.updatedAt || ''))
     .slice(0, recentLimit);
   return (
-    <section className="page project-home" aria-label="Project overview">
+    <section className="page" aria-label="Project overview">
       <PageHeader
         title="Projects"
         subtitle="Projects, repositories, and the work in progress."
@@ -100,9 +102,9 @@ export function ProjectOverview({
             </colgroup>
             <TableHeader>
               <TableRow className="hover:bg-transparent">
-                <TableHead className={headClass}>Project</TableHead>
-                <TableHead className={headClass}>Repositories</TableHead>
-                <TableHead className={headClass}>Sessions</TableHead>
+                <TableHead className={edgeClass}>Project</TableHead>
+                <TableHead className={edgeClass}>Repositories</TableHead>
+                <TableHead className={edgeClass}>Sessions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -115,15 +117,11 @@ export function ProjectOverview({
                 ).length;
                 return (
                   // The whole row opens the project. The button keeps it reachable by keyboard.
-                  <TableRow
-                    key={group.id}
-                    className="project-row hover:bg-[var(--surface-hover)]"
-                    onClick={() => onSelect(group)}
-                  >
-                    <TableCell>
+                  <TableRow key={group.id} className="project-row" onClick={() => onSelect(group)}>
+                    <TableCell className={edgeClass}>
                       <Button
-                        variant="ghost"
-                        className="project-open h-auto max-w-full justify-start gap-3 p-0 text-left whitespace-normal hover:bg-transparent has-[>svg]:px-0"
+                        variant="bare"
+                        className="project-open h-auto max-w-full justify-start gap-3 p-0 text-left whitespace-normal has-[>svg]:px-0"
                         onClick={(event) => {
                           event.stopPropagation();
                           onSelect(group);
@@ -143,7 +141,7 @@ export function ProjectOverview({
                         )}
                       </Button>
                     </TableCell>
-                    <TableCell>
+                    <TableCell className={edgeClass}>
                       <span
                         className="inline-flex items-center gap-1.5 text-muted-foreground"
                         title={repositories.map((r) => r.name).join(', ')}
@@ -152,7 +150,7 @@ export function ProjectOverview({
                         {plural(repositories.length, 'repository', 'repositories')}
                       </span>
                     </TableCell>
-                    <TableCell>
+                    <TableCell className={edgeClass}>
                       <span className="inline-flex items-center gap-1.5 text-muted-foreground">
                         <MessageSquare size={14} />
                         {plural(count, 'session')}
@@ -198,7 +196,7 @@ export function ProjectOverview({
                     onClick={() => onResume(session)}
                   >
                     <EntityIcon>
-                      {session.agent === 'codex' ? <Terminal /> : <span>✳</span>}
+                      <AgentIcon agent={session.agent} />
                     </EntityIcon>
                     <span className="project-recent-text">
                       <span className="project-recent-title">{title}</span>

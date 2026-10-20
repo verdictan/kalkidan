@@ -260,6 +260,13 @@ export class RemoteHosts {
     const host = this.hosts.find((h) => h.id === id);
     if (host) host.status = 'disconnected';
   }
+  /** Disconnects a host and removes it from the saved list. */
+  async remove(id: string) {
+    this.host(id);
+    this.disconnect(id);
+    this.hosts = this.hosts.filter((h) => h.id !== id);
+    await this.save();
+  }
   close() {
     for (const id of this.connections.keys()) this.disconnect(id);
   }

@@ -47,7 +47,8 @@ test('repository dialog contains long names, scrolls results, and keeps actions 
       name: 'Customer platform and shared infrastructure across multiple repositories',
     })
     .click();
-  const last = dialog.getByRole('button', { name: /repository-39 / });
+  await dialog.getByRole('radio', { name: 'Clone from GitHub', exact: true }).click();
+  const last = dialog.getByRole('radio', { name: /repository-39/ });
   await last.scrollIntoViewIfNeeded();
   await last.click();
   await expect(
@@ -58,14 +59,14 @@ test('repository dialog contains long names, scrolls results, and keeps actions 
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.screenshot({ path: 'test-results/repository-dialog-spacing.png', fullPage: true });
   await dialog.getByRole('button', { name: 'Create a new project', exact: true }).click();
-  const create = page.getByRole('dialog', { name: 'Create project', exact: true });
+  const create = page.getByRole('dialog', { name: 'New project', exact: true });
   await create.getByLabel('Project name', { exact: true }).fill('New project');
-  await expect(create.getByRole('button', { name: 'Create project', exact: true })).toBeDisabled();
+  await expect(create.getByRole('button', { name: 'Create project', exact: true })).toBeEnabled();
   await create.getByRole('button', { name: 'Cancel', exact: true }).click();
   await expect(
     dialog.getByRole('button', { name: 'Clone into project', exact: true }),
   ).toBeInViewport();
-  await dialog.getByRole('button', { name: 'Local folders', exact: true }).click();
+  await dialog.getByRole('radio', { name: 'Local folders', exact: true }).click();
   await expect(
     dialog.getByRole('button', { name: 'Choose folders', exact: true }),
   ).toBeInViewport();
@@ -77,7 +78,8 @@ test('notifications and a long draft do not push the composer outside the window
   await page.setViewportSize({ width: 980, height: 680 });
   await page.goto('http://127.0.0.1:5173');
   await page.locator('.repo-select').first().click();
-  await page.getByRole('button', { name: 'Edit repository', exact: true }).click();
+  await page.getByRole('button', { name: 'Repository actions', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Edit repository…', exact: true }).click();
   await page.getByRole('button', { name: 'Save changes', exact: true }).click();
   await expect(page.locator('.notice')).toContainText('Repository updated.');
   await page.getByRole('button', { name: 'New Codex session', exact: true }).click();

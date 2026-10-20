@@ -4,17 +4,12 @@
   max-height: 42vh;
   overflow: auto;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-lg);
   background: var(--muted);
   padding: 12px;
-  font:
-    12px/1.65 ui-monospace,
-    'SF Mono',
-    SFMono-Regular,
-    Menlo,
-    Consolas,
-    'DejaVu Sans Mono',
-    monospace;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 20px;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
@@ -42,10 +37,10 @@
   margin-right: 1ch;
   text-align: right;
   color: var(--muted-foreground);
-  opacity: 0.7;
   user-select: none;
 }
-/* The Changes panel is a column. Only the diff scrolls; the file list has a short scroll. */
+/* The Changes panel is a column. The body does not scroll. Only the diff output and the
+   file list scroll. */
 .diff-panel {
   display: flex;
   flex-direction: column;
@@ -59,7 +54,7 @@
   flex-direction: column;
   gap: 12px;
   padding: 12px;
-  overflow: auto;
+  overflow: hidden;
 }
 .diff-review {
   flex: 1;
@@ -90,7 +85,7 @@
   width: 100%;
   min-width: 0;
   padding: 4px 8px;
-  border-radius: 6px;
+  border-radius: var(--radius-md);
   font-size: 12px;
   text-align: left;
   color: var(--muted-foreground);
@@ -117,8 +112,8 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 11px;
-  opacity: 0.7;
+  font-size: 12px;
+  color: var(--muted-foreground);
 }
 .diff-count-add {
   color: var(--diff-add);
@@ -130,7 +125,7 @@
 }
 
 /* One toolbar for the tool panes: browser, find, device, Changes and the terminal footer.
-   Controls are 28px. A status bar is 24px with 11px text. */
+   Controls are 28px. A status bar is 24px with 11px (text-2xs) text. */
 .tool-toolbar {
   display: flex;
   flex-shrink: 0;
@@ -154,7 +149,7 @@
   padding: 0 12px;
   overflow: hidden;
   border-top: 1px solid var(--border);
-  font-size: 11px;
+  font-size: var(--text-2xs);
   line-height: 24px;
   white-space: nowrap;
   text-overflow: ellipsis;
@@ -205,111 +200,24 @@
   font-size: 13px;
 }
 
-/* The tool launcher: title and location, then one row for each tool. */
+/* The tool launcher: a page header, then one row for each tool. Tiles are secondary
+   buttons; the button sets their height and hover. */
 .tool-launcher {
-  max-width: 980px;
-  margin: auto;
-  padding: 48px 40px;
+  max-width: var(--page-max-width);
+  margin: 0 auto;
+  padding: var(--space-12) var(--page-padding-x);
   height: 100%;
   overflow: auto;
 }
-.tool-launcher-heading {
-  display: grid;
-  gap: 4px;
-  margin-bottom: 24px;
-}
-.tool-launcher-heading h2 {
-  font-size: 20px;
-  line-height: 28px;
-  font-weight: 600;
-}
-.tool-launcher-heading p {
-  font-size: 12px;
-  line-height: 16px;
-  color: var(--muted-foreground);
-}
 .tool-launcher-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 8px 16px;
+  grid-template-columns: 1fr;
+  gap: var(--space-2);
 }
-.tool-launcher-grid button {
-  width: 100%;
-}
-.tool-launcher-grid button:hover {
-  background: var(--surface-hover);
-}
-.tool-launcher-grid span {
+.tool-launcher-grid button > span {
   flex: 1;
   text-align: left;
 }
-.tool-launcher-grid kbd {
-  font: 11px inherit;
-  border-radius: 4px;
-  background: var(--muted);
-  color: var(--muted-foreground);
-  padding: 2px 6px;
-}
-.conversation-tool-panel .tool-launcher {
-  padding: 24px;
-}
-.conversation-tool-panel .tool-launcher-grid {
-  grid-template-columns: 1fr;
-}
-@media (max-width: 800px) {
-  .topbar-actions {
-    margin-left: auto;
-  }
-  .management-pane {
-    padding: 16px;
-  }
-  .tool-launcher-grid {
-    grid-template-columns: 1fr;
-  }
-}
-
-/* Workbench tabs follow the desktop reference and keep every tool mounted. */
-
-.pinned-sessions {
-  margin-bottom: 22px;
-}
-.pinned-sessions > button {
-  width: 100%;
-  justify-content: flex-start;
-  font-size: 13px;
-  font-weight: 400;
-}
-.pinned-sessions > button span {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.pinned-sessions > button[aria-current='page'] {
-  background: var(--accent);
-}
-.tree-host {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 11px;
-  color: var(--muted-foreground);
-  padding: 6px 8px;
-}
-.tree-host small {
-  margin-left: auto;
-  font-size: 11px;
-}
-.tree-host > span {
-  width: 6px;
-  height: 6px;
-  flex-shrink: 0;
-  border-radius: 50%;
-  background: var(--muted-foreground);
-}
-.tree-host .host-connected {
-  background: var(--success);
-}
-
 .agent-panes.has-side-chat {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
@@ -332,12 +240,6 @@
   .agent-panes.has-side-chat {
     grid-template-columns: minmax(0, 1fr);
     grid-template-rows: minmax(0, 1fr) minmax(0, 1fr);
-  }
-  .agent-panes.has-side-chat .conversation-welcome {
-    padding: 16px;
-  }
-  .agent-panes.has-side-chat .composer-dock {
-    padding: 8px 0 12px;
   }
 }
 
@@ -389,15 +291,6 @@
   user-select: none;
   cursor: col-resize;
 }
-.tools-expanded .composer-dock {
-  padding: 8px 0 12px;
-}
-.tools-expanded .composer-actions {
-  flex-wrap: nowrap;
-}
-.tools-expanded .conversation-welcome {
-  padding: 20px 0;
-}
 
 /* The tool tab bar sits in the title bar slot. Tabs are 28px with a close button that
    shows on hover, selection and focus. */
@@ -421,11 +314,11 @@
   display: flex;
   align-items: center;
   flex-shrink: 0;
-  height: 28px;
+  height: var(--control-sm);
   min-width: 96px;
   max-width: 220px;
   padding-right: 4px;
-  border-radius: 6px;
+  border-radius: var(--radius-md);
   color: var(--muted-foreground);
 }
 .tool-tab:hover {
@@ -448,6 +341,14 @@
 .tool-tab:focus-within .tool-tab-close,
 .tool-tab.selected .tool-tab-close {
   opacity: 1;
+}
+/* A line between the tab strip and the "Open tool" and "Hide tools" buttons. */
+.tool-tabbar-divider {
+  flex-shrink: 0;
+  width: 1px;
+  height: 16px;
+  margin-inline: 4px;
+  background: var(--border);
 }
 .tool-tab-content {
   height: 100%;

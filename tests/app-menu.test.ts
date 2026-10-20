@@ -46,3 +46,30 @@ test('packaged builds hide Reload and the developer tools', () => {
   assert.ok(!all.includes('Reload'));
   assert.ok(!all.includes('Toggle developer tools'));
 });
+
+for (const mac of [true, false])
+  test(`File menu has Close tab on the primary key and Close window with Shift (mac: ${mac})`, () => {
+    const sent: string[] = [];
+    const template = appMenuTemplate({
+      mac,
+      packaged: true,
+      appName: 'Kalkidan',
+      command: (name) => () => sent.push(name),
+      openExternal: () => {},
+    });
+    const file = template.find((item) => item.label === 'File')!
+      .submenu as MenuItemConstructorOptions[];
+    const tab = file.find((item) => item.label === 'Close tab')!;
+    assert.equal(tab.accelerator, 'CmdOrCtrl+W');
+    (tab.click as () => void)();
+    assert.deepEqual(sent, ['close-tab']);
+    const window = file.find((item) => item.label === 'Close window')!;
+    assert.equal(window.role, 'close');
+    assert.equal(window.accelerator, 'Shift+CmdOrCtrl+W');
+    const all = template.flatMap((item) =>
+      Array.isArray(item.submenu) ? item.submenu : [],
+    ) as MenuItemConstructorOptions[];
+    // No other item takes the primary key and W.
+    assert.equal(all.filter((item) => item.accelerator === 'CmdOrCtrl+W').length, 1);
+    assert.ok(all.every((item) => item.role !== 'close' || item.accelerator));
+  });

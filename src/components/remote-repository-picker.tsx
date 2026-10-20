@@ -5,6 +5,7 @@ import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Choice } from './choice';
 import { SectionHeader } from './ui/page-header';
+import { EmptyState } from './ui/empty-state';
 export function RemoteRepositoryPicker({
   api,
   group,
@@ -113,36 +114,48 @@ export function RemoteRepositoryPicker({
           Browse
         </Button>
       </form>
-      <div role="group" aria-label="Remote folders" className="list-box content-start">
-        <Button
-          variant="ghost"
-          className="w-full justify-start px-2 font-normal [&_svg]:text-muted-foreground"
+      <div
+        role="group"
+        aria-label="Remote folders"
+        aria-busy={busy}
+        className="list-box content-start [&_svg]:size-3.5 [&_svg]:shrink-0 [&_svg]:text-muted-foreground"
+      >
+        <button
+          type="button"
+          className="list-box-row text-sm disabled:opacity-50"
           disabled={busy || !parent || parent === path}
           onClick={() => parent && void browse(parent)}
         >
-          <ArrowUp size={14} />
+          <ArrowUp />
           Parent folder
-        </Button>
-        <Button
-          variant="ghost"
-          className="w-full justify-start px-2 font-normal"
+        </button>
+        <button
+          type="button"
+          className="list-box-row text-sm disabled:opacity-50"
           disabled={busy}
           onClick={() => void browse('~')}
         >
-          <House size={14} /> Home
-        </Button>
+          <House /> Home
+        </button>
+        {busy && !folders && (
+          <p role="status" className="px-2 py-1.5 text-sm text-muted-foreground">
+            Loading folders…
+          </p>
+        )}
+        {!error && folders && !folders.folders.length && <EmptyState compact title="No folders" />}
         {!error &&
           folders?.folders.map((folder) => (
-            <Button
-              variant="ghost"
-              className="w-full justify-start px-2 font-normal [&_svg]:text-muted-foreground"
+            <button
+              type="button"
+              className="list-box-row text-sm disabled:opacity-50"
               disabled={busy}
               key={folder.path}
+              title={folder.name}
               onClick={() => void browse(folder.path)}
             >
-              <Folder size={14} />
+              <Folder />
               <span className="truncate">{folder.name}</span>
-            </Button>
+            </button>
           ))}
       </div>
       {mode === 'clone' && (
@@ -167,13 +180,13 @@ export function RemoteRepositoryPicker({
             disabled={busy}
             onChange={(e) => setRepository(e.target.value)}
           />
-          <p className="-mt-1 text-xs text-muted-foreground">
+          <p className="text-xs text-muted-foreground">
             Clones are stored in the project’s repos folder using Git credentials on the host.
           </p>
         </>
       )}
       {error && (
-        <p role="alert" className="text-sm text-destructive">
+        <p role="alert" className="field-error">
           {error}
         </p>
       )}
@@ -186,7 +199,7 @@ export function RemoteRepositoryPicker({
       >
         {busy ? (
           <>
-            <RefreshCw className="animate-spin" size={14} />
+            <RefreshCw className="animate-spin" />
             Working on host…
           </>
         ) : mode === 'clone' ? (

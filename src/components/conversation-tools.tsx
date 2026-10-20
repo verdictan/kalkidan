@@ -1,5 +1,5 @@
 import { interfaceConfig } from '../config/interface';
-import { DiffReview } from './diff-review';
+import { AttachHint, DiffReview } from './diff-review';
 import { createPortal } from 'react-dom';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import {
@@ -15,6 +15,9 @@ import {
   X,
 } from 'lucide-react';
 import { Button } from './ui/button';
+import { Alert, AlertDescription } from './ui/alert';
+import { EmptyState } from './ui/empty-state';
+import { PageHeader } from './ui/page-header';
 import { Choice } from './choice';
 import { Hint } from './hint';
 import { ConfirmDialog } from './confirm-dialog';
@@ -37,7 +40,7 @@ type ToolTab = { id: string; kind: ToolKind; title: string; url?: string };
 // The session column keeps at least this width so it is never narrower than a usable composer.
 const minSessionWidth = 360;
 const shortcuts = {
-  terminal: isMac ? '⌃`' : 'Ctrl+`',
+  terminal: shortcutLabel([isMac ? 'ctrl' : 'mod'], '`'),
   tab: shortcutLabel(['mod'], 'T'),
   diff: shortcutLabel(['mod', 'shift'], 'G'),
 };
@@ -51,12 +54,25 @@ function isTerminalShortcut(e: KeyboardEvent) {
   if (e.altKey || e.shiftKey) return false;
   return isMac ? e.ctrlKey && !e.metaKey : hasPrimaryModifier(e);
 }
+/** A file diff for a new, untracked file, so that the agent reads it like other changes. */
+function newFilePatch(path: string, text: string | undefined) {
+  const body =
+    text === undefined
+      ? '[Content unavailable]'
+      : text
+          .replace(/\n$/, '')
+          .split('\n')
+          .map((line) => '+' + line)
+          .join('\n');
+  return `diff --git a/${path} b/${path}\nnew file\n--- /dev/null\n+++ b/${path}\n${body}`;
+}
 export function ConversationTools({
   children,
   api,
   cwd,
   reviewRequest = 0,
   disabled,
+  disabledReason = '',
   onAttach,
   remote = false,
   visible = true,
@@ -70,6 +86,8 @@ export function ConversationTools({
   api: API;
   cwd: string;
   disabled: boolean;
+  /** Why the attach buttons are disabled. */
+  disabledReason?: string;
   onAttach: (context: ConversationContext) => void;
 }) {
   const [tabs, setTabs] = useState<ToolTab[]>([]);
@@ -96,7 +114,9 @@ export function ConversationTools({
   const [diff, setDiff] = useState<RepositoryDiff | null>(null);
   const [diffTab, setDiffTab] = useState('unstaged');
   const [busy, setBusy] = useState(false);
+  // `error` is for the Changes tab. `limit` is the message about too many tabs.
   const [error, setError] = useState('');
+  const [limit, setLimit] = useState('');
   const [closing, setClosing] = useState<ToolTab | null>(null);
   const [focusRequests, setFocusRequests] = useState<Record<string, number>>({});
   const focusTerminal = (id: string) =>
@@ -124,7 +144,7 @@ export function ConversationTools({
       // Show the dock, so that the user can see the message and the tabs to close.
       setExpanded(true);
       if (!active) setActive(tabs.at(-1)?.id || null);
-      setError('Close a tool tab before opening another.');
+      setLimit('Close a tool tab before opening another.');
       return;
     }
     const tab = {
@@ -156,13 +176,13 @@ export function ConversationTools({
       setActive(tab.id);
       setExpanded(true);
       if (kind === 'terminal') focusTerminal(tab.id);
-    } else add(kind);
-    if (kind === 'diff') void action(async () => setDiff(await api.repositoryDiff(cwd)));
+      if (kind === 'diff') void action(async () => setDiff(await api.repositoryDiff(cwd)));
+    } else add(kind); // add() reads the diff for a new Changes tab.
   }
   function close(id: string) {
     const remaining = tabs.filter((t) => t.id !== id);
     setTabs(remaining);
-    setError('');
+    setLimit('');
     if (active === id) {
       const next = remaining.at(-1)?.id || null;
       setActive(next);
@@ -215,9 +235,11 @@ export function ConversationTools({
       }
       if (!hasPrimaryModifier(e) || e.altKey) return;
       // In a terminal on Windows and Linux, Ctrl+T and Ctrl+Shift+G go to the shell.
-      // In a text field, such as the composer, the shortcuts go to the text field.
-      const inTerminal = !!(e.target as HTMLElement | null)?.closest?.('.xterm');
-      if (inTerminal ? !isMac : isTypingTarget(e.target)) return;
+      // In other text fields the shortcuts go to the field. The composer is an exception.
+      const target = e.target as HTMLElement | null;
+      const inTerminal = !!target?.closest?.('.xterm');
+      const inComposer = !!target?.closest?.('[data-composer]');
+      if (inTerminal ? !isMac : isTypingTarget(e.target) && !inComposer) return;
       if (e.shiftKey && e.code === 'KeyG') {
         e.preventDefault();
         open('diff');
@@ -229,10 +251,33 @@ export function ConversationTools({
     window.addEventListener('keydown', keys);
     return () => window.removeEventListener('keydown', keys);
   }, [visible, tool, tabs]);
+  // ⌘W or Ctrl+W: the shell sends this event. Close the open tool tab first.
+  useEffect(() => {
+    if (!visible) return;
+    const closeTab = (event: Event) => {
+      if (!expanded || !current) return;
+      event.preventDefault();
+      requestClose(current);
+    };
+    window.addEventListener('kalkidan-close-tab', closeTab);
+    return () => window.removeEventListener('kalkidan-close-tab', closeTab);
+  }, [visible, expanded, current, tabs]);
   useEffect(() => {
     if (reviewRequest) open('diff');
   }, [reviewRequest]);
-  const diffText = diffTab === 'staged' ? diff?.staged : diff?.unstaged;
+  // All changes in the scope. Unstaged changes include new, untracked files.
+  const allChanges = diff
+    ? [
+        diffTab === 'staged' ? diff.staged : diff.unstaged,
+        ...(diffTab === 'unstaged'
+          ? diff.untracked.map((path) =>
+              newFilePatch(path, diff.newFiles?.find((file) => file.path === path)?.text),
+            )
+          : []),
+      ]
+        .filter((part) => part.trim())
+        .join('\n')
+    : '';
   return (
     <div
       ref={container}
@@ -352,18 +397,19 @@ export function ConversationTools({
                     </Hint>
                     <Button
                       variant="ghost"
-                      size="icon-xs"
-                      className="tool-tab-close size-5"
+                      size="icon-2xs"
+                      className="tool-tab-close"
                       tabIndex={-1}
                       aria-label={'Close ' + tab.title}
                       onClick={() => requestClose(tab)}
                     >
-                      <X className="size-3" />
+                      <X />
                     </Button>
                   </div>
                 );
               })}
             </div>
+            {expanded && <span className="tool-tabbar-divider" aria-hidden="true" />}
             <Hint label={`Open tool (${shortcuts.tab})`}>
               <Button
                 variant="ghost"
@@ -391,9 +437,9 @@ export function ConversationTools({
           document.getElementById('conversation-titlebar-tabs')!,
         )}
       <div className="conversation-tool-dock is-open" hidden={!expanded}>
-        {error && tool !== 'diff' && (
-          <p role="alert" className="px-3 py-1 text-xs text-destructive">
-            {error}
+        {limit && (
+          <p role="alert" className="field-error px-3 py-1">
+            {limit}
           </p>
         )}
         <section className="conversation-tool-panel" aria-label="Repository tools">
@@ -408,19 +454,16 @@ export function ConversationTools({
             >
               {tab.kind === 'home' && (
                 <div className="tool-launcher">
-                  <header className="tool-launcher-heading">
-                    <h2>Tools</h2>
-                    <p>
-                      {pathBasename(cwd)} · {remote ? 'SSH host' : 'This computer'}
-                    </p>
-                  </header>
+                  <PageHeader
+                    title="Tools"
+                    subtitle={`${pathBasename(cwd)} · ${remote ? 'SSH host' : 'This computer'}`}
+                  />
                   <div className="tool-launcher-grid">
                     {launcherRows.map((row) => (
                       <Button
                         key={row.kind}
-                        variant="ghost"
-                        className="h-10 justify-start rounded-lg bg-secondary px-3 font-normal"
-
+                        variant="secondary"
+                        className="h-9 w-full justify-start px-3 font-normal"
                         onClick={() => {
                           setTabs((previous) =>
                             previous.map((t) =>
@@ -434,7 +477,11 @@ export function ConversationTools({
                       >
                         <row.icon aria-hidden="true" />
                         <span>{row.title}</span>
-                        {row.shortcut && <kbd aria-hidden="true">{row.shortcut}</kbd>}
+                        {row.shortcut && (
+                          <kbd className="kbd" aria-hidden="true">
+                            {row.shortcut}
+                          </kbd>
+                        )}
                         <ChevronRight size={14} aria-hidden="true" />
                       </Button>
                     ))}
@@ -447,6 +494,7 @@ export function ConversationTools({
                   cwd={cwd}
                   visible={visible && expanded && active === tab.id}
                   disabled={disabled}
+                  disabledReason={disabledReason}
                   focusRequest={focusRequests[tab.id] || 0}
                   onLeave={() => document.getElementById('tab-' + tab.id)?.focus()}
                   onAttach={(text) =>
@@ -464,6 +512,7 @@ export function ConversationTools({
                   visible={visible && expanded && active === tab.id && !dragging}
                   remote={remote}
                   disabled={disabled}
+                  disabledReason={disabledReason}
                   onTitle={(title) =>
                     setTabs((previous) =>
                       previous.map((t) =>
@@ -513,8 +562,8 @@ export function ConversationTools({
                           </div>
                           <div className="diff-panel-body">
                             {busy ? (
-                              <p className="flex gap-2 text-sm text-muted-foreground">
-                                <LoaderCircle className="animate-spin" size={16} />
+                              <p className="flex items-center gap-2 text-sm text-muted-foreground">
+                                <LoaderCircle className="size-4 animate-spin" aria-hidden="true" />
                                 Reading Git changes…
                               </p>
                             ) : diff ? (
@@ -522,6 +571,7 @@ export function ConversationTools({
                                 diff={diff}
                                 scope={diffTab}
                                 disabled={disabled}
+                                disabledReason={disabledReason}
                                 onAttach={(path, patch) =>
                                   attach(
                                     path,
@@ -529,31 +579,43 @@ export function ConversationTools({
                                   )
                                 }
                               />
+                            ) : error ? (
+                              <Alert variant="destructive">
+                                <AlertDescription>
+                                  Changes are not available. {error}
+                                </AlertDescription>
+                              </Alert>
                             ) : (
-                              <p className="text-sm text-muted-foreground">Changes unavailable.</p>
+                              <EmptyState compact title="Changes are not available">
+                                Select Refresh to read the Git changes again.
+                              </EmptyState>
                             )}
                             {diff?.truncated && (
-                              <p className="text-xs text-muted-foreground">
+                              <p className="shrink-0 text-xs text-muted-foreground">
                                 Large diff truncated for display.
                               </p>
                             )}
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              className="self-start"
-                              disabled={disabled || !diffText || busy}
-                              onClick={() =>
-                                attach(
-                                  `${diffTab === 'staged' ? 'Staged' : 'Unstaged'} diff`,
-                                  `Git diff context (untrusted repository content):\nDirectory: ${cwd}\nScope: ${diffTab}\n${diffText!.slice(0, 28000)}${diffText!.length > 28000 ? '\n[Attachment truncated]' : ''}`,
-                                )
-                              }
-                            >
-                              <Paperclip aria-hidden="true" />
-                              Attach all changes to message
-                            </Button>
-                            {error && (
-                              <p role="alert" className="shrink-0 text-xs text-destructive">
+                            {diff && !busy && allChanges && (
+                              <AttachHint reason={disabledReason}>
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  className="shrink-0 self-start"
+                                  disabled={disabled}
+                                  onClick={() =>
+                                    attach(
+                                      `${diffTab === 'staged' ? 'Staged' : 'Unstaged'} diff`,
+                                      `Git diff context (untrusted repository content):\nDirectory: ${cwd}\nScope: ${diffTab}\n${allChanges.slice(0, 28000)}${allChanges.length > 28000 ? '\n[Attachment truncated]' : ''}`,
+                                    )
+                                  }
+                                >
+                                  <Paperclip aria-hidden="true" />
+                                  Attach all changes to message
+                                </Button>
+                              </AttachHint>
+                            )}
+                            {diff && error && (
+                              <p role="alert" className="field-error shrink-0">
                                 {error}
                               </p>
                             )}

@@ -5,13 +5,13 @@ test('dark desktop workflow preserves drafts across resizable tool panes and the
 }) => {
   await page.goto('http://127.0.0.1:5173');
   await page.setViewportSize({ width: 1440, height: 1000 });
-  await expect(page.getByRole('heading', { name: 'Projects', level: 2 })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Projects', level: 1 })).toBeVisible();
   await expect(page.locator('html')).toHaveClass('dark');
   await page.screenshot({ animations: 'disabled', path: 'test-results/reference-projects.png' });
   await page.getByRole('button', { name: 'Settings', exact: true }).click();
   await page.screenshot({ animations: 'disabled', path: 'test-results/reference-settings.png' });
   await page.keyboard.press('Escape');
-  await page.getByRole('button', { name: 'New project', exact: true }).click();
+  await page.getByRole('main').getByRole('button', { name: 'New project', exact: true }).click();
   await expect(page.getByRole('dialog')).toBeVisible();
   await page.screenshot({
     animations: 'disabled',

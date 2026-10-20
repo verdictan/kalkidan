@@ -6,6 +6,8 @@ import { Input } from './ui/input';
 import { Alert, AlertDescription } from './ui/alert';
 import { Choice } from './choice';
 import { SegmentedControl } from './ui/segmented-control';
+import { SearchInput } from './ui/search-input';
+import { EmptyState } from './ui/empty-state';
 
 export function TrackerProjectPicker({
   api,
@@ -189,7 +191,7 @@ export function TrackerProjectPicker({
         </>
       ) : (
         <>
-          <Input
+          <SearchInput
             aria-label={`Search ${providerName} projects`}
             placeholder={`Search ${providerName} projects…`}
             value={query}
@@ -197,7 +199,7 @@ export function TrackerProjectPicker({
           />
           <div className="list-box" role="group" aria-label={`Available ${providerName} projects`}>
             {loading ? (
-              <p className="py-4 text-sm text-muted-foreground">Loading projects…</p>
+              <EmptyState compact>Loading projects…</EmptyState>
             ) : (
               projects
                 .filter((p) => `${p.title} ${p.number}`.toLowerCase().includes(query.toLowerCase()))
@@ -221,11 +223,11 @@ export function TrackerProjectPicker({
               !projects.some((p) =>
                 `${p.title} ${p.number}`.toLowerCase().includes(query.toLowerCase()),
               ) && (
-                <p className="py-4 text-sm text-muted-foreground">
+                <EmptyState compact>
                   {query
                     ? 'No matching projects.'
                     : 'No open projects yet. Choose Create new to get started.'}
-                </p>
+                </EmptyState>
               )}
           </div>
         </>

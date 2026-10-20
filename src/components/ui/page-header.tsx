@@ -22,7 +22,7 @@ export function PageHeader({
       {icon}
       <div className="page-header-text">
         {eyebrow && <div className="page-header-eyebrow">{eyebrow}</div>}
-        <h2 className="page-title">{title}</h2>
+        <h1 className="page-title">{title}</h1>
         {subtitle && <div className="page-subtitle">{subtitle}</div>}
       </div>
       {actions && <div className="page-header-actions">{actions}</div>}

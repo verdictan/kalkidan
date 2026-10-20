@@ -7,6 +7,7 @@ export function Choice({
   options,
   disabled,
   size = 'default',
+  variant = 'outline',
   className,
 }: {
   label: string;
@@ -16,6 +17,8 @@ export function Choice({
   disabled?: boolean;
   /** default 32px for forms and page actions, sm 28px for toolbars and filter bars. */
   size?: 'sm' | 'default';
+  /** outline for forms, filled for filter bars, ghost for inline values and chips. */
+  variant?: 'outline' | 'filled' | 'ghost';
   className?: string;
 }) {
   return (
@@ -27,6 +30,7 @@ export function Choice({
       <SelectTrigger
         aria-label={label}
         size={size}
+        variant={variant}
         className={cn(
           'min-w-0 max-w-full [&_[data-slot=select-value]]:min-w-0 [&_[data-slot=select-value]]:truncate',
           className,

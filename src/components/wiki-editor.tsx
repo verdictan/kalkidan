@@ -21,6 +21,7 @@ import {
 } from './ui/dialog';
 import { Input } from './ui/input';
 import { WikiContextMenu } from './wiki-context-menu';
+import { hasPrimaryModifier, shortcutLabel } from '../lib/platform';
 
 type Slash = { from: number; to: number; query: string; left: number; top: number };
 const commands = [
@@ -90,6 +91,12 @@ export function WikiEditor({
   const [linkOpen, setLinkOpen] = useState(false);
   const [url, setUrl] = useState('');
   const [editingLink, setEditingLink] = useState(false);
+  const [notice, setNotice] = useState('');
+  const noticeTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  useEffect(() => () => clearTimeout(noticeTimer.current), []);
+  // The format toolbar has one tab stop. Arrow keys move between its buttons.
+  const toolbar = useRef<HTMLDivElement>(null);
+  const [toolIndex, setToolIndex] = useState(0);
   const slashId = useId();
   const keyHandler = useRef<(event: KeyboardEvent) => boolean>(() => false);
   function detect(editor: Editor) {
@@ -105,7 +112,7 @@ export function WikiEditor({
       from: $from.start(),
       to: $from.pos,
       query: match[1],
-      left: Math.min(rect.left, window.innerWidth - 290),
+      left: Math.min(rect.left, window.innerWidth - 330),
       top: Math.min(rect.bottom + 8, window.innerHeight - 330),
     });
     setIndex(0);
@@ -132,16 +139,16 @@ export function WikiEditor({
         'aria-multiline': 'true',
       },
       handleKeyDown: (_view, event) => keyHandler.current(event),
-      // At the start of a list item, "- ", "* " or "+ " does nothing: the line is already a
-      // list item. Without this, the list shortcut puts a second bullet list in the item, and
-      // literal text "- " would load again as a nested list. Use Tab to make a nested list.
+      // At the start of a list item, "- ", "* ", "+ " or "1. " does nothing: the line is
+      // already a list item. Without this, the list shortcut puts a second list in the item,
+      // and literal text "- " would load again as a nested list. Use Tab to make a nested list.
       handleTextInput: (view, from, to, text) => {
         if (text !== ' ') return false;
         const { $from } = view.state.selection;
         if ($from.depth < 2 || !['listItem', 'taskItem'].includes($from.node(-1).type.name))
           return false;
         const before = $from.parent.textBetween(0, $from.parentOffset);
-        if (!/^\s*[-+*]$/.test(before)) return false;
+        if (!/^\s*(?:[-+*]|\d+[.)])$/.test(before)) return false;
         view.dispatch(view.state.tr.delete(from - before.length, to));
         return true;
       },
@@ -190,6 +197,15 @@ export function WikiEditor({
     editor?.chain().focus().extendMarkRange('link').setLink({ href: url.trim() }).run();
     setLinkOpen(false);
   }
+  function removeTable() {
+    editor?.chain().focus().deleteTable().run();
+    setNotice(`Table removed. Press ${shortcutLabel(['mod'], 'Z')} to undo.`);
+    clearTimeout(noticeTimer.current);
+    noticeTimer.current = setTimeout(() => setNotice(''), 5000);
+  }
+  function toolbarButtons() {
+    return [...(toolbar.current?.querySelectorAll<HTMLButtonElement>('button') || [])];
+  }
   function choose(i: number) {
     if (!editor || !slash || !filtered[i]) return;
     editor.chain().focus().deleteRange({ from: slash.from, to: slash.to }).run();
@@ -197,7 +213,25 @@ export function WikiEditor({
     setSlash(null);
   }
   keyHandler.current = (event) => {
-    if (!slash || readOnly || event.isComposing) return false;
+    if (readOnly || event.isComposing) return false;
+    // The app search ignores Mod-K in the editor (data-shortcut-scope). Here it adds a link.
+    if (
+      hasPrimaryModifier(event) &&
+      !event.shiftKey &&
+      !event.altKey &&
+      event.key.toLowerCase() === 'k'
+    ) {
+      openLink();
+      return true;
+    }
+    // Alt+F10 moves focus to the format toolbar when it shows.
+    if (event.altKey && event.key === 'F10') {
+      const buttons = toolbarButtons();
+      if (!buttons.length) return false;
+      (buttons[toolIndex] || buttons[0]).focus();
+      return true;
+    }
+    if (!slash) return false;
     if (event.key === 'Escape') {
       setSlash(null);
       return true;
@@ -222,58 +256,100 @@ export function WikiEditor({
       headings.push({ text: node.textContent, level: node.attrs.level, pos });
   });
   return (
-    <div className="wiki-writing-area">
+    <div className="wiki-writing-area" data-shortcut-scope="editor">
       <div className="wiki-editor-body">
         {editor && !readOnly && (
           <BubbleMenu editor={editor} className="wiki-bubble">
-            {[
-              {
-                name: 'Bold',
-                Icon: Bold,
-                mark: 'bold',
-                action: () => editor.chain().focus().toggleBold().run(),
-              },
-              {
-                name: 'Italic',
-                Icon: Italic,
-                mark: 'italic',
-                action: () => editor.chain().focus().toggleItalic().run(),
-              },
-              {
-                name: 'Strikethrough',
-                Icon: Strikethrough,
-                mark: 'strike',
-                action: () => editor.chain().focus().toggleStrike().run(),
-              },
-              {
-                name: 'Inline code',
-                Icon: Code,
-                mark: 'code',
-                action: () => editor.chain().focus().toggleCode().run(),
-              },
-            ].map(({ name, Icon, mark, action }) => (
+            {/* The menu element does not pass key events correctly, so the toolbar is a child. */}
+            <div
+              ref={toolbar}
+              className="flex gap-0.5"
+              role="toolbar"
+              aria-label="Text formatting"
+              aria-orientation="horizontal"
+              onKeyDown={(event) => {
+                const buttons = toolbarButtons();
+                const current = buttons.indexOf(document.activeElement as HTMLButtonElement);
+                if (event.key === 'Escape') {
+                  event.preventDefault();
+                  editor.view.focus();
+                  return;
+                }
+                if (hasPrimaryModifier(event.nativeEvent) && event.key.toLowerCase() === 'k') {
+                  event.preventDefault();
+                  openLink();
+                  return;
+                }
+                const next =
+                  event.key === 'ArrowRight'
+                    ? (current + 1) % buttons.length
+                    : event.key === 'ArrowLeft'
+                      ? (current - 1 + buttons.length) % buttons.length
+                      : event.key === 'Home'
+                        ? 0
+                        : event.key === 'End'
+                          ? buttons.length - 1
+                          : -1;
+                if (next < 0 || current < 0) return;
+                event.preventDefault();
+                setToolIndex(next);
+                buttons[next].focus();
+              }}
+            >
+              {[
+                {
+                  name: 'Bold',
+                  Icon: Bold,
+                  mark: 'bold',
+                  action: () => editor.chain().focus().toggleBold().run(),
+                },
+                {
+                  name: 'Italic',
+                  Icon: Italic,
+                  mark: 'italic',
+                  action: () => editor.chain().focus().toggleItalic().run(),
+                },
+                {
+                  name: 'Strikethrough',
+                  Icon: Strikethrough,
+                  mark: 'strike',
+                  action: () => editor.chain().focus().toggleStrike().run(),
+                },
+                {
+                  name: 'Inline code',
+                  Icon: Code,
+                  mark: 'code',
+                  action: () => editor.chain().focus().toggleCode().run(),
+                },
+              ].map(({ name, Icon, mark, action }, i) => (
+                // Mouse down keeps the text selection. Keyboard focus works as usual.
+                <Button
+                  key={name}
+                  variant="ghost"
+                  size="icon-sm"
+                  aria-label={name}
+                  aria-pressed={editor.isActive(mark)}
+                  tabIndex={i === toolIndex ? 0 : -1}
+                  onFocus={() => setToolIndex(i)}
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={action}
+                >
+                  <Icon size={14} />
+                </Button>
+              ))}
               <Button
-                key={name}
                 variant="ghost"
                 size="icon-sm"
-                aria-label={name}
-                aria-pressed={editor.isActive(mark)}
+                aria-label={editor.isActive('link') ? 'Edit link' : 'Add link'}
+                aria-pressed={editor.isActive('link')}
+                tabIndex={toolIndex === 4 ? 0 : -1}
+                onFocus={() => setToolIndex(4)}
                 onMouseDown={(e) => e.preventDefault()}
-                onClick={action}
+                onClick={openLink}
               >
-                <Icon size={14} />
+                <LinkIcon size={14} />
               </Button>
-            ))}
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              aria-label={editor.isActive('link') ? 'Edit link' : 'Add link'}
-              aria-pressed={editor.isActive('link')}
-              onMouseDown={(e) => e.preventDefault()}
-              onClick={openLink}
-            >
-              <LinkIcon size={14} />
-            </Button>
+            </div>
           </BubbleMenu>
         )}
         {editor?.isActive('table') && !readOnly && (
@@ -292,17 +368,23 @@ export function WikiEditor({
             >
               Add column
             </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => editor.chain().focus().deleteTable().run()}
-            >
+            <Button variant="ghost" size="sm" onClick={removeTable}>
               Remove table
             </Button>
           </div>
         )}
+        {notice && (
+          <p className="wiki-notice" role="status">
+            {notice}
+          </p>
+        )}
         {editor && !readOnly ? (
-          <WikiContextMenu editor={editor} commands={commands} onLink={openLink}>
+          <WikiContextMenu
+            editor={editor}
+            commands={commands}
+            onLink={openLink}
+            onRemoveTable={removeTable}
+          >
             <EditorContent editor={editor} />
           </WikiContextMenu>
         ) : (
@@ -315,7 +397,7 @@ export function WikiEditor({
           {headings.map((h) => (
             <button
               key={h.pos}
-              style={{ paddingLeft: (h.level - 1) * 10 }}
+              style={{ paddingLeft: (h.level - 1) * 12 }}
               onClick={() => {
                 if (!editor) return;
                 const node = editor.view.nodeDOM(h.pos);

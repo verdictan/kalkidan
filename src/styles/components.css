@@ -123,7 +123,7 @@
 }
 .empty-state-title {
   margin: 0;
-  font-size: 14px;
+  font-size: 13px;
   line-height: 20px;
   font-weight: 600;
 }
@@ -241,7 +241,7 @@
 .kbd {
   display: inline-flex;
   align-items: center;
-  height: 18px;
+  height: 20px;
   padding: 0 4px;
   border-radius: var(--radius-xs);
   background: var(--secondary);
@@ -255,7 +255,7 @@
 /* Prose for chat messages, docs and task descriptions. */
 .prose-ui {
   font-size: 15px;
-  line-height: 1.7;
+  line-height: 24px;
 }
 .prose-ui :where(h1) {
   font-size: 24px;
@@ -289,5 +289,137 @@
 }
 .prose-ui[data-size='sm'] {
   font-size: 13px;
-  line-height: 1.6;
+  line-height: 20px;
+}
+
+/* Shared form label: text above its control. */
+.form-label {
+  display: grid;
+  gap: var(--space-2);
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--muted-foreground);
+}
+.form-label > :is(input, textarea, button, select) {
+  color: var(--foreground);
+  font-weight: 400;
+}
+
+.hint-disabled {
+  display: inline-flex;
+}
+
+/* Status of an open session that works or waits in the background. */
+.activity-dot {
+  flex-shrink: 0;
+  width: 8px;
+  height: 8px;
+  margin-left: auto;
+  border-radius: 999px;
+  background: var(--success);
+}
+.activity-dot[data-state='approval'] {
+  background: var(--warning);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--warning) 25%, transparent);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .activity-dot[data-state='running'] {
+    animation: activity-pulse 1.6s ease-in-out infinite;
+  }
+}
+@keyframes activity-pulse {
+  50% {
+    opacity: 0.35;
+  }
+}
+/* Row labels set every span to fill the row. The dot keeps its own size. */
+.repo-select .activity-dot,
+.session-title .activity-dot {
+  flex: 0 0 8px;
+  min-width: 8px;
+}
+
+/* Rows inside a .list-box picker. */
+.list-box-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  min-height: var(--row-height);
+  padding: 0 var(--space-2);
+  border: 0;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+}
+.list-box-row:hover {
+  background: var(--surface-hover);
+}
+.list-box-row[aria-pressed='true'],
+.list-box-row[aria-checked='true'],
+.list-box-row[aria-selected='true'] {
+  background: var(--surface-selected);
+}
+.list-box-row:focus-visible {
+  outline: none;
+  box-shadow: inset var(--focus-ring);
+}
+
+/* One inline error under a field or in a panel. Block errors use Alert. */
+.field-error {
+  margin: 0;
+  color: var(--destructive);
+  font-size: 12px;
+  line-height: 16px;
+}
+
+/* Small headings in side panels: "Projects", "Pinned", "Pages". */
+.sidebar-label {
+  display: flex;
+  align-items: center;
+  min-height: var(--control-sm);
+  margin: 0;
+  color: var(--muted-foreground);
+  font-size: 11px;
+  line-height: 16px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+
+/* Shared prose parts: code blocks, lists, quotes and links. */
+.prose-ui :where(pre) {
+  padding: 12px 16px;
+  overflow-x: auto;
+  border-radius: var(--radius-lg);
+  background: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 20px;
+}
+.prose-ui :where(:not(pre) > code) {
+  padding: 1px 4px;
+  border-radius: var(--radius-xs);
+  background: var(--secondary);
+  font-family: var(--font-mono);
+}
+.prose-ui :where(ul, ol) {
+  padding-left: 24px;
+}
+.prose-ui :where(ul) {
+  list-style: disc;
+}
+.prose-ui :where(ol) {
+  list-style: decimal;
+}
+.prose-ui :where(blockquote) {
+  padding-left: 12px;
+  border-left: 2px solid var(--border);
+  color: var(--muted-foreground);
+}
+.prose-ui :where(a) {
+  color: var(--link);
+  text-decoration: underline;
+  text-underline-offset: 2px;
 }

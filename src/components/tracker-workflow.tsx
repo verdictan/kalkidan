@@ -98,7 +98,7 @@ export function TrackerWorkflow({
           />
         </label>
         {error && (
-          <p role="alert" className="text-sm text-destructive">
+          <p role="alert" className="field-error">
             {error}
           </p>
         )}

@@ -21,7 +21,7 @@ test('search finds project, session and message text and opens the conversation'
   await input.fill('zzzz-no-result');
   await expect(results.getByText('No matches found.')).toBeVisible();
   await input.fill('');
-  await expect(page.getByRole('region', { name: 'Projects and repositories' })).toBeVisible();
+  await expect(page.getByRole('navigation', { name: 'Projects and repositories' })).toBeVisible();
 });
 
 test('search results support arrow keys, Enter, and Escape', async ({ page }) => {

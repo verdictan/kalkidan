@@ -1,10 +1,13 @@
 import { Hint } from './hint';
 import { ActivityDot, activityKey, type SessionActivityState } from './activity-dot';
 import { useEffect, useState } from 'react';
-import { Archive, ArchiveRestore, History, Pin, Terminal } from 'lucide-react';
+import { Archive, ArchiveRestore, History, Pin } from 'lucide-react';
 import { agentCatalog, agentLabel } from '../config/agents';
 import { Choice } from './choice';
+import { AgentIcon } from './ui/agent-icon';
+import { Badge } from './ui/badge';
 import { Button } from './ui/button';
+import { EmptyState } from './ui/empty-state';
 import { EntityIcon } from './ui/entity-icon';
 import { MoreButton } from './ui/more-button';
 import { SegmentedControl } from './ui/segmented-control';
@@ -131,6 +134,7 @@ export function SessionBrowser({
           />
           <Choice
             label="Filter by agent"
+            className="min-w-32"
             value={agent}
             onChange={setAgent}
             options={[
@@ -140,6 +144,7 @@ export function SessionBrowser({
           />
           <Choice
             label="Filter by collection"
+            className="min-w-32"
             value={collection}
             onChange={setCollection}
             options={[
@@ -155,18 +160,14 @@ export function SessionBrowser({
             const org = session.organization || {};
             const title = org.title || session.title;
             return (
-              <div className="session organized-session" key={session.agent + session.id}>
+              <div className="list-row" key={session.agent + session.id}>
                 <EntityIcon>
-                  {session.agent === 'codex' ? (
-                    <Terminal />
-                  ) : (
-                    <span className="text-base leading-none">✳</span>
-                  )}
+                  <AgentIcon agent={session.agent} />
                 </EntityIcon>
                 <div className="min-w-0 flex-1">
                   <Button
-                    variant="ghost"
-                    className="session-title h-auto max-w-full justify-start gap-1.5 p-0 text-left font-medium hover:bg-transparent has-[>svg]:px-0"
+                    variant="bare"
+                    className="session-title max-w-full gap-1.5 text-left font-medium"
                     title={title}
                     disabled={busy}
                     aria-label={`Resume ${title}`}
@@ -187,14 +188,30 @@ export function SessionBrowser({
                     >
                       {formatDay(session.updatedAt)}
                     </time>
-                    {org.collection && <span className="collection-label">{org.collection}</span>}
+                    {org.collection && (
+                      <Badge variant="secondary" size="sm" className="ml-2">
+                        {org.collection}
+                      </Badge>
+                    )}
                   </div>
                   {org.notes && !compact && <p className="session-note">{org.notes}</p>}
                 </div>
                 <div className="session-actions">
+                  {org.archived && !compact && (
+                    <Button
+                      variant="outline"
+                      size="xs"
+                      disabled={busy}
+                      aria-label={`Restore ${title}`}
+                      onClick={() => void onUpdate(session, { ...org, archived: false })}
+                    >
+                      <ArchiveRestore aria-hidden="true" />
+                      Restore
+                    </Button>
+                  )}
                   <Hint label="Organize session">
                     <MoreButton
-                      size="sm"
+                      size="xs"
                       disabled={busy}
                       label={`Organize ${title}`}
                       onClick={() => {
@@ -210,21 +227,23 @@ export function SessionBrowser({
           })}
         </div>
       ) : (
-        <div className="empty-small">
-          <History size={26} />
-          <h3>
-            {scope === 'archived'
+        <EmptyState
+          compact
+          icon={<History />}
+          title={
+            scope === 'archived' && !compact
               ? 'No archived sessions'
-              : scope === 'pinned'
+              : scope === 'pinned' && !compact
                 ? 'No pinned sessions'
-                : 'No sessions found'}
-          </h3>
-          <p>
-            {sessions.length
-              ? 'Try a different search or filter. Use Organize on a session to pin, collect, or archive it.'
-              : `Start a session with ${agentCatalog.map((item) => item.name).join(' or ')} with the New session buttons above.`}
-          </p>
-        </div>
+                : sessions.length
+                  ? 'No sessions found'
+                  : 'No sessions yet'
+          }
+        >
+          {sessions.length
+            ? 'Try a different search or filter. Use Organize on a session to pin, collect, or archive it.'
+            : 'Use New session above.'}
+        </EmptyState>
       )}
       <Dialog
         open={!!editing}
@@ -285,9 +304,11 @@ export function SessionBrowser({
               {draft.archived ? 'Archived' : 'Archive session'}
             </Button>
           </div>
-          <p role={saveError ? 'alert' : undefined} className="text-destructive text-sm">
-            {saveError}
-          </p>
+          {saveError && (
+            <p role="alert" className="field-error">
+              {saveError}
+            </p>
+          )}
           <DialogFooter>
             <Button variant="outline" disabled={saving} onClick={() => setEditing(null)}>
               Cancel

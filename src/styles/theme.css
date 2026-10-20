@@ -24,6 +24,8 @@
   --color-diff-add: var(--diff-add);
   --color-diff-remove: var(--diff-remove);
   /* Type scale. text-sm is the one UI size. */
+  --text-2xs: 11px;
+  --text-2xs--line-height: 16px;
   --text-xs: 12px;
   --text-xs--line-height: 16px;
   --text-sm: 13px;
@@ -36,6 +38,10 @@
   --text-xl--line-height: 28px;
   --text-2xl: 24px;
   --text-2xl--line-height: 32px;
+  --text-3xl: 32px;
+  --text-3xl--line-height: 40px;
+  --font-mono: 'SF Mono', Menlo, Consolas, 'DejaVu Sans Mono', monospace;
+  --color-destructive-foreground: var(--destructive-foreground);
   /* Radius scale: 4 small parts, 6 controls and rows, 8 cards and menus, 12 dialogs. */
   --radius-xs: 4px;
   --radius-sm: 4px;
@@ -43,7 +49,7 @@
   --radius-lg: 8px;
   --radius-xl: 12px;
   --radius-2xl: 16px;
-  --shadow-xs: 0 1px 2px rgb(0 0 0 / 0.05);
+  --shadow-xs: var(--shadow-subtle);
   --shadow-sm: var(--shadow-raised);
   --shadow-md: var(--shadow-popover);
   --shadow-lg: var(--shadow-dialog);
@@ -107,6 +113,10 @@
   --popover: var(--card);
   --focus-ring: 0 0 0 2px var(--ring);
   --overlay: rgb(0 0 0 / 0.5);
+  --shadow-subtle: 0 1px 2px rgb(0 0 0 / 0.35);
+  --destructive-foreground: #1a0f0e;
+  --row-height-lg: 48px;
+  --titlebar-height: 48px;
   --shadow-raised: 0 1px 2px rgb(0 0 0 / 0.2);
   --shadow-popover: 0 4px 16px rgb(0 0 0 / 0.32);
   --shadow-dialog: 0 16px 48px rgb(0 0 0 / 0.45);
@@ -116,7 +126,7 @@
 /* Light theme. src/main.tsx removes the dark class when the system uses light colors. */
 :root:not(.dark) {
   color-scheme: light;
-  --background: #ffffff;
+  --background: #fbfbfc;
   --foreground: #1f2328;
   --card: #ffffff;
   --primary: #1f2328;
@@ -140,73 +150,28 @@
   --diff-remove: #cf222e;
   --diff-remove-surface: #ffebe9;
   --overlay: rgb(15 20 25 / 0.32);
+  --shadow-subtle: 0 1px 2px rgb(15 20 25 / 0.06);
+  --destructive-foreground: #ffffff;
   --shadow-raised: 0 1px 2px rgb(15 20 25 / 0.06);
   --shadow-popover: 0 4px 16px rgb(15 20 25 / 0.12);
   --shadow-dialog: 0 16px 48px rgb(15 20 25 / 0.18);
 }
 @layer base {
+  body {
+    margin: 0;
+    background: var(--background);
+    color: var(--foreground);
+    font-size: 13px;
+    line-height: 20px;
+    -webkit-font-smoothing: antialiased;
+  }
   * {
     box-sizing: border-box;
     border-color: var(--border);
   }
 }
-body {
-  margin: 0;
-  background: var(--background);
-  color: var(--foreground);
-  font-size: 13px;
-  line-height: 20px;
-  -webkit-font-smoothing: antialiased;
-}
 button,
 input,
 textarea {
   -webkit-app-region: no-drag;
-}
-
-/* Shared form label: text above its control. */
-.form-label {
-  display: grid;
-  gap: 6px;
-  font-size: 12px;
-  font-weight: 500;
-  color: var(--muted-foreground);
-}
-.form-label > :is(input, textarea, button, select) {
-  color: var(--foreground);
-  font-weight: 400;
-}
-
-.hint-disabled {
-  display: inline-flex;
-}
-
-/* Status of an open session that works or waits in the background. */
-.activity-dot {
-  flex-shrink: 0;
-  width: 8px;
-  height: 8px;
-  margin-left: auto;
-  border-radius: 999px;
-  background: var(--success);
-}
-.activity-dot[data-state='approval'] {
-  background: var(--warning);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--warning) 25%, transparent);
-}
-@media (prefers-reduced-motion: no-preference) {
-  .activity-dot[data-state='running'] {
-    animation: activity-pulse 1.6s ease-in-out infinite;
-  }
-}
-@keyframes activity-pulse {
-  50% {
-    opacity: 0.35;
-  }
-}
-/* Row labels set every span to fill the row. The dot keeps its own size. */
-.repo-select .activity-dot,
-.session-title .activity-dot {
-  flex: 0 0 8px;
-  min-width: 8px;
 }

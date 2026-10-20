@@ -8,7 +8,17 @@ import { ActionMenu } from './action-menu';
 import { Hint } from './hint';
 import { revealLabel } from '../lib/platform';
 import { useState } from 'react';
-import { ChevronDown, Folder, FolderPlus, BookOpen, GitBranch, Plus, Pin } from 'lucide-react';
+import {
+  ChevronDown,
+  Folder,
+  FolderGit2,
+  FolderPlus,
+  BookOpen,
+  GitBranch,
+  Plus,
+  Pin,
+} from 'lucide-react';
+import { trackerConnection } from '../domain/tracker';
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from './ui/collapsible';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
@@ -22,10 +32,32 @@ import {
   DialogHeader,
   DialogTitle,
   DialogDescription,
+  DialogBody,
   DialogFooter,
 } from './ui/dialog';
 import type { API, Project, ProjectGroup, Session, RemoteHost } from '../types';
 
+/**
+ * A worktree that Kalkidan created lives in `<project folder>/worktrees/<repository>-<branch>-<id>`.
+ * Returns the repository that the worktree belongs to, if the project has it.
+ */
+function worktreeParent(repo: Project, siblings: Project[]) {
+  const slash = repo.path.lastIndexOf('/');
+  if (slash < 0 || !repo.path.slice(0, slash).endsWith('/worktrees')) return undefined;
+  const folder = repo.path.slice(slash + 1);
+  let parent: Project | undefined;
+  let best = 0;
+  for (const candidate of siblings) {
+    if (candidate.id === repo.id || candidate.hostId !== repo.hostId) continue;
+    if (candidate.path.slice(0, candidate.path.lastIndexOf('/')).endsWith('/worktrees')) continue;
+    const name = candidate.path.slice(candidate.path.lastIndexOf('/') + 1);
+    if (folder.startsWith(name + '-') && name.length > best) {
+      parent = candidate;
+      best = name.length;
+    }
+  }
+  return parent;
+}
 const collapsedKey = 'kalkidan-collapsed-projects';
 function savedCollapsed() {
   try {
@@ -67,8 +99,18 @@ export function ProjectTree({
   projectPage,
   run,
   onNotice,
+  onRefresh,
+  onEditRepository,
+  onConnect,
+  connectLabel = 'Connect GitHub project…',
   activity = {},
 }: {
+  /** Reloads the snapshot without a busy state. */
+  onRefresh: () => Promise<unknown>;
+  onEditRepository: (repo: Project) => void;
+  /** Starts the tracker connection for a project without a tracker. */
+  onConnect?: (group: ProjectGroup) => void;
+  connectLabel?: string;
   /** Background session state for each repository ID. */
   activity?: Record<string, SessionActivityState>;
   onNotice?: (message: string, error?: boolean) => void;
@@ -91,27 +133,21 @@ export function ProjectTree({
   run: (action: () => Promise<unknown>) => Promise<void>;
 }) {
   const [itemAction, setItemAction] = useState<
-    | { kind: 'repository'; item: Project; mode: 'rename' | 'remove' }
+    | { kind: 'repository'; item: Project; mode: 'remove' }
     | { kind: 'session'; item: Session; mode: 'rename' | 'archive' }
     | { kind: 'project'; item: ProjectGroup; mode: 'remove' }
     | null
   >(null);
   const [itemName, setItemName] = useState('');
-  function renameItem(target: Project | Session, kind: 'repository' | 'session') {
-    if (kind === 'repository') {
-      setItemAction({ kind, item: target as Project, mode: 'rename' });
-      setItemName((target as Project).name);
-    } else {
-      const session = target as Session;
-      setItemAction({ kind, item: session, mode: 'rename' });
-      setItemName(session.organization?.title || session.title);
-    }
+  function renameSession(session: Session) {
+    setItemAction({ kind: 'session', item: session, mode: 'rename' });
+    setItemName(session.organization?.title || session.title);
   }
   function sessionActions(session: Session): TreeAction[] {
     const disabled = busy || session.id.startsWith('draft-');
     return [
       { label: 'Open session', action: () => onResume(session) },
-      { label: 'Rename…', disabled, action: () => renameItem(session, 'session') },
+      { label: 'Rename…', disabled, action: () => renameSession(session) },
       {
         label: session.organization?.pinned ? 'Unpin' : 'Pin',
         disabled,
@@ -172,7 +208,7 @@ export function ProjectTree({
   function repositoryActions(repo: Project): TreeAction[] {
     return [
       { label: 'Open repository', action: () => onSelect(repo) },
-      { label: 'Rename…', disabled: busy, action: () => renameItem(repo, 'repository') },
+      { label: 'Edit repository…', disabled: busy, action: () => onEditRepository(repo) },
       {
         label: repo.favorite ? 'Remove from favorites' : 'Add to favorites',
         disabled: busy,
@@ -198,240 +234,263 @@ export function ProjectTree({
       },
     ];
   }
-  function repository(repo: Project) {
-    // An open session keeps its repository row marked as the current location.
-    const current = selected === repo.id && (!!activeSession || !activeGroup);
+  // An open session keeps its repository row marked as the current location.
+  const isCurrent = (repo: Project) => selected === repo.id && (!!activeSession || !activeGroup);
+  // Rows stay siblings (no wrapper), so focus can move to the next row after a removal.
+  function repository(repo: Project, worktree = false) {
+    const current = isCurrent(repo);
     const actions = repositoryActions(repo);
     return (
-      <div className="repo-node" key={repo.id}>
-        <TreeContextMenu actions={actions}>
-          <div
-            className={'tree-row repo-row row-hover' + (current ? ' selected row-selected' : '')}
+      <TreeContextMenu key={repo.id} label="Repository actions" actions={actions}>
+        <div
+          className={
+            'tree-row repo-row row-hover' +
+            (worktree ? ' worktree-row' : '') +
+            (current ? ' selected row-selected' : '')
+          }
+        >
+          <Button
+            variant="ghost"
+            className={'repo-select ' + rowButton}
+            aria-current={current ? (activeSession ? 'location' : 'page') : undefined}
+            onClick={() => onSelect(repo)}
+            title={repo.path}
           >
-            <Button
-              variant="ghost"
-              className={'repo-select ' + rowButton}
-              aria-current={current ? (activeSession ? 'location' : 'page') : undefined}
-              onClick={() => onSelect(repo)}
-              title={repo.path}
-            >
-              <GitBranch size={14} />
-              <span>{repo.name}</span>
-              <ActivityDot state={activity[repo.id]} />
-            </Button>
-            <ActionMenu
-              size="xs"
-              className="tree-row-menu"
-              label={`${repo.name} actions`}
-              items={menuItems(actions)}
-            />
-          </div>
-        </TreeContextMenu>
-      </div>
+            {worktree ? <FolderGit2 size={14} /> : <GitBranch size={14} />}
+            <span>{repo.name}</span>
+            <ActivityDot state={activity[repo.id]} />
+          </Button>
+          <ActionMenu
+            size="xs"
+            className="tree-row-menu"
+            label={`${repo.name} actions`}
+            items={menuItems(actions)}
+          />
+        </div>
+      </TreeContextMenu>
     );
   }
+  /** Repositories of a project. Worktrees show under the repository they belong to. */
+  function repositories(group: ProjectGroup) {
+    const members = repos.filter((r) => group.repoIds.includes(r.id));
+    const parents = new Map(members.map((repo) => [repo.id, worktreeParent(repo, members)]));
+    return members
+      .filter((repo) => !parents.get(repo.id))
+      .flatMap((repo) => [
+        repository(repo),
+        ...members
+          .filter((child) => parents.get(child.id)?.id === repo.id)
+          .map((child) => repository(child, true)),
+      ]);
+  }
+  const pinned = sessions.filter(
+    (s) =>
+      s.organization?.pinned &&
+      !s.organization.archived &&
+      repos.some((r) => sessionRepo(s, allRepos)?.id === r.id),
+  );
+  const hasRepositories = (group: ProjectGroup) =>
+    group.repoIds.some((id) => allRepos.some((repo) => repo.id === id));
   return (
-    <section className="project-list project-tree" aria-label="Projects and repositories">
-      {sessions.some(
-        (s) =>
-          s.organization?.pinned &&
-          !s.organization.archived &&
-          repos.some((r) => sessionRepo(s, allRepos)?.id === r.id),
-      ) && (
+    <div className="project-list project-tree">
+      {pinned.length > 0 && (
         <div className="pinned-sessions">
           <div className="tree-heading">
-            <h3 className="tree-heading-title">
+            <h2 className="sidebar-label gap-1.5">
               Pinned
               <Pin size={12} aria-hidden="true" />
-            </h3>
+            </h2>
           </div>
-          {sessions
-            .filter(
-              (s) =>
-                s.organization?.pinned &&
-                !s.organization.archived &&
-                repos.some((r) => sessionRepo(s, allRepos)?.id === r.id),
-            )
-            .map((session) => (
-              <TreeContextMenu key={session.agent + session.id} actions={sessionActions(session)}>
-                <div
-                  className={
-                    'tree-row pinned-session-row row-hover' +
-                    (activeSession?.id === session.id && activeSession.agent === session.agent
-                      ? ' selected row-selected'
-                      : '')
+          {pinned.map((session) => (
+            <TreeContextMenu
+              key={session.agent + session.id}
+              label="Session actions"
+              actions={sessionActions(session)}
+            >
+              <div
+                className={
+                  'tree-row pinned-session-row row-hover' +
+                  (activeSession?.id === session.id && activeSession.agent === session.agent
+                    ? ' selected row-selected'
+                    : '')
+                }
+              >
+                <Button
+                  variant="ghost"
+                  className={rowButton}
+                  title={session.organization?.title || session.title}
+                  aria-label={`Resume pinned ${session.organization?.title || session.title}`}
+                  aria-current={
+                    activeSession?.id === session.id && activeSession.agent === session.agent
+                      ? 'page'
+                      : undefined
                   }
+                  onClick={() => onResume(session)}
                 >
-                  <Button
-                    variant="ghost"
-                    className={rowButton}
-                    title={session.organization?.title || session.title}
-                    aria-label={`Resume pinned ${session.organization?.title || session.title}`}
-                    aria-current={
-                      activeSession?.id === session.id && activeSession.agent === session.agent
-                        ? 'page'
-                        : undefined
-                    }
-                    onClick={() => onResume(session)}
-                  >
-                    <span>{session.organization?.title || session.title}</span>
-                  </Button>
-                  <ActionMenu
-                    size="xs"
-                    className="tree-row-menu"
-                    label={`${session.organization?.title || session.title} actions`}
-                    items={menuItems(sessionActions(session))}
-                  />
-                </div>
-              </TreeContextMenu>
-            ))}
+                  <span>{session.organization?.title || session.title}</span>
+                </Button>
+                <ActionMenu
+                  size="xs"
+                  className="tree-row-menu"
+                  label={`${session.organization?.title || session.title} actions`}
+                  items={menuItems(sessionActions(session))}
+                />
+              </div>
+            </TreeContextMenu>
+          ))}
         </div>
       )}
       <div className="tree-heading">
-        <h3 className="tree-heading-title">
+        <h2 className="sidebar-label">
           <button type="button" className="tree-heading-link" onClick={onOverview}>
             Projects
           </button>
-        </h3>
-        <Hint label="Add project">
+        </h2>
+        <Hint label="New project">
           <Button
             variant="ghost"
             size="icon-xs"
             className="text-muted-foreground"
             disabled={busy}
-            aria-label="Add project"
+            aria-label="New project"
             onClick={() => edit('new')}
           >
             <Plus />
           </Button>
         </Hint>
       </div>
-      {groups.map((group) => (
-        <Collapsible
-          className="project-group"
-          open={!collapsed.has(group.id)}
-          onOpenChange={(open) => toggleGroup(group.id, open)}
-          key={group.id}
-        >
-          <TreeContextMenu
-            folderColor={{
-              value: group.color,
-              disabled: busy,
-              onChange: (color) => void run(() => api.setGroupColor(group.id, color)),
-            }}
-            actions={[
-              { label: 'Open project board', action: () => onProject(group) },
-              { label: 'Rename…', disabled: busy, action: () => edit(group) },
-              {
-                label: 'Remove empty project…',
-                disabled:
-                  busy || group.repoIds.some((id) => allRepos.some((repo) => repo.id === id)),
-                destructive: true,
-                reason: 'Remove its repositories first',
-                action: () => setItemAction({ kind: 'project', item: group, mode: 'remove' }),
-              },
-            ]}
+      {groups.map((group) => {
+        const boardCurrent = activeGroup === group.id && projectPage === 'board' && !activeSession;
+        const docsCurrent = activeGroup === group.id && projectPage === 'docs' && !activeSession;
+        // The project row shows that the current page is inside it, without a background.
+        const containsCurrent =
+          !boardCurrent &&
+          (docsCurrent ||
+            allRepos.some((repo) => group.repoIds.includes(repo.id) && isCurrent(repo)));
+        const host = hosts.find((h) => h.id === group.hostId);
+        return (
+          <Collapsible
+            className="project-group"
+            open={!collapsed.has(group.id)}
+            onOpenChange={(open) => toggleGroup(group.id, open)}
+            key={group.id}
           >
-            <div
-              className={
-                'tree-row project-group-heading row-hover' +
-                (activeGroup === group.id && !activeSession ? ' selected row-selected' : '')
-              }
+            <TreeContextMenu
+              label="Project actions"
+              folderColor={{
+                value: group.color,
+                disabled: busy,
+                onChange: (color) => void run(() => api.setGroupColor(group.id, color)),
+              }}
+              actions={[
+                { label: 'Open project board', action: () => onProject(group) },
+                ...(onConnect && !trackerConnection(group)
+                  ? [{ label: connectLabel, action: () => onConnect(group) }]
+                  : []),
+                { label: 'Rename…', disabled: busy, action: () => edit(group) },
+                {
+                  label: 'Remove empty project…',
+                  disabled: busy || hasRepositories(group),
+                  destructive: true,
+                  reason: hasRepositories(group) ? 'Remove its repositories first' : undefined,
+                  action: () => setItemAction({ kind: 'project', item: group, mode: 'remove' }),
+                },
+              ]}
             >
-              <CollapsibleTrigger asChild>
+              <div
+                className={
+                  'tree-row project-group-heading row-hover' +
+                  (boardCurrent ? ' selected row-selected' : '') +
+                  (containsCurrent ? ' contains-current' : '')
+                }
+              >
+                <CollapsibleTrigger asChild>
+                  <Button
+                    variant="bare"
+                    className="tree-toggle h-6 w-4 p-0 text-muted-foreground has-[>svg]:p-0"
+                    aria-label={`Toggle ${group.name} repositories`}
+                  >
+                    <ChevronDown size={12} />
+                  </Button>
+                </CollapsibleTrigger>
                 <Button
                   variant="ghost"
-                  className="tree-toggle h-6 w-4 justify-start p-0 text-muted-foreground hover:bg-transparent has-[>svg]:p-0"
-                  aria-label={`Toggle ${group.name} repositories`}
+                  className={'project-select ' + rowButton}
+                  title={group.name}
+                  aria-current={boardCurrent ? 'page' : undefined}
+                  onClick={() => onProject(group)}
                 >
-                  <ChevronDown size={12} />
-                </Button>
-              </CollapsibleTrigger>
-              <Button
-                variant="ghost"
-                className={'project-select ' + rowButton}
-                title={group.name}
-                aria-current={activeGroup === group.id && !activeSession ? 'page' : undefined}
-                onClick={() => onProject(group)}
-              >
-                <Folder
-                  size={14}
-                  style={{ color: group.color ? projectColors[group.color] : undefined }}
-                />
-                <strong>{group.name}</strong>
-                {group.hostId && (
-                  <Badge variant="outline" size="sm">
-                    SSH
-                  </Badge>
-                )}
-              </Button>
-              <div className="project-group-actions">
-                <AddRepository
-                  api={api}
-                  groupId={group.id}
-                  disabled={busy}
-                  className="size-6 rounded-sm px-0 text-muted-foreground has-[>svg]:px-0"
-                  onRefresh={() => run(async () => {})}
-                  onNotice={onNotice}
-                >
-                  <Plus size={14} />
-                  <span className="sr-only">Add repositories to {group.name}</span>
-                </AddRepository>
-                <Hint label={`Manage project ${group.name}`}>
-                  <MoreButton
-                    size="xs"
-                    className="text-muted-foreground"
-                    disabled={busy}
-                    label={`Manage project ${group.name}`}
-                    onClick={() => edit(group)}
+                  <Folder
+                    size={14}
+                    style={{ color: group.color ? projectColors[group.color] : undefined }}
                   />
-                </Hint>
+                  <strong>{group.name}</strong>
+                  {group.hostId && (
+                    <Badge variant="outline" size="sm">
+                      SSH
+                    </Badge>
+                  )}
+                </Button>
+                <div className="project-group-actions">
+                  <AddRepository
+                    api={api}
+                    groupId={group.id}
+                    disabled={busy}
+                    size="icon-xs"
+                    className="text-muted-foreground"
+                    onRefresh={onRefresh}
+                    onNotice={onNotice}
+                  >
+                    <Plus size={14} />
+                    <span className="sr-only">Add repositories to {group.name}</span>
+                  </AddRepository>
+                  <Hint label={`Manage project ${group.name}`}>
+                    <MoreButton
+                      size="xs"
+                      className="text-muted-foreground"
+                      disabled={busy}
+                      label={`Manage project ${group.name}`}
+                      onClick={() => edit(group)}
+                    />
+                  </Hint>
+                </div>
               </div>
-            </div>
-          </TreeContextMenu>
-          <CollapsibleContent className="project-group-children">
-            <div
-              className={
-                'tree-row project-subpage-row row-hover' +
-                (activeGroup === group.id && projectPage === 'docs' && !activeSession
-                  ? ' selected row-selected'
-                  : '')
-              }
-            >
-              <Button
-                variant="ghost"
-                className={'project-subpage ' + rowButton}
-                aria-current={
-                  activeGroup === group.id && projectPage === 'docs' && !activeSession
-                    ? 'page'
-                    : undefined
+            </TreeContextMenu>
+            <CollapsibleContent className="project-group-children">
+              <div
+                className={
+                  'tree-row project-subpage-row row-hover' +
+                  (docsCurrent ? ' selected row-selected' : '')
                 }
-                onClick={() => onDocs(group)}
               >
-                <BookOpen size={14} />
-                <span>Docs</span>
-              </Button>
-            </div>
-            {group.hostId && (
-              <p className="tree-host">
-                <span
-                  className={
-                    hosts.find((h) => h.id === group.hostId)?.status === 'connected'
-                      ? 'host-connected'
-                      : 'host-offline'
-                  }
-                />
-                {hosts.find((h) => h.id === group.hostId)?.name || 'Remote host'}
-                <small>{hosts.find((h) => h.id === group.hostId)?.status || 'disconnected'}</small>
-              </p>
-            )}
-            {repos.filter((r) => group.repoIds.includes(r.id)).map(repository)}
-            {!group.repoIds.some((id) => allRepos.some((r) => r.id === id)) && (
-              <p className="tree-empty">Add repository folders to this project.</p>
-            )}
-          </CollapsibleContent>
-        </Collapsible>
-      ))}
+                <Button
+                  variant="ghost"
+                  className={'project-subpage ' + rowButton}
+                  aria-current={docsCurrent ? 'page' : undefined}
+                  onClick={() => onDocs(group)}
+                >
+                  <BookOpen size={14} />
+                  <span>Docs</span>
+                </Button>
+              </div>
+              {group.hostId && (
+                <p className="tree-host">
+                  <span
+                    className={host?.status === 'connected' ? 'host-connected' : undefined}
+                    aria-hidden="true"
+                  />
+                  {host?.name || 'Remote host'}
+                  <small>{host?.status || 'disconnected'}</small>
+                </p>
+              )}
+              {repositories(group)}
+              {!hasRepositories(group) && (
+                <p className="tree-empty">Add repository folders to this project.</p>
+              )}
+            </CollapsibleContent>
+          </Collapsible>
+        );
+      })}
       {!groups.length ? (
         <EmptyState compact icon={<FolderPlus />}>
           Create a project, then add repositories.
@@ -452,16 +511,11 @@ export function ProjectTree({
                 if (!itemAction) return;
                 let message: string;
                 if (itemAction.kind === 'repository') {
-                  if (itemAction.mode === 'rename') {
-                    await api.update(itemAction.item.id, { name: itemName.trim() });
-                    message = 'Repository renamed.';
-                  } else {
-                    await api.remove(itemAction.item.id);
-                    message = 'Removed from Kalkidan. The files stay on disk.';
-                  }
+                  await api.remove(itemAction.item.id);
+                  message = `${itemAction.item.name} removed from Kalkidan.`;
                 } else if (itemAction.kind === 'project') {
                   await api.removeGroup(itemAction.item.id);
-                  message = 'Project removed.';
+                  message = `${itemAction.item.name} removed from Kalkidan.`;
                 } else {
                   await api.updateSession(
                     itemAction.item.agent,
@@ -478,14 +532,12 @@ export function ProjectTree({
             <DialogHeader>
               <DialogTitle>
                 {itemAction?.mode === 'rename'
-                  ? 'Rename ' + itemAction.kind
+                  ? 'Rename session'
                   : itemAction?.mode === 'archive'
                     ? 'Archive session'
-                    : itemAction?.kind === 'project'
-                      ? `Remove ${itemAction.item.name}?`
-                      : itemAction?.kind === 'repository'
-                        ? `Remove ${itemAction.item.name} from Kalkidan?`
-                        : ''}
+                    : itemAction && itemAction.kind !== 'session'
+                      ? `Remove ${itemAction.item.name} from Kalkidan?`
+                      : ''}
               </DialogTitle>
               <DialogDescription>
                 {itemAction?.mode === 'rename'
@@ -507,13 +559,11 @@ export function ProjectTree({
                   onChange={(event) => setItemName(event.target.value)}
                 />
               </label>
-            ) : itemAction?.mode === 'remove' ? null : (
+            ) : itemAction?.mode === 'archive' ? (
               <p className="truncate text-sm font-medium">
-                {itemAction?.kind === 'session'
-                  ? itemAction.item.organization?.title || itemAction.item.title
-                  : itemAction?.item.name}
+                {itemAction.item.organization?.title || itemAction.item.title}
               </p>
-            )}
+            ) : null}
             <DialogFooter>
               {/* A remove action starts on Cancel, so a second Enter does not remove. */}
               <Button
@@ -534,9 +584,7 @@ export function ProjectTree({
                   ? 'Save name'
                   : itemAction?.mode === 'archive'
                     ? 'Archive session'
-                    : itemAction?.kind === 'project'
-                      ? 'Remove project'
-                      : 'Remove from Kalkidan'}
+                    : 'Remove from Kalkidan'}
               </Button>
             </DialogFooter>
           </form>
@@ -547,7 +595,7 @@ export function ProjectTree({
         open={editing === 'new'}
         onOpenChange={(open) => !open && setEditing(null)}
         onCreated={async (group) => {
-          await run(async () => {});
+          await onRefresh();
           onProject(group);
         }}
       />
@@ -555,133 +603,151 @@ export function ProjectTree({
         open={!!editing && editing !== 'new'}
         onOpenChange={(open) => !open && setEditing(null)}
       >
-        <DialogContent size="md" className="project-settings-dialog">
-          <form
-            className="contents"
-            onSubmit={(event) => {
-              event.preventDefault();
-              if (canSave) saveProject();
-            }}
-          >
-            <DialogHeader>
-              <div className="project-settings-heading">
-                <EntityIcon size="lg" color={color ? projectColors[color] : undefined}>
-                  <Folder />
-                </EntityIcon>
-                <div>
-                  <DialogTitle>Manage project</DialogTitle>
-                  <DialogDescription className="mt-1">
-                    Customize your project and review its repositories.
-                  </DialogDescription>
+        <DialogContent size="md" layout="scroll">
+          <DialogHeader>
+            <div className="project-settings-heading">
+              <EntityIcon size="lg" color={color ? projectColors[color] : undefined}>
+                <Folder />
+              </EntityIcon>
+              <div>
+                <DialogTitle>Manage project</DialogTitle>
+                <DialogDescription className="mt-1">
+                  Customize your project and review its repositories.
+                </DialogDescription>
+              </div>
+            </div>
+          </DialogHeader>
+          <DialogBody>
+            <form
+              id="project-settings-form"
+              className="grid gap-6"
+              onSubmit={(event) => {
+                event.preventDefault();
+                if (canSave) saveProject();
+              }}
+            >
+              <label className="form-label">
+                Project name
+                <Input
+                  value={name}
+                  maxLength={150}
+                  disabled={busy}
+                  onChange={(e) => setName(e.target.value)}
+                  placeholder="e.g. Customer platform"
+                />
+              </label>
+              <label className="form-label">
+                Project folder
+                <Input
+                  readOnly
+                  aria-label="Project folder"
+                  value={
+                    editing && editing !== 'new'
+                      ? editing.rootPath || 'Assigned when this project is opened on its host'
+                      : ''
+                  }
+                />
+                <span className="text-xs text-muted-foreground">
+                  Contains docs/, repos/, and worktrees/. Existing external repositories stay
+                  linked.
+                </span>
+              </label>
+              <fieldset className="project-settings-colors" disabled={busy}>
+                <legend>Folder color</legend>
+                <div className="flex flex-wrap gap-2">
+                  {([null, ...Object.keys(projectColors)] as (ProjectColor | null)[]).map(
+                    (value) => (
+                      <Button
+                        key={value || 'default'}
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        aria-label={
+                          value
+                            ? value[0].toUpperCase() + value.slice(1) + ' folder'
+                            : 'Default folder'
+                        }
+                        aria-pressed={color === value}
+                        title={value || 'Default'}
+                        onClick={() => setColor(value)}
+                        style={{ color: value ? projectColors[value] : 'var(--muted-foreground)' }}
+                      >
+                        <Folder />
+                      </Button>
+                    ),
+                  )}
                 </div>
-              </div>
-            </DialogHeader>
-            <label className="form-label">
-              Project name
-              <Input
-                value={name}
-                maxLength={150}
-                disabled={busy}
-                onChange={(e) => setName(e.target.value)}
-                placeholder="e.g. Customer platform"
-              />
-            </label>
-            <label className="form-label">
-              Project folder
-              <Input
-                readOnly
-                aria-label="Project folder"
-                value={
-                  editing && editing !== 'new'
-                    ? editing.rootPath || 'Assigned when this project is opened on its host'
-                    : ''
-                }
-              />
-              <span className="text-xs text-muted-foreground">
-                Contains docs/, repos/, and worktrees/. Existing external repositories stay linked.
-              </span>
-            </label>
-            <fieldset className="project-settings-colors" disabled={busy}>
-              <legend>Folder color</legend>
-              <div className="flex flex-wrap gap-2">
-                {([null, ...Object.keys(projectColors)] as (ProjectColor | null)[]).map((value) => (
-                  <Button
-                    key={value || 'default'}
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    aria-label={
-                      value ? value[0].toUpperCase() + value.slice(1) + ' folder' : 'Default folder'
-                    }
-                    aria-pressed={color === value}
-                    title={value || 'Default'}
-                    onClick={() => setColor(value)}
-                    style={{ color: value ? projectColors[value] : 'var(--muted-foreground)' }}
-                  >
-                    <Folder size={16} />
-                  </Button>
-                ))}
-              </div>
-            </fieldset>
-            <section className="project-settings-repositories" aria-label="Project repositories">
-              <h3>
-                Repositories <span>{managedRepos.length}</span>
-              </h3>
-              {managedRepos.length ? (
-                <ul>
-                  {managedRepos.map((repo) => (
-                    <li key={repo.id}>
-                      <GitBranch size={14} />
-                      <div>
-                        <strong>{repo.name}</strong>
-                        <span title={repo.path}>{repo.path}</span>
-                      </div>
-                    </li>
-                  ))}
-                </ul>
-              ) : (
-                <p>No repositories added yet.</p>
+              </fieldset>
+              <section className="project-settings-repositories" aria-label="Project repositories">
+                <h3>
+                  Repositories <span>{managedRepos.length}</span>
+                </h3>
+                {managedRepos.length ? (
+                  <ul className="list-box">
+                    {managedRepos.map((repo) => (
+                      <li key={repo.id} className="list-box-row">
+                        <GitBranch size={14} />
+                        <div>
+                          <strong>{repo.name}</strong>
+                          <span title={repo.path}>{repo.path}</span>
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <EmptyState compact>No repositories in this project yet.</EmptyState>
+                )}
+              </section>
+              {editing && editing !== 'new' && (
+                <div className="danger-zone">
+                  <div>
+                    <strong>Remove project</strong>
+                    <p>
+                      {managedRepos.length
+                        ? 'Move or remove its repositories first.'
+                        : 'Remove this empty project from your sidebar.'}
+                    </p>
+                  </div>
+                  {managedRepos.length ? (
+                    // The reason shows only when repositories block the removal.
+                    <Hint label="Remove its repositories first">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="text-destructive hover:text-destructive"
+                        disabled
+                      >
+                        Remove project…
+                      </Button>
+                    </Hint>
+                  ) : (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="text-destructive hover:text-destructive"
+                      disabled={busy}
+                      onClick={() => {
+                        setItemAction({ kind: 'project', item: editing, mode: 'remove' });
+                        setEditing(null);
+                      }}
+                    >
+                      Remove project…
+                    </Button>
+                  )}
+                </div>
               )}
-            </section>
-            {editing && editing !== 'new' && (
-              <div className="danger-zone">
-                <div>
-                  <strong>Remove project</strong>
-                  <p>
-                    {managedRepos.length
-                      ? 'Move or remove its repositories first.'
-                      : 'Remove this empty project from your sidebar.'}
-                  </p>
-                </div>
-                <Hint
-                  label={managedRepos.length ? 'Remove its repositories first' : 'Remove project'}
-                >
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className="text-destructive hover:text-destructive"
-                    disabled={busy || managedRepos.length > 0}
-                    onClick={() => {
-                      setItemAction({ kind: 'project', item: editing, mode: 'remove' });
-                      setEditing(null);
-                    }}
-                  >
-                    Remove
-                  </Button>
-                </Hint>
-              </div>
-            )}
-            <DialogFooter>
-              <Button type="button" variant="outline" onClick={() => setEditing(null)}>
-                Cancel
-              </Button>
-              <Button type="submit" disabled={!canSave}>
-                {busy ? 'Saving…' : 'Save project'}
-              </Button>
-            </DialogFooter>
-          </form>
+            </form>
+          </DialogBody>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setEditing(null)}>
+              Cancel
+            </Button>
+            <Button type="submit" form="project-settings-form" disabled={!canSave}>
+              {busy ? 'Saving…' : 'Save project'}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
-    </section>
+    </div>
   );
 }

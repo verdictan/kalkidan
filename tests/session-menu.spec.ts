@@ -23,7 +23,7 @@ test('session actions rename, pin, fork, and open an independent side session', 
   await page.getByRole('menuitem', { name: /^Pin/ }).click();
   await expect(
     page
-      .getByRole('region', { name: 'Projects and repositories' })
+      .getByRole('navigation', { name: 'Projects and repositories' })
       .getByRole('button', { name: 'Resume pinned Release review', exact: true }),
   ).toBeVisible();
   await menu();

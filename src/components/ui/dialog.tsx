@@ -44,12 +44,18 @@ function DialogContent({
   children,
   showCloseButton = true,
   size = 'md',
+  layout = 'simple',
   onCloseAutoFocus,
   ...props
 }: React.ComponentProps<typeof DialogPrimitive.Content> & {
   showCloseButton?: boolean;
   /** sm 440 for confirmations, md 560 for forms, lg 720 for pickers and onboarding. */
   size?: 'sm' | 'md' | 'lg';
+  /**
+   * simple: one padded block. scroll: DialogHeader, DialogBody and DialogFooter split the
+   * dialog, only the body scrolls, and the footer has a divider.
+   */
+  layout?: 'simple' | 'scroll';
 }) {
   // The app opens dialogs without a DialogTrigger, so Radix has no element to
   // focus on close. Keep the element that had focus before the dialog opened.
@@ -61,13 +67,26 @@ function DialogContent({
     if (menu?.id) active = document.querySelector(`[aria-controls="${CSS.escape(menu.id)}"]`);
     returnFocus.current = active instanceof HTMLElement && active !== document.body ? active : null;
   }, []);
+  // The focus target can be gone after the dialog removes something. Use the nearest
+  // focusable item in the same list, or the main heading.
+  const fallbackFocus = React.useRef<HTMLElement | null>(null);
+  React.useLayoutEffect(() => {
+    const target = returnFocus.current;
+    const row = target?.closest('li, [role="row"], .tree-row, .list-row');
+    const sibling = (row?.nextElementSibling || row?.previousElementSibling) as HTMLElement | null;
+    fallbackFocus.current =
+      sibling?.querySelector<HTMLElement>('button, a[href], [tabindex="0"]') || null;
+  }, []);
   return (
     <DialogPortal data-slot="dialog-portal">
       <DialogOverlay />
       <DialogPrimitive.Content
         data-slot="dialog-content"
         className={cn(
-          'fixed top-[50%] left-[50%] z-50 grid max-h-[calc(100dvh-2rem)] w-full max-w-[calc(100%-2rem)] translate-x-[-50%] translate-y-[-50%] gap-4 overflow-y-auto rounded-xl border bg-background p-6 shadow-lg duration-200 outline-none data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95',
+          'fixed top-[50%] left-[50%] z-50 grid max-h-[calc(100dvh-2rem)] w-full max-w-[calc(100%-2rem)] translate-x-[-50%] translate-y-[-50%] rounded-xl border bg-background shadow-lg duration-200 outline-none data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95',
+          layout === 'simple' && 'gap-4 overflow-y-auto p-6',
+          layout === 'scroll' &&
+            'grid-rows-[auto_minmax(0,1fr)_auto] gap-0 overflow-hidden p-0 [&>[data-slot=dialog-header]]:px-6 [&>[data-slot=dialog-header]]:pt-6 [&>[data-slot=dialog-header]]:pb-4 [&>[data-slot=dialog-footer]]:border-t [&>[data-slot=dialog-footer]]:px-6 [&>[data-slot=dialog-footer]]:py-4',
           size === 'sm' && 'sm:max-w-[var(--dialog-sm)]',
           size === 'md' && 'sm:max-w-[var(--dialog-md)]',
           size === 'lg' && 'sm:max-w-[var(--dialog-lg)]',
@@ -77,9 +96,17 @@ function DialogContent({
           onCloseAutoFocus?.(event);
           if (event.defaultPrevented) return;
           const target = returnFocus.current;
-          if (target?.isConnected) {
+          const fallback = fallbackFocus.current;
+          const next = target?.isConnected
+            ? target
+            : fallback?.isConnected
+              ? fallback
+              : document.querySelector<HTMLElement>('main h1, main h2');
+          if (next) {
             event.preventDefault();
-            target.focus();
+            if (!next.matches('button, a[href], input, [tabindex]'))
+              next.setAttribute('tabindex', '-1');
+            next.focus();
           }
         }}
         {...props}
@@ -88,7 +115,7 @@ function DialogContent({
         {showCloseButton && (
           <DialogPrimitive.Close
             data-slot="dialog-close"
-            className="absolute top-[22px] right-[18px] inline-flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-[var(--surface-hover)] hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-hidden disabled:pointer-events-none [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4"
+            className="absolute top-5 right-5 inline-flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-[var(--surface-hover)] hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-hidden disabled:pointer-events-none [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4"
           >
             <XIcon />
             <span className="sr-only">Close</span>
@@ -104,6 +131,17 @@ function DialogHeader({ className, ...props }: React.ComponentProps<'div'>) {
     <div
       data-slot="dialog-header"
       className={cn('flex flex-col gap-1.5 pr-8 text-left', className)}
+      {...props}
+    />
+  );
+}
+
+/** The scrolling middle part of a dialog with layout="scroll". */
+function DialogBody({ className, ...props }: React.ComponentProps<'div'>) {
+  return (
+    <div
+      data-slot="dialog-body"
+      className={cn('min-h-0 overflow-y-auto px-6 pb-6', className)}
       {...props}
     />
   );
@@ -158,6 +196,7 @@ function DialogDescription({
 
 export {
   Dialog,
+  DialogBody,
   DialogClose,
   DialogContent,
   DialogDescription,

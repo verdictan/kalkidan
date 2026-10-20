@@ -5,11 +5,14 @@ import { useEffect, useRef, useState } from 'react';
 import { ChevronRight, X } from 'lucide-react';
 import { pathBasename } from '../lib/platform';
 import { sessionRepo } from '../lib/session-repository';
-import { Conversation } from './conversation';
+import { Conversation, type ConversationDraft } from './conversation';
 import { Button } from './ui/button';
 import type { SessionActivity, SessionActivityState } from './activity-dot';
 import type { API, Session, Project, ProjectGroup } from '../types';
 const keyOf = (session: Session) => session.agent + ':' + session.id;
+// Only the most recently viewed sessions stay mounted. A session that works or waits for
+// approval stays mounted until it finishes.
+const mountedLimit = 5;
 const titleOf = (session: Session) => session.organization?.title || session.title;
 export function AgentWorkspace({
   api,
@@ -47,6 +50,12 @@ export function AgentWorkspace({
   const [sideKey, setSideKey] = useState<string | null>(null);
   const [running, setRunning] = useState<Record<string, SessionActivityState | null>>({});
   const [created, setCreated] = useState<Record<string, { id: string; title: string }>>({});
+  // Keys in the order the user viewed them, most recent first.
+  const [recent, setRecent] = useState<string[]>([]);
+  // Unsent text and attachments of sessions that are not mounted.
+  const drafts = useRef(new Map<string, ConversationDraft>());
+  // Sessions that were unmounted after the agent created them. They resume by their new id.
+  const evicted = useRef(new Set<string>());
   function liveSession(tab: Session) {
     const resolved = created[keyOf(tab)];
     const stored = sessions.find((s) => s.agent === tab.agent && s.id === (resolved?.id || tab.id));
@@ -70,6 +79,28 @@ export function AgentWorkspace({
     tabs.find((tab) => tab.agent === selected.agent && created[keyOf(tab)]?.id === selected.id) ||
     selected;
   const selectedKey = keyOf(selectedTab);
+  useEffect(() => {
+    setRecent((previous) =>
+      previous[0] === selectedKey
+        ? previous
+        : [selectedKey, ...previous.filter((key) => key !== selectedKey)],
+    );
+  }, [selectedKey]);
+  const mounted = new Set(
+    tabs
+      .map(keyOf)
+      .filter(
+        (key) =>
+          key === selectedKey ||
+          key === sideKey ||
+          !!running[key] ||
+          recent.slice(0, mountedLimit).includes(key),
+      ),
+  );
+  for (const tab of tabs) {
+    const key = keyOf(tab);
+    if (!mounted.has(key) && created[key]) evicted.current.add(key);
+  }
   useEffect(() => {
     setTabs((previous) =>
       previous.some((s) => keyOf(s) === selectedKey) ? previous : [...previous, selected],
@@ -98,7 +129,8 @@ export function AgentWorkspace({
   const live = liveSession(selectedTab);
   const resolvedId = created[selectedKey]?.id;
   const saved = !!resolvedId || !selectedTab.projectId;
-  const repositoryName = sessionRepo(live, projects)?.name || pathBasename(live.cwd) || returnLabel;
+  const repository = sessionRepo(live, projects);
+  const repositoryName = repository?.name || pathBasename(live.cwd) || returnLabel;
   async function update(changes: import('../types').SessionOrganization) {
     if (saved) await api.updateSession(live.agent, resolvedId || live.id, changes);
     else onDraft({ ...live, organization: { ...live.organization, ...changes } });
@@ -146,6 +178,7 @@ export function AgentWorkspace({
             session={{ ...live, id: resolvedId || live.id }}
             saved={saved}
             running={!!running[selectedKey]}
+            repositoryId={repository?.id}
             update={update}
             branch={branch}
             archive={() => {
@@ -165,14 +198,13 @@ export function AgentWorkspace({
               aria-label={`Back to ${repositoryName}`}
               title={`Back to ${repositoryName}`}
               onClick={() => {
-                const repository = sessionRepo(live, projects);
                 if (repository && onOpenRepository) onOpenRepository(repository);
                 else onClose();
               }}
             >
               {repositoryName}
             </button>
-            <ChevronRight size={12} aria-hidden="true" className="shrink-0 text-muted-foreground" />
+            <ChevronRight aria-hidden="true" className="size-3 shrink-0 text-muted-foreground" />
             <span className="conversation-toolbar-title" title={titleOf(live)} aria-current="page">
               {titleOf(live)}
             </span>
@@ -186,6 +218,11 @@ export function AgentWorkspace({
           >
             {tabs.map((tab) => {
               const key = keyOf(tab);
+              if (!mounted.has(key)) return null;
+              const tabRepository = sessionRepo(tab, projects);
+              // A session that the agent created before it was unmounted resumes by its id.
+              const resumed = evicted.current.has(key) && created[key];
+              const session = liveSession(tab);
               if (!callbacks.current.has(key))
                 callbacks.current.set(key, (activity) =>
                   setRunning((previous) =>
@@ -199,10 +236,10 @@ export function AgentWorkspace({
                   hidden={key !== selectedKey && key !== sideKey}
                 >
                   {key === sideKey && (
-                    <div className="flex h-8 shrink-0 items-center justify-between border-b pr-1 pl-3">
-                      <span className="text-xs text-muted-foreground">Side session</span>
+                    <div className="tool-toolbar justify-between">
+                      <span className="pl-1">Side session</span>
                       <Button
-                        size="icon-xs"
+                        size="icon-sm"
                         variant="ghost"
                         aria-label="Close side session"
                         disabled={!!running[key]}
@@ -214,11 +251,20 @@ export function AgentWorkspace({
                   )}
                   <Conversation
                     api={forSession(tab)}
-                    projectGroup={projectGroups.find((g) => {
-                      const repo = sessionRepo(tab, projects);
-                      return repo && g.repoIds.includes(repo.id);
-                    })}
-                    session={liveSession(tab)}
+                    projectGroup={projectGroups.find(
+                      (g) => tabRepository && g.repoIds.includes(tabRepository.id),
+                    )}
+                    repositoryId={tabRepository?.id}
+                    session={
+                      resumed
+                        ? { ...session, id: resumed.id, projectId: undefined, forkFrom: undefined }
+                        : session
+                    }
+                    draft={drafts.current.get(key)}
+                    onDraftChange={(draft) => {
+                      if (draft) drafts.current.set(key, draft);
+                      else drafts.current.delete(key);
+                    }}
                     onSessionCreated={(id, title) => {
                       setCreated((previous) => ({ ...previous, [key]: { id, title } }));
                       onCreated?.(tab, id, title);

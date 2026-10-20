@@ -21,11 +21,14 @@ export function WikiContextMenu({
   children,
   commands,
   onLink,
+  onRemoveTable,
 }: {
   editor: Editor;
   children: ReactNode;
   commands: { label: string; run: (editor: Editor) => unknown }[];
   onLink: () => void;
+  /** Removes the table and tells the user how to undo. */
+  onRemoveTable: () => void;
 }) {
   const item = (label: string, action: () => unknown, disabled = false) => (
     <ContextMenu.Item
@@ -134,7 +137,7 @@ export function WikiContextMenu({
               {item('Add column', () => editor.chain().focus().addColumnAfter().run())}
               {item('Delete row', () => editor.chain().focus().deleteRow().run())}
               {item('Delete column', () => editor.chain().focus().deleteColumn().run())}
-              {item('Remove table', () => editor.chain().focus().deleteTable().run())}
+              {item('Remove table', onRemoveTable)}
             </>
           )}
         </ContextMenu.Content>

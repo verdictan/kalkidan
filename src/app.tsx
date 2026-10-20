@@ -4,10 +4,15 @@ import { WorkspaceSearch } from './components/workspace-search';
 import { useSidebarWidth } from './hooks/use-sidebar-width';
 import { SidebarResizer } from './components/sidebar-resizer';
 import { useNavigationHistory } from './hooks/use-navigation-history';
-import { agentCatalog, agentLabel, isAgent } from './config/agents';
+import { agentCatalog, agentLabel } from './config/agents';
+import {
+  onPreferredAgentChange,
+  readPreferredAgent,
+  savePreferredAgent,
+} from './lib/agent-preference';
 import { trackerConnection } from './domain/tracker';
 import { useTracker } from './hooks/use-tracker';
-import { SettingsDialog, readDefaultAgent } from './components/settings-dialog';
+import { SettingsDialog } from './components/settings-dialog';
 import { ProjectOverview } from './components/project-overview';
 import { ActionMenu } from './components/action-menu';
 import { Hint } from './components/hint';
@@ -36,9 +41,9 @@ import {
   ArrowLeft,
   Check,
   Trash2,
-  Pencil,
   Menu,
   ChevronDown,
+  ChevronRight,
 } from 'lucide-react';
 import { Button } from './components/ui/button';
 import { Input } from './components/ui/input';
@@ -49,8 +54,11 @@ import {
   DialogHeader,
   DialogTitle,
   DialogDescription,
+  DialogBody,
   DialogFooter,
 } from './components/ui/dialog';
+import { AgentIcon } from './components/ui/agent-icon';
+import { SearchInput } from './components/ui/search-input';
 import { Textarea } from './components/ui/textarea';
 import {
   DropdownMenu,
@@ -84,17 +92,16 @@ import type {
   Session,
   TrackerItem,
 } from './types';
-import type { GitHubCliStatus } from './domain/conversation';
 
-const lastAgentKey = 'kalkidan-last-agent';
-function savedLastAgent(): Agent {
-  try {
-    const value = localStorage.getItem(lastAgentKey);
-    if (isAgent(value)) return value;
-  } catch {
-    /* Optional preference. */
-  }
-  return readDefaultAgent();
+// The footer buttons of the sidebar: full width and start aligned. Utilities, so they win
+// over the Button padding.
+const sidebarAction = 'sidebar-action w-full justify-start px-2 has-[>svg]:px-2';
+type RepositoryModal = 'worktree' | 'edit' | 'remove' | 'remove-worktree';
+/** Removes the Electron IPC prefix from an error message. */
+function errorText(error: unknown) {
+  return error instanceof Error
+    ? error.message.replace(/^Error invoking remote method '[^']+': Error: /, '')
+    : String(error);
 }
 export function App({ api, preview = false }: { api: API; preview?: boolean }) {
   const [data, setData] = useState<Snapshot>({
@@ -108,31 +115,57 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
   const onboardingChecked = useRef(false);
   const sidebar = useSidebarWidth();
   const [navigationOpen, setNavigationOpen] = useState(true);
-  const [trackerTarget, setTrackerTarget] = useState('');
   const [connectRequest, setConnectRequest] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
-  const [ghStatus, setGhStatus] = useState<GitHubCliStatus['status']>();
   const [projectPage, setProjectPage] = useState<'board' | 'docs'>('board');
   const [boardGroup, setBoardGroup] = useState<string | null>(null);
   const [selected, setSelected] = useState('');
   const [query, setQuery] = useState('');
   const [git, setGit] = useState<GitInfo | null>(null);
   const [gitError, setGitError] = useState('');
+  // True while a user action that changes data runs. A refresh does not set it.
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState('');
+  // Page errors. Dialogs show their own errors.
   const [error, setError] = useState('');
-  const [modal, setModal] = useState<'worktree' | 'edit' | 'remove' | null>(null);
+  const [modal, setModal] = useState<RepositoryModal | null>(null);
+  const [modalBusy, setModalBusy] = useState(false);
+  const [modalError, setModalError] = useState('');
   // The repository that the open modal acts on. Navigation must not change it.
   const [modalRepo, setModalRepo] = useState('');
+  // The worktree that "Remove worktree" acts on. `dirty` is true after the first attempt
+  // stops because of uncommitted changes.
+  const [worktreeTarget, setWorktreeTarget] = useState<{
+    id: string;
+    branch: string;
+    dirty: boolean;
+  } | null>(null);
+  const [sessionFilter, setSessionFilter] = useState('');
+  useEffect(() => setSessionFilter(''), [selected]);
   const [activity, setActivity] = useState<SessionActivity[]>([]);
   // Keep the last modal content while the dialog animates closed.
   const lastModal = useRef(modal);
   if (modal) lastModal.current = modal;
   const shownModal = modal ?? lastModal.current;
-  function openModal(kind: 'worktree' | 'edit') {
-    setModalRepo(selected);
+  function openModal(kind: RepositoryModal, repo = selected) {
+    setModalRepo(repo);
+    setModalError('');
     setModal(kind);
+  }
+  /** Runs a dialog action. Its error shows in the dialog, not in the page banner. */
+  async function runModal(action: () => Promise<unknown>, message?: string) {
+    setModalBusy(true);
+    setModalError('');
+    try {
+      await action();
+      await refresh();
+      if (message) notify(message);
+    } catch (e) {
+      setModalError(errorText(e));
+    } finally {
+      setModalBusy(false);
+    }
   }
   const [branch, setBranch] = useState('');
   const [name, setName] = useState('');
@@ -167,6 +200,8 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
     },
   );
   const searchRef = useRef<HTMLInputElement>(null);
+  const sidebarRef = useRef<HTMLElement>(null);
+  const sidebarToggleRef = useRef<HTMLButtonElement>(null);
   const [gitLoading, setGitLoading] = useState(false);
   // Window listeners read the latest history through this ref.
   const navigationRef = useRef(navigation);
@@ -177,12 +212,62 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
     setNavigationOpen(true);
     requestAnimationFrame(() => searchRef.current?.focus());
   }
+  // When the sidebar closes with the focus in it, move the focus to the sidebar button.
+  function toggleSidebar() {
+    setNavigationOpen((open) => {
+      if (open && sidebarRef.current?.contains(document.activeElement))
+        requestAnimationFrame(() => sidebarToggleRef.current?.focus());
+      return !open;
+    });
+  }
+  // Close the open tool tab, then the open session. With nothing open, close the window.
+  function closeTab() {
+    const event = new CustomEvent('kalkidan-close-tab', { cancelable: true });
+    if (!window.dispatchEvent(event)) return;
+    if (closeTabRef.current()) return;
+    window.close();
+  }
+  // The handler reads the latest state through this ref.
+  const closeTabRef = useRef<() => boolean>(() => false);
+  closeTabRef.current = () => {
+    if (!chatOpen) return false;
+    closeConversation();
+    return true;
+  };
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
+      // Windows and Linux also use Alt+Left and Alt+Right for history.
+      if (
+        !isMac &&
+        event.altKey &&
+        !event.ctrlKey &&
+        !event.metaKey &&
+        !event.shiftKey &&
+        (event.key === 'ArrowLeft' || event.key === 'ArrowRight')
+      ) {
+        if (isTypingTarget(event.target) || dialogOpen()) return;
+        event.preventDefault();
+        if (event.key === 'ArrowLeft') navigationRef.current.back();
+        else navigationRef.current.forward();
+        return;
+      }
       if (!hasPrimaryModifier(event) || event.altKey || event.shiftKey) return;
-      if (event.key.toLowerCase() === 'k') {
+      const key = event.key.toLowerCase();
+      if (key === 'k') {
+        // The document editor uses Mod+K for links.
+        if (
+          event.target instanceof Element &&
+          event.target.closest('[data-shortcut-scope="editor"]')
+        )
+          return;
         event.preventDefault();
         if (!dialogOpen()) focusSearch();
+      } else if (preview && (key === 'w' || key === 'b')) {
+        // The browser preview has no native menu. The desktop menu sends these commands.
+        event.preventDefault();
+        if (dialogOpen()) return;
+        if (key === 'w') closeTab();
+        else toggleSidebar();
       } else if (event.key === '[' || event.key === ']') {
         // Prevent the default so the native Go menu does not run the command either.
         event.preventDefault();
@@ -215,30 +300,11 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
         else if (command === 'new-project') setCreateOpen(true);
         else if (command === 'settings') setSettingsOpen(true);
         else if (command === 'search') focusSearch();
-        else if (command === 'toggle-sidebar') setNavigationOpen((open) => !open);
+        else if (command === 'toggle-sidebar') toggleSidebar();
+        else if ((command as string) === 'close-tab') closeTab();
       }),
     [api],
   );
-  // The GitHub CLI state sets the label of the sidebar connect button.
-  useEffect(() => {
-    if (settingsOpen) return;
-    let live = true;
-    const check = () =>
-      Promise.resolve()
-        .then(() => api.githubCliCheck?.())
-        .then((value) => {
-          if (live) setGhStatus(value?.status);
-        })
-        .catch(() => {
-          if (live) setGhStatus(undefined);
-        });
-    void check();
-    window.addEventListener('focus', check);
-    return () => {
-      live = false;
-      window.removeEventListener('focus', check);
-    };
-  }, [api, settingsOpen]);
   // Success notices clear themselves. Errors stay until the user dismisses them.
   useEffect(() => {
     if (!notice || error) return;
@@ -280,17 +346,17 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
       await refresh();
       if (message) setNotice(message);
     } catch (e) {
-      setError(
-        e instanceof Error
-          ? e.message.replace(/^Error invoking remote method '[^']+': Error: /, '')
-          : String(e),
-      );
+      setError(errorText(e));
     } finally {
       setBusy(false);
     }
   }
+  /** Reloads the snapshot. It does not disable controls. */
+  function reload() {
+    return refresh().catch((e) => setError(errorText(e)));
+  }
   useEffect(() => {
-    void run(async () => {});
+    void reload();
   }, []);
   const routed = useRef(false);
   useEffect(() => {
@@ -353,7 +419,6 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
     (!home &&
       (data.groups?.find((g) => g.id === boardGroup) ||
         data.groups?.find((g) => g.repoIds.includes(selected)))) ||
-    data.groups?.find((g) => g.id === trackerTarget) ||
     (data.groups?.length === 1 ? data.groups[0] : undefined);
   const connection = trackerConnection(connectionGroup);
   const { name: trackerName, client: connectionClient } = useTracker(api, connection?.provider);
@@ -409,16 +474,23 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
     setBoardGroup(null);
     setSelected(p.id);
   }
+  // A docs page or task chosen in search. The panel opens it once after it loads.
+  const [searchTarget, setSearchTarget] = useState<{ page?: string; task?: string }>({});
   function openGroup(group: ProjectGroup, page: 'board' | 'docs' = 'board') {
     setHome(false);
     setChatOpen(false);
     setBoardGroup(group.id);
     setProjectPage(page);
   }
-  function connectTracker() {
-    if (!connectionGroup) return;
-    openGroup(connectionGroup);
-    setConnectRequest(connectionGroup.id);
+  function connectTracker(group = connectionGroup) {
+    if (!group) return;
+    openGroup(group);
+    setConnectRequest(group.id);
+  }
+  function openOverview() {
+    setHome(true);
+    setChatOpen(false);
+    setBoardGroup(null);
   }
   // Closing a session returns to the view before it. Without history, show the repository.
   function closeConversation() {
@@ -429,20 +501,25 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
   const projectGroup = project
     ? data.groups?.find((g) => g.repoIds.includes(project.id))
     : undefined;
-  const viewTitle = home
-    ? ['Projects']
-    : currentGroup
-      ? projectPage === 'docs'
-        ? [currentGroup.name, 'Docs']
-        : [currentGroup.name]
-      : project
-        ? [...(projectGroup ? [projectGroup.name] : []), project.name]
-        : [];
-  const trackerIsGitHub = !connection || connection.provider === 'github';
-  const connectLabel =
-    trackerIsGitHub && ghStatus === 'ready'
-      ? `Connect ${trackerName} Projects`
-      : `Connect ${trackerName}`;
+  // The title bar shows the trail to the page. The page header shows the page title, so the
+  // title bar leaves it out. The overview is the top page and has no trail.
+  const trailGroup = currentGroup || projectGroup;
+  const viewTrail: { label: string; name: string; open: () => void }[] =
+    home || (!currentGroup && !project)
+      ? []
+      : [
+          { label: 'Projects', name: 'Projects overview', open: openOverview },
+          ...(trailGroup && (projectPage === 'docs' || !currentGroup)
+            ? [
+                {
+                  label: trailGroup.name,
+                  name: `${trailGroup.name} project`,
+                  open: () => openGroup(trailGroup),
+                },
+              ]
+            : []),
+        ];
+  const connectLabel = `Connect ${trackerName}`;
   function openConversation(session: Session) {
     setHome(false);
     const repo = sessionRepo(session, data.projects);
@@ -455,7 +532,13 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
   }
   const launchTerminal = () =>
     project && run(() => api.launch(project.id, 'terminal'), 'Opened in Terminal.');
-  function newSession(agent: Agent, repo = project, task?: TrackerItem, initialPrompt?: string) {
+  function newSession(
+    agent: Agent,
+    repo = project,
+    task?: TrackerItem,
+    initialPrompt?: string,
+    cwd = repo?.path,
+  ) {
     if (!repo) return;
     setHome(false);
     setSelected(repo.id);
@@ -464,7 +547,7 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
       projectId: repo.id,
       hostId: repo.hostId,
       agent,
-      cwd: repo.path,
+      cwd: cwd || repo.path,
       task,
       initialPrompt:
         initialPrompt ||
@@ -478,53 +561,78 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
     setChatSession(draft);
     setChatOpen(true);
   }
-  // The split button starts the agent the user chose last.
-  const [lastAgent, setLastAgent] = useState<Agent>(savedLastAgent);
-  function startSession(agent: Agent) {
-    setLastAgent(agent);
-    try {
-      localStorage.setItem(lastAgentKey, agent);
-    } catch {
-      /* Optional preference. */
-    }
-    newSession(agent);
+  // The split button starts the preferred agent. Settings and every "New session" menu
+  // change the preference.
+  const [preferredAgent, setPreferredAgent] = useState<Agent>(readPreferredAgent);
+  useEffect(() => onPreferredAgentChange(setPreferredAgent), []);
+  function startSession(agent: Agent, repo = project, cwd?: string) {
+    if (agent === 'codex' || agent === 'claude') savePreferredAgent(agent);
+    newSession(agent, repo, undefined, undefined, cwd);
   }
+  function editRepository(repo: Project) {
+    setName(repo.name);
+    setNotes(repo.notes);
+    setRepoGroup((data.groups || []).find((g) => g.repoIds.includes(repo.id))?.id || '');
+    openModal('edit', repo.id);
+  }
+  const modalProject = data.projects.find((p) => p.id === modalRepo);
   function saveRepository() {
-    void run(async () => {
+    void runModal(async () => {
       await api.update(modalRepo, { name, notes });
       if (api.moveRepo) await api.moveRepo(modalRepo, repoGroup || null);
       setModal(null);
     }, 'Repository updated.');
   }
   function createWorktree() {
-    void run(async () => {
-      if (await api.worktree(modalRepo, branch.trim())) {
-        setModal(null);
-        setNotice('Worktree created and added to the project.');
-      }
-    });
+    void runModal(async () => {
+      if (await api.worktree(modalRepo, branch.trim())) setModal(null);
+    }, 'Worktree created and added to the project.');
   }
+  function removeWorktree() {
+    if (!worktreeTarget) return;
+    const target = worktreeTarget;
+    setModalBusy(true);
+    setModalError('');
+    api
+      .worktreeRemove(target.id, target.dirty)
+      .then(async () => {
+        setModal(null);
+        await refresh();
+        setRepositoryRevision((value) => value + 1);
+        notify(`Worktree ${target.branch} removed.`);
+      })
+      .catch((e) => {
+        const message = errorText(e);
+        // The first attempt stops on uncommitted changes. Ask before a forced removal.
+        if (!target.dirty && /uncommitted changes/i.test(message))
+          setWorktreeTarget({ ...target, dirty: true });
+        else setModalError(message);
+      })
+      .finally(() => setModalBusy(false));
+  }
+  // Each session row keeps its own busy state. A refresh does not disable the rows.
+  const [sessionBusy, setSessionBusy] = useState(false);
   function sessionList() {
     return (
       <SessionBrowser
         activity={sessionActivity}
         storageKey={selected}
         sessions={sessions}
-        query=""
-        busy={busy}
+        query={sessionFilter}
+        busy={sessionBusy}
         onResume={openConversation}
         onUpdate={async (session, changes) => {
-          setBusy(true);
+          setSessionBusy(true);
           setError('');
           try {
             await api.updateSession(session.agent, session.id, changes);
             await refresh();
             return true;
           } catch (e) {
-            setError(e instanceof Error ? e.message : String(e));
+            setError(errorText(e));
             return false;
           } finally {
-            setBusy(false);
+            setSessionBusy(false);
           }
         }}
       />
@@ -533,16 +641,22 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
   const navigationToggle = (
     <Hint label={navigationOpen ? 'Hide sidebar' : 'Show sidebar'}>
       <Button
+        ref={sidebarToggleRef}
         variant="ghost"
         size="icon-sm"
         aria-label="Toggle sidebar"
         aria-expanded={navigationOpen}
-        onClick={() => setNavigationOpen(!navigationOpen)}
+        onClick={toggleSidebar}
       >
-        <PanelLeft size={16} />
+        <PanelLeft />
       </Button>
     </Hint>
   );
+  // The main checkout is the first entry of `git worktree list`. It cannot be removed.
+  const mainCheckout = git?.worktrees[0]?.path;
+  function worktreeRepository(path: string) {
+    return data.projects.find((p) => p.path === path && p.hostId === project?.hostId);
+  }
   return (
     <div
       className={
@@ -555,70 +669,167 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
         { '--navigation-width': navigationOpen ? sidebar.width + 'px' : '0px' } as CSSProperties
       }
     >
+      <header className={'topbar' + (!preview ? ' desktop-titlebar' : '')}>
+        <div className="topbar-brand">
+          {/* Windows and Linux hide the menu bar with the title bar. This button shows it. */}
+          {!isMac && !preview && api.showAppMenu && (
+            <Hint label="Menu">
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                aria-label="Application menu"
+                onClick={() => void api.showAppMenu?.()}
+              >
+                <Menu />
+              </Button>
+            </Hint>
+          )}
+          {navigationToggle}
+          <div className="navigation-history" role="group" aria-label="Navigation history">
+            <Hint
+              label={`Go back (${isMac ? shortcutLabel(['mod'], '[') : shortcutLabel(['alt'], '←')})`}
+            >
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                aria-label="Go back"
+                disabled={!navigation.canBack}
+                onClick={navigation.back}
+              >
+                <ArrowLeft />
+              </Button>
+            </Hint>
+            <Hint
+              label={`Go forward (${isMac ? shortcutLabel(['mod'], ']') : shortcutLabel(['alt'], '→')})`}
+            >
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                aria-label="Go forward"
+                disabled={!navigation.canForward}
+                onClick={navigation.forward}
+              >
+                <ArrowRight />
+              </Button>
+            </Hint>
+          </div>
+        </div>
+        <div className="topbar-content">
+          {!chatOpen && viewTrail.length > 0 && (
+            <nav className="topbar-title" aria-label="Breadcrumb">
+              {viewTrail.map((part, index) => (
+                <Fragment key={index}>
+                  {index > 0 && <ChevronRight size={12} aria-hidden="true" />}
+                  <button
+                    type="button"
+                    className="topbar-crumb"
+                    aria-label={part.name}
+                    onClick={part.open}
+                  >
+                    {part.label}
+                  </button>
+                </Fragment>
+              ))}
+            </nav>
+          )}
+          <div id="conversation-titlebar-heading" />
+          <div id="conversation-titlebar-tabs" />
+          <div className="topbar-actions">
+            <div id="conversation-titlebar-actions" />
+          </div>
+        </div>
+      </header>
+      <nav
+        ref={sidebarRef}
+        className="library-panel"
+        hidden={!navigationOpen}
+        aria-label="Projects and repositories"
+      >
+        <WorkspaceSearch
+          api={api}
+          inputRef={searchRef}
+          query={query}
+          onQueryChange={setQuery}
+          projects={data.projects}
+          groups={data.groups || []}
+          sessions={data.sessions}
+          onProject={(group) => openGroup(group)}
+          onDoc={(group, doc) => {
+            setSearchTarget({ page: doc.id });
+            openGroup(group, 'docs');
+          }}
+          onTask={(group, task) => {
+            setSearchTarget({ task: task.id });
+            openGroup(group);
+          }}
+          onRepository={openProject}
+          onSession={openConversation}
+        >
+          <ProjectTree
+            activity={repoActivity}
+            projectPage={projectPage}
+            onDocs={(group) => openGroup(group, 'docs')}
+            onOverview={openOverview}
+            onEditRepository={editRepository}
+            onConnect={(group) => connectTracker(group)}
+            connectLabel={`Connect ${trackerName} project…`}
+            hosts={data.hosts}
+            api={api}
+            repos={projects}
+            allRepos={data.projects}
+            groups={data.groups || []}
+            sessions={[
+              ...drafts.filter(
+                (d) => !data.sessions.some((s) => s.agent === d.agent && s.id === d.id),
+              ),
+              ...data.sessions,
+            ]}
+            selected={home ? '' : selected}
+            activeGroup={home ? null : boardGroup}
+            activeSession={chatOpen ? chatSession : null}
+            busy={busy}
+            onSelect={openProject}
+            onProject={(group) => openGroup(group)}
+            onResume={openConversation}
+            onNotice={notify}
+            onRefresh={reload}
+            run={run}
+          />
+        </WorkspaceSearch>
+        <div className="sidebar-github">
+          {showConnectionButton && connectionGroup && (
+            <Button
+              variant="outline"
+              className={sidebarAction + ' sidebar-github-connect'}
+              onClick={() => connectTracker()}
+            >
+              {!connection || connection.provider === 'github' ? (
+                <img src="./icons/github.svg" width="16" height="16" alt="" aria-hidden="true" />
+              ) : (
+                <Layers2 />
+              )}
+              {connectLabel}
+            </Button>
+          )}
+          <Button
+            variant="ghost"
+            className={sidebarAction + ' font-normal'}
+            onClick={() => setOnboardingOpen(true)}
+          >
+            <ArrowRight /> Get started
+          </Button>
+          <Button
+            variant="ghost"
+            className={sidebarAction + ' font-normal'}
+            onClick={() => setSettingsOpen(true)}
+          >
+            <Settings2 />
+            Settings
+          </Button>
+        </div>
+      </nav>
+      {navigationOpen && <SidebarResizer {...sidebar} />}
       <main>
-        <header className={'topbar' + (!preview ? ' desktop-titlebar' : '')}>
-          <div className="topbar-brand">
-            {/* Windows and Linux hide the menu bar with the title bar. This button shows it. */}
-            {!isMac && !preview && api.showAppMenu && (
-              <Hint label="Menu">
-                <Button
-                  variant="ghost"
-                  size="icon-sm"
-                  aria-label="Application menu"
-                  onClick={() => void api.showAppMenu?.()}
-                >
-                  <Menu size={16} />
-                </Button>
-              </Hint>
-            )}
-            {navigationToggle}
-            <div className="navigation-history" role="group" aria-label="Navigation history">
-              <Hint label={`Go back (${shortcutLabel(['mod'], '[')})`}>
-                <Button
-                  variant="ghost"
-                  size="icon-sm"
-                  aria-label="Go back"
-                  disabled={!navigation.canBack}
-                  onClick={navigation.back}
-                >
-                  <ArrowLeft size={16} />
-                </Button>
-              </Hint>
-              <Hint label={`Go forward (${shortcutLabel(['mod'], ']')})`}>
-                <Button
-                  variant="ghost"
-                  size="icon-sm"
-                  aria-label="Go forward"
-                  disabled={!navigation.canForward}
-                  onClick={navigation.forward}
-                >
-                  <ArrowRight size={16} />
-                </Button>
-              </Hint>
-            </div>
-          </div>
-          <div className="topbar-content">
-            {!chatOpen && viewTitle.length > 0 && (
-              <p className="topbar-title" title={viewTitle.join(' › ')}>
-                {viewTitle.map((part, index) => (
-                  <Fragment key={index}>
-                    {index > 0 && (
-                      <span className="topbar-title-separator" aria-hidden="true">
-                        ›
-                      </span>
-                    )}
-                    <span aria-current={index === viewTitle.length - 1 || undefined}>{part}</span>
-                  </Fragment>
-                ))}
-              </p>
-            )}
-            <div id="conversation-titlebar-heading" />
-            <div id="conversation-titlebar-tabs" />
-            <div className="topbar-actions">
-              <div id="conversation-titlebar-actions" />
-            </div>
-          </div>
-        </header>
         <div className="page-content">
           {/* This live region stays mounted, so screen readers announce each new notice. */}
           <div className="sr-only" aria-live="polite" aria-atomic="true">
@@ -643,7 +854,9 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
           {data.warnings.length > 0 && (
             <Collapsible className="warnings">
               <CollapsibleTrigger asChild>
-                <Button variant="ghost">History scan notes ({data.warnings.length})</Button>
+                <Button variant="ghost" size="sm">
+                  Session import warnings ({data.warnings.length})
+                </Button>
               </CollapsibleTrigger>
               <CollapsibleContent>
                 {data.warnings.map((w, i) => (
@@ -653,102 +866,6 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
             </Collapsible>
           )}
           <div className="workspace-grid">
-            <div className="library-panel" hidden={!navigationOpen}>
-              <WorkspaceSearch
-                api={api}
-                inputRef={searchRef}
-                query={query}
-                onQueryChange={setQuery}
-                projects={data.projects}
-                groups={data.groups || []}
-                sessions={data.sessions}
-                onProject={(group) => openGroup(group)}
-                onRepository={openProject}
-                onSession={openConversation}
-              >
-                <ProjectTree
-                  activity={repoActivity}
-                  projectPage={projectPage}
-                  onDocs={(group) => openGroup(group, 'docs')}
-                  onOverview={() => {
-                    setHome(true);
-                    setChatOpen(false);
-                    setBoardGroup(null);
-                  }}
-                  hosts={data.hosts}
-                  api={api}
-                  repos={projects}
-                  allRepos={data.projects}
-                  groups={data.groups || []}
-                  sessions={[
-                    ...drafts.filter(
-                      (d) => !data.sessions.some((s) => s.agent === d.agent && s.id === d.id),
-                    ),
-                    ...data.sessions,
-                  ]}
-                  selected={home ? '' : selected}
-                  activeGroup={home ? null : boardGroup}
-                  activeSession={chatOpen ? chatSession : null}
-                  busy={busy}
-                  onSelect={openProject}
-                  onProject={(group) => openGroup(group)}
-                  onResume={openConversation}
-                  onNotice={notify}
-                  run={run}
-                />
-              </WorkspaceSearch>
-              <div className="sidebar-github">
-                {home && (data.groups?.length || 0) > 1 && (
-                  <Choice
-                    label="Tracker connection project"
-                    className="w-full"
-                    value={trackerTarget}
-                    onChange={setTrackerTarget}
-                    options={[
-                      { value: '', label: 'Choose a project' },
-                      ...(data.groups || []).map((g) => ({ value: g.id, label: g.name })),
-                    ]}
-                  />
-                )}
-                {showConnectionButton && (
-                  <Button
-                    variant="outline"
-                    className="sidebar-github-connect w-full justify-start px-2 has-[>svg]:px-2"
-                    disabled={!connectionGroup}
-                    onClick={connectTracker}
-                  >
-                    {!connection || connection.provider === 'github' ? (
-                      <img
-                        src="./icons/github.svg"
-                        width="16"
-                        height="16"
-                        alt=""
-                        aria-hidden="true"
-                      />
-                    ) : (
-                      <Layers2 size={16} />
-                    )}
-                    {connectLabel}
-                  </Button>
-                )}
-                <Button
-                  variant="ghost"
-                  className="w-full justify-start px-2 font-normal has-[>svg]:px-2"
-                  onClick={() => setOnboardingOpen(true)}
-                >
-                  <ArrowRight size={16} /> Get started
-                </Button>
-                <Button
-                  variant="ghost"
-                  className="w-full justify-start px-2 font-normal has-[>svg]:px-2"
-                  onClick={() => setSettingsOpen(true)}
-                >
-                  <Settings2 size={16} />
-                  Settings
-                </Button>
-              </div>
-            </div>
-            {navigationOpen && <SidebarResizer {...sidebar} />}
             <div className="project-content">
               <div className="management-pane" hidden={chatOpen}>
                 {home ? (
@@ -766,14 +883,16 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
                   projectPage === 'docs' ? (
                     <ProjectDocsPanel
                       key={boardGroup}
+                      initialPageId={searchTarget.page}
                       api={api}
                       group={data.groups.find((g) => g.id === boardGroup)!}
                     />
                   ) : (
                     <ProjectTrackerPanel
+                      initialTaskId={searchTarget.task}
                       connectRequested={connectRequest === boardGroup}
                       onConnectHandled={() => setConnectRequest(null)}
-                      onConnectTracker={connectTracker}
+                      onConnectTracker={() => connectTracker()}
                       key={boardGroup}
                       revision={revision}
                       api={api}
@@ -789,24 +908,12 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
                     />
                   )
                 ) : project ? (
-                  <section className="page detail">
+                  <section className="page">
                     <PageHeader
                       icon={
                         <EntityIcon size="lg">
                           <GitBranch />
                         </EntityIcon>
-                      }
-                      eyebrow={
-                        projectGroup && (
-                          <Button
-                            variant="link"
-                            className="detail-parent h-auto p-0 text-xs font-normal text-muted-foreground hover:text-foreground"
-                            aria-label={`${projectGroup.name} project`}
-                            onClick={() => openGroup(projectGroup)}
-                          >
-                            {projectGroup.name}
-                          </Button>
-                        )
                       }
                       title={project.name}
                       subtitle={
@@ -830,8 +937,8 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
                             }
                           >
                             <Button
-                              variant="ghost"
-                              className="path-button h-auto min-w-0 gap-1 p-0 text-xs font-normal text-muted-foreground hover:bg-transparent hover:text-foreground has-[>svg]:px-0"
+                              variant="bare"
+                              className="path-button h-auto gap-1 p-0 text-xs font-normal text-muted-foreground hover:text-foreground has-[>svg]:px-0"
                               title={project.path}
                               disabled={!!project.hostId}
                               onClick={() => run(() => api.reveal(project.id))}
@@ -844,29 +951,15 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
                       }
                       actions={
                         <>
-                          <Hint label="Edit repository">
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              aria-label="Edit repository"
-                              onClick={() => {
-                                setName(project.name);
-                                setNotes(project.notes);
-                                setRepoGroup(
-                                  (data.groups || []).find((g) => g.repoIds.includes(project.id))
-                                    ?.id || '',
-                                );
-                                openModal('edit');
-                              }}
-                            >
-                              <Pencil />
-                            </Button>
-                          </Hint>
                           <ActionMenu
                             label="Repository actions"
-                            className="size-8"
+                            size="md"
                             disabled={busy}
                             items={[
+                              {
+                                label: 'Edit repository…',
+                                action: () => editRepository(project),
+                              },
                               ...(!project.hostId
                                 ? [
                                     {
@@ -892,20 +985,18 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
                           />
                           <div className="split-button" role="group" aria-label="New session">
                             <Button
-                              disabled={busy}
                               className="rounded-r-none"
-                              aria-label={`New ${agentLabel(lastAgent)} session`}
-                              onClick={() => startSession(lastAgent)}
+                              aria-label={`New ${agentLabel(preferredAgent)} session`}
+                              onClick={() => startSession(preferredAgent)}
                             >
                               <Plus />
-                              New {agentLabel(lastAgent)} session
+                              New {agentLabel(preferredAgent)} session
                             </Button>
                             <DropdownMenu>
                               <Hint label="Choose an agent">
                                 <DropdownMenuTrigger asChild>
                                   <Button
                                     size="icon"
-                                    disabled={busy}
                                     className="rounded-l-none border-l border-primary-foreground/20"
                                     aria-label="Choose an agent"
                                   >
@@ -913,12 +1004,13 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
                                   </Button>
                                 </DropdownMenuTrigger>
                               </Hint>
-                              <DropdownMenuContent align="end" sideOffset={6}>
+                              <DropdownMenuContent align="end">
                                 {agentCatalog.map(({ id: agent }) => (
                                   <DropdownMenuItem
                                     key={agent}
                                     onSelect={() => startSession(agent)}
                                   >
+                                    <AgentIcon agent={agent} />
                                     New {agentLabel(agent)} session
                                   </DropdownMenuItem>
                                 ))}
@@ -933,7 +1025,22 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
                         className="repository-overview-section"
                         aria-label="Repository sessions"
                       >
-                        <SectionHeader title="Sessions" count={sessions.length} />
+                        <SectionHeader
+                          title="Sessions"
+                          count={sessions.length}
+                          actions={
+                            sessions.length > 0 && (
+                              <SearchInput
+                                size="sm"
+                                className="repository-session-filter"
+                                aria-label="Filter sessions"
+                                placeholder="Filter sessions"
+                                value={sessionFilter}
+                                onChange={(event) => setSessionFilter(event.target.value)}
+                              />
+                            )
+                          }
+                        />
                         {sessionList()}
                       </section>
                       <section
@@ -950,7 +1057,7 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
                                   variant="ghost"
                                   size="icon"
                                   aria-label="Refresh worktrees"
-                                  disabled={busy || gitLoading}
+                                  disabled={gitLoading}
                                   onClick={() => setRepositoryRevision((value) => value + 1)}
                                 >
                                   <RefreshCw />
@@ -958,7 +1065,7 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
                               </Hint>
                               <Button
                                 variant="outline"
-                                disabled={!git || busy}
+                                disabled={!git}
                                 onClick={() => {
                                   setBranch('');
                                   openModal('worktree');
@@ -970,56 +1077,92 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
                           }
                         />
                         {gitError && (
-                          <p role="alert" className="text-destructive">
+                          <p role="alert" className="field-error">
                             {gitError}
                           </p>
                         )}
                         {git ? (
-                          <div className="worktree-list">
-                            {git.worktrees.map((tree) => (
-                              <div className="worktree list-row" key={tree.path}>
-                                <EntityIcon>
-                                  <GitBranch />
-                                </EntityIcon>
-                                <div className="worktree-text">
-                                  <strong title={tree.branch}>{tree.branch}</strong>
-                                  {tree.path === project.path ? (
-                                    <span className="worktree-path">Repository folder</span>
-                                  ) : (
-                                    <code className="worktree-path" title={tree.path}>
-                                      {tree.path}
-                                    </code>
-                                  )}
-                                  <div className="worktree-sessions">
-                                    {worktreeSessions(
-                                      tree.path,
-                                      git.worktrees,
-                                      visibleSessions,
-                                      project.hostId,
-                                    ).map((session) => {
-                                      const title = session.organization?.title || session.title;
-                                      return (
-                                        <Button
-                                          key={session.agent + ':' + session.id}
-                                          variant="ghost"
-                                          size="xs"
-                                          title={`${agentLabel(session.agent)} · ${title}`}
-                                          onClick={() => openConversation(session)}
-                                        >
-                                          <span>{agentLabel(session.agent)} ·</span>
-                                          <span className="truncate">{title}</span>
-                                        </Button>
-                                      );
-                                    })}
+                          <div>
+                            {git.worktrees.map((tree) => {
+                              const treeRepo = worktreeRepository(tree.path);
+                              const linked = tree.path !== mainCheckout;
+                              return (
+                                <div className="worktree list-row" key={tree.path}>
+                                  <EntityIcon>
+                                    <GitBranch />
+                                  </EntityIcon>
+                                  <div className="worktree-text">
+                                    <strong title={tree.branch}>{tree.branch}</strong>
+                                    {tree.path === project.path ? (
+                                      <span className="worktree-path">Repository folder</span>
+                                    ) : (
+                                      <code className="worktree-path" title={tree.path}>
+                                        {tree.path}
+                                      </code>
+                                    )}
+                                    <div className="worktree-sessions">
+                                      {worktreeSessions(
+                                        tree.path,
+                                        git.worktrees,
+                                        visibleSessions,
+                                        project.hostId,
+                                      ).map((session) => {
+                                        const title = session.organization?.title || session.title;
+                                        return (
+                                          <Button
+                                            key={session.agent + ':' + session.id}
+                                            variant="ghost"
+                                            size="xs"
+                                            title={`${agentLabel(session.agent)} · ${title}`}
+                                            onClick={() => openConversation(session)}
+                                          >
+                                            <AgentIcon agent={session.agent} />
+                                            <span className="sr-only">
+                                              {agentLabel(session.agent)}:
+                                            </span>
+                                            <span className="truncate">{title}</span>
+                                          </Button>
+                                        );
+                                      })}
+                                    </div>
                                   </div>
+                                  {tree.path === project.path && (
+                                    <Badge variant="secondary" size="sm">
+                                      Current
+                                    </Badge>
+                                  )}
+                                  <ActionMenu
+                                    size="xs"
+                                    label={`${tree.branch} worktree actions`}
+                                    items={[
+                                      ...agentCatalog.map(({ id: agent }) => ({
+                                        label: `New ${agentLabel(agent)} session here`,
+                                        action: () =>
+                                          treeRepo
+                                            ? startSession(agent, treeRepo)
+                                            : startSession(agent, project, tree.path),
+                                      })),
+                                      ...(linked && treeRepo
+                                        ? [
+                                            {
+                                              label: 'Remove worktree…',
+                                              danger: true,
+                                              action: () => {
+                                                setWorktreeTarget({
+                                                  id: treeRepo.id,
+                                                  branch: tree.branch,
+                                                  dirty: false,
+                                                });
+                                                openModal('remove-worktree');
+                                              },
+                                            },
+                                          ]
+                                        : []),
+                                    ]}
+                                  />
                                 </div>
-                                {tree.path === project.path && (
-                                  <Badge variant="secondary" size="sm">
-                                    Current
-                                  </Badge>
-                                )}
-                              </div>
-                            ))}
+                              );
+                            })}
                           </div>
                         ) : gitLoading ? (
                           <p className="help-text" role="status">
@@ -1039,20 +1182,25 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
                     </div>
                   </section>
                 ) : (
-                  <section className="page detail welcome">
+                  <section className="page">
                     <EmptyState
                       icon={<Layers2 />}
                       title="Organize your repositories"
                       action={
-                        <AddRepository
-                          api={api}
-                          variant="default"
-                          className="h-9 px-4 has-[>svg]:px-3"
-                          onRefresh={() => run(async () => {})}
-                          onNotice={notify}
-                        >
-                          <FolderPlus size={16} /> Add your first repository
-                        </AddRepository>
+                        <div className="flex flex-wrap justify-center gap-2">
+                          <Button size="lg" onClick={() => setCreateOpen(true)}>
+                            <Plus /> New project
+                          </Button>
+                          <AddRepository
+                            api={api}
+                            variant="outline"
+                            size="lg"
+                            onRefresh={reload}
+                            onNotice={notify}
+                          >
+                            <FolderPlus /> Add a repository
+                          </AddRepository>
+                        </div>
                       }
                     >
                       Create a project to group related repositories, or add a repository folder to
@@ -1149,37 +1297,41 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
       />
       {/* Work started here continues after the dialog closes and reports through the notice. */}
       <Dialog open={modal !== null} onOpenChange={(open) => !open && setModal(null)}>
-        <DialogContent size={shownModal === 'remove' ? 'sm' : 'md'}>
-          <form
-            className="contents"
-            onSubmit={(event) => {
-              event.preventDefault();
-              if (busy) return;
-              if (shownModal === 'worktree' && branch.trim()) createWorktree();
-              else if (shownModal === 'edit' && name.trim() && repoGroup) saveRepository();
-            }}
-          >
-            <DialogHeader>
-              <DialogTitle>
-                {shownModal === 'worktree'
-                  ? 'Create a Git worktree'
-                  : shownModal === 'edit'
-                    ? 'Repository settings'
-                    : shownModal === 'remove'
-                      ? `Remove ${project?.name || 'repository'} from Kalkidan?`
-                      : 'Settings'}
-              </DialogTitle>
-              <DialogDescription>
-                {shownModal === 'worktree'
-                  ? 'Create a new branch in a separate folder. Kalkidan adds the folder to the project.'
-                  : shownModal === 'edit'
-                    ? 'Name this repository and assign it to a project.'
-                    : shownModal === 'remove'
-                      ? 'Kalkidan stops showing this repository. The folder, its files, and its sessions stay on disk.'
-                      : 'Your agents, projects, and repositories.'}
-              </DialogDescription>
-            </DialogHeader>
-            {shownModal === 'worktree' && (
+        <DialogContent
+          size={shownModal === 'remove' || shownModal === 'remove-worktree' ? 'sm' : 'md'}
+          layout={shownModal === 'edit' ? 'scroll' : 'simple'}
+        >
+          <DialogHeader>
+            <DialogTitle>
+              {shownModal === 'worktree'
+                ? 'Create a Git worktree'
+                : shownModal === 'edit'
+                  ? 'Edit repository'
+                  : shownModal === 'remove'
+                    ? `Remove ${modalProject?.name || 'repository'} from Kalkidan?`
+                    : `Remove worktree ${worktreeTarget?.branch || ''}?`}
+            </DialogTitle>
+            <DialogDescription>
+              {shownModal === 'worktree'
+                ? 'Create a new branch in a separate folder. Kalkidan adds the folder to the project.'
+                : shownModal === 'edit'
+                  ? 'Name this repository and assign it to a project.'
+                  : shownModal === 'remove'
+                    ? 'Kalkidan stops showing this repository. The folder, its files, and its sessions stay on disk.'
+                    : worktreeTarget?.dirty
+                      ? 'This worktree has uncommitted changes. If you remove it, the changes are lost.'
+                      : 'Kalkidan deletes the worktree folder. The branch and its commits stay in the repository.'}
+            </DialogDescription>
+          </DialogHeader>
+          {shownModal === 'worktree' && (
+            <form
+              id="repository-dialog-form"
+              className="grid gap-4"
+              onSubmit={(event) => {
+                event.preventDefault();
+                if (!modalBusy && branch.trim()) createWorktree();
+              }}
+            >
               <label className="form-label">
                 New branch name
                 <Input
@@ -1189,9 +1341,18 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
                   onChange={(e) => setBranch(e.target.value)}
                 />
               </label>
-            )}
-            {shownModal === 'edit' && (
-              <>
+            </form>
+          )}
+          {shownModal === 'edit' && (
+            <DialogBody>
+              <form
+                id="repository-dialog-form"
+                className="grid gap-4"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  if (!modalBusy && name.trim() && repoGroup) saveRepository();
+                }}
+              >
                 <label className="form-label">
                   Repository name
                   <Input value={name} onChange={(e) => setName(e.target.value)} />
@@ -1206,7 +1367,7 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
                     options={[
                       { value: '', label: 'Choose a project' },
                       ...(data.groups || [])
-                        .filter((g) => g.hostId === project?.hostId)
+                        .filter((g) => g.hostId === modalProject?.hostId)
                         .map((g) => ({ value: g.id, label: g.name })),
                     ]}
                   />
@@ -1224,54 +1385,81 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
                     type="button"
                     variant="outline"
                     className="text-destructive hover:text-destructive"
-                    onClick={() => setModal('remove')}
+                    onClick={() => {
+                      setModalError('');
+                      setModal('remove');
+                    }}
                   >
                     <Trash2 /> Remove from Kalkidan…
                   </Button>
                 </div>
-              </>
+                {modalError && (
+                  <p role="alert" className="field-error">
+                    {modalError}
+                  </p>
+                )}
+              </form>
+            </DialogBody>
+          )}
+          {shownModal !== 'edit' && modalError && (
+            <p role="alert" className="field-error">
+              {modalError}
+            </p>
+          )}
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              autoFocus={shownModal === 'remove' || shownModal === 'remove-worktree'}
+              onClick={() => setModal(null)}
+            >
+              Cancel
+            </Button>
+            {shownModal === 'edit' && (
+              <Button
+                type="submit"
+                form="repository-dialog-form"
+                disabled={modalBusy || !name.trim() || !repoGroup}
+              >
+                <Check /> Save changes
+              </Button>
             )}
-            {error && (
-              <p role="alert" className="text-sm text-destructive">
-                {error}
-              </p>
-            )}
-            <DialogFooter>
+            {shownModal === 'remove' && (
               <Button
                 type="button"
-                variant="outline"
-                autoFocus={shownModal === 'remove'}
-                onClick={() => setModal(null)}
+                variant="destructive"
+                disabled={modalBusy}
+                onClick={() => {
+                  const removed = modalProject?.name || 'Repository';
+                  void runModal(async () => {
+                    await api.remove(modalRepo);
+                    setModal(null);
+                  }, `${removed} removed from Kalkidan.`);
+                }}
               >
-                Cancel
+                Remove from Kalkidan
               </Button>
-              {shownModal === 'edit' && (
-                <Button type="submit" disabled={busy || !name.trim() || !repoGroup}>
-                  <Check /> Save changes
-                </Button>
-              )}
-              {shownModal === 'remove' && (
-                <Button
-                  type="button"
-                  variant="destructive"
-                  disabled={busy}
-                  onClick={() =>
-                    run(async () => {
-                      await api.remove(modalRepo);
-                      setModal(null);
-                    }, 'Removed from Kalkidan. The files stay on disk.')
-                  }
-                >
-                  Remove from Kalkidan
-                </Button>
-              )}
-              {shownModal === 'worktree' && (
-                <Button type="submit" disabled={busy || !branch.trim()}>
-                  {busy ? 'Creating…' : 'Create worktree'}
-                </Button>
-              )}
-            </DialogFooter>
-          </form>
+            )}
+            {shownModal === 'remove-worktree' && (
+              <Button
+                type="button"
+                variant="destructive"
+                disabled={modalBusy}
+                onClick={removeWorktree}
+              >
+                {worktreeTarget?.dirty ? 'Remove anyway' : 'Remove worktree'}
+              </Button>
+            )}
+            {shownModal === 'worktree' && (
+              <Button
+                type="submit"
+                form="repository-dialog-form"
+                disabled={modalBusy || !branch.trim()}
+              >
+                {modalBusy ? 'Creating…' : 'Create worktree'}
+              </Button>
+            )}
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>

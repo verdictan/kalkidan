@@ -7,6 +7,7 @@ import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Textarea } from './ui/textarea';
 import { Hint } from './hint';
+import { AttachHint } from './diff-review';
 import { hasPrimaryModifier, shortcutLabel } from '../lib/platform';
 import { errorMessage } from '../lib/errors';
 export function EmbeddedBrowser({
@@ -14,6 +15,7 @@ export function EmbeddedBrowser({
   visible,
   remote,
   disabled,
+  disabledReason = '',
   onAttach,
   initialURL,
   onTitle,
@@ -28,6 +30,8 @@ export function EmbeddedBrowser({
   visible: boolean;
   remote: boolean;
   disabled: boolean;
+  /** Why "Attach annotation" is disabled. */
+  disabledReason?: string;
   onAttach: (selection: BrowserSelection, comment: string) => void;
 }) {
   const address = useRef<HTMLInputElement>(null);
@@ -190,6 +194,8 @@ export function EmbeddedBrowser({
       else toolbar.current?.querySelector<HTMLElement>('[aria-label="Browser menu"]')?.focus();
     });
   }
+  // The go button shows only while the address differs from the open page. Enter also opens it.
+  const urlEdited = !ready || url.trim() !== (state?.url || lastURL.current);
   const statusText = busy
     ? 'Working…'
     : state?.url ||
@@ -244,8 +250,9 @@ export function EmbeddedBrowser({
         </Hint>
         <Input
           ref={address}
+          variant="filled"
           aria-label="Preview URL"
-          className="h-7 w-20 min-w-0 flex-1 rounded-md border-transparent bg-secondary text-xs shadow-none dark:bg-secondary"
+          className="h-7 w-20 min-w-0 flex-1 text-xs"
           value={url}
           onFocus={() => {
             editingURL.current = true;
@@ -255,16 +262,19 @@ export function EmbeddedBrowser({
           }}
           onChange={(e) => setUrl(e.target.value)}
         />
-        <Hint label="Open preview">
-          <Button
-            size="icon-sm"
-            variant="ghost"
-            aria-label="Open preview"
-            disabled={busy || !url.trim()}
-          >
-            <ArrowRight />
-          </Button>
-        </Hint>
+        {urlEdited && (
+          <Hint label="Open preview (Enter)">
+            <Button
+              size="icon-sm"
+              variant="ghost"
+              aria-label="Open preview"
+              aria-keyshortcuts="Enter"
+              disabled={busy || !url.trim()}
+            >
+              <ArrowRight />
+            </Button>
+          </Hint>
+        )}
         <Hint label="Select element to annotate">
           <Button
             type="button"
@@ -314,6 +324,7 @@ export function EmbeddedBrowser({
         >
           <Input
             autoFocus
+            variant="filled"
             aria-label="Find in page"
             aria-keyshortcuts="Enter"
             placeholder="Find in page…"
@@ -434,32 +445,35 @@ export function EmbeddedBrowser({
             value={comment}
             onChange={(e) => setComment(e.target.value)}
           />
-          <Button
-            size="sm"
-            variant="outline"
-            disabled={disabled || !comment.trim()}
-            onClick={() => {
-              onAttach(selection, comment);
-              setSelection(null);
-              setComment('');
-            }}
-          >
-            Attach annotation
-          </Button>
+          <AttachHint reason={disabledReason}>
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={disabled || !comment.trim()}
+              onClick={() => {
+                onAttach(selection, comment);
+                setSelection(null);
+                setComment('');
+              }}
+            >
+              Attach annotation
+            </Button>
+          </AttachHint>
         </div>
       ) : (
         <div ref={viewport} className="browser-viewport" aria-label="Embedded browser">
-          {!ready && <p>Open a URL to preview it here.</p>}
+          {!ready && (
+            <p className="px-4 text-center break-all">
+              {url.trim() ? `Press Enter to open ${url.trim()}.` : 'Type a URL to preview it here.'}
+            </p>
+          )}
         </div>
       )}
       <div className="tool-statusbar" title={statusText}>
         {statusText}
       </div>
       {error && (
-        <p
-          role="alert"
-          className="max-h-16 shrink-0 overflow-auto px-3 py-1 text-xs text-destructive"
-        >
+        <p role="alert" className="field-error max-h-16 shrink-0 overflow-auto px-3 py-1">
           {error}
         </p>
       )}

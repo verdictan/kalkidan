@@ -145,6 +145,8 @@ export interface RemoteAPI {
   remoteInstall(id: string): Promise<RemoteHost>;
   remoteConnect(id: string): Promise<RemoteHost>;
   remoteDisconnect(id: string): Promise<void>;
+  /** Removes a saved host. Rejects when a project still runs on it. */
+  remoteRemove(id: string): Promise<void>;
   remoteCall<M extends SessionHostMethod>(
     hostId: string,
     method: M,
@@ -177,6 +179,7 @@ export interface ProjectAPI {
   repositorySnapshot(id: string): Promise<import('../domain/project').RepositorySnapshot>;
   snapshot(): Promise<Snapshot>;
   add(groupId?: string): Promise<void>;
+  /** An empty `trackerReference` creates a project without a tracker. Connect it later. */
   createGroup(
     name: string,
     trackerReference: string,
@@ -198,6 +201,30 @@ export interface ProjectAPI {
   launch(id: string, agent: 'terminal'): Promise<void>;
   reveal(id: string): Promise<void>;
   worktree(id: string, branch: string): Promise<boolean>;
+  /**
+   * Removes a linked worktree folder and its repository entry. `id` is the repository
+   * entry of the worktree. Rejects with "uncommitted changes" unless `force` is true.
+   * The main checkout cannot be removed.
+   */
+  worktreeRemove(id: string, force?: boolean): Promise<void>;
+  /** Counts changed and untracked files in the repository or worktree checkout. */
+  workingStatus(id: string): Promise<WorkingStatus>;
+  /** Stages all changes and commits them. Returns the new commit hash. */
+  gitCommit(id: string, message: string): Promise<{ commit: string }>;
+  /**
+   * Pushes the current branch to origin and opens a GitHub pull request with `gh`.
+   * Returns the pull request URL. Rejects on the default branch.
+   */
+  gitPullRequest(id: string, title: string, body: string): Promise<{ url: string }>;
+}
+export interface WorkingStatus {
+  branch: string;
+  changed: number;
+  untracked: number;
+  ahead: number;
+  /** True when the branch has an upstream on origin. */
+  published: boolean;
+  defaultBranch: string;
 }
 // Commands that the native application menu sends to the focused window.
 export const menuCommands = [
@@ -207,6 +234,7 @@ export const menuCommands = [
   'settings',
   'search',
   'toggle-sidebar',
+  'close-tab',
 ] as const;
 export type MenuCommand = (typeof menuCommands)[number];
 export interface MenuAPI {

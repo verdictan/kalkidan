@@ -84,22 +84,20 @@ test('remote project flow checks and installs the host, picks remote folders, an
     };
   });
   await page.goto('http://127.0.0.1:5173');
-  await page.getByRole('button', { name: 'New project', exact: true }).click();
-  const dialog = page.getByRole('dialog', { name: 'Create project', exact: true });
+  await page.getByRole('main').getByRole('button', { name: 'New project', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'New project', exact: true });
   await dialog.getByLabel('Project name', { exact: true }).fill('Remote platform');
   await dialog.getByRole('combobox', { name: 'Project execution host' }).click();
   await page.getByRole('option', { name: 'Remote SSH host', exact: true }).click();
   await dialog.getByLabel('Host name', { exact: true }).fill('Development');
   await dialog.getByLabel('SSH target', { exact: true }).fill('dev-server');
   await dialog.getByRole('button', { name: 'Save host', exact: true }).click();
-  await expect(
-    dialog.getByRole('button', { name: 'Install Kalkidan helper and connect', exact: true }),
-  ).toHaveCount(0);
-  await dialog.getByRole('button', { name: 'Check connection', exact: true }).click();
+  // Saving checks the host. The helper is missing, so the dialog asks before it installs it.
   await dialog
-    .getByRole('button', { name: 'Install Kalkidan helper and connect', exact: true })
+    .getByRole('button', { name: 'Install the Kalkidan helper and connect', exact: true })
     .click();
   await expect(dialog.getByRole('status')).toContainText('Connected');
+  await dialog.getByRole('button', { name: 'Use GitHub', exact: true }).click();
   await dialog.getByRole('button', { name: 'Connect GitHub', exact: true }).click();
   await dialog.getByRole('button', { name: 'Use URL', exact: true }).click();
   await dialog.getByLabel('GitHub URL').fill('https://github.com/orgs/example/projects/1');

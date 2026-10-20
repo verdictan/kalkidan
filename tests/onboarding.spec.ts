@@ -100,7 +100,8 @@ test('project and repository setup return to the checklist', async ({ page }) =>
     page.getByRole('heading', { name: 'From repository to your first session' }),
   ).toBeVisible();
   await page.getByRole('button', { name: 'Add repository', exact: true }).click();
-  await expect(page.getByRole('dialog').last()).toContainText('Clone into project');
+  // The demo has no GitHub CLI, so the dialog starts with local folders.
+  await expect(page.getByRole('dialog').last()).toContainText('Choose folders');
   await page.getByRole('button', { name: 'Cancel', exact: true }).click();
   await expect(
     page.getByRole('heading', { name: 'From repository to your first session' }),
@@ -128,6 +129,8 @@ test('a missing agent check shows an error, and an empty overview has one New pr
   const dialog = page.getByRole('dialog');
   await expect(dialog).toContainText('Could not check agents');
   await page.getByRole('button', { name: 'Set up later' }).click();
-  await expect(page.getByRole('button', { name: 'New project', exact: true })).toHaveCount(1);
+  await expect(
+    page.getByRole('main').getByRole('button', { name: 'New project', exact: true }),
+  ).toHaveCount(1);
   expect(errors).toEqual([]);
 });

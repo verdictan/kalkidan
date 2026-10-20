@@ -26,6 +26,9 @@ test('formats shortcuts for each platform', () => {
   assert.equal(shortcutLabel(['mod', 'alt'], 'R', 'mac'), '⌥⌘R');
   assert.equal(shortcutLabel(['mod', 'shift'], 'A', 'windows'), 'Ctrl+Shift+A');
   assert.equal(shortcutLabel(['mod'], 'K', 'linux'), 'Ctrl+K');
+  assert.equal(shortcutLabel(['ctrl'], '`', 'mac'), '⌃`');
+  assert.equal(shortcutLabel(['ctrl'], '`', 'windows'), 'Ctrl+`');
+  assert.equal(shortcutLabel(['mod', 'shift'], 'E', 'linux'), 'Ctrl+Shift+E');
 });
 
 test('uses the platform primary modifier and ignores AltGr', () => {

@@ -83,3 +83,46 @@ test('deleted pages can be listed and restored, and orphans go to the top level'
     await rm(root, { recursive: true, force: true });
   }
 });
+
+test('page order persists in the page header and in the metadata', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'project-docs-order-'));
+  try {
+    const store = new ProjectDocs(root, () => true);
+    const first = await store.create('atlas', 'First', null);
+    const second = await store.create('atlas', 'Second', null);
+    assert.equal(first.order, undefined);
+    const saved = await store.save('atlas', { ...second, order: 0 });
+    assert.equal(saved.order, 0);
+    assert.match(await readFile(join(root, 'atlas', second.id + '.md'), 'utf8'), /"order":0/);
+    const fresh = new ProjectDocs(root, () => true);
+    assert.equal((await fresh.get('atlas', second.id)).order, 0);
+    const metadata = await fresh.metadata('atlas');
+    assert.equal(metadata.find((p) => p.id === second.id)?.order, 0);
+    assert.equal('order' in metadata.find((p) => p.id === first.id)!, false);
+    const cleared = await fresh.save('atlas', { ...saved, order: undefined });
+    assert.equal('order' in cleared, false);
+    assert.doesNotMatch(await readFile(join(root, 'atlas', second.id + '.md'), 'utf8'), /order/);
+    const invalid = await fresh.save('atlas', { ...cleared, order: Number.NaN });
+    assert.equal('order' in invalid, false);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('docs sort sibling pages by order, then by title, and list the tree in order', async () => {
+  const { sortedSiblings, docTreeOrder } = await import('../src/components/project-docs');
+  const pages = [
+    { id: 'b', title: 'Beta', parentId: null },
+    { id: 'a', title: 'Alpha', parentId: null },
+    { id: 'z', title: 'Zulu', parentId: null, order: 0 },
+    { id: 'c', title: 'Child', parentId: 'a' },
+  ];
+  assert.deepEqual(
+    sortedSiblings(pages, null).map((p) => p.id),
+    ['z', 'a', 'b'],
+  );
+  assert.deepEqual(
+    docTreeOrder(pages).map(({ page, depth }) => `${page.id}:${depth}`),
+    ['z:0', 'a:0', 'c:1', 'b:0'],
+  );
+});

@@ -1,9 +1,10 @@
 import { useState } from 'react';
-import { Download, KeyRound } from 'lucide-react';
+import { Download, KeyRound, Minus, Plus } from 'lucide-react';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { MoreButton } from './ui/more-button';
 import { Switch } from './ui/switch';
+import { EmptyState } from './ui/empty-state';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from './ui/dialog';
 import {
   DropdownMenu,
@@ -162,7 +163,7 @@ export function BrowserMenu({
           <DropdownMenuItem onSelect={() => void act('print')}>Print…</DropdownMenuItem>
           <DropdownMenuSeparator />
           <div
-            className="flex items-center justify-between px-2 py-1 text-sm"
+            className="flex h-7 items-center justify-between pl-2 text-sm"
             role="group"
             aria-label="Zoom"
           >
@@ -170,7 +171,7 @@ export function BrowserMenu({
             <div className="flex items-center">
               {/* Menu items keep the zoom controls in the keyboard order. The menu stays open. */}
               <DropdownMenuItem
-                className="w-7 justify-center p-0"
+                className="size-7 justify-center p-0"
                 aria-label="Zoom out"
                 disabled={busy || zoom <= 0.25}
                 onSelect={(e) => {
@@ -178,10 +179,10 @@ export function BrowserMenu({
                   void act('zoom', Math.max(0.25, Math.round((zoom - 0.1) * 100) / 100));
                 }}
               >
-                −
+                <Minus className="size-3.5" aria-hidden="true" />
               </DropdownMenuItem>
               <DropdownMenuItem
-                className="justify-center px-2 tabular-nums"
+                className="h-7 justify-center px-2 tabular-nums"
                 aria-label={`Reset zoom (now ${Math.round(zoom * 100)}%)`}
                 disabled={busy}
                 onSelect={(e) => {
@@ -192,7 +193,7 @@ export function BrowserMenu({
                 {Math.round(zoom * 100)}%
               </DropdownMenuItem>
               <DropdownMenuItem
-                className="w-7 justify-center p-0"
+                className="size-7 justify-center p-0"
                 aria-label="Zoom in"
                 disabled={busy || zoom >= 3}
                 onSelect={(e) => {
@@ -200,7 +201,7 @@ export function BrowserMenu({
                   void act('zoom', Math.min(3, Math.round((zoom + 0.1) * 100) / 100));
                 }}
               >
-                +
+                <Plus className="size-3.5" aria-hidden="true" />
               </DropdownMenuItem>
             </div>
           </div>
@@ -261,7 +262,7 @@ export function BrowserMenu({
           {notice && (
             <p
               role={failed ? 'alert' : 'status'}
-              className={'break-words text-sm' + (failed ? ' text-destructive' : '')}
+              className={failed ? 'field-error break-words' : 'text-sm break-words'}
             >
               {notice}
             </p>
@@ -381,9 +382,7 @@ export function BrowserMenu({
                       </span>
                     </Button>
                   ))}
-                {!data?.history.length && (
-                  <p className="text-sm text-muted-foreground">No browsing history yet.</p>
-                )}
+                {!data?.history.length && <EmptyState compact title="No browsing history yet" />}
               </div>
             </>
           )}
@@ -424,7 +423,9 @@ export function BrowserMenu({
                 </div>
               ))}
               {!data?.downloads.length && (
-                <p className="text-sm text-muted-foreground">Downloads will appear here.</p>
+                <EmptyState compact title="No downloads">
+                  Files that you download in the browser show here.
+                </EmptyState>
               )}
             </div>
           )}
@@ -501,9 +502,7 @@ export function BrowserMenu({
                   )}
                 </div>
               ))}
-              {!data?.credentials.length && (
-                <p className="text-sm text-muted-foreground">No saved passwords.</p>
-              )}
+              {!data?.credentials.length && <EmptyState compact title="No saved passwords" />}
             </div>
           )}
         </DialogContent>

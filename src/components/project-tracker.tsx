@@ -1,6 +1,6 @@
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { ChevronLeft, ChevronRight } from 'lucide-react';
+import { ChevronDown, ChevronLeft, ChevronRight } from 'lucide-react';
 import { TrackerWorkflow } from './tracker-workflow';
 import { interfaceConfig } from '../config/interface';
 import { agentCatalog, agentLabel } from '../config/agents';
@@ -26,10 +26,22 @@ import {
   List,
   RefreshCw,
   Plus,
-  Search,
 } from 'lucide-react';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
+import { SearchInput } from './ui/search-input';
+import { AgentIcon } from './ui/agent-icon';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from './ui/dropdown-menu';
+import {
+  onPreferredAgentChange,
+  readPreferredAgent,
+  savePreferredAgent,
+} from '../lib/agent-preference';
 import { Textarea } from './ui/textarea';
 import { Badge } from './ui/badge';
 import { Alert, AlertDescription } from './ui/alert';
@@ -69,9 +81,20 @@ const defaultFilters: TrackerFilters = {
   sort: 'project',
   view: 'board',
 };
-// One quiet look for the search field and the filter menus. All are 28px high.
-const filterClass =
-  'border-transparent bg-secondary/50 shadow-none hover:bg-secondary dark:bg-secondary/50 dark:hover:bg-secondary';
+// The tracker shows "Authorize access" only for errors about sign-in or permissions.
+const authErrorPattern =
+  /\bauth|sign in|log in|login|not accessible|no longer accessible|access|token|permission|forbidden|unauthori[sz]ed|\b40[13]\b/i;
+
+/** Suggests a branch name for a task: "12-fix-login" or "fix-login" for a draft. */
+export function taskBranchName(item: Pick<TrackerItem, 'number' | 'title'>) {
+  const slug = item.title
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+/, '')
+    .slice(0, 40)
+    .replace(/-+$/, '');
+  return `${item.number ? `${item.number}-` : ''}${slug}`;
+}
 
 // Filters are kept per project board, so that they stay when the view changes.
 function filterKey(groupId: string, embedded: boolean) {
@@ -123,7 +146,10 @@ export function ProjectTrackerPanel({
   onRefresh,
   onRepo,
   onTask,
+  initialTaskId,
 }: {
+  /** Opens the detail of this task when the board loads, for example from a search result. */
+  initialTaskId?: string;
   embedded?: boolean;
   preferredRepoId?: string;
   connectRequested?: boolean;
@@ -162,6 +188,8 @@ export function ProjectTrackerPanel({
   const [board, setBoard] = useState<TrackerBoardData | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  // Each dialog shows its own error. The page error stays on the page.
+  const [modalError, setModalError] = useState('');
   const [url, setUrl] = useState('');
   const [query, setQuery] = useState(savedFilters.query);
   const [status, setStatus] = useState(savedFilters.status);
@@ -178,10 +206,12 @@ export function ProjectTrackerPanel({
   const [body, setBody] = useState('');
   const [task, setTask] = useState<TrackerItem | null>(null);
   const [repoId, setRepoId] = useState(repos[0]?.id || '');
+  const [preferredAgent, setPreferredAgent] = useState(readPreferredAgent);
+  useEffect(() => onPreferredAgentChange(setPreferredAgent), []);
   async function authorize() {
     authActive.current = true;
     setAuth({ status: 'checking' });
-    setError('');
+    setModalError('');
     try {
       setAuth(await client.authorize());
     } catch (e) {
@@ -196,6 +226,7 @@ export function ProjectTrackerPanel({
   }
   function connect() {
     setUrl(linkedProject?.url || '');
+    setModalError('');
     setModal('connect');
     void authorize();
   }
@@ -266,7 +297,10 @@ export function ProjectTrackerPanel({
     try {
       const target =
         checkout === 'worktree' ? await api.taskWorktree(repo.id, taskBranch.trim()) : repo;
-      if (!target) return;
+      if (!target) {
+        setTaskError('Could not create the worktree.');
+        return;
+      }
       if (checkout === 'worktree') await onRefresh();
       onTask(target, agent, task);
       setTask(null);
@@ -276,6 +310,15 @@ export function ProjectTrackerPanel({
       setTaskBusy(false);
     }
   }
+  // Open the requested task once for each new ID.
+  const openedTask = useRef('');
+  useEffect(() => {
+    if (!initialTaskId || !board || openedTask.current === initialTaskId) return;
+    const item = board.items.find((i) => i.id === initialTaskId);
+    if (!item) return;
+    openedTask.current = initialTaskId;
+    chooseTask(item);
+  }, [initialTaskId, board]);
   async function refreshBoard() {
     const next = await client.board(group.id);
     setBoard(next);
@@ -283,14 +326,18 @@ export function ProjectTrackerPanel({
       previous ? next.items.find((item) => item.id === previous.id) || previous : null,
     );
   }
-  async function action(fn: () => Promise<unknown>, refresh = true) {
+  async function action(
+    fn: () => Promise<unknown>,
+    refresh = true,
+    showError: (message: string) => void = setError,
+  ) {
     setBusy(true);
-    setError('');
+    showError('');
     try {
       await fn();
       if (refresh) await refreshBoard();
     } catch (e) {
-      setError(errorMessage(e));
+      showError(errorMessage(e));
     } finally {
       setBusy(false);
     }
@@ -337,7 +384,7 @@ export function ProjectTrackerPanel({
     setTitle('');
     setBody('');
     setDraftStatus(statusId);
-    setError('');
+    setModalError('');
     setModal('draft');
   }
   const taskIndex = sortedItems.findIndex((item) => item.id === task?.id);
@@ -350,9 +397,13 @@ export function ProjectTrackerPanel({
     !busy &&
     (modal !== 'connect' || auth.status === 'ready') &&
     (modal === 'draft' ? !!title.trim() : !!url.trim());
-  function submitModal() {
+  async function submitModal() {
     if (!modalReady) return;
-    void action(async () => {
+    setBusy(true);
+    setModalError('');
+    // After the dialog closes, an error shows on the page.
+    let closed = false;
+    try {
       if (modal === 'connect') {
         await client.link(group.id, url);
         await onRefresh();
@@ -360,6 +411,7 @@ export function ProjectTrackerPanel({
       else {
         const createdId = await client.draft(group.id, title, body);
         setModal(null);
+        closed = true;
         if (draftStatus) {
           try {
             if (!createdId) throw new Error('This tracker did not return the new task ID.');
@@ -374,12 +426,19 @@ export function ProjectTrackerPanel({
         }
       }
       setModal(null);
-    });
+      closed = true;
+      setError('');
+      await refreshBoard();
+    } catch (e) {
+      (closed ? setError : setModalError)(errorMessage(e));
+    } finally {
+      setBusy(false);
+    }
   }
   function submitOnEnter(event: KeyboardEvent<HTMLInputElement>) {
     if (event.key === 'Enter' && !event.nativeEvent.isComposing) {
       event.preventDefault();
-      submitModal();
+      void submitModal();
     }
   }
   // A saved filter can point at a status or repository that no longer exists.
@@ -398,6 +457,10 @@ export function ProjectTrackerPanel({
       ? `Synced with ${providerName}`
       : '';
   const filtered = query || status !== 'all' || repoFilter !== 'all';
+  const startReady =
+    !taskBusy &&
+    repos.some((r) => r.id === repoId) &&
+    (checkout !== 'worktree' || !!taskBranch.trim());
   return (
     <section
       className={embedded ? 'project-tracker embedded-tracker' : 'project-tracker'}
@@ -458,6 +521,7 @@ export function ProjectTrackerPanel({
               </Button>
               <ActionMenu
                 label="Tracker actions"
+                size="md"
                 disabled={busy}
                 items={[
                   ...(connection &&
@@ -472,6 +536,7 @@ export function ProjectTrackerPanel({
                           label: 'Add existing task',
                           action: () => {
                             setUrl('');
+                            setModalError('');
                             setModal('issue');
                           },
                         },
@@ -496,36 +561,42 @@ export function ProjectTrackerPanel({
           onSaved={onRefresh}
         />
       )}
-      {error && !modal && (
+      {error && (
         <Alert variant="destructive">
           <AlertDescription>
             {error}
-            {linkedProject && (
-              <Button variant="outline" size="sm" onClick={connect}>
-                Authorize {providerName} access
-              </Button>
-            )}
+            {linkedProject &&
+              (authErrorPattern.test(error) ? (
+                <Button variant="outline" size="sm" onClick={connect}>
+                  Authorize {providerName} access
+                </Button>
+              ) : (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={busy}
+                  onClick={() => void action(refreshBoard, false)}
+                >
+                  Retry
+                </Button>
+              ))}
           </AlertDescription>
         </Alert>
       )}
       {linkedProject ? (
         <div className="tracker-filterbar">
-          <div className="relative min-w-40 flex-1 sm:max-w-64">
-            <Search
-              size={14}
-              className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground"
-            />
-            <Input
-              className={`h-7 pl-8 text-xs ${filterClass}`}
-              aria-label="Search tasks"
-              placeholder="Search tasks…"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-            />
-          </div>
+          <SearchInput
+            size="sm"
+            variant="filled"
+            className="min-w-40 flex-1 sm:max-w-64"
+            aria-label="Search tasks"
+            placeholder="Search tasks…"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+          />
           <Choice
             size="sm"
-            className={`text-xs ${filterClass}`}
+            variant="filled"
             label="Filter by status"
             value={status}
             onChange={setStatus}
@@ -538,7 +609,8 @@ export function ProjectTrackerPanel({
           {!embedded && (
             <Choice
               size="sm"
-              className={`max-w-60 text-xs ${filterClass}`}
+              variant="filled"
+              className="max-w-60"
               label="Filter by repository"
               value={repoFilter}
               onChange={setRepoFilter}
@@ -552,7 +624,7 @@ export function ProjectTrackerPanel({
           <Choice
             label="Sort tasks"
             size="sm"
-            className={`text-xs ${filterClass}`}
+            variant="filled"
             value={sort}
             onChange={setSort}
             options={[
@@ -588,28 +660,31 @@ export function ProjectTrackerPanel({
           </div>
         </div>
       ) : embedded ? (
-        <p className="py-3 text-sm text-muted-foreground">
+        <EmptyState compact>
           Connect {providerName} from the sidebar to see project tasks here.
-        </p>
+        </EmptyState>
       ) : (
-        <div className="project-empty">
-          <GitFork size={24} />
-          <h3>Connect your project tracker</h3>
-          <p>
-            Connect a {providerName} project to show its tasks next to your repositories. Your
-            repositories and sessions do not change.
-          </p>
-          {onConnectTracker && (
-            <Button onClick={onConnectTracker}>Connect {providerName} project</Button>
-          )}
-        </div>
+        <EmptyState
+          icon={<GitFork />}
+          title="Connect your project tracker"
+          action={
+            onConnectTracker && (
+              <Button size="lg" onClick={onConnectTracker}>
+                Connect {providerName} project
+              </Button>
+            )
+          }
+        >
+          Connect a {providerName} project to show its tasks next to your repositories. Your
+          repositories and sessions do not change.
+        </EmptyState>
       )}
       {linkedProject && !items.length && (
         <EmptyState compact className="tracker-empty-result">
           {busy
             ? 'Loading tasks…'
             : error
-              ? 'Tasks could not be loaded. Retry the connection above.'
+              ? 'Tasks could not be loaded. Use Retry above.'
               : filtered
                 ? 'No tasks to show. Clear the filters or create a new task.'
                 : 'No tasks to show. Create a new task.'}
@@ -771,16 +846,16 @@ export function ProjectTrackerPanel({
               onChange={(e) => setUrl(e.target.value)}
             />
           )}
-          {error && (
-            <p role="alert" className="text-sm text-destructive">
-              {error}
+          {modalError && (
+            <p role="alert" className="field-error">
+              {modalError}
             </p>
           )}
           <DialogFooter>
             <Button variant="outline" disabled={busy} onClick={closeModal}>
               Cancel
             </Button>
-            <Button disabled={!modalReady} onClick={submitModal}>
+            <Button disabled={!modalReady} onClick={() => void submitModal()}>
               {busy
                 ? 'Saving…'
                 : modal === 'connect'
@@ -791,7 +866,7 @@ export function ProjectTrackerPanel({
         </DialogContent>
       </Dialog>
       <Dialog open={!!task} onOpenChange={(open) => !open && !taskBusy && setTask(null)}>
-        <DialogContent className="tracker-issue-detail top-0 right-0 left-auto flex h-dvh max-h-dvh w-[min(560px,100vw)] max-w-[100vw] translate-x-0 translate-y-0 flex-col gap-0 overflow-hidden rounded-none border-0 border-l p-0 sm:max-w-[100vw] data-[state=closed]:zoom-out-100 data-[state=open]:zoom-in-100 [&>[data-slot=dialog-close]]:top-4 [&>[data-slot=dialog-close]]:right-6">
+        <DialogContent className="tracker-issue-detail top-0 right-0 left-auto flex h-dvh max-h-dvh w-[min(var(--dialog-md),100vw)] max-w-[100vw] translate-x-0 translate-y-0 flex-col gap-0 overflow-hidden rounded-none border-0 border-l p-0 sm:max-w-[100vw] data-[state=closed]:zoom-out-100 data-[state=open]:zoom-in-100 [&>[data-slot=dialog-close]]:top-4 [&>[data-slot=dialog-close]]:right-6">
           <div className="tracker-issue-body">
             <div className="tracker-issue-nav">
               <span>{task?.number ? `#${task.number}` : 'Draft task'}</span>
@@ -817,7 +892,9 @@ export function ProjectTrackerPanel({
               </div>
             </div>
             <DialogHeader className="pr-0">
-              <DialogTitle className="tracker-issue-title">{task?.title}</DialogTitle>
+              <DialogTitle className="text-xl break-words [overflow-wrap:anywhere]">
+                {task?.title}
+              </DialogTitle>
               <DialogDescription className="sr-only">
                 {task?.repository || 'Project task'}
               </DialogDescription>
@@ -828,35 +905,37 @@ export function ProjectTrackerPanel({
                 {task && board?.statusField ? (
                   <Choice
                     size="sm"
-                    className="-ml-2.5 border-transparent shadow-none hover:bg-[var(--surface-hover)] dark:bg-transparent dark:hover:bg-[var(--surface-hover)]"
+                    variant="ghost"
+                    className="-ml-2.5"
                     label="Task status"
                     value={task.statusId || ''}
                     disabled={busy || !descriptor?.capabilities.updateStatus}
-                    onChange={(value) => void action(() => client.status(group.id, task.id, value))}
+                    onChange={(value) =>
+                      void action(() => client.status(group.id, task.id, value), true, setTaskError)
+                    }
                     options={[
                       ...(!task.statusId ? [{ value: '', label: 'No status' }] : []),
                       ...board.statusField.options.map((o) => ({ value: o.id, label: o.name })),
                     ]}
                   />
                 ) : (
-                  <span className="flex items-center gap-1.5">
+                  <span className="flex min-w-0 items-center gap-1.5">
                     <StatusIcon name={task?.status || 'No status'} />
-                    {task?.status || 'No status'}
+                    <span className="truncate">{task?.status || 'No status'}</span>
                   </span>
                 )}
               </dd>
               <dt>Repository</dt>
-              <dd className="truncate" title={task?.repository}>
-                {task?.repository || 'None'}
+              <dd>
+                <span className="truncate" title={task?.repository}>
+                  {task?.repository || 'None'}
+                </span>
               </dd>
               <dt>Linked sessions</dt>
-              <dd>{linkedSessions.length || 'None'}</dd>
+              <dd>
+                <span className="truncate">{linkedSessions.length || 'None'}</span>
+              </dd>
             </dl>
-            {error && (
-              <p role="alert" className="text-sm text-destructive">
-                {error}
-              </p>
-            )}
             <div className="tracker-issue-description prose-ui" data-size="sm">
               <Markdown remarkPlugins={[remarkGfm]} components={{ a: ExternalAnchor }}>
                 {task?.body || 'No description yet.'}
@@ -874,7 +953,7 @@ export function ProjectTrackerPanel({
               <SectionHeader title="Work on this task" />
               <div className="space-y-4">
                 <label className="form-label">
-                  Repository
+                  Work in
                   <Choice
                     className="w-full"
                     label="Task repository"
@@ -893,15 +972,19 @@ export function ProjectTrackerPanel({
                     <div className="space-y-2 font-normal text-foreground">
                       {linkedSessions.map((s) => (
                         <Button
-                          className="w-full justify-start truncate"
+                          className="w-full justify-start"
                           variant="outline"
                           key={s.agent + s.id}
+                          title={`${agentLabel(s.agent)} · ${s.organization?.title || s.title}`}
                           onClick={() => {
                             onResume(s);
                             setTask(null);
                           }}
                         >
-                          {agentLabel(s.agent)} · {s.organization?.title || s.title}
+                          <AgentIcon agent={s.agent} />
+                          <span className="min-w-0 truncate">
+                            {agentLabel(s.agent)} · {s.organization?.title || s.title}
+                          </span>
                         </Button>
                       ))}
                     </div>
@@ -914,7 +997,11 @@ export function ProjectTrackerPanel({
                     label="Task checkout"
                     disabled={taskBusy}
                     value={checkout}
-                    onChange={setCheckout}
+                    onChange={(value) => {
+                      setCheckout(value);
+                      if (value === 'worktree' && task && !taskBranch.trim())
+                        setTaskBranch(taskBranchName(task));
+                    }}
                     options={[
                       { value: 'current', label: 'Current checkout' },
                       { value: 'worktree', label: 'New worktree' },
@@ -934,7 +1021,7 @@ export function ProjectTrackerPanel({
                   </label>
                 )}
                 {taskError && (
-                  <p role="alert" className="text-sm text-destructive">
+                  <p role="alert" className="field-error">
                     {taskError}
                   </p>
                 )}
@@ -945,20 +1032,42 @@ export function ProjectTrackerPanel({
             </section>
           </div>
           <DialogFooter className="tracker-issue-footer">
-            {agentCatalog.map(({ id: agent, name }, index) => (
+            <div className="split-button" role="group" aria-label="Start a session">
               <Button
-                key={agent}
-                disabled={
-                  taskBusy ||
-                  !repos.some((r) => r.id === repoId) ||
-                  (checkout === 'worktree' && !taskBranch.trim())
-                }
-                variant={index === 0 ? 'default' : 'outline'}
-                onClick={() => void startTask(agent)}
+                className="rounded-r-none"
+                disabled={!startReady}
+                onClick={() => void startTask(preferredAgent)}
               >
-                Open in {name}
+                <AgentIcon agent={preferredAgent} />
+                Start {agentLabel(preferredAgent)} session
               </Button>
-            ))}
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    size="icon"
+                    disabled={!startReady}
+                    className="rounded-l-none border-l border-primary-foreground/20"
+                    aria-label="Choose an agent"
+                  >
+                    <ChevronDown />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  {agentCatalog.map(({ id: agent }) => (
+                    <DropdownMenuItem
+                      key={agent}
+                      onSelect={() => {
+                        savePreferredAgent(agent);
+                        void startTask(agent);
+                      }}
+                    >
+                      <AgentIcon agent={agent} />
+                      Start {agentLabel(agent)} session
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
           </DialogFooter>
         </DialogContent>
       </Dialog>

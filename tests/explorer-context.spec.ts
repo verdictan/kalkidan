@@ -4,7 +4,7 @@ test('explorer context menus rename the clicked item and confirm non-destructive
   page,
 }) => {
   await page.goto('http://127.0.0.1:5173');
-  const tree = page.getByRole('region', { name: 'Projects and repositories' });
+  const tree = page.getByRole('navigation', { name: 'Projects and repositories' });
   await tree.getByRole('button', { name: 'Atlas', exact: true }).click({ button: 'right' });
   await expect(page.getByRole('menuitem', { name: 'Remove empty project…' })).toBeDisabled();
   await page.getByRole('menuitem', { name: 'Rename…' }).click();
@@ -14,9 +14,9 @@ test('explorer context menus rename the clicked item and confirm non-destructive
   const repo = tree.getByRole('button', { name: 'design-system', exact: true });
   await repo.focus();
   await repo.press('Shift+F10');
-  await page.getByRole('menuitem', { name: 'Rename…' }).click();
-  await page.getByRole('textbox', { name: 'Name', exact: true }).fill('Components');
-  await page.getByRole('button', { name: 'Save name' }).click();
+  await page.getByRole('menuitem', { name: 'Edit repository…' }).click();
+  await page.getByRole('textbox', { name: 'Repository name', exact: true }).fill('Components');
+  await page.getByRole('button', { name: 'Save changes' }).click();
   await expect(tree.getByRole('button', { name: 'Components', exact: true })).toBeVisible();
   await expect(tree.getByRole('button', { name: 'atlas-web', exact: true })).toBeVisible();
   await tree.getByRole('button', { name: 'Components', exact: true }).click({ button: 'right' });
@@ -34,7 +34,7 @@ test('session right-click actions rename, pin and archive without opening a conv
   page,
 }) => {
   await page.goto('http://127.0.0.1:5173');
-  const tree = page.getByRole('region', { name: 'Projects and repositories' });
+  const tree = page.getByRole('navigation', { name: 'Projects and repositories' });
   // Session rows show in the tree only when pinned. Pin from the repository list first.
   await tree.getByRole('button', { name: 'atlas-web', exact: true }).click();
   await page
