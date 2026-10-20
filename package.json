@@ -26,7 +26,9 @@
     "lint": "oxlint .",
     "lint:fix": "oxlint --fix .",
     "lint:staged": "lint-staged",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "storybook": "storybook dev -p 6006",
+    "build-storybook": "storybook build -o storybook-static"
   },
   "build": {
     "appId": "dev.kalkidan.desktop",
@@ -99,6 +101,7 @@
   "devDependencies": {
     "@playwright/test": "^1.64.1",
     "@resvg/resvg-js": "^2.6.2",
+    "@storybook/react-vite": "^10.6.3",
     "@types/node": "^26.6.5",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
@@ -110,6 +113,7 @@
     "lint-staged": "^17.6.0",
     "oxlint": "^1.88.0",
     "prettier": "^3.9.10",
+    "storybook": "^10.6.3",
     "tsx": "^4.23.15",
     "typescript": "^7.0.2",
     "vite": "^8.3.4",

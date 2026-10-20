@@ -150,6 +150,7 @@ vite.config.ts.timestamp-*
 
 # Electron bundles and installers (keep build/icons as source assets)
 /dist-electron/
+/dist-ui/
 /release/
 
 # Playwright output
@@ -174,3 +175,14 @@ Desktop.ini
 /.ci-cache/
 
 /ci-results/
+
+# Storybook
+/storybook-static/
+
+# Design sync working state
+.design-sync/sb-reference/
+.design-sync/learnings/
+.design-sync/.cache/
+.design-sync/node_modules
+.ds-sync/
+ds-bundle/
