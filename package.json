@@ -118,6 +118,6 @@
   "engines": {
     "node": ">=24.21.0"
   },
-  "packageManager": "npm@10.9.9",
+  "packageManager": "npm@12.2.0",
   "homepage": "https://github.com/verdictan/kalkidan"
 }
