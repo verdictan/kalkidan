@@ -12,6 +12,10 @@ function fixture(agent = 'codex', platform = 'linux') {
     children: any[] = [],
     timers = new Map<any, Function>(),
     kills: any[] = [];
+  const memoryScopes: any[] = [],
+    extractions: any[] = [],
+    launches: string[][] = [];
+  let memoryClosed = 0;
   let counter = 0;
   const settings = {
     handshake: true,
@@ -71,13 +75,25 @@ function fixture(agent = 'codex', platform = 'linux') {
   }
   const { InteractiveChatRunner } = backendLoader(
     {
+      [resolve('electron/agents/memory-tools.ts')]: {
+        startMemoryTools: async (scope: any) => {
+          memoryScopes.push(scope);
+          return { url: 'http://127.0.0.1:1234/mcp/scoped', close: () => memoryClosed++ };
+        },
+      },
+      [resolve('electron/storage/memory-extraction.ts')]: {
+        extractMemory: async (...args: any[]) => {
+          extractions.push(args);
+        },
+      },
       [resolve('electron/core.ts')]: {
         exec: () => {
           throw Error('Unexpected executable lookup');
         },
       },
       'node:child_process': {
-        spawn: () => {
+        spawn: (_command: string, args: string[]) => {
+          launches.push(args);
           const child = Object.assign(new EventEmitter(), {
             stdin: new Stream(),
             stdout: new Stream(),
@@ -118,9 +134,109 @@ function fixture(agent = 'codex', platform = 'linux') {
     timers,
     kills,
     settings,
+    memoryScopes,
+    extractions,
+    launches,
+    memoryClosed: () => memoryClosed,
     emit: (row: any) => children.at(-1).stdout.emit('data', JSON.stringify(row) + '\n'),
   };
 }
+
+test('Codex questions validate replies, preserve exact envelopes, and never replay answers', async () => {
+  const f = fixture();
+  const run = await f.runner.start(f.session, 'task', true);
+  await drain();
+  const question = {
+    id: 701,
+    method: 'item/tool/requestUserInput',
+    params: {
+      threadId: 'session',
+      turnId: 'turn',
+      itemId: 'tool',
+      isBlocking: true,
+      questions: [
+        {
+          id: 'database',
+          header: 'Database',
+          question: 'Which database?',
+          isOther: false,
+          options: [
+            { label: 'SQLite', description: 'Local' },
+            { label: 'Postgres', description: 'Server' },
+          ],
+        },
+      ],
+    },
+  };
+  f.emit(question);
+  assert.equal(run.requests[0].status, 'pending');
+  assert.equal(run.approvals.length, 0);
+  assert.throws(() => f.runner.respond('wrong', '701', { database: ['SQLite'] }), /no longer/);
+  assert.throws(
+    () => f.runner.respond(run.id, '701', { database: ['Unknown'] }),
+    /available option/,
+  );
+  assert.equal(run.requests[0].status, 'pending');
+  f.runner.respond(run.id, '701', { database: ['SQLite'] });
+  assert.deepEqual(f.writes.at(-1), {
+    id: 701,
+    result: { answers: { database: { answers: ['SQLite'] } } },
+  });
+  assert.throws(() => f.runner.respond(run.id, '701', { database: ['SQLite'] }), /no longer/);
+  f.emit(question);
+  assert.equal(run.requests.length, 1);
+  f.emit({ ...question, id: 702 });
+  f.emit({ method: 'serverRequest/resolved', params: { requestId: 702 } });
+  assert.equal(run.requests[1].status, 'expired');
+  f.emit({ ...question, id: 703 });
+  f.runner.stop(run.id);
+  assert.equal(run.requests[2].status, 'canceled');
+  f.runner.dispose();
+});
+
+test('Claude question replies allow only the question tool and preserve multi-select answers', async () => {
+  const f = fixture('claude');
+  const run = await f.runner.start(f.session, 'task', true);
+  await drain();
+  const questions = [
+    {
+      header: 'Checks',
+      question: 'Which checks?',
+      multiSelect: true,
+      options: [
+        { label: 'Unit', description: 'Fast' },
+        { label: 'Browser', description: 'UI' },
+      ],
+    },
+  ];
+  f.emit({
+    type: 'control_request',
+    request_id: 'q1',
+    request: { subtype: 'can_use_tool', tool_name: 'AskUserQuestion', input: { questions } },
+  });
+  assert.equal(run.requests[0].questions[0].kind, 'multiple-choice');
+  f.runner.respond(run.id, 'q1', { '0': ['Unit', 'Browser'] });
+  assert.deepEqual(f.writes.at(-1), {
+    type: 'control_response',
+    response: {
+      subtype: 'success',
+      request_id: 'q1',
+      response: {
+        behavior: 'allow',
+        updatedInput: { questions, answers: { 'Which checks?': 'Unit, Browser' } },
+      },
+    },
+  });
+  assert.equal(run.approvals.length, 0);
+  f.emit({
+    type: 'control_request',
+    request_id: 'q2',
+    request: { subtype: 'can_use_tool', tool_name: 'AskUserQuestion', input: { questions } },
+  });
+  f.emit({ type: 'control_cancel_request', request_id: 'q2' });
+  assert.equal(run.requests[1].status, 'expired');
+  f.runner.dispose();
+});
 
 test('Codex protocol handles typed tool events, approvals, cancellation and bounded messages deterministically', async () => {
   const f = fixture(),
@@ -128,6 +244,8 @@ test('Codex protocol handles typed tool events, approvals, cancellation and boun
   await drain();
   assert.equal(r.sessionReady, true);
   assert.equal(f.runner.runningCount(), 1);
+  assert.equal(f.runner.checkoutBusy(f.session.cwd), true);
+  assert.equal(f.runner.checkoutBusy('/unrelated'), false);
   f.children[0].stdout.emit('data', 'invalid\n');
   f.children[0].stdin.emit('error', Error('closed'));
   f.emit({ id: 'unknown', result: {} });
@@ -137,6 +255,7 @@ test('Codex protocol handles typed tool events, approvals, cancellation and boun
   });
   assert.equal(r.messages.length, 0);
   f.emit({ id: 90, method: 'unsupported', params: {} });
+  assert.equal(r.unsupportedRequests, 1);
   assert.equal(f.writes.at(-1).error.code, -32601);
   for (const type of ['commandExecution', 'fileChange', 'mcpToolCall', 'webSearch', 'agentMessage'])
     for (const method of ['item/started', 'item/completed'])
@@ -206,6 +325,7 @@ test('Codex protocol handles typed tool events, approvals, cancellation and boun
   for (const fn of [...f.timers.values()]) fn();
   assert.ok(f.kills.some((k: any) => k[1] === 'SIGKILL'));
   f.children[0].emit('close');
+  assert.equal(f.runner.checkoutBusy(f.session.cwd), false);
   f.runner.dispose();
 });
 
@@ -216,6 +336,7 @@ test('Claude protocol handles streaming, subagents, tool results and explicit pe
   assert.equal(r.sessionId, '');
   f.emit({ type: 'system', subtype: 'init', session_id: 'fork' });
   f.emit({ type: 'control_request', request_id: 'unsupported', request: { subtype: 'other' } });
+  assert.equal(r.unsupportedRequests, 1);
   assert.equal(f.writes.at(-1).response.subtype, 'error');
   f.emit({
     type: 'assistant',
@@ -442,4 +563,37 @@ test('agent protocols bound retained state and tolerate sparse events', async ()
   c.emit({ type: 'result' });
   assert.equal(claude.status, 'completed');
   c.runner.dispose();
+});
+
+test('native runtimes bind memory tools to the backend project and queue extraction only after success', async () => {
+  for (const agent of ['codex', 'claude']) {
+    const f = fixture(agent);
+    const run = await f.runner.start(f.session, 'task', true, false, undefined, undefined, {
+      root: '/project',
+      groupId: 'g',
+      prompt: 'Use npm test.',
+    });
+    await drain();
+    assert.equal(f.memoryScopes.length, 1);
+    assert.equal(f.memoryScopes[0].root, '/project');
+    assert.equal(f.memoryScopes[0].sources()[0].text, 'Use npm test.');
+    assert.equal(f.memoryScopes[0].turnId, run.id);
+    if (agent === 'codex') {
+      const start = f.writes.find((row) => row.method === 'thread/resume');
+      assert.equal(
+        start.params.config.mcp_servers['kalkidan-memory'].url,
+        'http://127.0.0.1:1234/mcp/scoped',
+      );
+      f.emit({ method: 'turn/completed', params: { turn: { status: 'completed' } } });
+    } else {
+      assert.ok(f.launches[0].includes('--mcp-config'));
+      f.emit({ type: 'result', is_error: false, result: 'Done' });
+    }
+    await drain();
+    assert.equal(run.status, 'completed');
+    assert.equal(f.memoryClosed(), 1);
+    assert.equal(f.extractions.length, 1);
+    f.runner.dispose();
+    assert.equal(f.extractions.length, 1);
+  }
 });

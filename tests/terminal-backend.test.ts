@@ -178,3 +178,77 @@ test('command processes bound output, reject invalid input and release old runs 
     terminal.stopAll();
   }
 });
+test('terminal close settles pending startup and late Windows loading cannot spawn an orphan', async () => {
+  let load!: (module: any) => void;
+  let spawns = 0;
+  const { PtyTerminal } = backendLoader(
+    {},
+    { process: { platform: 'win32', env: {} } },
+  )(resolve('electron/pty-terminal.ts'));
+  const terminal = new PtyTerminal(
+    () =>
+      new Promise((done) => {
+        load = done;
+      }),
+  );
+  const pending = terminal.open('/repo', 80, 24);
+  const rejected = assert.rejects(pending, /closed before startup/);
+  terminal.closeAll();
+  await rejected;
+  load({
+    spawn: () => {
+      spawns++;
+      throw Error('Must not spawn');
+    },
+  });
+  for (let i = 0; i < 10; i++) await Promise.resolve();
+  assert.equal(spawns, 0);
+});
+test('opening terminals reserve capacity before asynchronous native loading', async () => {
+  const { PtyTerminal } = backendLoader(
+    {},
+    { process: { platform: 'win32', env: {} } },
+  )(resolve('electron/pty-terminal.ts'));
+  const terminal = new PtyTerminal(() => new Promise(() => {}));
+  const pending = Array.from({ length: 8 }, () =>
+    assert.rejects(terminal.open('/repo', 80, 24), /closed before startup/),
+  );
+  await assert.rejects(terminal.open('/repo', 80, 24), /Close an existing/);
+  terminal.closeAll();
+  await Promise.all(pending);
+});
+test('closing a Python terminal before readiness rejects startup and ignores late output', async () => {
+  const lines = new EventEmitter();
+  let kills = 0;
+  const child = Object.assign(new EventEmitter(), {
+    stdin: Object.assign(new EventEmitter(), { write() {}, end() {} }),
+    stderr: new EventEmitter(),
+    stdout: {},
+    kill: () => {
+      kills++;
+    },
+  });
+  const { PtyTerminal } = backendLoader(
+    {
+      'node:crypto': { randomUUID: () => 'opening' },
+      'node:readline': { createInterface: () => lines },
+      'node:child_process': { spawn: () => child },
+    },
+    { process: { platform: 'linux', env: {} } },
+  )(resolve('electron/pty-terminal.ts'));
+  const terminal = new PtyTerminal();
+  const pending = terminal.open('/repo', 80, 24);
+  const rejected = assert.rejects(pending, /closed before startup/);
+  assert.equal(terminal.read('opening', 0).phase, 'opening');
+  assert.throws(() => terminal.resize('opening', 80, 25), /not ready/);
+  assert.throws(() => terminal.write('opening', 'input'), /not ready/);
+  terminal.closeAll();
+  await rejected;
+  lines.emit('line', '{"ready":true}');
+  lines.emit('line', '{"data":"late"}');
+  child.emit('close');
+  assert.equal(terminal.read('opening', 0).phase, 'closed');
+  assert.equal(terminal.read('opening', 0).data, '');
+  terminal.close('opening');
+  assert.equal(kills, 1);
+});

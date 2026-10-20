@@ -69,10 +69,20 @@ test('GitHub tracker delegates valid operations and rejects malformed owner/proj
       return Promise.resolve(name);
     };
   const projects = Object.fromEntries(
-    ['owners', 'list', 'resolve', 'create', 'board', 'setStatus', 'addDraft', 'addIssue'].map(
-      (n) => [n, capture(n)],
-    ),
+    [
+      'owners',
+      'list',
+      'resolve',
+      'create',
+      'board',
+      'setStatus',
+      'addDraft',
+      'addIssue',
+      'invalidateBoards',
+    ].map((n) => [n, capture(n)]),
   );
+  projects.withWrite = (_project: any, action: any) => action();
+  projects.withAccount = (action: any) => action();
   const auth = Object.fromEntries(['start', 'inspect', 'cancel'].map((n) => [n, capture(n)]));
   const { githubTracker } = backendLoader()(source('trackers/github'));
   const provider = githubTracker(projects, auth, capture('open'));
@@ -91,7 +101,9 @@ test('GitHub tracker delegates valid operations and rejects malformed owner/proj
   await provider.setStatus(project, 'item', 'done');
   await provider.createItem(project, 'title', 'body');
   await provider.importItem(project, 'url');
-  assert.deepEqual(calls[0], ['start', [false]]);
+  assert.deepEqual(calls[0], ['invalidateBoards', []]);
+  assert.deepEqual(calls[1], ['start', [false]]);
+  assert.equal(calls.filter(([name]) => name === 'invalidateBoards').length, 3);
   assert.deepEqual(calls.at(-1), ['addIssue', [project, 'url']]);
   for (const invalid of [null, {}, { kind: 'other' }])
     assert.throws(() => provider.projects(invalid), /Invalid GitHub owner/);

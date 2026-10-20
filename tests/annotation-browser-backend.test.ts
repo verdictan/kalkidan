@@ -151,7 +151,11 @@ test('preview windows enforce navigation, bounds, device, selection and download
     browser.navigate('default', action);
   assert.equal(await browser.select(), null);
   selection = { selector: 'div', text: 'Text' };
-  assert.deepEqual(await browser.select(), selection);
+  assert.deepEqual(await browser.select(), {
+    ...selection,
+    browserId: 'default',
+    navigationGeneration: browser.state('default').navigationGeneration,
+  });
   selection = { selector: 2 };
   await assert.rejects(browser.select(), /Could not read/);
   let finish!: Function;
@@ -162,6 +166,16 @@ test('preview windows enforce navigation, bounds, device, selection and download
   await assert.rejects(browser.select(), /already active/);
   finish(null);
   await pending;
+  selection = new Promise((resolve) => {
+    finish = resolve;
+  });
+  const beforeNavigation = browser.select();
+  const previousGeneration = browser.state('default').navigationGeneration;
+  view.webContents.emit('did-start-navigation', { isMainFrame: false });
+  assert.equal(browser.state('default').navigationGeneration, previousGeneration);
+  view.webContents.emit('did-start-navigation', { isMainFrame: true });
+  finish({ selector: 'old-page', text: 'Old selection' });
+  assert.equal(await beforeNavigation, null);
   destroyed = true;
   selection = null;
   await browser.select();

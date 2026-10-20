@@ -1,4 +1,6 @@
 export interface BrowserSelection {
+  browserId?: string;
+  navigationGeneration?: number;
   url: string;
   title: string;
   selector: string;
@@ -21,6 +23,7 @@ export interface BrowserProfileData {
   credentials: { id: string; origin: string; username: string }[];
 }
 export interface BrowserState {
+  navigationGeneration?: number;
   command?: string;
   zoom?: number;
   find?: { matches: number; activeMatchOrdinal: number };

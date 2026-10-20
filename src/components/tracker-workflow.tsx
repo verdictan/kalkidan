@@ -34,17 +34,22 @@ export function TrackerWorkflow({
 }) {
   const [progress, setProgress] = useState('default');
   const [done, setDone] = useState('default');
+  const [field, setField] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   useEffect(() => {
     if (open) {
       setProgress(connection.statusMapping?.progress || 'default');
       setDone(connection.statusMapping?.done || 'default');
+      setField(connection.statusFieldId || board.statusField?.id || '');
       setError('');
     }
-  }, [open, connection.statusMapping]);
+  }, [open, connection.statusMapping, connection.statusFieldId, board.statusField?.id]);
+  const fields = board.fields?.filter((value) => value.dataType === 'SINGLE_SELECT') || [];
   const statuses =
-    board.statusField?.options.map((option) => ({ value: option.id, label: option.name })) || [];
+    (fields.find((value) => value.id === field)?.options || board.statusField?.options)?.map(
+      (option) => ({ value: option.id, label: option.name }),
+    ) || [];
   const options = (name?: string) => [
     { value: 'default', label: name ? `Default (${name})` : 'Default' },
     ...statuses,
@@ -53,10 +58,14 @@ export function TrackerWorkflow({
     setBusy(true);
     setError('');
     try {
-      await api.trackerConfigure(groupId, {
-        ...(progress !== 'default' ? { progress } : {}),
-        ...(done !== 'default' ? { done } : {}),
-      });
+      await api.trackerConfigure(
+        groupId,
+        {
+          ...(progress !== 'default' ? { progress } : {}),
+          ...(done !== 'default' ? { done } : {}),
+        },
+        field || undefined,
+      );
       await onSaved();
       onOpenChange(false);
     } catch (error) {
@@ -75,6 +84,23 @@ export function TrackerWorkflow({
             done only when you approve it.
           </DialogDescription>
         </DialogHeader>
+        {!!fields.length && (
+          <label className="form-label">
+            Workflow field
+            <Choice
+              className="w-full"
+              label="Workflow field"
+              value={field}
+              onChange={(value) => {
+                setField(value);
+                setProgress('default');
+                setDone('default');
+              }}
+              options={fields.map((value) => ({ value: value.id, label: value.name }))}
+              disabled={busy}
+            />
+          </label>
+        )}
         <label className="form-label">
           When work starts
           <Choice

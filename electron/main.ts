@@ -1,3 +1,13 @@
+import { TaskExecutions } from './operations/task-execution';
+import { trackerConnection } from '../src/domain/tracker';
+import { WorktreeCreation } from './operations/worktree';
+import { AgentStarts } from './operations/agent-start';
+import { ProjectCreation } from './operations/create-project';
+import { PublishOperations, publishEffects } from './operations/publish';
+import { DesktopUpdates } from './updates/desktop';
+import { createHash } from 'node:crypto';
+import { RemoteSnapshotCache } from './remote-snapshot-cache';
+import { createVerdictanServices, runtimePolicyReader } from './verdictan/service';
 import { spawn } from 'node:child_process';
 import { appMenuTemplate } from './app-menu';
 import { pathContains } from './platform';
@@ -10,6 +20,7 @@ import {
   importLegacyDocs,
 } from './storage/project-location';
 import { memoryDirectory, readProjectMemory } from './storage/project-memory';
+import { resourceRevision } from './storage/resource-revision';
 import { ProjectDocs } from './storage/project-docs';
 import { dataDirectory } from './storage/data-directory';
 import { HistoryImport } from './history-import';
@@ -44,6 +55,7 @@ import {
   Menu,
   clipboard,
   nativeTheme,
+  powerMonitor,
   Notification,
 } from 'electron';
 import { existsSync } from 'node:fs';
@@ -63,11 +75,12 @@ import {
   removeWorktree,
   workingFiles,
   workingStatus,
-  worktreeFolder,
   worktreePreview,
 } from './git-working';
 import { scanRepositories } from './repository-scan';
-import { history } from './history';
+import { historyWithManaged } from './history';
+const history = (codex: string, claude: string, sources?: Map<string, string>) =>
+  historyWithManaged(dataRoot, codex, claude, sources);
 import { codexTranscript } from './codex-store';
 import { ProjectGroups } from './project-groups';
 import { SessionLibrary } from './session-library';
@@ -94,9 +107,13 @@ const owned = new Map<
   { kind: 'chat' | 'pty' | 'terminal'; id: string; hostId?: string }[]
 >();
 const previews = new Map<BrowserWindow, AnnotationBrowser>();
-const chatRunner = createAgentRuntimes();
+const chatRunner = createAgentRuntimes(async (request) => {
+  if (!verdictan) throw new Error('Verdictan is not ready. Open Settings to complete setup.');
+  return verdictan.launch.prepare(request);
+});
 const githubAuth = new GitHubAuth(() => shell.openExternal('https://github.com/login/device'));
 let remote: RemoteHosts;
+let verdictan: ReturnType<typeof createVerdictanServices> | undefined;
 // The user confirmed that running agents can stop. Do not ask again while the app quits.
 let stopAgentsConfirmed = false;
 /** Asks before an action stops running agents. Returns true when the action can continue. */
@@ -123,6 +140,8 @@ app.on('before-quit', (event) => {
     return;
   }
   githubAuth.cancel();
+  void verdictan?.managed.stopAll();
+  verdictan?.account.dispose();
   chatRunner.dispose();
   terminal.stopAll();
   pty.closeAll();
@@ -175,28 +194,90 @@ function handle(channel: string, fn: (...args: any[]) => any) {
       (w) => w.webContents === event.sender && event.senderFrame === w.webContents.mainFrame,
     );
     if (!owner) throw new Error('Untrusted caller');
-    return Promise.resolve(fn(...args)).then((result) => {
-      const remoteMethod = channel === 'remote-call' ? args[1] : '';
-      const kind =
-        ['chat-create', 'chat-start'].includes(channel) ||
-        ['chatCreate', 'chatStart'].includes(remoteMethod)
-          ? 'chat'
-          : channel === 'pty-open' || remoteMethod === 'ptyOpen'
-            ? 'pty'
-            : channel === 'terminal-start' || remoteMethod === 'terminalStart'
-              ? 'terminal'
-              : null;
-      if (kind && result?.id) {
-        const resource = {
-          kind,
-          id: result.id,
-          hostId: remoteMethod ? args[0] : undefined,
-        } as const;
-        if (windows.has(owner)) owned.get(owner)!.push(resource);
-        else stopResource(resource);
-      }
-      return result;
-    });
+    const replyHost = channel === 'remote-call' ? args[0] : undefined;
+    const replyMethod = channel === 'remote-call' ? args[1] : channel;
+    const replyRun = channel === 'remote-call' ? args[2]?.[0] : args[0];
+    if (
+      ['chat-respond', 'chat-approve', 'chatRespond', 'chatApprove'].includes(replyMethod) &&
+      !owned
+        .get(owner)
+        ?.some((r) => r.kind === 'chat' && r.id === replyRun && r.hostId === replyHost)
+    )
+      throw new Error('This agent request belongs to another window or host.');
+    return Promise.resolve()
+      .then(() => fn(...args))
+      .then((result) => {
+        const remoteMethod = channel === 'remote-call' ? args[1] : '';
+        const kind =
+          ['chat-create', 'chat-start'].includes(channel) ||
+          ['chatCreate', 'chatStart'].includes(remoteMethod)
+            ? 'chat'
+            : channel === 'pty-open' || remoteMethod === 'ptyOpen'
+              ? 'pty'
+              : channel === 'terminal-start' || remoteMethod === 'terminalStart'
+                ? 'terminal'
+                : null;
+        if (kind && result?.id) {
+          const resource = {
+            kind,
+            id: result.id,
+            hostId: remoteMethod ? args[0] : undefined,
+          } as const;
+          if (
+            [...owned].some(
+              ([window, resources]) =>
+                window !== owner &&
+                resources.some(
+                  (value) =>
+                    value.kind === resource.kind &&
+                    value.id === resource.id &&
+                    value.hostId === resource.hostId,
+                ),
+            )
+          )
+            throw new Error('This operation belongs to another window.');
+          if (windows.has(owner)) {
+            if (
+              !owned
+                .get(owner)!
+                .some(
+                  (value) =>
+                    value.kind === resource.kind &&
+                    value.id === resource.id &&
+                    value.hostId === resource.hostId,
+                )
+            )
+              owned.get(owner)!.push(resource);
+          } else stopResource(resource);
+        }
+        return result;
+      })
+      .finally(() => {
+        if (
+          [
+            'tracker-status',
+            'tracker-project-action',
+            'tracker-resource-change',
+            'tracker-relation-change',
+            'tracker-content-change',
+            'tracker-settings-update',
+            'tracker-field',
+            'tracker-item-action',
+            'tracker-draft',
+            'tracker-add-issue',
+            'tracker-link',
+            'tracker-configure',
+            'tracker-auth-start',
+            'github-link',
+            'github-status',
+            'github-draft',
+            'github-add-issue',
+            'github-auth-start',
+          ].includes(channel)
+        )
+          for (const window of windows)
+            if (!window.isDestroyed()) window.webContents.send('tracker-changed');
+      });
   });
 }
 function stopResource(resource: {
@@ -230,6 +311,93 @@ async function git(path: string, args: string[]) {
 }
 const appearanceFile = join(dataRoot, 'appearance.json');
 app.whenReady().then(async () => {
+  powerMonitor.on('resume', () => {
+    void remote?.reconcile().catch(() => {});
+  });
+  const runtimePolicy = runtimePolicyReader(__dirname);
+  verdictan = createVerdictanServices({
+    root: dataRoot,
+    hostId: 'local',
+    desktopVersion: app.getVersion(),
+    policy: runtimePolicy,
+    busy: () => chatRunner.runningCount() > 0,
+    openBrowser: (url) => shell.openExternal(url),
+  });
+  void verdictan.installer.check().catch(() => {});
+  const desktopUpdates = new DesktopUpdates({
+    version: app.getVersion(),
+    bundle: join(__dirname, 'main.cjs'),
+    journal: join(dataRoot, 'updates', 'desktop-discovery.json'),
+    platform: process.platform,
+    arch: process.arch,
+  });
+  const approvedHelper = readFile(join(__dirname, 'remote-agent.cjs')).then((bytes) =>
+    createHash('sha256').update(bytes).digest('hex'),
+  );
+  void approvedHelper.catch(() => {});
+  void desktopUpdates.status().catch(() => {});
+  handle('component-updates', async (force?: boolean) => {
+    const [desktop, approved] = await Promise.all([
+      desktopUpdates.status(force === true),
+      approvedHelper,
+    ]);
+    return {
+      desktop,
+      helpers: remote.list().map((host) => ({
+        hostId: host.id,
+        name: host.name,
+        connected: host.status === 'connected',
+        installed: host.installedDigest || host.version,
+        running: host.status === 'connected' ? host.runningDigest : undefined,
+        approved,
+        discovery:
+          remote.busy(host.id) && host.installedDigest !== approved
+            ? 'waiting-for-idle'
+            : host.installedDigest
+              ? host.installedDigest === approved
+                ? 'current'
+                : 'available'
+              : 'unknown',
+      })),
+    };
+  });
+  handle('verdictan-setup', () => verdictan!.setup.status());
+  handle('verdictan-select', (agent, selection) => verdictan!.setup.select(agent, selection));
+  handle('verdictan-status', () => verdictan!.account.status());
+  handle('verdictan-check', () => verdictan!.account.check());
+  handle('verdictan-authorize', (intent) => verdictan!.account.authorize(intent));
+  handle('verdictan-cancel', () => verdictan!.account.cancel());
+  handle('verdictan-renew', () => verdictan!.account.renew());
+  handle('verdictan-logout', async () => {
+    verdictan!.remoteBroker.reset();
+    await Promise.allSettled(
+      remote
+        .list()
+        .filter((host) => host.status === 'connected')
+        .map((host) => remote.call(host.id, 'managed-stop', [])),
+    );
+    await verdictan!.managed.stopAll();
+    chatRunner.dispose();
+    return verdictan!.account.logout();
+  });
+  for (const action of ['status', 'check', 'install', 'cancel'] as const) {
+    handle(`runtime-update-${action}`, async (hostId?: string) => {
+      if (hostId && hostId !== 'local') {
+        if (typeof hostId !== 'string' || !remote.list().some((host) => host.id === hostId))
+          throw new Error('Remote host not found.');
+        return remote.call(hostId, 'runtime-update', [
+          action,
+          await runtimePolicy(),
+          app.getVersion(),
+          hostId,
+        ]);
+      }
+      if (action === 'status') return verdictan!.installer.check();
+      if (action === 'check') return verdictan!.installer.check(true);
+      if (action === 'cancel') return verdictan!.installer.cancel();
+      return verdictan!.installer.start();
+    });
+  }
   if (!app.isPackaged && existsSync(appIcon)) app.dock?.setIcon(appIcon);
   // Apply the saved appearance before the first window opens, so it opens in the right colors.
   nativeTheme.themeSource = await readAppearanceMode(appearanceFile);
@@ -296,36 +464,44 @@ app.whenReady().then(async () => {
     handle('docs-' + operation, async (id, ...args) => {
       const group = projectGroups.groups.find((g) => g.id === id);
       if (!group) throw new Error('Project not found');
-      if (group.hostId)
-        return remote.call(group.hostId, 'project-docs', [
-          id,
-          await projectRoot(id),
-          operation,
-          args,
-        ]);
-      try {
-        switch (operation) {
-          case 'metadata':
-            return await docs.metadata(id);
-          case 'read':
-            return await docs.get(id, args[0]);
-          case 'list':
-            return await docs.list(id);
-          case 'create':
-            return await docs.create(id, args[0], args[1]);
-          case 'save':
-            return await docs.save(id, args[0]);
-          case 'delete':
-            return await docs.delete(id, args[0], args[1]);
-          case 'trash':
-            return await docs.trash(id);
-          case 'restore':
-            return await docs.restore(id, args[0]);
+      const result = await (async () => {
+        if (group.hostId)
+          return remote.call(group.hostId, 'project-docs', [
+            id,
+            await projectRoot(id),
+            operation,
+            args,
+          ]);
+        try {
+          switch (operation) {
+            case 'metadata':
+              return await docs.metadata(id);
+            case 'read':
+              return await docs.get(id, args[0]);
+            case 'list':
+              return await docs.list(id);
+            case 'create':
+              return await docs.create(id, args[0], args[1]);
+            case 'save':
+              return await docs.save(id, args[0]);
+            case 'delete':
+              return await docs.delete(id, args[0], args[1]);
+            case 'trash':
+              return await docs.trash(id);
+            case 'restore':
+              return await docs.restore(id, args[0]);
+          }
+        } catch (error) {
+          locations.invalidate(id, group.rootPath);
+          throw error;
         }
-      } catch (error) {
-        locations.invalidate(id, group.rootPath);
-        throw error;
+      })();
+      if (['create', 'save', 'delete', 'restore'].includes(operation)) {
+        for (const window of windows)
+          if (!window.isDestroyed())
+            window.webContents.send('project-resource-changed', { groupId: id, resource: 'docs' });
       }
+      return result;
     });
   }
   const sessionLibrary = new SessionLibrary(join(app.getPath('userData'), 'sessions.json'));
@@ -434,6 +610,19 @@ app.whenReady().then(async () => {
   remote = new RemoteHosts(
     join(app.getPath('userData'), 'remote-hosts.json'),
     join(__dirname, 'remote-agent.cjs'),
+    () => {
+      for (const window of windows)
+        if (!window.isDestroyed()) window.webContents.send('remote-hosts-changed');
+    },
+    (hostId, groupId, resource) => {
+      if (!projectGroups.groups.some((group) => group.id === groupId && group.hostId === hostId))
+        return;
+      for (const window of windows)
+        if (!window.isDestroyed())
+          window.webContents.send('project-resource-changed', { groupId, resource });
+    },
+    (hostId, operation, parameters) =>
+      verdictan!.remoteBroker.request(hostId, operation, parameters),
   );
   await remote.load();
   handle('remote-hosts', () => remote.list());
@@ -500,16 +689,37 @@ app.whenReady().then(async () => {
       )
         throw new Error('Add this remote folder to the project first.');
     }
-    if (method === 'chatCreate') args[2] = await projectPrompt(args[0], args[2], args[4], hostId);
+    if (method === 'chatCreate' || method === 'chatStart')
+      await remote.call(hostId, 'runtime-update', [
+        'status',
+        await runtimePolicy(),
+        app.getVersion(),
+        hostId,
+      ]);
+    let taskCwd: string | undefined;
+    if (method === 'chatCreate') {
+      taskCwd = args[0];
+      args[5] = await memoryContext(args[0], args[2], hostId);
+      args[2] = await projectPrompt(args[0], args[2], args[4], hostId);
+    }
     if (method === 'chatStart') {
       const h = await remote.call(hostId, 'snapshot', []);
       const session = h.sessions.find((s: any) => s.id === args[1] && s.agent === args[0]);
       if (!session) throw new Error('Remote session not found');
+      taskCwd = session.cwd;
+      args[5] = await memoryContext(session.cwd, args[2], hostId);
       args[2] = await projectPrompt(session.cwd, args[2], args[4], hostId);
     }
-    return remote.call(hostId, method, args);
+    if (taskCwd)
+      return startAgentTask(taskCwd, hostId, args[4], () => remote.call(hostId, method, args));
+    const result = await remote.call(hostId, method, args);
+    return method === 'chatStatus' ? taskExecutions.observe(result, hostId) : result;
   });
-  const github = new GitHubProjects();
+  const github = new GitHubProjects(
+    undefined,
+    undefined,
+    join(dataRoot, 'operations', 'github-writes'),
+  );
   const trackers = new TrackerRegistry(
     [
       githubTracker(github, githubAuth, () =>
@@ -518,10 +728,78 @@ app.whenReady().then(async () => {
     ],
     runtimeConfig().defaultTracker,
   );
+  const taskExecutions = new TaskExecutions(join(dataRoot, 'operations', 'task-execution'), {
+    inspect: async (scope) => {
+      const group = projectGroups.groups.find(
+        (group) => group.id === scope.groupId && group.hostId === scope.hostId,
+      );
+      const connection = trackerConnection(group);
+      if (!connection) throw new Error('The task project is no longer connected.');
+      const { provider, project } = trackers.linked(connection);
+      const board = await provider.board(project, true);
+      const item = board.items.find((item) => item.id === scope.taskId);
+      if (!item) throw new Error('The task was removed or archived. Refresh the project.');
+      const target = connection.statusMapping?.progress;
+      return {
+        projectId: project.id,
+        fieldId: board.statusField?.id,
+        sourceStatus: item.statusId,
+        targetStatus:
+          target && board.statusField?.options.some((option) => option.id === target)
+            ? target
+            : undefined,
+      };
+    },
+    write: async (scope, evidence) => {
+      const connection = trackerConnection(
+        projectGroups.groups.find(
+          (group) => group.id === scope.groupId && group.hostId === scope.hostId,
+        ),
+      );
+      if (
+        !connection ||
+        connection.project.id !== evidence.projectId ||
+        connection.statusMapping?.progress !== evidence.targetStatus
+      )
+        throw new Error('The task workflow changed.');
+      const { provider, project } = trackers.linked(connection);
+      if (!provider.field || !evidence.fieldId || !evidence.targetStatus)
+        throw new Error('Configure the project workflow first.');
+      await provider.field(project, scope.taskId, evidence.fieldId, {
+        singleSelectOptionId: evidence.targetStatus,
+      });
+    },
+  });
+  function startAgentTask(
+    cwd: string,
+    hostId: string | undefined,
+    options: ChatOptions | undefined,
+    launch: () => Promise<import('../src/types').ChatRun>,
+  ) {
+    if (!options?.taskId) return launch();
+    const repo = projects
+      .filter((repo) => repo.hostId === hostId && pathContains(repo.path, cwd))
+      .sort((a, b) => b.path.length - a.path.length)[0];
+    const group = projectGroups.groups.find(
+      (group) => group.hostId === hostId && repo && group.repoIds.includes(repo.id),
+    );
+    if (!group) throw new Error('The task checkout is not in this project.');
+    return taskExecutions.start(
+      options.operationId || randomUUID(),
+      { groupId: group.id, taskId: options.taskId, hostId },
+      launch,
+    );
+  }
   registerTrackerHandlers(handle, trackers, projectGroups);
-  handle('github-auth-start', (force) => githubAuth.start(force === true));
+  handle('github-auth-start', (force) => {
+    github.invalidateBoards();
+    return githubAuth.start(force === true);
+  });
   handle('github-auth-status', () => githubAuth.inspect());
-  handle('github-auth-cancel', () => githubAuth.cancel());
+  handle('github-auth-cancel', (attemptId) => {
+    github.invalidateBoards();
+    return githubAuth.cancel(typeof attemptId === 'string' ? attemptId : '');
+  });
   handle('github-auth-open', () => shell.openExternal('https://github.com/login/device'));
   // The saved appearance sets the native theme, so the page and the title bar overlay follow it.
   // The choice is also saved for the next start.
@@ -535,23 +813,30 @@ app.whenReady().then(async () => {
     const window = BrowserWindow.getFocusedWindow() ?? win;
     if (window) Menu.getApplicationMenu()?.popup({ window, x: 8, y: 48 });
   });
+  const githubProvider = trackers.get('github');
   function linked(id: string) {
-    const group = projectGroups.groups.find((g) => g.id === id);
-    if (!group?.github) throw new Error('Connect a GitHub project first.');
-    return group.github;
+    const connection = trackerConnection(projectGroups.groups.find((g) => g.id === id));
+    if (!connection || connection.provider !== 'github')
+      throw new Error('Connect a GitHub project first.');
+    return connection.project;
   }
   handle('models', (agent) => modelOptions(agent, codexRoot));
   handle('github-link', async (id, url) => {
     if (!projectGroups.groups.some((g) => g.id === id)) throw new Error('Project not found');
-    await projectGroups.link(id, url === null ? undefined : await github.resolve(url));
+    if (url === null) await projectGroups.link(id, undefined);
+    else
+      await projectGroups.connect(id, {
+        provider: 'github',
+        project: await githubProvider.resolve(url),
+      });
   });
-  handle('github-owners', () => github.owners());
-  handle('github-projects', (owner) => github.list(owner));
-  handle('github-create-project', (owner, title) => github.create(owner, title));
-  handle('github-board', (id) => github.board(linked(id)));
-  handle('github-status', (id, item, option) => github.setStatus(linked(id), item, option));
-  handle('github-draft', (id, title, body) => github.addDraft(linked(id), title, body));
-  handle('github-add-issue', (id, url) => github.addIssue(linked(id), url));
+  handle('github-owners', () => githubProvider.owners());
+  handle('github-projects', (owner) => githubProvider.projects(owner));
+  handle('github-create-project', (owner, title) => githubProvider.createProject(owner, title));
+  handle('github-board', (id) => githubProvider.board(linked(id)));
+  handle('github-status', (id, item, option) => githubProvider.setStatus(linked(id), item, option));
+  handle('github-draft', (id, title, body) => githubProvider.createItem(linked(id), title, body));
+  handle('github-add-issue', (id, url) => githubProvider.importItem(linked(id), url));
   handle('memory-list', async (id) => {
     const group = projectGroups.groups.find((g) => g.id === id);
     if (!group) throw new Error('Project not found.');
@@ -560,6 +845,39 @@ app.whenReady().then(async () => {
       ? remote.call(group.hostId, 'project-memory', [id, root, 'list'])
       : readProjectMemory(root);
   });
+  handle('project-resource-revision', async (id, kind) => {
+    const group = projectGroups.groups.find((g) => g.id === id);
+    if (!group) throw new Error('Project not found.');
+    if (!['docs', 'memory'].includes(kind)) throw new Error('Invalid project resource.');
+    const root = await projectRoot(id);
+    return group.hostId
+      ? remote.call(group.hostId, 'project-resource-revision', [root, kind])
+      : resourceRevision(root, kind);
+  });
+  async function memoryContext(cwd: string, prompt: string, hostId?: string) {
+    const repo = projects
+      .filter((p) => p.hostId === hostId && pathContains(p.path, cwd))
+      .sort((a, b) => b.path.length - a.path.length)[0];
+    const group = projectGroups.groups.find(
+      (g) => repo && g.hostId === hostId && g.repoIds.includes(repo.id),
+    );
+    if (!group) return undefined;
+    return {
+      root: await projectRoot(group.id),
+      groupId: group.id,
+      prompt,
+      changed: hostId
+        ? undefined
+        : () => {
+            for (const window of windows)
+              if (!window.isDestroyed())
+                window.webContents.send('project-resource-changed', {
+                  groupId: group.id,
+                  resource: 'memory',
+                });
+          },
+    };
+  }
   const projectPrompt = createProjectPrompt({
     memoryPath: async (group) => {
       const root = await projectRoot(group.id);
@@ -580,30 +898,30 @@ app.whenReady().then(async () => {
           ])
         : docs.search(group.id, query),
   });
+  const remoteSnapshots = new RemoteSnapshotCache<{ sessions: any[]; warnings: string[] }>(() => {
+    for (const window of windows)
+      if (!window.isDestroyed()) window.webContents.send('remote-hosts-changed');
+  });
   handle('snapshot', async () => {
     const result = await history(codexRoot, claudeRoot);
     const remoteSessions: any[] = [];
     const warnings = [...result.warnings];
-    await Promise.all(
-      remote
-        .list()
-        .filter((h) => h.status === 'connected')
-        .map(async (host) => {
-          try {
-            const scan = await remote.call(host.id, 'snapshot', []);
-            remoteSessions.push(
-              ...scan.sessions.map((session: any) => ({
-                ...session,
-                id: host.id + '::' + session.id,
-                hostId: host.id,
-              })),
-            );
-            warnings.push(...scan.warnings.map((w: string) => host.name + ': ' + w));
-          } catch (e: any) {
-            warnings.push(host.name + ': ' + e.message);
-          }
-        }),
-    );
+    const connected = remote.list().filter((host) => host.status === 'connected');
+    remoteSnapshots.retain(new Set(connected.map((host) => host.id)));
+    for (const host of connected) {
+      const cached = remoteSnapshots.read(host.id, () => remote.call(host.id, 'snapshot', []));
+      if (cached.value) {
+        remoteSessions.push(
+          ...cached.value.sessions.map((session: any) => ({
+            ...session,
+            id: host.id + '::' + session.id,
+            hostId: host.id,
+          })),
+        );
+        warnings.push(...cached.value.warnings.map((warning) => host.name + ': ' + warning));
+      }
+      if (cached.error) warnings.push(host.name + ': ' + cached.error);
+    }
     return {
       projects,
       hosts: remote.list(),
@@ -654,6 +972,9 @@ app.whenReady().then(async () => {
     }
     return readTranscript(path!, agent);
   });
+  const agentStarts = new AgentStarts(join(dataRoot, 'operations', 'agent-start'), (id) =>
+    chatRunner.status(id),
+  );
   handle('chat-create', async (projectId, agent, prompt, allowEdits, options?: ChatOptions) => {
     if (!isAgent(agent)) throw new Error('Invalid agent');
     const p = project(projectId);
@@ -661,55 +982,108 @@ app.whenReady().then(async () => {
     if (!(await stat(p.path)).isDirectory())
       throw new Error('The project folder is no longer available.');
     if (options?.forkFrom) await sessionSource(agent, options.forkFrom);
-    return chatRunner.start(
-      {
-        id: randomUUID(),
-        agent,
-        cwd: p.path,
-        title: 'New session',
-        updatedAt: new Date().toISOString(),
-      },
-      await projectPrompt(p.path, prompt, options),
-      allowEdits,
-      true,
-      options?.model,
-      options?.forkFrom,
+    return startAgentTask(p.path, undefined, options, () =>
+      agentStarts.run(
+        options?.operationId,
+        [projectId, agent, prompt, allowEdits, options],
+        async () =>
+          chatRunner.start(
+            {
+              id: randomUUID(),
+              agent,
+              cwd: p.path,
+              title: 'New session',
+              updatedAt: new Date().toISOString(),
+            },
+            await projectPrompt(p.path, prompt, options),
+            allowEdits,
+            true,
+            options?.model,
+            options?.forkFrom,
+            await memoryContext(p.path, prompt),
+          ),
+      ),
     );
   });
   handle('chat-start', async (agent, id, prompt, allowEdits, options?: ChatOptions) => {
     const { session } = await sessionSource(agent, id);
     if (!(await stat(session.cwd)).isDirectory())
       throw new Error('The session project folder is no longer available.');
-    return chatRunner.start(
-      session,
-      await projectPrompt(session.cwd, prompt, options),
-      allowEdits,
-      false,
-      options?.model,
+    return startAgentTask(session.cwd, undefined, options, () =>
+      agentStarts.run(options?.operationId, [agent, id, prompt, allowEdits, options], async () =>
+        chatRunner.start(
+          session,
+          await projectPrompt(session.cwd, prompt, options),
+          allowEdits,
+          false,
+          options?.model,
+          undefined,
+          await memoryContext(session.cwd, prompt),
+        ),
+      ),
     );
   });
-  handle('chat-status', (id) => chatRunner.status(id));
+  handle('chat-status', (id) => taskExecutions.observe(chatRunner.status(id)));
   handle('chat-stop', (id) => chatRunner.stop(id));
   handle('chat-approve', (id, approval, allow) => chatRunner.approve(id, approval, allow));
+  handle('chat-respond', (id, request, answers) => chatRunner.respond(id, request, answers));
+  const projectCreation = new ProjectCreation(join(dataRoot, 'operations', 'create-project'), {
+    exists: (id) => projectGroups.groups.some((group) => group.id === id),
+    resolve: async (request) => {
+      if (
+        request.hostId &&
+        !remote.list().some((host) => host.id === request.hostId && host.status === 'connected')
+      )
+        throw new Error('Connect the remote host before creating this project.');
+      return request.reference
+        ? {
+            provider: request.provider,
+            project: await trackers.get(request.provider).resolve(request.reference),
+          }
+        : null;
+    },
+    prepare: (request) =>
+      request.hostId
+        ? remote.call(request.hostId, 'project-prepare', [request.id, request.root])
+        : prepareProjectLocation(request.id, request.root, join(dataRoot, 'projects')),
+    create: async (request, root, connection) => {
+      await projectGroups.create(
+        request.name,
+        connection as Parameters<typeof projectGroups.create>[1],
+        request.hostId,
+        root,
+        request.id,
+      );
+    },
+    add: async (id, path) => {
+      await addRepositories(id, [path]);
+    },
+  });
+  handle('group-create-status', (id) => projectCreation.status(id));
   handle(
     'group-create',
-    async (name, url, hostId, provider = trackers.defaultProvider, requestedRoot?: string) => {
-      // An empty reference creates a project without a tracker. Connect one later.
-      if (url !== undefined && url !== null && typeof url !== 'string')
+    (
+      name,
+      reference = '',
+      hostId,
+      provider = trackers.defaultProvider,
+      root?: string,
+      operationId = randomUUID(),
+      paths?: string[],
+    ) => {
+      if (reference !== null && typeof reference !== 'string')
         throw new Error('Choose a tracker project first.');
-      const reference = typeof url === 'string' ? url.trim() : '';
-      if (hostId && !remote.list().some((h) => h.id === hostId && h.status === 'connected'))
-        throw new Error('Connect the remote host before creating this project.');
-      if (typeof name !== 'string' || !name.trim() || name.trim().length > 150)
-        throw new Error('Project name must contain 1–150 characters');
-      const connection = reference
-        ? { provider, project: await trackers.get(provider).resolve(reference) }
-        : null;
-      const id = randomUUID();
-      const root = hostId
-        ? await remote.call(hostId, 'project-prepare', [id, requestedRoot])
-        : await prepareProjectLocation(id, requestedRoot, join(dataRoot, 'projects'));
-      return projectGroups.create(name, connection, hostId, root, id);
+      if (typeof name !== 'string' || !name.trim() || name.length > 150)
+        throw new Error('Project name must contain 1–150 characters.');
+      return projectCreation.run({
+        id: operationId,
+        name,
+        reference: reference || '',
+        provider,
+        ...(hostId ? { hostId } : {}),
+        ...(root ? { root } : {}),
+        ...(paths ? { paths } : {}),
+      });
     },
   );
   handle('group-color', (id, color) => projectGroups.setColor(id, color));
@@ -802,7 +1176,7 @@ app.whenReady().then(async () => {
       truncated: scan.truncated,
     };
   });
-  handle('add-repositories', async (groupId: string, paths: string[]) => {
+  async function addRepositories(groupId: string, paths: string[]) {
     const group = projectGroups.groups.find((g) => g.id === groupId);
     if (!group) throw new Error('Choose a project before adding repositories.');
     if (!Array.isArray(paths) || paths.length > 500 || paths.some((p) => typeof p !== 'string'))
@@ -845,7 +1219,8 @@ app.whenReady().then(async () => {
     await save();
     if (moving.length) await projectGroups.moveMany(moving, groupId);
     return { added: moving.length };
-  });
+  }
+  handle('add-repositories', addRepositories);
   handle('github-repositories', () => listRepositories());
   handle('repository-clone', async (name: string, groupId?: string) => {
     repositoryName(name);
@@ -1056,14 +1431,20 @@ app.whenReady().then(async () => {
       { timeout: 15000 },
     );
   });
-  async function createWorktree(id: string, branch: string) {
+  const worktreeCreation = new WorktreeCreation(join(dataRoot, 'operations', 'worktree'), git);
+  async function createWorktree(id: string, branch: string, operationId?: string) {
     const p = project(id);
     if (p.hostId) {
       const group = projectGroups.groups.find((g) => g.repoIds.includes(id));
       if (!group) throw new Error('Assign this repository to a project first.');
       return addRemote(
         group.id,
-        await remote.call(p.hostId, 'worktree', [p.path, branch, await projectRoot(group.id)]),
+        await remote.call(p.hostId, 'worktree', [
+          p.path,
+          branch,
+          await projectRoot(group.id),
+          operationId,
+        ]),
       );
     }
     if (!projectGroups.groups.some((g) => g.repoIds.includes(id)))
@@ -1072,13 +1453,12 @@ app.whenReady().then(async () => {
       throw new Error('Enter a valid new branch name');
     await git(p.path, ['check-ref-format', '--branch', branch]);
     const owner = projectGroups.groups.find((g) => g.repoIds.includes(id))!;
-    const destination = worktreeFolder(
-      await projectRoot(owner.id),
-      basename(p.path),
+    const destination = await worktreeCreation.run(
+      p.path,
       branch,
-      existsSync,
+      await projectRoot(owner.id),
+      operationId,
     );
-    await git(p.path, ['worktree', 'add', '-b', branch, '--', destination]);
     await addPath(destination);
     await save();
     const canonicalWorktree = await realpath(destination);
@@ -1111,7 +1491,7 @@ app.whenReady().then(async () => {
     // A missing folder has nothing to remove. Remove only the repository entry.
     if (folderExists)
       await hostGit(id, 'worktree-remove', [force === true], () =>
-        removeWorktree(p.path, force === true),
+        chatRunner.withCheckoutIdle(p.path, () => removeWorktree(p.path, force === true)),
       );
     await projectGroups.move(id, null);
     projects = projects.filter((repo) => repo.id !== id);
@@ -1119,6 +1499,22 @@ app.whenReady().then(async () => {
   });
   handle('working-status', (id) =>
     hostGit(id, 'working-status', [], () => workingStatus(project(id).path)),
+  );
+  const publishOperations = new PublishOperations(
+    join(dataRoot, 'operations', 'publish'),
+    publishEffects(() => executable('gh')),
+  );
+  handle('git-publish', (id, request) =>
+    hostGit(id, 'git-publish', [request], () =>
+      chatRunner.withCheckoutIdle(project(id).path, () =>
+        publishOperations.run(project(id).path, request),
+      ),
+    ),
+  );
+  handle('git-publish-status', (id, operationId) =>
+    hostGit(id, 'git-publish-status', [operationId], () =>
+      publishOperations.status(project(id).path, operationId),
+    ),
   );
   handle('git-commit', (id, message, files?: string[]) =>
     hostGit(id, 'git-commit', [message, files], () => gitCommit(project(id).path, message, files)),
@@ -1397,6 +1793,7 @@ app.whenReady().then(async () => {
   });
   Menu.setApplicationMenu(Menu.buildFromTemplate(template));
   createWindow();
+  void remote.connectSaved();
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });

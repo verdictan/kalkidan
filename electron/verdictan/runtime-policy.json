@@ -1,0 +1,30 @@
+{
+  "manifest": "{\"schema_version\":1,\"version\":\"0.3.0\",\"sequence\":1792530385,\"issued_at\":1792530383,\"expires_at\":1793135183,\"minimum_desktop_version\":\"0.1.0\",\"protocol\":{\"min\":1,\"max\":1},\"revoked_versions\":[],\"artifacts\":[{\"target\":\"aarch64-apple-darwin\",\"os\":\"darwin\",\"arch\":\"arm64\",\"url\":\"https://github.com/verdictan/packages/releases/download/v0.3.0/verdictan-aarch64-apple-darwin.tar.gz\",\"sha256\":\"4ffa9eae2b5fe6032da7c1551f341bc1008fc7a87a1d924b57da78f52ca7fa11\",\"size\":89278492,\"minimum_os_version\":\"26.7.1\",\"node_included\":true,\"required_runtime_dependencies\":[\"macOS >= 26.7.1\"]},{\"target\":\"x86_64-unknown-linux-gnu\",\"os\":\"linux\",\"arch\":\"x64\",\"url\":\"https://github.com/verdictan/packages/releases/download/v0.3.0/verdictan-x86_64-unknown-linux-gnu.tar.gz\",\"sha256\":\"d0096d47513d3168c705aa4b5551b9a8513e2234bd09d4448371b3dd0f1c0312\",\"size\":98279917,\"minimum_os_version\":\"6.12.0\",\"node_included\":true,\"required_runtime_dependencies\":[\"glibc (validated on Enterprise Linux 10.2)\",\"bubblewrap >= 0.10.0\",\"python3\"]}]}",
+  "pin": {
+    "schema_version": 1,
+    "version": "0.3.0",
+    "manifest_sha256": "74dab4a16a2551e2b42818661604d03668453d4d84a66155e778bdce4b7ee455",
+    "artifact_url": "https://github.com/verdictan/packages/releases/download/v0.3.0/verdictan-aarch64-apple-darwin.tar.gz",
+    "artifact_sha256": "4ffa9eae2b5fe6032da7c1551f341bc1008fc7a87a1d924b57da78f52ca7fa11",
+    "revoked_versions": []
+  },
+  "downloadOrigins": ["https://github.com", "https://release-assets.githubusercontent.com"],
+  "pins": {
+    "darwin-arm64": {
+      "schema_version": 1,
+      "version": "0.3.0",
+      "manifest_sha256": "74dab4a16a2551e2b42818661604d03668453d4d84a66155e778bdce4b7ee455",
+      "artifact_url": "https://github.com/verdictan/packages/releases/download/v0.3.0/verdictan-aarch64-apple-darwin.tar.gz",
+      "artifact_sha256": "4ffa9eae2b5fe6032da7c1551f341bc1008fc7a87a1d924b57da78f52ca7fa11",
+      "revoked_versions": []
+    },
+    "linux-x64": {
+      "schema_version": 1,
+      "version": "0.3.0",
+      "manifest_sha256": "74dab4a16a2551e2b42818661604d03668453d4d84a66155e778bdce4b7ee455",
+      "artifact_url": "https://github.com/verdictan/packages/releases/download/v0.3.0/verdictan-x86_64-unknown-linux-gnu.tar.gz",
+      "artifact_sha256": "d0096d47513d3168c705aa4b5551b9a8513e2234bd09d4448371b3dd0f1c0312",
+      "revoked_versions": []
+    }
+  }
+}

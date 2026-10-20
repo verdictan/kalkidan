@@ -103,3 +103,76 @@ test('project workflow mappings can be configured and reopened', async ({ page }
     'In progress',
   );
 });
+
+test('board state is scoped to each project and survives panel remounts', async ({ page }) => {
+  await page.addInitScript(() => {
+    const calls: Record<string, number> = {};
+    (window as any).boardCalls = calls;
+    const groups = ['Alpha', 'Beta'].map((name) => ({
+      id: name,
+      name,
+      repoIds: [],
+      tracker: {
+        provider: 'github',
+        project: { id: name, title: name, url: `https://github.com/orgs/example/projects/${name}` },
+      },
+    }));
+    (window as any).workspace = {
+      snapshot: async () => ({
+        projects: [],
+        groups,
+        sessions: [],
+        warnings: [],
+        platform: 'darwin',
+      }),
+      trackerProviders: async () => [
+        {
+          id: 'github',
+          name: 'GitHub',
+          capabilities: {},
+          statusNames: { progress: 'Doing', done: 'Done' },
+        },
+      ],
+      trackerBoard: async (id: string) => {
+        calls[id] = (calls[id] || 0) + 1;
+        if ((window as any).failBoard) throw Error('Board unavailable');
+        return {
+          project: groups.find((group) => group.id === id)!.tracker.project,
+          items: [{ id, title: `${id} task`, body: '' }],
+        };
+      },
+    };
+  });
+  await page.goto('http://127.0.0.1:5173');
+  const tree = page.locator('.project-tree');
+  await tree.getByRole('button', { name: 'Alpha', exact: true }).click();
+  await page
+    .getByRole('group', { name: 'Project page', exact: true })
+    .getByRole('button', { name: 'Tasks', exact: true })
+    .click();
+  await expect(page.getByRole('button', { name: 'Alpha task', exact: true })).toBeVisible();
+  await tree.getByRole('button', { name: 'Beta', exact: true }).click();
+  await page
+    .getByRole('group', { name: 'Project page', exact: true })
+    .getByRole('button', { name: 'Tasks', exact: true })
+    .click();
+  await expect(page.getByRole('button', { name: 'Beta task', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Alpha task', exact: true })).toHaveCount(0);
+  await tree.getByRole('button', { name: 'Alpha', exact: true }).click();
+  await page
+    .getByRole('group', { name: 'Project page', exact: true })
+    .getByRole('button', { name: 'Tasks', exact: true })
+    .click();
+  await expect(page.getByRole('button', { name: 'Alpha task', exact: true })).toBeVisible();
+  expect(await page.evaluate(() => (window as any).boardCalls)).toEqual({ Alpha: 1, Beta: 1 });
+  await page.evaluate(() => {
+    (window as any).failBoard = true;
+  });
+  await page.getByRole('button', { name: 'Refresh board', exact: true }).click();
+  await expect(page.getByRole('alert')).toContainText('Board unavailable');
+  await page.evaluate(() => {
+    (window as any).failBoard = false;
+  });
+  await page.getByRole('button', { name: 'Refresh board', exact: true }).click();
+  await expect(page.getByRole('alert')).toHaveCount(0);
+});

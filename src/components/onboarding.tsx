@@ -86,7 +86,7 @@ export function Onboarding({
   const [creating, setCreating] = useState(false);
   const [importing, setImporting] = useState(false);
   const [setupError, setSetupError] = useState('');
-  const folderImport = useFolderImport(api);
+  const folderImport = useFolderImport(api, `${open}:${groupId}`);
   const [agent, setAgent] = useState<Agent>(readPreferredAgent);
   const [installations, setInstallations] = useState<AgentInstallation[]>([]);
   const pendingCheck = useRef<Promise<AgentInstallation[]> | null>(null);
@@ -127,11 +127,23 @@ export function Onboarding({
       const result = await folderImport.choose('Choose your code folder', 'Choose');
       if (!result) return;
       const name = folderName(result.root);
-      const id = await api.createGroup(name, '');
-      const { added } = await api.addRepositories(id, result.paths);
+      const key = `kalkidan-onboarding-create:${result.root}`;
+      const operationId = localStorage.getItem(key) || crypto.randomUUID();
+      localStorage.setItem(key, operationId);
+      const id = await api.createGroup(
+        name,
+        '',
+        undefined,
+        'github',
+        undefined,
+        operationId,
+        result.paths,
+      );
+      const added = result.paths.length;
       setGroupId(id);
       setRepoId('');
       await onRefresh();
+      localStorage.removeItem(key);
       showToast(`Created ${name} with ${codeFolders(added)}.`);
     } catch (error) {
       setSetupError(errorMessage(error));

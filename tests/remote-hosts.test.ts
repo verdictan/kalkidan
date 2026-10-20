@@ -102,7 +102,7 @@ test('host setup installs the bundled agent and routes RPC through an SSH transp
     await chmod(join(broken, 'ssh'), 0o755);
     process.env.PATH = broken + ':' + oldPath;
     await assert.rejects(hosts.connect(host.id));
-    assert.equal(hosts.list()[0].status, 'error');
+    assert.equal(hosts.list()[0].status, 'retry-wait');
     assert.match(hosts.list()[0].error || '', /Connection refused/);
     process.env.PATH = bin + ':' + oldPath;
     const reconnected = await hosts.connect(host.id);

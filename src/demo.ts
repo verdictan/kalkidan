@@ -117,6 +117,53 @@ function persistDocs() {
   localStorage.setItem('kalkidan-demo-docs', JSON.stringify(demoDocs));
 }
 export const demo: API = {
+  verdictanSetup: async () => ({
+    status: 'desktop_required',
+    teams: [],
+    policies: [],
+    providerConnections: [],
+    selections: {},
+  }),
+  verdictanSelect: async () => {
+    throw new Error('Open the desktop app to configure Verdictan.');
+  },
+  verdictanStatus: async () => ({ phase: 'missing', executionReady: false }),
+  verdictanCheck: async () => ({
+    phase: 'missing',
+    executionReady: false,
+    error: 'Desktop application required.',
+  }),
+  verdictanAuthorize: async () => {
+    throw new Error('Open the desktop application to sign in.');
+  },
+  verdictanCancel: async () => ({ phase: 'missing', executionReady: false }),
+  verdictanRenew: async () => {
+    throw new Error('Open the desktop application to renew your session.');
+  },
+  verdictanLogout: async () => ({ phase: 'missing', executionReady: false }),
+  componentUpdates: async () => ({
+    desktop: {
+      installedVersion: 'Browser preview',
+      runningVersion: 'Browser preview',
+      runningBuild: 'preview',
+      discovery: 'unsupported',
+      stale: false,
+    },
+    helpers: [],
+  }),
+  runtimeUpdateStatus: async (hostId) => ({
+    hostId: hostId || 'local',
+    component: 'verdictan',
+    discovery: 'unknown',
+    stale: true,
+    history: [],
+    error: 'Runtime installation requires the desktop application.',
+  }),
+  runtimeUpdateCheck: async (hostId) => demo.runtimeUpdateStatus(hostId),
+  runtimeUpdateInstall: async () => {
+    throw new Error('Runtime installation requires the desktop application.');
+  },
+  runtimeUpdateCancel: async (hostId) => demo.runtimeUpdateStatus(hostId),
   memoryList: async () => ({ pages: [], limited: false }),
   docsMetadata: async (group) =>
     (demoDocs[group] || []).map(({ id, title, parentId, order }) => ({
@@ -188,7 +235,8 @@ export const demo: API = {
   trackerAuthStart: (provider, force) =>
     previewProvider(provider, () => demo.githubAuthStart(force)),
   trackerAuthStatus: (provider) => previewProvider(provider, () => demo.githubAuthStatus()),
-  trackerAuthCancel: (provider) => previewProvider(provider, () => demo.githubAuthCancel()),
+  trackerAuthCancel: (provider, attemptId) =>
+    previewProvider(provider, () => demo.githubAuthCancel(attemptId)),
   trackerAuthOpen: (provider) => previewProvider(provider, () => demo.githubAuthOpen()),
   trackerOwners: (provider) => previewProvider(provider, () => demo.githubOwners()),
   trackerProjects: (provider, owner) =>
@@ -199,13 +247,64 @@ export const demo: API = {
     ),
   trackerLink: (id, provider, url) => previewProvider(provider, () => demo.githubLink(id, url)),
   trackerBoard: (id) => demo.githubBoard(id),
+  trackerProjectAction: async () => {
+    throw new Error('Open the desktop app to manage GitHub projects.');
+  },
+  trackerContent: async () => {
+    throw new Error('Issue editing requires the desktop app.');
+  },
+  trackerContentChange: async () => {
+    throw new Error('Issue editing requires the desktop app.');
+  },
+  trackerRelations: async () => {
+    throw new Error('Issue relationships require the desktop app.');
+  },
+  trackerRelationChange: async () => {
+    throw new Error('Issue relationships require the desktop app.');
+  },
+  trackerSavedView: async () => {
+    throw new Error('Saved GitHub views require the desktop app.');
+  },
+  trackerResources: async () => {
+    throw new Error('Open the desktop app to manage GitHub project resources.');
+  },
+  trackerResourceChange: async () => {
+    throw new Error('Open the desktop app to manage GitHub project resources.');
+  },
+  trackerSettings: async () => {
+    throw new Error('Open the desktop app to manage GitHub project settings.');
+  },
+  trackerSettingsUpdate: async () => {
+    throw new Error('Open the desktop app to manage GitHub project settings.');
+  },
+  trackerPortfolio: async () => {
+    throw new Error('Portfolio reads require connected GitHub projects in the desktop app.');
+  },
+  trackerDocsPlan: async () => {
+    throw new Error('Issue publication requires the desktop app.');
+  },
+  trackerMutationHistory: async () => [],
+  trackerBatch: async () => {
+    throw new Error('Batch editing requires the desktop app.');
+  },
+  trackerField: async () => {
+    throw new Error('Connect GitHub in the desktop app to edit fields.');
+  },
+  trackerItemAction: async () => {
+    throw new Error('Connect GitHub in the desktop app to change items.');
+  },
   trackerStatus: (id, item, status) => demo.githubStatus(id, item, status),
   trackerDraft: (id, title, body) => demo.githubDraft(id, title, body),
   trackerAddIssue: (id, url) => demo.githubAddIssue(id, url),
-  trackerConfigure: async (id, mapping) => {
+  trackerConfigure: async (id, mapping, statusFieldId) => {
     const group = groups.find((g) => g.id === id);
     if (group?.github)
-      group.tracker = { provider: 'github', project: group.github, statusMapping: mapping };
+      group.tracker = {
+        provider: 'github',
+        project: group.github,
+        statusMapping: mapping,
+        statusFieldId,
+      };
   },
   githubCliCheck: async () => ({ status: 'unavailable' }),
   agentInstallations: async () => [
@@ -328,8 +427,9 @@ export const demo: API = {
   },
   githubAddIssue: nativeOnly,
 
-  createGroup: async (name, url, hostId, provider, rootPath) => {
-    const id = crypto.randomUUID();
+  createGroup: async (name, url, hostId, provider, rootPath, operationId, paths) => {
+    const id = operationId || crypto.randomUUID();
+    if (groups.some((group) => group.id === id)) return id;
     groups.push({
       id,
       name,
@@ -338,6 +438,7 @@ export const demo: API = {
       ...(url ? { github: { ...board.project, url } } : {}),
       repoIds: [],
     });
+    if (paths?.length) await demo.addRepositories(id, paths);
     return id;
   },
   setGroupColor: async (id, color) => {
@@ -385,6 +486,7 @@ export const demo: API = {
   },
   chatStop: nativeOnly,
   chatApprove: nativeOnly,
+  chatRespond: nativeOnly,
   taskWorktree: async () => {
     await nativeOnly();
     return null;
@@ -518,6 +620,10 @@ export const demo: API = {
     published: true,
     defaultBranch: 'main',
   }),
+  gitPublish: async () => {
+    throw new Error('Open the desktop app to publish repository changes.');
+  },
+  gitPublishStatus: async () => null,
   gitCommit: async (_id, message, files) => {
     if (!message.trim()) throw new Error('Enter a commit message.');
     if (files && !files.length) throw new Error('Choose at least one file to commit.');

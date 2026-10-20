@@ -1,4 +1,11 @@
+import type { GitHubContentAPI } from '../domain/github-content';
+import type { GitHubRelationsAPI } from '../domain/github-relations';
+import type { PublishAPI } from '../domain/publish';
+import type { GitHubResourcesAPI } from '../domain/github-resources';
+import type { GitHubProjectMutationAPI } from '../domain/github-mutations';
 import type { GitHubCliStatus } from '../domain/conversation';
+import type { VerdictanAPI } from '../domain/verdictan';
+import type { UpdatesAPI } from '../domain/updates';
 import type { DocsAPI } from '../domain/docs';
 import type {
   HistoryImportPreview,
@@ -50,11 +57,12 @@ export type {
   TrackerDescriptor,
   TrackerConnection,
 } from '../domain/tracker';
-export interface TrackerAPI {
+export interface TrackerAPI
+  extends GitHubContentAPI, GitHubProjectMutationAPI, GitHubResourcesAPI, GitHubRelationsAPI {
   trackerProviders(): Promise<TrackerDescriptor[]>;
   trackerAuthStart(provider: string, force?: boolean): Promise<TrackerAuthState>;
   trackerAuthStatus(provider: string): Promise<TrackerAuthState>;
-  trackerAuthCancel(provider: string): Promise<TrackerAuthState>;
+  trackerAuthCancel(provider: string, attemptId: string): Promise<TrackerAuthState>;
   trackerAuthOpen(provider: string): Promise<void>;
   trackerOwners(provider: string): Promise<TrackerOwner[]>;
   trackerProjects(provider: string, owner: TrackerOwner): Promise<TrackerProject[]>;
@@ -64,11 +72,15 @@ export interface TrackerAPI {
     title: string,
   ): Promise<TrackerProject>;
   trackerLink(groupId: string, provider: string, reference: string): Promise<void>;
-  trackerBoard(groupId: string): Promise<TrackerBoard>;
+  trackerBoard(groupId: string, force?: boolean): Promise<TrackerBoard>;
   trackerStatus(groupId: string, itemId: string, optionId: string): Promise<void>;
   trackerDraft(groupId: string, title: string, body: string): Promise<string | void>;
   trackerAddIssue(groupId: string, reference: string): Promise<void>;
-  trackerConfigure(groupId: string, mapping: TrackerConnection['statusMapping']): Promise<void>;
+  trackerConfigure(
+    groupId: string,
+    mapping: TrackerConnection['statusMapping'],
+    statusFieldId?: string,
+  ): Promise<void>;
 }
 export interface AgentAPI {
   githubCliCheck(): Promise<GitHubCliStatus>;
@@ -104,6 +116,11 @@ export interface AgentAPI {
   ): Promise<ChatRun>;
   chatStatus(runId: string): Promise<ChatRun>;
   chatApprove(runId: string, approvalId: string, allow: boolean): Promise<void>;
+  chatRespond(
+    runId: string,
+    requestId: string,
+    answers: import('../domain/conversation').AgentAnswers,
+  ): Promise<void>;
   chatStop(runId: string): Promise<void>;
   updateSession(agent: Agent, id: string, changes: SessionOrganization): Promise<void>;
 }
@@ -139,6 +156,11 @@ export interface TerminalAPI {
   repositoryDiff(cwd: string): Promise<RepositoryDiff>;
 }
 export interface RemoteAPI {
+  onRemoteHostsChange?(callback: () => void): () => void;
+  onTrackerChange?(callback: () => void): () => void;
+  onProjectResourceChange?(
+    callback: (event: { groupId: string; resource: 'docs' | 'memory' }) => void,
+  ): () => void;
   remoteHosts(): Promise<RemoteHost[]>;
   remoteAdd(name: string, target: string): Promise<RemoteHost>;
   remoteCheck(id: string): Promise<RemoteHost>;
@@ -160,7 +182,7 @@ export interface GitHubAPI {
   githubRepositories(): Promise<GitHubRepository[]>;
   githubAuthStart(force?: boolean): Promise<GitHubAuthState>;
   githubAuthStatus(): Promise<GitHubAuthState>;
-  githubAuthCancel(): Promise<GitHubAuthState>;
+  githubAuthCancel(attemptId: string): Promise<GitHubAuthState>;
   githubAuthOpen(): Promise<void>;
   githubOwners(): Promise<GitHubOwner[]>;
   githubProjects(owner: GitHubOwner): Promise<GitHubProject[]>;
@@ -175,7 +197,7 @@ export interface ProjectAPI {
   historyPreview(): Promise<HistoryImportPreview>;
   historyImport(request: HistoryImportRequest): Promise<HistoryImportResult>;
   cloneRepository(name: string, groupId?: string): Promise<boolean>;
-  taskWorktree(repoId: string, branch: string): Promise<Project | null>;
+  taskWorktree(repoId: string, branch: string, operationId?: string): Promise<Project | null>;
   repositorySnapshot(id: string): Promise<import('../domain/project').RepositorySnapshot>;
   snapshot(): Promise<Snapshot>;
   add(groupId?: string): Promise<void>;
@@ -186,6 +208,8 @@ export interface ProjectAPI {
     hostId?: string,
     provider?: string,
     rootPath?: string,
+    operationId?: string,
+    paths?: string[],
   ): Promise<string>;
   setGroupColor(
     id: string,
@@ -317,9 +341,13 @@ export interface MenuAPI {
 }
 export interface MemoryAPI {
   memoryList(groupId: string): Promise<import('../domain/memory').ProjectMemory>;
+  projectResourceRevision?(groupId: string, kind: 'docs' | 'memory'): Promise<string>;
 }
 export interface API
   extends
+    PublishAPI,
+    VerdictanAPI,
+    UpdatesAPI,
     DocsAPI,
     MemoryAPI,
     TrackerAPI,

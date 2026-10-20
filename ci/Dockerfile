@@ -1,4 +1,4 @@
-FROM node:22.23.3-bookworm-slim AS test
+FROM node:24.21.0-bookworm-slim AS test
 ENV CI=true PLAYWRIGHT_BROWSERS_PATH=/opt/playwright
 WORKDIR /workspace
 RUN apt-get update && apt-get install -y --no-install-recommends python3 make g++ \

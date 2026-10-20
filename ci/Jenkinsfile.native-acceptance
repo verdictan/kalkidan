@@ -1,0 +1,33 @@
+@Library('keeptrusts') _
+
+// Dedicated acceptance job. It does not publish releases or load account credentials.
+properties([
+    disableConcurrentBuilds(),
+    buildDiscarder(logRotator(numToKeepStr: '20')),
+    parameters([
+        choice(name: 'WORKER', choices: ['macos', 'ubuntu-vm', 'windows-vm'], description: 'Native test worker'),
+        string(name: 'CODEX_PATH', defaultValue: '', description: 'Absolute path to Codex 0.163.0-alpha.10.2'),
+        string(name: 'CLAUDE_PATH', defaultValue: '', description: 'Absolute path to Claude Code 2.1.304')
+    ])
+])
+timeout(time: 30, unit: 'MINUTES') {
+    node(params.WORKER) {
+        try {
+            stage('Checkout') { checkout(scm) }
+            verdictanNodeToolchain {
+                withEnv(["KALKIDAN_CODEX_PATH=${params.CODEX_PATH}", "KALKIDAN_CLAUDE_PATH=${params.CLAUDE_PATH}"]) {
+                    stage('Install test dependencies') {
+                        if (isUnix()) sh 'npm ci --ignore-scripts'
+                        else bat 'npm ci --ignore-scripts'
+                    }
+                    stage('Native adapter and isolation acceptance') {
+                        if (isUnix()) sh 'node scripts/native-acceptance.mjs'
+                        else bat 'node scripts/native-acceptance.mjs'
+                    }
+                }
+            }
+        } finally {
+            archiveArtifacts artifacts: 'ci-results/native-*/evidence.json', allowEmptyArchive: true
+        }
+    }
+}

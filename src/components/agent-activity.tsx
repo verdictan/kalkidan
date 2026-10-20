@@ -5,6 +5,7 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from './ui/collap
 import { Button } from './ui/button';
 import { agentLabel } from '../config/agents';
 import { errorMessage } from '../lib/errors';
+import { AgentQuestions } from './agent-questions';
 
 // Approval details, tool output and diffs use the shared .prose-ui code block and one
 // maximum height.
@@ -47,6 +48,28 @@ export function AgentActivity({
   }
   return (
     <div className="agent-activity space-y-3">
+      {run.governance && (
+        <section
+          aria-label="Verdictan evidence"
+          className="rounded-lg border p-3 text-xs text-muted-foreground"
+        >
+          <p>Verdictan · {run.governance.status}</p>
+          {run.governance.requests.slice(-5).map((request) => (
+            <p key={request.id}>
+              Policy: {request.policy || 'unknown'} · Usage: {request.usage || 'unknown'} · Audit:{' '}
+              {request.audit || 'unknown'}
+              {request.actualCost !== null && (
+                <>
+                  {' '}
+                  · Recorded cost: {request.actualCost} {request.currency}
+                </>
+              )}
+            </p>
+          ))}
+          <p>Usage follows Verdictan records. Provider charges are not reported.</p>
+        </section>
+      )}
+      <AgentQuestions api={api} run={run} onUpdate={onUpdate} />
       <div aria-live="polite" className="sr-only">
         {announcement}
       </div>

@@ -43,3 +43,53 @@ test('Settings checks GitHub CLI and retries without hiding agent status', async
   await dialog.getByRole('button', { name: 'Check again', exact: true }).click();
   await expect(row).toContainText('Check failed');
 });
+
+test('closing Settings detaches from shared approval; explicit cancel identifies its attempt', async ({
+  page,
+}) => {
+  await page.addInitScript(() => {
+    const fixture = window as any;
+    fixture.auth = { status: 'signed-out' };
+    fixture.cancels = [];
+    fixture.starts = 0;
+    fixture.workspace = {
+      snapshot: async () => ({
+        projects: [],
+        groups: [{ id: 'g', name: 'Project', repoIds: [] }],
+        sessions: [],
+        warnings: [],
+        platform: 'darwin',
+      }),
+      trackerProviders: async () => [],
+      remoteHosts: async () => [],
+      agentInstallations: async () => [],
+      githubCliCheck: async () => ({ status: 'ready' }),
+      githubAuthStatus: async () => fixture.auth,
+      githubAuthStart: async () => {
+        fixture.starts++;
+        return (fixture.auth = { status: 'waiting', attemptId: 'attempt-1', code: 'ABCD-1234' });
+      },
+      githubAuthCancel: async (attemptId: string) => {
+        fixture.cancels.push(attemptId);
+        return (fixture.auth = { status: 'canceled', attemptId });
+      },
+    };
+  });
+  await page.goto('http://127.0.0.1:5173');
+  const open = async () => {
+    await page.getByRole('button', { name: 'Settings', exact: true }).click();
+    await page.getByRole('tab', { name: 'Accounts', exact: true }).click();
+  };
+  await open();
+  await page.getByRole('button', { name: 'Allow access', exact: true }).click();
+  await expect(page.getByLabel('GitHub device code')).toHaveValue('ABCD-1234');
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('dialog', { name: 'Settings' })).not.toBeVisible();
+  expect(await page.evaluate(() => (window as any).cancels)).toEqual([]);
+  await open();
+  await expect(page.getByLabel('GitHub device code')).toHaveValue('ABCD-1234');
+  expect(await page.evaluate(() => (window as any).starts)).toBe(1);
+  await page.getByRole('button', { name: 'Cancel approval', exact: true }).click();
+  await expect(page.getByLabel('GitHub device code')).not.toBeVisible();
+  expect(await page.evaluate(() => (window as any).cancels)).toEqual(['attempt-1']);
+});

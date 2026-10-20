@@ -61,6 +61,7 @@ export async function desktopFixture(platform = 'linux', failure = '') {
     setName: record('name'),
     setPath: record('setPath'),
     getPath: () => '/fixture',
+    getVersion: () => '0.1.0',
     quit: record('quit'),
     whenReady: () => ({
       then: (fn: Function) => {
@@ -119,6 +120,7 @@ export async function desktopFixture(platform = 'linux', failure = '') {
     update = asyncRecord('updateGroup');
     remove = asyncRecord('removeGroup');
     link = asyncRecord('link');
+    connect = asyncRecord('connect');
   }
   class Locations {
     get = async (_id: string, root?: string) => {
@@ -183,6 +185,7 @@ export async function desktopFixture(platform = 'linux', failure = '') {
   const hosts = [{ id: 'host', name: 'Host', status: 'connected' }];
   class Remote {
     load = asyncRecord('remoteLoad');
+    connectSaved = asyncRecord('remoteAutoConnect');
     list = () => hosts;
     add = asyncRecord('remoteAdd');
     check = asyncRecord('remoteCheck');
@@ -217,6 +220,10 @@ export async function desktopFixture(platform = 'linux', failure = '') {
     cancel = record('authCancel');
   }
   class Github {
+    withWrite = (_project: unknown, action: () => Promise<unknown>) => action();
+    withAccount = (action: () => Promise<unknown>) => action();
+    invalidateBoards = record('invalidateBoards');
+    mutations = { field: asyncRecord('field'), item: asyncRecord('itemAction') };
     owners = asyncRecord('owners');
     list = asyncRecord('githubList');
     resolve = asyncRecord('resolve', { id: 'P', owner: 'test', number: 1 });
@@ -236,6 +243,7 @@ export async function desktopFixture(platform = 'linux', failure = '') {
     stopAll: record('chatStopAll'),
     dispose: record('dispose'),
     runningCount: () => state.running,
+    withCheckoutIdle: async (_path: string, action: () => Promise<unknown>) => action(),
   };
   class Importer {
     constructor(private options: any) {}
@@ -250,6 +258,7 @@ export async function desktopFixture(platform = 'linux', failure = '') {
       app,
       BrowserWindow: Window,
       nativeTheme: theme,
+      powerMonitor: new EventEmitter(),
       ipcMain: { handle: (name: string, fn: Function) => handlers.set(name, fn) },
       dialog: {
         showErrorBox: record('errorBox'),
@@ -295,6 +304,29 @@ export async function desktopFixture(platform = 'linux', failure = '') {
   };
   const stub = (name: string, exports: unknown) =>
     (stubs[resolve('electron', name + '.ts')] = exports);
+  stub('verdictan/service', {
+    runtimePolicyReader: () => async () => null,
+    createVerdictanServices: () => ({
+      installer: {
+        check: asyncRecord('runtimeCheck'),
+        start: asyncRecord('runtimeStart'),
+        cancel: record('runtimeCancel'),
+      },
+      managed: { stopAll: asyncRecord('managedStopAll') },
+      account: {
+        status: record('verdictanStatus'),
+        check: asyncRecord('verdictanCheck'),
+        authorize: asyncRecord('verdictanAuthorize'),
+        cancel: record('verdictanCancel'),
+        renew: asyncRecord('verdictanRenew'),
+        logout: asyncRecord('verdictanLogout'),
+        dispose: record('verdictanDispose'),
+      },
+      setup: { status: asyncRecord('verdictanSetup'), select: asyncRecord('verdictanSelect') },
+      launch: { prepare: asyncRecord('managedPrepare') },
+      remoteBroker: { reset: record('brokerReset'), request: asyncRecord('brokerRequest') },
+    }),
+  });
   stub('storage/data-directory', { dataDirectory: () => '/fixture' });
   stub('storage/appearance', {
     isAppearanceMode: (m: string) => ['system', 'light', 'dark'].includes(m),
@@ -303,6 +335,22 @@ export async function desktopFixture(platform = 'linux', failure = '') {
     withScheme: (url: string, _dark: boolean, hash = '') => url + hash,
   });
   stub('project-groups', { ProjectGroups: Groups });
+  stub('operations/create-project', {
+    ProjectCreation: class {
+      constructor(
+        _root: string,
+        private effects: any,
+      ) {}
+      status = async () => null;
+      async run(request: any) {
+        const connection = await this.effects.resolve(request);
+        const root = await this.effects.prepare(request);
+        await this.effects.create(request, root, connection);
+        for (const path of request.paths || []) await this.effects.add(request.id, path);
+        return request.id;
+      }
+    },
+  });
   stub('storage/project-location', {
     ProjectLocationCache: Locations,
     prepareProjectLocation: asyncRecord('prepare', '/project-new'),
@@ -310,6 +358,7 @@ export async function desktopFixture(platform = 'linux', failure = '') {
     importLegacyDocs: asyncRecord('importDocs'),
   });
   stub('storage/project-docs', { ProjectDocs: Docs });
+  stub('storage/resource-revision', { resourceRevision: asyncRecord('revision', 'revision-1') });
   stub('session-library', { SessionLibrary: Library });
   stub('storage/atomic-json', { writeJSON: asyncRecord('writeJSON') });
   stub('storage/project-memory', {
@@ -323,10 +372,39 @@ export async function desktopFixture(platform = 'linux', failure = '') {
   stub('remote-hosts', { RemoteHosts: Remote });
   stub('github-auth', { GitHubAuth: GithubAuth });
   stub('github-projects', { GitHubProjects: Github });
+  stub('operations/worktree', {
+    WorktreeCreation: class {
+      async run(cwd: string, branch: string, root: string) {
+        return `${root}/worktrees/${cwd.split('/').pop()}-${branch}`;
+      }
+    },
+  });
+  stub('operations/task-execution', {
+    TaskExecutions: class {
+      start(_id: string, _scope: unknown, launch: () => Promise<unknown>) {
+        return launch();
+      }
+      observe(run: unknown) {
+        return run;
+      }
+    },
+  });
+  stub('operations/agent-start', {
+    AgentStarts: class {
+      run(_id: string, _identity: unknown, start: () => Promise<unknown>) {
+        return start();
+      }
+    },
+  });
   stub('agents/runtime', { createAgentRuntimes: () => runner });
   stub('history-import', { HistoryImport: Importer });
   stub('history', {
-    history: async (_c: string, _a: string, sources?: Map<string, string>) => {
+    historyWithManaged: async (
+      _root: string,
+      _c: string,
+      _a: string,
+      sources?: Map<string, string>,
+    ) => {
       if (state.source) {
         sources?.set('codex:s', '/s');
         sources?.set('claude:c', '/c');

@@ -1,4 +1,5 @@
 import { agentCatalog } from '../config/agents';
+import { VerdictanSettings, RuntimeUpdates } from './verdictan-settings';
 import { RemoteHostPicker } from './remote-host-picker';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Tabs as TabsPrimitive } from 'radix-ui';
@@ -37,13 +38,14 @@ import { cn } from '../lib/utils';
 /** The agent that the user prefers for new sessions. Use readPreferredAgent in new code. */
 export const readDefaultAgent = readPreferredAgent;
 
-export type SettingsSectionId = 'general' | 'agents' | 'accounts' | 'remote' | 'about';
+export type SettingsSectionId = 'general' | 'agents' | 'accounts' | 'remote' | 'updates' | 'about';
 
 const sections: { value: SettingsSectionId; label: string; icon: ReactNode }[] = [
   { value: 'general', label: 'General', icon: <SlidersHorizontal /> },
   { value: 'agents', label: 'Agents', icon: <Bot /> },
   { value: 'accounts', label: 'Accounts', icon: <UserRound /> },
   { value: 'remote', label: 'Remote hosts', icon: <Server /> },
+  { value: 'updates', label: 'Updates', icon: <RefreshCw /> },
   { value: 'about', label: 'About', icon: <Info /> },
 ];
 
@@ -282,6 +284,10 @@ export function SettingsDialog({
               </SettingsSection>
               <SettingsSection value="accounts">
                 <GitHubAccount api={api} open={open} />
+                <VerdictanSettings api={api} open={open && tab === 'accounts'} />
+              </SettingsSection>
+              <SettingsSection value="updates">
+                <RuntimeUpdates api={api} open={open && tab === 'updates'} />
               </SettingsSection>
               <SettingsSection value="remote">
                 <RemoteHostPicker

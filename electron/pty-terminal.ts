@@ -58,6 +58,8 @@ interface Shell {
   cursor: number;
   exited: boolean;
   error?: string;
+  phase: 'opening' | 'ready' | 'closing' | 'closed' | 'failed' | 'interrupted';
+  cancelOpening?: (error: Error) => void;
 }
 export class PtyTerminal {
   private shells = new Map<string, Shell>();
@@ -68,45 +70,82 @@ export class PtyTerminal {
       throw new Error('Close an existing terminal before opening another.');
     for (const [id, shell] of this.shells) if (shell.exited) this.shells.delete(id);
     const id = randomUUID();
-    if (process.platform === 'win32') {
-      const { spawn: spawnPty } = await this.loadPty();
-      const pty = spawnPty('powershell.exe', ['-NoLogo'], {
-        cwd,
-        cols,
-        rows,
-        name: 'xterm-256color',
-        env: process.env as Record<string, string>,
-      });
-      const shell: Shell = { pty, output: '', cursor: 0, exited: false };
-      this.shells.set(id, shell);
-      pty.onData((data) => {
-        shell.output = (shell.output + data).slice(-1000000);
-        shell.cursor += data.length;
-      });
-      pty.onExit(() => {
-        shell.exited = true;
-      });
-      return { id };
-    }
-    const child = spawn('python3', ['-u', '-c', helper, String(cols), String(rows)], {
-      cwd,
-      env: { ...process.env, NO_COLOR: undefined },
-      stdio: ['pipe', 'pipe', 'pipe'],
-    });
-    const shell: Shell = { child, output: '', cursor: 0, exited: false };
+    // Reserve capacity before any asynchronous native-module load.
+    const shell: Shell = { output: '', cursor: 0, exited: false, phase: 'opening' };
     this.shells.set(id, shell);
+    if (process.platform === 'win32') {
+      let cancel!: (error: Error) => void;
+      const canceled = new Promise<never>((_resolve, reject) => {
+        cancel = reject;
+      });
+      shell.cancelOpening = cancel;
+      const timeout = setTimeout(() => {
+        this.close(id);
+      }, 10000);
+      try {
+        const { spawn: spawnPty } = await Promise.race([this.loadPty(), canceled]);
+        if (shell.exited) throw new Error('Terminal closed before startup.');
+        const pty = spawnPty('powershell.exe', ['-NoLogo'], {
+          cwd,
+          cols,
+          rows,
+          name: 'xterm-256color',
+          env: process.env as Record<string, string>,
+        });
+        shell.pty = pty;
+        shell.phase = 'ready';
+        pty.onData((data) => {
+          if (shell.exited) return;
+          shell.output = (shell.output + data).slice(-1000000);
+          shell.cursor += data.length;
+        });
+        pty.onExit(() => {
+          if (shell.exited) return;
+          shell.exited = true;
+          shell.phase = 'closed';
+        });
+        return { id };
+      } catch (error) {
+        shell.exited = true;
+        if (shell.phase !== 'closed') shell.phase = 'failed';
+        shell.error = error instanceof Error ? error.message : 'Terminal startup failed.';
+        throw error;
+      } finally {
+        clearTimeout(timeout);
+        shell.cancelOpening = undefined;
+      }
+    }
+    let child: ChildProcessWithoutNullStreams;
+    try {
+      child = spawn('python3', ['-u', '-c', helper, String(cols), String(rows)], {
+        cwd,
+        env: { ...process.env, NO_COLOR: undefined },
+        stdio: ['pipe', 'pipe', 'pipe'],
+      });
+    } catch (error) {
+      shell.exited = true;
+      shell.phase = 'failed';
+      throw error;
+    }
+    shell.child = child;
     child.stdin.on('error', () => {});
     child.stderr.on('data', (data) => {
-      shell.error = (shell.error || '') + data.toString();
+      if (!shell.exited) shell.error = ((shell.error || '') + data.toString()).slice(-8192);
     });
     await new Promise<void>((resolve, reject) => {
       const timer = setTimeout(() => {
+        shell.error = 'Terminal startup timed out.';
         this.close(id);
         reject(new Error('Terminal startup timed out.'));
       }, 10000);
+      shell.cancelOpening = (error) => {
+        clearTimeout(timer);
+        reject(error);
+      };
       const fail = (error: Error) => {
         clearTimeout(timer);
         shell.exited = true;
+        shell.phase = 'failed';
         shell.error = error.message;
         reject(error);
       };
@@ -115,14 +154,18 @@ export class PtyTerminal {
       );
       child.on('close', () => {
         shell.exited = true;
+        if (shell.phase !== 'failed') shell.phase = 'closed';
         clearTimeout(timer);
         reject(new Error(shell.error || 'Terminal closed before startup.'));
       });
       createInterface({ input: child.stdout }).on('line', (line) => {
+        if (shell.exited) return;
         try {
           const message = JSON.parse(line);
           if (message.ready) {
             clearTimeout(timer);
+            shell.phase = 'ready';
+            shell.cancelOpening = undefined;
             resolve();
           }
           if (typeof message.data === 'string') {
@@ -134,6 +177,7 @@ export class PtyTerminal {
         }
       });
     });
+    shell.cancelOpening = undefined;
     return { id };
   }
   private get(id: string) {
@@ -152,15 +196,24 @@ export class PtyTerminal {
       exited: s.exited,
       truncated: cursor < start,
       error: s.error,
+      phase: s.phase,
     };
   }
   write(id: string, input: string) {
     const s = this.get(id);
     if (s.exited) throw new Error('Terminal has exited.');
+    if (s.phase !== 'ready') throw new Error('Terminal is not ready.');
     if (typeof input !== 'string' || input.length > 100000)
       throw new Error('Terminal input too long');
-    if (s.pty) s.pty.write(input);
-    else s.child!.stdin.write(JSON.stringify({ input }) + '\n');
+    try {
+      if (s.pty) s.pty.write(input);
+      else s.child!.stdin.write(JSON.stringify({ input }) + '\n');
+    } catch {
+      this.close(id);
+      s.phase = 'failed';
+      s.error = 'Terminal input failed. Start a new shell.';
+      throw new Error(s.error);
+    }
   }
   private dimensions(cols: number, rows: number) {
     if (![cols, rows].every((n) => Number.isInteger(n) && n >= 2 && n <= 500))
@@ -170,6 +223,7 @@ export class PtyTerminal {
     this.dimensions(cols, rows);
     const s = this.get(id);
     if (!s.exited) {
+      if (s.phase !== 'ready') throw new Error('Terminal is not ready.');
       if (s.pty) s.pty.resize(cols, rows);
       else s.child!.stdin.write(JSON.stringify({ cols, rows }) + '\n');
     }
@@ -177,12 +231,19 @@ export class PtyTerminal {
   close(id: string) {
     const s = this.shells.get(id);
     if (!s || s.exited) return;
-    if (s.pty) s.pty.kill();
-    else {
-      s.child!.stdin.end();
-      s.child!.kill('SIGTERM');
-    }
+    s.phase = 'closing';
     s.exited = true;
+    s.cancelOpening?.(new Error(s.error || 'Terminal closed before startup.'));
+    s.cancelOpening = undefined;
+    try {
+      if (s.pty) s.pty.kill();
+      else if (s.child) {
+        s.child.stdin.end();
+        s.child.kill('SIGTERM');
+      }
+    } finally {
+      s.phase = 'closed';
+    }
   }
   closeAll() {
     for (const id of this.shells.keys()) this.close(id);

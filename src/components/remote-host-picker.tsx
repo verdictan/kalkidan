@@ -43,14 +43,23 @@ export function RemoteHostPicker({
   const selected = hosts.find((h) => h.id === value);
   useEffect(() => {
     let active = true;
-    void api
-      .remoteHosts?.()
-      .then((value) => {
-        if (active) setHosts(value);
-      })
-      .catch((e) => setError(errorMessage(e)));
+    let request = 0;
+    const refresh = () => {
+      const current = ++request;
+      void api
+        .remoteHosts?.()
+        .then((value) => {
+          if (active && current === request) setHosts(value);
+        })
+        .catch((e) => {
+          if (active && current === request) setError(errorMessage(e));
+        });
+    };
+    refresh();
+    const unsubscribe = api.onRemoteHostsChange?.(refresh);
     return () => {
       active = false;
+      unsubscribe?.();
     };
   }, [api]);
   // Report only changes, so that the parent does not do work when nothing changed.
@@ -256,6 +265,15 @@ export function RemoteHostPicker({
             <SetupStep state={stepState('install')}>Install the Kalkidan helper</SetupStep>
             <SetupStep state={stepState('connect')}>Connect</SetupStep>
           </ol>
+          {selected.setup && (
+            <p
+              role={selected.setup.phase === 'failed' ? 'alert' : 'status'}
+              className="text-xs text-muted-foreground"
+            >
+              Helper setup: {selected.setup.phase}
+              {selected.setup.error ? ` · ${selected.setup.error}` : ''}
+            </p>
+          )}
           {needsInstall && !busy && (
             <div className="panel space-y-3">
               <p className="text-sm">
@@ -274,7 +292,7 @@ export function RemoteHostPicker({
                 Check connection
               </Button>
             )}
-            {selected.status === 'connected' && (
+            {['connected', 'connecting', 'queued', 'retry-wait'].includes(selected.status) && (
               <Button variant="ghost" disabled={!!busy} onClick={() => setConfirmDisconnect(true)}>
                 Disconnect
               </Button>
@@ -336,6 +354,18 @@ export function RemoteHostPicker({
           {selected.status === 'connected' && (
             <p role="status" className="text-xs text-success">
               Connected · {selected.platform} · {selected.node}
+            </p>
+          )}
+          {selected.status === 'retry-wait' && (
+            <p role="status" className="text-xs text-muted-foreground">
+              Connection lost. Retry {Math.min(8, (selected.attempt || 0) + 1)} of 8
+              {selected.retryAt ? ` at ${new Date(selected.retryAt).toLocaleTimeString()}` : ''}.{' '}
+              Local projects remain available.
+            </p>
+          )}
+          {selected.status === 'error' && selected.error && !error && (
+            <p role="alert" className="field-error">
+              {selected.error}
             </p>
           )}
         </>

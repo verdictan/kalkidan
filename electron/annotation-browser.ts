@@ -106,7 +106,9 @@ export class AnnotationBrowser {
   private pendingURLs = new Map<string, string[]>();
   private findResults = new Map<string, { matches: number; activeMatchOrdinal: number }>();
   private devices = new Map<string, { width: number; height: number }>();
-  private selecting = new Set<string>();
+  private selecting = new Map<string, symbol>();
+  private navigation = new Map<string, number>();
+  private generation = 0;
   constructor(
     private parent: () => BrowserWindow,
     private profile: BrowserProfile,
@@ -135,6 +137,10 @@ export class AnnotationBrowser {
       this.parent().contentView.addChildView(view);
       view.setVisible(false);
       const wc = view.webContents;
+      wc.on('did-start-navigation', (details) => {
+        if (details.isMainFrame && this.views.get(id) === view)
+          this.navigation.set(id, ++this.generation);
+      });
       this.profile.configure(wc.session);
       wc.on('before-input-event', (event, input) => {
         if (
@@ -177,7 +183,10 @@ export class AnnotationBrowser {
         }
       });
     }
+    this.navigation.set(id, ++this.generation);
     await view.webContents.loadURL(url);
+    if (this.views.get(id) !== view || view.webContents.isDestroyed())
+      throw new Error('Browser preview closed during navigation.');
   }
   layout(id: string, bounds: BrowserBounds | null) {
     const view = this.views.get(id);
@@ -210,6 +219,7 @@ export class AnnotationBrowser {
     this.commands.delete(id);
     return {
       command,
+      navigationGeneration: this.navigation.get(id),
       url: wc.getURL(),
       title: wc.getTitle(),
       loading: wc.isLoading(),
@@ -299,12 +309,20 @@ export class AnnotationBrowser {
   async select(id = 'default'): Promise<BrowserSelection | null> {
     const view = this.get(id);
     if (this.selecting.has(id)) throw new Error('An element selection is already active.');
-    this.selecting.add(id);
+    const token = Symbol();
+    this.selecting.set(id, token);
+    const generation = this.navigation.get(id);
     view.webContents.focus();
     try {
       const result = await view.webContents.executeJavaScriptInIsolatedWorld(999, [
         { code: `(${selectElement.toString()})()` },
       ]);
+      if (
+        this.views.get(id) !== view ||
+        view.webContents.isDestroyed() ||
+        this.navigation.get(id) !== generation
+      )
+        return null;
       if (!this.parent().isDestroyed()) this.parent().webContents.focus();
       if (!result) return null;
       if (
@@ -313,9 +331,9 @@ export class AnnotationBrowser {
         JSON.stringify(result).length > 12000
       )
         throw new Error('Could not read the selected element.');
-      return result;
+      return { ...result, browserId: id, navigationGeneration: generation };
     } finally {
-      this.selecting.delete(id);
+      if (this.selecting.get(id) === token) this.selecting.delete(id);
     }
   }
   close(id = 'default') {
@@ -327,6 +345,9 @@ export class AnnotationBrowser {
     this.pendingURLs.delete(id);
     this.findResults.delete(id);
     this.devices.delete(id);
+    this.commands.delete(id);
+    this.navigation.delete(id);
+    this.selecting.delete(id);
   }
   closeAll() {
     for (const id of this.views.keys()) this.close(id);

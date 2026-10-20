@@ -33,7 +33,11 @@ test('repository API failures do not return incomplete or invalid lists', async 
 test('saved group validation rejects corrupt records and mutations of unknown groups', async () => {
   let content = '[]';
   const { ProjectGroups } = backendLoader({
-    'node:fs/promises': { readFile: async () => content },
+    'node:fs/promises': { readFile: async () => content, mkdir: async () => {} },
+    [resolve('electron/storage/directory-lock.ts')]: {
+      withDirectoryLock: async (_path: string, action: (guard: () => void) => Promise<unknown>) =>
+        action(() => {}),
+    },
     [resolve('electron/storage/atomic-json.ts')]: { writeJSON: async () => {} },
   })(resolve('electron/project-groups.ts'));
   const groups = new ProjectGroups('/fixture');
@@ -87,7 +91,7 @@ test('GitHub board validation handles deleted projects, missing statuses and inv
   assert.equal(board.statusField, undefined);
   assert.equal(board.items[0].body, '');
   data.node.items.pageInfo = { hasNextPage: true };
-  await assert.rejects(github.board({ id: 'P' }), /pagination/);
+  await assert.rejects(github.board({ id: 'P' }, true), /pagination/);
   data = { user: { projectsV2: { nodes: [], pageInfo: { hasNextPage: true } } } };
   await assert.rejects(github.list({ kind: 'user', login: 'test' }), /pagination/);
 });

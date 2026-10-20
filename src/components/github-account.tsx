@@ -1,6 +1,7 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { Copy, ExternalLink, RefreshCw } from 'lucide-react';
 import type { API, GitHubAuthState, GitHubCliStatus } from '../types';
+import { trackerAuthPending } from '../domain/tracker';
 import { interfaceConfig } from '../config/interface';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
@@ -75,8 +76,6 @@ export function GitHubAccount({ api, open }: { api: API; open: boolean }) {
   const [ghChecking, setGhChecking] = useState(false);
   const [auth, setAuth] = useState<GitHubAuthState>({ status: 'idle' });
   const [authChecking, setAuthChecking] = useState(false);
-  // True after the user starts the approval here. Closing Settings then cancels it.
-  const started = useRef(false);
   useEffect(() => {
     if (!open) return;
     let live = true;
@@ -98,14 +97,7 @@ export function GitHubAccount({ api, open }: { api: API; open: boolean }) {
     };
   }, [open, api, revision]);
   useEffect(() => {
-    if (open || !started.current) return;
-    started.current = false;
-    void Promise.resolve()
-      .then(() => api.githubAuthCancel())
-      .catch(() => undefined);
-  }, [open, api]);
-  useEffect(() => {
-    if (!open || !started.current || !['checking', 'waiting'].includes(auth.status)) return;
+    if (!open || !trackerAuthPending(auth)) return;
     let live = true;
     const timer = setInterval(() => {
       void Promise.resolve()
@@ -114,7 +106,6 @@ export function GitHubAccount({ api, open }: { api: API; open: boolean }) {
           if (!live) return;
           setAuth(value);
           if (value.status === 'ready') {
-            started.current = false;
             setRevision((n) => n + 1);
           }
         })
@@ -126,7 +117,6 @@ export function GitHubAccount({ api, open }: { api: API; open: boolean }) {
     };
   }, [open, api, auth.status]);
   async function allow() {
-    started.current = true;
     setAuth({ status: 'checking' });
     try {
       setAuth(await api.githubAuthStart(auth.status === 'ready'));
@@ -154,9 +144,11 @@ export function GitHubAccount({ api, open }: { api: API; open: boolean }) {
       ? 'Allowed'
       : auth.status === 'waiting'
         ? 'Waiting for approval'
-        : auth.status === 'checking'
-          ? 'Starting…'
-          : 'Not allowed';
+        : auth.status === 'verifying'
+          ? 'Verifying access…'
+          : auth.status === 'checking'
+            ? 'Starting…'
+            : 'Not allowed';
   return (
     <section aria-label="GitHub account" className="grid gap-2">
       <SectionHeader
@@ -206,7 +198,7 @@ export function GitHubAccount({ api, open }: { api: API; open: boolean }) {
           status={boardStatus}
           ready={auth.status === 'ready' && !authChecking}
           action={
-            auth.status !== 'waiting' && (
+            !trackerAuthPending(auth) && (
               <Button
                 variant="outline"
                 size="sm"
@@ -222,6 +214,22 @@ export function GitHubAccount({ api, open }: { api: API; open: boolean }) {
             )
           }
         >
+          {trackerAuthPending(auth) && auth.attemptId && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                void api
+                  .githubAuthCancel(auth.attemptId!)
+                  .then(setAuth)
+                  .catch(() =>
+                    setAuth({ ...auth, message: 'Could not cancel approval. Check again.' }),
+                  );
+              }}
+            >
+              Cancel approval
+            </Button>
+          )}
           {auth.status === 'waiting' && (
             <div className="mt-2 grid gap-2" aria-live="polite">
               <p className="text-xs text-muted-foreground">

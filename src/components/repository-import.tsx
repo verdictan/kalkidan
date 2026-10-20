@@ -183,26 +183,43 @@ export interface FolderImport {
  * Chooses a folder, finds the Git repositories in it, and asks which ones to add.
  * Render `dialog` once. `choose` resolves null when the user cancels.
  */
-export function useFolderImport(api: API) {
+export function useFolderImport(api: API, scope: string = 'default') {
   const [scan, setScan] = useState<FolderScan | null>(null);
   const [open, setOpen] = useState(false);
   const resolver = useRef<((value: FolderImport | null) => void) | null>(null);
+  const generation = useRef(0);
+  const mounted = useRef(true);
   // Older desktop builds and the browser preview cannot open the native folder dialog.
   const supported = typeof api.chooseFolder === 'function';
   function settle(value: FolderImport | null) {
+    generation.current++;
     resolver.current?.(value);
     resolver.current = null;
     setOpen(false);
   }
-  useEffect(() => () => resolver.current?.(null), []);
+  useEffect(() => {
+    mounted.current = true;
+    setOpen(false);
+    return () => {
+      mounted.current = false;
+      generation.current++;
+      resolver.current?.(null);
+      resolver.current = null;
+    };
+  }, [api, scope]);
   /** Scans a folder that the user already chose, for example on a remote host. */
   async function scanFolder(path: string, hostId?: string): Promise<FolderImport | null> {
+    if (!mounted.current) return null;
+    const request = ++generation.current;
+    resolver.current?.(null);
+    resolver.current = null;
+    setOpen(false);
     if (typeof api.scanRepositories !== 'function') return { root: path, paths: [path] };
     const result = await api.scanRepositories(path, hostId);
+    if (!mounted.current || request !== generation.current) return null;
     const [only] = result.repositories;
     if (result.repositories.length === 1 && result.rootIsRepository && !only.added)
       return { root: result.root, paths: [result.root] };
-    resolver.current?.(null);
     setScan(result);
     setOpen(true);
     return new Promise((resolve) => {
@@ -211,8 +228,12 @@ export function useFolderImport(api: API) {
   }
   /** Opens the native folder dialog, then scans the folder. */
   async function choose(title = 'Choose a code folder', buttonLabel = 'Choose') {
+    const request = ++generation.current;
+    resolver.current?.(null);
+    resolver.current = null;
+    setOpen(false);
     const path = await api.chooseFolder(title, buttonLabel);
-    if (!path) return null;
+    if (!path || !mounted.current || request !== generation.current) return null;
     return scanFolder(path);
   }
   const dialog = (
@@ -223,7 +244,7 @@ export function useFolderImport(api: API) {
       onImported={(paths) => settle({ root: scan?.root || '', paths })}
     />
   );
-  return { supported, choose, scanFolder, dialog };
+  return { supported, choose, scanFolder, cancel: () => settle(null), dialog };
 }
 
 /** Shows a found repository relative to the chosen folder, for example "tools/cli". */

@@ -1,6 +1,7 @@
 import type { BuiltinAgent } from '../config/agents';
 import type { TrackerItem } from './tracker';
 export interface ChatOptions {
+  operationId?: string;
   forkFrom?: string;
   model?: string;
   taskId?: string;
@@ -55,7 +56,31 @@ export interface ChatApproval {
   detail: string;
   status: 'pending' | 'approved' | 'denied' | 'expired';
 }
+export interface GovernanceEvidence {
+  finalized?: boolean;
+  status: 'loading' | 'current' | 'reconciling' | 'unavailable';
+  requests: {
+    id: string;
+    policy: string | null;
+    usage: string | null;
+    audit: string | null;
+    actualCost: string | null;
+    currency: string | null;
+    tokens: string | null;
+  }[];
+}
+export interface TaskExecutionStatus {
+  id: string;
+  phase: 'starting' | 'active' | 'ready-for-review' | 'launch-failed' | 'interrupted';
+  sync: 'pending' | 'writing' | 'confirmed' | 'blocked' | 'unknown-outcome';
+  message?: string;
+  updatedAt: number;
+}
 export interface ChatRun {
+  taskExecution?: TaskExecutionStatus;
+  governance?: GovernanceEvidence;
+  unsupportedRequests?: number;
+  requests?: AgentQuestionRequest[];
   tools?: ToolActivity[];
   approvals?: ChatApproval[];
   diff?: string;
@@ -66,9 +91,27 @@ export interface ChatRun {
   messages: ChatMessage[];
   activity: string;
   error?: string;
-  errorCode?: 'session_busy';
+  errorCode?: 'session_busy' | 'transport_lost';
   sessionReady?: boolean;
 }
+export interface AgentQuestion {
+  id: string;
+  label: string;
+  question: string;
+  kind: 'text' | 'single-choice' | 'multiple-choice';
+  options: { label: string; description: string }[];
+  allowOther: boolean;
+  secret: boolean;
+}
+export interface AgentQuestionRequest {
+  id: string;
+  runId: string;
+  provider: Agent;
+  kind: 'question';
+  status: 'pending' | 'submitting' | 'answered' | 'expired' | 'canceled';
+  questions: AgentQuestion[];
+}
+export type AgentAnswers = Record<string, string[]>;
 export interface AgentInstallation {
   agent: Agent;
   status: 'installed' | 'missing' | 'unavailable';

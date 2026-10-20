@@ -18,10 +18,10 @@ export function trackerClient(api: API, provider = 'github') {
       api.trackerAuthStatus
         ? api.trackerAuthStatus(provider)
         : legacy(() => api.githubAuthStatus()),
-    cancelAuth: () =>
+    cancelAuth: (attemptId: string) =>
       api.trackerAuthCancel
-        ? api.trackerAuthCancel(provider)
-        : legacy(() => api.githubAuthCancel()),
+        ? api.trackerAuthCancel(provider, attemptId)
+        : legacy(() => api.githubAuthCancel(attemptId)),
     openAuth: () =>
       api.trackerAuthOpen ? api.trackerAuthOpen(provider) : legacy(() => api.githubAuthOpen()),
     owners: () =>
@@ -38,8 +38,8 @@ export function trackerClient(api: API, provider = 'github') {
       api.trackerLink
         ? api.trackerLink(id, provider, reference)
         : legacy(() => api.githubLink(id, reference)),
-    board: (id: string) =>
-      api.trackerBoard ? api.trackerBoard(id) : legacy(() => api.githubBoard(id)),
+    board: (id: string, force = false) =>
+      api.trackerBoard ? api.trackerBoard(id, force) : legacy(() => api.githubBoard(id)),
     status: (id: string, item: string, status: string) =>
       api.trackerStatus
         ? api.trackerStatus(id, item, status)

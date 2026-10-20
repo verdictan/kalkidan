@@ -1,4 +1,5 @@
 /** Operations available to a session on either the Mac or an SSH execution host. */
+export const remoteProtocolVersion = 4;
 export const sessionHostMethods = [
   'ptyOpen',
   'ptyRead',
@@ -12,6 +13,7 @@ export const sessionHostMethods = [
   'chatStatus',
   'chatStop',
   'chatApprove',
+  'chatRespond',
   'terminalStart',
   'terminalStatus',
   'terminalStop',
