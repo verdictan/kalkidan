@@ -115,3 +115,23 @@ test('notifications and a long draft do not push the composer outside the window
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.screenshot({ path: 'test-results/compact-composer-spacing.png', fullPage: true });
 });
+
+test('the title bar keeps one row at the minimum window width with tools open', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 980, height: 680 });
+  await page.goto('http://127.0.0.1:5173');
+  await page.locator('.repo-select').first().click();
+  await page.getByRole('button', { name: 'New Codex session', exact: true }).click();
+  await page.getByLabel('Message agent').blur();
+  await page.keyboard.press('ControlOrMeta+t');
+  await page.keyboard.press('ControlOrMeta+Shift+g');
+  await expect(page.getByRole('tab', { name: /Changes/ })).toBeVisible();
+  const topbar = await page.locator('.topbar').boundingBox();
+  expect(topbar?.height).toBeLessThanOrEqual(48);
+  for (const id of ['conversation-titlebar-heading', 'conversation-titlebar-tabs']) {
+    const box = await page.locator('#' + id).boundingBox();
+    expect(box && box.y + box.height).toBeLessThanOrEqual(48);
+  }
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(980);
+});
