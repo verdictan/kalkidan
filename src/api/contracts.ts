@@ -315,9 +315,13 @@ export interface MenuAPI {
   /** Sets the dock or taskbar badge. 0 clears it. */
   setBadgeCount?(count: number): Promise<void>;
 }
+export interface MemoryAPI {
+  memoryList(groupId: string): Promise<import('../domain/memory').ProjectMemory>;
+}
 export interface API
   extends
     DocsAPI,
+    MemoryAPI,
     TrackerAPI,
     AgentAPI,
     BrowserAPI,

@@ -284,6 +284,18 @@ Use Markdown shortcuts, the slash-command menu, or selection formatting to edit 
 
 Changes save automatically. **Cmd/Ctrl+S** also saves the document.
 
+### Docs in agent conversations
+
+Docs retrieval is off by default. Start a message with `@docs` to search the current project's Docs in Codex or Claude Code. For example: `@docs How do we rotate refresh tokens?` Kalkidan adds only matching passages to that request. Ordinary messages do not search Docs or add Docs context. Each search needs a new `@docs` prefix. The prefix alone, without a question, does not run a search.
+
+Search uses a local SQLite full-text index with BM25 ranking. Titles and headings receive extra weight. Markdown remains the source of truth. No embedding service or API key is required. This is keyword retrieval; it does not match synonyms by meaning alone.
+
+Each request receives at most three passages. The complete Docs context, including its reference notice and citations, is limited to 4,800 characters. A result includes the page title, heading, file line numbers, and revision. No matches means no Docs context is added. Retrieved text is reference data, not an instruction to the agent.
+
+The index is created when first needed. Later searches check file metadata and reindex only changed pages. Deleted pages leave search results; restored pages return. Indexes are held in memory and can be rebuilt from the Markdown files. Remote projects search on their selected host and return only matching passages.
+
+Retrieval still consumes context. The limit applies to each request; earlier passages can remain in the provider's conversation history until it compacts that history. If search fails, the agent receives a short notice and the conversation can continue. Update the Kalkidan helper on remote hosts to enable Docs retrieval there.
+
 ### Project folder
 
 Select a folder when you create a project. The default location is `~/.kalkidan/projects/<project-id>/`. **Manage project** shows the location.
@@ -514,3 +526,11 @@ Remove credentials and private content before you submit a report. Include scree
 ## License
 
 [MIT](../LICENSE) · Copyright © 2026 Verdictan.com
+
+### Project memory
+
+Open **Memory** below **Docs** in the project sidebar. This page is read only. It shows Markdown files that agents save in `<project folder>/memory`. Remote projects keep memory on the selected host.
+
+Codex and Claude Code receive the memory folder path when you send a project message. They are instructed to save verified conventions, decisions, recurring fixes, and user preferences. They should update existing topics, correct stale facts, and avoid secrets and transcripts. File writes use the agent's normal permissions. Memory saves depend on the agent following these instructions; the app does not extract knowledge from every message.
+
+Memory content is not attached to each request. Agents read relevant topic files when needed. Docs still require the `@docs` prefix. The Memory page refreshes every 15 seconds while visible and when the window gains focus. You can also select **Refresh memory**. Large libraries and files have bounded previews; the original files remain unchanged.

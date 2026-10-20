@@ -1,4 +1,5 @@
 import { Onboarding, onboardingDismissed, dismissOnboarding } from './components/onboarding';
+import { ProjectMemoryPanel } from './components/project-memory';
 import { ProjectDocsPanel } from './components/project-docs';
 import { WorkspaceSearch, type SearchAction } from './components/workspace-search';
 import { ShortcutsSheet } from './components/shortcuts-sheet';
@@ -102,7 +103,7 @@ import type {
 // over the Button padding.
 const sidebarAction = 'sidebar-action w-full justify-start px-2 has-[>svg]:px-2';
 type RepositoryModal = 'worktree' | 'edit' | 'remove' | 'remove-worktree';
-type ProjectPage = 'board' | 'docs' | 'tasks';
+type ProjectPage = 'board' | 'docs' | 'tasks' | 'memory';
 /** The notification target of a session: its agent and ID. */
 const notificationTarget = (session: { agent: string; id: string }) =>
   JSON.stringify({ agent: session.agent, id: session.id });
@@ -1117,6 +1118,7 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
             query={query}
             onDocs={(group) => openGroup(group, 'docs')}
             onTasks={(group) => openGroup(group, 'tasks')}
+            onMemory={(group) => openGroup(group, 'memory')}
             onOverview={openOverview}
             overviewCurrent={home}
             onAllSessions={openAllSessions}
@@ -1258,7 +1260,13 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
                     />
                   </section>
                 ) : boardGroup && data.groups?.find((g) => g.id === boardGroup) ? (
-                  projectPage === 'docs' ? (
+                  projectPage === 'memory' ? (
+                    <ProjectMemoryPanel
+                      key={boardGroup}
+                      api={api}
+                      group={data.groups.find((g) => g.id === boardGroup)!}
+                    />
+                  ) : projectPage === 'docs' ? (
                     <ProjectDocsPanel
                       key={boardGroup}
                       initialPageId={searchTarget.page}

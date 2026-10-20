@@ -1,6 +1,6 @@
 import { spawn, execFileSync } from 'node:child_process';
 import { createInterface } from 'node:readline';
-import { mkdtemp, rm, readFile } from 'node:fs/promises';
+import { mkdtemp, rm, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import assert from 'node:assert/strict';
@@ -27,6 +27,13 @@ const rpc = (method, args) =>
   });
 try {
   const root = await rpc('project-prepare', ['test', join(temp, 'project')]);
+  const memoryPath = await rpc('project-memory', ['test', root, 'path']);
+  assert.equal(memoryPath, join(root, 'memory'));
+  await writeFile(join(memoryPath, 'conventions.md'), '# Remote memory\nUse npm.');
+  const memory = await rpc('project-memory', ['test', root, 'list']);
+  assert.match(memory.pages[0].content, /Remote memory/);
+  await assert.rejects(rpc('project-memory', ['other', root, 'list']), /another project/);
+  await assert.rejects(rpc('project-memory', ['test', root, 'save']), /Unknown memory operation/);
   const listing = await rpc('directory-list', [root]);
   assert.equal(listing.path, root);
   assert.ok(listing.entries.some((entry) => entry.name === 'docs' && entry.kind === 'directory'));
@@ -41,6 +48,15 @@ try {
     'save',
     [{ ...doc, markdown: '# Remote docs' }],
   ]);
+  const hits = await rpc('project-docs', ['test', root, 'search', ['Remote docs']]);
+  assert.equal(hits.length, 1);
+  assert.equal(hits[0].id, saved.id);
+  assert.match(hits[0].excerpt, /# Remote docs/);
+  assert.ok(JSON.stringify(hits).length <= 4800);
+  await assert.rejects(
+    rpc('project-docs', ['other', root, 'search', ['Remote docs']]),
+    /another project/,
+  );
   assert.match(await readFile(join(root, 'docs', saved.id + '.md'), 'utf8'), /# Remote docs/);
   assert.equal((await rpc('project-docs', ['test', root, 'list', []]))[0].revision, saved.revision);
   const beforeRead = id;

@@ -18,6 +18,7 @@ import {
   ChevronDown,
   Folder,
   FolderGit2,
+  Brain,
   GitBranch,
   LayoutGrid,
   ListTodo,
@@ -110,6 +111,7 @@ export function ProjectTree({
   overviewCurrent = false,
   allSessionsCurrent = false,
   onDocs,
+  onMemory,
   projectPage,
   run,
   onNotice,
@@ -155,7 +157,8 @@ export function ProjectTree({
   onDocs: (group: ProjectGroup) => void;
   /** Opens the task board of a project. */
   onTasks?: (group: ProjectGroup) => void;
-  projectPage: 'board' | 'docs' | 'tasks';
+  onMemory: (group: ProjectGroup) => void;
+  projectPage: 'board' | 'docs' | 'tasks' | 'memory';
   hosts?: RemoteHost[];
   api: API;
   repos: Project[];
@@ -588,7 +591,11 @@ export function ProjectTree({
         const members = allRepos.filter((repo) => group.repoIds.includes(repo.id));
         // The project row shows that the current page is inside it, without a background.
         const containsCurrent =
-          !boardCurrent && (docsCurrent || tasksCurrent || members.some((repo) => isCurrent(repo)));
+          !boardCurrent &&
+          (docsCurrent ||
+            tasksCurrent ||
+            (activeGroup === group.id && projectPage === 'memory') ||
+            members.some((repo) => isCurrent(repo)));
         const host = hosts.find((h) => h.id === group.hostId);
         const open = !collapsed.has(group.id);
         const groupState = strongest(members.map((repo) => activity[repo.id]));
@@ -709,6 +716,28 @@ export function ProjectTree({
                     <BookOpen className="size-3.5" />
                   </span>
                   <span className="tree-label">Docs</span>
+                </Button>
+              </div>
+              <div
+                className={
+                  'tree-row project-subpage-row row-hover row-focus' +
+                  (activeGroup === group.id && projectPage === 'memory'
+                    ? ' selected row-selected'
+                    : '')
+                }
+              >
+                <Button
+                  variant="ghost"
+                  className={'project-subpage ' + rowButton}
+                  aria-current={
+                    activeGroup === group.id && projectPage === 'memory' ? 'page' : undefined
+                  }
+                  onClick={() => onMemory(group)}
+                >
+                  <span className="tree-icon">
+                    <Brain className="size-3.5" />
+                  </span>
+                  <span className="tree-label">Memory</span>
                 </Button>
               </div>
               {group.hostId && (

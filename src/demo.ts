@@ -117,6 +117,7 @@ function persistDocs() {
   localStorage.setItem('kalkidan-demo-docs', JSON.stringify(demoDocs));
 }
 export const demo: API = {
+  memoryList: async () => ({ pages: [], limited: false }),
   docsMetadata: async (group) =>
     (demoDocs[group] || []).map(({ id, title, parentId, order }) => ({
       id,
