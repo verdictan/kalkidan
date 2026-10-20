@@ -78,7 +78,7 @@ const api: API = {
     ipcRenderer.invoke('group-create', name, url, hostId, provider, rootPath),
   setGroupColor: (id, color) => ipcRenderer.invoke('group-color', id, color),
   updateGroup: (id, name) => ipcRenderer.invoke('group-update', id, name),
-  removeGroup: (id) => ipcRenderer.invoke('group-remove', id),
+  removeGroup: (id, withRepositories) => ipcRenderer.invoke('group-remove', id, withRepositories),
   moveRepo: (repoId, groupId) => ipcRenderer.invoke('repo-move', repoId, groupId),
   chatCreate: (projectId, agent, prompt, allowEdits, options) =>
     ipcRenderer.invoke('chat-create', projectId, agent, prompt, allowEdits, options),
@@ -96,6 +96,12 @@ const api: API = {
   historyPreview: () => ipcRenderer.invoke('history-preview'),
   historyImport: (request) => ipcRenderer.invoke('history-import', request),
   discover: (groupId) => ipcRenderer.invoke('discover', groupId),
+  chooseFolder: (title, buttonLabel) => ipcRenderer.invoke('choose-folder', title, buttonLabel),
+  scanRepositories: (path, hostId) => ipcRenderer.invoke('scan-repositories', path, hostId),
+  addRepositories: (groupId, paths) => ipcRenderer.invoke('add-repositories', groupId, paths),
+  worktreePreview: (id, branch) => ipcRenderer.invoke('worktree-preview', id, branch),
+  gitSwitchNewBranch: (id, branch) => ipcRenderer.invoke('git-switch-new-branch', id, branch),
+  workingFiles: (id) => ipcRenderer.invoke('working-files', id),
   update: (id, changes) => ipcRenderer.invoke('update', id, changes),
   remove: (id) => ipcRenderer.invoke('remove', id),
   git: (id) => ipcRenderer.invoke('git', id),
@@ -104,10 +110,21 @@ const api: API = {
   worktree: (id, branch) => ipcRenderer.invoke('worktree', id, branch),
   worktreeRemove: (id, force) => ipcRenderer.invoke('worktree-remove', id, force),
   workingStatus: (id) => ipcRenderer.invoke('working-status', id),
-  gitCommit: (id, message) => ipcRenderer.invoke('git-commit', id, message),
+  gitCommit: (id, message, files) => ipcRenderer.invoke('git-commit', id, message, files),
   gitPullRequest: (id, title, body) => ipcRenderer.invoke('git-pull-request', id, title, body),
   showAppMenu: () => ipcRenderer.invoke('app-menu'),
   setAppearance: (mode) => ipcRenderer.invoke('appearance', mode),
+  notify: (input) => ipcRenderer.invoke('notify', input),
+  setBadgeCount: (count) => ipcRenderer.invoke('badge-count', count),
+  onNotificationClick: (callback) => {
+    const listener = (_event: unknown, target: unknown) => {
+      if (typeof target === 'string') callback(target);
+    };
+    ipcRenderer.on('notification-click', listener);
+    return () => {
+      ipcRenderer.removeListener('notification-click', listener);
+    };
+  },
   onMenuCommand: (callback) => {
     const listener = (_event: unknown, command: unknown) => {
       if (typeof command === 'string' && (menuCommands as readonly string[]).includes(command))

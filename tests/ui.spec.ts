@@ -6,21 +6,21 @@ test('project navigation, search, editing, worktrees, and sessions', async ({ pa
   await page.locator('.repo-select').first().click();
   await expect(page.getByRole('heading', { name: 'atlas-web', exact: true })).toBeVisible();
 
-  await expect(page.getByRole('region', { name: 'Repository worktrees' })).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Repository branch copies' })).toBeVisible();
   await expect(page.getByRole('region', { name: 'Repository sessions' })).toBeVisible();
   await expect(page.locator('.repository-overview').getByRole('tablist')).toHaveCount(0);
   await expect(page.locator('.project-status')).toHaveCount(0);
   await expect(page.getByText(/Give each agent its own worktree/)).toHaveCount(0);
   await expect(page.locator('.worktree-sessions').getByRole('button')).toHaveCount(2);
-  await page.getByRole('button', { name: 'Refresh worktrees' }).click();
+  await page.getByRole('button', { name: 'Refresh branch copies' }).click();
   await expect(page.locator('.worktree-sessions').getByRole('button')).toHaveCount(2);
-  await page.getByRole('button', { name: 'New worktree' }).click();
+  await page.getByRole('button', { name: 'New branch copy' }).click();
   await expect(page.getByRole('dialog')).toBeVisible();
   await page.getByRole('button', { name: 'Cancel' }).click();
 
   await expect(page.getByText('Refine project and repository navigation').last()).toBeVisible();
   await page.getByRole('button', { name: 'Repository actions', exact: true }).click();
-  await page.getByRole('menuitem', { name: 'Edit repository…', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Edit code folder…', exact: true }).click();
   await page.getByLabel('Repository name', { exact: true }).fill('atlas-renamed');
   await page.getByRole('button', { name: 'Save changes' }).click();
   await expect(page.getByRole('heading', { name: 'atlas-renamed' })).toBeVisible();
@@ -43,29 +43,32 @@ test('project navigation, search, editing, worktrees, and sessions', async ({ pa
 test('organize sessions and continue inside the conversation UI', async ({ page }) => {
   await page.goto('http://127.0.0.1:5173');
   await page.locator('.repo-select').first().click();
+  const list = page.locator('.session-list');
 
-  await page
-    .getByRole('button', { name: 'Organize Refine project and repository navigation' })
+  await list
+    .getByRole('button', { name: 'Refine project and repository navigation actions' })
     .click();
-  await page.getByLabel('Session title', { exact: true }).fill('Navigation follow-up');
-  await page.getByLabel('Collection', { exact: true }).fill('Website');
-  await page.getByLabel('Session notes', { exact: true }).fill('Finish keyboard navigation');
-  await page.getByRole('button', { name: 'Pin session', exact: true }).click();
-  await page.getByRole('button', { name: 'Save session', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Rename…', exact: true }).click();
+  await page.getByLabel('Session name', { exact: true }).fill('Navigation follow-up');
+  await page.getByRole('button', { name: 'Save name', exact: true }).click();
+  await list.getByRole('button', { name: 'Navigation follow-up actions' }).click();
+  await page.getByRole('menuitem', { name: 'Session details…', exact: true }).click();
+  await page.getByLabel(/^Group/).fill('Website');
+  await page.getByLabel('Notes', { exact: true }).fill('Finish keyboard navigation');
+  await page.getByRole('button', { name: 'Save details', exact: true }).click();
   await expect(page.getByRole('dialog')).not.toBeVisible();
+  await list.getByRole('button', { name: 'Navigation follow-up actions' }).click();
+  await page.getByRole('menuitem', { name: 'Pin', exact: true }).click();
   await page.getByRole('button', { name: 'Pinned', exact: true }).click();
   await expect(
     page.getByRole('button', { name: 'Resume Navigation follow-up', exact: true }),
   ).toBeVisible();
   await expect(
-    page
-      .locator('.session-list')
-      .getByText('Review the authentication flow and add integration tests', { exact: true }),
+    list.getByText('Review the authentication flow and add integration tests', { exact: true }),
   ).not.toBeVisible();
-  await page.getByRole('combobox', { name: 'Filter by collection' }).click();
+  await page.getByRole('combobox', { name: 'Filter by group' }).click();
   await page.getByRole('option', { name: 'Website', exact: true }).click();
-  await page
-    .locator('.session-list')
+  await list
     .getByRole('button', { name: /^Resume / })
     .first()
     .click();
@@ -81,17 +84,18 @@ test('organize sessions and continue inside the conversation UI', async ({ page 
   await expect(page.getByRole('alert')).toContainText('Open the desktop app');
   await expect(page.getByLabel('Message agent')).toHaveValue('Continue with keyboard navigation');
   await page.getByRole('button', { name: /^Back to / }).click();
-  await page.getByRole('button', { name: 'Organize Navigation follow-up' }).click();
-  await page.getByRole('button', { name: 'Archive session', exact: true }).click();
-  await page.getByRole('button', { name: 'Save session', exact: true }).click();
+  await list.getByRole('button', { name: 'Navigation follow-up actions' }).click();
+  await page.getByRole('menuitem', { name: 'Archive', exact: true }).click();
   await expect(page.getByText('No pinned sessions', { exact: true })).toBeVisible();
-  await page.getByRole('button', { name: 'Archived', exact: true }).click();
+  await page
+    .getByRole('status')
+    .filter({ hasText: 'Chat archived' })
+    .getByRole('button', { name: 'View archived' })
+    .click();
   await expect(
     page.getByRole('button', { name: 'Resume Navigation follow-up', exact: true }),
   ).toBeVisible();
-  await page.getByRole('button', { name: 'Organize Navigation follow-up' }).click();
-  await page.getByRole('button', { name: 'Archived', exact: true }).last().click();
-  await page.getByRole('button', { name: 'Save session', exact: true }).click();
+  await page.getByRole('button', { name: 'Restore Navigation follow-up', exact: true }).click();
   await page.getByRole('button', { name: 'Active', exact: true }).click();
   await expect(
     page.getByRole('button', { name: 'Resume Navigation follow-up', exact: true }),
@@ -337,7 +341,9 @@ test('integrated conversations keep drafts and project navigation visible', asyn
   await expect(page.getByRole('navigation', { name: 'Projects and repositories' })).toBeVisible();
   await page.getByRole('button', { name: /^Back to / }).click();
   await page.locator('.project-tree').getByRole('button', { name: 'Atlas', exact: true }).click();
-  await expect(page.getByRole('button', { name: 'Connect GitHub', exact: true })).toBeVisible();
+  await expect(
+    page.getByRole('button', { name: 'Connect a GitHub Projects board', exact: true }),
+  ).toBeVisible();
   await repository.click();
   await page
     .getByRole('button', { name: 'Resume Refine project and repository navigation', exact: true })
@@ -505,12 +511,13 @@ test('projects group multiple repositories and each repository opens its own ses
   await expect(page.getByRole('heading', { name: 'api-service', exact: true })).toBeVisible();
   await tree.getByRole('button', { name: 'New project', exact: true }).click();
   await page.getByLabel('Project name', { exact: true }).fill('Infrastructure');
-  await page.getByRole('button', { name: 'Use GitHub', exact: true }).click();
+  await page.getByRole('button', { name: 'More options', exact: true }).click();
+  await page.getByRole('button', { name: 'Connect now', exact: true }).click();
   await page.getByRole('button', { name: 'Atlas roadmap #1', exact: true }).click();
   await page.getByRole('button', { name: 'Create project', exact: true }).click();
   await tree.getByRole('button', { name: 'api-service', exact: true }).click();
   await page.getByRole('button', { name: 'Repository actions', exact: true }).click();
-  await page.getByRole('menuitem', { name: 'Edit repository…', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Edit code folder…', exact: true }).click();
   await page.getByRole('combobox', { name: 'Project', exact: true }).click();
   await page.getByRole('option', { name: 'Infrastructure', exact: true }).click();
   await page.getByRole('button', { name: 'Save changes' }).click();
@@ -607,10 +614,8 @@ test('GitHub task status, repository choice, and composer model carry through to
     };
   });
   await page.goto('http://127.0.0.1:5173');
-  await page
-    .locator('.project-tree')
-    .getByRole('button', { name: 'Platform', exact: true })
-    .click();
+  // The project row opens the overview. The Tasks row opens the board.
+  await page.locator('.project-tree').getByRole('button', { name: 'Tasks', exact: true }).click();
   await page.getByRole('button', { name: 'Move task: Fix login' }).click();
   await page.getByRole('menuitem', { name: 'Done', exact: true }).click();
   await expect(page.getByRole('region', { name: 'Done column' })).toContainText('Fix login');
@@ -619,11 +624,13 @@ test('GitHub task status, repository choice, and composer model carry through to
   await page.getByRole('combobox', { name: 'Task repository' }).click();
   await page.getByRole('option', { name: 'API', exact: true }).click();
   await page.getByRole('button', { name: 'Choose an agent', exact: true }).click();
-  await page.getByRole('menuitem', { name: 'Start Claude Code session', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'New Claude Code session', exact: true }).click();
   await expect(page.getByLabel('Message agent')).toHaveValue(/Fix login/);
-  await page.getByRole('combobox', { name: 'Model', exact: true }).click();
-  await page.getByRole('option', { name: 'Opus', exact: true }).click();
-  await expect(page.getByRole('listbox')).not.toBeVisible();
+  // The model is a submenu of the composer's More options menu.
+  await page.getByRole('button', { name: 'More options', exact: true }).click();
+  await page.getByRole('menuitem', { name: /^Model/ }).press('ArrowRight');
+  await page.getByRole('menuitemradio', { name: 'Opus', exact: true }).click();
+  await expect(page.getByRole('menu')).toHaveCount(0);
   await page.getByLabel('Message agent').fill('Plan the fix');
   await page.screenshot({
     path: 'test-results/composer-model.png',
@@ -647,10 +654,12 @@ test('a project can connect, create a GitHub draft, and change its connection in
 }) => {
   await page.goto('http://127.0.0.1:5173');
   await page.locator('.project-tree').getByRole('button', { name: 'Atlas', exact: true }).click();
-  await page.getByRole('button', { name: 'Connect GitHub', exact: true }).click();
+  await page.getByRole('button', { name: 'Connect a GitHub Projects board', exact: true }).click();
   await page.getByRole('button', { name: 'Use URL', exact: true }).click();
-  await page.getByLabel('GitHub URL').fill('https://github.com/orgs/example/projects/1');
-  await page.getByRole('button', { name: 'Connect project', exact: true }).click();
+  await page
+    .getByLabel('GitHub Projects board URL')
+    .fill('https://github.com/orgs/example/projects/1');
+  await page.getByRole('button', { name: 'Connect board', exact: true }).click();
   await expect(page.getByText('Atlas roadmap', { exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'New task', exact: true }).click();
   await page.getByLabel('Task title').fill('Ship the next release');
@@ -659,10 +668,10 @@ test('a project can connect, create a GitHub draft, and change its connection in
   await expect(
     page.getByRole('button', { name: 'Ship the next release', exact: true }),
   ).toBeVisible();
-  await page.getByRole('button', { name: 'Tracker actions', exact: true }).click();
-  await page.getByRole('menuitem', { name: 'Change project connection', exact: true }).click();
+  await page.getByRole('button', { name: 'Board actions', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Change GitHub Projects board…', exact: true }).click();
   await expect(
-    page.getByRole('dialog', { name: 'Connect GitHub project', exact: true }),
+    page.getByRole('dialog', { name: 'Connect a GitHub Projects board', exact: true }),
   ).toBeVisible();
   await page.getByRole('button', { name: 'Cancel', exact: true }).click();
   await expect(page.getByText('Atlas roadmap', { exact: true })).toBeVisible();
@@ -710,36 +719,38 @@ test('GitHub connection waits for browser approval and supports cancel and retry
     .locator('.project-tree')
     .getByRole('button', { name: 'Platform', exact: true })
     .click();
-  await page.getByRole('button', { name: 'Connect GitHub', exact: true }).click();
+  await page.getByRole('button', { name: 'Connect a GitHub Projects board', exact: true }).click();
   await expect(page.getByLabel('GitHub device code')).toHaveValue('ABCD-1234');
-  await expect(page.getByRole('button', { name: 'Connect project', exact: true })).toBeDisabled();
+  await expect(page.getByRole('button', { name: 'Connect board', exact: true })).toBeDisabled();
   await page.getByRole('button', { name: 'Cancel', exact: true }).click();
   await expect(page.getByRole('dialog')).not.toBeVisible();
-  await page.getByRole('button', { name: 'Connect GitHub', exact: true }).click();
+  await page.getByRole('button', { name: 'Connect a GitHub Projects board', exact: true }).click();
   await expect(page.getByLabel('GitHub device code')).toHaveValue('ABCD-1234');
   await page.evaluate(() => (window as any).approveGitHub());
   await expect(page.getByText('GitHub access granted')).toBeVisible();
   await page.getByRole('button', { name: 'Authorized roadmap #1', exact: true }).click();
-  await page.getByRole('button', { name: 'Connect project', exact: true }).click();
+  await page.getByRole('button', { name: 'Connect board', exact: true }).click();
   await expect(page.getByText('Authorized roadmap', { exact: true })).toBeVisible();
 });
 
 test('choose an existing GitHub project or create one without entering a URL', async ({ page }) => {
   await page.goto('http://127.0.0.1:5173');
   await page.locator('.project-tree').getByRole('button', { name: 'Atlas', exact: true }).click();
-  await page.getByRole('button', { name: 'Connect GitHub', exact: true }).click();
+  await page.getByRole('button', { name: 'Connect a GitHub Projects board', exact: true }).click();
   await page.getByLabel('Search GitHub projects').fill('roadmap');
   await page.getByRole('button', { name: 'Atlas roadmap #1', exact: true }).click();
-  await page.getByRole('button', { name: 'Connect project', exact: true }).click();
+  await page.getByRole('button', { name: 'Connect board', exact: true }).click();
   await expect(page.getByText('Atlas roadmap', { exact: true })).toBeVisible();
-  await page.getByRole('button', { name: 'Tracker actions', exact: true }).click();
-  await page.getByRole('menuitem', { name: 'Change project connection', exact: true }).click();
+  await page.getByRole('button', { name: 'Board actions', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Change GitHub Projects board…', exact: true }).click();
   await page.getByRole('button', { name: 'Create new', exact: true }).click();
-  await expect(page.getByLabel('New GitHub project name')).toHaveValue('Atlas');
-  await page.getByLabel('New GitHub project name').fill('Next release');
-  await page.getByRole('button', { name: 'Create GitHub project', exact: true }).click();
-  await expect(page.getByRole('status')).toContainText('Created “Next release”');
-  await page.getByRole('button', { name: 'Connect project', exact: true }).click();
+  await expect(page.getByLabel('New GitHub Projects board name')).toHaveValue('Atlas');
+  await page.getByLabel('New GitHub Projects board name').fill('Next release');
+  await page.getByRole('button', { name: 'Create GitHub Projects board', exact: true }).click();
+  await expect(
+    page.getByRole('status').filter({ hasText: 'Created “Next release”' }),
+  ).toBeVisible();
+  await page.getByRole('button', { name: 'Connect board', exact: true }).click();
   await expect(page.getByText('Next release', { exact: true })).toBeVisible();
 });
 
@@ -748,18 +759,19 @@ test('add repositories can create a project, pick a GitHub repo, and clone into 
 }) => {
   await page.goto('http://127.0.0.1:5173');
   await page
-    .getByRole('button', { name: 'Add repositories to Atlas', exact: true })
+    .getByRole('button', { name: 'Add code folders to Atlas', exact: true })
     .first()
     .click();
-  const dialog = page.getByRole('dialog', { name: 'Add repositories', exact: true });
+  const dialog = page.getByRole('dialog', { name: 'Add code folders', exact: true });
   await dialog.getByRole('button', { name: 'Create a new project', exact: true }).click();
   const create = page.getByRole('dialog', { name: 'New project', exact: true });
   await create.getByLabel('Project name', { exact: true }).fill('Mobile');
-  await create.getByRole('button', { name: 'Use GitHub', exact: true }).click();
+  await create.getByRole('button', { name: 'More options', exact: true }).click();
+  await create.getByRole('button', { name: 'Connect now', exact: true }).click();
   await create.getByRole('button', { name: 'Atlas roadmap #1', exact: true }).click();
   await create.getByRole('button', { name: 'Create project', exact: true }).click();
   await expect(dialog.getByRole('combobox', { name: 'Add to project' })).toContainText('Mobile');
-  await dialog.getByRole('radio', { name: 'Clone from GitHub', exact: true }).click();
+  await dialog.getByRole('button', { name: 'Clone from GitHub', exact: true }).click();
   await dialog.getByLabel('Search GitHub repositories').fill('mobile');
   await dialog.getByRole('radio', { name: /example\/mobile-app/ }).click();
   await dialog.getByRole('button', { name: 'Clone into project', exact: true }).click();
@@ -768,11 +780,11 @@ test('add repositories can create a project, pick a GitHub repo, and clone into 
     .locator('.project-group')
     .filter({ has: page.getByRole('button', { name: 'Mobile', exact: true }) });
   await expect(group.getByRole('button', { name: 'mobile-app', exact: true })).toBeVisible();
-  await group.getByRole('button', { name: 'Add repositories to Mobile', exact: true }).click();
-  await dialog.getByRole('radio', { name: 'From library', exact: true }).click();
-  await dialog.getByRole('combobox', { name: 'Repository from library' }).click();
+  await group.getByRole('button', { name: 'Add code folders to Mobile', exact: true }).click();
+  await dialog.getByRole('button', { name: 'Already in Kalkidan', exact: true }).click();
+  await dialog.getByRole('combobox', { name: 'Code folder already in Kalkidan' }).click();
   await page.getByRole('option', { name: /design-system ·/ }).click();
-  await dialog.getByRole('button', { name: 'Add to project', exact: true }).click();
+  await dialog.getByRole('button', { name: 'Move to project', exact: true }).click();
   await expect(
     page.locator('.project-tree').getByRole('button', { name: 'Mobile', exact: true }),
   ).toBeVisible();
@@ -799,14 +811,14 @@ test('local folder selection keeps the chosen project and clone cancellation kee
     };
   });
   await page.goto('http://127.0.0.1:5173');
-  await page.getByRole('button', { name: 'Add repositories to Platform', exact: true }).click();
+  await page.getByRole('button', { name: 'Add code folders to Platform', exact: true }).click();
   const dialog = page.getByRole('dialog');
-  await dialog.getByRole('radio', { name: 'Clone from GitHub', exact: true }).click();
+  await dialog.getByRole('button', { name: 'Clone from GitHub', exact: true }).click();
   await dialog.getByLabel('GitHub repository name').fill('example/web');
   await dialog.getByRole('button', { name: 'Clone into project', exact: true }).click();
   await expect(dialog).toBeVisible();
-  await dialog.getByRole('radio', { name: 'Local folders', exact: true }).click();
-  await dialog.getByRole('button', { name: 'Choose folders', exact: true }).click();
+  await dialog.getByRole('button', { name: 'Local folder', exact: true }).click();
+  await dialog.getByRole('button', { name: 'Choose folder', exact: true }).click();
   await expect(dialog).not.toBeVisible();
   expect(await page.evaluate(() => (window as any).addedTo)).toBe('p');
 });
@@ -814,9 +826,9 @@ test('local folder selection keeps the chosen project and clone cancellation kee
 test('tracker board groups tasks, syncs status moves, and filters', async ({ page }) => {
   await page.goto('http://127.0.0.1:5173');
   await page.locator('.project-tree').getByRole('button', { name: 'Atlas', exact: true }).click();
-  await page.getByRole('button', { name: 'Connect GitHub', exact: true }).click();
+  await page.getByRole('button', { name: 'Connect a GitHub Projects board', exact: true }).click();
   await page.getByRole('button', { name: 'Atlas roadmap #1', exact: true }).click();
-  await page.getByRole('button', { name: 'Connect project', exact: true }).click();
+  await page.getByRole('button', { name: 'Connect board', exact: true }).click();
   const board = page.getByRole('region', { name: 'Tracker board', exact: true });
   await expect(board).toBeVisible();
   await expect(
@@ -882,18 +894,28 @@ test('repository authorization explicitly requests browser login and shows appro
   });
   await page.goto('http://127.0.0.1:5173');
   await page
-    .getByRole('button', { name: 'Add repositories to Platform', exact: true })
+    .getByRole('button', { name: 'Add code folders to Platform', exact: true })
     .first()
     .click();
-  await page.getByRole('radio', { name: 'Clone from GitHub', exact: true }).click();
-  await page.getByRole('button', { name: 'Connect or authorize GitHub', exact: true }).click();
-  await expect(page.getByLabel('GitHub device code')).toHaveValue('ABCD-1234');
-  expect(await page.evaluate(() => (window as any).authForced)).toBe(true);
-  await page.getByRole('button', { name: 'Open GitHub', exact: true }).click();
+  const add = page.getByRole('dialog', { name: 'Add code folders', exact: true });
+  await add.getByRole('button', { name: 'Clone from GitHub', exact: true }).click();
+  // GitHub sign-in is in Settings › Accounts. The clone source links to it.
+  await add
+    .getByRole('button', { name: 'Check your GitHub account in Settings', exact: true })
+    .click();
+  const settings = page.getByRole('dialog', { name: 'Settings' });
+  const access = settings.getByLabel('GitHub Projects board access');
+  await expect(access).toContainText('Not allowed');
+  await access.getByRole('button', { name: 'Allow access', exact: true }).click();
+  await expect(settings.getByLabel('GitHub device code')).toHaveValue('ABCD-1234');
+  // The first approval does not force a new sign-in. Allow again does.
+  expect(await page.evaluate(() => (window as any).authForced)).toBe(false);
+  await settings.getByRole('button', { name: 'Open GitHub', exact: true }).click();
   expect(await page.evaluate(() => (window as any).browserOpens)).toBe(1);
   await page.evaluate(() => (window as any).approve());
-  await expect(page.getByRole('status')).toContainText('GitHub connected');
-  await expect(page.getByRole('radio', { name: /example\/connected-repo/ })).toBeVisible();
+  await expect(access).toContainText('Allowed');
+  await access.getByRole('button', { name: 'Allow again', exact: true }).click();
+  expect(await page.evaluate(() => (window as any).authForced)).toBe(true);
 });
 
 test('project navigation replaces the main sidebar and global history page', async ({ page }) => {
@@ -903,8 +925,8 @@ test('project navigation replaces the main sidebar and global history page', asy
   await expect(page.getByText('UNGROUPED REPOSITORIES', { exact: true })).toHaveCount(0);
   await expect(page.getByRole('navigation', { name: 'Projects and repositories' })).toBeVisible();
   await page.getByRole('button', { name: 'Settings', exact: true }).click();
-  await page.getByRole('dialog').getByRole('tab', { name: 'Agents & tools', exact: true }).click();
-  await expect(page.getByRole('region', { name: 'Local agents and tools' })).toBeVisible();
+  await page.getByRole('dialog').getByRole('tab', { name: 'Agents', exact: true }).click();
+  await expect(page.getByRole('region', { name: 'Agents on this computer' })).toBeVisible();
   await page.getByRole('dialog').getByRole('button', { name: 'Close', exact: true }).last().click();
   await page.screenshot({ path: 'test-results/project-navigation.png', fullPage: true });
 });
@@ -914,15 +936,17 @@ test('simplified controls remain accessible and selection follows project and co
 }) => {
   await page.goto('http://127.0.0.1:5173');
   await page.locator('.repo-select').first().click();
-  await expect(page.getByRole('button', { name: /^Add repositories to / })).toHaveCount(1);
+  await expect(page.getByRole('button', { name: /^Add code folders to / })).toHaveCount(1);
   await expect(page.getByRole('button', { name: 'Discover', exact: true })).toHaveCount(0);
   await page.getByRole('button', { name: 'Repository actions', exact: true }).click();
-  await expect(page.getByRole('menuitem', { name: 'Open Terminal', exact: true })).toBeVisible();
+  await expect(
+    page.getByRole('menuitem', { name: 'Open in Terminal app', exact: true }),
+  ).toBeVisible();
   await expect(page.getByRole('menuitem', { name: /^Show in / })).toBeVisible();
   await page.keyboard.press('Escape');
   // Repository notes are part of the repository settings.
   await page.getByRole('button', { name: 'Repository actions', exact: true }).click();
-  await page.getByRole('menuitem', { name: 'Edit repository…', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Edit code folder…', exact: true }).click();
   await expect(page.getByRole('dialog').getByRole('textbox', { name: 'Notes' })).toBeVisible();
   await page.getByRole('button', { name: 'Cancel', exact: true }).click();
   const tree = page.locator('.project-tree');

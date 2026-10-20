@@ -192,9 +192,36 @@ export interface ProjectAPI {
     color: import('../domain/project-colors').ProjectColor | null,
   ): Promise<void>;
   updateGroup(id: string, name: string): Promise<void>;
-  removeGroup(id: string): Promise<void>;
+  /**
+   * Removes a project from Kalkidan. With `withRepositories`, also removes its repository
+   * entries. Files on disk always stay.
+   */
+  removeGroup(id: string, withRepositories?: boolean): Promise<void>;
   moveRepo(repoId: string, groupId: string | null): Promise<void>;
   discover(groupId: string): Promise<{ added: number }>;
+  /** Opens the native folder dialog. Resolves null when the user cancels. Electron only. */
+  chooseFolder(title?: string, buttonLabel?: string): Promise<string | null>;
+  /**
+   * Finds Git repositories in a folder: the folder itself and its subfolders to depth 3.
+   * Skips hidden folders, node_modules and the folders inside a repository.
+   */
+  scanRepositories(path: string, hostId?: string): Promise<FolderScan>;
+  /** Adds these folders to a project as repositories. Skips folders that are already added. */
+  addRepositories(groupId: string, paths: string[]): Promise<{ added: number }>;
+  /**
+   * Shows where a new worktree starts from and where its folder goes. `base` is the current
+   * branch, or the short commit when no branch is checked out. `path` is the folder that
+   * `worktree` and `taskWorktree` create for this branch. Rejects when the branch name is not
+   * valid.
+   */
+  worktreePreview(id: string, branch: string): Promise<{ base: string; path: string }>;
+  /** Creates a new branch from the current state and switches to it. Changes stay. */
+  gitSwitchNewBranch(id: string, branch: string): Promise<void>;
+  /**
+   * Lists the changed and untracked files in the checkout, one entry for each file. Untracked
+   * folders are listed file by file. `from` is the earlier path of a renamed file.
+   */
+  workingFiles(id: string): Promise<WorkingFile[]>;
   update(id: string, changes: { name?: string; favorite?: boolean; notes?: string }): Promise<void>;
   remove(id: string): Promise<void>;
   git(id: string): Promise<GitInfo | null>;
@@ -209,13 +236,35 @@ export interface ProjectAPI {
   worktreeRemove(id: string, force?: boolean): Promise<void>;
   /** Counts changed and untracked files in the repository or worktree checkout. */
   workingStatus(id: string): Promise<WorkingStatus>;
-  /** Stages all changes and commits them. Returns the new commit hash. */
-  gitCommit(id: string, message: string): Promise<{ commit: string }>;
+  /**
+   * Stages changes and commits them. Returns the new commit hash. With `files` (paths from
+   * workingFiles), commits only those files and keeps other staged changes staged. Without
+   * `files`, stages and commits all changes.
+   */
+  gitCommit(id: string, message: string, files?: string[]): Promise<{ commit: string }>;
   /**
    * Pushes the current branch to origin and opens a GitHub pull request with `gh`.
    * Returns the pull request URL. Rejects on the default branch.
    */
   gitPullRequest(id: string, title: string, body: string): Promise<{ url: string }>;
+}
+export interface FolderScan {
+  /** The folder that was scanned, as a canonical path. */
+  root: string;
+  /** True when `root` is itself a Git repository. */
+  rootIsRepository: boolean;
+  /** Repositories found, the root first when it is one. Paths are canonical. */
+  repositories: { path: string; name: string; branch?: string; added: boolean }[];
+  /** True when the scan stopped at 200 repositories or at its folder limit. */
+  truncated?: boolean;
+}
+export type WorkingFileStatus =
+  'modified' | 'added' | 'deleted' | 'renamed' | 'untracked' | 'conflicted';
+export interface WorkingFile {
+  path: string;
+  status: WorkingFileStatus;
+  /** The earlier path of a renamed file. */
+  from?: string;
 }
 export interface WorkingStatus {
   branch: string;
@@ -235,6 +284,18 @@ export const menuCommands = [
   'search',
   'toggle-sidebar',
   'close-tab',
+  'add-code-folder',
+  'new-task',
+  'shortcuts',
+  'get-started',
+  'session-new',
+  'session-terminal',
+  'session-changes',
+  'session-rename',
+  'session-pin',
+  'session-side-chat',
+  'session-commit',
+  'session-archive',
 ] as const;
 export type MenuCommand = (typeof menuCommands)[number];
 export interface MenuAPI {
@@ -245,6 +306,14 @@ export interface MenuAPI {
   setAppearance?(mode: 'system' | 'light' | 'dark'): Promise<void>;
   /** Reports full screen changes. macOS hides the window buttons in full screen. */
   onFullScreenChange?(callback: (fullScreen: boolean) => void): () => void;
+  /**
+   * Shows an OS notification when the window is not focused. A click focuses the window
+   * and calls the onNotificationClick listener with `target`.
+   */
+  notify?(input: { title: string; body: string; target: string }): Promise<void>;
+  onNotificationClick?(callback: (target: string) => void): () => void;
+  /** Sets the dock or taskbar badge. 0 clears it. */
+  setBadgeCount?(count: number): Promise<void>;
 }
 export interface API
   extends

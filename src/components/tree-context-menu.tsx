@@ -1,10 +1,11 @@
 import { Check } from 'lucide-react';
 import { projectColors, type ProjectColor } from '../domain/project-colors';
-import type { ReactElement } from 'react';
+import { Fragment, type ReactElement } from 'react';
 import { ContextMenu } from 'radix-ui';
 import { cn } from '../lib/utils';
 import {
   menuContentClass,
+  menuDestructiveClass,
   menuItemClass,
   menuLabelClass,
   menuSeparatorClass,
@@ -17,7 +18,20 @@ export interface TreeAction {
   destructive?: boolean;
   /** Tells the user why the action is disabled. */
   reason?: string;
+  /** Draws a separator above this item. */
+  separator?: boolean;
 }
+/** The folder color choices of a project menu. */
+export interface FolderColorChoice {
+  value?: ProjectColor;
+  disabled?: boolean;
+  onChange: (color: ProjectColor | null) => void;
+}
+export const folderColorOptions: [string, string][] = [
+  ['default', 'var(--muted-foreground)'],
+  ...Object.entries(projectColors),
+];
+export const colorName = (name: string) => name[0].toUpperCase() + name.slice(1);
 export function TreeContextMenu({
   children,
   actions,
@@ -28,11 +42,7 @@ export function TreeContextMenu({
   /** The accessible name of the menu, such as "Project actions". */
   label?: string;
   actions: TreeAction[];
-  folderColor?: {
-    value?: ProjectColor;
-    disabled?: boolean;
-    onChange: (color: ProjectColor | null) => void;
-  };
+  folderColor?: FolderColorChoice;
 }) {
   return (
     <ContextMenu.Root>
@@ -56,7 +66,10 @@ export function TreeContextMenu({
         {children}
       </ContextMenu.Trigger>
       <ContextMenu.Portal>
-        <ContextMenu.Content className={menuContentClass} aria-label={label}>
+        <ContextMenu.Content
+          className={cn(menuContentClass, 'origin-(--radix-context-menu-content-transform-origin)')}
+          aria-label={label}
+        >
           {folderColor && (
             <>
               <ContextMenu.Label className={menuLabelClass}>Folder color</ContextMenu.Label>
@@ -66,47 +79,46 @@ export function TreeContextMenu({
                   folderColor.onChange(value === 'default' ? null : (value as ProjectColor))
                 }
               >
-                {[['default', 'var(--muted-foreground)'], ...Object.entries(projectColors)].map(
-                  ([name, color]) => (
-                    <ContextMenu.RadioItem
-                      key={name}
-                      value={name}
-                      disabled={folderColor.disabled}
-                      className={menuItemClass}
-                    >
-                      <span
-                        className="size-3 shrink-0 rounded-full"
-                        style={{ backgroundColor: color }}
-                      />
-                      <span className="flex-1">{name[0].toUpperCase() + name.slice(1)}</span>
-                      <ContextMenu.ItemIndicator aria-hidden="true">
-                        <Check />
-                      </ContextMenu.ItemIndicator>
-                    </ContextMenu.RadioItem>
-                  ),
-                )}
+                {folderColorOptions.map(([name, color]) => (
+                  <ContextMenu.RadioItem
+                    key={name}
+                    value={name}
+                    disabled={folderColor.disabled}
+                    className={menuItemClass}
+                  >
+                    <span
+                      className="size-3 shrink-0 rounded-full"
+                      style={{ backgroundColor: color }}
+                    />
+                    <span className="flex-1">{colorName(name)}</span>
+                    <ContextMenu.ItemIndicator aria-hidden="true">
+                      <Check />
+                    </ContextMenu.ItemIndicator>
+                  </ContextMenu.RadioItem>
+                ))}
               </ContextMenu.RadioGroup>
               <ContextMenu.Separator className={menuSeparatorClass} />
             </>
           )}
           {actions.map((item) => (
-            <ContextMenu.Item
-              key={item.label}
-              disabled={item.disabled}
-              onSelect={item.action}
-              className={cn(
-                menuItemClass,
-                // An item with a reason shows a second line, so it is taller.
-                item.disabled && item.reason && 'h-auto flex-col items-start gap-0 py-1.5',
-                item.destructive &&
-                  'text-destructive focus:bg-destructive/10 focus:text-destructive',
-              )}
-            >
-              {item.label}
-              {item.disabled && item.reason && (
-                <span className="text-xs text-muted-foreground">{item.reason}</span>
-              )}
-            </ContextMenu.Item>
+            <Fragment key={item.label}>
+              {item.separator && <ContextMenu.Separator className={menuSeparatorClass} />}
+              <ContextMenu.Item
+                disabled={item.disabled}
+                onSelect={item.action}
+                className={cn(
+                  menuItemClass,
+                  // An item with a reason shows a second line, so it is taller.
+                  item.disabled && item.reason && 'h-auto flex-col items-start gap-0 py-1.5',
+                  item.destructive && menuDestructiveClass,
+                )}
+              >
+                {item.label}
+                {item.disabled && item.reason && (
+                  <span className="text-xs text-muted-foreground">{item.reason}</span>
+                )}
+              </ContextMenu.Item>
+            </Fragment>
           ))}
         </ContextMenu.Content>
       </ContextMenu.Portal>

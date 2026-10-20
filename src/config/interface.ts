@@ -1,6 +1,6 @@
 /** Product defaults shared by UI features. Override here rather than inside components. */
 export const interfaceConfig = Object.freeze({
-  sidebar: { initial: 260, min: 220, max: 480, contentMin: 360 },
+  sidebar: { initial: 260, min: 220, max: 480, contentMin: 640 },
   authPollMs: 700,
   maxToolTabs: 12,
   attachmentCharacters: 30000,

@@ -6,6 +6,8 @@ import { Input } from './ui/input';
 import { Choice } from './choice';
 import { SectionHeader } from './ui/page-header';
 import { EmptyState } from './ui/empty-state';
+import { useFolderImport } from './repository-import';
+
 export function RemoteRepositoryPicker({
   api,
   group,
@@ -26,6 +28,7 @@ export function RemoteRepositoryPicker({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const request = useRef(0);
+  const folderImport = useFolderImport(api);
   const parent =
     error && path.startsWith('/')
       ? path.replace(/\/+$/, '').replace(/\/[^/]*$/, '') || '/'
@@ -69,11 +72,15 @@ export function RemoteRepositoryPicker({
     onBusy(true);
     setError('');
     try {
-      await api.remoteAddRepository(
-        group.id,
-        mode === 'existing' ? path : '',
-        mode === 'clone' ? repository : undefined,
-      );
+      if (mode === 'clone') await api.remoteAddRepository(group.id, '', repository);
+      else {
+        // Find the Git repositories in the folder. A host without the scan adds the folder.
+        const result = await folderImport
+          .scanFolder(path, group.hostId)
+          .catch(() => ({ root: path, paths: [path] }));
+        if (!result) return;
+        for (const folder of result.paths) await api.remoteAddRepository(group.id, folder);
+      }
       await onAdded();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -84,7 +91,7 @@ export function RemoteRepositoryPicker({
   }
   return (
     <section className="grid gap-3" aria-label="Remote repository picker">
-      <SectionHeader className="mb-0 min-h-0" title="Repositories on the remote host" />
+      <SectionHeader size="sm" title="Code folders on the remote host" />
       <Choice
         label="Remote repository source"
         className="w-full"
@@ -181,7 +188,8 @@ export function RemoteRepositoryPicker({
             onChange={(e) => setRepository(e.target.value)}
           />
           <p className="text-xs text-muted-foreground">
-            Clones are stored in the project’s repos folder using Git credentials on the host.
+            Kalkidan clones into the project folder on the host. The clone uses the Git sign-in of
+            the host.
           </p>
         </>
       )}
@@ -208,6 +216,7 @@ export function RemoteRepositoryPicker({
           'Add remote folder'
         )}
       </Button>
+      {folderImport.dialog}
     </section>
   );
 }

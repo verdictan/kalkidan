@@ -5,12 +5,14 @@ import { Check, ChevronRight } from 'lucide-react';
 import { cn } from '../lib/utils';
 import {
   menuContentClass,
+  menuDestructiveClass,
   menuItemClass,
   menuSeparatorClass,
   menuShortcutClass,
-} from './ui/menu-styles';
+} from '@/components/ui';
 
 const itemClass = menuItemClass;
+// menuContentClass includes the shared menu motion (menuMotionClass).
 const menuClass = cn(
   menuContentClass,
   'z-[70] max-h-[var(--radix-context-menu-content-available-height)]',
@@ -27,13 +29,13 @@ export function WikiContextMenu({
   children: ReactNode;
   commands: { label: string; run: (editor: Editor) => unknown }[];
   onLink: () => void;
-  /** Removes the table and tells the user how to undo. */
+  /** Removes the table and shows a notice with Undo. */
   onRemoveTable: () => void;
 }) {
-  const item = (label: string, action: () => unknown, disabled = false) => (
+  const item = (label: string, action: () => unknown, disabled = false, destructive = false) => (
     <ContextMenu.Item
       key={label}
-      className={itemClass}
+      className={cn(itemClass, destructive && menuDestructiveClass)}
       disabled={disabled}
       onSelect={() => {
         action();
@@ -135,9 +137,14 @@ export function WikiContextMenu({
               <ContextMenu.Separator className={menuSeparatorClass} />
               {item('Add row', () => editor.chain().focus().addRowAfter().run())}
               {item('Add column', () => editor.chain().focus().addColumnAfter().run())}
-              {item('Delete row', () => editor.chain().focus().deleteRow().run())}
-              {item('Delete column', () => editor.chain().focus().deleteColumn().run())}
-              {item('Remove table', onRemoveTable)}
+              {item('Delete row', () => editor.chain().focus().deleteRow().run(), false, true)}
+              {item(
+                'Delete column',
+                () => editor.chain().focus().deleteColumn().run(),
+                false,
+                true,
+              )}
+              {item('Remove table', onRemoveTable, false, true)}
             </>
           )}
         </ContextMenu.Content>

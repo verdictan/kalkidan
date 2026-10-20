@@ -7,11 +7,6 @@
   margin-inline: auto;
   padding: var(--page-padding-top) var(--page-padding-x) var(--space-12);
 }
-@media (max-width: 800px) {
-  .page {
-    padding-inline: var(--space-4);
-  }
-}
 .page-header {
   display: flex;
   align-items: center;
@@ -59,6 +54,10 @@
   gap: var(--space-2);
   min-height: var(--control-md);
   margin-bottom: var(--space-3);
+}
+.section-header[data-size='sm'] {
+  min-height: 0;
+  margin-bottom: var(--space-2);
 }
 .section-title {
   margin: 0;
@@ -115,11 +114,18 @@
   text-align: center;
 }
 .empty-state-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 48px;
+  height: 48px;
+  border-radius: var(--radius-lg);
+  background: var(--secondary);
   color: var(--muted-foreground);
 }
 .empty-state-icon svg {
-  width: 32px;
-  height: 32px;
+  width: 24px;
+  height: 24px;
 }
 .empty-state-title {
   margin: 0;
@@ -128,7 +134,7 @@
   font-weight: 600;
 }
 .empty-state-body {
-  max-width: 360px;
+  max-width: 400px;
   color: var(--muted-foreground);
   font-size: 13px;
   line-height: 20px;
@@ -140,9 +146,13 @@
   gap: var(--space-1);
   padding: var(--space-6) var(--space-4);
 }
+.empty-state[data-compact] .empty-state-icon {
+  width: 32px;
+  height: 32px;
+}
 .empty-state[data-compact] .empty-state-icon svg {
-  width: 20px;
-  height: 20px;
+  width: 16px;
+  height: 16px;
 }
 .empty-state[data-compact] .empty-state-body {
   font-size: 12px;
@@ -285,7 +295,10 @@
   margin-top: 4px;
 }
 .prose-ui :where(code) {
-  font-size: 0.875em;
+  font-size: 13px;
+}
+.prose-ui[data-size='sm'] :where(code) {
+  font-size: 12px;
 }
 .prose-ui[data-size='sm'] {
   font-size: 13px;
@@ -343,18 +356,18 @@
 .list-box-row {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--space-2);
   width: 100%;
   min-height: var(--row-height);
   padding: 0 var(--space-2);
   border: 0;
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-sm);
   background: transparent;
   color: inherit;
   font: inherit;
   text-align: left;
 }
-.list-box-row:hover {
+.list-box-row:is(button, a, [role='option'], [role='radio']):hover {
   background: var(--surface-hover);
 }
 .list-box-row[aria-pressed='true'],
@@ -385,7 +398,7 @@
   font-size: 11px;
   line-height: 16px;
   font-weight: 600;
-  letter-spacing: 0.04em;
+  letter-spacing: 0;
 }
 
 /* Shared prose parts: code blocks, lists, quotes and links. */
@@ -422,4 +435,52 @@
   color: var(--link);
   text-decoration: underline;
   text-underline-offset: 2px;
+}
+
+/* Help text under a form control: quieter than the label. */
+.form-help {
+  margin: -4px 0 0;
+  color: var(--muted-foreground);
+  font-size: 12px;
+  line-height: 16px;
+  font-weight: 400;
+}
+
+/* Secondary metadata: timestamps, counts, paths, keyboard hints. */
+.text-subtle {
+  color: var(--subtle-foreground);
+}
+
+/* Pages adapt to the content width, not the window width (the sidebar can be wide). */
+.management-pane {
+  container-type: inline-size;
+}
+@container (max-width: 640px) {
+  .page {
+    padding-inline: var(--space-4);
+  }
+  .page-header {
+    flex-wrap: wrap;
+  }
+}
+
+/* Motion: menus 120ms, dialogs 200ms. Reduced motion stops movement, but loaders still turn. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+  }
+  .animate-spin {
+    animation-duration: 1.5s !important;
+    animation-iteration-count: infinite !important;
+  }
+}
+
+/* Keyboard focus on rows is drawn inside the row. */
+.row-focus:has(:focus-visible) {
+  box-shadow: inset var(--focus-ring);
 }

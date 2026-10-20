@@ -1,18 +1,20 @@
-import { Hint } from './hint';
 import { ActivityDot, activityKey, type SessionActivityState } from './activity-dot';
 import { useEffect, useState } from 'react';
-import { Archive, ArchiveRestore, History, Pin } from 'lucide-react';
+import { ArchiveRestore, GitBranch, History, Pin } from 'lucide-react';
 import { agentCatalog, agentLabel } from '../config/agents';
+import { fullTime, relativeTime } from '../lib/relative-time';
+import { plural } from '../lib/platform';
+import { ActionMenu } from './action-menu';
 import { Choice } from './choice';
+import { RenameSessionDialog, archiveSessionWithUndo } from './session-actions';
 import { AgentIcon } from './ui/agent-icon';
-import { Badge } from './ui/badge';
 import { Button } from './ui/button';
 import { EmptyState } from './ui/empty-state';
 import { EntityIcon } from './ui/entity-icon';
-import { MoreButton } from './ui/more-button';
 import { SegmentedControl } from './ui/segmented-control';
 import { Input } from './ui/input';
 import { Textarea } from './ui/textarea';
+import { showToast } from './ui/toast';
 import {
   Dialog,
   DialogContent,
@@ -21,9 +23,14 @@ import {
   DialogHeader,
   DialogTitle,
 } from './ui/dialog';
-import type { Session, SessionOrganization } from '../types';
+import { errorMessage } from '../lib/errors';
+import type { API, Session, SessionOrganization } from '../types';
 
 interface Props {
+  /** The API for rename and archive. A remote session uses the API of its host. */
+  api?: API;
+  /** Reads the sessions again after a rename, an archive or an undo. */
+  onChanged?: () => void;
   sessions: Session[];
   query?: string;
   compact?: boolean;
@@ -34,13 +41,22 @@ interface Props {
   storageKey?: string;
   /** Background state of open sessions, by `activityKey`. */
   activity?: Record<string, SessionActivityState>;
+  /** The label of the button that starts a session, for the empty state. */
+  newSessionLabel?: string;
+  /** The branch copy of a session, shown as a badge on sessions of a branch copy. */
+  branchOf?: (session: Session) => string | undefined;
+  /** The project and code folder of each session. With it, the list shows a Project filter. */
+  placeOf?: (session: Session) => { project?: string; folder?: string } | undefined;
 }
 interface SavedView {
   agent: string;
   scope: string;
   collection: string;
+  project: string;
 }
-const defaultView: SavedView = { agent: 'all', scope: 'active', collection: 'all' };
+const defaultView: SavedView = { agent: 'all', scope: 'active', collection: 'all', project: 'all' };
+/** Filters show only for longer lists, or when more than one agent made the sessions. */
+const filterThreshold = 8;
 function readView(key: string | undefined): SavedView {
   if (!key) return defaultView;
   try {
@@ -50,15 +66,23 @@ function readView(key: string | undefined): SavedView {
     return defaultView;
   }
 }
-function formatDay(value: string, now = new Date()) {
-  const date = new Date(value);
-  return date.toLocaleDateString(undefined, {
-    month: 'short',
-    day: 'numeric',
-    year: date.getFullYear() === now.getFullYear() ? undefined : 'numeric',
-  });
+/** The storage key of the saved view for one list. */
+export const sessionViewKey = (key: string) => `kalkidan.sessionView.${key}`;
+/** Shows the archived sessions of a list, for example from the "View archived" toast action. */
+export function viewArchivedSessions(key: string) {
+  try {
+    localStorage.setItem(
+      sessionViewKey(key),
+      JSON.stringify({ ...readView(sessionViewKey(key)), scope: 'archived' }),
+    );
+  } catch {
+    // Storage is not available. The event below still changes an open list.
+  }
+  window.dispatchEvent(new CustomEvent('kalkidan-view-archived', { detail: { key } }));
 }
 export function SessionBrowser({
+  api,
+  onChanged,
   sessions,
   query = '',
   compact = false,
@@ -67,9 +91,12 @@ export function SessionBrowser({
   onResume,
   storageKey,
   activity = {},
+  newSessionLabel = 'New session',
+  branchOf,
+  placeOf,
 }: Props) {
-  const viewKey = (key: string | undefined) => (key ? `kalkidan.sessionView.${key}` : undefined);
-  const repositoryKey = viewKey(storageKey ?? sessions[0]?.projectId);
+  const listKey = storageKey ?? sessions[0]?.projectId;
+  const repositoryKey = listKey ? sessionViewKey(listKey) : undefined;
   const [loadedKey, setLoadedKey] = useState(repositoryKey);
   const [view, setView] = useState(() => readView(repositoryKey));
   // Load the saved view again when the user goes to a different repository.
@@ -77,7 +104,7 @@ export function SessionBrowser({
     setLoadedKey(repositoryKey);
     setView(readView(repositoryKey));
   }
-  const { agent, scope, collection } = view;
+  const { agent, scope, collection, project } = view;
   useEffect(() => {
     if (!loadedKey) return;
     try {
@@ -86,17 +113,46 @@ export function SessionBrowser({
       // Storage is not available. The view stays for this window only.
     }
   }, [loadedKey, view]);
+  useEffect(() => {
+    const onView = (event: Event) => {
+      if ((event as CustomEvent<{ key?: string }>).detail?.key === listKey)
+        setView((previous) => ({ ...previous, scope: 'archived' }));
+    };
+    window.addEventListener('kalkidan-view-archived', onView);
+    return () => window.removeEventListener('kalkidan-view-archived', onView);
+  }, [listKey]);
   const setAgent = (value: string) => setView((previous) => ({ ...previous, agent: value }));
   const setScope = (value: string) => setView((previous) => ({ ...previous, scope: value }));
   const setCollection = (value: string) =>
     setView((previous) => ({ ...previous, collection: value }));
+  const setProject = (value: string) => setView((previous) => ({ ...previous, project: value }));
   const [editing, setEditing] = useState<Session | null>(null);
+  const [renaming, setRenaming] = useState<Session | null>(null);
   const [draft, setDraft] = useState<SessionOrganization>({});
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState('');
   const collections = [
     ...new Set(sessions.map((s) => s.organization?.collection).filter((c): c is string => !!c)),
   ].sort();
+  const projects = placeOf
+    ? [
+        ...new Set(
+          sessions.map((s) => placeOf(s)?.project).filter((name): name is string => !!name),
+        ),
+      ].sort()
+    : [];
+  const agents = new Set(sessions.map((s) => s.agent));
+  const archivedCount = sessions.filter((s) => s.organization?.archived).length;
+  // A short list from one agent needs no filters. A saved filter keeps them visible.
+  const showFilters =
+    !compact &&
+    (sessions.length >= filterThreshold ||
+      agents.size > 1 ||
+      projects.length > 1 ||
+      scope !== 'active' ||
+      agent !== 'all' ||
+      collection !== 'all' ||
+      project !== 'all');
   const list = sessions
     .filter((session) => {
       const org = session.organization || {};
@@ -107,7 +163,8 @@ export function SessionBrowser({
             (scope === 'archived'
               ? org.archived
               : !org.archived && (scope !== 'pinned' || org.pinned)) &&
-            (collection === 'all' || org.collection === collection)) &&
+            (collection === 'all' || org.collection === collection) &&
+            (project === 'all' || placeOf?.(session)?.project === project)) &&
         `${org.title || session.title} ${session.title} ${session.cwd} ${session.agent} ${org.notes || ''} ${org.collection || ''}`
           .toLowerCase()
           .includes(query.toLowerCase())
@@ -119,9 +176,14 @@ export function SessionBrowser({
         b.updatedAt.localeCompare(a.updatedAt),
     );
   const shown = compact ? list.slice(0, 3) : list;
+  async function togglePin(session: Session) {
+    const org = session.organization || {};
+    if (await onUpdate(session, { ...org, pinned: !org.pinned }))
+      showToast(org.pinned ? 'Chat unpinned.' : 'Chat pinned. It shows at the top of the sidebar.');
+  }
   return (
     <>
-      {!compact && (
+      {showFilters && (
         <div className="session-filters">
           <SegmentedControl
             label="Session view"
@@ -132,26 +194,45 @@ export function SessionBrowser({
               label: value[0].toUpperCase() + value.slice(1),
             }))}
           />
-          <Choice
-            label="Filter by agent"
-            className="min-w-32"
-            value={agent}
-            onChange={setAgent}
-            options={[
-              { value: 'all', label: 'All agents' },
-              ...agentCatalog.map((item) => ({ value: item.id, label: item.name })),
-            ]}
-          />
-          <Choice
-            label="Filter by collection"
-            className="min-w-32"
-            value={collection}
-            onChange={setCollection}
-            options={[
-              { value: 'all', label: 'All collections' },
-              ...collections.map((c) => ({ value: c, label: c })),
-            ]}
-          />
+          {(agents.size > 1 || agent !== 'all') && (
+            <Choice
+              label="Filter by agent"
+              size="sm"
+              className="min-w-32"
+              value={agent}
+              onChange={setAgent}
+              options={[
+                { value: 'all', label: 'All agents' },
+                ...agentCatalog.map((item) => ({ value: item.id, label: item.name })),
+              ]}
+            />
+          )}
+          {(projects.length > 1 || project !== 'all') && (
+            <Choice
+              label="Filter by project"
+              size="sm"
+              className="min-w-32"
+              value={project}
+              onChange={setProject}
+              options={[
+                { value: 'all', label: 'All projects' },
+                ...projects.map((name) => ({ value: name, label: name })),
+              ]}
+            />
+          )}
+          {(collections.length > 0 || collection !== 'all') && (
+            <Choice
+              label="Filter by group"
+              size="sm"
+              className="min-w-32"
+              value={collection}
+              onChange={setCollection}
+              options={[
+                { value: 'all', label: 'All groups' },
+                ...collections.map((c) => ({ value: c, label: c })),
+              ]}
+            />
+          )}
         </div>
       )}
       {shown.length ? (
@@ -159,6 +240,9 @@ export function SessionBrowser({
           {shown.map((session) => {
             const org = session.organization || {};
             const title = org.title || session.title;
+            const branch = branchOf?.(session);
+            const place = placeOf?.(session);
+            const where = place ? [place.project, place.folder].filter(Boolean).join(' › ') : '';
             return (
               <div className="list-row" key={session.agent + session.id}>
                 <EntityIcon>
@@ -167,32 +251,31 @@ export function SessionBrowser({
                 <div className="min-w-0 flex-1">
                   <Button
                     variant="bare"
-                    className="session-title max-w-full gap-1.5 text-left font-medium"
+                    className="session-title max-w-full justify-start gap-1.5 text-left font-medium"
                     title={title}
                     disabled={busy}
                     aria-label={`Resume ${title}`}
                     onClick={() => onResume(session)}
                   >
-                    {org.pinned && <Pin size={12} />}
+                    {org.pinned && <Pin className="size-3" aria-hidden="true" />}
                     <span>{title}</span>
                     <ActivityDot state={activity[activityKey(session.agent, session.id)]} />
                   </Button>
-                  <div
-                    className="session-meta"
-                    title={`${agentLabel(session.agent)} · ${new Date(session.updatedAt).toLocaleString()}${org.collection ? ' · ' + org.collection : ''}`}
-                  >
+                  <div className="session-meta">
                     {agentLabel(session.agent)} ·{' '}
-                    <time
-                      dateTime={session.updatedAt}
-                      title={new Date(session.updatedAt).toLocaleString()}
-                    >
-                      {formatDay(session.updatedAt)}
+                    <time dateTime={session.updatedAt} title={fullTime(session.updatedAt)}>
+                      {relativeTime(session.updatedAt)}
                     </time>
-                    {org.collection && (
-                      <Badge variant="secondary" size="sm" className="ml-2">
-                        {org.collection}
-                      </Badge>
+                    {where && ` · ${where}`}
+                    {branch && (
+                      <span className="session-branch" title={`Branch copy: ${branch}`}>
+                        {' · '}
+                        <GitBranch className="size-3" aria-hidden="true" />
+                        <span className="sr-only">Branch </span>
+                        {branch}
+                      </span>
                     )}
+                    {org.collection && ` · ${org.collection}`}
                   </div>
                   {org.notes && !compact && <p className="session-note">{org.notes}</p>}
                 </div>
@@ -209,18 +292,50 @@ export function SessionBrowser({
                       Restore
                     </Button>
                   )}
-                  <Hint label="Organize session">
-                    <MoreButton
-                      size="xs"
-                      disabled={busy}
-                      label={`Organize ${title}`}
-                      onClick={() => {
-                        setSaveError('');
-                        setEditing(session);
-                        setDraft({ ...org });
-                      }}
-                    />
-                  </Hint>
+                  <ActionMenu
+                    size="xs"
+                    disabled={busy}
+                    label={`${title} actions`}
+                    items={[
+                      { label: 'Open', action: () => onResume(session) },
+                      { label: 'Rename…', action: () => setRenaming(session) },
+                      {
+                        label: org.pinned ? 'Unpin' : 'Pin',
+                        action: () => void togglePin(session),
+                      },
+                      {
+                        label: 'Session details…',
+                        action: () => {
+                          setSaveError('');
+                          setEditing(session);
+                          setDraft({ ...org });
+                        },
+                      },
+                      org.archived
+                        ? {
+                            label: 'Restore',
+                            separator: true,
+                            action: () => void onUpdate(session, { ...org, archived: false }),
+                          }
+                        : {
+                            label: 'Archive',
+                            separator: true,
+                            action: () =>
+                              void archiveSessionWithUndo(session, {
+                                api,
+                                onChange: onChanged,
+                                onViewArchived: listKey
+                                  ? () => viewArchivedSessions(listKey)
+                                  : undefined,
+                              }).catch((e) =>
+                                showToast({
+                                  message: 'Could not archive the chat: ' + errorMessage(e),
+                                  tone: 'error',
+                                }),
+                              ),
+                          },
+                    ]}
+                  />
                 </div>
               </div>
             );
@@ -241,10 +356,29 @@ export function SessionBrowser({
           }
         >
           {sessions.length
-            ? 'Try a different search or filter. Use Organize on a session to pin, collect, or archive it.'
-            : 'Use New session above.'}
+            ? 'Try a different search or filter. Use ⋯ on a session to pin, group, or archive it.'
+            : placeOf
+              ? 'No agent chats yet. Open a code folder, then start a session.'
+              : `No agent chats in this folder yet. Select ${newSessionLabel} above.`}
         </EmptyState>
       )}
+      {!showFilters && !compact && archivedCount > 0 && (
+        <Button
+          variant="link"
+          size="sm"
+          className="session-archived-link"
+          onClick={() => setScope('archived')}
+        >
+          View archived ({plural(archivedCount, 'session')})
+        </Button>
+      )}
+      <RenameSessionDialog
+        api={api}
+        onRenamed={() => onChanged?.()}
+        session={renaming}
+        open={!!renaming}
+        onOpenChange={(open) => !open && setRenaming(null)}
+      />
       <Dialog
         open={!!editing}
         onOpenChange={(open) => {
@@ -253,22 +387,17 @@ export function SessionBrowser({
       >
         <DialogContent size="md">
           <DialogHeader>
-            <DialogTitle>Organize session</DialogTitle>
+            <DialogTitle>Session details</DialogTitle>
             <DialogDescription>
-              These settings are saved in Kalkidan. The original session stays unchanged.
+              Kalkidan keeps these details. The agent session does not change.
             </DialogDescription>
           </DialogHeader>
           <label className="form-label">
-            Session title
-            <Input
-              maxLength={160}
-              placeholder={editing?.title}
-              value={draft.title || ''}
-              onChange={(e) => setDraft({ ...draft, title: e.target.value })}
-            />
-          </label>
-          <label className="form-label">
-            Collection
+            Group
+            <span className="form-help">
+              Put related chats in one group, for example one group for each feature. Then filter
+              the list by group.
+            </span>
             <Input
               maxLength={160}
               placeholder="e.g. Website redesign"
@@ -277,33 +406,15 @@ export function SessionBrowser({
             />
           </label>
           <label className="form-label">
-            Session notes
+            Notes
             <Textarea
               rows={3}
               maxLength={20000}
-              placeholder="Where you left off, next steps…"
+              placeholder="Where you stopped, next steps…"
               value={draft.notes || ''}
               onChange={(e) => setDraft({ ...draft, notes: e.target.value })}
             />
           </label>
-          <div className="session-options">
-            <Button
-              variant={draft.pinned ? 'secondary' : 'outline'}
-              aria-pressed={!!draft.pinned}
-              onClick={() => setDraft({ ...draft, pinned: !draft.pinned })}
-            >
-              <Pin size={14} />
-              {draft.pinned ? 'Pinned' : 'Pin session'}
-            </Button>
-            <Button
-              variant={draft.archived ? 'secondary' : 'outline'}
-              aria-pressed={!!draft.archived}
-              onClick={() => setDraft({ ...draft, archived: !draft.archived })}
-            >
-              {draft.archived ? <ArchiveRestore size={14} /> : <Archive size={14} />}{' '}
-              {draft.archived ? 'Archived' : 'Archive session'}
-            </Button>
-          </div>
           {saveError && (
             <p role="alert" className="field-error">
               {saveError}
@@ -322,14 +433,14 @@ export function SessionBrowser({
                   if (await onUpdate(editing, draft)) setEditing(null);
                   else
                     setSaveError(
-                      'Could not save the session. Check that the session still exists, then try again.',
+                      'Could not save the session. Make sure that the session is available, then try again.',
                     );
                 } finally {
                   setSaving(false);
                 }
               }}
             >
-              {saving ? 'Saving…' : 'Save session'}
+              {saving ? 'Saving…' : 'Save details'}
             </Button>
           </DialogFooter>
         </DialogContent>

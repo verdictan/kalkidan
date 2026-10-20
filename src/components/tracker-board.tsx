@@ -1,13 +1,11 @@
 import { StatusIcon, trackerColumns } from './tracker-list';
-import { MessageSquare, Plus } from 'lucide-react';
+import { ChevronDown, MessageSquare, Plus } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { pathBasename, plural } from '../lib/platform';
 import type { TrackerBoard, TrackerItem, Session } from '../types';
 import { Card, CardContent } from './ui/card';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
-import { MoreButton } from './ui/more-button';
-import { EmptyState } from './ui/empty-state';
 import {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -138,9 +136,11 @@ export function TrackerBoard({
                   (session) =>
                     !session.organization?.archived && session.organization?.taskId === item.id,
                 ).length;
+                const statusName =
+                  options.find((option) => option.id === item.statusId)?.name || 'No status';
                 return (
                   // The title button is the only focus stop that opens the task. A
-                  // pointer click on the card body also opens it. The menu moves
+                  // pointer click on the card body also opens it. The status pill moves
                   // the task without drag and drop.
                   <Card
                     key={item.id}
@@ -164,7 +164,7 @@ export function TrackerBoard({
                       setOver(null);
                     }}
                     data-dragging={dragged === item.id || undefined}
-                    className="tracker-task relative gap-0 rounded-lg p-3 pr-9 shadow-none has-[.tracker-task-title:focus-visible]:shadow-[var(--focus-ring)]"
+                    className="tracker-task gap-0 has-[.tracker-task-title:focus-visible]:shadow-[var(--focus-ring)]"
                   >
                     <CardContent className="flex flex-col items-start gap-1 p-0">
                       <Button
@@ -174,50 +174,57 @@ export function TrackerBoard({
                       >
                         {item.title}
                       </Button>
-                      <p className="break-words text-xs text-muted-foreground">
-                        {item.repository ? pathBasename(item.repository) : 'Draft task'}
+                      <p className="tracker-task-meta">
+                        {item.repository
+                          ? pathBasename(item.repository)
+                          : 'Not linked to a repository'}
                         {item.number ? ` #${item.number}` : ''}
                       </p>
-                      {count > 0 && (
-                        <Badge variant="outline" size="sm" className="mt-1">
-                          <MessageSquare size={12} />
-                          {plural(count, 'linked session')}
-                        </Badge>
-                      )}
-                      {board.statusField && (
-                        <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
-                            <MoreButton
-                              size="xs"
-                              className="tracker-task-menu absolute top-2.5 right-2.5 text-muted-foreground"
-                              label={`Move task: ${item.title}`}
-                              disabled={busy}
-                            />
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end">
-                            <DropdownMenuLabel>Move to</DropdownMenuLabel>
-                            {options.map((option) => (
-                              <DropdownMenuItem
-                                key={option.id}
-                                disabled={option.id === item.statusId}
-                                onSelect={() => onStatus(item, option.id)}
-                              >
-                                <StatusIcon name={option.name} />
-                                {option.name}
-                              </DropdownMenuItem>
-                            ))}
-                          </DropdownMenuContent>
-                        </DropdownMenu>
+                      {(board.statusField || count > 0) && (
+                        <div className="tracker-task-footer">
+                          {board.statusField && (
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild>
+                                <Button
+                                  variant="outline"
+                                  size="xs"
+                                  className="tracker-task-status"
+                                  aria-label={`Move task: ${item.title}. Status: ${statusName}`}
+                                  disabled={busy}
+                                >
+                                  <StatusIcon name={statusName} />
+                                  <span className="truncate">{statusName}</span>
+                                  <ChevronDown aria-hidden="true" />
+                                </Button>
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent align="start">
+                                <DropdownMenuLabel>Move to</DropdownMenuLabel>
+                                {options.map((option) => (
+                                  <DropdownMenuItem
+                                    key={option.id}
+                                    disabled={option.id === item.statusId}
+                                    onSelect={() => onStatus(item, option.id)}
+                                  >
+                                    <StatusIcon name={option.name} />
+                                    {option.name}
+                                  </DropdownMenuItem>
+                                ))}
+                              </DropdownMenuContent>
+                            </DropdownMenu>
+                          )}
+                          {count > 0 && (
+                            <Badge variant="outline" size="sm">
+                              <MessageSquare size={12} />
+                              {plural(count, 'linked session')}
+                            </Badge>
+                          )}
+                        </div>
                       )}
                     </CardContent>
                   </Card>
                 );
               })}
-              {!tasks.length && (
-                <EmptyState compact className="tracker-column-empty">
-                  No tasks
-                </EmptyState>
-              )}
+              {!tasks.length && <p className="tracker-column-empty">No tasks</p>}
             </div>
           </section>
         );

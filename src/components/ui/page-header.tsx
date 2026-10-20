@@ -36,8 +36,11 @@ export function SectionHeader({
   count,
   actions,
   as: Heading = 'h3',
+  size = 'md',
   className,
 }: {
+  /** sm removes the minimum height and uses an 8px gap below, for headers inside dialogs. */
+  size?: 'sm' | 'md';
   title: ReactNode;
   count?: number;
   actions?: ReactNode;
@@ -45,7 +48,7 @@ export function SectionHeader({
   className?: string;
 }) {
   return (
-    <div className={cn('section-header', className)}>
+    <div className={cn('section-header', className)} data-size={size}>
       <Heading className="section-title">
         {title}
         {count !== undefined && <span className="section-count">{count}</span>}

@@ -15,7 +15,9 @@ test('single view ignores old split preferences and preserves conversation draft
   );
   await expect(page.locator('.management-pane')).toBeHidden();
   await page.locator('.project-tree').getByRole('button', { name: 'Atlas', exact: true }).click();
-  await expect(page.getByRole('button', { name: 'Connect GitHub', exact: true })).toBeVisible();
+  await expect(
+    page.getByRole('button', { name: 'Connect a GitHub Projects board', exact: true }),
+  ).toBeVisible();
   await expect(page.getByLabel('Message agent')).toBeHidden();
   await page.getByRole('button', { name: 'Go back', exact: true }).click();
   await expect(page.getByLabel('Message agent')).toHaveValue('Preserve this draft');
@@ -29,16 +31,16 @@ test('single view ignores old split preferences and preserves conversation draft
 
 test('adding a repository requires choosing a project', async ({ page }) => {
   await page.goto(url);
-  await page.getByRole('button', { name: 'Add repositories to Atlas', exact: true }).click();
+  await page.getByRole('button', { name: 'Add code folders to Atlas', exact: true }).click();
   const dialog = page.getByRole('dialog');
-  await dialog.getByRole('radio', { name: 'Local folders', exact: true }).click();
+  await dialog.getByRole('button', { name: 'Local folder', exact: true }).click();
   await dialog.getByRole('combobox', { name: 'Add to project' }).click();
   await page.getByRole('option', { name: 'Choose a project', exact: true }).click();
-  await expect(dialog.getByRole('button', { name: 'Choose folders', exact: true })).toBeDisabled();
+  await expect(dialog.getByRole('button', { name: 'Choose folder', exact: true })).toBeDisabled();
   await dialog.getByRole('combobox', { name: 'Add to project' }).click();
   await expect(page.getByRole('option', { name: 'Ungrouped', exact: true })).toHaveCount(0);
   await page.getByRole('option', { name: 'Atlas', exact: true }).click();
-  await expect(dialog.getByRole('button', { name: 'Choose folders', exact: true })).toBeEnabled();
+  await expect(dialog.getByRole('button', { name: 'Choose folder', exact: true })).toBeEnabled();
 });
 
 test('dragging a task syncs its status and a failed write keeps the original column', async ({
@@ -77,10 +79,8 @@ test('dragging a task syncs its status and a failed write keeps the original col
     };
   });
   await page.goto(url);
-  await page
-    .locator('.project-tree')
-    .getByRole('button', { name: 'Platform', exact: true })
-    .click();
+  // The project row opens the overview. The Tasks row opens the board.
+  await page.locator('.project-tree').getByRole('button', { name: 'Tasks', exact: true }).click();
   const card = page.locator('[draggable="true"]');
   await card.dragTo(page.getByRole('region', { name: 'In progress column', exact: true }), {
     sourcePosition: { x: 4, y: 4 },
@@ -222,8 +222,10 @@ test('settings shows agent and remote controls without history import', async ({
     'aria-selected',
     'true',
   );
-  await dialog.getByRole('tab', { name: 'Agents & tools' }).click();
-  await expect(dialog.getByRole('region', { name: 'Local agents and tools' })).toBeVisible();
+  await dialog.getByRole('tab', { name: 'Agents', exact: true }).click();
+  await expect(dialog.getByRole('region', { name: 'Agents on this computer' })).toBeVisible();
+  await dialog.getByRole('tab', { name: 'Accounts', exact: true }).click();
+  await expect(dialog.getByRole('region', { name: 'GitHub account' })).toBeVisible();
   await dialog.getByRole('tab', { name: 'Remote hosts' }).click();
   await expect(dialog.getByRole('button', { name: 'Add host', exact: true })).toBeVisible();
   await expect(dialog.getByText('Import chat history', { exact: true })).toHaveCount(0);
@@ -266,9 +268,11 @@ test('project menu connects the chosen project without duplicate authorization',
     .getByRole('navigation', { name: 'Projects and repositories' })
     .getByRole('button', { name: 'Platform', exact: true })
     .click({ button: 'right' });
-  await page.getByRole('menuitem', { name: 'Connect GitHub project…', exact: true }).click();
+  await page
+    .getByRole('menuitem', { name: 'Connect a GitHub Projects board…', exact: true })
+    .click();
   await expect(
-    page.getByRole('dialog', { name: 'Connect GitHub project', exact: true }),
+    page.getByRole('dialog', { name: 'Connect a GitHub Projects board', exact: true }),
   ).toBeVisible();
   await expect(page.getByLabel('GitHub device code')).toHaveValue('ABCD-1234');
   expect(await page.evaluate(() => (window as any).authStarts)).toBe(1);
@@ -279,12 +283,14 @@ test('project menu connects the chosen project without duplicate authorization',
 test('task conversation returns to the filtered project board', async ({ page }) => {
   await page.goto(url);
   await page.locator('.project-tree').getByRole('button', { name: 'Atlas', exact: true }).click();
-  await page.getByRole('button', { name: 'Connect GitHub', exact: true }).click();
+  await page.getByRole('button', { name: 'Connect a GitHub Projects board', exact: true }).click();
   await page.getByRole('button', { name: 'Atlas roadmap #1', exact: true }).click();
-  await page.getByRole('button', { name: 'Connect project', exact: true }).click();
+  await page.getByRole('button', { name: 'Connect board', exact: true }).click();
   await page.getByLabel('Search tasks').fill('authentication');
   await page.getByRole('button', { name: 'Review authentication', exact: true }).click();
-  await page.getByRole('button', { name: 'Start Codex session', exact: true }).click();
+  // The preview has no Git, so the agent works in the folder, not in a branch copy.
+  await page.getByRole('radio', { name: 'In api-service on main', exact: true }).check();
+  await page.getByRole('button', { name: 'New Codex session', exact: true }).click();
   await expect(page.getByLabel('Message agent')).toHaveValue(/Review authentication/);
   await page.getByRole('button', { name: 'Go back', exact: true }).click();
   await expect(page.getByLabel('Search tasks')).toHaveValue('authentication');

@@ -63,10 +63,15 @@
   flex-direction: column;
   gap: 12px;
 }
+/* The diff fills the pane to its edges: no frame, and the pane padding is cancelled. */
 .diff-review .diff-output {
   flex: 1;
   min-height: 120px;
   max-height: none;
+  margin-inline: -12px;
+  border: 0;
+  border-radius: 0;
+  border-block: 1px solid var(--border);
 }
 .diff-file-list {
   display: grid;
@@ -85,8 +90,9 @@
   width: 100%;
   min-width: 0;
   padding: 4px 8px;
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-sm);
   font-size: 12px;
+  line-height: 16px;
   text-align: left;
   color: var(--muted-foreground);
 }
@@ -95,8 +101,8 @@
   color: var(--foreground);
 }
 .diff-file:focus-visible {
-  outline: 2px solid var(--ring);
-  outline-offset: -2px;
+  outline: none;
+  box-shadow: inset var(--focus-ring);
 }
 .diff-file[aria-current='true'] {
   background: var(--surface-selected);
@@ -113,11 +119,16 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   font-size: 12px;
+  line-height: 16px;
   color: var(--muted-foreground);
 }
 .diff-count-add {
   color: var(--diff-add);
   font-variant-numeric: tabular-nums;
+}
+/* The counts stay on the right, also for a file without a folder path. */
+.diff-file .diff-count-add {
+  margin-left: auto;
 }
 .diff-count-remove {
   color: var(--diff-remove);
@@ -136,6 +147,7 @@
   padding: 4px 8px;
   border-bottom: 1px solid var(--border);
   font-size: 12px;
+  line-height: 16px;
   color: var(--muted-foreground);
 }
 .tool-toolbar-footer {
@@ -200,23 +212,42 @@
   font-size: 13px;
 }
 
-/* The tool launcher: a page header, then one row for each tool. Tiles are secondary
-   buttons; the button sets their height and hover. */
+/* The tool launcher: a page header, then one 48px ghost row for each tool with an icon
+   tile, a name, a description and a muted shortcut. */
 .tool-launcher {
   max-width: var(--page-max-width);
   margin: 0 auto;
-  padding: var(--space-12) var(--page-padding-x);
+  padding: var(--page-padding-top) var(--page-padding-x);
   height: 100%;
   overflow: auto;
 }
 .tool-launcher-grid {
   display: grid;
   grid-template-columns: 1fr;
-  gap: var(--space-2);
+  gap: var(--space-1);
 }
-.tool-launcher-grid button > span {
+.tool-launcher-text {
+  display: grid;
   flex: 1;
+  min-width: 0;
   text-align: left;
+}
+.tool-launcher-title {
+  font-size: 13px;
+  line-height: 20px;
+  font-weight: 500;
+}
+.tool-launcher-description {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--muted-foreground);
+}
+.tool-launcher-kbd {
+  background: transparent;
+  color: var(--muted-foreground);
 }
 .agent-panes.has-side-chat {
   display: grid;
@@ -334,13 +365,44 @@
   white-space: nowrap;
   text-overflow: ellipsis;
 }
+/* The close button always shows, so the user can see how to close a tab. It is muted until
+   the tab is hovered or selected. */
 .tool-tab-close {
-  opacity: 0;
+  color: var(--muted-foreground);
 }
-.tool-tab:hover .tool-tab-close,
-.tool-tab:focus-within .tool-tab-close,
-.tool-tab.selected .tool-tab-close {
-  opacity: 1;
+/* Terminal, Browser and Changes ({n}) in the title bar. */
+.tool-launch {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 2px;
+}
+.tool-launch-button {
+  color: var(--muted-foreground);
+  font-weight: 400;
+}
+.tool-launch-button:hover,
+.tool-launch-button[data-selected] {
+  color: var(--foreground);
+}
+.tool-launch-count {
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 9999px;
+  background: var(--secondary);
+  color: var(--foreground);
+  font-size: var(--text-2xs);
+  line-height: 16px;
+  font-variant-numeric: tabular-nums;
+}
+/* Next to open tool tabs, or in a narrow window, the buttons show only their icons. */
+.tool-tabbar[data-expanded='true'] .tool-launch-label {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
 }
 /* A line between the tab strip and the "Open tool" and "Hide tools" buttons. */
 .tool-tabbar-divider {
@@ -392,5 +454,12 @@
   }
   .tool-tab {
     min-width: 88px;
+  }
+  .tool-launch-label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
   }
 }

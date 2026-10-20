@@ -68,8 +68,17 @@ try {
     ],
     { stdio: 'pipe' },
   );
+  const preview = await rpc('worktree-preview', [repo, 'feature/location', root]);
+  assert.equal(preview.path, join(root, 'worktrees', 'repo-feature-location'));
   const worktree = await rpc('worktree', [repo, 'feature/location', root]);
   assert.ok(worktree.path.startsWith(join(root, 'worktrees') + '/'));
+  assert.equal(worktree.name, 'repo-feature-location');
+  const scan = await rpc('scan-repositories', [join(root, 'repos')]);
+  assert.deepEqual(
+    scan.repositories.map((r) => r.name),
+    ['repo'],
+  );
+  assert.deepEqual(await rpc('working-files', [repo]), []);
   assert.equal((await rpc('git', [repo])).worktrees.length, 2);
   const beforeSummary = id;
   const summary = await rpc('repository-snapshot', [repo]);

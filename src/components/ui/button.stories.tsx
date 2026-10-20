@@ -60,7 +60,7 @@ export const WithIcon: Story = {
 export const IconOnly: Story = {
   render: () => (
     <div className="flex flex-wrap items-center gap-2">
-      <Button variant="ghost" size="icon-lg" aria-label="Add">
+      <Button variant="ghost" size="icon" aria-label="Add">
         <Plus />
       </Button>
       <Button variant="ghost" size="icon" aria-label="Add">

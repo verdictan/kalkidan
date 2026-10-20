@@ -1,4 +1,13 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, type Page } from '@playwright/test';
+
+// The sidebar hides Get started after setup is complete. The search actions keep it.
+async function openSetup(page: Page) {
+  await page.getByLabel('Search projects and sessions').fill('Get started');
+  await page
+    .getByRole('region', { name: 'Search results' })
+    .getByRole('option', { name: /Get started/ })
+    .click();
+}
 
 test('empty workspace starts onboarding once and can resume after dismissal', async ({ page }) => {
   await page.addInitScript(() => {
@@ -15,19 +24,15 @@ test('empty workspace starts onboarding once and can resume after dismissal', as
     };
   });
   await page.goto('http://127.0.0.1:5173');
-  await expect(
-    page.getByRole('heading', { name: 'From repository to your first session' }),
-  ).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Add repository', exact: true })).toBeDisabled();
+  await expect(page.getByRole('heading', { name: 'Set up your first session' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Choose code folder', exact: true })).toBeEnabled();
   await expect(page.getByRole('button', { name: 'Open first session' })).toBeDisabled();
   await page.getByRole('button', { name: 'Set up later' }).click();
   await page.reload();
   await expect(page.getByRole('button', { name: 'Get started', exact: true })).toBeVisible();
   await expect(page.getByRole('dialog')).toHaveCount(0);
   await page.getByRole('button', { name: 'Get started', exact: true }).click();
-  await expect(
-    page.getByRole('heading', { name: 'From repository to your first session' }),
-  ).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Set up your first session' })).toBeVisible();
 });
 
 test('existing workspace can prepare an editable first message without sending it', async ({
@@ -37,7 +42,7 @@ test('existing workspace can prepare an editable first message without sending i
   page.on('pageerror', (error) => errors.push(error.message));
   await page.goto('http://127.0.0.1:5173');
   await expect(page.getByRole('dialog')).toHaveCount(0);
-  await page.getByRole('button', { name: 'Get started', exact: true }).click();
+  await openSetup(page);
   await expect(page.getByRole('combobox', { name: 'Setup project' })).toContainText('Atlas');
   await page.getByRole('combobox', { name: 'Starter message' }).click();
   await page.getByRole('option', { name: 'Plan a change', exact: true }).click();
@@ -81,10 +86,12 @@ test('agent check failure is recoverable and short screens keep setup actions ac
   await page.setViewportSize({ width: 600, height: 650 });
   await page.goto('http://127.0.0.1:5173');
   await page.getByRole('button', { name: 'Get started', exact: true }).click();
-  await expect(page.getByRole('status')).toContainText('Temporary failure');
-  await expect(page.getByRole('button', { name: 'Open first session' })).toBeDisabled();
-  await page.getByRole('button', { name: 'Check again' }).click();
+  const status = page.getByRole('dialog').getByRole('status');
+  await expect(status).toContainText('Temporary failure');
+  // The session opens with a draft only, so a failed check does not block it.
   await expect(page.getByRole('button', { name: 'Open first session' })).toBeEnabled();
+  await page.getByRole('button', { name: 'Check again' }).click();
+  await expect(status).toContainText('Codex is ready');
   await page.getByRole('button', { name: 'Set up later' }).click();
   await expect(page.getByRole('dialog')).toHaveCount(0);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
@@ -92,20 +99,16 @@ test('agent check failure is recoverable and short screens keep setup actions ac
 
 test('project and repository setup return to the checklist', async ({ page }) => {
   await page.goto('http://127.0.0.1:5173');
-  await page.getByRole('button', { name: 'Get started', exact: true }).click();
+  await openSetup(page);
   await page.getByRole('button', { name: 'Create project', exact: true }).click();
   await expect(page.getByRole('dialog')).toContainText('Project name');
   await page.getByRole('button', { name: 'Cancel', exact: true }).click();
-  await expect(
-    page.getByRole('heading', { name: 'From repository to your first session' }),
-  ).toBeVisible();
-  await page.getByRole('button', { name: 'Add repository', exact: true }).click();
-  // The demo has no GitHub CLI, so the dialog starts with local folders.
-  await expect(page.getByRole('dialog').last()).toContainText('Choose folders');
+  await expect(page.getByRole('heading', { name: 'Set up your first session' })).toBeVisible();
+  await page.getByRole('button', { name: 'Add code folder', exact: true }).click();
+  // The demo has no GitHub CLI, so the dialog starts with a local folder.
+  await expect(page.getByRole('dialog').last()).toContainText('Choose folder');
   await page.getByRole('button', { name: 'Cancel', exact: true }).click();
-  await expect(
-    page.getByRole('heading', { name: 'From repository to your first session' }),
-  ).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Set up your first session' })).toBeVisible();
 });
 
 test('a missing agent check shows an error, and an empty overview has one New project action', async ({

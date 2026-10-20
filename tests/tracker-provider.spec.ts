@@ -62,14 +62,20 @@ test('a configured non-GitHub provider drives project creation and a read-only b
   await page.goto('http://127.0.0.1:5173');
   await page.getByRole('main').getByRole('button', { name: 'New project', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: 'New project', exact: true });
-  await expect(dialog).toContainText('Example Tracker');
   await dialog.getByLabel('Project name', { exact: true }).fill('Platform');
-  await dialog.getByRole('button', { name: 'Use Example Tracker', exact: true }).click();
+  await dialog.getByRole('button', { name: 'More options', exact: true }).click();
+  await expect(dialog).toContainText('Example Tracker board');
+  await dialog.getByRole('button', { name: 'Connect now', exact: true }).click();
   await dialog.getByRole('button', { name: 'Connect Example Tracker', exact: true }).click();
   await expect(dialog.getByRole('button', { name: 'Create new', exact: true })).toHaveCount(0);
   await dialog.getByRole('button', { name: 'Engineering roadmap', exact: true }).click();
   await dialog.getByRole('button', { name: 'Create project', exact: true }).click();
   await expect(dialog).not.toBeVisible();
+  // A new project opens on its overview. The board is on the Tasks page.
+  await page
+    .getByRole('group', { name: 'Project page', exact: true })
+    .getByRole('button', { name: 'Tasks', exact: true })
+    .click();
   await expect(page.getByText('Provider-independent work', { exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: 'New task', exact: true })).toBeDisabled();
   const calls = await page.evaluate(() => (window as any).providerCalls);
@@ -79,19 +85,20 @@ test('a configured non-GitHub provider drives project creation and a read-only b
 
 test('project workflow mappings can be configured and reopened', async ({ page }) => {
   await page.goto('http://127.0.0.1:5173');
-  await page.getByRole('button', { name: 'Connect GitHub', exact: true }).click();
+  await page.locator('.project-tree').getByRole('button', { name: 'Atlas', exact: true }).click();
+  await page.getByRole('button', { name: 'Connect a GitHub Projects board', exact: true }).click();
   const connect = page.getByRole('dialog');
   await connect.getByRole('button', { name: 'Atlas roadmap #1', exact: true }).click();
-  await connect.getByRole('button', { name: 'Connect project', exact: true }).click();
-  await page.getByRole('button', { name: 'Tracker actions', exact: true }).click();
-  await page.getByRole('menuitem', { name: 'Workflow', exact: true }).click();
-  const workflow = page.getByRole('dialog', { name: 'Task workflow', exact: true });
+  await connect.getByRole('button', { name: 'Connect board', exact: true }).click();
+  await page.getByRole('button', { name: 'Board actions', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Automatic status changes…', exact: true }).click();
+  const workflow = page.getByRole('dialog', { name: 'Status changes from sessions', exact: true });
   await workflow.getByRole('combobox', { name: 'Status when work starts' }).click();
   await page.getByRole('option', { name: 'In progress', exact: true }).click();
-  await workflow.getByRole('button', { name: 'Save workflow' }).click();
+  await workflow.getByRole('button', { name: 'Save', exact: true }).click();
   await expect(workflow).not.toBeVisible();
-  await page.getByRole('button', { name: 'Tracker actions', exact: true }).click();
-  await page.getByRole('menuitem', { name: 'Workflow', exact: true }).click();
+  await page.getByRole('button', { name: 'Board actions', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Automatic status changes…', exact: true }).click();
   await expect(workflow.getByRole('combobox', { name: 'Status when work starts' })).toContainText(
     'In progress',
   );

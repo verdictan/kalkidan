@@ -36,7 +36,7 @@ test('repository dialog contains long names, scrolls results, and keeps actions 
   await page.goto('http://127.0.0.1:5173');
   await page
     .getByRole('button', {
-      name: 'Add repositories to Customer platform and shared infrastructure across multiple repositories',
+      name: 'Add code folders to Customer platform and shared infrastructure across multiple repositories',
       exact: true,
     })
     .click();
@@ -47,7 +47,7 @@ test('repository dialog contains long names, scrolls results, and keeps actions 
       name: 'Customer platform and shared infrastructure across multiple repositories',
     })
     .click();
-  await dialog.getByRole('radio', { name: 'Clone from GitHub', exact: true }).click();
+  await dialog.getByRole('button', { name: 'Clone from GitHub', exact: true }).click();
   const last = dialog.getByRole('radio', { name: /repository-39/ });
   await last.scrollIntoViewIfNeeded();
   await last.click();
@@ -66,10 +66,8 @@ test('repository dialog contains long names, scrolls results, and keeps actions 
   await expect(
     dialog.getByRole('button', { name: 'Clone into project', exact: true }),
   ).toBeInViewport();
-  await dialog.getByRole('radio', { name: 'Local folders', exact: true }).click();
-  await expect(
-    dialog.getByRole('button', { name: 'Choose folders', exact: true }),
-  ).toBeInViewport();
+  await dialog.getByRole('button', { name: 'Local folder', exact: true }).click();
+  await expect(dialog.getByRole('button', { name: 'Choose folder', exact: true })).toBeInViewport();
 });
 
 test('notifications and a long draft do not push the composer outside the window', async ({
@@ -79,9 +77,9 @@ test('notifications and a long draft do not push the composer outside the window
   await page.goto('http://127.0.0.1:5173');
   await page.locator('.repo-select').first().click();
   await page.getByRole('button', { name: 'Repository actions', exact: true }).click();
-  await page.getByRole('menuitem', { name: 'Edit repository…', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Edit code folder…', exact: true }).click();
   await page.getByRole('button', { name: 'Save changes', exact: true }).click();
-  await expect(page.locator('.notice')).toContainText('Repository updated.');
+  await expect(page.getByRole('status').filter({ hasText: 'Code folder updated.' })).toBeVisible();
   await page.getByRole('button', { name: 'New Codex session', exact: true }).click();
   await page
     .getByLabel('Message agent')

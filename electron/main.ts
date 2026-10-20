@@ -34,7 +34,17 @@ import { PtyTerminal } from './pty-terminal';
 import { RemoteHosts } from './remote-hosts';
 import { CommandTerminal, repositoryDiff } from './conversation-tools';
 import { AnnotationBrowser } from './annotation-browser';
-import { app, BrowserWindow, dialog, ipcMain, shell, Menu, clipboard, nativeTheme } from 'electron';
+import {
+  app,
+  BrowserWindow,
+  dialog,
+  ipcMain,
+  shell,
+  Menu,
+  clipboard,
+  nativeTheme,
+  Notification,
+} from 'electron';
 import { existsSync } from 'node:fs';
 import { readFile, writeFile, stat, realpath } from 'node:fs/promises';
 import { join, basename } from 'node:path';
@@ -45,7 +55,17 @@ import * as TOML from '@iarna/toml';
 import type { Project, Agent } from '../src/types';
 import { exec, launchCommand, parseWorktrees } from './core';
 import { executable } from './chat';
-import { gitCommit, gitPullRequest, removeWorktree, workingStatus } from './git-working';
+import {
+  gitCommit,
+  gitPullRequest,
+  gitSwitchNewBranch,
+  removeWorktree,
+  workingFiles,
+  workingStatus,
+  worktreeFolder,
+  worktreePreview,
+} from './git-working';
+import { scanRepositories } from './repository-scan';
 import { history } from './history';
 import { codexTranscript } from './codex-store';
 import { ProjectGroups } from './project-groups';
@@ -670,12 +690,17 @@ app.whenReady().then(async () => {
   );
   handle('group-color', (id, color) => projectGroups.setColor(id, color));
   handle('group-update', (id, name) => projectGroups.update(id, name));
-  handle('group-remove', (id) => {
-    if (
-      projectGroups.groups
-        .find((g) => g.id === id)
-        ?.repoIds.some((repoId) => projects.some((p) => p.id === repoId))
-    )
+  handle('group-remove', async (id, withRepositories?: boolean) => {
+    const group = projectGroups.groups.find((g) => g.id === id);
+    if (!group) throw new Error('Project not found');
+    const repoIds = new Set(group.repoIds);
+    if (withRepositories === true) {
+      // Remove only the library entries. The folders and files on disk stay.
+      if (projects.some((p) => repoIds.has(p.id))) {
+        projects = projects.filter((p) => !repoIds.has(p.id));
+        await save();
+      }
+    } else if (projects.some((p) => repoIds.has(p.id)))
       throw new Error('Move this project’s repositories to another project before removing it.');
     return projectGroups.remove(id);
   });
@@ -709,6 +734,93 @@ app.whenReady().then(async () => {
         }
       }
     }
+  });
+  handle('choose-folder', async (title?: string, buttonLabel?: string) => {
+    const text = (value: unknown) =>
+      typeof value === 'string' && value.trim() ? value.trim().slice(0, 200) : undefined;
+    const parent = BrowserWindow.getFocusedWindow() ?? win;
+    const options = {
+      title: text(title),
+      buttonLabel: text(buttonLabel),
+      properties: ['openDirectory', 'createDirectory'] as ('openDirectory' | 'createDirectory')[],
+    };
+    const result = parent
+      ? await dialog.showOpenDialog(parent, options)
+      : await dialog.showOpenDialog(options);
+    return result.canceled || !result.filePaths[0] ? null : result.filePaths[0];
+  });
+  handle('scan-repositories', async (path: string, hostId?: string) => {
+    if (typeof path !== 'string' || !path) throw new Error('Choose a folder.');
+    let scan;
+    if (hostId) {
+      if (!remote.list().some((h) => h.id === hostId)) throw new Error('Remote host not found');
+      try {
+        scan = await remote.call(hostId, 'scan-repositories', [path]);
+      } catch (error: any) {
+        if (error?.message === 'Unsupported remote operation')
+          throw new Error('Reinstall the Kalkidan agent on this host to use this action.');
+        throw error;
+      }
+    } else
+      scan = await scanRepositories(
+        path === '~' ? homedir() : path.startsWith('~/') ? join(homedir(), path.slice(2)) : path,
+      );
+    const library = new Set(
+      projects.filter((p) => (p.hostId || '') === (hostId || '')).map((p) => p.path),
+    );
+    return {
+      root: scan.root,
+      rootIsRepository: scan.rootIsRepository,
+      repositories: scan.repositories.map((repo: { path: string }) => ({
+        ...repo,
+        added: library.has(repo.path),
+      })),
+      truncated: scan.truncated,
+    };
+  });
+  handle('add-repositories', async (groupId: string, paths: string[]) => {
+    const group = projectGroups.groups.find((g) => g.id === groupId);
+    if (!group) throw new Error('Choose a project before adding repositories.');
+    if (!Array.isArray(paths) || paths.length > 500 || paths.some((p) => typeof p !== 'string'))
+      throw new Error('Choose the folders to add.');
+    const assigned = new Set(projectGroups.groups.flatMap((g) => g.repoIds));
+    const moving: string[] = [];
+    let firstError: Error | undefined;
+    for (const path of new Set(paths)) {
+      try {
+        const value = group.hostId
+          ? await remote.call(group.hostId, 'validate', [path])
+          : { path: await realpath(path), name: '' };
+        const existing = projects.find(
+          (p) => (p.hostId || '') === (group.hostId || '') && p.path === value.path,
+        );
+        // A folder that is already in a project stays where it is.
+        if (existing) {
+          if (!assigned.has(existing.id)) moving.push(existing.id);
+          continue;
+        }
+        if (group.hostId) {
+          const repo: Project = {
+            id: randomUUID(),
+            name: value.name,
+            path: value.path,
+            hostId: group.hostId,
+            notes: '',
+            favorite: false,
+            addedAt: new Date().toISOString(),
+          };
+          projects.push(repo);
+          moving.push(repo.id);
+        } else if (await addPath(value.path))
+          moving.push(projects.find((p) => !p.hostId && p.path === value.path)!.id);
+      } catch (error: any) {
+        firstError ??= error instanceof Error ? error : new Error(String(error));
+      }
+    }
+    if (!moving.length && firstError) throw firstError;
+    await save();
+    if (moving.length) await projectGroups.moveMany(moving, groupId);
+    return { added: moving.length };
   });
   handle('github-repositories', () => listRepositories());
   handle('repository-clone', async (name: string, groupId?: string) => {
@@ -936,10 +1048,11 @@ app.whenReady().then(async () => {
       throw new Error('Enter a valid new branch name');
     await git(p.path, ['check-ref-format', '--branch', branch]);
     const owner = projectGroups.groups.find((g) => g.repoIds.includes(id))!;
-    const destination = join(
+    const destination = worktreeFolder(
       await projectRoot(owner.id),
-      'worktrees',
-      basename(p.path) + '-' + branch.replaceAll('/', '-') + '-' + randomUUID().slice(0, 8),
+      basename(p.path),
+      branch,
+      existsSync,
     );
     await git(p.path, ['worktree', 'add', '-b', branch, '--', destination]);
     await addPath(destination);
@@ -983,9 +1096,25 @@ app.whenReady().then(async () => {
   handle('working-status', (id) =>
     hostGit(id, 'working-status', [], () => workingStatus(project(id).path)),
   );
-  handle('git-commit', (id, message) =>
-    hostGit(id, 'git-commit', [message], () => gitCommit(project(id).path, message)),
+  handle('git-commit', (id, message, files?: string[]) =>
+    hostGit(id, 'git-commit', [message, files], () => gitCommit(project(id).path, message, files)),
   );
+  handle('working-files', (id) =>
+    hostGit(id, 'working-files', [], () => workingFiles(project(id).path)),
+  );
+  handle('git-switch-new-branch', (id, branch) =>
+    hostGit(id, 'git-switch-new-branch', [branch], () =>
+      gitSwitchNewBranch(project(id).path, branch),
+    ),
+  );
+  handle('worktree-preview', async (id, branch) => {
+    const owner = projectGroups.groups.find((g) => g.repoIds.includes(id));
+    if (!owner) throw new Error('Assign this repository to a project before creating a worktree.');
+    const root = await projectRoot(owner.id);
+    return hostGit(id, 'worktree-preview', [branch, root], () =>
+      worktreePreview(project(id).path, branch, root, existsSync),
+    );
+  });
   handle('git-pull-request', (id, title, body) =>
     hostGit(id, 'git-pull-request', [title, body], () =>
       gitPullRequest(project(id).path, title, body, () => executable('gh')),
@@ -993,10 +1122,11 @@ app.whenReady().then(async () => {
   );
   handle('task-worktree', createWorktree);
   // The window chrome follows the light or dark appearance of the system.
+  // The title bar overlay (chrome) uses --navigation from src/styles/theme.css.
   function windowColors() {
     return nativeTheme.shouldUseDarkColors
-      ? { chrome: '#22272b', symbol: '#e1e4e7', background: '#101316' }
-      : { chrome: '#eef0f2', symbol: '#1f2328', background: '#fbfbfc' };
+      ? { chrome: '#15191c', symbol: '#e1e4e7', background: '#101316' }
+      : { chrome: '#f6f8fa', symbol: '#1f2328', background: '#fbfbfc' };
   }
   function titleBarOverlay() {
     const colors = windowColors();
@@ -1008,6 +1138,49 @@ app.whenReady().then(async () => {
       window.setBackgroundColor(windowColors().background);
       if (process.platform !== 'darwin') window.setTitleBarOverlay(titleBarOverlay());
     }
+  });
+  // Electron can release a notification that has no reference, and then a click does nothing.
+  const notifications = new Set<Notification>();
+  ipcMain.handle(
+    'notify',
+    (event, input: { title?: unknown; body?: unknown; target?: unknown }) => {
+      const owner = [...windows].find(
+        (w) => w.webContents === event.sender && event.senderFrame === w.webContents.mainFrame,
+      );
+      if (!owner) throw new Error('Untrusted caller');
+      if (
+        typeof input?.title !== 'string' ||
+        typeof input.body !== 'string' ||
+        typeof input.target !== 'string'
+      )
+        throw new Error('Invalid notification');
+      // The user can already see the window. Show nothing.
+      if (BrowserWindow.getFocusedWindow() || !Notification.isSupported()) return;
+      const notification = new Notification({
+        title: input.title.slice(0, 200),
+        body: input.body.slice(0, 1000),
+      });
+      const target = input.target.slice(0, 2000);
+      notifications.add(notification);
+      const release = () => notifications.delete(notification);
+      notification.on('click', () => {
+        release();
+        if (owner.isDestroyed()) return;
+        if (owner.isMinimized()) owner.restore();
+        owner.show();
+        owner.focus();
+        owner.webContents.send('notification-click', target);
+      });
+      notification.on('close', release);
+      notification.on('failed', release);
+      notification.show();
+    },
+  );
+  handle('badge-count', (count: number) => {
+    const value = Number.isInteger(count) ? Math.min(Math.max(count, 0), 9999) : 0;
+    // macOS shows the count on the Dock icon. Some Linux desktops (Unity) show it too.
+    // Windows has no count badge, so it shows nothing there.
+    if (process.platform !== 'win32') app.setBadgeCount(value);
   });
   function openExternalLink(value: string) {
     let url: URL;

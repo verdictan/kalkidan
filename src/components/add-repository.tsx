@@ -1,4 +1,3 @@
-import { interfaceConfig } from '../config/interface';
 import { RemoteRepositoryPicker } from './remote-repository-picker';
 import { CreateProject } from './create-project';
 import {
@@ -10,16 +9,18 @@ import {
   type ReactNode,
 } from 'react';
 import { Plus, RefreshCw } from 'lucide-react';
-import type { API, GitHubAuthState, GitHubRepository, Snapshot } from '../types';
+import type { API, GitHubRepository, Snapshot } from '../types';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { SearchInput } from './ui/search-input';
 import { Badge } from './ui/badge';
 import { EmptyState } from './ui/empty-state';
+import { SegmentedControl } from './ui/segmented-control';
 import { Choice } from './choice';
 import { Hint } from './hint';
 import { cn } from '../lib/utils';
-import { fileManagerName } from '../lib/platform';
+import { openAccountSettings } from './github-account';
+import { codeFolders, useFolderImport } from './repository-import';
 import {
   Dialog,
   DialogBody,
@@ -73,7 +74,7 @@ export function AddRepository({
   openRef.current = open;
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const [auth, setAuth] = useState<GitHubAuthState>({ status: 'idle' });
+  const folderImport = useFolderImport(api);
   const remoteGroup = snapshot?.groups?.find((g) => g.id === target && g.hostId);
   async function loadRepos() {
     setLoading(true);
@@ -99,7 +100,6 @@ export function AddRepository({
     setQuery('');
     setManual('');
     setError('');
-    setAuth({ status: 'idle' });
     setRepos([]);
     setReposLoaded(false);
     setSourceReady(false);
@@ -116,50 +116,13 @@ export function AddRepository({
   // Work in progress continues after the dialog closes. `perform` reports its result.
   function close() {
     setOpen(false);
-    if (auth.status === 'checking' || auth.status === 'waiting') void api.githubAuthCancel();
-  }
-  useEffect(() => {
-    if (!open || !['checking', 'waiting'].includes(auth.status)) return;
-    let active = true;
-    const timer = setInterval(() => {
-      void api
-        .githubAuthStatus()
-        .then((state) => {
-          if (!active) return;
-          setAuth(state);
-          if (state.status === 'ready') void loadRepos();
-        })
-        .catch(() => {
-          if (active)
-            setAuth({ status: 'error', message: 'Authorization interrupted. Try again.' });
-        });
-    }, interfaceConfig.authPollMs);
-    return () => {
-      active = false;
-      clearInterval(timer);
-    };
-  }, [open, auth.status]);
-  async function authorize() {
-    setError('');
-    setAuth({ status: 'checking' });
-    try {
-      const state = await api.githubAuthStart(true);
-      setAuth(state);
-      if (state.status === 'ready') await loadRepos();
-    } catch {
-      setAuth({
-        status: 'error',
-        message:
-          'Could not start GitHub authorization. Restart Kalkidan to load its latest desktop integration, then retry.',
-      });
-    }
   }
   async function perform(fn: () => Promise<string | void>) {
     setBusy(true);
     setError('');
     try {
       const done = await fn();
-      if (done && !openRef.current) onNotice?.(done);
+      if (done) onNotice?.(done);
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
       setError(message);
@@ -168,17 +131,54 @@ export function AddRepository({
       setBusy(false);
     }
   }
+  const projectName = snapshot?.groups?.find((g) => g.id === target)?.name || 'the project';
   async function add() {
     await perform(async () => {
       if (!target || !snapshot?.groups?.some((g) => g.id === target))
         throw new Error('Choose or create a project first.');
-      if (mode === 'local') await api.add(target || undefined);
-      else if (mode === 'library') await api.moveRepo(selected, target || null);
-      else if (!(await api.cloneRepository(manual.trim() || selected, target || undefined))) return;
+      if (mode === 'local') {
+        // Older desktop builds have only the native multi-select dialog.
+        if (!folderImport.supported) await api.add(target);
+        else {
+          const result = await folderImport.choose('Choose a code folder', 'Choose');
+          if (!result) return;
+          const { added } = await api.addRepositories(target, result.paths);
+          await onRefresh();
+          setOpen(false);
+          return `Added ${codeFolders(added)} to ${projectName}.`;
+        }
+      } else if (mode === 'library') await api.moveRepo(selected, target);
+      else return clone(manual.trim() || selected);
       await onRefresh();
       setOpen(false);
-      return mode === 'github' ? 'Repository cloned and added to the project.' : undefined;
     });
+  }
+  /** Clones in the background. The sidebar shows the progress after the dialog closes. */
+  async function clone(name: string) {
+    const id = `clone-${Date.now()}`;
+    const short =
+      name
+        .replace(/\.git$/, '')
+        .split('/')
+        .pop() || name;
+    const progress = (state: 'start' | 'done' | 'error', message?: string) =>
+      window.dispatchEvent(
+        new CustomEvent('kalkidan-clone-progress', {
+          detail: { id, name: short, groupId: target, state, message },
+        }),
+      );
+    progress('start');
+    try {
+      const done = await api.cloneRepository(name, target);
+      progress(done ? 'done' : 'error', done ? undefined : 'Clone stopped.');
+      if (!done) return;
+    } catch (e) {
+      progress('error', e instanceof Error ? e.message : String(e));
+      throw e;
+    }
+    await onRefresh();
+    setOpen(false);
+    return `Cloned ${short} into ${projectName}.`;
   }
   const shown = repos.filter((r) => r.nameWithOwner.toLowerCase().includes(query.toLowerCase()));
   return (
@@ -192,7 +192,7 @@ export function AddRepository({
       >
         {children || (
           <>
-            <Plus /> Add repositories
+            <Plus /> Add code folder
           </>
         )}
       </Button>
@@ -200,10 +200,9 @@ export function AddRepository({
       <Dialog open={open && !creatingProject} onOpenChange={(value) => !value && close()}>
         <DialogContent size="lg" layout="scroll">
           <DialogHeader>
-            <DialogTitle>Add repositories</DialogTitle>
+            <DialogTitle>Add code folders</DialogTitle>
             <DialogDescription>
-              Clone from GitHub, choose local folders, or organize repositories already in your
-              library.
+              A code folder is a Git repository that agents can work in.
             </DialogDescription>
           </DialogHeader>
           <DialogBody className="grid content-start gap-4">
@@ -212,7 +211,7 @@ export function AddRepository({
                 <span>Project</span>
                 <Button
                   variant="bare"
-                  className="h-auto p-0 text-xs text-link hover:underline"
+                  className="text-xs text-link hover:underline"
                   disabled={busy}
                   onClick={() => setCreatingProject(true)}
                 >
@@ -248,21 +247,20 @@ export function AddRepository({
               sourceReady && (
                 <>
                   <div className="form-label">
-                    <span id="add-repository-source">Source</span>
-                    <RadioList
-                      labelledBy="add-repository-source"
-                      className="grid-cols-3"
+                    <span>Source</span>
+                    <SegmentedControl
+                      className="justify-self-start"
+                      label="Source"
                       value={mode}
-                      disabled={busy}
                       onChange={(value) => {
-                        setMode(value as Source);
+                        setMode(value);
                         setSelected('');
                         setError('');
                       }}
                       options={[
-                        { value: 'github', label: 'Clone from GitHub' },
-                        { value: 'local', label: 'Local folders' },
-                        { value: 'library', label: 'From library' },
+                        { value: 'github', label: 'Clone from GitHub', disabled: busy },
+                        { value: 'local', label: 'Local folder', disabled: busy },
+                        { value: 'library', label: 'Already in Kalkidan', disabled: busy },
                       ]}
                     />
                   </div>
@@ -314,7 +312,7 @@ export function AddRepository({
                                 ? 'Archived'
                                 : repo.isPrivate
                                   ? 'Private'
-                                  : 'Public',
+                                  : undefined,
                             }))}
                           />
                         ) : (
@@ -323,13 +321,12 @@ export function AddRepository({
                             className="rounded-lg border"
                             title={repos.length ? 'No matching repositories' : 'No repositories'}
                           >
-                            Enter owner/repository below, or connect GitHub.
+                            Enter owner/repository below, or sign in to GitHub in Settings.
                           </EmptyState>
                         )}
                         <p className="text-xs text-muted-foreground">
                           {repos.length} repositories ·{' '}
-                          {repos.filter((repo) => repo.isPrivate).length} private · personal and
-                          organization access
+                          {repos.filter((repo) => repo.isPrivate).length} private
                         </p>
                       </div>
                       <div className="grid gap-2">
@@ -347,96 +344,45 @@ export function AddRepository({
                           Is a repository missing?{' '}
                           <Button
                             variant="bare"
-                            className="h-auto p-0 text-xs text-link hover:underline"
-                            disabled={busy || ['checking', 'waiting'].includes(auth.status)}
-                            onClick={() => void authorize()}
+                            className="text-xs text-link hover:underline"
+                            onClick={openAccountSettings}
                           >
-                            {auth.status === 'checking'
-                              ? 'Starting GitHub authorization…'
-                              : auth.status === 'waiting'
-                                ? 'Waiting for GitHub approval…'
-                                : auth.status === 'ready'
-                                  ? 'Authorize GitHub again'
-                                  : 'Connect or authorize GitHub'}
+                            Check your GitHub account in Settings
                           </Button>
                         </p>
                       </div>
-                      {auth.status === 'checking' && (
-                        <p role="status" className="text-sm text-muted-foreground">
-                          Checking GitHub CLI and opening browser authorization…
-                        </p>
-                      )}
-                      {auth.status === 'ready' && (
-                        <p role="status" className="text-sm">
-                          GitHub connected. Your repository list has been refreshed.
-                        </p>
-                      )}
-                      {auth.status === 'waiting' && (
-                        <div className="panel space-y-3" aria-live="polite">
-                          <p className="text-sm">
-                            Approve access in your browser.
-                            {auth.code ? ' Enter this code:' : ' Requesting code…'}
-                          </p>
-                          {auth.code && (
-                            <>
-                              <Input
-                                aria-label="GitHub device code"
-                                readOnly
-                                value={auth.code}
-                                onFocus={(e) => e.target.select()}
-                              />
-                              <Button
-                                variant="outline"
-                                onClick={() =>
-                                  void api
-                                    .githubAuthOpen()
-                                    .catch(() =>
-                                      setError(
-                                        'Could not open your browser. Visit https://github.com/login/device and enter the displayed code.',
-                                      ),
-                                    )
-                                }
-                              >
-                                Open GitHub
-                              </Button>
-                            </>
-                          )}
-                          <p className="text-xs text-muted-foreground">
-                            {auth.message || 'This dialog updates automatically after approval.'}
-                          </p>
-                        </div>
-                      )}
-                      {auth.status === 'error' && (
-                        <p role="alert" className="field-error">
-                          {auth.message}
-                        </p>
-                      )}
                       <p className="text-xs text-muted-foreground">
-                        Kalkidan clones the repository into the repos folder of the project and adds
-                        it to the selected project.
+                        Kalkidan clones the repository into the project folder and adds it to the
+                        project.
                       </p>
                     </>
                   )}
                   {mode === 'local' && (
                     <p className="text-sm text-muted-foreground">
-                      Choose one or more existing folders in {fileManagerName()}. Kalkidan adds them
-                      to the selected project.
+                      Choose a folder on this computer. If it holds more than one Git repository,
+                      Kalkidan finds each one and asks which to add.
                     </p>
                   )}
                   {mode === 'library' && (
-                    <Choice
-                      className="w-full"
-                      label="Repository from library"
-                      value={selected}
-                      disabled={busy}
-                      onChange={setSelected}
-                      options={[
-                        { value: '', label: 'Choose a repository' },
-                        ...(snapshot?.projects || [])
-                          .filter((p) => !p.hostId)
-                          .map((p) => ({ value: p.id, label: p.name + ' · ' + p.path })),
-                      ]}
-                    />
+                    <label className="form-label">
+                      Code folder
+                      <span className="form-help">
+                        Move a folder you added before into this project.
+                      </span>
+                      <Choice
+                        className="w-full"
+                        label="Code folder already in Kalkidan"
+                        value={selected}
+                        disabled={busy}
+                        onChange={setSelected}
+                        options={[
+                          { value: '', label: 'Choose a code folder' },
+                          ...(snapshot?.projects || [])
+                            .filter((p) => !p.hostId)
+                            .map((p) => ({ value: p.id, label: p.name + ' · ' + p.path })),
+                        ]}
+                      />
+                    </label>
                   )}
                 </>
               )
@@ -449,7 +395,7 @@ export function AddRepository({
             {busy && (
               <p role="status" className="text-sm text-muted-foreground">
                 {mode === 'github'
-                  ? 'Cloning… A large repository can take several minutes. You can close this dialog. The clone continues.'
+                  ? 'Cloning… A large repository can take some minutes. You can close this dialog. The sidebar shows the progress.'
                   : 'Working…'}
               </p>
             )}
@@ -472,12 +418,13 @@ export function AddRepository({
               {mode === 'github'
                 ? 'Clone into project'
                 : mode === 'local'
-                  ? 'Choose folders'
-                  : 'Add to project'}
+                  ? 'Choose folder'
+                  : 'Move to project'}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      {folderImport.dialog}
       <CreateProject
         api={api}
         open={creatingProject}
