@@ -38,7 +38,7 @@ Use [ASD-STE100 Simplified Technical English](https://www.asd-ste100.org/) for d
 
 ## Testing Guidelines
 
-Name tests `*.test.ts`, browser tests `*.spec.ts`, and integration scripts `*.mjs`. Test filesystem operations, IPC, and persistence in temporary directories. No coverage threshold is set. Run relevant tests, the build, and architecture checks before submission.
+Name tests `*.test.ts`, browser tests `*.spec.ts`, and integration scripts `*.mjs`. Test filesystem operations, IPC, and persistence in temporary directories. Run `npm run test:backend:coverage` for offline backend coverage. Use `npm run test:backend:repeat` to repeat it across time zones. The strict target is 100% per file; `npm run test:backend:coverage:strict` reports remaining gaps. See `docs/backend-testing.md`. Run relevant tests, the build, and architecture checks before submission.
 
 ## Commit & Pull Request Guidelines
 

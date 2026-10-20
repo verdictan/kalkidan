@@ -22,7 +22,7 @@ ARG CI_RUN_ID
 RUN echo "Validation run: ${CI_RUN_ID}"; \
     status=0; xvfb-run -a -s '-screen 0 1440x1000x24' bash scripts/ci.sh || status=$?; \
     echo "$status" > /out/exit-code; \
-    for dir in test-results playwright-report; do \
+    for dir in test-results playwright-report coverage/backend; do \
       if [ -d "$dir" ]; then cp -R "$dir" /out/; fi; \
     done
 FROM scratch AS results

@@ -1,0 +1,9 @@
+{
+  "all": true,
+  "include": ["electron/**/*.ts", "coverage/.backend-fixtures/**/*.cjs"],
+  "exclude": ["coverage/.backend-fixtures/**/*.cjs"],
+  "reporter": ["text", "html", "lcov", "json", "json-summary"],
+  "reports-dir": "coverage/backend",
+  "exclude-after-remap": true,
+  "src": ["electron"]
+}

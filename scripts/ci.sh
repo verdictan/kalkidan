@@ -4,6 +4,7 @@ npm ci
 npm run lint
 npm run format:check
 npm run check:architecture
+npm run test:backend:coverage
 npm test
 npm run build
 npx playwright install chromium

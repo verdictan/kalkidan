@@ -10,7 +10,7 @@ export function previewURL(value: string) {
   return url.href;
 }
 // Runs in a separate JavaScript world: the page receives no desktop bridge.
-function selectElement() {
+export function selectElement() {
   return new Promise((resolve) => {
     const overlay = document.createElement('div');
     Object.assign(overlay.style, {

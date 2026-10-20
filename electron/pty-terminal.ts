@@ -61,6 +61,7 @@ interface Shell {
 }
 export class PtyTerminal {
   private shells = new Map<string, Shell>();
+  constructor(private loadPty = () => import('node-pty')) {}
   async open(cwd: string, cols: number, rows: number) {
     this.dimensions(cols, rows);
     if ([...this.shells.values()].filter((s) => !s.exited).length >= 8)
@@ -68,7 +69,7 @@ export class PtyTerminal {
     for (const [id, shell] of this.shells) if (shell.exited) this.shells.delete(id);
     const id = randomUUID();
     if (process.platform === 'win32') {
-      const { spawn: spawnPty } = await import('node-pty');
+      const { spawn: spawnPty } = await this.loadPty();
       const pty = spawnPty('powershell.exe', ['-NoLogo'], {
         cwd,
         cols,
