@@ -15,7 +15,8 @@ const api: API = {
   dispatchCancel: (id) => ipcRenderer.invoke('dispatch-cancel', id),
   taskUsageHistory: (groupId, taskId) => ipcRenderer.invoke('task-usage-history', groupId, taskId),
   managedHistory: (target) => ipcRenderer.invoke('managed-history', target),
-  projectUsage: (groupId, chats) => ipcRenderer.invoke('project-usage', groupId, chats),
+  projectUsage: (groupId, chats, options) =>
+    ipcRenderer.invoke('project-usage', groupId, chats, options),
   projectPublishDoc: (...args) => ipcRenderer.invoke('project-publish-doc', ...args),
   projectServicesStatus: (id) => ipcRenderer.invoke('project-services-status', id),
   projectServicesRequest: (id, request) =>

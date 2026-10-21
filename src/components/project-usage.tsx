@@ -24,6 +24,15 @@ const count = (value: number) => value.toLocaleString('en-US');
 function tokenText(tokens: UsageTokens) {
   return `${count(tokens.input)} in · ${count(tokens.output)} out · ${count(tokens.cached)} cached`;
 }
+// The last usage of each project in this window. It shows at once while the usage loads
+// again. It is for a short time only, as the backend cache.
+const recentUsageMs = 60_000;
+const recentUsage = new Map<string, { at: number; usage: ProjectUsage }>();
+function cachedUsage(key: string) {
+  const value = recentUsage.get(key);
+  return value && Date.now() - value.at < recentUsageMs ? value.usage : undefined;
+}
+
 const dayLabel = (date: string) =>
   new Date(`${date}T12:00:00`).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 
@@ -56,7 +65,8 @@ export function ProjectUsageInsights({
   const available = typeof api.projectUsage === 'function';
   const current = useRef('');
   current.current = groupId + '|' + key;
-  async function load() {
+  /** Loads the usage. `fresh` reads each chat again, also a chat that the backend keeps. */
+  async function load(fresh = false) {
     if (!available || !chats.length) return;
     const requested = current.current;
     setBusy(true);
@@ -65,16 +75,23 @@ export function ProjectUsageInsights({
       const next = await api.projectUsage(
         groupId,
         chats.map((chat) => ({ agent: chat.agent, sessionId: chat.id })),
+        fresh ? { fresh: true } : undefined,
       );
+      recentUsage.set(requested, { at: Date.now(), usage: next });
       if (current.current === requested) setUsage(next);
     } catch (failure) {
-      if (current.current === requested) setError(errorMessage(failure));
+      recentUsage.delete(requested);
+      if (current.current === requested) {
+        setUsage(undefined);
+        setError(errorMessage(failure));
+      }
     } finally {
       if (current.current === requested) setBusy(false);
     }
   }
   useEffect(() => {
-    setUsage(undefined);
+    // Show the last usage of this project at once. The new usage replaces it.
+    setUsage(cachedUsage(current.current));
     setError('');
     void load();
     // A new project or a new chat loads again.
@@ -102,7 +119,7 @@ export function ProjectUsageInsights({
                 size="icon-sm"
                 aria-label="Load the usage again"
                 disabled={busy}
-                onClick={() => void load()}
+                onClick={() => void load(true)}
               >
                 <RefreshCw size={16} className={busy ? 'animate-spin' : undefined} />
               </Button>
@@ -128,7 +145,7 @@ export function ProjectUsageInsights({
           title="Usage history is not available"
           action={
             <div className="flex flex-wrap justify-center gap-2">
-              <Button variant="outline" size="sm" disabled={busy} onClick={() => void load()}>
+              <Button variant="outline" size="sm" disabled={busy} onClick={() => void load(true)}>
                 Try again
               </Button>
               <Button

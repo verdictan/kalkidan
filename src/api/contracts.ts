@@ -221,11 +221,13 @@ export interface ProjectAPI {
   ): Promise<import('../domain/managed-history').ManagedHistoryPage>;
   /**
    * The managed-agent usage of the chats of a project, from the Verdictan history. The backend
-   * reads only chats in the code folders of the project.
+   * reads only chats in the code folders of the project. It keeps the result of each chat for
+   * a short time. `fresh` reads each chat again.
    */
   projectUsage(
     groupId: string,
     chats: import('../domain/project-usage').ProjectUsageChatRef[],
+    options?: { fresh?: boolean },
   ): Promise<import('../domain/project-usage').ProjectUsage>;
   historyPreview(): Promise<HistoryImportPreview>;
   historyImport(request: HistoryImportRequest): Promise<HistoryImportResult>;

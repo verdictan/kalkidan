@@ -1,6 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { ProjectUsageReader, type ProjectUsageSource } from '../electron/verdictan/project-usage';
+import {
+  ProjectUsageReader,
+  usageCacheMs,
+  usageConcurrency,
+  type ProjectUsageSource,
+} from '../electron/verdictan/project-usage';
 import { DesktopProtocolError } from '../electron/verdictan/protocol';
 import type { ManagedHistoryEntry, ManagedHistoryTarget } from '../src/domain/managed-history';
 import {
@@ -153,6 +158,7 @@ function reader(overrides: Partial<ProjectUsageSource> = {}) {
   const calls: ManagedHistoryTarget[] = [];
   const source: ProjectUsageSource = {
     now: () => '2026-10-21T12:00:00.000Z',
+    account: async () => ({ key: 'account-1', organizationId: 'o1', userId: 'u1' }),
     history: async (target) => {
       calls.push(target);
       if (target.kind !== 'conversation') throw Error('wrong scope');
@@ -203,7 +209,9 @@ test('the reader reads every page of each project chat and skips other chats', a
   assert.equal(result.unmanaged, 2);
   assert.equal(result.failed, 0);
   assert.equal(result.skipped, 0);
-  assert.deepEqual(calls[1], {
+  // The chats load at the same time, so the calls of two chats can alternate.
+  const pages = calls.filter((call) => call.kind === 'conversation' && call.sessionId === 'one');
+  assert.deepEqual(pages[1], {
     kind: 'conversation',
     agent: 'codex',
     sessionId: 'one',
@@ -254,6 +262,16 @@ test('one failed chat is counted, but the history is unavailable when all chats 
     notReady.usage.read('g', [{ agent: 'codex', sessionId: 'one' }]),
     (error: any) => error.code === 'desktop.runtime_starting',
   );
+  const signedOut = reader({
+    account: async () => {
+      throw new DesktopProtocolError('desktop.auth_required');
+    },
+  });
+  await assert.rejects(
+    signedOut.usage.read('g', [{ agent: 'codex', sessionId: 'one' }]),
+    (error: any) => error.code === 'desktop.auth_required',
+  );
+  assert.equal(signedOut.calls.length, 0);
 });
 
 test('the reader rejects a request that is not valid', async () => {
@@ -270,5 +288,161 @@ test('the reader rejects a request that is not valid', async () => {
       usage.read(groupId, chats as never),
       (error: any) => error.code === 'desktop.invalid_request',
     );
+  for (const options of [null, 'fresh'])
+    await assert.rejects(
+      usage.read('g', [], options as never),
+      (error: any) => error.code === 'desktop.invalid_request',
+    );
   assert.equal(calls.length, 0);
+});
+
+const sleep = (ms: number) => new Promise((done) => setTimeout(done, ms));
+
+/**
+ * A source with a fixed latency for each call: 150 ms for the account check and 200 ms for
+ * each history page. Each chat has 2 pages. `active` records the most history calls that ran
+ * at the same time.
+ */
+function slowReader(clock = () => Date.now()) {
+  let active = 0;
+  const stats = { history: 0, account: 0, peak: 0 };
+  const source: ProjectUsageSource = {
+    now: () => '2026-10-21T12:00:00.000Z',
+    clock,
+    account: async () => {
+      stats.account++;
+      await sleep(150);
+      return { key: 'account-1', organizationId: 'o1', userId: 'u1' };
+    },
+    history: async (target) => {
+      stats.history++;
+      stats.peak = Math.max(stats.peak, ++active);
+      await sleep(200);
+      active--;
+      return {
+        entries: [entry()],
+        cursor: target.cursor ? null : 'next',
+        asOf: null,
+        observedAt: '2026-10-21T12:00:00.000Z',
+      };
+    },
+    binding: async () => ({ billing: 'metered', cwd: '/repo' }),
+    inProject: async () => true,
+  };
+  return { usage: new ProjectUsageReader(source), stats };
+}
+
+test('the reader reads chats at the same time and keeps their order', async () => {
+  const { usage, stats } = slowReader();
+  const chats = ['a', 'b', 'c', 'd'].map((id) => ({ agent: 'codex' as const, sessionId: id }));
+  const started = performance.now();
+  const result = await usage.read('g', chats);
+  const elapsed = performance.now() - started;
+  // One at a time, with one account check for each chat as before, this takes about
+  // 4 x (150 + 2 x 200) = 2,200 ms. Now it is about 150 + 2 x 200 = 550 ms.
+  console.log(`project usage, 4 chats x 2 pages: ${Math.round(elapsed)} ms`);
+  assert.ok(elapsed < 1000, `took ${elapsed} ms`);
+  assert.equal(stats.peak, usageConcurrency);
+  assert.equal(stats.account, 1);
+  assert.deepEqual(
+    result.chats.map((chat) => chat.sessionId),
+    ['a', 'b', 'c', 'd'],
+  );
+  assert.ok(result.chats.every((chat) => chat.entries.length === 2 && chat.complete));
+});
+
+test('the reader reads no more than the concurrency limit at the same time', async () => {
+  const { usage, stats } = slowReader();
+  const chats = Array.from({ length: 10 }, (_, index) => ({
+    agent: 'codex' as const,
+    sessionId: `chat-${index}`,
+  }));
+  const result = await usage.read('g', chats);
+  assert.equal(stats.peak, usageConcurrency);
+  assert.equal(result.chats.length, 10);
+});
+
+test('the reader keeps each chat for a short time, and fresh reads it again', async () => {
+  let time = 1_000_000;
+  const { usage, stats } = slowReader(() => time);
+  const chats = ['a', 'b'].map((id) => ({ agent: 'codex' as const, sessionId: id }));
+  await usage.read('g', chats);
+  assert.equal(stats.history, 4);
+  const started = performance.now();
+  const cached = await usage.read('g', chats);
+  const elapsed = performance.now() - started;
+  console.log(`project usage from the cache: ${Math.round(elapsed)} ms`);
+  // Only the account check runs.
+  assert.equal(stats.history, 4);
+  assert.equal(stats.account, 2);
+  assert.equal(cached.chats.length, 2);
+  // The result is a copy. A change does not change the cache.
+  cached.chats[0].entries.length = 0;
+  assert.equal((await usage.read('g', chats)).chats[0].entries.length, 2);
+  // Another project does not use the cache of this project.
+  await usage.read('other', chats);
+  assert.equal(stats.history, 8);
+  await usage.read('g', chats, { fresh: true });
+  assert.equal(stats.history, 12);
+  time += usageCacheMs;
+  await usage.read('g', chats);
+  assert.equal(stats.history, 16);
+});
+
+test('the cache is for one account, and a failed chat does not go into it', async () => {
+  let key = 'account-1';
+  let broken = true;
+  const calls: string[] = [];
+  const usage = new ProjectUsageReader({
+    now: () => '2026-10-21T12:00:00.000Z',
+    account: async () => ({ key, organizationId: 'o1', userId: 'u1' }),
+    history: async (target) => {
+      if (target.kind !== 'conversation') throw Error('wrong scope');
+      calls.push(target.sessionId);
+      if (target.sessionId === 'b' && broken)
+        throw new DesktopProtocolError('desktop.history_invalid');
+      return { entries: [entry()], cursor: null, asOf: null, observedAt: '2026-10-21T12:00:00Z' };
+    },
+    binding: async () => ({ billing: 'metered', cwd: '/repo' }),
+    inProject: async () => true,
+  });
+  const chats = ['a', 'b'].map((id) => ({ agent: 'codex' as const, sessionId: id }));
+  assert.equal((await usage.read('g', chats)).failed, 1);
+  broken = false;
+  const second = await usage.read('g', chats);
+  assert.equal(second.failed, 0);
+  assert.deepEqual(calls, ['a', 'b', 'b']);
+  // A different account reads each chat again.
+  key = 'account-2';
+  await usage.read('g', chats);
+  assert.deepEqual(calls, ['a', 'b', 'b', 'a', 'b']);
+  // An account without a key does not use the cache.
+  key = '';
+  await usage.read('g', chats);
+  await usage.read('g', chats);
+  assert.equal(calls.length, 9);
+});
+
+test('an error from a binding stops the other chats', async () => {
+  let bindings = 0;
+  const usage = new ProjectUsageReader({
+    account: async () => ({ key: 'k', organizationId: 'o1', userId: 'u1' }),
+    history: async () => ({ entries: [], cursor: null, asOf: null, observedAt: '2026-10-21Z' }),
+    binding: async () => {
+      bindings++;
+      await sleep(5);
+      throw new DesktopProtocolError('desktop.runtime_starting');
+    },
+    inProject: async () => true,
+  });
+  const chats = Array.from({ length: 20 }, (_, index) => ({
+    agent: 'codex' as const,
+    sessionId: `chat-${index}`,
+  }));
+  await assert.rejects(
+    usage.read('g', chats),
+    (error: any) => error.code === 'desktop.runtime_starting',
+  );
+  await sleep(30);
+  assert.equal(bindings, usageConcurrency);
 });

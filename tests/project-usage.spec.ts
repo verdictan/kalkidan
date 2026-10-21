@@ -69,8 +69,8 @@ async function usageWorkspace(page: Page, usage: 'history' | 'unavailable' | 'em
         platform: 'darwin',
       }),
       git: async () => ({ branch: 'main' }),
-      projectUsage: async (groupId: string, chats: unknown) => {
-        calls.push([groupId, chats]);
+      projectUsage: async (groupId: string, chats: unknown, options?: unknown) => {
+        calls.push(options ? [groupId, chats, options] : [groupId, chats]);
         if (mode === 'unavailable')
           throw new Error(
             "Error invoking remote method 'project-usage': Error: Managed agents are not ready.",
@@ -146,6 +146,15 @@ test('Insights without a board show the managed-agent usage of the project chats
       { agent: 'claude', sessionId: 'subscription' },
     ],
   ]);
+  // Load the usage again reads each chat again, and the old usage stays on the page.
+  const before = calls.length;
+  expect(calls.every((call: unknown[]) => call.length === 2)).toBe(true);
+  await usage.getByRole('button', { name: 'Load the usage again' }).click();
+  await expect.poll(() => page.evaluate(() => (window as any).usageCalls.length)).toBe(before + 1);
+  expect((await page.evaluate(() => (window as any).usageCalls)).at(-1)[2]).toEqual({
+    fresh: true,
+  });
+  await expect(usage.getByLabel('Usage totals')).toContainText('Requests3');
   await expect(
     page.getByRole('button', { name: 'Connect a GitHub Projects board', exact: true }),
   ).toBeVisible();
