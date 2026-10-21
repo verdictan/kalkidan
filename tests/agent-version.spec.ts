@@ -55,19 +55,25 @@ test('Settings › Agents shows each version and whether it meets the minimum', 
   await page.getByRole('button', { name: 'Settings', exact: true }).click();
   const settings = page.getByRole('dialog', { name: 'Settings' });
   await settings.getByRole('tab', { name: 'Agents', exact: true }).click();
+  await expect(settings).toContainText('Kalkidan needs Codex 0.160.0 or later');
+  await expect(settings).toContainText('Claude Code 2.1.300 or later');
   const agents = settings.getByRole('region', { name: 'Agents on this computer' });
-  await expect(agents).toContainText('Kalkidan needs Codex 0.160.0 or later');
-  await expect(agents).toContainText('Claude Code 2.1.300 or later');
-  const codex = agents.getByTestId('agent-version-codex');
-  await expect(codex).toContainText('Version 0.163.0-alpha.10.2 · Meets the minimum 0.160.0');
-  const claude = agents.getByTestId('agent-version-claude');
-  await expect(claude).toContainText('Version 2.1.296 · Update required');
+  const codex = agents.getByRole('listitem', { name: 'Codex on this computer' });
+  await expect(codex).toContainText('Meets the minimum');
+  await expect(agents.getByTestId('agent-version-codex')).toContainText(
+    'Version 0.163.0-alpha.10.2',
+  );
+  const claude = agents.getByRole('listitem', { name: 'Claude Code on this computer' });
+  await expect(claude).toContainText('Update required: needs 2.1.300 or later');
+  await expect(agents.getByTestId('agent-version-claude')).toContainText('Version 2.1.296');
   await expect(claude).toContainText(
     'Kalkidan needs Claude Code 2.1.300 or later. Update Claude Code, then try again.',
   );
   await expect(claude.getByRole('button', { name: /^Copy npm i -g/ })).toBeVisible();
-  await expect(agents.getByRole('status')).toContainText('Codex: Installed.');
-  await expect(agents.getByRole('status')).toContainText('Claude Code: Update required.');
+  await expect(agents.getByRole('status')).toContainText('Codex: Meets the minimum.');
+  await expect(agents.getByRole('status')).toContainText(
+    'Claude Code: Update required: needs 2.1.300 or later.',
+  );
 });
 
 test('a Claude Code version below the minimum refuses the send and links to Settings › Agents', async ({

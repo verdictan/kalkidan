@@ -86,5 +86,5 @@ test('an old agent names the version that the launch found', async ({ page }) =>
     managedSetup: 'agents',
   });
   await expect(card).toContainText('This computer has Codex 0.150.0.');
-  await expect(card.getByRole('button', { name: 'Open agent settings' })).toBeVisible();
+  await expect(card.getByRole('button', { name: 'Choose the Codex program' })).toBeVisible();
 });

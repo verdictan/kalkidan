@@ -130,12 +130,15 @@ export function terminalEventsFor(operation: DesktopOperation, parameters: Deskt
  */
 export class DesktopProtocolError extends Error {
   public readonly version?: string;
+  /** The path of the agent program that a version refusal checked. It is not secret. */
+  public readonly path?: string;
   constructor(
     public readonly code: string,
-    detail: { version?: string } = {},
+    detail: { version?: string; path?: string } = {},
   ) {
     super(managedErrorText(code));
     if (detail.version) this.version = detail.version;
+    if (detail.path) this.path = detail.path;
   }
 }
 /** One process owns the secure CLI profile. Do not log its streams or arguments. */

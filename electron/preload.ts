@@ -88,7 +88,9 @@ const api: API = {
   trackerConfigure: (...args) => ipcRenderer.invoke('tracker-configure', ...args),
 
   githubCliCheck: () => ipcRenderer.invoke('github-cli-check'),
-  agentInstallations: () => ipcRenderer.invoke('agent-installations'),
+  agentInstallations: (hostId) => ipcRenderer.invoke('agent-installations', hostId),
+  chooseAgentExecutable: (agent, path, hostId) =>
+    ipcRenderer.invoke('agent-executable-choose', agent, path, hostId),
   browserAction: (id, action, value) => ipcRenderer.invoke('browser-action', id, action, value),
   sessionAction: (session, action) => ipcRenderer.invoke('session-action', session, action),
   remoteHosts: () => ipcRenderer.invoke('remote-hosts'),

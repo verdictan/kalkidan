@@ -1,6 +1,6 @@
 import type { GitHubProject } from './github';
 import type { TrackerConnection } from './tracker';
-import type { Session } from './conversation';
+import type { AgentInstallation, Session } from './conversation';
 export interface RemoteHost {
   id: string;
   name: string;
@@ -19,6 +19,11 @@ export interface RemoteHost {
   runningDigest?: string;
   node?: string;
   platform?: string;
+  /**
+   * The last result of the agent check on the host, for Settings › Agents. It stays when the
+   * host disconnects. `checkedAt` is milliseconds since the epoch.
+   */
+  agentCheck?: { checkedAt: number; agents: AgentInstallation[] };
   setupHistory?: {
     id: string;
     phase: string;

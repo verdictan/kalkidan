@@ -138,7 +138,12 @@ export class VerdictanLaunchService {
       await this.installedVersion(kind, request.executable, request.signal),
     );
     const refused = agentVersionErrorCode(check);
-    if (refused) throw new DesktopProtocolError(refused, { version: check.version });
+    // The path tells the user which program the launch found when several are installed.
+    if (refused)
+      throw new DesktopProtocolError(refused, {
+        version: check.version,
+        path: request.executable.path,
+      });
     request.signal.throwIfAborted();
     const agent: NativeAgent = { kind, version: check.version! };
     const identity = await (this.identities

@@ -5,7 +5,7 @@ import { agentCatalog, agentLabel } from '../config/agents';
 import { CreateProject } from './create-project';
 import { AddRepository } from './add-repository';
 import { Choice } from './choice';
-import { AgentInstallHelp } from './settings-dialog';
+import { AgentInstallHelp } from './agent-programs';
 import { boardLabel } from './tracker-project-picker';
 import { folderName, showFolderImportResult, useFolderImport } from './repository-import';
 import { Hint } from './hint';

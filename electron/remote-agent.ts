@@ -39,6 +39,7 @@ import { createAgentRuntimes } from './agents/runtime';
 import { CommandTerminal, repositoryDiff } from './conversation-tools';
 import { modelOptions } from './models';
 import { executable } from './chat';
+import { agentInstallations, chooseAgentExecutable } from './agent-installations';
 import {
   gitCommit,
   gitPullRequest,
@@ -234,6 +235,11 @@ async function dispatch(method: string, args: any[]): Promise<any> {
         node: process.version,
         home: homedir(),
       };
+    case 'agent-installations':
+      return agentInstallations();
+    case 'agent-executable-choose':
+      // The choice stays in ~/.kalkidan on this host. Launches on this host use it.
+      return chooseAgentExecutable(a, b);
     case 'project-resource-revision':
       return resourceRevision(await folder(a), b);
     case 'repository-snapshot': {

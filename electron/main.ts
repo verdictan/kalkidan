@@ -53,7 +53,8 @@ import { TrackerRegistry } from './trackers/registry';
 import { githubTracker } from './trackers/github';
 import { registerTrackerHandlers } from './trackers/ipc';
 
-import { agentInstallations } from './agent-installations';
+import { agentInstallations, chooseAgentExecutable } from './agent-installations';
+import { setAgentExecutableRoot } from './agents/executable-choice';
 import { BrowserProfile } from './browser-profile';
 import type { MenuCommand, Session } from '../src/types';
 import { PtyTerminal } from './pty-terminal';
@@ -113,6 +114,8 @@ const dataRoot = dataDirectory(
   !app.isPackaged ? process.env.KALKIDAN_TEST_DATA : undefined,
 );
 app.setPath('userData', dataRoot);
+// The chosen agent programs of this computer stay in the data folder.
+setAgentExecutableRoot(dataRoot);
 app.setPath('sessionData', dataRoot);
 const pty = new PtyTerminal();
 const terminal = new CommandTerminal();
@@ -1484,7 +1487,13 @@ app.whenReady().then(async () => {
     return true;
   });
   handle('github-cli-check', githubCliCheck);
-  handle('agent-installations', () => agentInstallations());
+  // No host ID means this computer. A host ID checks the agents on that SSH host.
+  handle('agent-installations', (hostId?: string | null) =>
+    hostId ? remote.agentInstallations(hostId) : agentInstallations(),
+  );
+  handle('agent-executable-choose', (agent, path, hostId?: string | null) =>
+    hostId ? remote.chooseAgentExecutable(hostId, agent, path) : chooseAgentExecutable(agent, path),
+  );
   const historyImporter = new HistoryImport({
     scan: () => history(codexRoot, claudeRoot),
     sources: { codex: codexRoot, claude: claudeRoot },

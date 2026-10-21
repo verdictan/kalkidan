@@ -196,6 +196,8 @@ export async function desktopFixture(platform = 'linux', failure = '') {
     disconnect = record('remoteDisconnect');
     remove = asyncRecord('remoteRemove');
     close = record('remoteClose');
+    agentInstallations = asyncRecord('remoteAgentInstallations');
+    chooseAgentExecutable = asyncRecord('remoteAgentChoice');
     call = async (host: string, method: string, args: any[]) => {
       calls.push(['remote', host, method, args]);
       if (state.remoteError) throw Error(state.remoteError);
@@ -436,7 +438,10 @@ export async function desktopFixture(platform = 'linux', failure = '') {
   stub('codex-store', { codexTranscript: async () => ({ messages: [] }) });
   stub('storage/directory-list', { listDirectory: asyncRecord('directory') });
   stub('github-cli-check', { githubCliCheck: asyncRecord('cli') });
-  stub('agent-installations', { agentInstallations: asyncRecord('installs') });
+  stub('agent-installations', {
+    agentInstallations: asyncRecord('installs'),
+    chooseAgentExecutable: asyncRecord('agentChoice'),
+  });
   stub('models', { modelOptions: asyncRecord('models') });
   stub('chat', { executable: asyncRecord('executable') });
   stub('core', {
