@@ -112,12 +112,19 @@ for (const remote of [false, true])
       await expect(
         message.getByRole('button', { name: 'Change agent', exact: true }),
       ).toBeVisible();
+      // The agent did not start, so the chat has no session. The card says that it is not saved.
+      const unsaved = message.getByText('This chat is not saved because the agent did not start.');
+      await expect(unsaved).toBeVisible();
+      expect(
+        await page.evaluate(() => JSON.parse(localStorage.getItem('kalkidan-open-chats') || '[]')),
+      ).toEqual([]);
       // The message is in the transcript. It is not in the composer too.
       await expect(composer).toHaveValue('');
       await message.getByRole('button', { name: 'Try again', exact: true }).click();
       await expect(page.getByText('OK.', { exact: true })).toBeVisible();
       await expect(message).toHaveCount(1);
       await expect(message.getByRole('button', { name: 'Try again' })).toHaveCount(0);
+      await expect(unsaved).toHaveCount(0);
       await expect(composer).toHaveValue('');
       expect(await page.evaluate(() => (window as any).calls.map((c: any) => c.prompt))).toEqual([
         'Reply OK.',

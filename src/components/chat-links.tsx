@@ -213,11 +213,14 @@ export function SendFailure({
   onRetry,
   onChangeAgent,
   busy,
+  unsaved,
 }: {
   error: AgentError;
   onRetry?: () => void;
   onChangeAgent?: () => void;
   busy?: boolean;
+  /** The agent did not start, so the chat has no saved session. It closes when the app quits. */
+  unsaved?: boolean;
 }) {
   return (
     <Alert variant="destructive" size="sm" className="chat-send-failure" role="alert">
@@ -226,6 +229,12 @@ export function SendFailure({
         {error.code && (
           <span className="text-muted-foreground">
             Details: <code className="font-mono">{error.code}</code>
+          </span>
+        )}
+        {unsaved && (
+          <span className="text-muted-foreground">
+            This chat is not saved because the agent did not start. When you quit Kalkidan, this
+            chat and its message close.
           </span>
         )}
         <AgentErrorActions
