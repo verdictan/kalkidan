@@ -46,6 +46,12 @@ export async function githubExecutable() {
   return 'gh';
 }
 const requestScheduler = new GitHubRequestScheduler();
+/**
+ * Board page sizes. GitHub limits a query to 500,000 possible nodes. Items × field values ×
+ * the value connections must stay below it. Other pages load with their own requests.
+ */
+export const boardItemPage = 50;
+export const boardValuePage = 50;
 const githubAccount = new AsyncLocalStorage<string>();
 const githubWriteGuard = new AsyncLocalStorage<() => void>();
 const githubJournal = new AsyncLocalStorage<GitHubMutationJournal>();
@@ -507,7 +513,7 @@ export class GitHubProjects {
     const seenCursors = new Set<string>();
     do {
       const data = await this.query(
-        `query($id:ID!,$cursor:String){node(id:$id){... on ProjectV2{title viewerCanUpdate fields(first:100){nodes{${fieldSelection}} pageInfo{hasNextPage endCursor}} items(first:100,after:$cursor){pageInfo{hasNextPage endCursor} nodes{id isArchived content{__typename ... on Issue{title body url number repository{nameWithOwner}} ... on PullRequest{title body url number repository{nameWithOwner}} ... on DraftIssue{title body}} fieldValues(first:100){nodes{${valueSelection}} pageInfo{hasNextPage endCursor}}}}}}}`,
+        `query($id:ID!,$cursor:String){node(id:$id){... on ProjectV2{title viewerCanUpdate fields(first:100){nodes{${fieldSelection}} pageInfo{hasNextPage endCursor}} items(first:${boardItemPage},after:$cursor){pageInfo{hasNextPage endCursor} nodes{id isArchived content{__typename ... on Issue{title body url number repository{nameWithOwner}} ... on PullRequest{title body url number repository{nameWithOwner}} ... on DraftIssue{title body}} fieldValues(first:${boardValuePage}){nodes{${valueSelection}} pageInfo{hasNextPage endCursor}}}}}}}`,
         { id: project.id, cursor },
       );
       const node = data.node;

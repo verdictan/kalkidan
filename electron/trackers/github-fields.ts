@@ -19,11 +19,18 @@ const valueConnections: Record<string, { key: string; selection: string }> = {
   },
 };
 const valueField = 'field{... on ProjectV2FieldCommon{id name}}';
+/**
+ * The first page of each connection inside a field value. GitHub rejects a query that can
+ * return more than 500,000 nodes (MAX_NODE_LIMIT_EXCEEDED). The board reads items × field
+ * values × these connections in one query, so this page stays small. `completeFieldValues`
+ * reads the other pages.
+ */
+export const valueConnectionPage = 20;
 export const valueSelection = `__typename
   ${Object.entries(valueConnections)
     .map(
       ([type, { key, selection }]) =>
-        `... on ${type}{${valueField} ${key}(first:100){nodes{${selection}} pageInfo{hasNextPage endCursor}}}`,
+        `... on ${type}{${valueField} ${key}(first:${valueConnectionPage}){nodes{${selection}} pageInfo{hasNextPage endCursor}}}`,
     )
     .join('\n')}
   ... on ProjectV2ItemFieldMilestoneValue{${valueField} milestone{id title url}}

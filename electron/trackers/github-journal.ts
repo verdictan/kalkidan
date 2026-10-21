@@ -135,7 +135,14 @@ export class GitHubMutationJournal {
     } catch (error) {
       row.state =
         error instanceof GitHubRequestError &&
-        ['signed-out', 'permission', 'rate-limit'].includes(error.reason)
+        [
+          'signed-out',
+          'permission',
+          'rate-limit',
+          'scope',
+          'query-limit',
+          'query-invalid',
+        ].includes(error.reason)
           ? 'rejected'
           : 'unknown-outcome';
       row.updatedAt = Date.now();
