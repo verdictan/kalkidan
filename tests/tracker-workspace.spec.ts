@@ -5,6 +5,8 @@ test('board quick creation, issue inspector and status changes share the tracker
 }) => {
   await page.setViewportSize({ width: 773, height: 988 });
   await page.goto('http://127.0.0.1:5173');
+  // Below 1100px wide, the sidebar starts closed.
+  await page.getByRole('button', { name: 'Toggle sidebar', exact: true }).click();
   await page.locator('.project-tree').getByRole('button', { name: 'Atlas', exact: true }).click();
   await page
     .getByRole('region', { name: 'Project tracker' })

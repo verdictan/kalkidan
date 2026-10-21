@@ -2156,8 +2156,7 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
                         <ProjectDocsPanel
                           key={boardGroup}
                           initialPageId={searchTarget.page}
-                          // The docs panel scrolls to this heading when it supports it.
-                          {...({ initialHeading: searchTarget.heading } as object)}
+                          initialHeading={searchTarget.heading}
                           api={api}
                           group={currentGroup}
                         />

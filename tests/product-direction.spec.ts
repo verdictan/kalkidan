@@ -61,6 +61,13 @@ for (const allow of [true, false])
         }),
         git: async () => null,
         transcript: async () => ({ messages: [], truncated: false }),
+        // "Review in Changes" opens the Changes tool, which reads the working tree.
+        repositoryDiff: async () => ({
+          unstaged: run?.diff || '',
+          staged: '',
+          untracked: [],
+          truncated: false,
+        }),
         chatStart: async () =>
           (run = {
             id: 'run',
@@ -109,8 +116,14 @@ for (const allow of [true, false])
     await page.getByRole('button', { name: 'Activity · 1 step' }).click();
     await page.getByRole('button', { name: /npm test Running/ }).click();
     await expect(page.getByText('Test output', { exact: true })).toBeVisible();
-    await page.getByRole('button', { name: 'View changes', exact: true }).click();
-    await expect(page.locator('pre').filter({ hasText: '+change' })).toBeVisible();
+    await page.getByRole('button', { name: 'Review in Changes', exact: true }).click();
+    await expect(page.getByRole('tab', { name: 'Changes', exact: true })).toHaveAttribute(
+      'aria-selected',
+      'true',
+    );
+    await expect(
+      page.getByRole('tabpanel', { name: 'Changes' }).getByText('+change').first(),
+    ).toBeVisible();
   });
 
 test('task worktree cancellation keeps the task open and a created worktree becomes the session folder', async ({
@@ -163,16 +176,16 @@ test('task worktree cancellation keeps the task open and a created worktree beco
   await page.getByRole('button', { name: 'Implement feature', exact: true }).click();
   const dialog = page.getByRole('dialog');
   await dialog
-    .getByRole('radio', { name: 'In a separate copy on a new branch (recommended)' })
+    .getByRole('radio', { name: 'In a branch copy on a new branch (recommended)' })
     .check();
   // The branch field is filled from the task. An empty branch blocks the start.
   await expect(dialog.getByLabel('Task branch')).not.toHaveValue('');
   await dialog.getByLabel('Task branch').clear();
-  await expect(dialog.getByRole('button', { name: 'New Codex session' })).toBeDisabled();
+  await expect(dialog.getByRole('button', { name: 'New Codex chat' })).toBeDisabled();
   await dialog.getByLabel('Task branch').fill('feature/client-task');
-  await dialog.getByRole('button', { name: 'New Codex session' }).click();
+  await dialog.getByRole('button', { name: 'New Codex chat' }).click();
   await expect(dialog).toBeVisible();
-  await dialog.getByRole('button', { name: 'New Codex session' }).click();
+  await dialog.getByRole('button', { name: 'New Codex chat' }).click();
   await expect(dialog).not.toBeVisible();
   // The tool launcher names the session folder.
   await page.getByRole('button', { name: 'New tool tab', exact: true }).click();
@@ -193,11 +206,11 @@ test('general conversations can add task context later', async ({ page }) => {
   await page.getByRole('button', { name: 'Atlas roadmap #1', exact: true }).click();
   await page.getByRole('button', { name: 'Connect board', exact: true }).click();
   await page.locator('.repo-select').first().click();
-  await page.getByRole('button', { name: 'New Codex session', exact: true }).click();
+  await page.getByRole('button', { name: 'New Codex chat', exact: true }).click();
   await page.getByLabel('Message agent').fill('General question');
   await expect(page.getByRole('button', { name: 'Send', exact: true })).toBeEnabled();
   await page.getByRole('button', { name: 'Link task', exact: true }).click();
-  await page.getByRole('combobox', { name: 'Session task' }).click();
+  await page.getByRole('combobox', { name: 'Chat task' }).click();
   await page.getByRole('option', { name: 'Build the project overview', exact: true }).click();
   await page.getByRole('button', { name: 'Save task link', exact: true }).click();
   await expect(page.getByText('Task · Build the project overview')).toBeVisible();
@@ -219,7 +232,7 @@ test('project opens its board and filters tasks by repository', async ({ page })
     'aria-expanded',
     'true',
   );
-  await tracker.getByRole('combobox', { name: 'Filter by repository' }).click();
+  await tracker.getByRole('combobox', { name: 'Filter by GitHub repository' }).click();
   await page.getByRole('option', { name: 'example/api-service', exact: true }).click();
   await expect(
     tracker.getByRole('button', { name: 'Review authentication', exact: true }),
@@ -264,14 +277,14 @@ test('project board moves tasks and starts work in the selected repository', asy
   await page.setViewportSize({ width: 961, height: 988 });
   await page.screenshot({ path: 'test-results/project-board-tasks.png', fullPage: true });
   await tasks.getByRole('button', { name: 'Build the project overview', exact: true }).click();
-  await page.getByRole('combobox', { name: 'Task repository', exact: true }).click();
+  await page.getByRole('combobox', { name: 'Code folder for this task', exact: true }).click();
   await page.getByRole('option', { name: 'atlas-web', exact: true }).click();
-  await expect(page.getByRole('combobox', { name: 'Task repository', exact: true })).toContainText(
-    'atlas-web',
-  );
+  await expect(
+    page.getByRole('combobox', { name: 'Code folder for this task', exact: true }),
+  ).toContainText('atlas-web');
   // On main, a branch copy is the default. The preview has no Git, so work in the folder.
   await page.getByRole('radio', { name: 'In atlas-web on main', exact: true }).check();
-  await page.getByRole('button', { name: 'New Codex session', exact: true }).click();
+  await page.getByRole('button', { name: 'New Codex chat', exact: true }).click();
   await expect(page.getByLabel('Message agent')).toContainText('Build the project overview');
   await expect(
     page.getByRole('navigation', { name: 'Breadcrumb' }).getByRole('button', { name: /atlas-web/ }),

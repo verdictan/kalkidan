@@ -7,7 +7,7 @@ test('single view ignores old split preferences and preserves conversation draft
   await page.goto(url);
   await expect(page.getByRole('region', { name: 'Project overview', exact: true })).toBeVisible();
   await page.locator('.repo-select').filter({ hasText: 'atlas-web' }).click();
-  await page.getByRole('button', { name: 'New Codex session', exact: true }).click();
+  await page.getByRole('button', { name: 'New Codex chat', exact: true }).click();
   await page.getByLabel('Message agent').fill('Preserve this draft');
   await expect(page.getByRole('combobox', { name: 'Content layout' })).toHaveCount(0);
   await expect(page.locator('.split-view, .repo-breadcrumb, .conversation-breadcrumb')).toHaveCount(
@@ -196,7 +196,7 @@ test('navigation collapse preserves the conversation and command K restores sear
 }) => {
   await page.goto(url);
   await page.locator('.repo-select').filter({ hasText: 'atlas-web' }).click();
-  await page.getByRole('button', { name: 'New Codex session', exact: true }).click();
+  await page.getByRole('button', { name: 'New Codex chat', exact: true }).click();
   await expect(page.getByText('What are we working on?', { exact: true })).toBeVisible();
   await page.getByLabel('Message agent').fill('Keep this draft while I focus');
   await page.getByRole('button', { name: 'Toggle sidebar', exact: true }).click();
@@ -205,7 +205,7 @@ test('navigation collapse preserves the conversation and command K restores sear
   ).not.toBeVisible();
   await expect(page.getByLabel('Message agent')).toHaveValue('Keep this draft while I focus');
   await page.keyboard.press('ControlOrMeta+k');
-  await expect(page.getByLabel('Search projects and sessions')).toBeFocused();
+  await expect(page.getByLabel('Search projects and chats')).toBeFocused();
   await expect(page.getByRole('navigation', { name: 'Projects and repositories' })).toBeVisible();
   await page.screenshot({ path: 'test-results/chatgpt-new-conversation.png', fullPage: true });
   await page.setViewportSize({ width: 980, height: 680 });
@@ -216,6 +216,8 @@ test('navigation collapse preserves the conversation and command K restores sear
 test('settings shows agent and remote controls without history import', async ({ page }) => {
   await page.setViewportSize({ width: 773, height: 988 });
   await page.goto(url);
+  // Below 1100px wide, the sidebar starts closed.
+  await page.getByRole('button', { name: 'Toggle sidebar', exact: true }).click();
   await page.getByRole('button', { name: 'Settings', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: 'Settings' });
   await expect(dialog.getByRole('tab', { name: 'General' })).toHaveAttribute(
@@ -290,7 +292,7 @@ test('task conversation returns to the filtered project board', async ({ page })
   await page.getByRole('button', { name: 'Review authentication', exact: true }).click();
   // The preview has no Git, so the agent works in the folder, not in a branch copy.
   await page.getByRole('radio', { name: 'In api-service on main', exact: true }).check();
-  await page.getByRole('button', { name: 'New Codex session', exact: true }).click();
+  await page.getByRole('button', { name: 'New Codex chat', exact: true }).click();
   await expect(page.getByLabel('Message agent')).toHaveValue(/Review authentication/);
   await page.getByRole('button', { name: 'Go back', exact: true }).click();
   await expect(page.getByLabel('Search tasks')).toHaveValue('authentication');

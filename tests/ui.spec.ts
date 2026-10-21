@@ -7,7 +7,7 @@ test('project navigation, search, editing, worktrees, and sessions', async ({ pa
   await expect(page.getByRole('heading', { name: 'atlas-web', exact: true })).toBeVisible();
 
   await expect(page.getByRole('region', { name: 'Repository branch copies' })).toBeVisible();
-  await expect(page.getByRole('region', { name: 'Repository sessions' })).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Code folder chats' })).toBeVisible();
   await expect(page.locator('.repository-overview').getByRole('tablist')).toHaveCount(0);
   await expect(page.locator('.project-status')).toHaveCount(0);
   await expect(page.getByText(/Give each agent its own worktree/)).toHaveCount(0);
@@ -24,15 +24,15 @@ test('project navigation, search, editing, worktrees, and sessions', async ({ pa
   await page.getByLabel('Repository name', { exact: true }).fill('atlas-renamed');
   await page.getByRole('button', { name: 'Save changes' }).click();
   await expect(page.getByRole('heading', { name: 'atlas-renamed' })).toBeVisible();
-  await page.getByLabel('Search projects and sessions').fill('not-a-project');
+  await page.getByLabel('Search projects and chats').fill('not-a-project');
   await expect(page.getByText('No matches found.')).toBeVisible();
-  await page.getByLabel('Search projects and sessions').fill('');
+  await page.getByLabel('Search projects and chats').fill('');
 
   await page.screenshot({ path: 'test-results/desktop-preview.png', fullPage: true });
   await page.keyboard.press('ControlOrMeta+k');
-  await expect(page.getByLabel('Search projects and sessions')).toBeFocused();
+  await expect(page.getByLabel('Search projects and chats')).toBeFocused();
   await page.setViewportSize({ width: 980, height: 680 });
-  await expect(page.getByRole('button', { name: 'New Codex session' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'New Codex chat' })).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(
     true,
   );
@@ -52,7 +52,7 @@ test('organize sessions and continue inside the conversation UI', async ({ page 
   await page.getByLabel('Session name', { exact: true }).fill('Navigation follow-up');
   await page.getByRole('button', { name: 'Save name', exact: true }).click();
   await list.getByRole('button', { name: 'Navigation follow-up actions' }).click();
-  await page.getByRole('menuitem', { name: 'Session details…', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Chat details…', exact: true }).click();
   await page.getByLabel(/^Group/).fill('Website');
   await page.getByLabel('Notes', { exact: true }).fill('Finish keyboard navigation');
   await page.getByRole('button', { name: 'Save details', exact: true }).click();
@@ -72,7 +72,7 @@ test('organize sessions and continue inside the conversation UI', async ({ page 
     .getByRole('button', { name: /^Resume / })
     .first()
     .click();
-  await expect(page.getByRole('region', { name: 'Sessions', exact: true })).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Chats', exact: true })).toBeVisible();
   await expect(page.getByText('This is a sample conversation.', { exact: false })).toBeVisible();
   await page.getByLabel('Message agent').fill('Continue with keyboard navigation');
   await page.screenshot({
@@ -86,7 +86,7 @@ test('organize sessions and continue inside the conversation UI', async ({ page 
   await page.getByRole('button', { name: /^Back to / }).click();
   await list.getByRole('button', { name: 'Navigation follow-up actions' }).click();
   await page.getByRole('menuitem', { name: 'Archive', exact: true }).click();
-  await expect(page.getByText('No pinned sessions', { exact: true })).toBeVisible();
+  await expect(page.getByText('No pinned chats', { exact: true })).toBeVisible();
   await page
     .getByRole('status')
     .filter({ hasText: 'Chat archived' })
@@ -271,10 +271,13 @@ test('a session ownership conflict restores the unsent draft and permits an expl
     .click();
   await page.getByLabel('Message agent').fill('Keep my follow-up');
   await page.getByRole('button', { name: 'Send', exact: true }).click();
-  await expect(page.getByRole('alert')).toContainText('another client');
+  await expect(page.getByRole('alert')).toContainText('another window');
   await expect(page.getByLabel('Message agent')).toHaveValue('Keep my follow-up');
-  await expect(page.locator('.chat-message.user')).toHaveCount(0);
+  // The failed message shows once, with its error under it. Sending again replaces it.
+  await expect(page.locator('.chat-message.user')).toHaveCount(1);
+  await expect(page.locator('.chat-message.user').getByRole('alert')).toBeVisible();
   await page.getByRole('button', { name: 'Send', exact: true }).click();
+  await expect(page.getByRole('alert')).toHaveCount(0);
   await expect(page.getByText('Resumed successfully', { exact: true })).toBeVisible();
   await expect(page.locator('.chat-message.user')).toHaveCount(1);
 });
@@ -288,7 +291,7 @@ test('integrated conversations keep drafts and project navigation visible', asyn
     .getByRole('button', { name: /^Resume / })
     .first()
     .click();
-  const workspace = page.getByRole('region', { name: 'Sessions', exact: true });
+  const workspace = page.getByRole('region', { name: 'Chats', exact: true });
   const pane = page.locator('.agent-pane:not([hidden])');
   await expect(workspace).toBeVisible();
   await expect(page.getByRole('dialog')).not.toBeVisible();
@@ -309,15 +312,15 @@ test('integrated conversations keep drafts and project navigation visible', asyn
     .getByRole('button', { name: 'Resume Refine project and repository navigation', exact: true })
     .click();
   await expect(pane.getByLabel('Message agent')).toHaveValue('Keep this Codex draft');
-  await expect(pane.getByRole('region', { name: 'Session details', exact: true })).toHaveCount(0);
-  await page.getByRole('button', { name: 'Session actions', exact: true }).click();
+  await expect(pane.getByRole('region', { name: 'Chat details', exact: true })).toHaveCount(0);
+  await page.getByRole('button', { name: 'Chat actions', exact: true }).click();
   await page.getByRole('menuitem', { name: /^Pin/ }).click();
   await expect(
     page
       .getByRole('navigation', { name: 'Projects and repositories' })
       .getByRole('button', { name: 'Resume pinned Refine project and repository navigation' }),
   ).toBeVisible();
-  await page.getByRole('button', { name: 'Session actions', exact: true }).click();
+  await page.getByRole('button', { name: 'Chat actions', exact: true }).click();
   await page.getByRole('menuitem', { name: /^Unpin/ }).click();
   await expect(
     page
@@ -337,7 +340,7 @@ test('integrated conversations keep drafts and project navigation visible', asyn
     true,
   );
   await page.keyboard.press('ControlOrMeta+k');
-  await expect(page.getByLabel('Search projects and sessions')).toBeFocused();
+  await expect(page.getByLabel('Search projects and chats')).toBeFocused();
   await expect(page.getByRole('navigation', { name: 'Projects and repositories' })).toBeVisible();
   await page.getByRole('button', { name: /^Back to / }).click();
   await page.locator('.project-tree').getByRole('button', { name: 'Atlas', exact: true }).click();
@@ -408,12 +411,12 @@ for (const agent of ['codex', 'claude'] as const) {
     await page.locator('.repo-select').first().click();
     // The split button starts Codex by default. Other agents are in its menu.
     if (agent === 'codex')
-      await page.getByRole('button', { name: 'New Codex session', exact: true }).click();
+      await page.getByRole('button', { name: 'New Codex chat', exact: true }).click();
     else {
       await page.getByRole('button', { name: 'Choose an agent', exact: true }).click();
-      await page.getByRole('menuitem', { name: 'New Claude Code session', exact: true }).click();
+      await page.getByRole('menuitem', { name: 'New Claude Code chat', exact: true }).click();
     }
-    await expect(page.getByRole('region', { name: 'Sessions', exact: true })).toBeVisible();
+    await expect(page.getByRole('region', { name: 'Chats', exact: true })).toBeVisible();
     await page.getByLabel('Message agent').fill('Build the first feature');
     await page.getByRole('button', { name: 'Send', exact: true }).click();
     await expect(page.getByText('Reply for r1', { exact: true })).toBeVisible();
@@ -531,7 +534,7 @@ test('projects group multiple repositories and each repository opens its own ses
   await page
     .getByRole('button', { name: 'Resume Refine project and repository navigation', exact: true })
     .click();
-  await expect(page.getByRole('region', { name: 'Sessions', exact: true })).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Chats', exact: true })).toBeVisible();
   await expect(page.getByText('Atlas / atlas-web', { exact: true })).toHaveCount(0);
 });
 
@@ -621,10 +624,10 @@ test('GitHub task status, repository choice, and composer model carry through to
   await expect(page.getByRole('region', { name: 'Done column' })).toContainText('Fix login');
   await page.screenshot({ path: 'test-results/github-project.png', fullPage: true });
   await page.getByRole('button', { name: 'Fix login', exact: true }).click();
-  await page.getByRole('combobox', { name: 'Task repository' }).click();
+  await page.getByRole('combobox', { name: 'Code folder for this task' }).click();
   await page.getByRole('option', { name: 'API', exact: true }).click();
   await page.getByRole('button', { name: 'Choose an agent', exact: true }).click();
-  await page.getByRole('menuitem', { name: 'New Claude Code session', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'New Claude Code chat', exact: true }).click();
   await expect(page.getByLabel('Message agent')).toHaveValue(/Fix login/);
   // The model is a submenu of the composer's More options menu.
   await page.getByRole('button', { name: 'More options', exact: true }).click();
@@ -670,10 +673,14 @@ test('a project can connect, create a GitHub draft, and change its connection in
   ).toBeVisible();
   await page.getByRole('button', { name: 'Board actions', exact: true }).click();
   await page.getByRole('menuitem', { name: 'Change GitHub Projects board…', exact: true }).click();
-  await expect(
-    page.getByRole('dialog', { name: 'Connect a GitHub Projects board', exact: true }),
-  ).toBeVisible();
+  const settings = page.getByRole('dialog', { name: 'Project settings', exact: true });
+  await expect(settings.getByRole('tab', { name: 'Board connection' })).toHaveAttribute(
+    'aria-selected',
+    'true',
+  );
+  await expect(settings.getByRole('region', { name: 'Change board' })).toBeVisible();
   await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await expect(settings).toHaveCount(0);
   await expect(page.getByText('Atlas roadmap', { exact: true })).toBeVisible();
 });
 
@@ -751,7 +758,9 @@ test('choose an existing GitHub project or create one without entering a URL', a
     page.getByRole('status').filter({ hasText: 'Created “Next release”' }),
   ).toBeVisible();
   await page.getByRole('button', { name: 'Connect board', exact: true }).click();
-  await expect(page.getByText('Next release', { exact: true })).toBeVisible();
+  await expect(
+    page.getByLabel('Project tracker').getByText('Next release', { exact: true }),
+  ).toBeVisible();
 });
 
 test('add repositories can create a project, pick a GitHub repo, and clone into it', async ({
@@ -963,7 +972,7 @@ test('simplified controls remain accessible and selection follows project and co
     .click();
   // An open session marks its repository as the current location.
   await expect(repository).toHaveAttribute('aria-current', 'location');
-  await expect(page.getByRole('region', { name: 'Sessions', exact: true })).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Chats', exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Settings', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Preview chat history', exact: true })).toHaveCount(
     0,

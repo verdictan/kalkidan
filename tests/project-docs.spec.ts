@@ -37,13 +37,19 @@ test('project Board and Docs pages support live Markdown, subpages and persisten
   await expect(saveState(page)).toHaveText('Saved');
   await page.locator('.project-tree').getByRole('button', { name: 'Atlas', exact: true }).click();
   await expect(page.getByRole('region', { name: 'Project tracker', exact: true })).toBeVisible();
-  await page.getByRole('button', { name: 'Docs', exact: true }).click();
+  await page
+    .getByRole('navigation', { name: 'Project page' })
+    .getByRole('button', { name: 'Docs', exact: true })
+    .click();
   await page.getByRole('button', { name: 'Setup', exact: true }).click();
   await expect(page.getByRole('textbox', { name: 'Document content' })).toContainText(
     'Child documentation',
   );
   await page.reload();
-  await page.getByRole('button', { name: 'Docs', exact: true }).click();
+  await page
+    .getByRole('navigation', { name: 'Projects and repositories' })
+    .getByRole('button', { name: 'Docs', exact: true })
+    .click();
   await page
     .getByRole('complementary', { name: 'Document pages' })
     .getByRole('button', { name: 'Engineering handbook', exact: true })
@@ -170,7 +176,10 @@ test('rich editor preserves tables, links, code, and formatting through save and
   await expect(page.getByLabel('Markdown content')).toHaveValue(/- \[x\] Review release/);
   await expect(page.getByLabel('Markdown content')).toHaveValue(/\| Build\s*\| Team/);
   await page.locator('.project-tree').getByRole('button', { name: 'Atlas', exact: true }).click();
-  await page.getByRole('button', { name: 'Docs', exact: true }).click();
+  await page
+    .getByRole('navigation', { name: 'Project page' })
+    .getByRole('button', { name: 'Docs', exact: true })
+    .click();
   await expect(editor.locator('strong')).toHaveText('A useful paragraph.');
   await expect(editor.locator('input[type="checkbox"]')).toBeChecked();
 });

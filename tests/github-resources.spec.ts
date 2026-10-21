@@ -102,43 +102,65 @@ test('saved views render configured fields and explicit report publishing uses t
     .getByRole('button', { name: 'Platform', exact: true })
     .click();
   await page
-    .getByRole('group', { name: 'Project page', exact: true })
+    .getByRole('navigation', { name: 'Project page', exact: true })
     .getByRole('button', { name: 'Tasks', exact: true })
     .click();
-  await page.getByRole('combobox', { name: 'GitHub saved view' }).selectOption('V');
+  const pages = page.getByRole('navigation', { name: 'Project page', exact: true });
+  await page.getByRole('combobox', { name: 'GitHub saved view' }).click();
+  await page.getByRole('option', { name: 'Current sprint', exact: true }).click();
   const view = page.getByRole('region', { name: 'Saved GitHub view' });
   await expect(view.getByRole('columnheader', { name: 'Estimate' })).toBeVisible();
   await expect(view.getByRole('cell', { name: '5', exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Other work', exact: true })).toHaveCount(0);
-  await page.getByText('Project health report', { exact: true }).click();
-  await page.getByRole('button', { name: 'Prepare current snapshot' }).click();
-  await expect(page.getByRole('textbox', { name: 'Project health report preview' })).toContainText(
-    '2 active items',
-  );
+  // The health report is on the Insights page. The preview is the reviewed snapshot.
+  await pages.getByRole('button', { name: 'Insights', exact: true }).click();
+  const health = page.getByRole('region', { name: 'Health', exact: true });
+  await health.getByRole('button', { name: 'Write report' }).click();
+  await expect(health).toContainText('2 active items');
+  await health.getByRole('button', { name: 'Edit', exact: true }).click();
+  await expect(
+    health.getByRole('textbox', { name: 'Project health report preview' }),
+  ).toContainText('2 active items');
   expect(await page.evaluate(() => (window as any).writes)).toEqual([]);
-  await page.getByRole('button', { name: 'Publish status update' }).click();
-  await expect(page.getByText('Status update published on GitHub.')).toBeVisible();
+  await health.getByRole('button', { name: 'Publish status update' }).click();
+  await expect(
+    page.getByRole('status').filter({ hasText: 'Published the status update on GitHub.' }),
+  ).toBeVisible();
   expect((await page.evaluate(() => (window as any).writes))[0].slice(0, 3)).toEqual([
     'g',
     'resources',
     'createProjectV2StatusUpdate',
   ]);
-  await page.getByText('Batch fields and iteration planning', { exact: true }).click();
-  await page.getByRole('combobox', { name: 'Batch field' }).selectOption('estimate');
-  await page.getByRole('checkbox', { name: /Selected work/ }).check();
-  await page.getByRole('spinbutton', { name: 'Estimate' }).fill('8');
-  await page.getByRole('button', { name: 'Save Estimate' }).click();
-  await expect(page.getByText('Estimate: 5 → 8')).toBeVisible();
+  // Batch field changes start from the selected tasks on the Tasks page.
+  await pages.getByRole('button', { name: 'Tasks', exact: true }).click();
+  await page.getByRole('combobox', { name: 'GitHub saved view' }).click();
+  await page.getByRole('option', { name: 'All project items', exact: true }).click();
+  await page.getByRole('checkbox', { name: 'Select Selected work', exact: true }).check();
+  await page
+    .getByRole('toolbar', { name: 'Selected tasks' })
+    .getByRole('button', { name: 'Edit fields…', exact: true })
+    .click();
+  const batch = page.getByRole('dialog', { name: 'Edit fields of 1 task' });
+  const fieldSelect = batch.getByRole('combobox', { name: 'Field', exact: true });
+  if (!(await fieldSelect.textContent())?.includes('Estimate')) {
+    await fieldSelect.click();
+    await page.getByRole('option', { name: 'Estimate', exact: true }).click();
+  }
+  await batch.getByRole('spinbutton', { name: 'New value' }).fill('8');
+  await batch.getByRole('button', { name: 'Review 1 change' }).click();
+  await expect(batch.getByText('Estimate: 5 → 8')).toBeVisible();
   expect((await page.evaluate(() => (window as any).writes)).length).toBe(1);
-  await page.getByRole('button', { name: 'Apply reviewed batch' }).click();
-  await expect(page.getByText('Selected work: confirmed', { exact: true })).toBeVisible();
+  await batch.getByRole('button', { name: 'Apply 1 change' }).click();
+  await expect(batch.getByRole('button', { name: 'Done', exact: true })).toBeVisible();
+  await expect(batch.getByText('Saved', { exact: true })).toBeVisible();
   expect((await page.evaluate(() => (window as any).writes))[1][1].changes).toEqual([
     { itemId: 'I', fieldId: 'estimate', before: { number: 5 }, value: { number: 8 } },
   ]);
-  await page.getByText('GitHub write history', { exact: true }).click();
-  const record = page.getByRole('button', { name: 'Record review' });
-  await expect(record).toBeDisabled();
-  await page.getByRole('checkbox', { name: 'I inspected the result on GitHub.' }).check();
+  await batch.getByRole('button', { name: 'Done', exact: true }).click();
+  // A change with an unknown result stays in GitHub changes until the user checks it.
+  await pages.getByRole('button', { name: 'Insights', exact: true }).click();
+  const changes = page.getByRole('region', { name: 'GitHub changes' });
+  const record = changes.getByRole('button', { name: 'I checked this on GitHub' });
   await record.click();
   await expect(record).toHaveCount(0);
   expect((await page.evaluate(() => (window as any).writes))[2]).toEqual([

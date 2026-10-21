@@ -301,7 +301,8 @@ export function FormSelect({
   const hasEmpty = options.some((option) => option.value === '');
   return (
     <Select
-      value={value ? value : hasEmpty ? none : undefined}
+      // An empty string shows the placeholder and keeps the select controlled.
+      value={value ? value : hasEmpty ? none : ''}
       onValueChange={(next) => onChange(next === none ? '' : next)}
       disabled={disabled}
     >

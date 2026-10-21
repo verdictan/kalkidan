@@ -729,12 +729,18 @@ export function ProjectTrackerPanel({
       live = false;
     };
   }, [api, taskId, repoId]);
-  // Open the requested task once for each new ID.
+  /** The usage chip of a chat opens Insights at its task. The Usage section selects it. */
+  const [usageTaskId, setUsageTaskId] = useState<string>();
+  // Open the requested task once for each new ID. On Insights, the task is for the Usage
+  // section, so the task sheet does not open.
   const openedTask = useRef('');
   useEffect(() => {
     if (!initialTaskId || !board || openedTask.current === initialTaskId) return;
-    if (openTaskById(initialTaskId)) openedTask.current = initialTaskId;
-  }, [initialTaskId, board]);
+    if (requestedPage === 'insights') {
+      openedTask.current = initialTaskId;
+      setUsageTaskId(initialTaskId);
+    } else if (openTaskById(initialTaskId)) openedTask.current = initialTaskId;
+  }, [initialTaskId, board, requestedPage]);
   async function refreshBoard() {
     const next = await reloadBoard();
     if (!next) return;
@@ -935,8 +941,6 @@ export function ProjectTrackerPanel({
     },
   };
   const pendingTask = useRef('');
-  /** The usage chip of a chat opens Insights at its task. The Usage section selects it. */
-  const [usageTaskId, setUsageTaskId] = useState<string>();
   useEffect(() => {
     if (board && pendingTask.current && openTaskById(pendingTask.current)) pendingTask.current = '';
   }, [board]);

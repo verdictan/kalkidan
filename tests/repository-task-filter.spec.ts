@@ -17,7 +17,7 @@ test('repository overview omits tasks while the project Board page retains them'
   await expect(page.getByRole('region', { name: 'Repository project tasks' })).toHaveCount(0);
   await page.locator('.project-tree').getByRole('button', { name: 'Atlas', exact: true }).click();
   await page
-    .getByRole('group', { name: 'Project page' })
+    .getByRole('navigation', { name: 'Project page' })
     .getByRole('button', { name: 'Tasks', exact: true })
     .click();
   await expect(page.getByRole('region', { name: 'Tracker board', exact: true })).toBeVisible();

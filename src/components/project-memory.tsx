@@ -110,7 +110,7 @@ export function ProjectMemoryPanel({
 
   // Entries give the source chat and the revision. Older desktop apps do not have them.
   useEffect(() => {
-    if (!memory) return;
+    if (!memory || typeof api.memoryEntries !== 'function') return;
     let live = true;
     api
       .memoryEntries(group.id)

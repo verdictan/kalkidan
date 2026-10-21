@@ -73,7 +73,7 @@ test('a configured non-GitHub provider drives project creation and a read-only b
   await expect(dialog).not.toBeVisible();
   // A new project opens on its overview. The board is on the Tasks page.
   await page
-    .getByRole('group', { name: 'Project page', exact: true })
+    .getByRole('navigation', { name: 'Project page', exact: true })
     .getByRole('button', { name: 'Tasks', exact: true })
     .click();
   await expect(page.getByText('Provider-independent work', { exact: true })).toBeVisible();
@@ -92,10 +92,19 @@ test('project workflow mappings can be configured and reopened', async ({ page }
   await connect.getByRole('button', { name: 'Connect board', exact: true }).click();
   await page.getByRole('button', { name: 'Board actions', exact: true }).click();
   await page.getByRole('menuitem', { name: 'Automatic status changes…', exact: true }).click();
-  const workflow = page.getByRole('dialog', { name: 'Status changes from sessions', exact: true });
+  const workflow = page.getByRole('dialog', { name: 'Project settings', exact: true });
+  await expect(workflow.getByRole('tab', { name: 'Status automation' })).toHaveAttribute(
+    'aria-selected',
+    'true',
+  );
+  // Save is available only after a change.
+  await expect(workflow.getByRole('button', { name: 'Save', exact: true })).toBeDisabled();
   await workflow.getByRole('combobox', { name: 'Status when work starts' }).click();
   await page.getByRole('option', { name: 'In progress', exact: true }).click();
   await workflow.getByRole('button', { name: 'Save', exact: true }).click();
+  // The settings dialog stays open. Save is not available again until the next change.
+  await expect(workflow.getByRole('button', { name: 'Save', exact: true })).toBeDisabled();
+  await workflow.getByRole('button', { name: 'Cancel', exact: true }).click();
   await expect(workflow).not.toBeVisible();
   await page.getByRole('button', { name: 'Board actions', exact: true }).click();
   await page.getByRole('menuitem', { name: 'Automatic status changes…', exact: true }).click();
@@ -147,24 +156,27 @@ test('board state is scoped to each project and survives panel remounts', async 
   const tree = page.locator('.project-tree');
   await tree.getByRole('button', { name: 'Alpha', exact: true }).click();
   await page
-    .getByRole('group', { name: 'Project page', exact: true })
+    .getByRole('navigation', { name: 'Project page', exact: true })
     .getByRole('button', { name: 'Tasks', exact: true })
     .click();
   await expect(page.getByRole('button', { name: 'Alpha task', exact: true })).toBeVisible();
+  // The app also reads each connected board once for the overview. Count the reads from here.
+  const before = await page.evaluate(() => ({ ...(window as any).boardCalls }));
   await tree.getByRole('button', { name: 'Beta', exact: true }).click();
   await page
-    .getByRole('group', { name: 'Project page', exact: true })
+    .getByRole('navigation', { name: 'Project page', exact: true })
     .getByRole('button', { name: 'Tasks', exact: true })
     .click();
   await expect(page.getByRole('button', { name: 'Beta task', exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Alpha task', exact: true })).toHaveCount(0);
   await tree.getByRole('button', { name: 'Alpha', exact: true }).click();
   await page
-    .getByRole('group', { name: 'Project page', exact: true })
+    .getByRole('navigation', { name: 'Project page', exact: true })
     .getByRole('button', { name: 'Tasks', exact: true })
     .click();
   await expect(page.getByRole('button', { name: 'Alpha task', exact: true })).toBeVisible();
-  expect(await page.evaluate(() => (window as any).boardCalls)).toEqual({ Alpha: 1, Beta: 1 });
+  // Going back to Alpha uses the board that is in memory. It does not read it again.
+  expect((await page.evaluate(() => (window as any).boardCalls)).Alpha).toBe(before.Alpha);
   await page.evaluate(() => {
     (window as any).failBoard = true;
   });

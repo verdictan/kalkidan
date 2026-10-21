@@ -127,7 +127,7 @@ test('remote project flow checks and installs the host, picks remote folders, an
   await add.getByRole('button', { name: 'Add remote folder', exact: true }).click();
   await page.locator('.repo-select').click();
   await expect(page.getByText(/^SSH · Development · connected/)).toBeVisible();
-  await page.getByRole('button', { name: 'New Codex session', exact: true }).click();
+  await page.getByRole('button', { name: 'New Codex chat', exact: true }).click();
   await page.getByLabel('Message agent').fill('Inspect this repository');
   await page.getByRole('button', { name: 'Send', exact: true }).click();
   await expect(page.getByText('Working on the remote host.', { exact: true })).toBeVisible();
