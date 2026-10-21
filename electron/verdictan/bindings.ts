@@ -4,9 +4,13 @@ import { createHash, randomUUID } from 'node:crypto';
 import { writeJSON } from '../storage/atomic-json';
 import type { VerdictanSelection } from '../../src/domain/verdictan';
 import { uuid } from './credentials';
+import { policyId } from './policy-id';
 import { DesktopProtocolError } from './protocol';
 
 export interface ConversationBinding {
+  project_id?: string;
+  task_id?: string;
+  provider_access_mode?: 'byok' | 'codex_subscription';
   schema_version: 1;
   organization_id: string;
   user_id: string;
@@ -28,19 +32,25 @@ const ids = [
   'organization_id',
   'user_id',
   'region_id',
-  'provider_connection_id',
   'installation_id',
   'host_id',
   'conversation_id',
-  'configuration_id',
-  'configuration_version_id',
 ] as const;
 export function validateBinding(value: unknown): asserts value is ConversationBinding {
   const v = value as ConversationBinding;
   if (
     !v ||
     v.schema_version !== 1 ||
+    [v.project_id, v.task_id].some(
+      (id) => id !== undefined && !/^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/.test(id),
+    ) ||
     !ids.every((key) => uuid(v[key])) ||
+    !['byok', 'codex_subscription'].includes(v.provider_access_mode || 'byok') ||
+    (v.provider_access_mode === 'codex_subscription'
+      ? v.provider_connection_id !== '' || v.provider !== 'openai' || v.agent_kind !== 'codex'
+      : !uuid(v.provider_connection_id)) ||
+    !policyId(v.configuration_id, 'configuration') ||
+    !policyId(v.configuration_version_id, 'version') ||
     !['codex', 'claude_code'].includes(v.agent_kind) ||
     !/^\d+\.\d+\.\d+(?:-[A-Za-z0-9.-]{1,64})?$/.test(v.agent_version) ||
     v.context_format_version !== 1 ||
@@ -60,6 +70,8 @@ export function assertCompatible(
 ) {
   validateBinding(previous);
   validateBinding(current);
+  if ((previous.provider_access_mode || 'byok') !== (current.provider_access_mode || 'byok'))
+    throw new DesktopProtocolError('desktop.resume_incompatible');
   for (const field of Object.keys(previous) as (keyof ConversationBinding)[]) {
     if (fork && field === 'conversation_id') continue;
     if (previous[field] !== current[field])
@@ -149,7 +161,11 @@ export class BindingStore {
       this.root,
       'managed-agent-homes',
       identityKey(binding.organization_id, binding.user_id),
-      binding.agent_kind === 'codex' ? 'codex' : 'claude',
+      binding.agent_kind === 'codex'
+        ? binding.provider_access_mode === 'codex_subscription'
+          ? 'codex-subscription'
+          : 'codex'
+        : 'claude',
     );
     const parent = join(this.root, 'managed-agent-homes');
     for (const path of [

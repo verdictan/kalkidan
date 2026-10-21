@@ -285,3 +285,34 @@ test('setup selections must use authorized IDs and the native provider', () => {
     assert.throws(() => service.validate(setup, 'codex', s as any), /setup_selection_required/);
   assert.throws(() => service.validate(setup, 'claude', selection), /setup_selection_required/);
 });
+
+test('subscription selections require runtime capability and never fall back to another agent or API billing', () => {
+  const service = new VerdictanSetupService(null as any, null as any, 'https://api.verdictan.com');
+  const setup: any = {
+    teams: [{ team_id: id }],
+    policies: [{ configuration_id: id, configuration_version_id: id }],
+    providerConnections: [],
+    providerAccessModes: ['byok', 'codex_subscription'],
+  };
+  const subscription = {
+    ...selection,
+    providerConnectionId: '',
+    providerAccessMode: 'codex_subscription' as const,
+  };
+  assert.equal(service.validate(setup, 'codex', subscription), subscription);
+  assert.throws(() => service.validate(setup, 'claude', subscription), /setup_selection_required/);
+  assert.throws(
+    () => service.validate(setup, 'codex', { ...subscription, providerConnectionId: id }),
+    /setup_selection_required/,
+  );
+  assert.throws(
+    () =>
+      service.validate(setup, 'claude', {
+        ...subscription,
+        providerAccessMode: 'claude_subscription',
+      } as any),
+    /setup_selection_required/,
+  );
+  setup.providerAccessModes = ['byok'];
+  assert.throws(() => service.validate(setup, 'codex', subscription), /setup_selection_required/);
+});

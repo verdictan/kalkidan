@@ -1,3 +1,7 @@
+import { useVerdictanEpoch } from '../hooks/use-verdictan-epoch';
+import { TaskUsageHistoryPanel } from './task-usage-history';
+import { ProjectServicesPanel } from './project-services';
+import { ParallelDispatchPanel } from './parallel-dispatch';
 import { ProjectPortfolio } from './project-portfolio';
 import { ProjectReadiness } from './project-readiness';
 import { DocsToIssues } from './docs-to-issues';
@@ -271,6 +275,7 @@ export function ProjectTrackerPanel({
   onRepo: (repo: Project) => void;
   onTask: (repo: Project, agent: Agent, task: TrackerItem) => void;
 }) {
+  const verdictanEpoch = useVerdictanEpoch(api);
   const connection = trackerConnection(group);
   const {
     client,
@@ -1173,6 +1178,30 @@ export function ProjectTrackerPanel({
                 }}
               />
             )}
+          {typeof api.taskUsageHistory === 'function' && (
+            <TaskUsageHistoryPanel
+              key={`usage-${group.id}:${verdictanEpoch}`}
+              api={api}
+              groupId={group.id}
+              board={board}
+            />
+          )}
+          {typeof api.projectServicesStatus === 'function' && (
+            <ProjectServicesPanel
+              key={`services-${group.id}:${verdictanEpoch}`}
+              api={api}
+              groupId={group.id}
+              board={board}
+            />
+          )}
+          {typeof api.dispatchPrepare === 'function' && (
+            <ParallelDispatchPanel
+              key={`${group.id}:${verdictanEpoch}`}
+              api={api}
+              groupId={group.id}
+              board={board}
+            />
+          )}
           {typeof api.trackerPortfolio === 'function' && <ProjectPortfolio api={api} />}
           {typeof api.trackerMutationHistory === 'function' && (
             <GitHubWriteHistory api={api} groupId={group.id} url={board.project.url} />

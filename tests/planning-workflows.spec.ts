@@ -67,6 +67,63 @@ test.beforeEach(async ({ page }) => {
           },
         ],
       }),
+      projectServicesStatus: async () => ({
+        available: true,
+        operations: ['review.list', 'review.decide'],
+        permissions: ['review.read', 'review.decide'],
+      }),
+      projectServicesRequest: async (_group: string, request: any) => {
+        writes.push(['project-service', request]);
+        return request.operation === 'review.list'
+          ? {
+              project_scope: { organization_id: 'org', project_id: 'P' },
+              actor_id: 'reviewer',
+              revision: 'list-1',
+              observed_at: '2026-10-21T00:00:00Z',
+              items: [
+                {
+                  escalation_id: 'review-1',
+                  title: 'Review tool access',
+                  status: 'pending',
+                  revision: 'review-v1',
+                },
+              ],
+            }
+          : {
+              project_scope: { organization_id: 'org', project_id: 'P' },
+              actor_id: 'reviewer',
+              revision: 'list-2',
+              observed_at: '2026-10-21T00:00:00Z',
+              receipt_id: 'receipt-1',
+              state: 'completed',
+            };
+      },
+      taskUsageHistory: async () => [
+        {
+          runId: 'run-1',
+          phase: 'ready-for-review',
+          updatedAt: 1,
+          evidence: [
+            {
+              observedAt: 1,
+              value: {
+                status: 'reconciling',
+                requests: [
+                  {
+                    id: 'request-1',
+                    policy: 'allow',
+                    usage: null,
+                    audit: null,
+                    actualCost: null,
+                    currency: null,
+                    tokens: null,
+                  },
+                ],
+              },
+            },
+          ],
+        },
+      ],
       trackerProviders: async () => [
         {
           id: 'github',
@@ -236,4 +293,37 @@ test('portfolio preserves source projects and filters personal assignments', asy
   await page.getByRole('textbox', { name: 'Assigned GitHub login' }).fill('developer');
   await expect(page.getByRole('link', { name: 'Other project task' })).toHaveCount(0);
   await expect(page.getByRole('link', { name: 'Independent issue' })).toBeVisible();
+});
+
+test('project reviews require an explicit reason and confirmation before the broker mutation', async ({
+  page,
+}) => {
+  await page.getByText('Project governance and knowledge', { exact: true }).click();
+  await page.getByRole('button', { name: 'Check project services' }).click();
+  await page.getByLabel('Project service view', { exact: true }).selectOption('reviews');
+  await page.getByRole('button', { name: 'Load current data' }).click();
+  await expect(page.getByRole('button', { name: 'Approve', exact: true })).toBeDisabled();
+  await page.getByLabel('Decision reason').fill('Reviewed the requested tool access.');
+  await page.getByRole('button', { name: 'Approve', exact: true }).click();
+  const calls = await page.evaluate(() => (window as any).planningWrites);
+  expect(calls.filter((call: any) => call[1]?.operation === 'review.decide')).toHaveLength(0);
+  await page.getByRole('button', { name: 'Confirm action', exact: true }).click();
+  await expect(page.getByText('Operation completed · receipt receipt-1')).toBeVisible();
+  const mutation = await page.evaluate(
+    () =>
+      (window as any).planningWrites.find((call: any) => call[1]?.operation === 'review.decide')[1],
+  );
+  expect(mutation.fields).toMatchObject({
+    decision: 'approve',
+    expected_revision: 'review-v1',
+    escalation_id: 'review-1',
+  });
+  expect(mutation.fields.operation_id).toMatch(/^[a-f0-9-]{36}$/);
+});
+test('saved task usage keeps unavailable cost and tokens unknown', async ({ page }) => {
+  await page.getByText('Task usage and policy history', { exact: true }).click();
+  await page.getByLabel('History task', { exact: true }).selectOption('I1');
+  await page.getByRole('button', { name: 'Load saved evidence' }).click();
+  await expect(page.getByText('Cost: Unknown · tokens: Unknown')).toBeVisible();
+  await expect(page.getByText('Audit: Unknown', { exact: true })).toBeVisible();
 });

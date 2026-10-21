@@ -1,3 +1,7 @@
+import { identityKey } from './verdictan/bindings';
+import { savedVerdictanRegion, saveVerdictanRegion, verdictanRegion } from './verdictan/region';
+import { ProjectServices } from './verdictan/project-services';
+import { ParallelDispatch } from './operations/parallel-dispatch';
 import { TaskExecutions } from './operations/task-execution';
 import { trackerConnection } from '../src/domain/tracker';
 import { WorktreeCreation } from './operations/worktree';
@@ -109,10 +113,48 @@ const owned = new Map<
 const previews = new Map<BrowserWindow, AnnotationBrowser>();
 const chatRunner = createAgentRuntimes(async (request) => {
   if (!verdictan) throw new Error('Verdictan is not ready. Open Settings to complete setup.');
+  request.session.governanceScope = await resolveManagedScope(
+    request.session.cwd,
+    request.session.organization?.taskId,
+  );
   return verdictan.launch.prepare(request);
 });
 const githubAuth = new GitHubAuth(() => shell.openExternal('https://github.com/login/device'));
 let remote: RemoteHosts;
+let resolveManagedScope: (
+  cwd: string,
+  taskId?: string,
+  hostId?: string,
+) => Promise<Session['governanceScope']> = async () => undefined;
+let changingAccount = false;
+let accountEpoch = 0;
+let stopDispatch = () => {};
+let restoreDispatch = () => {};
+let lastAccount = '';
+function notifyVerdictan() {
+  const account = verdictan?.account.status().account;
+  const key = JSON.stringify([
+    verdictan?.region,
+    account?.state,
+    account?.organizationId,
+    account?.userId,
+  ]);
+  if (key === lastAccount) return;
+  const previousAccount = lastAccount;
+  lastAccount = key;
+  accountEpoch++;
+  if (previousAccount.includes('authenticated')) {
+    chatRunner.stopAll();
+    verdictan?.remoteBroker.reset();
+    void verdictan?.managed.stopAll().catch(() => {});
+    for (const host of remote?.list() || [])
+      if (host.status === 'connected') remote.disconnect(host.id);
+  }
+  stopDispatch();
+  for (const window of windows)
+    if (!window.isDestroyed()) window.webContents.send('verdictan-changed');
+  if (account?.state === 'authenticated') restoreDispatch();
+}
 let verdictan: ReturnType<typeof createVerdictanServices> | undefined;
 // The user confirmed that running agents can stop. Do not ask again while the app quits.
 let stopAgentsConfirmed = false;
@@ -194,6 +236,14 @@ function handle(channel: string, fn: (...args: any[]) => any) {
       (w) => w.webContents === event.sender && event.senderFrame === w.webContents.mainFrame,
     );
     if (!owner) throw new Error('Untrusted caller');
+    if (
+      changingAccount &&
+      /^(verdictan-|runtime-|chat-|remote-call|dispatch-|task-usage-|project-services-|project-publish-doc)/.test(
+        channel,
+      )
+    )
+      throw new Error('Account is changing. Wait for the switch to finish.');
+
     const replyHost = channel === 'remote-call' ? args[0] : undefined;
     const replyMethod = channel === 'remote-call' ? args[1] : channel;
     const replyRun = channel === 'remote-call' ? args[2]?.[0] : args[0];
@@ -204,9 +254,15 @@ function handle(channel: string, fn: (...args: any[]) => any) {
         ?.some((r) => r.kind === 'chat' && r.id === replyRun && r.hostId === replyHost)
     )
       throw new Error('This agent request belongs to another window or host.');
+    const requestEpoch = accountEpoch;
     return Promise.resolve()
       .then(() => fn(...args))
       .then((result) => {
+        if (
+          requestEpoch !== accountEpoch &&
+          /^(project-services-|project-publish-doc|task-usage-|dispatch-)/.test(channel)
+        )
+          throw new Error('Account changed. Refresh this view.');
         const remoteMethod = channel === 'remote-call' ? args[1] : '';
         const kind =
           ['chat-create', 'chat-start'].includes(channel) ||
@@ -315,15 +371,22 @@ app.whenReady().then(async () => {
     void remote?.reconcile().catch(() => {});
   });
   const runtimePolicy = runtimePolicyReader(__dirname);
-  verdictan = createVerdictanServices({
-    root: dataRoot,
-    hostId: 'local',
-    desktopVersion: app.getVersion(),
-    policy: runtimePolicy,
-    busy: () => chatRunner.runningCount() > 0,
-    openBrowser: (url) => shell.openExternal(url),
-  });
-  void verdictan.installer.check().catch(() => {});
+  const makeVerdictan = (region: string) =>
+    createVerdictanServices({
+      region,
+      changed: notifyVerdictan,
+      root: dataRoot,
+      hostId: 'local',
+      desktopVersion: app.getVersion(),
+      policy: runtimePolicy,
+      busy: () => chatRunner.runningCount() > 0,
+      openBrowser: (url) => shell.openExternal(url),
+    });
+  verdictan = makeVerdictan(await savedVerdictanRegion(dataRoot));
+  void verdictan.installer
+    .check()
+    .then(() => verdictan!.account.check())
+    .catch(() => {});
   const desktopUpdates = new DesktopUpdates({
     version: app.getVersion(),
     bundle: join(__dirname, 'main.cjs'),
@@ -363,22 +426,55 @@ app.whenReady().then(async () => {
   });
   handle('verdictan-setup', () => verdictan!.setup.status());
   handle('verdictan-select', (agent, selection) => verdictan!.setup.select(agent, selection));
-  handle('verdictan-status', () => verdictan!.account.status());
+  const accountStatus = () => ({ ...verdictan!.account.status(), region: verdictan!.region });
+  handle('verdictan-status', accountStatus);
+  handle('verdictan-set-region', async (region: string) => {
+    verdictanRegion(region);
+    if (verdictan!.region === region) return accountStatus();
+    changingAccount = true;
+    accountEpoch++;
+    stopDispatch();
+    try {
+      verdictan!.remoteBroker.reset();
+      const hosts = remote.list().filter((host) => host.status === 'connected');
+      await Promise.all(hosts.map((host) => remote.call(host.id, 'managed-stop', [])));
+      for (const host of hosts) remote.disconnect(host.id);
+      chatRunner.stopAll();
+      await verdictan!.managed.stopAll();
+      await saveVerdictanRegion(dataRoot, region);
+      verdictan!.account.dispose();
+      verdictan = makeVerdictan(region);
+      notifyVerdictan();
+      await verdictan.installer.check();
+      await verdictan.account.check();
+      return accountStatus();
+    } finally {
+      changingAccount = false;
+      if (verdictan?.account.status().account?.state === 'authenticated') restoreDispatch();
+    }
+  });
   handle('verdictan-check', () => verdictan!.account.check());
   handle('verdictan-authorize', (intent) => verdictan!.account.authorize(intent));
   handle('verdictan-cancel', () => verdictan!.account.cancel());
   handle('verdictan-renew', () => verdictan!.account.renew());
   handle('verdictan-logout', async () => {
-    verdictan!.remoteBroker.reset();
-    await Promise.allSettled(
-      remote
-        .list()
-        .filter((host) => host.status === 'connected')
-        .map((host) => remote.call(host.id, 'managed-stop', [])),
-    );
-    await verdictan!.managed.stopAll();
-    chatRunner.dispose();
-    return verdictan!.account.logout();
+    changingAccount = true;
+    try {
+      stopDispatch();
+      accountEpoch++;
+      verdictan!.remoteBroker.reset();
+      await Promise.allSettled(
+        remote
+          .list()
+          .filter((host) => host.status === 'connected')
+          .map((host) => remote.call(host.id, 'managed-stop', [])),
+      );
+      await verdictan!.managed.stopAll();
+      chatRunner.dispose();
+      return await verdictan!.account.logout();
+    } finally {
+      changingAccount = false;
+    }
   });
   for (const action of ['status', 'check', 'install', 'cancel'] as const) {
     handle(`runtime-update-${action}`, async (hostId?: string) => {
@@ -390,6 +486,7 @@ app.whenReady().then(async () => {
           await runtimePolicy(),
           app.getVersion(),
           hostId,
+          verdictan!.region,
         ]);
       }
       if (action === 'status') return verdictan!.installer.check();
@@ -556,6 +653,7 @@ app.whenReady().then(async () => {
       (w) => w.webContents === event.sender && event.senderFrame === w.webContents.mainFrame,
     );
     if (!owner) throw new Error('Untrusted caller');
+
     return previews.get(owner)!.action(id, action, value);
   });
   ipcMain.handle('browser-layout', (event, id, bounds) => {
@@ -563,6 +661,7 @@ app.whenReady().then(async () => {
       (w) => w.webContents === event.sender && event.senderFrame === w.webContents.mainFrame,
     );
     if (!owner) throw new Error('Untrusted caller');
+
     return previews.get(owner)!.layout(id, bounds);
   });
   ipcMain.handle('browser-navigate', (event, id, action) => {
@@ -570,6 +669,7 @@ app.whenReady().then(async () => {
       (w) => w.webContents === event.sender && event.senderFrame === w.webContents.mainFrame,
     );
     if (!owner) throw new Error('Untrusted caller');
+
     return previews.get(owner)!.navigate(id, action);
   });
   ipcMain.handle('browser-state', (event, id) => {
@@ -577,6 +677,7 @@ app.whenReady().then(async () => {
       (w) => w.webContents === event.sender && event.senderFrame === w.webContents.mainFrame,
     );
     if (!owner) throw new Error('Untrusted caller');
+
     return previews.get(owner)!.state(id);
   });
   handle('terminal-start', async (cwd, command) =>
@@ -591,6 +692,7 @@ app.whenReady().then(async () => {
       (w) => w.webContents === event.sender && event.senderFrame === w.webContents.mainFrame,
     );
     if (!owner) throw new Error('Untrusted caller');
+
     return previews.get(owner)!.open(url, id);
   });
   ipcMain.handle('browser-select', (event, id) => {
@@ -598,6 +700,7 @@ app.whenReady().then(async () => {
       (w) => w.webContents === event.sender && event.senderFrame === w.webContents.mainFrame,
     );
     if (!owner) throw new Error('Untrusted caller');
+
     return previews.get(owner)!.select(id);
   });
   ipcMain.handle('browser-close', (event, id) => {
@@ -605,6 +708,7 @@ app.whenReady().then(async () => {
       (w) => w.webContents === event.sender && event.senderFrame === w.webContents.mainFrame,
     );
     if (!owner) throw new Error('Untrusted caller');
+
     return previews.get(owner)!.close(id);
   });
   remote = new RemoteHosts(
@@ -678,7 +782,7 @@ app.whenReady().then(async () => {
     );
   });
   const remoteMethods = new Set<string>(sessionHostMethods);
-  handle('remote-call', async (hostId, method, args) => {
+  async function remoteHostCall(hostId: string, method: string, args: any[]) {
     if (!remoteMethods.has(method) || !Array.isArray(args))
       throw new Error('Unsupported remote operation');
     if (['ptyOpen', 'chatCreate', 'terminalStart', 'repositoryDiff'].includes(method)) {
@@ -695,6 +799,7 @@ app.whenReady().then(async () => {
         await runtimePolicy(),
         app.getVersion(),
         hostId,
+        verdictan!.region,
       ]);
     let taskCwd: string | undefined;
     if (method === 'chatCreate') {
@@ -710,11 +815,13 @@ app.whenReady().then(async () => {
       args[5] = await memoryContext(session.cwd, args[2], hostId);
       args[2] = await projectPrompt(session.cwd, args[2], args[4], hostId);
     }
+    if (taskCwd) args[6] = await resolveManagedScope(taskCwd, args[4]?.taskId, hostId);
     if (taskCwd)
       return startAgentTask(taskCwd, hostId, args[4], () => remote.call(hostId, method, args));
     const result = await remote.call(hostId, method, args);
     return method === 'chatStatus' ? taskExecutions.observe(result, hostId) : result;
-  });
+  }
+  handle('remote-call', remoteHostCall);
   const github = new GitHubProjects(
     undefined,
     undefined,
@@ -728,7 +835,27 @@ app.whenReady().then(async () => {
     ],
     runtimeConfig().defaultTracker,
   );
+  resolveManagedScope = async (cwd, taskId, hostId) => {
+    const repo = projects
+      .filter((p) => p.hostId === hostId && pathContains(p.path, cwd))
+      .sort((a, b) => b.path.length - a.path.length)[0];
+    const group =
+      repo && projectGroups.groups.find((g) => g.repoIds.includes(repo.id) && g.hostId === hostId);
+    const connection = group && trackerConnection(group);
+    if (!connection) return undefined;
+    const linked = trackers.linked(connection);
+    const board = await linked.provider.board(linked.project);
+    if (taskId && !board.items.some((item) => item.id === taskId))
+      throw Error('Task is not available in this project.');
+    return { projectId: board.project.id, ...(taskId ? { taskId } : {}) };
+  };
   const taskExecutions = new TaskExecutions(join(dataRoot, 'operations', 'task-execution'), {
+    status: async (runId, hostId) =>
+      hostId ? remote.call(hostId, 'chatStatus', [runId]) : chatRunner.status(runId),
+    identity: async () => {
+      if (changingAccount) throw Error('Account is changing.');
+      return (await verdictan!.setup.inspect()).key;
+    },
     inspect: async (scope) => {
       const group = projectGroups.groups.find(
         (group) => group.id === scope.groupId && group.hostId === scope.hostId,
@@ -769,6 +896,11 @@ app.whenReady().then(async () => {
         singleSelectOptionId: evidence.targetStatus,
       });
     },
+  });
+  handle('task-usage-history', (groupId, taskId) => {
+    const group = projectGroups.groups.find((group) => group.id === groupId);
+    if (!group) throw Error('Project is unavailable.');
+    return taskExecutions.history({ groupId, taskId, hostId: group.hostId });
   });
   function startAgentTask(
     cwd: string,
@@ -975,7 +1107,13 @@ app.whenReady().then(async () => {
   const agentStarts = new AgentStarts(join(dataRoot, 'operations', 'agent-start'), (id) =>
     chatRunner.status(id),
   );
-  handle('chat-create', async (projectId, agent, prompt, allowEdits, options?: ChatOptions) => {
+  async function createChat(
+    projectId: string,
+    agent: Agent,
+    prompt: string,
+    allowEdits: boolean,
+    options?: ChatOptions,
+  ) {
     if (!isAgent(agent)) throw new Error('Invalid agent');
     const p = project(projectId);
     if (p.hostId) throw new Error('Use the remote session connection for this repository.');
@@ -993,6 +1131,7 @@ app.whenReady().then(async () => {
               agent,
               cwd: p.path,
               title: 'New session',
+              organization: options?.taskId ? { taskId: options.taskId } : undefined,
               updatedAt: new Date().toISOString(),
             },
             await projectPrompt(p.path, prompt, options),
@@ -1004,7 +1143,8 @@ app.whenReady().then(async () => {
           ),
       ),
     );
-  });
+  }
+  handle('chat-create', createChat);
   handle('chat-start', async (agent, id, prompt, allowEdits, options?: ChatOptions) => {
     const { session } = await sessionSource(agent, id);
     if (!(await stat(session.cwd)).isDirectory())
@@ -1541,6 +1681,197 @@ app.whenReady().then(async () => {
     ),
   );
   handle('task-worktree', createWorktree);
+  const projectServices = new ProjectServices(
+    join(dataRoot, 'operations', 'project-services'),
+    async (groupId) => {
+      const group = projectGroups.groups.find((group) => group.id === groupId);
+      if (!group) throw Error('Project is unavailable.');
+      const connection = trackerConnection(group);
+      if (!connection) throw Error('Connect this project to GitHub.');
+      const linked = trackers.linked(connection);
+      const board = await linked.provider.board(linked.project);
+      const { client, account } = await verdictan!.setup.inspect();
+      return {
+        client,
+        accountKey: identityKey(account.apiUrl, account.organizationId!, account.userId!),
+        organizationId: account.organizationId!,
+        actorId: account.userId!,
+        projectId: board.project.id,
+      };
+    },
+  );
+  handle('project-services-status', (id) => projectServices.status(id));
+  handle('project-services-request', (id, request) => {
+    if (request?.operation === 'context.publish')
+      throw Error('Select a project document to publish verified source content.');
+    if (
+      request?.operation === 'admin.template.apply' &&
+      (chatRunner.runningCount() > 0 || remote.list().some((host) => host.status === 'connected'))
+    )
+      throw Error(
+        'Stop active local work and disconnect remote hosts before applying an installation template.',
+      );
+    return projectServices.request(id, request);
+  });
+  handle(
+    'project-publish-doc',
+    async (groupId, docId, docRevision, operationId, expectedRevision) => {
+      const group = projectGroups.groups.find((group) => group.id === groupId);
+      if (!group) throw Error('Project is unavailable.');
+      const doc = group.hostId
+        ? await remote.call(group.hostId, 'project-docs', [
+            groupId,
+            await projectRoot(groupId),
+            'read',
+            [docId],
+          ])
+        : await docs.get(groupId, docId);
+      if (doc.revision !== docRevision)
+        throw Error('Document changed. Review the current page before publishing.');
+      return projectServices.request(groupId, {
+        operation: 'context.publish',
+        fields: {
+          operation_id: operationId,
+          expected_revision: expectedRevision,
+          source: { kind: 'project-doc', id: doc.id, revision: doc.revision, title: doc.title },
+          content: doc.markdown,
+        },
+      });
+    },
+  );
+  const dispatch = new ParallelDispatch(join(dataRoot, 'operations', 'parallel-dispatch'), {
+    identity: async () => {
+      if (changingAccount) throw Error('Account is changing.');
+      return (await verdictan!.setup.inspect()).key;
+    },
+    inspect: async (request, task) => {
+      const group = projectGroups.groups.find((g) => g.id === request.groupId);
+      if (!group || !group.repoIds.includes(task.repositoryId))
+        throw Error('Select a repository in this project.');
+      const repo = project(task.repositoryId);
+      if (repo.hostId !== group.hostId) throw Error('Repository host differs from the project.');
+      const scan = repo.hostId
+        ? await remote.call(repo.hostId, 'snapshot', [])
+        : await history(codexRoot, claudeRoot);
+      const sessions = sessionLibrary.decorate(
+        scan.sessions.map((session: Session) =>
+          repo.hostId
+            ? { ...session, id: `${repo.hostId}::${session.id}`, hostId: repo.hostId }
+            : session,
+        ),
+      );
+      if (
+        sessions.some(
+          (session: Session) =>
+            session.organization?.taskId === task.taskId && !session.organization?.archived,
+        )
+      )
+        throw Error(
+          'This task already has a linked session. Review or archive that session before dispatch.',
+        );
+      const connection = trackerConnection(group);
+      if (!connection) throw Error('Connect this project to GitHub.');
+      const { provider, project: reference } = trackers.linked(connection);
+      const board = await provider.board(reference, true);
+      const item = board.items.find((i) => i.id === task.taskId);
+      if (
+        !item ||
+        item.kind !== 'Issue' ||
+        !item.body.trim() ||
+        !item.repository ||
+        !provider.content ||
+        !provider.relations
+      )
+        throw Error('Task requires an accessible issue, repository, and description.');
+      const content = await provider.content(reference, task.taskId);
+      const relations = await provider.relations(reference, task.taskId);
+      if (content.state !== 'OPEN' || relations.blockedBy.some((i) => i.state !== 'CLOSED'))
+        throw Error('Resolve task blockers before dispatch.');
+      const remotes = repo.hostId
+        ? await remote.call(repo.hostId, 'git-remote-url', [repo.path])
+        : await git(repo.path, ['remote', 'get-url', 'origin']);
+      const repository = String(remotes)
+        .trim()
+        .replace(/^git@github.com:/, '')
+        .replace(/^https:\/\/github.com\//, '')
+        .replace(/\.git$/, '');
+      if (repository.toLowerCase() !== item.repository.toLowerCase())
+        throw Error('Repository origin does not match the task.');
+      const prompt = `Implement GitHub task: ${item.title}\n\n${item.body}\n\nVerify the changes. Do not publish or merge without a separate request.`;
+      return {
+        title: item.title,
+        prompt,
+        revision: createHash('sha256')
+          .update(
+            JSON.stringify([item.id, item.title, item.body, item.repository, relations.revision]),
+          )
+          .digest('hex'),
+      };
+    },
+    checkout: async (id, branch, operation) => (await createWorktree(id, branch, operation)).id,
+    launch: async (request, row) => {
+      const repo = project(row.checkoutId!);
+      const options = { operationId: row.operationId, taskId: row.taskId };
+      const run = repo.hostId
+        ? await remoteHostCall(repo.hostId, 'chatCreate', [
+            repo.path,
+            request.agent,
+            row.prompt,
+            true,
+            options,
+          ])
+        : await createChat(repo.id, request.agent, row.prompt, true, options);
+      const id = repo.hostId ? `${repo.hostId}::${run.sessionId}` : run.sessionId;
+      await sessionLibrary
+        .update(request.agent, id, { taskId: row.taskId, title: row.title })
+        .catch(() => {});
+      return run;
+    },
+    reconcile: async (_request, row) => {
+      if (!row.checkoutId) return { canRelease: true };
+      const repo = project(row.checkoutId);
+      if (repo.hostId)
+        return remote.call(repo.hostId, 'dispatch-recover', [repo.path, row.operationId]);
+      const run = await agentStarts.inspect(row.operationId);
+      let canRelease = false;
+      if (run?.status !== 'running')
+        await chatRunner.withCheckoutIdle(repo.path, async () => {
+          canRelease = true;
+        });
+      return { run, canRelease };
+    },
+    status: (request, row) => {
+      const repo = project(row.checkoutId!);
+      return repo.hostId
+        ? remoteHostCall(repo.hostId, 'chatStatus', [row.runId])
+        : taskExecutions.observe(chatRunner.status(row.runId!));
+    },
+    stop: async (request, row) => {
+      const repo = project(row.checkoutId!);
+      return repo.hostId
+        ? remoteHostCall(repo.hostId, 'chatStop', [row.runId])
+        : chatRunner.stop(row.runId!);
+    },
+  });
+  handle('dispatch-reconcile', (id, taskId, release) => dispatch.reconcile(id, taskId, release));
+  stopDispatch = () => {
+    dispatch.suspend();
+    taskExecutions.suspend();
+  };
+  restoreDispatch = () => {
+    void dispatch.restore().catch(() => {});
+    void taskExecutions.restore().catch(() => {});
+  };
+  restoreDispatch();
+  handle('dispatch-prepare', (request) => dispatch.prepare(request));
+  handle('dispatch-start', (id) => dispatch.start(id));
+  handle('dispatch-status', (id) => dispatch.status(id));
+  handle('dispatch-cancel', (id) => dispatch.cancel(id));
+  app.on('before-quit', () => {
+    dispatch.close();
+    taskExecutions.suspend();
+  });
+
   // The window chrome follows the light or dark appearance of the system.
   // The title bar overlay (chrome) uses --navigation from src/styles/theme.css.
   function windowColors() {
@@ -1568,6 +1899,7 @@ app.whenReady().then(async () => {
         (w) => w.webContents === event.sender && event.senderFrame === w.webContents.mainFrame,
       );
       if (!owner) throw new Error('Untrusted caller');
+
       if (
         typeof input?.title !== 'string' ||
         typeof input.body !== 'string' ||

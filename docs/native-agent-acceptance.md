@@ -67,3 +67,56 @@ owner after restart, and the real desktop protocol capability probe passed on
 macOS ARM64 and Linux x64. Downloads used the bundled SHA-256 approvals and were
 installed in disposable roots. This establishes runtime installation, not a
 packaged Kalkidan desktop upgrade or live account/gateway acceptance.
+
+## Checks added on 2026-10-21
+
+The production runtime installer now accepts the optional
+`KALKIDAN_REDISTRIBUTION.md` notice in the approved v0.4.1 archive. It still rejects
+unknown files, links, duplicate entries, and invalid paths. The macOS ARM64
+v0.4.1 clean install, restart, and real capability probe passed. Linux retains
+its separately reviewed v0.3.0 approval. The v0.4.1 manifest currently approves
+only macOS ARM64. Do not copy its pin to another target.
+
+`tests/acceptance/desktop-install-upgrade.mjs` verified published DMGs. It installed
+`0.1.0-build.1792500577.fb5e5565bbf6`, created a project and Markdown page, replaced
+the app with `0.1.0-build.1792540587.4a1a9a9696ec`, and reopened it. Project color,
+page title, and Markdown content survived. A second restart passed. The harness
+uses a temporary Applications folder and home directory. It checks the published
+checksums before mounting each image. It does not change the user's installed app.
+
+```sh
+node tests/acceptance/desktop-install-upgrade.mjs /path/to/old.dmg /path/to/new.dmg
+```
+
+Place each release's `SHA256SUMS.txt` beside its installer. The same published
+versions passed on Linux x64 (DEB in a disposable container) and Jenkins
+`windows-vm` (NSIS in a temporary installation with an isolated profile). Both
+preserved project settings and Markdown through the upgrade and restart.
+Windows uninstall and cleanup passed. These checks do not test unreleased changes
+in the current working tree.
+
+The EU `kalkidan-eu` broker profile was authenticated on 2026-10-21. The deployed
+API exposed one team, three policies, and no provider connections. The console
+also reported no configured secrets. Live local/SSH agent acceptance remains
+open. Subscription access is advertised upstream, but Kalkidan's native adapter
+currently supports provider connections only. Native fixture results must not
+be reported as live provider acceptance.
+
+The live setup check found typed policy IDs (`cfg_` and `cfgv_`). Kalkidan now
+accepts these IDs and legacy UUIDs, while preserving exact selection matching.
+
+## Subscription readiness on 2026-10-21
+
+The user selected Claude Code CLI subscription access. The local CLI reports a
+Claude Max login. The Linux SSH host reports a first-party OAuth login. These
+status checks do not prove model execution or managed gateway acceptance.
+
+The released Verdictan 0.4.1 capability probe advertises Codex subscription
+access, but no Claude subscription mode. The checked broker source also lacks
+that mode. The requested contract is in
+`verdictan-project-services-contract.md`, under Claude Code subscription handoff.
+Do not replace the selected subscription with API billing.
+
+The new managed Codex acceptance harness reached runtime provisioning with one
+EU policy. Gateway supervision then reported `desktop.gateway_unavailable`
+before a native model request. Local and SSH live acceptance remain open.

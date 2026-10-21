@@ -6,7 +6,7 @@ import { extract } from 'tar';
 import { openPromise } from 'yauzl';
 import type { RuntimeArtifact } from './release';
 
-/** Extract only the three files emitted by the platform packaging contract. */
+/** Extract only executables and notices from the platform packaging contract. */
 export async function extractRuntime(
   archive: string,
   destination: string,
@@ -15,11 +15,12 @@ export async function extractRuntime(
   const executable = artifact.os === 'win32' ? 'verdictan.exe' : 'verdictan';
   const updater = artifact.os === 'win32' ? 'verdictan-update.exe' : 'verdictan-update';
   const files = new Set([executable, updater, 'THIRD_PARTY_NOTICES.md']);
+  const optional = new Set(['KALKIDAN_REDISTRIBUTION.md']);
   const seen = new Set<string>();
   let total = 0;
   function check(name: string, size: number) {
     if (
-      !files.has(name) ||
+      (!files.has(name) && !optional.has(name)) ||
       seen.has(name) ||
       !Number.isSafeInteger(size) ||
       size < 1 ||
@@ -79,11 +80,12 @@ export async function extractRuntime(
     });
     if (rejected) throw rejected;
   }
-  if (seen.size !== files.size) throw new Error('The runtime archive is incomplete.');
-  for (const name of files) {
+  if ([...files].some((name) => !seen.has(name)))
+    throw new Error('The runtime archive is incomplete.');
+  for (const name of seen) {
     if (!(await lstat(join(destination, name))).isFile())
       throw new Error('The extracted runtime contains a non-file entry.');
-    await chmod(join(destination, name), name === 'THIRD_PARTY_NOTICES.md' ? 0o600 : 0o700);
+    await chmod(join(destination, name), name.endsWith('.md') ? 0o600 : 0o700);
   }
   return join(destination, executable);
 }

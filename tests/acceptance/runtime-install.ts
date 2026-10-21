@@ -12,6 +12,8 @@ import { hostSystemVersion } from '../../electron/verdictan/system-version';
 import { DesktopProtocol } from '../../electron/verdictan/protocol';
 import { parseCapabilities } from '../../electron/verdictan/account';
 async function main() {
+  const approved = runtimePolicyForHost(policy as RuntimePolicy, process.platform, process.arch);
+  const expectedVersion = approved.pin.version;
   const root = await mkdtemp(join(tmpdir(), 'kalkidan-native-install-'));
   try {
     const options = {
@@ -47,19 +49,23 @@ async function main() {
     };
     const installer = new RuntimeInstaller(options);
     await installer.install();
-    assert.equal(installer.status().operation?.phase, 'completed');
-    assert.equal(installer.status().installed?.version, '0.3.0');
+    assert.equal(
+      installer.status().operation?.phase,
+      'completed',
+      JSON.stringify(installer.status()),
+    );
+    assert.equal(installer.status().installed?.version, expectedVersion);
     const restart = new RuntimeInstaller(options);
     await restart.check(true);
     assert.equal(restart.status().installed?.sha256, installer.status().installed?.sha256);
     const executable = await restart.executable();
     assert.ok(executable);
-    await options.probe(executable, '0.3.0');
+    await options.probe(executable, expectedVersion);
     console.log(
       JSON.stringify({
         platform: process.platform,
         arch: process.arch,
-        version: '0.3.0',
+        version: expectedVersion,
         source: 'public-release',
         cleanInstall: 'passed',
         restart: 'passed',
@@ -70,7 +76,10 @@ async function main() {
     await rm(root, { recursive: true, force: true });
   }
 }
-void main().catch(() => {
-  console.error('Native runtime installation acceptance failed.');
+void main().catch((error) => {
+  console.error(
+    'Native runtime installation acceptance failed:',
+    error instanceof Error ? error.message : 'Unknown error',
+  );
   process.exitCode = 1;
 });

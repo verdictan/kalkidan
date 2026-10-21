@@ -9,6 +9,7 @@ import { Choice } from './choice';
 
 export function VerdictanSettings({ api, open }: { api: API; open: boolean }) {
   const [status, setStatus] = useState<VerdictanStatus>();
+  const [pendingRegion, setPendingRegion] = useState<'global' | 'eu'>();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const active = useRef(false);
@@ -61,6 +62,44 @@ export function VerdictanSettings({ api, open }: { api: API; open: boolean }) {
           {status?.phase.replaceAll('-', ' ') || 'Checking…'}
         </span>
       </div>
+      <label className="form-label">
+        Account region
+        <select
+          aria-label="Verdictan region"
+          className="h-9 rounded-md border bg-background px-3"
+          disabled={busy || status?.phase === 'authorizing'}
+          value={pendingRegion || status?.region || 'global'}
+          onChange={(event) => setPendingRegion(event.target.value as 'global' | 'eu')}
+        >
+          <option value="global">Global</option>
+          <option value="eu">European Union</option>
+        </select>
+      </label>
+      {pendingRegion && pendingRegion !== (status?.region || 'global') && (
+        <div className="grid gap-2" role="group" aria-label="Confirm region change">
+          <p className="help-text">
+            Switching regions stops active agents and disconnects SSH hosts. Each region keeps a
+            separate sign-in. The app stays open.
+          </p>
+          <div className="flex gap-2">
+            <Button
+              disabled={busy}
+              onClick={() =>
+                void run(async () => {
+                  const result = await api.verdictanSetRegion(pendingRegion);
+                  setPendingRegion(undefined);
+                  return result;
+                })
+              }
+            >
+              Stop work and switch region
+            </Button>
+            <Button variant="outline" disabled={busy} onClick={() => setPendingRegion(undefined)}>
+              Cancel
+            </Button>
+          </div>
+        </div>
+      )}
       {account?.organizationId && (
         <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-xs">
           <dt>Organization</dt>
@@ -87,7 +126,12 @@ export function VerdictanSettings({ api, open }: { api: API; open: boolean }) {
           Your account is connected. Gateway setup and agent compatibility still need verification.
         </p>
       )}
-      {status?.phase === 'authenticated' && <VerdictanSetupForm api={api} />}
+      {status?.phase === 'authenticated' && (
+        <VerdictanSetupForm
+          key={`${status.region}:${account?.organizationId}:${account?.userId}`}
+          api={api}
+        />
+      )}
       {status?.remoteRevocationPending && (
         <p role="alert" className="field-error">
           Local sign-out finished. Remote access revocation could not be confirmed.

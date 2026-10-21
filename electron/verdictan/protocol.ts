@@ -1,3 +1,5 @@
+import { projectServicePermissions } from '../../src/domain/project-services';
+import type { ProjectServiceOperation } from '../../src/domain/project-services';
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { isAbsolute } from 'node:path';
@@ -6,6 +8,8 @@ import type { Readable } from 'node:stream';
 import { parseRuntimeCredentials, type RuntimeCredentials } from './credentials';
 
 export type DesktopOperation =
+  | ProjectServiceOperation
+  | 'project.permissions'
   | 'capabilities'
   | 'status'
   | 'authorization.start'
@@ -23,6 +27,7 @@ export type DesktopOperation =
   | 'resources.provision'
   | 'review.inspect';
 export interface RuntimeProvision {
+  project_id?: string;
   installation_id: string;
   host_id: string;
   session_id: string;
@@ -30,9 +35,12 @@ export interface RuntimeProvision {
   gateway_id: string;
   provider: string;
   model: string;
-  provider_connection_id: string;
+  provider_connection_id?: string;
+  provider_access_mode?: 'byok' | 'codex_subscription';
 }
 export interface DesktopParameters {
+  project_scope?: { organization_id: string; project_id: string };
+  fields?: Record<string, unknown>;
   intent?: 'login' | 'register';
   parameters?:
     | RuntimeProvision
@@ -40,6 +48,7 @@ export interface DesktopParameters {
         installation_id: string;
         host_id: string;
         team_id: string;
+        project_id?: string;
         configuration_id: string;
         configuration_version_id: string;
       };
@@ -58,6 +67,20 @@ export interface DesktopEvent {
   data: Record<string, unknown>;
 }
 const terminalEvents: Record<DesktopOperation, string[]> = {
+  'project.permissions': ['project.permissions_result'],
+  'task.history': ['task.history_result'],
+  'review.list': ['review.list_result'],
+  'review.decide': ['review.decide_result'],
+  'context.settings': ['context.settings_result'],
+  'context.configure': ['context.configure_result'],
+  'context.search': ['context.search_result'],
+  'context.list': ['context.list_result'],
+  'context.publish': ['context.publish_result'],
+  'context.delete': ['context.delete_result'],
+  'admin.templates': ['admin.templates_result'],
+  'admin.template.save': ['admin.template.save_result'],
+  'admin.template.apply': ['admin.template.apply_result'],
+  'operation.inspect': ['operation.inspect_result'],
   capabilities: ['capabilities'],
   status: ['account.status'],
   'authorization.start': ['authorization.completed', 'authorization.canceled'],
@@ -155,6 +178,22 @@ export class DesktopProtocol {
       return Promise.reject(new DesktopProtocolError('desktop.operation_unsupported'));
     if (this.pending.size >= 8 || this.requests >= 4000)
       return Promise.reject(new DesktopProtocolError('desktop.connection_limit'));
+    if (
+      parameters.fields &&
+      (!Object.hasOwn(projectServicePermissions, operation) ||
+        Object.keys(parameters.fields).some((key) =>
+          [
+            'schema_version',
+            'correlation_id',
+            'operation',
+            'project_scope',
+            'parameters',
+            'fields',
+          ].includes(key),
+        ))
+    )
+      return Promise.reject(new DesktopProtocolError('desktop.invalid_request'));
+    const { fields, ...envelope } = parameters;
     const id = randomUUID();
     this.requests++;
     if (operation === 'runtime.export' && this.secret) this.secret.correlationId = id;
@@ -167,7 +206,8 @@ export class DesktopProtocol {
       this.pending.set(id, { operation, resolve, reject, progress, timer });
       try {
         const request = {
-          ...parameters,
+          ...envelope,
+          ...fields,
           schema_version: 1,
           correlation_id: id,
           operation,

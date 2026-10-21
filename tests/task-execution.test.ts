@@ -100,3 +100,63 @@ test('external status and workflow changes do not overwrite GitHub or fail the a
     await rm(root, { recursive: true, force: true });
   }
 });
+
+test('task usage retains settlement changes across restart and scopes history to the account', async (t) => {
+  const root = await mkdtemp(join(tmpdir(), 'task-usage-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  let identity = 'account-a';
+  const effects = {
+    identity: async () => identity,
+    inspect: async () => ({
+      projectId: 'P',
+      fieldId: 'F',
+      sourceStatus: 'doing',
+      targetStatus: 'doing',
+    }),
+    write: async () => {},
+  };
+  const service = new TaskExecutions(root, effects);
+  const run: ChatRun = {
+    id: 'run',
+    agent: 'codex',
+    sessionId: 'session',
+    status: 'completed',
+    sessionReady: true,
+    messages: [],
+    activity: '',
+    governance: {
+      status: 'reconciling',
+      requests: [
+        {
+          id: 'request',
+          policy: 'allow',
+          usage: null,
+          audit: null,
+          actualCost: null,
+          currency: null,
+          tokens: null,
+        },
+      ],
+    },
+  };
+  const scope = { groupId: 'G', taskId: 'I' };
+  await service.start('op', scope, async () => run);
+  await service.observe(run);
+  run.governance!.status = 'current';
+  run.governance!.finalized = true;
+  run.governance!.requests[0].actualCost = '0.12';
+  await service.observe(run);
+  await service.observe(run);
+  const restart = new TaskExecutions(root, effects);
+  const history = await restart.history(scope);
+  assert.equal(history.length, 1);
+  assert.equal(history[0].evidence.length, 2);
+  assert.equal(history[0].evidence[0].value.requests[0].actualCost, null);
+  assert.equal(history[0].evidence[1].value.requests[0].actualCost, '0.12');
+  identity = 'account-b';
+  assert.deepEqual(await restart.history(scope), []);
+  await assert.rejects(
+    restart.start('op', scope, async () => run),
+    /another account/,
+  );
+});

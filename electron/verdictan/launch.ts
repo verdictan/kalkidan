@@ -1,3 +1,4 @@
+import { prepareSubscriptionAuth } from './subscription-auth';
 import { RuntimeEvidence } from './evidence';
 import { inferenceGuard, guardedRoute } from './inference-guard';
 import { realpath } from 'node:fs/promises';
@@ -44,6 +45,9 @@ export class VerdictanLaunchService {
       installation_id: identity.installationId,
       host_id: identity.hostId,
       team_id: selection.teamId,
+      ...(request.session.governanceScope?.projectId
+        ? { project_id: request.session.governanceScope.projectId }
+        : {}),
       configuration_id: selection.configurationId,
       configuration_version_id: selection.configurationVersionId,
     };
@@ -64,10 +68,19 @@ export class VerdictanLaunchService {
       throw new DesktopProtocolError('desktop.resume_binding_required');
     const binding: ConversationBinding = {
       schema_version: 1,
+      ...(request.session.governanceScope?.projectId || previous?.project_id
+        ? { project_id: request.session.governanceScope?.projectId || previous!.project_id }
+        : {}),
+      ...(request.session.governanceScope?.taskId || previous?.task_id
+        ? { task_id: request.session.governanceScope?.taskId || previous!.task_id }
+        : {}),
       organization_id: account.organizationId!,
       user_id: account.userId!,
       region_id: resources.region_id,
       provider_connection_id: selection.providerConnectionId,
+      ...(selection.providerAccessMode === 'codex_subscription'
+        ? { provider_access_mode: selection.providerAccessMode }
+        : {}),
       installation_id: identity.installationId,
       host_id: identity.hostId,
       conversation_id: !request.create && previous ? previous.conversation_id : randomUUID(),
@@ -108,9 +121,12 @@ export class VerdictanLaunchService {
           session_id: sessionId,
           agent_id: resources.agent_id,
           gateway_id: resources.gateway_id,
+          ...(binding.project_id ? { project_id: binding.project_id } : {}),
           provider: binding.provider,
           model: binding.model,
-          provider_connection_id: binding.provider_connection_id,
+          ...(binding.provider_access_mode === 'codex_subscription'
+            ? { provider_access_mode: binding.provider_access_mode }
+            : { provider_connection_id: binding.provider_connection_id }),
         },
         agent,
         request.stop,
@@ -118,20 +134,17 @@ export class VerdictanLaunchService {
       started = true;
       request.signal.throwIfAborted();
       const endpoint = this.runtimes.endpoint(sessionId);
-      guard = await inferenceGuard(endpoint);
-      isolation = await this.isolationPolicy.prepare(
-        request,
-        await this.store.home(binding),
-        guard.address,
-      );
+      guard = await inferenceGuard(endpoint, binding.provider_access_mode === 'codex_subscription');
+      const home = await this.store.home(binding);
+      if (binding.provider_access_mode === 'codex_subscription')
+        await prepareSubscriptionAuth(home);
+      isolation = await this.isolationPolicy.prepare(request, home, guard.address);
       if (isolation.version !== agent.version)
         throw new DesktopProtocolError('desktop.agent_version_unsupported');
       const route = guardedRoute(
         await this.runtimes.route(sessionId, {
-          projectId: identityKey(binding.cwd),
-          taskId: request.session.organization?.taskId
-            ? identityKey(request.session.organization.taskId)
-            : 'conversation',
+          projectId: binding.project_id || identityKey(binding.cwd),
+          taskId: binding.task_id || 'conversation',
           conversationId: binding.conversation_id,
           turnId: request.runId,
         }),

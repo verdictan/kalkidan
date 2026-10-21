@@ -2,6 +2,22 @@ import { contextBridge, ipcRenderer } from 'electron';
 import type { API, MenuCommand } from '../src/types';
 import { menuCommands } from '../src/api/contracts';
 const api: API = {
+  verdictanSetRegion: (region) => ipcRenderer.invoke('verdictan-set-region', region),
+  onVerdictanChanged: (listener) => {
+    const notify = () => listener();
+    ipcRenderer.on('verdictan-changed', notify);
+    return () => ipcRenderer.removeListener('verdictan-changed', notify);
+  },
+  dispatchReconcile: (...args) => ipcRenderer.invoke('dispatch-reconcile', ...args),
+  dispatchPrepare: (request) => ipcRenderer.invoke('dispatch-prepare', request),
+  dispatchStart: (id) => ipcRenderer.invoke('dispatch-start', id),
+  dispatchStatus: (id) => ipcRenderer.invoke('dispatch-status', id),
+  dispatchCancel: (id) => ipcRenderer.invoke('dispatch-cancel', id),
+  taskUsageHistory: (groupId, taskId) => ipcRenderer.invoke('task-usage-history', groupId, taskId),
+  projectPublishDoc: (...args) => ipcRenderer.invoke('project-publish-doc', ...args),
+  projectServicesStatus: (id) => ipcRenderer.invoke('project-services-status', id),
+  projectServicesRequest: (id, request) =>
+    ipcRenderer.invoke('project-services-request', id, request),
   verdictanSetup: () => ipcRenderer.invoke('verdictan-setup'),
   verdictanSelect: (agent, selection) => ipcRenderer.invoke('verdictan-select', agent, selection),
   verdictanStatus: () => ipcRenderer.invoke('verdictan-status'),

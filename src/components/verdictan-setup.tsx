@@ -116,24 +116,64 @@ export function VerdictanSetupForm({ api }: { api: API }) {
               ))}
             </select>
           </label>
-          <label className="form-label">
-            Provider connection
-            <select
-              className={selectClass}
-              value={selection.providerConnectionId}
-              disabled={busy}
-              onChange={(e) => setSelection({ ...selection, providerConnectionId: e.target.value })}
-            >
-              <option value="">Choose an authorized connection</option>
-              {setup.providerConnections
-                .filter((p) => p.provider === (agent === 'codex' ? 'openai' : 'anthropic'))
-                .map((p) => (
-                  <option key={p.provider_connection_id} value={p.provider_connection_id}>
-                    {p.provider} · {p.provider_connection_id}
-                  </option>
-                ))}
-            </select>
-          </label>
+          {agent === 'codex' && setup.providerAccessModes?.includes('codex_subscription') && (
+            <label className="form-label">
+              Provider access
+              <select
+                aria-label="Provider access"
+                className={selectClass}
+                disabled={busy}
+                value={selection.providerAccessMode || 'byok'}
+                onChange={(event) =>
+                  setSelection({
+                    ...selection,
+                    providerAccessMode: event.target.value as 'byok' | 'codex_subscription',
+                    providerConnectionId: '',
+                  })
+                }
+              >
+                <option value="byok">Organization provider connection</option>
+                <option value="codex_subscription">
+                  Codex subscription on the selected machine
+                </option>
+              </select>
+            </label>
+          )}
+          {selection.providerAccessMode === 'codex_subscription' ? (
+            <p className="help-text">
+              Uses the Codex subscription already signed in on the machine where work runs. Sign in
+              separately on each SSH host. Refresh tokens are never sent to another host. Verdictan
+              policy still applies.
+            </p>
+          ) : (
+            <label className="form-label">
+              Provider connection
+              <select
+                className={selectClass}
+                value={selection.providerConnectionId}
+                disabled={busy}
+                onChange={(e) =>
+                  setSelection({ ...selection, providerConnectionId: e.target.value })
+                }
+              >
+                <option value="">Choose an authorized connection</option>
+                {setup.providerConnections
+                  .filter((p) => p.provider === (agent === 'codex' ? 'openai' : 'anthropic'))
+                  .map((p) => (
+                    <option key={p.provider_connection_id} value={p.provider_connection_id}>
+                      {p.provider} · {p.provider_connection_id}
+                    </option>
+                  ))}
+              </select>
+            </label>
+          )}
+          {agent === 'claude' && (
+            <p role="note" className="help-text">
+              Claude Code subscription access is not supported by the current Verdictan runtime. A
+              Claude login does not authorize an organization provider connection. Subscription
+              support must be added to the managed runtime before Kalkidan can use that login.
+            </p>
+          )}
           <label className="form-label">
             Model
             <Input
@@ -152,7 +192,8 @@ export function VerdictanSetupForm({ api }: { api: API }) {
               busy ||
               !selection.teamId ||
               !selection.configurationVersionId ||
-              !selection.providerConnectionId ||
+              (selection.providerAccessMode !== 'codex_subscription' &&
+                !selection.providerConnectionId) ||
               !selection.model
             }
             onClick={() => void save()}

@@ -11,6 +11,25 @@ export class AgentStarts {
     private root: string,
     private status: (id: string) => ChatRun,
   ) {}
+  async inspect(id: string) {
+    if (!/^[a-f0-9-]{36}$/.test(id)) throw Error('Invalid agent operation ID.');
+    const file = join(this.root, `${id}.json`);
+    let saved: { runId?: string };
+    try {
+      const raw = await readFile(file, 'utf8');
+      if (raw.length > 2048) throw Error('Invalid agent receipt.');
+      saved = JSON.parse(raw);
+    } catch (error: any) {
+      if (error.code === 'ENOENT') return undefined;
+      throw error;
+    }
+    if (!saved.runId) return undefined;
+    try {
+      return this.status(saved.runId);
+    } catch {
+      return undefined;
+    }
+  }
   run(
     operationId: string | undefined,
     identity: unknown,

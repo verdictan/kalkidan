@@ -1,3 +1,5 @@
+import type { ProjectServicesAPI } from '../domain/project-services';
+import type { ParallelDispatchAPI } from '../domain/parallel-dispatch';
 import type { GitHubContentAPI } from '../domain/github-content';
 import type { GitHubRelationsAPI } from '../domain/github-relations';
 import type { PublishAPI } from '../domain/publish';
@@ -194,6 +196,10 @@ export interface GitHubAPI {
   githubAddIssue(groupId: string, url: string): Promise<void>;
 }
 export interface ProjectAPI {
+  taskUsageHistory(
+    groupId: string,
+    taskId: string,
+  ): Promise<import('../domain/conversation').TaskUsageHistory[]>;
   historyPreview(): Promise<HistoryImportPreview>;
   historyImport(request: HistoryImportRequest): Promise<HistoryImportResult>;
   cloneRepository(name: string, groupId?: string): Promise<boolean>;
@@ -345,6 +351,8 @@ export interface MemoryAPI {
 }
 export interface API
   extends
+    ProjectServicesAPI,
+    ParallelDispatchAPI,
     PublishAPI,
     VerdictanAPI,
     UpdatesAPI,

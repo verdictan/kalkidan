@@ -1,8 +1,9 @@
 import type { VerdictanSelection, VerdictanSetup } from '../../src/domain/verdictan';
-import { parseAccount } from './account';
+import { parseAccount, parseCapabilities } from './account';
 import { DesktopProtocolError, type DesktopClient } from './protocol';
 import { BindingStore, identityKey } from './bindings';
 import { uuid } from './credentials';
+import { policyId } from './policy-id';
 
 export class VerdictanSetupService {
   constructor(
@@ -28,14 +29,28 @@ export class VerdictanSetupService {
     )
       throw new DesktopProtocolError('desktop.setup_invalid');
     const key = identityKey(account.apiUrl, account.organizationId!, account.userId!);
+    const capabilities =
+      Array.isArray(data.provider_access_modes) &&
+      data.provider_access_modes.includes('codex_subscription')
+        ? parseCapabilities((await client.request('capabilities')).data).capabilities
+        : [];
     const setup: VerdictanSetup = {
+      providerAccessModes: [
+        'byok',
+        ...(capabilities.includes('provider_access.codex_subscription')
+          ? ['codex_subscription' as const]
+          : []),
+      ],
       status: typeof data.status === 'string' ? data.status : 'unavailable',
       teams: data.teams.map((t) => {
         if (!uuid(t.team_id)) throw new DesktopProtocolError('desktop.setup_invalid');
         return { team_id: t.team_id };
       }),
       policies: data.policies.map((p) => {
-        if (!uuid(p.configuration_id) || !uuid(p.configuration_version_id))
+        if (
+          !policyId(p.configuration_id, 'configuration') ||
+          !policyId(p.configuration_version_id, 'version')
+        )
           throw new DesktopProtocolError('desktop.setup_invalid');
         return {
           configuration_id: p.configuration_id,
@@ -68,11 +83,16 @@ export class VerdictanSetupService {
           p.configuration_id === value.configurationId &&
           p.configuration_version_id === value.configurationVersionId,
       ) ||
-      !setup.providerConnections.some(
-        (p) =>
-          p.provider_connection_id === value.providerConnectionId &&
-          p.provider === (agent === 'codex' ? 'openai' : 'anthropic'),
-      )
+      !['byok', 'codex_subscription'].includes(value.providerAccessMode || 'byok') ||
+      (value.providerAccessMode === 'codex_subscription'
+        ? agent !== 'codex' ||
+          !!value.providerConnectionId ||
+          !setup.providerAccessModes?.includes('codex_subscription')
+        : !setup.providerConnections.some(
+            (p) =>
+              p.provider_connection_id === value.providerConnectionId &&
+              p.provider === (agent === 'codex' ? 'openai' : 'anthropic'),
+          ))
     )
       throw new DesktopProtocolError('desktop.setup_selection_required');
     return value;
@@ -85,6 +105,7 @@ export class VerdictanSetupService {
       configurationId: value.configurationId,
       configurationVersionId: value.configurationVersionId,
       providerConnectionId: value.providerConnectionId,
+      ...(value.providerAccessMode ? { providerAccessMode: value.providerAccessMode } : {}),
       model: value.model,
     });
     return this.status();

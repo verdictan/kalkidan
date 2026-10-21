@@ -66,6 +66,11 @@ test('Windows runtime extraction accepts only complete regular-file archives and
   const executable = await extract(valid);
   assert.equal(await readFile(executable, 'utf8'), 'runtime');
   if (process.platform !== 'win32') assert.equal((await stat(executable)).mode & 0o777, 0o700);
+  const withNotice = await extract([...valid, { name: 'KALKIDAN_REDISTRIBUTION.md' }]);
+  assert.equal(
+    await readFile(join(withNotice, '..', 'KALKIDAN_REDISTRIBUTION.md'), 'utf8'),
+    'runtime',
+  );
   for (const entries of [
     valid.slice(0, 1),
     [...valid, valid[0]],

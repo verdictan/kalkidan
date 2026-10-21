@@ -271,6 +271,24 @@ export class ManagedGateway {
         .map(([key, value]) => `${JSON.stringify(key)}=${JSON.stringify(value)}`)
         .join(',') +
       '}';
+    if (this.credentials.provider_access_mode === 'codex_subscription') {
+      if (agent.kind !== 'codex')
+        throw new DesktopProtocolError('desktop.subscription_agent_required');
+      return {
+        address: this.address!,
+        args: [
+          '-c',
+          'model_provider="verdictan_subscription"',
+          '-c',
+          'features.apps=false',
+          '-c',
+          `model_providers.verdictan_subscription={name="Verdictan subscription",base_url=${JSON.stringify(this.address + '/backend-api/codex')},wire_api="responses",requires_openai_auth=true,supports_websockets=false,request_max_retries=0,stream_max_retries=0,http_headers=${tomlHeaders},env_http_headers={"X-Gateway-Key"="KALKIDAN_INFERENCE_CREDENTIAL"}}`,
+        ],
+        env: {
+          KALKIDAN_INFERENCE_CREDENTIAL: this.credentials.inference_credential,
+        } as NodeJS.ProcessEnv,
+      };
+    }
     return {
       address: this.address!,
       args: [

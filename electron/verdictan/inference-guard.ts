@@ -8,7 +8,7 @@ import type { Socket } from 'node:net';
 import { DesktopProtocolError } from './protocol';
 
 /** A turn cannot retry a failed or uncertain inference through native fallback logic. */
-export async function inferenceGuard(address: string) {
+export async function inferenceGuard(address: string, subscription = false) {
   const upstream = new URL(address);
   if (
     upstream.protocol !== 'http:' ||
@@ -32,8 +32,13 @@ export async function inferenceGuard(address: string) {
       return;
     }
     if (
-      incoming.method !== 'POST' ||
-      !['/v1/responses', '/v1/messages'].includes(path || '') ||
+      !(subscription
+        ? (incoming.method === 'POST' &&
+            ['/backend-api/codex/responses', '/backend-api/codex/responses/compact'].includes(
+              path || '',
+            )) ||
+          (incoming.method === 'GET' && path === '/backend-api/codex/models')
+        : incoming.method === 'POST' && ['/v1/responses', '/v1/messages'].includes(path || '')) ||
       incoming.headers.upgrade
     ) {
       outgoing.writeHead(404);
@@ -57,7 +62,7 @@ export async function inferenceGuard(address: string) {
       delete headers[key];
     const request = httpRequest(
       new URL(incoming.url!, upstream),
-      { method: 'POST', headers },
+      { method: incoming.method, headers },
       (response) => {
         if ((response.statusCode || 502) >= 400) blocked = true;
         outgoing.writeHead(response.statusCode || 502, response.headers);

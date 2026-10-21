@@ -26,5 +26,19 @@
       "artifact_sha256": "d0096d47513d3168c705aa4b5551b9a8513e2234bd09d4448371b3dd0f1c0312",
       "revoked_versions": []
     }
+  },
+  "hostPolicies": {
+    "darwin-arm64": {
+      "manifest": "{\n  \"schema_version\": 1,\n  \"source_revision\": \"fd38122245cf5cc66ed6e4d5892bddc4fcb79883\",\n  \"version\": \"0.4.1\",\n  \"sequence\": 1792537758298,\n  \"issued_at\": 1792537758,\n  \"expires_at\": 1793142558,\n  \"minimum_desktop_version\": \"0.1.0\",\n  \"protocol\": {\n    \"min\": 1,\n    \"max\": 1\n  },\n  \"revoked_versions\": [\n    \"0.4.0\"\n  ],\n  \"artifacts\": [\n    {\n      \"target\": \"aarch64-apple-darwin\",\n      \"os\": \"darwin\",\n      \"arch\": \"arm64\",\n      \"redistribution_notice\": \"KALKIDAN_REDISTRIBUTION.md\",\n      \"executable_sha256\": \"fbcc21316533d0af0c55c90ae82d63d15d62cf85f6926173a1b5c3012de11278\",\n      \"url\": \"https://github.com/verdictan/packages/releases/download/v0.4.1/verdictan-aarch64-apple-darwin.tar.gz\",\n      \"sha256\": \"5f52a07fe9492ac2737ae217461fe6a7d96edc5bf16397d419f607af71e59335\",\n      \"size\": 89302883,\n      \"node_included\": true,\n      \"minimum_os_version\": \"26.7.1\",\n      \"required_runtime_dependencies\": [\n        \"macOS system libraries\",\n        \"system Keychain for account credentials\"\n      ]\n    }\n  ]\n}\n",
+      "pin": {
+        "schema_version": 1,
+        "version": "0.4.1",
+        "manifest_sha256": "69deeef112319b3f58207bbee7848e96371b8f2e0b1d9d43123d6a3853724378",
+        "artifact_url": "https://github.com/verdictan/packages/releases/download/v0.4.1/verdictan-aarch64-apple-darwin.tar.gz",
+        "artifact_sha256": "5f52a07fe9492ac2737ae217461fe6a7d96edc5bf16397d419f607af71e59335",
+        "revoked_versions": ["0.4.0"]
+      },
+      "downloadOrigins": ["https://github.com", "https://release-assets.githubusercontent.com"]
+    }
   }
 }

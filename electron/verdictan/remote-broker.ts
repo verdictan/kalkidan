@@ -64,6 +64,7 @@ export class RemoteAccountBroker {
             installation_id: identity.installationId,
             host_id: identity.hostId,
             team_id: p.team_id,
+            ...(p.project_id ? { project_id: p.project_id } : {}),
             configuration_id: p.configuration_id,
             configuration_version_id: p.configuration_version_id,
           },
@@ -72,7 +73,9 @@ export class RemoteAccountBroker {
         const allowed = this.resources.get(scope) || new Set<string>();
         if (allowed.size >= 100) throw new DesktopProtocolError('desktop.connection_limit');
         if (uuid(event.data.agent_id) && typeof event.data.gateway_id === 'string')
-          allowed.add(JSON.stringify([event.data.agent_id, event.data.gateway_id]));
+          allowed.add(
+            JSON.stringify([event.data.agent_id, event.data.gateway_id, p.project_id || null]),
+          );
         this.resources.set(scope, allowed);
         return event;
       }
@@ -88,8 +91,11 @@ export class RemoteAccountBroker {
           p.host_id !== identity.hostId ||
           !uuid(p.session_id) ||
           p.model !== selection.model ||
-          p.provider_connection_id !== selection.providerConnectionId ||
-          !this.resources.get(scope)?.has(JSON.stringify([p.agent_id, p.gateway_id])) ||
+          (p.provider_access_mode || 'byok') !== (selection.providerAccessMode || 'byok') ||
+          (p.provider_connection_id || '') !== selection.providerConnectionId ||
+          !this.resources
+            .get(scope)
+            ?.has(JSON.stringify([p.agent_id, p.gateway_id, p.project_id || null])) ||
           this.runtimes.size >= 1000
         )
           throw new DesktopProtocolError('desktop.broker_scope_mismatch');
@@ -102,8 +108,11 @@ export class RemoteAccountBroker {
             agent_id: p.agent_id,
             gateway_id: p.gateway_id,
             provider: p.provider,
+            ...(p.project_id ? { project_id: p.project_id } : {}),
             model: p.model,
-            provider_connection_id: p.provider_connection_id,
+            ...(p.provider_access_mode === 'codex_subscription'
+              ? { provider_access_mode: p.provider_access_mode }
+              : { provider_connection_id: p.provider_connection_id }),
           },
         });
         if (uuid(event.data.runtime_id)) {

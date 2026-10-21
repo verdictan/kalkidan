@@ -15,6 +15,7 @@ export interface VerdictanCapabilities {
   testedAgents: { kind: 'codex' | 'claude_code'; version: string }[];
 }
 export interface VerdictanStatus {
+  region?: 'global' | 'eu';
   phase:
     'missing' | 'checking' | 'signed-out' | 'authorizing' | 'authenticated' | 'expired' | 'error';
   account?: VerdictanAccount;
@@ -25,6 +26,8 @@ export interface VerdictanStatus {
   executionReady: boolean;
 }
 export interface VerdictanAPI {
+  verdictanSetRegion(region: 'global' | 'eu'): Promise<VerdictanStatus>;
+  onVerdictanChanged?(listener: () => void): () => void;
   verdictanSetup(): Promise<VerdictanSetup>;
   verdictanSelect(
     agent: 'codex' | 'claude',
@@ -39,6 +42,7 @@ export interface VerdictanAPI {
 }
 
 export interface VerdictanSelection {
+  providerAccessMode?: 'byok' | 'codex_subscription';
   teamId: string;
   configurationId: string;
   configurationVersionId: string;
@@ -46,6 +50,7 @@ export interface VerdictanSelection {
   model: string;
 }
 export interface VerdictanSetup {
+  providerAccessModes?: ('byok' | 'codex_subscription')[];
   status: string;
   teams: { team_id: string }[];
   policies: { configuration_id: string; configuration_version_id: string }[];

@@ -117,6 +117,19 @@ function persistDocs() {
   localStorage.setItem('kalkidan-demo-docs', JSON.stringify(demoDocs));
 }
 export const demo: API = {
+  taskUsageHistory: async () => [],
+  projectPublishDoc: async () => {
+    throw new Error('Knowledge publication requires the desktop app.');
+  },
+  projectServicesStatus: async () => ({
+    available: false,
+    operations: [],
+    permissions: [],
+    message: 'Project services require a compatible desktop runtime.',
+  }),
+  projectServicesRequest: async () => {
+    throw new Error('Project services require the desktop app.');
+  },
   verdictanSetup: async () => ({
     status: 'desktop_required',
     teams: [],
@@ -126,6 +139,9 @@ export const demo: API = {
   }),
   verdictanSelect: async () => {
     throw new Error('Open the desktop app to configure Verdictan.');
+  },
+  verdictanSetRegion: async () => {
+    throw Error('Region selection requires the desktop app.');
   },
   verdictanStatus: async () => ({ phase: 'missing', executionReady: false }),
   verdictanCheck: async () => ({
@@ -487,6 +503,21 @@ export const demo: API = {
   chatStop: nativeOnly,
   chatApprove: nativeOnly,
   chatRespond: nativeOnly,
+  dispatchReconcile: async () => {
+    throw Error('Dispatch recovery requires the desktop app.');
+  },
+  dispatchPrepare: async () => {
+    throw new Error('Automatic dispatch requires the desktop app.');
+  },
+  dispatchStart: async () => {
+    throw new Error('Automatic dispatch requires the desktop app.');
+  },
+  dispatchStatus: async () => {
+    throw new Error('Automatic dispatch requires the desktop app.');
+  },
+  dispatchCancel: async () => {
+    throw new Error('Automatic dispatch requires the desktop app.');
+  },
   taskWorktree: async () => {
     await nativeOnly();
     return null;

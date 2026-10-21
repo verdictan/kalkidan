@@ -110,6 +110,7 @@ export class ManagedRuntimes {
   }
   private validateBinding(item: OwnedRuntime, frame: RuntimeCredentials) {
     if (
+      (frame.provider_access_mode || 'byok') !== (item.binding.provider_access_mode || 'byok') ||
       frame.generation !== item.credentialGeneration ||
       frame.api_url !== this.options.apiOrigin ||
       frame.runtime_id !== item.runtimeId ||

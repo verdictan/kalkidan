@@ -328,3 +328,33 @@ test('runtime and host operations preserve command parameters and correlate thei
     f.client.close();
   }
 });
+
+test('project operations use top-level fields and cannot override the protocol envelope', async (t) => {
+  const f = fixture();
+  t.after(() => f.client.close());
+  const scope = { organization_id: 'org', project_id: 'project' };
+  const pending = f.client.request('task.history', {
+    project_scope: scope,
+    fields: { task_id: 'task', cursor: 'page-2' },
+  });
+  assert.equal(f.requests[0].task_id, 'task');
+  assert.equal(f.requests[0].cursor, 'page-2');
+  assert.equal(f.requests[0].fields, undefined);
+  assert.deepEqual(f.requests[0].project_scope, scope);
+  f.reply('task.history_result', { items: [], next_cursor: null });
+  await pending;
+  for (const key of [
+    'schema_version',
+    'correlation_id',
+    'operation',
+    'project_scope',
+    'parameters',
+    'fields',
+  ]) {
+    await assert.rejects(
+      f.client.request('task.history', { project_scope: scope, fields: { [key]: 'override' } }),
+    );
+  }
+  await assert.rejects(f.client.request('status', { fields: { task_id: 'task' } }));
+  assert.equal(f.requests.length, 1);
+});

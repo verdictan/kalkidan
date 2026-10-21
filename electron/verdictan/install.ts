@@ -22,6 +22,7 @@ import { extractRuntime } from './archive';
 export interface RuntimePolicy {
   manifest: string;
   pin: RuntimePin;
+  hostPolicies?: Record<string, RuntimePolicy>;
   pins?: Record<string, RuntimePin>;
   downloadOrigins: string[];
 }
@@ -30,8 +31,13 @@ export function runtimePolicyForHost(
   os: string,
   arch: string,
 ): RuntimePolicy {
-  if (!policy.pins) return policy;
   const key = `${os}-${arch}`;
+  if (policy.hostPolicies && Object.hasOwn(policy.hostPolicies, key)) {
+    const selected = policy.hostPolicies[key];
+    if (!selected || selected.hostPolicies) throw new Error('Invalid host runtime policy.');
+    return runtimePolicyForHost(selected, os, arch);
+  }
+  if (!policy.pins) return policy;
   if (
     typeof policy.pins !== 'object' ||
     Array.isArray(policy.pins) ||

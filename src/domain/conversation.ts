@@ -21,6 +21,7 @@ export interface SessionOrganization {
   taskId?: string;
 }
 export interface Session {
+  governanceScope?: { projectId: string; taskId?: string };
   forkFrom?: string;
   hostId?: string;
   id: string;
@@ -68,6 +69,13 @@ export interface GovernanceEvidence {
     currency: string | null;
     tokens: string | null;
   }[];
+}
+export interface TaskUsageHistory {
+  runId: string;
+  hostId?: string;
+  phase: TaskExecutionStatus['phase'];
+  updatedAt: number;
+  evidence: { observedAt: number; value: GovernanceEvidence }[];
 }
 export interface TaskExecutionStatus {
   id: string;

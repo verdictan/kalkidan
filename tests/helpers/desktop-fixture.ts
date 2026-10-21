@@ -277,6 +277,7 @@ export async function desktopFixture(platform = 'linux', failure = '') {
     'node:fs': { existsSync: () => true },
     'node:fs/promises': {
       readFile: async (path: string) => {
+        if (path.endsWith('verdictan-region.json')) return JSON.stringify({ region: 'global' });
         if (path.endsWith('projects.json')) {
           if (failure === 'projects') return 'bad';
           if (failure === 'invalidProjects') return '{}';
@@ -381,6 +382,8 @@ export async function desktopFixture(platform = 'linux', failure = '') {
   });
   stub('operations/task-execution', {
     TaskExecutions: class {
+      async restore() {}
+      suspend() {}
       start(_id: string, _scope: unknown, launch: () => Promise<unknown>) {
         return launch();
       }

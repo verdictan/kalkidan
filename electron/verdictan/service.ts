@@ -1,4 +1,5 @@
 import { discoverRuntime } from '../updates/runtime-feed';
+import { verdictanRegion } from './region';
 import bundledPolicy from './runtime-policy.json';
 import { RemoteAccountBroker } from './remote-broker';
 import type { VerdictanSetup } from '../../src/domain/verdictan';
@@ -18,6 +19,7 @@ export function createVerdictanServices(options: {
   root: string;
   desktopVersion: string;
   hostId: string;
+  region?: string;
   policy: () => Promise<RuntimePolicy | null>;
   busy(): boolean;
   openBrowser(url: string): Promise<unknown>;
@@ -26,8 +28,8 @@ export function createVerdictanServices(options: {
   selections?: () => Promise<VerdictanSetup['selections']>;
   identities?: () => Promise<{ installationId: string; hostId: string }>;
 }) {
-  const apiOrigin = 'https://api.verdictan.com';
-  const consoleOrigin = 'https://console.verdictan.com';
+  const { apiOrigin, consoleOrigin, profile } = verdictanRegion(options.region);
+  const region = profile === 'kalkidan-eu' ? 'eu' : 'global';
   // The CLI compatibility contract accepts the core version, without build metadata.
   if (!desktopVersion(options.desktopVersion)) throw new Error('Invalid desktop version.');
   const compatibilityVersion = options.desktopVersion.split('-')[0];
@@ -39,7 +41,7 @@ export function createVerdictanServices(options: {
     '--console-url',
     consoleOrigin,
     '--profile',
-    'kalkidan',
+    profile,
   ];
   const installer = new RuntimeInstaller({
     root: join(options.root, 'runtime', 'verdictan'),
@@ -57,7 +59,7 @@ export function createVerdictanServices(options: {
     changed: options.changed,
     probe: async (executable, version) => {
       // A separate secure profile prevents a compatibility probe from owning account state.
-      const client = new DesktopProtocol(executable, [...args.slice(0, -1), 'kalkidan-probe']);
+      const client = new DesktopProtocol(executable, [...args.slice(0, -1), `${profile}-probe`]);
       try {
         const capabilities = parseCapabilities((await client.request('capabilities')).data);
         if (capabilities.cliVersion !== version)
@@ -99,7 +101,7 @@ export function createVerdictanServices(options: {
     options.identities,
   );
   const remoteBroker = new RemoteAccountBroker(setup, bindings);
-  return { installer, account, managed, setup, launch, bindings, remoteBroker };
+  return { installer, account, managed, setup, launch, bindings, remoteBroker, region };
 }
 
 /** Configuration comes from the desktop distribution or its operator, never renderer input. */

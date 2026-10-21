@@ -97,6 +97,16 @@ const agentStarts = new AgentStarts(
 async function dispatch(method: string, args: any[]): Promise<any> {
   const [a, b, c, d, e, f] = args;
   switch (method) {
+    case 'dispatch-recover': {
+      const path = await folder(a);
+      const run = await agentStarts.inspect(b);
+      let canRelease = false;
+      if (run?.status !== 'running')
+        await chats.withCheckoutIdle(path, async () => {
+          canRelease = true;
+        });
+      return { run, canRelease };
+    }
     case 'managed-stop':
       chats.dispose();
       await verdictanRuntime?.managed.stopAll();
@@ -110,11 +120,15 @@ async function dispatch(method: string, args: any[]): Promise<any> {
       if (
         !['status', 'check', 'install', 'cancel'].includes(a) ||
         !desktopVersion(c) ||
+        (e !== undefined && e !== 'global' && e !== 'eu') ||
         typeof d !== 'string' ||
         !/^[A-Za-z0-9_-]{1,128}$/.test(d)
       )
         throw new Error('Invalid runtime update request.');
       if (verdictanOwner && verdictanOwner !== d) throw new Error('Runtime host identity changed.');
+      const region = e || 'global';
+      if (verdictanRuntime && verdictanRuntime.region !== region)
+        throw new Error('Reconnect this host before changing the Verdictan region.');
       verdictanPolicy = b;
       if (!verdictanRuntime) {
         verdictanOwner = d;
@@ -130,6 +144,7 @@ async function dispatch(method: string, args: any[]): Promise<any> {
           selections: () => accountProxy.query('setup.selection'),
           identities: () => accountProxy.query('host.identity'),
           hostId: d,
+          region,
           desktopVersion: c,
           policy: async () => verdictanPolicy,
           busy: () => chats.runningCount() > 0,
@@ -260,6 +275,8 @@ async function dispatch(method: string, args: any[]): Promise<any> {
       });
       return { path: await folder(b), name: basename(b) };
     }
+    case 'git-remote-url':
+      return git(await folder(a), ['remote', 'get-url', 'origin']);
     case 'git': {
       const cwd = await folder(a);
       try {
@@ -349,6 +366,7 @@ async function dispatch(method: string, args: any[]): Promise<any> {
             cwd: await folder(a),
             agent: b,
             title: 'New session',
+            governanceScope: args[6],
             updatedAt: new Date().toISOString(),
           },
           c,
@@ -375,6 +393,7 @@ async function dispatch(method: string, args: any[]): Promise<any> {
       );
     case 'chatStart': {
       const { session } = await source(a, b);
+      session.governanceScope = args[6];
       return agentStarts.run(e?.operationId, [a, b, c, d, e], async () =>
         chats.start(
           session,
