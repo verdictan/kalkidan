@@ -12,3 +12,5 @@ ci-results
 .ci-cache
 .cache
 coverage
+# Byte copies of the Verdictan shared contract (cli/docs/contracts).
+tests/fixtures/verdictan/desktop-*.json

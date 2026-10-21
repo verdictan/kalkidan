@@ -10,6 +10,10 @@ import {
 import { uuid } from './credentials';
 import { policyId } from './policy-id';
 import { DesktopProtocolError } from './protocol';
+import {
+  decideConversationResume,
+  type ResumeDecision,
+} from '../../src/domain/conversation-resume';
 
 export interface ConversationBinding {
   project_id?: string;
@@ -71,20 +75,26 @@ export function validateBinding(value: unknown): asserts value is ConversationBi
   )
     throw new DesktopProtocolError('desktop.resume_binding_invalid');
 }
+/** Carries the decision. It contains field names only, never binding values. */
+export class ResumeIncompatibleError extends DesktopProtocolError {
+  constructor(readonly decision: ResumeDecision) {
+    super(decision.code ?? 'desktop.resume_incompatible');
+  }
+}
+/**
+ * Kalkidan owns the resume decision. The requested binding must be a valid current binding.
+ * The saved binding only has to satisfy the shared contract, so that a binding from another
+ * Kalkidan version gives the changed field names. Verdictan still authorizes every request.
+ */
 export function assertCompatible(
   previous: ConversationBinding,
   current: ConversationBinding,
   fork = false,
 ) {
-  validateBinding(previous);
   validateBinding(current);
-  if ((previous.provider_access_mode || 'byok') !== (current.provider_access_mode || 'byok'))
-    throw new DesktopProtocolError('desktop.resume_incompatible');
-  for (const field of Object.keys(previous) as (keyof ConversationBinding)[]) {
-    if (fork && field === 'conversation_id') continue;
-    if (previous[field] !== current[field])
-      throw new DesktopProtocolError('desktop.resume_incompatible');
-  }
+  const decision = decideConversationResume(previous, current, { fork });
+  if (decision.status !== 'compatible') throw new ResumeIncompatibleError(decision);
+  return decision;
 }
 interface Store {
   schema: 1;
