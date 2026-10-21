@@ -124,3 +124,40 @@ test('late Memory reads cannot display content in another project', async ({ pag
   );
   await expect(page.getByText('Alpha private fact')).toHaveCount(0);
 });
+
+for (const ready of [true, false])
+  test(`empty Memory chooses its action from managed agent state (ready: ${ready})`, async ({
+    page,
+  }) => {
+    await page.addInitScript((isReady) => {
+      (window as any).workspace = {
+        trackerProviders: async () => [],
+        snapshot: async () => ({
+          projects: [],
+          groups: [{ id: 'g', name: 'Test', repoIds: [] }],
+          sessions: [],
+          warnings: [],
+          platform: 'darwin',
+        }),
+        memoryList: async () => ({ pages: [], limited: false }),
+        verdictanStatus: async () =>
+          isReady
+            ? { phase: 'authenticated', executionReady: true }
+            : { phase: 'missing', executionReady: false },
+        verdictanSetup: async () => ({ selections: { claude: {} } }),
+      };
+    }, ready);
+    await page.goto('/');
+    await page.getByRole('button', { name: 'Memory', exact: true }).click();
+    const panel = page.getByRole('region', { name: 'Project memory', exact: true });
+    await expect(panel).toContainText('No memory yet');
+    const start = panel.getByRole('button', { name: 'Start a chat', exact: true });
+    const setUp = panel.getByRole('button', { name: 'Set up managed agents', exact: true });
+    if (ready) {
+      await expect(start).toBeVisible();
+      await expect(setUp).toHaveCount(0);
+    } else {
+      await expect(setUp).toBeVisible();
+      await expect(start).toHaveCount(0);
+    }
+  });

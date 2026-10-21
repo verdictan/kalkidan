@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   displayVersion,
   managedSteps,
+  memoryEmptyAction,
   runtimeInstallable,
   runtimeOutdated,
   runtimeStatusLabel,
@@ -65,4 +66,26 @@ test('labels use plain words', () => {
     },
   );
   assert.deepEqual(steps, { runtime: true, signedIn: true, codex: false, claude: true });
+});
+
+test('the empty memory page chooses its call to action from the managed agent steps', () => {
+  const ready = { runtime: true, signedIn: true, codex: false, claude: true };
+  assert.equal(memoryEmptyAction(ready), 'start-chat');
+  assert.equal(memoryEmptyAction({ ...ready, claude: false, codex: true }), 'start-chat');
+  assert.equal(memoryEmptyAction({ ...ready, claude: false }), 'set-up');
+  assert.equal(memoryEmptyAction({ ...ready, signedIn: false }), 'set-up');
+  assert.equal(memoryEmptyAction({ ...ready, runtime: false }), 'set-up');
+  assert.equal(memoryEmptyAction(undefined), undefined);
+  assert.equal(
+    memoryEmptyAction(
+      managedSteps({ phase: 'authenticated', executionReady: true }, {
+        selections: { claude: {} },
+      } as never),
+    ),
+    'start-chat',
+  );
+  assert.equal(
+    memoryEmptyAction(managedSteps({ phase: 'missing', executionReady: false }, undefined)),
+    'set-up',
+  );
 });

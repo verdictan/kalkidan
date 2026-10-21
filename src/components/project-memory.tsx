@@ -17,6 +17,8 @@ import { projectColors } from '../domain/project-colors';
 import { errorMessage } from '../lib/errors';
 import { plural } from '../lib/platform';
 import { fullTime, relativeTime } from '../lib/relative-time';
+import { managedSteps, memoryEmptyAction, type ManagedSteps } from '../lib/verdictan-labels';
+import { managedAgentsChangedEvent } from './verdictan-settings';
 
 type MemoryPage = ProjectMemory['pages'][number];
 
@@ -60,6 +62,39 @@ export function extractionText(extraction: MemoryExtraction) {
     case 'failed':
       return 'Could not save memory';
   }
+}
+
+/**
+ * Reads the managed agent steps: runtime, sign-in and agent setup. Undefined while the check
+ * runs, after a failed check, and when the app cannot check managed agents.
+ */
+function useManagedSteps(api: API) {
+  const [steps, setSteps] = useState<ManagedSteps>();
+  useEffect(() => {
+    if (typeof api.verdictanStatus !== 'function') return;
+    let live = true;
+    const read = async () => {
+      try {
+        const status = await api.verdictanStatus();
+        const setup =
+          status.phase === 'authenticated' && typeof api.verdictanSetup === 'function'
+            ? await api.verdictanSetup().catch(() => undefined)
+            : undefined;
+        if (live) setSteps(managedSteps(status, setup));
+      } catch {
+        if (live) setSteps(undefined);
+      }
+    };
+    void read();
+    window.addEventListener(managedAgentsChangedEvent, read);
+    const unsubscribe = api.onVerdictanChanged?.(() => void read());
+    return () => {
+      live = false;
+      window.removeEventListener(managedAgentsChangedEvent, read);
+      unsubscribe?.();
+    };
+  }, [api]);
+  return steps;
 }
 
 const openSession = (session: Session) =>
@@ -107,6 +142,7 @@ export function ProjectMemoryPanel({
   const sessions = sessionsProp || loadedSessions;
   const topicList = useRef<HTMLElement>(null);
   const loading = state.status === 'loading' || state.status === 'refreshing';
+  const emptyAction = memoryEmptyAction(useManagedSteps(api));
 
   // Entries give the source chat and the revision. Older desktop apps do not have them.
   useEffect(() => {
@@ -293,21 +329,36 @@ export function ProjectMemoryPanel({
           icon={<Brain />}
           title="No memory yet"
           action={
-            <Button
-              variant="outline"
-              onClick={() =>
-                window.dispatchEvent(
-                  new CustomEvent('kalkidan-open-settings', {
-                    detail: { section: 'managed-agents' },
-                  }),
-                )
-              }
-            >
-              Set up managed agents
-            </Button>
+            emptyAction === 'start-chat' ? (
+              <Button
+                variant="outline"
+                onClick={() =>
+                  window.dispatchEvent(
+                    new CustomEvent('kalkidan-new-session', { detail: { groupId: group.id } }),
+                  )
+                }
+              >
+                Start a chat
+              </Button>
+            ) : emptyAction === 'set-up' ? (
+              <Button
+                variant="outline"
+                onClick={() =>
+                  window.dispatchEvent(
+                    new CustomEvent('kalkidan-open-settings', {
+                      detail: { section: 'managed-agents' },
+                    }),
+                  )
+                }
+              >
+                Set up managed agents
+              </Button>
+            ) : undefined
           }
         >
           Managed agents save what they learn after verified work.
+          {emptyAction === 'start-chat' && ' Start a chat in this project to add memory.'}
+          {emptyAction === 'set-up' && ' Set up managed agents first.'}
         </EmptyState>
       )}
       {page && (

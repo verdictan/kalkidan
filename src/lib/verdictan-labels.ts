@@ -247,3 +247,15 @@ export function managedSteps(
     claude: signedIn && !!setup && !selectionIssue(setup, setup.selections.claude),
   };
 }
+
+/**
+ * The call to action of an empty memory page. When managed agents are ready, a chat in the
+ * project can add memory. When a setup step is not done, the setup comes first. An unknown
+ * state gets no action.
+ */
+export function memoryEmptyAction(
+  steps: ManagedSteps | undefined,
+): 'start-chat' | 'set-up' | undefined {
+  if (!steps) return undefined;
+  return steps.runtime && steps.signedIn && (steps.codex || steps.claude) ? 'start-chat' : 'set-up';
+}
