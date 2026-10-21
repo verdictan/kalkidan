@@ -13,7 +13,7 @@ test('Settings checks GitHub CLI and retries without hiding agent status', async
       trackerProviders: async () => [],
       remoteHosts: async () => [],
       agentInstallations: async () => [
-        { agent: 'codex', status: 'installed' },
+        { agent: 'codex', status: 'installed', version: '0.163.0-alpha.10.2' },
         { agent: 'claude', status: 'missing' },
       ],
       githubCliCheck: async () => ({ status: (window as any).ghState }),

@@ -47,11 +47,18 @@ You can also download installers from [Kalkidan releases](https://github.com/ver
 | macOS, Windows 10 (1809+) or Windows 11, or desktop Linux | Run the desktop app.                                              |
 | Node.js **24.21.0+** and npm **12.2.0**                   | Install dependencies and run the source code.                     |
 | Git                                                       | Read repository status and manage worktrees.                      |
-| Codex CLI or Claude Code CLI                              | Run the selected agent. You can install both.                     |
+| Codex **0.160.0+** or Claude Code **2.1.300+**            | Run the selected agent. You can install both.                     |
 | GitHub CLI (`gh`)                                         | Connect projects and find or clone repositories.                  |
 | Python 3                                                  | Run interactive terminals on macOS or Linux. Windows uses ConPTY. |
 
-Install the supported Codex or Claude Code binary and check it in Settings.
+Install Codex 0.160.0 or later, or Claude Code 2.1.300 or later. Kalkidan sets
+these minimum versions. Verdictan does not pin agent versions. A prerelease counts
+by its number: Codex `0.163.0-alpha.10.2` meets the minimum. Open **Settings** ›
+**Agents** to see the version of each agent. The row shows **Meets the minimum**
+or **Update required**. Kalkidan reads the version before each managed launch.
+When the version is older than the minimum, or Kalkidan cannot read it, the chat
+does not start. The message tells you to update the agent and gives a button that
+opens **Settings** › **Agents**.
 Complete Verdictan setup for the selected execution host. Kalkidan requires the
 managed runtime, account authorization, and launch checks. It does not use a
 native CLI login as a fallback. Managed native execution is available on accepted
@@ -62,8 +69,8 @@ new sessions, resumed and forked conversations, automatic dispatch, SSH hosts,
 subscription access, organization provider connections, and Memory extraction.
 The browser preview does not start agents. When a check stops a launch, the
 message names the cause and gives a button that opens the related step in
-Settings: the region, the sign-in, the managed agent setup, or the managed
-runtime. The Terminal opens a shell only; it does not start an agent.
+Settings: the region, the sign-in, the managed agent setup, the managed runtime,
+or the agents. The Terminal opens a shell only; it does not start an agent.
 
 Managed agent setup shows the team, policy, provider connection, and account
 names that Verdictan sends. When Verdictan does not send a name, Settings shows
@@ -469,6 +476,21 @@ If the package manager skipped Electron's installation script, permit its postin
 ```sh
 node node_modules/electron/install.js
 ```
+
+### A chat says that Kalkidan needs a newer agent
+
+Kalkidan needs Codex 0.160.0 or later and Claude Code 2.1.300 or later.
+
+1. Open **Settings** › **Agents**. Find the row that shows **Update required**.
+2. Update the agent on the machine where work runs. For example, run
+   `npm i -g @anthropic-ai/claude-code` or `npm i -g @openai/codex`.
+3. Select **Check again**. The row must show **Meets the minimum**.
+4. Send the message again.
+
+For Claude subscription access, Kalkidan reads the Claude Code sign-in from the
+macOS Keychain or from `~/.claude/.credentials.json` on Linux. If the message says
+that the sign-in format is not supported, update Claude Code and run `/login`.
+On Linux, the file must belong to you and must not be readable by other users.
 
 ### Unsupported features
 

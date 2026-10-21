@@ -26,6 +26,14 @@ import { SegmentedControl } from './ui/segmented-control';
 import { Dialog, DialogBody, DialogContent, DialogHeader, DialogTitle } from './ui/dialog';
 import { errorMessage } from '../lib/errors';
 import {
+  agentMinimumVersions,
+  agentVersionLabel,
+  agentVersionRequirement,
+  checkAgentVersion,
+  nativeAgentKind,
+  type AgentVersionCheck,
+} from '../domain/agent-version';
+import {
   applyAppearance,
   readAppearance,
   saveAppearance,
@@ -79,6 +87,30 @@ export function AgentInstallHelp({ agent }: { agent: string }) {
         {name} is not installed. Run <code>{install.command}</code>, then select Check again.
       </CommandHelp>
       <HelpLink href={install.href}>How to install</HelpLink>
+    </div>
+  );
+}
+
+/** The installed version, the minimum check, and update help for an old or unknown version. */
+function AgentVersionLine({ agent, check }: { agent: string; check: AgentVersionCheck }) {
+  const install = agentInstall[agent];
+  return (
+    <div data-testid={`agent-version-${agent}`}>
+      <p className="text-xs text-muted-foreground">
+        {check.version ? `Version ${check.version}` : 'Kalkidan cannot read the version'}
+        {' · '}
+        {agentVersionLabel(check)}
+      </p>
+      {check.status !== 'supported' && (
+        <>
+          <p className="text-xs text-muted-foreground">{agentVersionRequirement(check.kind)}</p>
+          {install && (
+            <CommandHelp command={install.command}>
+              To update, run <code>{install.command}</code>, then select Check again.
+            </CommandHelp>
+          )}
+        </>
+      )}
     </div>
   );
 }
@@ -163,9 +195,16 @@ export function SettingsDialog({
   // Refresh projects only when the selected host becomes ready, not on each render or mount.
   const remoteReady = useRef(false);
   const heading = useRef<HTMLHeadingElement>(null);
+  function versionCheck(agent: string) {
+    const item = installations.find((entry) => entry.agent === agent);
+    const kind = nativeAgentKind(agent);
+    return item?.status === 'installed' && kind ? checkAgentVersion(kind, item.version) : undefined;
+  }
   function agentStatus(agent: string) {
     if (checking) return 'Checking…';
     const status = installations.find((item) => item.agent === agent)?.status;
+    const version = versionCheck(agent);
+    if (version && version.status !== 'supported') return agentVersionLabel(version);
     if (status === 'installed') return 'Installed';
     if (status === 'missing') return 'Not found';
     if (status === 'unavailable') return 'Desktop only';
@@ -264,11 +303,17 @@ export function SettingsDialog({
                 </div>
               </SettingsSection>
               <SettingsSection value="agents">
-                <section aria-label="Agents on this computer" className="grid gap-3">
+                <section
+                  id="settings-agents"
+                  tabIndex={-1}
+                  aria-label="Agents on this computer"
+                  className="grid gap-3 outline-none"
+                >
                   <div className="flex items-center justify-between gap-4">
                     <p className="text-xs text-muted-foreground">
                       Managed Verdictan agents use these agent tools on this computer. Kalkidan does
-                      not start them directly.
+                      not start them directly. Kalkidan needs Codex {agentMinimumVersions.codex} or
+                      later and Claude Code {agentMinimumVersions.claude_code} or later.
                     </p>
                     <Button
                       variant="outline"
@@ -295,6 +340,9 @@ export function SettingsDialog({
                           installations.find((item) => item.agent === id)?.status === 'missing' && (
                             <AgentInstallHelp agent={id} />
                           )}
+                        {!checking && versionCheck(id) && (
+                          <AgentVersionLine agent={id} check={versionCheck(id)!} />
+                        )}
                       </ToolRow>
                     ))}
                   </ul>

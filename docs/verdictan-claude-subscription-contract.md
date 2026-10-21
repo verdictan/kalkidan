@@ -33,8 +33,15 @@ rules. Add these values only when the implementation supports them:
 | `setup.inspect.provider_access_modes` | Include `claude_subscription` when the deployed API supports it |
 | Provider                              | `anthropic`                                                     |
 | Native agent kind                     | `claude_code`                                                   |
-| `tested_agents`                       | Exact qualified Claude executable version                       |
+| `tested_agents`                       | Information only; Verdictan does not pin agent versions         |
 | Omitted access mode                   | Preserve existing BYOK behavior                                 |
+
+Kalkidan sets its own minimum native versions: Codex `0.160.0` or later and
+Claude Code `2.1.300` or later. A prerelease counts by its numeric core. Kalkidan
+reads the installed version with `--version` before each managed launch and
+refuses an older or unknown version with `desktop.codex_version_unsupported`,
+`desktop.claude_code_version_unsupported`, `desktop.codex_version_unknown`, or
+`desktop.claude_code_version_unknown`. Kalkidan does not gate on `tested_agents`.
 
 Kalkidan requires both capability advertisements. An absent value means
 unavailable. It must not trigger a BYOK fallback. Unknown modes must fail
@@ -106,7 +113,7 @@ Keep two credentials separate:
 Pin `ANTHROPIC_BASE_URL` to the actual loopback address from `gateway.listening`.
 Do not set `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, or `apiKeyHelper` for this
 mode. These can select gateway/API credentials instead of the subscription.
-The native probe must verify that the pinned Claude version can send the
+The native probe must verify that Claude Code 2.1.300 or later can send the
 separate gateway header while retaining subscription authentication. Supply
 the exact working configuration; do not assume Codex header settings apply.
 
@@ -219,7 +226,7 @@ archive bearer values, real prompts, or credential-store contents.
 | C01 | Old API/runtime does not advertise the mode; Kalkidan stays unavailable                                                           |
 | C02 | Valid subscription provision succeeds; wrong provider, connection, mode, and extra secret fields fail                             |
 | C03 | Export, renewal, readiness, restart, and revocation preserve mode and ownership                                                   |
-| C04 | Real pinned Claude sends subscription authentication and a separate gateway key using synthetic credentials                       |
+| C04 | Real Claude Code 2.1.300+ sends subscription authentication and a separate gateway key using synthetic credentials                |
 | C05 | Gateway key never reaches upstream; provider credentials never reach logs, audit, renderer, or another host                       |
 | C06 | Native streaming, tool continuation, count-token behavior, cancel, resume, and provider errors match the published route contract |
 | C07 | Missing/expired login, quota denial, account switch, policy denial, and control-plane outage do not fall back or replay           |
