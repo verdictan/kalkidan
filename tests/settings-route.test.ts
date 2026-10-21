@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   computerAnchor,
   isSettingsTab,
+  helperUpdateAnchor,
   runtimeAnchor,
   settingsTabLabel,
   settingsTabs,
@@ -59,6 +60,10 @@ test('older section names and anchors open their new tab', () => {
   assert.deepEqual(settingsTarget(undefined, runtimeAnchor('h1')), {
     tab: 'computers',
     anchor: 'runtime-h1',
+  });
+  assert.deepEqual(settingsTarget('updates', helperUpdateAnchor('h1')), {
+    tab: 'computers',
+    anchor: 'helper-update-h1',
   });
   assert.deepEqual(settingsTarget('updates', 'unknown-anchor'), {
     tab: 'updates',

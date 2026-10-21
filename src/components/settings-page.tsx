@@ -5,6 +5,7 @@ import { agentCatalog } from '../config/agents';
 import type { API, Agent } from '../types';
 import type { DesktopUpdateStatus } from '../domain/updates';
 import {
+  computerAnchor,
   settingsAnchors,
   settingsTabLabel,
   settingsTabs,
@@ -33,6 +34,17 @@ import { ManagedSetup, VerdictanAccount, type SettingsNavigate } from './verdict
 import { PageHeader } from './ui/page-header';
 import { SegmentedControl } from './ui/segmented-control';
 import { showToast } from './ui/toast';
+
+/**
+ * The element that gets the focus when the element of a focus request does not show. A helper
+ * update button falls back to its computer, and an agent program to the agents of the tab.
+ */
+function fallbackSelector(id: string) {
+  if (id.startsWith('helper-update-'))
+    return `[id="${CSS.escape(computerAnchor(id.slice('helper-update-'.length)))}"]`;
+  if (id.startsWith('agent-')) return '#settings-agents';
+  return '[role="tabpanel"][data-state="active"]';
+}
 
 /** A request to move the focus in Settings. A new `request` moves it again. */
 export interface SettingsFocus {
@@ -77,13 +89,7 @@ export function SettingsPage({
         root.current?.querySelector<HTMLElement>(`[id="${CSS.escape(focus.id)}"]`) ||
         // An element that does not show, for example a host that was removed, falls back to
         // the computer of an agent program, or to the panel of the tab.
-        (tries > 20
-          ? root.current?.querySelector<HTMLElement>(
-              focus.id.startsWith('agent-')
-                ? '#settings-agents'
-                : '[role="tabpanel"][data-state="active"]',
-            )
-          : null);
+        (tries > 20 ? root.current?.querySelector<HTMLElement>(fallbackSelector(focus.id)) : null);
       if (target || ++tries > 40) clearInterval(timer);
       if (!target) return;
       target.scrollIntoView({ block: 'start' });

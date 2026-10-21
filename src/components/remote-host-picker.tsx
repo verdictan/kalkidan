@@ -48,7 +48,7 @@ export function useRemoteHosts(api: API, open = true) {
  * The setup actions of one SSH host: check SSH access, install the helper, connect,
  * disconnect, update the helper, and remove the host. Each host row keeps its own state.
  */
-function useHostSetup(
+export function useHostSetup(
   api: API,
   {
     onHost,
@@ -141,9 +141,61 @@ function useHostSetup(
   };
 }
 
+export type HostSetupState = ReturnType<typeof useHostSetup>;
+
+/**
+ * The "Update Kalkidan helper" button and its confirmation. The update uses the setup state of
+ * the host, so the busy text and the error show in the setup of that host.
+ */
+export function HelperUpdateButton({
+  api,
+  host,
+  setup,
+  id,
+  available = false,
+}: {
+  api: API;
+  host: RemoteHost;
+  setup: HostSetupState;
+  /** The element ID. Settings › Updates moves the focus to it. */
+  id?: string;
+  /** An update is available. The button is the primary action. */
+  available?: boolean;
+}) {
+  const [confirm, setConfirm] = useState(false);
+  return (
+    <>
+      <Hint label="Updating the Kalkidan helper stops active work on this host">
+        <Button
+          id={id}
+          variant={available ? 'default' : 'outline'}
+          size="sm"
+          disabled={!!setup.busy}
+          onClick={() => setConfirm(true)}
+        >
+          Update Kalkidan helper
+        </Button>
+      </Hint>
+      <ConfirmDialog
+        open={confirm}
+        title={`Update the Kalkidan helper on ${host.name}?`}
+        description="The update stops all active work on this host. Running agent sessions stop."
+        confirmLabel="Update Kalkidan helper"
+        destructive
+        onCancel={() => setConfirm(false)}
+        onConfirm={() => {
+          setConfirm(false);
+          void setup.act('Updating the Kalkidan helper…', () => api.remoteInstall(host.id));
+        }}
+      />
+    </>
+  );
+}
+
 /**
  * The setup of one SSH host: the steps, the install prompt, the actions, the details, and the
  * connection state. `autoStart` runs the guided setup once, for a host that was just added.
+ * When the parent gives `setup`, the parent shows the helper update, and the details do not.
  */
 export function HostSetup({
   api,
@@ -151,6 +203,7 @@ export function HostSetup({
   onHost,
   onRemoved,
   onBusy,
+  setup: shared,
   autoStart = false,
   className,
 }: {
@@ -159,13 +212,15 @@ export function HostSetup({
   onHost: (host: RemoteHost) => void;
   onRemoved: (hostId: string) => void;
   onBusy?: (busy: boolean) => void;
+  /** The setup state from the parent, from `useHostSetup`. */
+  setup?: HostSetupState;
   autoStart?: boolean;
   className?: string;
 }) {
-  const setup = useHostSetup(api, { onHost, onRemoved, onBusy });
+  const own = useHostSetup(api, { onHost, onRemoved, onBusy });
+  const setup = shared ?? own;
   const { busy, step, error, removeError } = setup;
   const [confirmDisconnect, setConfirmDisconnect] = useState(false);
-  const [confirmUpdate, setConfirmUpdate] = useState(false);
   const [confirmRemove, setConfirmRemove] = useState(false);
   const started = useRef(false);
   useEffect(() => {
@@ -260,18 +315,7 @@ export function HostSetup({
               Connect host
             </Button>
           )}
-          {host.version && (
-            <Hint label="Updating the Kalkidan helper stops active work on this host">
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={!!busy}
-                onClick={() => setConfirmUpdate(true)}
-              >
-                Update Kalkidan helper
-              </Button>
-            </Hint>
-          )}
+          {host.version && !shared && <HelperUpdateButton api={api} host={host} setup={setup} />}
         </div>
       </details>
       {host.status === 'connected' && (
@@ -292,18 +336,6 @@ export function HostSetup({
         </p>
       )}
       <BusyAndError busy={busy} error={error} />
-      <ConfirmDialog
-        open={confirmUpdate}
-        title={`Update the Kalkidan helper on ${host.name}?`}
-        description="The update stops all active work on this host. Running agent sessions stop."
-        confirmLabel="Update Kalkidan helper"
-        destructive
-        onCancel={() => setConfirmUpdate(false)}
-        onConfirm={() => {
-          setConfirmUpdate(false);
-          void setup.act('Updating the Kalkidan helper…', () => api.remoteInstall(host.id));
-        }}
-      />
       <ConfirmDialog
         open={confirmDisconnect}
         title={`Disconnect ${host.name}?`}
