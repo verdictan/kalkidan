@@ -4,7 +4,7 @@ import { EventEmitter } from 'node:events';
 import { PassThrough } from 'node:stream';
 import { resolve } from 'node:path';
 import { backendLoader } from './helpers/backend-loader';
-import { guardedRoute } from '../electron/verdictan/inference-guard';
+import { guardedRoute, refusalReason } from '../electron/verdictan/inference-guard';
 
 class Reply extends PassThrough {
   headersSent = false;
@@ -108,6 +108,40 @@ test('terminal errors block all later native retries, including model fallback',
   } finally {
     await f.guard.close();
   }
+});
+test('later requests repeat the reason for the first refusal', async () => {
+  const f = await fixture();
+  try {
+    const first = f.send();
+    f.respond(
+      0,
+      422,
+      JSON.stringify({
+        error: {
+          code: 'runtime.beta_header.unsupported',
+          message: "The selected provider does not support the 'x-2026-01-31' beta header.",
+        },
+      }),
+    );
+    await first.done;
+    const denied = f.send();
+    await denied.done;
+    assert.equal(denied.statusCode, 409);
+    assert.match(
+      JSON.parse(denied.body).error.message,
+      /earlier refusal: The selected provider does not support .* \(runtime\.beta_header\.unsupported\)$/,
+    );
+  } finally {
+    await f.guard.close();
+  }
+});
+test('refusal reasons are short plain text', () => {
+  assert.equal(refusalReason('not json'), '');
+  assert.equal(refusalReason('{"error":{"code":"a.b"}}'), 'a.b');
+  assert.equal(
+    refusalReason(JSON.stringify({ error: { message: 'x\u0007y'.repeat(200) } })).length,
+    300,
+  );
 });
 test('unknown transport outcome blocks replay without a new turn', async () => {
   const f = await fixture();
