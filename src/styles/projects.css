@@ -2273,12 +2273,6 @@ thead .tracker-task-select {
   min-width: 0;
 }
 
-.project-settings-heading {
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
-  text-align: left;
-}
 /* The legend looks like a .form-label. */
 .project-settings-colors legend {
   font-size: 12px;
@@ -2290,46 +2284,40 @@ thead .tracker-task-select {
 .project-settings-colors button[aria-pressed='true'] {
   box-shadow: inset 0 0 0 1px var(--ring);
 }
-.project-settings-repositories {
-  border-top: 1px solid var(--border);
-  padding-top: var(--space-5);
-  min-width: 0;
-}
-.project-settings-repositories h3 {
-  display: flex;
-  gap: var(--space-2);
-  align-items: center;
-  font-size: var(--text-sm);
-  line-height: 20px;
-  font-weight: 600;
-  margin-bottom: var(--space-3);
-}
-.project-settings-repositories h3 span {
-  color: var(--muted-foreground);
-  font-weight: 400;
-}
-/* Two-line rows in a .list-box. */
-.project-settings-repositories .list-box {
+/* Two-line rows: the code folders of a project, and where its work runs. */
+.project-settings-folders .list-box {
   margin: 0;
 }
-.project-settings-repositories .list-box-row {
+.project-settings-folders .list-box-row {
   gap: var(--space-3);
   min-height: var(--row-height-2line);
 }
-.project-settings-repositories li > svg {
-  color: var(--muted-foreground);
+.project-settings-folders li > svg,
+.project-settings-location > svg {
   flex-shrink: 0;
+  color: var(--muted-foreground);
 }
-.project-settings-repositories li > div {
-  min-width: 0;
+.project-settings-location {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
 }
-.project-settings-repositories strong {
+.project-settings-location > svg {
+  width: 16px;
+  height: 16px;
+}
+.project-settings-folders strong,
+.project-settings-location strong {
   display: block;
   font-size: var(--text-sm);
   line-height: 20px;
   font-weight: 500;
 }
-.project-settings-repositories li span {
+.project-settings-folders li span,
+.project-settings-location span {
   display: block;
   overflow: hidden;
   text-overflow: ellipsis;

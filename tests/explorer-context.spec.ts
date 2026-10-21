@@ -7,8 +7,15 @@ test('explorer context menus rename the clicked item and confirm non-destructive
   await page.goto('/');
   const tree = page.getByRole('navigation', { name: 'Projects and repositories' });
   await tree.getByRole('button', { name: 'Atlas', exact: true }).click({ button: 'right' });
-  await expect(page.getByRole('menuitem', { name: 'Remove project from Kalkidan…' })).toBeEnabled();
+  // The row menu has no copies of the project tabs. Removal is in Project settings.
+  await expect(page.getByRole('menuitem')).toHaveText([
+    'Open project',
+    'Project settings…',
+    'Add a code folder…',
+    'Rename…',
+  ]);
   await page.getByRole('menuitem', { name: 'Rename…' }).click();
+  await expect(page.getByRole('textbox', { name: 'Project name', exact: true })).toBeFocused();
   await page.getByRole('textbox', { name: 'Project name', exact: true }).fill('Renamed project');
   await page.getByRole('button', { name: 'Save project' }).click();
   await expect(tree.getByRole('button', { name: 'Renamed project', exact: true })).toBeVisible();

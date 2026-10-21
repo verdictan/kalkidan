@@ -1,7 +1,16 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Tabs as TabsPrimitive } from 'radix-ui';
-import { Columns3, ExternalLink, FolderKanban, Link2, Workflow } from 'lucide-react';
-import type { API, ProjectGroup } from '../types';
+import {
+  Columns3,
+  ExternalLink,
+  FolderGit2,
+  FolderKanban,
+  Link2,
+  Settings2,
+  TriangleAlert,
+  Workflow,
+} from 'lucide-react';
+import type { API, Project, ProjectGroup, RemoteHost } from '../types';
 import { trackerAuthPending, trackerConnection, type TrackerAuthState } from '../domain/tracker';
 import { useTracker } from '../hooks/use-tracker';
 import { useProjectBoard } from '../hooks/use-project-board';
@@ -27,32 +36,58 @@ import { TrackerProjectPicker, boardLabel } from './tracker-project-picker';
 import { TrackerWorkflowForm } from './tracker-workflow';
 import { GitHubProjectResources } from './github-project-resources';
 import { GitHubProjectSettingsForm } from './github-project-settings';
+import { ProjectCodeFolders, ProjectDangerZone, ProjectGeneral } from './project-settings-sections';
 
-export type ProjectSettingsTab = 'board' | 'automation' | 'fields' | 'github';
+export type ProjectSettingsTab =
+  'general' | 'folders' | 'board' | 'automation' | 'fields' | 'github' | 'danger';
 
 /**
- * The one place to configure the board of a project: the board connection, status automation,
- * GitHub fields and views, and the GitHub project itself. Open it with the
- * `kalkidan-open-project-settings` event or render it from the project page.
+ * The one place to configure a project: its name, color and location, its code folders, the
+ * board connection, status automation, GitHub fields and views, the GitHub project itself, and
+ * the removal of the project. Open it with the `kalkidan-open-project-settings` event.
  */
 export function ProjectSettingsDialog({
   api,
   group,
+  repos = [],
+  host,
   open,
   onOpenChange,
-  tab: requestedTab = 'board',
+  tab: requestedTab = 'general',
+  focusName = false,
   onConnected,
+  onDisconnected,
   onChanged,
+  onSaved,
+  onAddFolder,
+  onRemoveFolder,
+  onRemoveProject,
 }: {
   api: API;
   group: ProjectGroup;
+  /** All code folders. The Code folders section shows the code folders of this project. */
+  repos?: Project[];
+  /** The SSH host of the project, if it has one. */
+  host?: RemoteHost;
   open: boolean;
   onOpenChange(open: boolean): void;
   tab?: ProjectSettingsTab;
+  /** Moves the focus to the project name, for "Rename…". */
+  focusName?: boolean;
   /** Called after the project connects to a board. */
   onConnected?(): void | Promise<void>;
-  /** Called after each write, so that the page can load the board again. */
+  /** Called after the project disconnects from its board. Without it, onConnected is called. */
+  onDisconnected?(): void | Promise<void>;
+  /** Called after each board write, so that the page can load the board again. */
   onChanged?(): void;
+  /** Called after the name or the color changes. */
+  onSaved?(): void | Promise<void>;
+  /** Opens the Add code folders dialog. Without it, the Code folders section does not show. */
+  onAddFolder?(): void;
+  /** Starts the removal of a code folder. It asks for a confirmation. */
+  onRemoveFolder?(repo: Project): void;
+  /** Starts the removal of the project. Without it, the Danger zone does not show. */
+  onRemoveProject?(): void;
 }) {
   const connection = trackerConnection(group);
   const provider = connection?.provider || 'github';
@@ -67,6 +102,10 @@ export function ProjectSettingsDialog({
   const board = boardState.value ?? null;
   const github = connection?.provider === 'github';
   const tabs: { value: ProjectSettingsTab; label: string; icon: ReactNode }[] = [
+    { value: 'general', label: 'General', icon: <Settings2 /> },
+    ...(onAddFolder && onRemoveFolder
+      ? [{ value: 'folders' as const, label: 'Code folders', icon: <FolderGit2 /> }]
+      : []),
     { value: 'board', label: 'Board connection', icon: <Link2 /> },
     ...(connection &&
     descriptor?.capabilities.updateStatus !== false &&
@@ -79,6 +118,9 @@ export function ProjectSettingsDialog({
     ...(github && typeof api.trackerSettings === 'function'
       ? [{ value: 'github' as const, label: 'GitHub project', icon: <FolderKanban /> }]
       : []),
+    ...(onRemoveProject
+      ? [{ value: 'danger' as const, label: 'Danger zone', icon: <TriangleAlert /> }]
+      : []),
   ];
   const available = (value: ProjectSettingsTab) => tabs.some((item) => item.value === value);
   const [tab, setTab] = useState<ProjectSettingsTab>(requestedTab);
@@ -86,11 +128,11 @@ export function ProjectSettingsDialog({
   const [footer, setFooter] = useState<HTMLDivElement | null>(null);
   useEffect(() => {
     if (!open) return;
-    const next = available(requestedTab) ? requestedTab : 'board';
+    const next = available(requestedTab) ? requestedTab : 'general';
     setTab(next);
     setVisited([next]);
   }, [open, requestedTab]);
-  const active = available(tab) ? tab : 'board';
+  const active = available(tab) ? tab : 'general';
   const changed = () => {
     void refresh().catch(() => undefined);
     onChanged?.();
@@ -108,13 +150,25 @@ export function ProjectSettingsDialog({
   const target = (value: ProjectSettingsTab) => (active === value ? footer : null);
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent size="lg" layout="scroll" onOpenAutoFocus={holdDialogFocus}>
+      <DialogContent
+        size="lg"
+        layout="scroll"
+        onOpenAutoFocus={(event) => {
+          const name = (event.currentTarget as HTMLElement | null)?.querySelector<HTMLInputElement>(
+            '#project-general-form input',
+          );
+          if (!focusName || !name) return holdDialogFocus(event);
+          // "Rename…" opens the dialog with the project name selected.
+          event.preventDefault();
+          name.select();
+        }}
+      >
         <DialogHeader className="border-b">
           <DialogTitle>Project settings</DialogTitle>
           <DialogDescription>
             {connection
               ? `${group.name} · ${connection.project.title}`
-              : `${group.name} has no ${boardLabel(providerName)} yet.`}
+              : `${group.name} · No ${boardLabel(providerName)}`}
           </DialogDescription>
         </DialogHeader>
         <DialogBody className="flex p-0">
@@ -145,6 +199,48 @@ export function ProjectSettingsDialog({
             </TabsPrimitive.List>
             <div className="min-w-0 flex-1 border-l px-6 py-4">
               {panel(
+                'general',
+                <ProjectGeneral
+                  key={group.id}
+                  api={api}
+                  group={group}
+                  host={host}
+                  footer={target('general')}
+                  onSaved={async () => {
+                    onOpenChange(false);
+                    await onSaved?.();
+                  }}
+                />,
+              )}
+              {onAddFolder &&
+                onRemoveFolder &&
+                panel(
+                  'folders',
+                  <ProjectCodeFolders
+                    group={group}
+                    repos={repos}
+                    onAdd={() => {
+                      onOpenChange(false);
+                      onAddFolder();
+                    }}
+                    onRemove={(repo) => {
+                      onOpenChange(false);
+                      onRemoveFolder(repo);
+                    }}
+                  />,
+                )}
+              {onRemoveProject &&
+                panel(
+                  'danger',
+                  <ProjectDangerZone
+                    group={group}
+                    onRemove={() => {
+                      onOpenChange(false);
+                      onRemoveProject();
+                    }}
+                  />,
+                )}
+              {panel(
                 'board',
                 <BoardConnection
                   api={api}
@@ -158,7 +254,7 @@ export function ProjectSettingsDialog({
                   onDisconnected={async () => {
                     onOpenChange(false);
                     changed();
-                    await onConnected?.();
+                    await (onDisconnected || onConnected)?.();
                   }}
                 />,
               )}

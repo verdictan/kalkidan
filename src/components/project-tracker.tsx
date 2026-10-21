@@ -43,7 +43,7 @@ import {
   type TaskFilter,
   useUncertainWritesToast,
 } from './planning-tools';
-import { ProjectSettingsDialog, type ProjectSettingsTab } from './project-settings-dialog';
+import type { ProjectSettingsTab } from './project-settings-dialog';
 import {
   ActivityDot,
   activityKey,
@@ -335,10 +335,11 @@ export function ProjectTrackerPanel({
     descriptor,
   } = useTracker(api, connection?.provider);
   const linkedProject = connection?.project;
-  // The latest connection, for handlers that run after a refresh.
-  const connectedRef = useRef(false);
-  connectedRef.current = !!linkedProject;
-  const [settingsTab, setSettingsTab] = useState<ProjectSettingsTab | null>(null);
+  // The sidebar keeps the one Project settings dialog. This page opens it at a section.
+  const openProjectSettings = (tab: ProjectSettingsTab) =>
+    window.dispatchEvent(
+      new CustomEvent('kalkidan-open-project-settings', { detail: { groupId: group.id, tab } }),
+    );
   const filterStorage = filterKey(group.id, embedded);
   const [savedFilters] = useState(() => readFilters(filterStorage));
   const [repoFilter, setRepoFilter] = useState(savedFilters.repoFilter);
@@ -881,7 +882,6 @@ export function ProjectTrackerPanel({
     newTask: () => void;
     tool: (name: string) => void;
     filter: (filter: TaskFilter) => void;
-    settings: (tab?: string) => void;
     openTask: (id: string) => void;
     view: (id: string) => void;
     reload: () => void;
@@ -916,9 +916,6 @@ export function ProjectTrackerPanel({
     },
     filter(filter) {
       applyFilter(filter);
-    },
-    settings(tab) {
-      setSettingsTab(tab === 'automation' || tab === 'fields' || tab === 'github' ? tab : 'board');
     },
     openTask(id) {
       if (!openTaskById(id)) pendingTask.current = id;
@@ -960,13 +957,6 @@ export function ProjectTrackerPanel({
         (event) => {
           const detail = forGroup(event);
           if (detail) eventRef.current.filter(detail as TaskFilter);
-        },
-      ],
-      [
-        'kalkidan-open-project-settings',
-        (event) => {
-          const detail = forGroup(event);
-          if (detail) eventRef.current.settings(detail.tab as string | undefined);
         },
       ],
       ['kalkidan-github-writes', (event) => forGroup(event) && eventRef.current.reload()],
@@ -1296,15 +1286,20 @@ export function ProjectTrackerPanel({
         board?.statusField &&
         descriptor?.capabilities.updateStatus &&
         typeof api.trackerConfigure === 'function'
-          ? [{ label: 'Automatic status changes…', action: () => setSettingsTab('automation') }]
+          ? [
+              {
+                label: 'Automatic status changes…',
+                action: () => openProjectSettings('automation'),
+              },
+            ]
           : []),
         ...(github && typeof api.trackerSettings === 'function'
-          ? [{ label: 'GitHub project settings…', action: () => setSettingsTab('github') }]
+          ? [{ label: 'GitHub project settings…', action: () => openProjectSettings('github') }]
           : []),
         ...(github && typeof api.trackerResources === 'function'
-          ? [{ label: 'Fields, views and reports…', action: () => setSettingsTab('fields') }]
+          ? [{ label: 'Fields, views and reports…', action: () => openProjectSettings('fields') }]
           : []),
-        { label: `Change ${boardName}…`, action: () => setSettingsTab('board') },
+        { label: `Change ${boardName}…`, action: () => openProjectSettings('board') },
       ]}
     />
   );
@@ -1442,25 +1437,6 @@ export function ProjectTrackerPanel({
           <ProjectHeaderActions>{headerActions}</ProjectHeaderActions>
         </>
       )}
-      <ProjectSettingsDialog
-        api={api}
-        group={group}
-        open={!!settingsTab}
-        tab={settingsTab || undefined}
-        onOpenChange={(open) => {
-          if (open) return;
-          setSettingsTab(null);
-          void action(refreshBoard, false);
-          void onRefresh();
-        }}
-        onConnected={async () => {
-          // Connect and disconnect both end here. After the refresh, a connected board shows
-          // its tasks, and a disconnected project shows the overview.
-          await onRefresh();
-          window.setTimeout(() => setPage(connectedRef.current ? 'tasks' : 'overview'), 0);
-        }}
-        onChanged={() => void action(refreshBoard, false)}
-      />
       {error && (
         <Alert variant="destructive" size="sm">
           <AlertDescription>
@@ -1601,7 +1577,7 @@ export function ProjectTrackerPanel({
             board={board}
             items={sortedItems}
             onOpen={chooseTask}
-            onOpenSettings={github ? () => setSettingsTab('fields') : undefined}
+            onOpenSettings={github ? () => openProjectSettings('fields') : undefined}
           />
         ) : savedView ? (
           <GitHubViewLayout

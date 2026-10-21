@@ -275,16 +275,18 @@ test('project menu connects the chosen project without duplicate authorization',
     .getByRole('navigation', { name: 'Projects and repositories' })
     .getByRole('button', { name: 'Platform', exact: true })
     .click({ button: 'right' });
-  await page
-    .getByRole('menuitem', { name: 'Connect a GitHub Projects board…', exact: true })
-    .click();
+  // The row menu has no board item. Project settings has the board connection.
   await expect(
-    page.getByRole('dialog', { name: 'Connect a GitHub Projects board', exact: true }),
-  ).toBeVisible();
+    page.getByRole('menuitem', { name: 'Connect a GitHub Projects board…', exact: true }),
+  ).toHaveCount(0);
+  await page.getByRole('menuitem', { name: 'Project settings…', exact: true }).click();
+  const settings = page.getByRole('dialog', { name: 'Project settings', exact: true });
+  await expect(settings).toContainText('Platform');
+  await settings.getByRole('tab', { name: 'Board connection', exact: true }).click();
   await expect(page.getByLabel('GitHub device code')).toHaveValue('ABCD-1234');
   expect(await page.evaluate(() => (window as any).authStarts)).toBe(1);
-  await page.getByRole('button', { name: 'Cancel', exact: true }).click();
-  await expect(page.getByRole('heading', { name: 'Platform', exact: true })).toBeVisible();
+  await settings.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await expect(settings).toHaveCount(0);
 });
 
 test('task conversation returns to the filtered project board', async ({ page }) => {

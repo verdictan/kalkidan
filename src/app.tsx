@@ -1523,9 +1523,11 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
           label: inProject(actionGroup, 'Project settings…'),
           keywords: 'board automation fields github',
           run: () =>
-            openPageThen(actionGroup, 'board', 'kalkidan-open-project-settings', {
-              groupId: actionGroup.id,
-            }),
+            window.dispatchEvent(
+              new CustomEvent('kalkidan-open-project-settings', {
+                detail: { groupId: actionGroup.id },
+              }),
+            ),
         },
         ...(!chatOpen && project && !project.hostId && !boardGroup && !home
           ? [
@@ -1968,24 +1970,6 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
         <ProjectTree
           activity={repoActivity}
           sessionActivity={sessionActivity}
-          onDocs={(group) => openGroup(group, 'docs')}
-          onMemory={(group) => openGroup(group, 'memory')}
-          onInsights={(group) => openGroup(group, 'insights')}
-          onNewTask={(group) => {
-            openGroup(group, 'tasks');
-            setTimeout(
-              () =>
-                window.dispatchEvent(
-                  new CustomEvent('kalkidan-new-task', { detail: { forwarded: true } }),
-                ),
-              60,
-            );
-          }}
-          onProjectSettings={(group) =>
-            openPageThen(group, 'board', 'kalkidan-open-project-settings', {
-              groupId: group.id,
-            })
-          }
           taskOf={(session) => sessionTask(session, boards)}
           onOpenTask={(groupId, itemId) => routeEvents.current.openTask({ groupId, itemId })}
           onSessionCommand={(command, session) => sessionCommand(command, session)}
@@ -1996,7 +1980,6 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
           overviewCurrent={home}
           onAllSessions={openAllSessions}
           allSessionsCurrent={sessionsPage && !chatOpen}
-          onConnect={(group) => connectTracker(group)}
           openChats={openChats}
           cloning={cloning}
           addFolderRequest={addFolderRequest}
@@ -2155,11 +2138,6 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
                     host={data.hosts?.find((h) => h.id === currentGroup.hostId)}
                     page={projectPage}
                     onRefresh={refresh}
-                    onSettings={() =>
-                      openPageThen(currentGroup, 'board', 'kalkidan-open-project-settings', {
-                        groupId: currentGroup.id,
-                      })
-                    }
                   >
                     {projectPage === 'memory' ? (
                       <ProjectMemoryPanel

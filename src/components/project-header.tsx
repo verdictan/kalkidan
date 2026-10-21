@@ -45,7 +45,6 @@ function ProjectHeader({
   api,
   group,
   host,
-  onSettings,
   onRefresh,
   setActions,
   setMeta,
@@ -53,7 +52,6 @@ function ProjectHeader({
   api: API;
   group: ProjectGroup;
   host?: RemoteHost;
-  onSettings(): void;
   onRefresh(): Promise<unknown>;
   setActions(element: HTMLElement | null): void;
   setMeta(element: HTMLElement | null): void;
@@ -149,7 +147,18 @@ function ProjectHeader({
         <>
           <div ref={setActions} className="project-header-slot" />
           <Hint label="Project settings">
-            <Button variant="ghost" size="icon" aria-label="Project settings" onClick={onSettings}>
+            <Button
+              variant="ghost"
+              size="icon"
+              aria-label="Project settings"
+              onClick={() =>
+                window.dispatchEvent(
+                  new CustomEvent('kalkidan-open-project-settings', {
+                    detail: { groupId: group.id },
+                  }),
+                )
+              }
+            >
               <Settings2 />
             </Button>
           </Hint>
@@ -168,7 +177,6 @@ export function ProjectFrame({
   group,
   host,
   page,
-  onSettings,
   onRefresh,
   children,
 }: {
@@ -176,7 +184,6 @@ export function ProjectFrame({
   group: ProjectGroup;
   host?: RemoteHost;
   page: ProjectPage;
-  onSettings(): void;
   onRefresh(): Promise<unknown>;
   children: ReactNode;
 }) {
@@ -190,7 +197,6 @@ export function ProjectFrame({
             api={api}
             group={group}
             host={host}
-            onSettings={onSettings}
             onRefresh={onRefresh}
             setActions={setActions}
             setMeta={setMeta}

@@ -11,6 +11,8 @@ import { TreeContextMenu, type TreeAction } from './tree-context-menu';
 import { projectSessions, sessionRepo } from '../lib/session-repository';
 import { errorMessage } from '../lib/errors';
 import { CreateProject } from './create-project';
+import { ProjectSettingsDialog, type ProjectSettingsTab } from './project-settings-dialog';
+import { openProjectPage } from './project-tabs';
 import { AddRepository } from './add-repository';
 import { ActionMenu, type ActionMenuItem } from './action-menu';
 import { ChatActionsDropdown, ChatContextMenu } from './chat-action-menu';
@@ -25,22 +27,17 @@ import {
   Eye,
   Folder,
   FolderPlus,
-  GitBranch,
   LayoutGrid,
   Loader2,
   MessagesSquare,
   Pin,
   PinOff,
 } from 'lucide-react';
-import { trackerConnection } from '../domain/tracker';
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from './ui/collapsible';
 import { AgentIcon } from './ui/agent-icon';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
 import { EmptyState } from './ui/empty-state';
-import { EntityIcon } from './ui/entity-icon';
-import { SectionHeader } from './ui/page-header';
-import { Input } from './ui/input';
 import { showToast } from './ui/toast';
 import {
   Dialog,
@@ -48,7 +45,6 @@ import {
   DialogHeader,
   DialogTitle,
   DialogDescription,
-  DialogBody,
   DialogFooter,
 } from './ui/dialog';
 import type { API, Project, ProjectGroup, Session, RemoteHost, TrackerItem } from '../types';
@@ -120,11 +116,6 @@ export function ProjectTree({
   onAllSessions,
   overviewCurrent = false,
   allSessionsCurrent = false,
-  onDocs,
-  onMemory,
-  onInsights,
-  onNewTask,
-  onProjectSettings,
   taskOf,
   onOpenTask,
   onSessionCommand,
@@ -134,8 +125,6 @@ export function ProjectTree({
   run,
   onNotice,
   onRefresh,
-  onConnect,
-  connectLabel = 'Connect a GitHub Projects board…',
   activity = {},
   sessionActivity = {},
   openChats = [],
@@ -145,9 +134,6 @@ export function ProjectTree({
 }: {
   /** Reloads the snapshot without a busy state. */
   onRefresh: () => Promise<unknown>;
-  /** Connects a GitHub Projects board to a project without a board. */
-  onConnect?: (group: ProjectGroup) => void;
-  connectLabel?: string;
   /** Background session state for each repository ID. */
   activity?: Record<string, SessionActivityState>;
   /** Background state of open sessions, by `activityKey`. */
@@ -165,14 +151,6 @@ export function ProjectTree({
   onAllSessions?: () => void;
   overviewCurrent?: boolean;
   allSessionsCurrent?: boolean;
-  onDocs: (group: ProjectGroup) => void;
-  onMemory: (group: ProjectGroup) => void;
-  /** Opens the Insights page of a project. */
-  onInsights?: (group: ProjectGroup) => void;
-  /** Opens the tasks of a project with the New task form. */
-  onNewTask?: (group: ProjectGroup) => void;
-  /** Opens the Project settings dialog. */
-  onProjectSettings?: (group: ProjectGroup) => void;
   /** Opens the list of all chats of a project. Without it, "Show all chats" opens the project. */
   onProjectChats?: (group: ProjectGroup) => void;
   /** The board item that a chat works on. Rows show its number, such as "#12". */
@@ -257,31 +235,32 @@ export function ProjectTree({
       };
     },
   });
-  const [editing, setEditing] = useState<ProjectGroup | 'new' | null>(null);
-  const [name, setName] = useState('');
-  const [color, setColor] = useState<ProjectColor | null>(null);
-  const managedRepos =
-    editing && editing !== 'new'
-      ? allRepos.filter((repo) => editing.repoIds.includes(repo.id))
-      : [];
-  const canSave =
-    !busy &&
-    !!name.trim() &&
-    !(editing !== 'new' && editing?.name === name.trim() && (editing?.color || null) === color);
-  function saveProject() {
-    void run(async () => {
-      if (editing && editing !== 'new') {
-        if (editing.name !== name.trim()) await api.updateGroup(editing.id, name.trim());
-        if ((editing.color || null) !== color) await api.setGroupColor(editing.id, color);
-      }
-      setEditing(null);
-    });
-  }
-  function edit(group: ProjectGroup | 'new') {
-    setEditing(group);
-    setName(group === 'new' ? '' : group.name);
-    setColor(group === 'new' ? null : group.color || null);
-  }
+  const [creating, setCreating] = useState(false);
+  // The Project settings dialog. The row menu, the project header and other pages open it.
+  const [settings, setSettings] = useState<{
+    groupId: string;
+    tab?: ProjectSettingsTab;
+    rename?: boolean;
+  } | null>(null);
+  const settingsGroup = settings && groups.find((group) => group.id === settings.groupId);
+  const openSettings = (group: ProjectGroup, tab?: ProjectSettingsTab, rename = false) =>
+    setSettings({ groupId: group.id, tab, rename });
+  const latest = useRef({ groups, activeGroup });
+  latest.current = { groups, activeGroup };
+  useEffect(() => {
+    const onOpen = (event: Event) => {
+      const detail = (event as CustomEvent<{ groupId?: string; tab?: string } | undefined>).detail;
+      // An event without a project is for the project that shows.
+      const id = detail?.groupId || latest.current.activeGroup;
+      if (!id || !latest.current.groups.some((group) => group.id === id)) return;
+      setSettings({ groupId: id, tab: detail?.tab as ProjectSettingsTab | undefined });
+    };
+    window.addEventListener('kalkidan-open-project-settings', onOpen);
+    return () => window.removeEventListener('kalkidan-open-project-settings', onOpen);
+  }, []);
+  /** Tells the project page to load its board again. */
+  const boardChanged = (groupId: string) =>
+    window.dispatchEvent(new CustomEvent('kalkidan-github-writes', { detail: { groupId } }));
   const [collapsed, setCollapsed] = useState(savedCollapsed);
   function toggleGroup(id: string, open: boolean) {
     setCollapsed((current) => {
@@ -405,18 +384,11 @@ export function ProjectTree({
     group.repoIds.some((id) => allRepos.some((repo) => repo.id === id));
   const showAddFolder = (group: ProjectGroup) =>
     setAddFolder((current) => ({ groupId: group.id, at: (current?.at || 0) + 1 }));
+  // Navigation to the project pages is in the project tabs. The menu has no copies of it.
   function projectActions(group: ProjectGroup, host?: RemoteHost): TreeAction[] {
     return [
       { label: 'Open project', action: () => onProject(group) },
-      ...(onNewTask && trackerConnection(group)
-        ? [{ label: 'New task', action: () => onNewTask(group) }]
-        : []),
-      { label: 'Open docs', action: () => onDocs(group) },
-      { label: 'Open memory', action: () => onMemory(group) },
-      ...(onInsights ? [{ label: 'Insights', action: () => onInsights(group) }] : []),
-      ...(onProjectSettings
-        ? [{ label: 'Project settings…', action: () => onProjectSettings(group) }]
-        : []),
+      { label: 'Project settings…', action: () => openSettings(group) },
       ...(host && host.status !== 'connected'
         ? [
             {
@@ -432,17 +404,7 @@ export function ProjectTree({
         disabled: busy,
         action: () => showAddFolder(group),
       },
-      ...(onConnect && !trackerConnection(group)
-        ? [{ label: connectLabel, action: () => onConnect(group) }]
-        : []),
-      { label: 'Rename…', separator: true, disabled: busy, action: () => edit(group) },
-      {
-        label: 'Remove project from Kalkidan…',
-        disabled: busy,
-        destructive: true,
-        separator: true,
-        action: () => setRemoving({ kind: 'project', item: group }),
-      },
+      { label: 'Rename…', disabled: busy, action: () => openSettings(group, 'general', true) },
     ];
   }
   async function reconnect(host: RemoteHost) {
@@ -549,7 +511,7 @@ export function ProjectTree({
             className="tree-row-action"
             disabled={busy}
             aria-label="New project"
-            onClick={() => edit('new')}
+            onClick={() => setCreating(true)}
           >
             <FolderPlus />
           </Button>
@@ -818,141 +780,46 @@ export function ProjectTree({
       </Dialog>
       <CreateProject
         api={api}
-        open={editing === 'new'}
-        onOpenChange={(open) => !open && setEditing(null)}
+        open={creating}
+        onOpenChange={setCreating}
         onCreated={async (group) => {
           await onRefresh();
           onProject(group);
         }}
       />
-      <Dialog
-        open={!!editing && editing !== 'new'}
-        onOpenChange={(open) => !open && setEditing(null)}
-      >
-        <DialogContent size="md" layout="scroll">
-          <DialogHeader>
-            <div className="project-settings-heading">
-              <EntityIcon size="lg" color={color ? projectColors[color] : undefined}>
-                <Folder />
-              </EntityIcon>
-              <div>
-                <DialogTitle>Manage project</DialogTitle>
-                <DialogDescription className="mt-1">
-                  Change the name and color, and see the code folders of this project.
-                </DialogDescription>
-              </div>
-            </div>
-          </DialogHeader>
-          <DialogBody>
-            <form
-              id="project-settings-form"
-              className="grid gap-4"
-              onSubmit={(event) => {
-                event.preventDefault();
-                if (canSave) saveProject();
-              }}
-            >
-              <label className="form-label">
-                Project name
-                <Input
-                  value={name}
-                  maxLength={150}
-                  disabled={busy}
-                  onChange={(e) => setName(e.target.value)}
-                  placeholder="e.g. Customer platform"
-                />
-              </label>
-              <label className="form-label">
-                Project folder
-                <Input
-                  readOnly
-                  aria-label="Project folder"
-                  value={
-                    editing && editing !== 'new'
-                      ? editing.rootPath || 'Set when this project opens on its host'
-                      : ''
-                  }
-                />
-                <span className="form-help">
-                  Contains docs/, repos/, and worktrees/. Code folders in other places stay linked.
-                </span>
-              </label>
-              <fieldset className="project-settings-colors" disabled={busy}>
-                <legend className="form-label">Folder color</legend>
-                <div className="flex flex-wrap gap-2">
-                  {([null, ...Object.keys(projectColors)] as (ProjectColor | null)[]).map(
-                    (value) => (
-                      <Button
-                        key={value || 'default'}
-                        type="button"
-                        variant="ghost"
-                        size="icon"
-                        aria-label={
-                          value
-                            ? value[0].toUpperCase() + value.slice(1) + ' folder'
-                            : 'Default folder'
-                        }
-                        aria-pressed={color === value}
-                        title={value || 'Default'}
-                        onClick={() => setColor(value)}
-                        style={{ color: value ? projectColors[value] : 'var(--muted-foreground)' }}
-                      >
-                        <Folder />
-                      </Button>
-                    ),
-                  )}
-                </div>
-              </fieldset>
-              <section className="project-settings-repositories" aria-label="Project code folders">
-                <SectionHeader size="sm" title="Code folders" count={managedRepos.length} />
-                {managedRepos.length ? (
-                  <ul className="list-box">
-                    {managedRepos.map((repo) => (
-                      <li key={repo.id} className="list-box-row">
-                        <GitBranch size={14} />
-                        <div>
-                          <strong>{repo.name}</strong>
-                          <span title={repo.path}>{repo.path}</span>
-                        </div>
-                      </li>
-                    ))}
-                  </ul>
-                ) : (
-                  <EmptyState compact>No code folders in this project yet.</EmptyState>
-                )}
-              </section>
-              {editing && editing !== 'new' && (
-                <div className="danger-zone">
-                  <div>
-                    <strong>Remove project</strong>
-                    <p>Kalkidan stops showing it. All files stay on disk.</p>
-                  </div>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className="text-destructive hover:text-destructive"
-                    disabled={busy}
-                    onClick={() => {
-                      setRemoving({ kind: 'project', item: editing });
-                      setEditing(null);
-                    }}
-                  >
-                    Remove project…
-                  </Button>
-                </div>
-              )}
-            </form>
-          </DialogBody>
-          <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => setEditing(null)}>
-              Cancel
-            </Button>
-            <Button type="submit" form="project-settings-form" disabled={!canSave}>
-              {busy ? 'Saving…' : 'Save project'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      {settingsGroup && (
+        <ProjectSettingsDialog
+          api={api}
+          group={settingsGroup}
+          repos={allRepos}
+          host={hosts.find((h) => h.id === settingsGroup.hostId)}
+          open={!!settings}
+          tab={settings?.tab}
+          focusName={!!settings?.rename}
+          onOpenChange={(open) => {
+            if (open) return;
+            setSettings(null);
+            boardChanged(settingsGroup.id);
+            void onRefresh();
+          }}
+          onSaved={() => void onRefresh()}
+          onChanged={() => boardChanged(settingsGroup.id)}
+          onConnected={async () => {
+            await onRefresh();
+            // A connected board shows its tasks on the project page that shows.
+            if (latest.current.activeGroup === settingsGroup.id)
+              openProjectPage(settingsGroup.id, 'tasks');
+          }}
+          onDisconnected={async () => {
+            await onRefresh();
+            if (latest.current.activeGroup === settingsGroup.id)
+              openProjectPage(settingsGroup.id, 'board');
+          }}
+          onAddFolder={() => showAddFolder(settingsGroup)}
+          onRemoveFolder={(repo) => setRemoving({ kind: 'repository', item: repo })}
+          onRemoveProject={() => setRemoving({ kind: 'project', item: settingsGroup })}
+        />
+      )}
     </div>
   );
 }
