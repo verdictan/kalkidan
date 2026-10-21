@@ -1,3 +1,4 @@
+import type { VerdictanStatus } from '../src/domain/verdictan';
 import { identityKey } from './verdictan/bindings';
 import {
   savedVerdictanRegion,
@@ -509,10 +510,16 @@ app.whenReady().then(async () => {
       broadcastVerdictanChanged();
     }
   });
-  handle('verdictan-check', () => verdictan!.account.check());
-  handle('verdictan-authorize', (intent) => verdictan!.account.authorize(intent));
-  handle('verdictan-cancel', () => verdictan!.account.cancel());
-  handle('verdictan-renew', () => verdictan!.account.renew());
+  // Each account result carries the selected region, as verdictan-status does. Without it, the
+  // window shows "Region not selected" after a check.
+  const withRegion = async (status: Promise<VerdictanStatus>) => ({
+    ...(await status),
+    region: verdictan!.region,
+  });
+  handle('verdictan-check', () => withRegion(verdictan!.account.check()));
+  handle('verdictan-authorize', (intent) => withRegion(verdictan!.account.authorize(intent)));
+  handle('verdictan-cancel', () => withRegion(verdictan!.account.cancel()));
+  handle('verdictan-renew', () => withRegion(verdictan!.account.renew()));
   handle('verdictan-logout', async () => {
     changingAccount = true;
     try {
@@ -527,7 +534,7 @@ app.whenReady().then(async () => {
       );
       await verdictan!.managed.stopAll();
       chatRunner.dispose();
-      return await verdictan!.account.logout();
+      return await withRegion(verdictan!.account.logout());
     } finally {
       changingAccount = false;
       broadcastVerdictanChanged();
