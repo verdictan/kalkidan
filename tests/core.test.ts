@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, writeFile, rm, realpath, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { history } from '../electron/history';
+import { history, historyWithManaged } from '../electron/history';
 test('history reads both agents, skips truncated lines, and handles missing stores', async () => {
   const root = await mkdtemp(join(tmpdir(), 'kalkidan-history-'));
   try {
@@ -210,6 +210,48 @@ test('history scans beyond 300 sessions and large initial records without listin
     assert.equal(result.sessions.length, 306);
     assert.ok(result.sessions.some((s) => s.title === 'After large record'));
     assert.equal(result.warnings.length, 0);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('managed history includes subscription homes', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'kalkidan-managed-history-'));
+  try {
+    const home = join(root, 'managed-agent-homes', 'a'.repeat(64));
+    const claudeLine = (id: string, title: string) =>
+      JSON.stringify({
+        type: 'user',
+        cwd: '/tmp/project',
+        sessionId: id,
+        message: { content: title },
+      });
+    for (const [folder, id, title] of [
+      ['claude', 'claude-byok', 'BYOK chat'],
+      ['claude-subscription', 'claude-sub', 'Subscription chat'],
+    ]) {
+      await mkdir(join(home, folder, 'projects', '-tmp-project'), { recursive: true });
+      await writeFile(
+        join(home, folder, 'projects', '-tmp-project', `${id}.jsonl`),
+        claudeLine(id, title),
+      );
+    }
+    await mkdir(join(home, 'codex-subscription', 'sessions'), { recursive: true });
+    await writeFile(
+      join(home, 'codex-subscription', 'sessions', 'one.jsonl'),
+      JSON.stringify({ type: 'session_meta', payload: { id: 'codex-sub', cwd: '/tmp/project' } }) +
+        '\n' +
+        JSON.stringify({
+          type: 'event_msg',
+          payload: { type: 'user_message', message: 'Codex plan' },
+        }),
+    );
+    const result = await historyWithManaged(root, join(root, 'none'), join(root, 'none'));
+    assert.deepEqual(result.sessions.map((s) => s.title).sort(), [
+      'BYOK chat',
+      'Codex plan',
+      'Subscription chat',
+    ]);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

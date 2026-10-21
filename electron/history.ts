@@ -198,15 +198,21 @@ export async function historyWithManaged(
     .filter((h) => h.isDirectory() && /^[a-f0-9]{64}$/.test(h.name))
     .slice(0, 1000)) {
     const root = join(managedRoot, 'managed-agent-homes', home.name);
-    const result = await history(join(root, 'codex'), join(root, 'claude'), sources);
-    for (const session of result.sessions) {
-      const key = `${session.agent}:${session.id}`;
-      if (!seen.has(key)) {
-        seen.add(key);
-        legacy.sessions.push(session);
+    // Subscription runs keep their native history in separate homes (see BindingStore.home).
+    for (const [codex, claude] of [
+      ['codex', 'claude'],
+      ['codex-subscription', 'claude-subscription'],
+    ]) {
+      const result = await history(join(root, codex), join(root, claude), sources);
+      for (const session of result.sessions) {
+        const key = `${session.agent}:${session.id}`;
+        if (!seen.has(key)) {
+          seen.add(key);
+          legacy.sessions.push(session);
+        }
       }
+      legacy.warnings.push(...result.warnings);
     }
-    legacy.warnings.push(...result.warnings);
   }
   legacy.sessions.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
   return legacy;
