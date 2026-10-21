@@ -29,9 +29,6 @@ const fields: Record<ProjectServiceRequest['operation'], string[]> = {
   'context.list': ['cursor'],
   'context.publish': ['source', 'content'],
   'context.delete': ['knowledge_id'],
-  'admin.templates': ['cursor'],
-  'admin.template.save': ['template'],
-  'admin.template.apply': ['template_id', 'template_version', 'installation_id'],
   'operation.inspect': ['operation_id'],
 };
 const mutations = new Set([
@@ -39,8 +36,6 @@ const mutations = new Set([
   'context.configure',
   'context.publish',
   'context.delete',
-  'admin.template.save',
-  'admin.template.apply',
 ]);
 const text = (value: unknown): value is string =>
   typeof value === 'string' && value.length > 0 && value.length <= 10000;
@@ -144,17 +139,7 @@ export function normalizeProjectResult(
       (next.reviewer_id !== next.actor_id || next.request_replayed !== false || !next.decision_id)
     )
       throw Error('Invalid reviewer receipt.');
-    next.state =
-      request.operation === 'admin.template.apply'
-        ? next.status === 'partial'
-          ? 'partial'
-          : Array.isArray(next.installations) &&
-              next.installations.some((row: any) => row.runtime_acknowledgment !== 'applied')
-            ? 'pending'
-            : next.status === 'applied'
-              ? 'completed'
-              : next.status
-        : 'completed';
+    next.state = 'completed';
   }
   return next;
 }
@@ -216,6 +201,7 @@ export class ProjectServices {
     }
     return {
       available,
+      historyList: capabilities.includes('history.list'),
       pendingOperations: pendingOperations.slice(-100),
       permissions,
       operations: Object.keys(projectServicePermissions).filter((operation) =>

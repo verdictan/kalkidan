@@ -256,6 +256,7 @@ export class ManagedGateway {
       projectId: string;
       taskId: string;
       conversationId: string;
+      runId: string;
       turnId: string;
     },
   ) {
@@ -270,6 +271,8 @@ export class ManagedGateway {
       host_id: correlation.hostId,
       project_id: correlation.projectId,
       task_id: correlation.taskId,
+      // A project-bound runtime rejects requests without a run.
+      run_id: correlation.runId,
       conversation_id: correlation.conversationId,
       turn_id: correlation.turnId,
       agent_kind: agent.kind,

@@ -16,36 +16,35 @@ Every response repeats the verified scope and includes `actor_id`, `revision`, a
 
 ## Operations
 
-| Request operation      | Terminal event                | Request fields in addition to scope                                                    | Result                                                         |
-| ---------------------- | ----------------------------- | -------------------------------------------------------------------------------------- | -------------------------------------------------------------- |
-| `project.permissions`  | `project.permissions_result`  | None                                                                                   | Current actor and verified permission names                    |
-| `task.history`         | `task.history_result`         | `task_id`, optional `cursor`                                                           | Request-scoped usage, policy decisions, and audit references   |
-| `review.list`          | `review.list_result`          | Optional `task_id`, `cursor`                                                           | Pending and resolved escalations accessible to this actor      |
-| `review.decide`        | `review.decide_result`        | `escalation_id`, `decision` (`approve` or `deny`), `reason`, operation ID and revision | Immutable decision receipt and updated escalation              |
-| `context.settings`     | `context.settings_result`     | None                                                                                   | Project opt-in state, retention, and current revision          |
-| `context.configure`    | `context.configure_result`    | `enabled`, operation ID and revision                                                   | Updated consent receipt                                        |
-| `context.search`       | `context.search_result`       | `query`, `limit` (1–10), `max_characters` (1–8000), optional `task_id`                 | Bounded passages with provenance                               |
-| `context.list`         | `context.list_result`         | Optional `cursor`                                                                      | Metadata for knowledge visible to the current actor            |
-| `context.publish`      | `context.publish_result`      | `source`, `content`, operation ID and revision                                         | Stored knowledge ID and provenance                             |
-| `context.delete`       | `context.delete_result`       | `knowledge_id`, operation ID and revision                                              | Deletion receipt and deletion state                            |
-| `admin.templates`      | `admin.templates_result`      | Optional `cursor`                                                                      | Visible installation and policy templates                      |
-| `admin.template.save`  | `admin.template.save_result`  | `template`, operation ID and revision                                                  | Immutable template version and audit receipt                   |
-| `admin.template.apply` | `admin.template.apply_result` | `template_id`, `template_version`, `installation_id`, operation ID and revision        | Applied version or explicit partial-failure receipt            |
-| `operation.inspect`    | `operation.inspect_result`    | `operation_id`                                                                         | `pending`, `completed`, `failed`, or `unknown` and its receipt |
+| Request operation     | Terminal event               | Request fields in addition to scope                                                    | Result                                                         |
+| --------------------- | ---------------------------- | -------------------------------------------------------------------------------------- | -------------------------------------------------------------- |
+| `project.permissions` | `project.permissions_result` | None                                                                                   | Current actor and verified permission names                    |
+| `task.history`        | `task.history_result`        | `task_id`, optional `cursor`                                                           | Earlier name of `history.list`, kept for one release           |
+| `review.list`         | `review.list_result`         | Optional `task_id`, `cursor`                                                           | Pending and resolved escalations accessible to this actor      |
+| `review.decide`       | `review.decide_result`       | `escalation_id`, `decision` (`approve` or `deny`), `reason`, operation ID and revision | Immutable decision receipt and updated escalation              |
+| `context.settings`    | `context.settings_result`    | None                                                                                   | Project opt-in state, retention, and current revision          |
+| `context.configure`   | `context.configure_result`   | `enabled`, operation ID and revision                                                   | Updated consent receipt                                        |
+| `context.search`      | `context.search_result`      | `query`, `limit` (1–10), `max_characters` (1–8000), optional `task_id`                 | Bounded passages with provenance                               |
+| `context.list`        | `context.list_result`        | Optional `cursor`                                                                      | Metadata for knowledge visible to the current actor            |
+| `context.publish`     | `context.publish_result`     | `source`, `content`, operation ID and revision                                         | Stored knowledge ID and provenance                             |
+| `context.delete`      | `context.delete_result`      | `knowledge_id`, operation ID and revision                                              | Deletion receipt and deletion state                            |
+| `operation.inspect`   | `operation.inspect_result`   | `operation_id`                                                                         | `pending`, `completed`, `failed`, or `unknown` and its receipt |
 
 ## Result field names
 
 List responses use `items` and an optional `next_cursor`. Context search uses `passages`. History rows include `request_id`, `decision_outcome`, `policy_revision`, `reason_code`, `audit_id`, and `timestamp`. Their nested `usage` object includes `measured_cost`, `currency`, token counts, and `settlement_state`. Preserve decimal strings and null values.
 
-Mutation responses include `operation_id` and `audit_reference`. Review decisions also include `decision_id`, `reviewer_id`, and `request_replayed: false`. Template apply returns installation results and runtime acknowledgments. A pending acknowledgment is not a completed installation. Operation inspection returns `status` and the original nested `receipt`. Kalkidan maps these wire fields to its internal receipt model.
+Mutation responses include `operation_id` and `audit_reference`. Review decisions also include `decision_id`, `reviewer_id`, and `request_replayed: false`. Operation inspection returns `status` and the original nested `receipt`. Kalkidan maps these wire fields to its internal receipt model.
 
 ## Authorization and review
 
-Return explicit permissions: `history.read`, `review.read`, `review.decide`, `context.read`, `context.publish`, `context.delete`, `context.configure`, `templates.read`, `templates.manage`, `templates.apply`, and `operations.read`. Operation inspection also requires ownership of the original receipt or an explicit administrator grant. They are scoped to the verified organization and project. UI checks improve feedback; the broker and API must enforce each permission independently.
+Return explicit permissions: `history.read`, `review.read`, `review.decide`, `context.read`, `context.publish`, `context.delete`, `context.configure`, and `operations.read`. Operation inspection also requires ownership of the original receipt or an explicit administrator grant. They are scoped to the verified organization and project. UI checks improve feedback; the broker and API must enforce each permission independently.
 
 `review.decide` requires current reviewer permission for the specific escalation, a pending escalation, and the current revision. Enforce separation-of-duty rules on the server. Return `reviewer_id`, `decision_id`, decision time, and an audit reference. A decision must not replay a model request, change policy, or start an agent. A later request needs a new policy evaluation. Concurrent decisions must return a revision conflict; the client must refresh and ask for a new decision.
 
 ## Usage and policy history
+
+Verdictan CLI 0.6.3 adds `history.list`. It has no `project_scope`. It carries `history_scope`: `organization_id` and at least one of `project_id`, `conversation_id`, `task_id`, and `run_id`. Kalkidan uses it for tasks and chats when the runtime advertises it. It checks the echoed scope, `actor_id`, `observed_at`, at most 25 items, the cursor, and `replay_executes_requests: false`. Each item must belong to the organization and every key of the scope. Verdictan no longer keeps earlier observed revisions. Kalkidan keeps its own saved task observations.
 
 Bind every row to organization, project, task, run, session, runtime, and request IDs. Include decision outcome, policy revision, reason code, review ID when applicable, audit ID, and timestamps. Usage includes currency, measured cost, token counts, settlement state, and source. Use `null` for unavailable values. Do not replace unavailable usage with zero. Corrections retain their earlier revision and audit trail. Deduplicate by request ID and revision. Do not return raw prompts, provider credentials, or unrelated account usage.
 
@@ -57,15 +56,13 @@ Every passage includes `knowledge_id`, source kind and ID, source revision, proj
 
 Deletion must remove content from retrieval and invalidate caches. Return `pending` while an index or replica still needs deletion. Retain only the authorized deletion audit record. Deleted or revoked sources must not reappear after reindexing. Export and cross-project publication need separate authorization; project membership alone is not consent.
 
-## Administrator templates
+## Default Kalkidan configuration
 
-A template has an immutable ID, version, label, allowed host platforms, supported runtime range, installation defaults, and policy references. Do not embed secrets, arbitrary shell commands, or unsigned remote scripts in a template. Validate policy ownership and host compatibility before applying it. Do not weaken mandatory policy through a user override.
-
-An apply operation must return each affected installation and its result. Preserve the old configuration if validation fails. A partial apply must be visible and resumable through the same operation ID. Applying a template must not stop active work without the desktop's existing stop confirmation.
+Verdictan removed the administrator template operations. The broker rejects them with `desktop.operation_unsupported`. One default Kalkidan configuration replaces them. `setup.ensure_default` makes it once for each organization. `resources.provision` without both policy IDs uses it.
 
 ## Recovery and errors
 
-Use safe protocol error codes for unsupported capability, permission denied, scope mismatch, expired session, revision conflict, invalid input, rate limit, and unknown mutation outcome. Do not include tokens or upstream response bodies. After a timeout or transport loss during a mutation, show an uncertain state and query `operation.inspect`. Do not generate a new operation ID or replay an uncertain mutation automatically. Account changes invalidate cached permissions, history, context, templates, and pending UI actions.
+Use safe protocol error codes for unsupported capability, permission denied, scope mismatch, expired session, revision conflict, invalid input, rate limit, and unknown mutation outcome. Do not include tokens or upstream response bodies. After a timeout or transport loss during a mutation, show an uncertain state and query `operation.inspect`. Do not generate a new operation ID or replay an uncertain mutation automatically. Account changes invalidate cached permissions, history, context, and pending UI actions.
 
 ## Acceptance and ownership
 
@@ -80,7 +77,6 @@ Verify these cases before enabling an operation:
 - Unknown usage stays unknown, including after restart and settlement updates.
 - Context is off by default; explicit-only Docs behavior remains intact.
 - Deletion removes cached and indexed passages, with accurate pending status.
-- A stale template revision, incompatible host, or partial apply is visible and recoverable.
 - Native local and SSH agent requests retain their existing policy enforcement.
 
 No change to the Verdictan repository is included in this handoff.

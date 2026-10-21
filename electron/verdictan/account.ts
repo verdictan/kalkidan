@@ -274,6 +274,7 @@ export function parseAccount(data: Record<string, unknown>, apiOrigin: string): 
 }
 const sessionOperations = new Set([
   'project.permissions',
+  'history.list',
   ...Object.keys(projectServicePermissions),
 ]);
 /**

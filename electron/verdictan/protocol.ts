@@ -18,6 +18,8 @@ export type DesktopOperation =
   | 'authorization.cancel'
   | 'account.inspect'
   | 'setup.inspect'
+  | 'setup.ensure_default'
+  | 'history.list'
   | 'session.renew'
   | 'session.logout'
   | 'runtime.provision'
@@ -40,6 +42,13 @@ export interface RuntimeProvision {
   provider_connection_id?: string;
   provider_access_mode?: ProviderAccessMode;
 }
+export interface HistoryScope {
+  organization_id: string;
+  project_id?: string;
+  conversation_id?: string;
+  task_id?: string;
+  run_id?: string;
+}
 export interface DesktopParameters {
   project_scope?: { organization_id: string; project_id: string };
   fields?: Record<string, unknown>;
@@ -51,9 +60,13 @@ export interface DesktopParameters {
         host_id: string;
         team_id: string;
         project_id?: string;
-        configuration_id: string;
-        configuration_version_id: string;
+        /** Both or neither. Without them, Verdictan uses the default Kalkidan configuration. */
+        configuration_id?: string;
+        configuration_version_id?: string;
       };
+  /** `history.list` only. The organization and at least one correlation key. */
+  history_scope?: HistoryScope;
+  limit?: number;
   runtime_id?: string;
   gateway_stopped?: true;
   cursor?: string;
@@ -79,9 +92,6 @@ const terminalEvents: Record<DesktopOperation, string[]> = {
   'context.list': ['context.list_result'],
   'context.publish': ['context.publish_result'],
   'context.delete': ['context.delete_result'],
-  'admin.templates': ['admin.templates_result'],
-  'admin.template.save': ['admin.template.save_result'],
-  'admin.template.apply': ['admin.template.apply_result'],
   'operation.inspect': ['operation.inspect_result'],
   capabilities: ['capabilities'],
   status: ['account.status'],
@@ -89,6 +99,8 @@ const terminalEvents: Record<DesktopOperation, string[]> = {
   'authorization.cancel': ['authorization.cancel_completed'],
   'account.inspect': ['account.inspected'],
   'setup.inspect': ['setup.inspected'],
+  'setup.ensure_default': ['setup.default_ensured'],
+  'history.list': ['history.list_result'],
   'session.renew': ['session.renewed'],
   'session.logout': ['session.logged_out'],
   // Claude subscription returns `runtime.provisioned`; BYOK and Codex keep the older event.
@@ -199,6 +211,7 @@ export class DesktopProtocol {
             'operation',
             'project_scope',
             'parameters',
+            'history_scope',
             'fields',
           ].includes(key),
         ))

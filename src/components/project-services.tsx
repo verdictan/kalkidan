@@ -17,7 +17,8 @@ import { SectionHeader } from './ui/page-header';
 import { showToast } from './ui/toast';
 import { ActionRow, ErrorAlert, ReviewRow, ToolSection, FormSelect } from './planning-kit';
 import { errorMessage } from '../lib/errors';
-import { historyCostLabel, isOpaqueId, serviceName } from '../domain/verdictan';
+import { isOpaqueId, serviceName } from '../domain/verdictan';
+import { ManagedHistoryView } from './managed-history';
 
 /** Plain words for each project service action. */
 const operationLabels: Record<ProjectServiceOperation, string> = {
@@ -30,20 +31,16 @@ const operationLabels: Record<ProjectServiceOperation, string> = {
   'context.list': 'List the shared knowledge',
   'context.publish': 'Publish a doc page as shared knowledge',
   'context.delete': 'Delete shared knowledge',
-  'admin.templates': 'Read the templates',
-  'admin.template.save': 'Save a template',
-  'admin.template.apply': 'Apply a template',
   'operation.inspect': 'Check an action',
 };
 const operationLabel = (value: unknown) =>
   operationLabels[value as ProjectServiceOperation] || words(value, 'Action');
 
-type View = 'history' | 'reviews' | 'context' | 'templates';
+type View = 'history' | 'reviews' | 'context';
 const views: { value: View; label: string; operation: ProjectServiceOperation }[] = [
   { value: 'history', label: 'Task usage and policy history', operation: 'task.history' },
   { value: 'reviews', label: 'Reviews and approvals', operation: 'review.list' },
   { value: 'context', label: 'Shared knowledge (Context Fabric)', operation: 'context.list' },
-  { value: 'templates', label: 'Installation and policy templates', operation: 'admin.templates' },
 ];
 const listOperation = (kind: View) => views.find((view) => view.value === kind)!.operation;
 
@@ -75,18 +72,9 @@ const genericRecord = {
   history: 'Usage record',
   reviews: 'Review request',
   context: 'Knowledge entry',
-  templates: 'Template',
 } as const;
-const record = (value: unknown) =>
-  value && typeof value === 'object' ? (value as Record<string, unknown>) : {};
 
-function tokens(row: Record<string, unknown>) {
-  const usage = record(row.usage);
-  if (usage.total_tokens != null) return String(usage.total_tokens);
-  return typeof row.tokens === 'number' ? String(row.tokens) : 'Unknown';
-}
-
-/** Managed-agent services of the project: history, reviews, shared knowledge and templates. */
+/** Managed-agent services of the project: history, reviews and shared knowledge. */
 export function ProjectServicesPanel({
   api,
   groupId,
@@ -98,16 +86,12 @@ export function ProjectServicesPanel({
 }) {
   const [documents, setDocuments] = useState<ProjectDocMetadata[]>([]);
   const [document, setDocument] = useState<ProjectDoc>();
-  const [templateLabel, setTemplateLabel] = useState(''),
-    [policyId, setPolicyId] = useState(''),
-    [policyVersion, setPolicyVersion] = useState('');
   const [status, setStatus] = useState<ProjectServicesStatus>();
   const [result, setResult] = useState<ProjectServiceResult>();
   const [kind, setKind] = useState<View>('history');
   const [task, setTask] = useState(''),
     [query, setQuery] = useState(''),
-    [reason, setReason] = useState(''),
-    [installation, setInstallation] = useState('');
+    [reason, setReason] = useState('');
   const [consent, setConsent] = useState<ProjectServiceResult>();
   const [busy, setBusy] = useState(false),
     [error, setError] = useState('');
@@ -118,6 +102,8 @@ export function ProjectServicesPanel({
   const allowed = (operation: ProjectServiceOperation) =>
     status?.operations.includes(operation) &&
     status.permissions.includes(projectServicePermissions[operation]);
+  // `history.list` needs no project permission check. `task.history` is the earlier operation.
+  const historyAvailable = !!status?.historyList || !!allowed('task.history');
   async function run(action: () => Promise<void>) {
     if (busy) return;
     setBusy(true);
@@ -141,7 +127,7 @@ export function ProjectServicesPanel({
     setResult(
       await api.projectServicesRequest(groupId, {
         operation: listOperation(kind),
-        fields: task && kind !== 'context' && kind !== 'templates' ? { task_id: task } : {},
+        fields: task && kind !== 'context' ? { task_id: task } : {},
       }),
     );
   }
@@ -185,16 +171,17 @@ export function ProjectServicesPanel({
         }
       />
       <p className="form-help">
-        Usage history, reviews, shared knowledge and templates for managed agents in this project.
+        Usage history, reviews and shared knowledge for managed agents in this project. The
+        organization sets the policy in Verdictan.
       </p>
-      {status && !status.available && (
+      {status && !status.available && !status.historyList && (
         <Alert size="sm">
           <AlertDescription>
             {status.message || 'Managed agent services are not available for this project.'}
           </AlertDescription>
         </Alert>
       )}
-      {status?.available && (
+      {(status?.available || status?.historyList) && (
         <>
           {!!status.pendingOperations?.length && (
             <div className="review-list">
@@ -240,7 +227,9 @@ export function ProjectServicesPanel({
                   setResult(undefined);
                   setPending(undefined);
                 }}
-                options={views.map((view) => ({ value: view.value, label: view.label }))}
+                options={views
+                  .filter((view) => view.value === 'history' || status.available)
+                  .map((view) => ({ value: view.value, label: view.label }))}
               />
             </label>
             {['history', 'reviews'].includes(kind) && (
@@ -261,25 +250,27 @@ export function ProjectServicesPanel({
                 />
               </label>
             )}
-            {kind === 'templates' && (
-              <label className="form-label">
-                Installation ID
-                <Input
-                  value={installation}
-                  onChange={(event) => setInstallation(event.target.value)}
-                />
-              </label>
-            )}
           </div>
-          <ActionRow>
-            <Button
-              variant="outline"
-              disabled={busy || (kind === 'history' && !task) || !allowed(listOperation(kind))}
-              onClick={() => void run(load)}
-            >
-              Load current data
-            </Button>
-          </ActionRow>
+          {kind === 'history' ? (
+            historyAvailable ? (
+              <ManagedHistoryView
+                api={api}
+                target={task ? { kind: 'task', groupId, taskId: task } : undefined}
+              />
+            ) : (
+              <p className="form-help">Your account cannot read the history of this project.</p>
+            )
+          ) : (
+            <ActionRow>
+              <Button
+                variant="outline"
+                disabled={busy || !allowed(listOperation(kind))}
+                onClick={() => void run(load)}
+              >
+                Load current data
+              </Button>
+            </ActionRow>
+          )}
           {kind === 'reviews' && (
             <label className="form-label">
               Decision reason
@@ -399,69 +390,6 @@ export function ProjectServicesPanel({
               )}
             </ToolSection>
           )}
-          {kind === 'templates' && allowed('admin.template.save') && result && (
-            <ToolSection title="New administrator template">
-              <div className="planning-form-grid">
-                <label className="form-label">
-                  Name
-                  <Input
-                    value={templateLabel}
-                    onChange={(event) => setTemplateLabel(event.target.value)}
-                  />
-                </label>
-                <label className="form-label">
-                  Policy ID
-                  <Input value={policyId} onChange={(event) => setPolicyId(event.target.value)} />
-                </label>
-                <label className="form-label">
-                  Policy version
-                  <Input
-                    value={policyVersion}
-                    onChange={(event) => setPolicyVersion(event.target.value)}
-                  />
-                </label>
-              </div>
-              <ActionRow>
-                <Button
-                  variant="outline"
-                  disabled={
-                    busy || !templateLabel.trim() || !policyId.trim() || !policyVersion.trim()
-                  }
-                  onClick={() =>
-                    review(
-                      'admin.template.save',
-                      {
-                        template: {
-                          template_id: crypto.randomUUID(),
-                          label: templateLabel,
-                          allowed_host_platforms: [
-                            'darwin-arm64',
-                            'darwin-x64',
-                            'linux-arm64',
-                            'linux-x64',
-                          ],
-                          supported_runtime_range: {
-                            minimum: '0.4.1',
-                            maximum_exclusive: '1.0.0',
-                          },
-                          policy_references: [
-                            {
-                              configuration_id: policyId,
-                              configuration_version_id: policyVersion,
-                            },
-                          ],
-                          installation_defaults: { mandatory_gateway: true },
-                        },
-                      },
-                      result.revision,
-                    )
-                  }
-                >
-                  Review the template
-                </Button>
-              </ActionRow>
-            </ToolSection>
-          )}
           {result && (
             <p className="form-help">Loaded {fullTime(text(result.observed_at)) || 'now'}</p>
           )}
@@ -486,18 +414,7 @@ export function ProjectServicesPanel({
                       : undefined
                   }
                   meta={
-                    kind === 'history' ? (
-                      <>
-                        Policy: {words(visible(row.decision_outcome) || visible(row.decision))}
-                        {visible(row.reason_code) ? ` · ${words(row.reason_code)}` : ''}
-                        {serviceName(row.policy_name) ? ` · ${serviceName(row.policy_name)}` : ''} ·
-                        Cost:
-                        {historyCostLabel(row)} · Tokens: {tokens(row)}
-                        {text(record(row.usage).settlement_state) || text(row.settlement_state)
-                          ? ` · ${words(text(record(row.usage).settlement_state) || text(row.settlement_state))}`
-                          : ''}
-                      </>
-                    ) : kind === 'reviews' ? (
+                    kind === 'reviews' ? (
                       text(row.reason_code) ? (
                         words(row.reason_code)
                       ) : undefined
@@ -510,16 +427,9 @@ export function ProjectServicesPanel({
                         · Author: {serviceName(row.author_name) || 'Project member'}
                         {visible(row.deletion_state) ? ` · ${words(row.deletion_state)}` : ''}
                       </>
-                    ) : (
-                      `Version ${String(row.version || '')}${text(row.description) ? ` · ${text(row.description)}` : ''}`
-                    )
+                    ) : undefined
                   }
                 >
-                  {kind === 'history' && (
-                    <p className="text-xs leading-4 text-muted-foreground">
-                      Audit record: {text(row.audit_id) ? 'Recorded' : 'Unavailable'}
-                    </p>
-                  )}
                   {kind === 'context' && (
                     <p className="text-sm whitespace-pre-wrap">{text(row.content)}</p>
                   )}
@@ -560,28 +470,6 @@ export function ProjectServicesPanel({
                       </Button>
                     </div>
                   )}
-                  {kind === 'templates' && (
-                    <div className="review-row-actions">
-                      <Button
-                        size="xs"
-                        variant="outline"
-                        disabled={busy || !installation.trim() || !allowed('admin.template.apply')}
-                        onClick={() =>
-                          review(
-                            'admin.template.apply',
-                            {
-                              template_id: row.template_id,
-                              template_version: row.version,
-                              installation_id: installation,
-                            },
-                            result?.revision,
-                          )
-                        }
-                      >
-                        Review the template
-                      </Button>
-                    </div>
-                  )}
                 </ReviewRow>
               ))}
             </div>
@@ -593,22 +481,6 @@ export function ProjectServicesPanel({
                 : 'No records.'}
             </EmptyState>
           )}
-          {result &&
-            Array.isArray(result.installations) &&
-            result.installations.map((value, index, all) => {
-              const installation = record(value);
-              return (
-                <ReviewRow
-                  key={text(installation.installation_id) || index}
-                  title={
-                    serviceName(installation.name, installation.host_name) ||
-                    (all.length > 1 ? `Installation ${index + 1}` : 'Installation')
-                  }
-                  meta={`Runtime: ${words(installation.runtime_acknowledgment)}`}
-                  status={{ label: words(installation.status), tone: 'muted' }}
-                />
-              );
-            })}
           {result && typeof result.cursor === 'string' && (
             <ActionRow>
               <Button

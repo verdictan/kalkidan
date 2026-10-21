@@ -1,4 +1,8 @@
-/** Proposed broker contract; support requires an advertised runtime capability. */
+/**
+ * Project operations of the broker. Each one needs an advertised runtime capability.
+ * `task.history` is the earlier name of `history.list`. Use it only when `history.list` is not
+ * advertised. Verdictan removed the template operations.
+ */
 export const projectServicePermissions = {
   'task.history': 'history.read',
   'review.list': 'review.read',
@@ -9,9 +13,6 @@ export const projectServicePermissions = {
   'context.list': 'context.read',
   'context.publish': 'context.publish',
   'context.delete': 'context.delete',
-  'admin.templates': 'templates.read',
-  'admin.template.save': 'templates.manage',
-  'admin.template.apply': 'templates.apply',
   'operation.inspect': 'operations.read',
 } as const;
 export type ProjectServiceOperation = keyof typeof projectServicePermissions;
@@ -31,6 +32,8 @@ export interface ProjectServicesStatus {
   available: boolean;
   operations: ProjectServiceOperation[];
   permissions: string[];
+  /** True when the runtime advertises `history.list`. It needs no project permissions check. */
+  historyList?: boolean;
   message?: string;
 }
 export interface ProjectServicesAPI {

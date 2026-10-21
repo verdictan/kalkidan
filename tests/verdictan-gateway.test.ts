@@ -30,6 +30,7 @@ const correlation = {
   projectId: 'project',
   taskId: 'task',
   conversationId: 'conversation',
+  runId: 'run',
   turnId: id,
 };
 function fixture() {
@@ -147,6 +148,8 @@ test('gateway uses only fd3 for credentials and checks live authority for every 
   assert.match(route.args.join(' '), /x-verdictan-desktop-agent-version/);
   assert.match(route.args.join(' '), /x-verdictan-desktop-host-id/);
   assert.match(route.args.join(' '), /x-verdictan-desktop-project-id/);
+  // A project-bound runtime rejects requests without the run.
+  assert.match(route.args.join(' '), /x-verdictan-desktop-run-id/);
   assert.equal(route.args.join(' ').includes(credentials.inference_credential), false);
   await f.gateway.nativeRoute(agent, correlation);
   assert.equal(f.requests.length, 2);

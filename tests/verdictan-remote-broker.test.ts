@@ -3,14 +3,14 @@ import assert from 'node:assert/strict';
 import { RemoteAccountBroker, RemoteAccountClient } from '../electron/verdictan/remote-broker';
 const id = '11111111-1111-4111-8111-111111111111';
 const other = '22222222-2222-4222-8222-222222222222';
-function fixture() {
+function fixture(fallback = false) {
   const calls: { operation: string; parameters: any }[] = [];
   let key = 'account',
     afterProvision: (() => void) | undefined;
   const selection = {
     teamId: id,
-    configurationId: id,
-    configurationVersionId: id,
+    configurationId: fallback ? '' : id,
+    configurationVersionId: fallback ? '' : id,
     providerConnectionId: id,
     model: 'model',
   };
@@ -27,7 +27,12 @@ function fixture() {
       client,
       key,
       account: { state: 'authenticated' },
-      setup: { selections: { codex: selection } },
+      setup: {
+        selections: { codex: selection },
+        ...(fallback
+          ? { defaultPolicy: { configuration_id: other, configuration_version_id: other } }
+          : {}),
+      },
     }),
     validate: () => {},
   };
@@ -141,4 +146,29 @@ test('reverse RPC correlates replies and expires all requests on transport loss'
   await rejected;
   assert.equal(client.isClosed(), true);
   await assert.rejects(client.query('status'), /transport_closed/);
+});
+
+test('SSH broker provisions the default without policy IDs and never with one ID alone', async () => {
+  const f = fixture(true);
+  const { configuration_id, configuration_version_id, ...base } = f.resources.parameters;
+  assert.ok(configuration_id && configuration_version_id);
+  await f.broker.request('host', 'resources.provision', { parameters: base as any });
+  const sent = f.calls.find((call) => call.operation === 'resources.provision')!;
+  assert.equal('configuration_id' in sent.parameters.parameters, false);
+  assert.equal('configuration_version_id' in sent.parameters.parameters, false);
+  for (const half of [{ configuration_id }, { configuration_version_id }])
+    await assert.rejects(
+      f.broker.request('host', 'resources.provision', { parameters: { ...base, ...half } as any }),
+      /scope_mismatch/,
+    );
+  // A picked policy cannot use the default selection, and the default needs a readable default.
+  await assert.rejects(
+    f.broker.request('host', 'resources.provision', f.resources),
+    /scope_mismatch/,
+  );
+  const picked = fixture();
+  await assert.rejects(
+    picked.broker.request('host', 'resources.provision', { parameters: base as any }),
+    /scope_mismatch/,
+  );
 });

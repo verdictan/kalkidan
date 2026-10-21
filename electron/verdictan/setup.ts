@@ -1,8 +1,11 @@
 import {
   isSubscriptionMode,
+  policyReadinessValues,
   providerAccessModes,
   serviceName,
   subscriptionAgent,
+  usesDefaultPolicy,
+  type PolicyReadiness,
   type ProviderAccessMode,
   type VerdictanSelection,
   type VerdictanSetup,
@@ -73,6 +76,22 @@ export class VerdictanSetupService {
     const capabilities = advertised.length
       ? parseCapabilities((await client.request('capabilities')).data).capabilities
       : [];
+    const readiness =
+      data.readiness && typeof data.readiness === 'object'
+        ? (data.readiness as Record<string, unknown>).policy
+        : undefined;
+    const policyReadiness = policyReadinessValues.includes(readiness as PolicyReadiness)
+      ? (readiness as PolicyReadiness)
+      : undefined;
+    const fallback = data.default_configuration as Record<string, unknown> | null | undefined;
+    if (
+      fallback != null &&
+      (typeof fallback !== 'object' ||
+        fallback.marker !== 'kalkidan_default' ||
+        !policyId(fallback.configuration_id, 'configuration') ||
+        !policyId(fallback.configuration_version_id, 'version'))
+    )
+      throw new DesktopProtocolError('desktop.setup_invalid');
     const setup: VerdictanSetup = {
       providerAccessModes: [
         'byok',
@@ -81,6 +100,16 @@ export class VerdictanSetupService {
         ),
       ],
       status: typeof data.status === 'string' ? data.status : 'unavailable',
+      ...(policyReadiness ? { policyReadiness } : {}),
+      // Provision without policy IDs only when the default exists and the user can read it.
+      ...(fallback && policyReadiness !== 'default_permission_required'
+        ? {
+            defaultPolicy: {
+              configuration_id: fallback.configuration_id as string,
+              configuration_version_id: fallback.configuration_version_id as string,
+            },
+          }
+        : {}),
       teams: data.teams.map((t) => {
         if (!uuid(t.team_id)) throw new DesktopProtocolError('desktop.setup_invalid');
         return { team_id: t.team_id, ...displayName(t, 'team_name') };
@@ -106,6 +135,7 @@ export class VerdictanSetupService {
           (typeof version === 'string' && !!version.trim() && version.length <= 40)
             ? { version }
             : {}),
+          ...(p.default === true ? { default: true } : {}),
         };
       }),
       providerConnections: data.provider_connections.map((p) => {
@@ -124,8 +154,39 @@ export class VerdictanSetupService {
     };
     return { client, account, key, setup };
   }
-  async status() {
-    return (await this.inspect()).setup;
+  /**
+   * The setup for the Settings page. On the first connect of an organization, an administrator
+   * makes the default Kalkidan configuration here. Launches use `inspect`, which never creates
+   * it. The operation is idempotent, so a second call returns the existing default.
+   */
+  async status(): Promise<VerdictanSetup> {
+    const first = await this.inspect();
+    if (first.setup.policyReadiness !== 'default_creatable') return first.setup;
+    const { capabilities } = parseCapabilities((await first.client.request('capabilities')).data);
+    if (!capabilities.includes('setup.ensure_default')) return first.setup;
+    let ensured: 'created' | 'existing';
+    try {
+      const data = (await first.client.request('setup.ensure_default')).data;
+      if (
+        data.schema_version !== 1 ||
+        !['created', 'existing'].includes(String(data.status)) ||
+        data.marker !== 'kalkidan_default' ||
+        data.mandatory_gateway !== true ||
+        !policyId(data.configuration_id, 'configuration') ||
+        !policyId(data.configuration_version_id, 'version')
+      )
+        throw new DesktopProtocolError('desktop.setup_invalid');
+      ensured = data.status as 'created' | 'existing';
+    } catch (error) {
+      // Another administrator can remove the permission between the two calls.
+      const code = error instanceof DesktopProtocolError ? error.code : '';
+      if (code === 'desktop.setup_default_configuration_required')
+        return { ...first.setup, policyReadiness: 'default_configuration_required' };
+      if (code === 'desktop.setup_permission_required')
+        return { ...first.setup, policyReadiness: 'default_permission_required' };
+      throw error;
+    }
+    return { ...(await this.inspect()).setup, defaultEnsured: ensured };
   }
   validate(setup: VerdictanSetup, agent: 'codex' | 'claude', value: VerdictanSelection) {
     if (
@@ -134,11 +195,16 @@ export class VerdictanSetupService {
       typeof value.model !== 'string' ||
       !/^[A-Za-z0-9][A-Za-z0-9_.:/-]{0,159}$/.test(value.model) ||
       !setup.teams.some((t) => t.team_id === value.teamId) ||
-      !setup.policies.some(
-        (p) =>
-          p.configuration_id === value.configurationId &&
-          p.configuration_version_id === value.configurationVersionId,
-      ) ||
+      typeof value.configurationId !== 'string' ||
+      typeof value.configurationVersionId !== 'string' ||
+      // No policy IDs: the default Kalkidan configuration. It must exist and be readable.
+      (usesDefaultPolicy(value)
+        ? !setup.defaultPolicy
+        : !setup.policies.some(
+            (p) =>
+              p.configuration_id === value.configurationId &&
+              p.configuration_version_id === value.configurationVersionId,
+          )) ||
       !providerAccessModes.includes(value.providerAccessMode || 'byok') ||
       (isSubscriptionMode(value.providerAccessMode)
         ? agent !== subscriptionAgent[value.providerAccessMode] ||

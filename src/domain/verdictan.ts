@@ -67,15 +67,41 @@ export const isSubscriptionMode = (
 export interface VerdictanSelection {
   providerAccessMode?: ProviderAccessMode;
   teamId: string;
+  /**
+   * Both empty: the user did not pick a policy, so Verdictan uses the default Kalkidan
+   * configuration. Both set: the picked policy. One without the other is not valid.
+   */
   configurationId: string;
   configurationVersionId: string;
   providerConnectionId: string;
   model: string;
 }
+/** The state of the default Kalkidan configuration, from `setup.inspect`. */
+export type PolicyReadiness =
+  | 'default_available'
+  | 'default_creatable'
+  | 'default_configuration_required'
+  | 'default_permission_required'
+  | 'unknown';
+export const policyReadinessValues: readonly PolicyReadiness[] = [
+  'default_available',
+  'default_creatable',
+  'default_configuration_required',
+  'default_permission_required',
+  'unknown',
+];
+/** The visible name of the default Kalkidan configuration. */
+export const kalkidanDefaultLabel = 'Kalkidan default';
 /** IDs are values for the backend only. The optional names are the only visible text. */
 export interface VerdictanSetup {
   providerAccessModes?: ProviderAccessMode[];
   status: string;
+  /** Missing when the runtime does not report it. */
+  policyReadiness?: PolicyReadiness;
+  /** Present only when the default exists and the user can read it. */
+  defaultPolicy?: { configuration_id: string; configuration_version_id: string };
+  /** Set when Kalkidan made sure that the default exists during this check. */
+  defaultEnsured?: 'created' | 'existing';
   /** `name`, `version` and `allowedModels` are present only when the service sends them. */
   teams: { team_id: string; name?: string }[];
   policies: {
@@ -84,6 +110,8 @@ export interface VerdictanSetup {
     name?: string;
     version_name?: string;
     version?: string | number;
+    /** True for the default Kalkidan configuration. It is first in the list. */
+    default?: boolean;
   }[];
   providerConnections: { provider_connection_id: string; provider: string; name?: string }[];
   /** Models that the organization allows: one list, or one list for each agent. */
@@ -160,7 +188,7 @@ export const policyLabels = (policies: VerdictanSetup['policies']) =>
   labelList(
     policies,
     (policy) => {
-      const name = serviceName(policy.name);
+      const name = serviceName(policy.name) || (policy.default ? kalkidanDefaultLabel : undefined);
       const number = policy.version;
       const version =
         serviceName(policy.version_name) ||
@@ -180,6 +208,18 @@ export const connectionLabels = (connections: VerdictanSetup['providerConnection
       sameProvider.indexOf(connections[index])
     ];
   });
+/** True when a selection uses the default Kalkidan configuration: both policy IDs are empty. */
+export const usesDefaultPolicy = (
+  selection: Pick<VerdictanSelection, 'configurationId' | 'configurationVersionId'>,
+) => !selection.configurationId && !selection.configurationVersionId;
+/** The text that tells the user how to get the default configuration, or nothing. */
+export function policyRecovery(readiness: PolicyReadiness | undefined) {
+  if (readiness === 'default_configuration_required')
+    return 'Ask an organization administrator to connect Kalkidan once. This makes the Kalkidan default policy for your organization.';
+  if (readiness === 'default_permission_required')
+    return 'Ask an organization administrator to give you read access to the Kalkidan default policy.';
+  return undefined;
+}
 /** The visible account name. It never shows an organization or user ID. */
 export function accountLabel(account?: Pick<VerdictanAccount, 'organizationName'>) {
   return serviceName(account?.organizationName) || 'Your account';
@@ -250,6 +290,20 @@ export const managedErrors: Record<string, ManagedErrorInfo> = {
   },
   'desktop.setup_selection_required': {
     message: 'Choose a team, a policy, a connection and a model for managed agents.',
+    section: setUp,
+  },
+  'desktop.history_invalid': {
+    message: 'Kalkidan could not check the history from Verdictan. Load it again.',
+    retry: true,
+  },
+  'desktop.setup_default_configuration_required': {
+    message:
+      'Your organization has no Kalkidan default policy. Ask an organization administrator to connect Kalkidan once.',
+    section: setUp,
+  },
+  'desktop.setup_permission_required': {
+    message:
+      'You cannot read the Kalkidan default policy. Ask an organization administrator for access.',
     section: setUp,
   },
   'desktop.runtime_expired': {
@@ -596,6 +650,14 @@ const launchBlocks: Record<string, [ManagedSetupStep, string]> = {
   ],
   'desktop.setup_invalid': ['agent-setup', setupChoice],
   'desktop.setup_selection_required': ['agent-setup', setupChoice],
+  'desktop.setup_default_configuration_required': [
+    'agent-setup',
+    'Ask an organization administrator to connect Kalkidan once.',
+  ],
+  'desktop.setup_permission_required': [
+    'agent-setup',
+    'Ask an organization administrator for access to the Kalkidan default policy.',
+  ],
   'desktop.subscription_agent_required': ['agent-setup', setupChoice],
   'desktop.resource_binding_mismatch': ['agent-setup', setupChoice],
   'desktop.agent_version_unsupported': ['agent-setup', supportedAgent],
