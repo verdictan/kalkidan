@@ -262,6 +262,13 @@ function demoContentFor(item: string): GitHubContentSnapshot {
 }
 export const demo: API = {
   taskUsageHistory: async () => [],
+  managedHistory: async () => ({
+    entries: [],
+    cursor: null,
+    asOf: null,
+    observedAt: new Date().toISOString(),
+    source: 'history',
+  }),
   projectPublishDoc: async () => {
     throw new Error('Knowledge publication requires the desktop app.');
   },

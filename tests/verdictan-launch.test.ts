@@ -136,9 +136,17 @@ test('managed homes and binding files cannot follow symlinks', async () => {
     await rm(root, { recursive: true, force: true });
   }
 });
-async function fixture() {
+async function fixture(
+  overrides: {
+    selection?: typeof selection;
+    defaultPolicy?: { configuration_id: string; configuration_version_id: string };
+    resources?: Record<string, unknown>;
+  } = {},
+) {
   const root = await mkdtemp(join(tmpdir(), 'launch-'));
   const calls: string[] = [];
+  const provisions: any[] = [];
+  const routes: any[] = [];
   const options = { version: agent.version, failRoute: false, failBind: false };
   const store = new BindingStore(root);
   const client: any = {
@@ -155,6 +163,7 @@ async function fixture() {
             tested_agents: [agent],
           },
         };
+      provisions.push(params.parameters);
       return {
         data: {
           ...params.parameters,
@@ -162,6 +171,7 @@ async function fixture() {
           agent_id: id,
           gateway_id: 'gateway',
           region_id: id,
+          ...overrides.resources,
         },
       };
     },
@@ -170,7 +180,10 @@ async function fixture() {
     inspect: async () => ({
       client,
       account: { organizationId: id, userId: id },
-      setup: { selections: { codex: selection } },
+      setup: {
+        selections: { codex: overrides.selection ?? selection },
+        defaultPolicy: overrides.defaultPolicy,
+      },
     }),
     validate: (_: unknown, _agent: unknown, s: unknown) => s,
   };
@@ -181,7 +194,8 @@ async function fixture() {
       sessionId = params.session_id;
     },
     endpoint: () => 'http://127.0.0.1:1234',
-    route: async () => {
+    route: async (_: string, correlation: unknown) => {
+      routes.push(correlation);
       calls.push('route');
       if (options.failRoute) throw Error('readiness_failed');
       return { args: ['--managed'], env: { OPENAI_API_KEY: 'vdt_private' } };
@@ -215,6 +229,8 @@ async function fixture() {
   return {
     root,
     calls,
+    provisions,
+    routes,
     options,
     store,
     service,
@@ -355,4 +371,57 @@ test('subscription selections require runtime capability and never fall back to 
   );
   setup.providerAccessModes = ['byok'];
   assert.throws(() => service.validate(setup, 'codex', subscription), /setup_selection_required/);
+});
+
+test('a launch without a picked policy provisions the default and binds the resolved version', async () => {
+  const fallback = {
+    configuration_id: `cfg_${'a'.repeat(32)}`,
+    configuration_version_id: `cfgv_${'b'.repeat(32)}`,
+  };
+  const deployed = `cfgv_${'c'.repeat(32)}`;
+  const f = await fixture({
+    selection: { ...selection, configurationId: '', configurationVersionId: '' },
+    defaultPolicy: fallback,
+    resources: {
+      configuration_id: fallback.configuration_id,
+      configuration_version_id: deployed,
+      configuration_source: 'kalkidan_default',
+    },
+  });
+  try {
+    const launch = await f.service.prepare(f.request);
+    // Neither policy field goes to Verdictan, so it uses the default.
+    assert.equal('configuration_id' in f.provisions[0], false);
+    assert.equal('configuration_version_id' in f.provisions[0], false);
+    await launch.bindNativeSession('native-default');
+    const saved = await f.store.read('codex', 'native-default');
+    assert.equal(saved?.configuration_id, fallback.configuration_id);
+    assert.equal(saved?.configuration_version_id, deployed);
+    // The run goes to the gateway, so that a project-bound runtime accepts the requests.
+    assert.equal(f.routes[0].runId, 'turn');
+    await launch.finish();
+  } finally {
+    await f.cleanup();
+  }
+});
+
+test('a provision that does not use the requested policy is a binding mismatch', async () => {
+  const picked = await fixture({ resources: { configuration_source: 'kalkidan_default' } });
+  try {
+    await assert.rejects(picked.service.prepare(picked.request), /resource_binding_mismatch/);
+    assert.deepEqual(picked.provisions[0].configuration_id, id);
+    assert.equal(picked.calls.includes('start'), false);
+  } finally {
+    await picked.cleanup();
+  }
+  const fallback = await fixture({
+    selection: { ...selection, configurationId: '', configurationVersionId: '' },
+    defaultPolicy: { configuration_id: id, configuration_version_id: id },
+    resources: { configuration_id: id, configuration_version_id: id },
+  });
+  try {
+    await assert.rejects(fallback.service.prepare(fallback.request), /resource_binding_mismatch/);
+  } finally {
+    await fallback.cleanup();
+  }
 });

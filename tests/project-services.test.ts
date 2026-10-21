@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { ProjectServices, normalizeProjectResult } from '../electron/verdictan/project-services';
 import type { DesktopClient, DesktopOperation } from '../electron/verdictan/protocol';
+import { projectServicePermissions } from '../src/domain/project-services';
 
 async function fixture(t: { after(fn: () => Promise<void>): void }) {
   const root = await mkdtemp(join(tmpdir(), 'project-services-'));
@@ -229,18 +230,18 @@ test('published broker receipts preserve reviewer identity, usage, pagination, a
   );
   assert.equal(history.cursor, 'next');
   assert.deepEqual(history.items, [row]);
-  const application = {
-    ...scope,
-    operation_id: request.fields.operation_id,
-    audit_reference: 'audit',
-    status: 'applied',
-    installations: [{ runtime_acknowledgment: 'pending' }],
-  };
+});
+test('removed template operations stay unavailable in services and the protocol', async () => {
+  const services = new ProjectServices('/unused', async () => {
+    throw Error('A removed operation must not resolve a project.');
+  });
+  for (const operation of ['admin.templates', 'admin.template.save', 'admin.template.apply'])
+    await assert.rejects(
+      services.request('group', { operation: operation as any, fields: {} }),
+      /Invalid project service request/,
+    );
   assert.equal(
-    normalizeProjectResult(application, {
-      operation: 'admin.template.apply',
-      fields: request.fields,
-    }).state,
-    'pending',
+    Object.keys(projectServicePermissions).some((key) => key.startsWith('admin.')),
+    false,
   );
 });

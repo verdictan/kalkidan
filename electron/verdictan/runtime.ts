@@ -156,7 +156,13 @@ export class ManagedRuntimes {
   }
   async route(
     sessionId: string,
-    correlation: { projectId: string; taskId: string; conversationId: string; turnId: string },
+    correlation: {
+      projectId: string;
+      taskId: string;
+      conversationId: string;
+      runId: string;
+      turnId: string;
+    },
   ) {
     const item = this.records.get(sessionId);
     if (!item?.gateway || item.phase !== 'ready' || this.operations.has(sessionId) || this.closing)
