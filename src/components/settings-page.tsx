@@ -294,7 +294,7 @@ function AgentsTab({
       <ManagedSetup api={api} open={open} onNavigate={onNavigate} />
       <SettingsGroup id="settings-agent-programs" title="Agent programs">
         <AgentProgramsSettings api={api} open={open} onNavigate={onNavigate} />
-        <SettingsDisclosure title="How this works" className="mt-2">
+        <SettingsDisclosure title="How agent programs are chosen" className="mt-2">
           <div className="grid gap-2 text-xs leading-4 text-muted-foreground">
             <p>
               Managed Verdictan agents use these agent programs on each computer. Kalkidan does not

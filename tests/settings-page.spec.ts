@@ -226,8 +226,13 @@ test('each tab shows its content', async ({ page }) => {
   await expect(managed).toContainText('Ready for Codex');
   await expect(managed.getByRole('button', { name: /^Save/ })).toHaveCount(0);
   await expect(managed.getByText('Before each run, the service checks')).toBeHidden();
-  await managed.getByRole('button', { name: 'How this works' }).click();
+  await managed.getByRole('button', { name: 'How managed setup works' }).click();
   await expect(managed.getByText('Before each run, the service checks')).toBeVisible();
+  // Each disclosure has its own name. No two say "How this works".
+  await expect(settings.getByRole('button', { name: 'How this works' })).toHaveCount(0);
+  const programs = settings.getByRole('region', { name: 'Agent programs' });
+  await programs.getByRole('button', { name: 'How agent programs are chosen' }).click();
+  await expect(programs.getByText('Kalkidan does not start them directly.')).toBeVisible();
   await expect(settings.getByRole('region', { name: 'Agents on this computer' })).toBeVisible();
   await expect(settings.getByRole('region', { name: 'Agents on devbox' })).toBeVisible();
   await page.screenshot({ path: 'test-results/settings-agents.png', fullPage: true });
