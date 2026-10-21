@@ -36,7 +36,7 @@ test('the row status reads the saved outcome, then the draft outcome in memory',
 });
 
 test('opening a chat removes only the finished mark, not a failed outcome', () => {
-  const chat = { agent: 'codex', id: 'draft-2' };
+  const chat = { agent: 'codex' as const, id: 'draft-2' };
   markFinished(chat.agent, chat.id);
   assert.equal(chatStatusInfo(chat, undefined, activitySnapshot())?.state, 'done');
   markDraftOutcome(chat.agent, chat.id, { outcome: 'failed', reason: 'agent_error', at });

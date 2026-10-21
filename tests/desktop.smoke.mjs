@@ -410,7 +410,9 @@ try {
       .click();
   };
   await page.reload();
-  await page.locator('.repo-select').first().click();
+  // The sidebar shows projects and chats only. Open the code folder from the project overview.
+  await page.locator('.project-tree .project-select').first().click();
+  await page.locator('.project-home-open').first().click();
   // The default agent is the first installed agent, so the label names Codex or Claude Code.
   await page
     .getByRole('button', { name: /^New (Codex|Claude Code) chat$/ })
