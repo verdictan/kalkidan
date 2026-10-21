@@ -256,6 +256,10 @@ test('restored chats show only the text that the user wrote', () => {
     'Fix it',
   );
   assert.equal(visibleUserText('Plain text'), 'Plain text');
+  assert.equal(
+    visibleUserText('<system-reminder>a</system-reminder>\n' + wrapped),
+    'Reply with pong',
+  );
   const messages = parseTranscript(
     [
       JSON.stringify({
@@ -273,6 +277,17 @@ test('restored chats show only the text that the user wrote', () => {
         type: 'user',
         uuid: 'u2',
         message: { role: 'user', content: '<system-reminder>only context</system-reminder>' },
+      }),
+      JSON.stringify({
+        type: 'api-request-blob',
+        uuid: 'b1',
+        message: {
+          role: 'user',
+          content: [
+            { type: 'text', text: '<system-reminder>context</system-reminder>' },
+            { type: 'text', text: wrapped },
+          ],
+        },
       }),
       JSON.stringify({
         type: 'assistant',
