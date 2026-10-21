@@ -9,6 +9,7 @@ import {
   type UsageTokens,
 } from '../domain/project-usage';
 import { agentLabel } from '../config/agents';
+import { usageValuesNote } from '../domain/managed-history';
 import { errorMessage } from '../lib/errors';
 import { plural } from '../lib/platform';
 import { fullTime, relativeTime } from '../lib/relative-time';
@@ -110,8 +111,8 @@ export function ProjectUsageInsights({
         }
       />
       <p className="form-help m-0">
-        The requests of managed agents in the chats of this project, from the Verdictan history. A
-        missing value is unknown. This is not a bill.
+        The requests that managed agents made in the chats of this project. The data comes from the
+        Verdictan history. {usageValuesNote}
       </p>
       {!available ? (
         <EmptyState compact title="Usage history is not available">

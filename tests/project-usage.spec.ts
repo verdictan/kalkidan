@@ -115,6 +115,11 @@ test('Insights without a board show the managed-agent usage of the project chats
   await openAtlas(page, 'Insights');
   const usage = page.getByRole('region', { name: 'Managed-agent usage', exact: true });
   const totals = usage.getByRole('definition');
+  // The intro uses the same words as the Usage history of a chat.
+  await expect(usage).toContainText(
+    '“Unknown” shows when Verdictan has no record of a value. The costs come from Verdictan. Your provider sends the bill.',
+  );
+  await expect(usage).not.toContainText('This is not a bill');
   await expect(usage.getByLabel('Usage totals')).toContainText('Requests3');
   await expect(usage.getByLabel('Usage totals')).toContainText('Allowed2');
   await expect(usage.getByLabel('Usage totals')).toContainText('Refused1');

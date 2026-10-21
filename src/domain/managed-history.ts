@@ -159,6 +159,13 @@ export function durationLabel(ms: number) {
   return seconds ? `${minutes.toLocaleString('en-US')} min ${seconds} s` : `${minutes} min`;
 }
 /**
+ * The note about unknown values and costs in the usage views: the Usage history of a chat and
+ * the Insights of a project.
+ */
+export const usageValuesNote =
+  '“Unknown” shows when Verdictan has no record of a value. The costs come from Verdictan. Your provider sends the bill.';
+
+/**
  * The cost of one request. A request that the user's own subscription pays has no Verdictan
  * cost. The provider bills the subscription.
  */

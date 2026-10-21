@@ -6,6 +6,7 @@ import {
   historyDetails,
   type ManagedHistoryPage,
   type ManagedHistoryScope,
+  usageValuesNote,
 } from '../domain/managed-history';
 import { fullTime } from '../lib/relative-time';
 import { errorMessage } from '../lib/errors';
@@ -58,8 +59,7 @@ export function ManagedHistoryView({ api, target }: { api: API; target?: Managed
   return (
     <div className="grid gap-3" aria-busy={busy}>
       <p className="form-help">
-        Verdictan keeps one history for chats and tasks. “Unknown” shows when Verdictan has no
-        record of a value. The costs come from Verdictan. Your provider sends the bill.
+        Verdictan keeps one history for chats and tasks. {usageValuesNote}
       </p>
       <ActionRow>
         <Button variant="outline" size="sm" disabled={busy || !target} onClick={() => void load()}>
