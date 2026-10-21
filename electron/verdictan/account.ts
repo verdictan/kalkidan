@@ -15,6 +15,9 @@ export interface DesktopAccountOptions {
   changed?(): void;
 }
 /** One backend owner serves every window. The CLI owns account secrets and PKCE. */
+/** How long a launch waits for a running status check or session renewal. */
+const runtimeClientWaitMs = 30_000;
+
 export class VerdictanAccountService {
   private state: VerdictanStatus = { phase: 'missing', executionReady: false };
   private client?: DesktopClient;
@@ -65,6 +68,17 @@ export class VerdictanAccountService {
   }
   /** Backend-only access. The CLI remains the single owner of account credentials. */
   async runtimeClient() {
+    // A status check or a session renewal is short. It starts with the app and with Settings, so
+    // a launch waits for it instead of refusing. Sign-in and sign-out still refuse a launch.
+    const operation = this.operation;
+    if (!this.disposed && operation && ['check', 'renew'].includes(this.operationKind)) {
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      await Promise.race([
+        operation.catch(() => undefined),
+        new Promise((done) => (timer = setTimeout(done, runtimeClientWaitMs))),
+      ]);
+      clearTimeout(timer);
+    }
     if (this.disposed || this.operation)
       throw new DesktopProtocolError('desktop.operation_in_progress');
     const client = await this.connection();
