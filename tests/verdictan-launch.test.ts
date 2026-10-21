@@ -138,7 +138,7 @@ test('managed homes and binding files cannot follow symlinks', async () => {
 });
 async function fixture(
   overrides: {
-    selection?: typeof selection;
+    selection?: typeof selection & { agentId?: string };
     defaultPolicy?: { configuration_id: string; configuration_version_id: string };
     resources?: Record<string, unknown>;
   } = {},
@@ -423,5 +423,47 @@ test('a provision that does not use the requested policy is a binding mismatch',
     await assert.rejects(fallback.service.prepare(fallback.request), /resource_binding_mismatch/);
   } finally {
     await fallback.cleanup();
+  }
+});
+
+test('a launch with a chosen agent provisions with agent_id and binds its deployed policy', async () => {
+  const deployed = {
+    configuration_id: `cfg_${'d'.repeat(32)}`,
+    configuration_version_id: `cfgv_${'e'.repeat(32)}`,
+  };
+  const chosen = { ...selection, configurationId: '', configurationVersionId: '', agentId: id };
+  const f = await fixture({
+    selection: chosen,
+    resources: {
+      ...deployed,
+      configuration_source: 'agent_deployment',
+      agent_source: 'selected_agent',
+    },
+  });
+  try {
+    const launch = await f.service.prepare(f.request);
+    // The agent and its team only. The deployed policy of the agent applies.
+    assert.equal(f.provisions[0].agent_id, id);
+    assert.equal(f.provisions[0].team_id, id);
+    assert.equal('configuration_id' in f.provisions[0], false);
+    assert.equal('configuration_version_id' in f.provisions[0], false);
+    await launch.bindNativeSession('native-agent');
+    const saved = await f.store.read('codex', 'native-agent');
+    assert.equal(saved?.configuration_id, deployed.configuration_id);
+    assert.equal(saved?.configuration_version_id, deployed.configuration_version_id);
+    await launch.finish();
+  } finally {
+    await f.cleanup();
+  }
+  // A provision that did not attach the host to the chosen agent never starts.
+  const host = await fixture({
+    selection: chosen,
+    resources: { ...deployed, configuration_source: 'kalkidan_default', agent_source: 'host' },
+  });
+  try {
+    await assert.rejects(host.service.prepare(host.request), /resource_binding_mismatch/);
+    assert.equal(host.calls.includes('start'), false);
+  } finally {
+    await host.cleanup();
   }
 });

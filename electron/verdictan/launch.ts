@@ -39,24 +39,40 @@ export class SubscriptionRecoveryError extends DesktopProtocolError {
 }
 /**
  * True when `resources.provisioned` used the policy that Kalkidan asked for. A picked policy
- * must come back unchanged. The default must come back as the default configuration; its
- * version can be older, because a binding keeps the version that Verdictan deployed first.
+ * must come back unchanged. A chosen agent must come back attached, with its deployed
+ * configuration. The default must come back as the default configuration; its version can be
+ * older, because a binding keeps the version that Verdictan deployed first. When the host is
+ * attached to the Kalkidan agent, the deployed configuration of that agent applies.
  * Older runtimes do not send `configuration_source`, and they cannot provision the default.
  */
 export function provisionedPolicy(
   resources: Record<string, unknown>,
   selection: VerdictanSelection,
   fallback: VerdictanSetup['defaultPolicy'],
+  kalkidanAgent?: string,
 ) {
+  const ids =
+    policyId(resources.configuration_id, 'configuration') &&
+    policyId(resources.configuration_version_id, 'version');
+  if (selection.agentId)
+    return (
+      resources.agent_source === 'selected_agent' &&
+      resources.agent_id === selection.agentId &&
+      resources.configuration_source === 'agent_deployment' &&
+      ids
+    );
   if (!usesDefaultPolicy(selection))
     return (
       (resources.configuration_source ?? 'selected') === 'selected' &&
+      (resources.agent_source ?? 'host') === 'host' &&
       resources.configuration_id === selection.configurationId &&
       resources.configuration_version_id === selection.configurationVersionId
     );
+  if (resources.configuration_source !== 'kalkidan_default' || !fallback) return false;
+  if (resources.agent_source === 'kalkidan_default_agent')
+    return ids && (!kalkidanAgent || resources.agent_id === kalkidanAgent);
   return (
-    !!fallback &&
-    resources.configuration_source === 'kalkidan_default' &&
+    (resources.agent_source ?? 'host') === 'host' &&
     resources.configuration_id === fallback.configuration_id &&
     policyId(resources.configuration_version_id, 'version')
   );
@@ -126,13 +142,15 @@ export class VerdictanLaunchService {
       ...(request.session.governanceScope?.projectId
         ? { project_id: request.session.governanceScope.projectId }
         : {}),
-      // Send both policy IDs or neither. Without them, Verdictan uses the default.
-      ...(fallback
-        ? {}
-        : {
-            configuration_id: selection.configurationId,
-            configuration_version_id: selection.configurationVersionId,
-          }),
+      // An agent, both policy IDs, or nothing. Without them, Verdictan uses the default.
+      ...(selection.agentId
+        ? { agent_id: selection.agentId }
+        : fallback
+          ? {}
+          : {
+              configuration_id: selection.configurationId,
+              configuration_version_id: selection.configurationVersionId,
+            }),
     };
     const resources = (await client.request('resources.provision', { parameters })).data;
     if (
@@ -142,7 +160,7 @@ export class VerdictanLaunchService {
       typeof resources.gateway_id !== 'string' ||
       resources.installation_id !== parameters.installation_id ||
       resources.host_id !== parameters.host_id ||
-      !provisionedPolicy(resources, selection, setup.defaultPolicy)
+      !provisionedPolicy(resources, selection, setup.defaultPolicy, setup.bootstrap?.agent_id)
     )
       throw new DesktopProtocolError('desktop.resource_binding_mismatch');
     const previous = await this.store.read(kind, request.forkFrom || request.session.id);

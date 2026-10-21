@@ -1,5 +1,5 @@
 // Plain words for managed-agent and update states. The UI never shows the raw API values.
-import { managedErrorInfo, managedErrors, serviceName } from '../domain/verdictan';
+import { managedErrorInfo, managedErrors, selectionIssue, serviceName } from '../domain/verdictan';
 import type { VerdictanSetup, VerdictanStatus } from '../domain/verdictan';
 import type {
   ComponentUpdateStatus,
@@ -232,7 +232,8 @@ const accountErrors: Record<string, string> = {
     'Another account operation is in progress. Wait for it to finish.',
   'desktop.setup_invalid':
     'The setup choices from your organization are not valid. Try again later.',
-  'desktop.setup_selection_required': 'Choose a team, policy, connection, and model, then save.',
+  'desktop.setup_selection_required':
+    'Choose an agent or a team and policy, a connection, and a model. Then save.',
   'desktop.cancel_failed': 'Could not cancel the sign-in. Check the status.',
 };
 
@@ -256,7 +257,8 @@ export function managedSteps(
   return {
     runtime: !!status && status.phase !== 'missing' && status.phase !== 'checking',
     signedIn,
-    codex: signedIn && !!setup?.selections.codex,
-    claude: signedIn && !!setup?.selections.claude,
+    // A saved choice that needs a new agent, for example a removed default, is not done.
+    codex: signedIn && !!setup && !selectionIssue(setup, setup.selections.codex),
+    claude: signedIn && !!setup && !selectionIssue(setup, setup.selections.claude),
   };
 }

@@ -75,6 +75,12 @@ export interface VerdictanSelection {
   configurationVersionId: string;
   providerConnectionId: string;
   model: string;
+  /**
+   * An agent from `setup.inspect` `agents`. When it is set, the host attaches to this agent and
+   * its deployed configuration applies. `teamId` is then the team of the agent, and both policy
+   * IDs are empty. Missing: the team and policy choice of older runtimes.
+   */
+  agentId?: string;
 }
 /** The state of the default Kalkidan configuration, from `setup.inspect`. */
 export type PolicyReadiness =
@@ -82,14 +88,39 @@ export type PolicyReadiness =
   | 'default_creatable'
   | 'default_configuration_required'
   | 'default_permission_required'
+  | 'default_removed'
   | 'unknown';
 export const policyReadinessValues: readonly PolicyReadiness[] = [
   'default_available',
   'default_creatable',
   'default_configuration_required',
   'default_permission_required',
+  'default_removed',
   'unknown',
 ];
+/** The state of the one-time Kalkidan organization bootstrap, from `setup.inspect`. */
+export type BootstrapReadiness =
+  'bootstrapped' | 'bootstrap_available' | 'bootstrap_requires_admin' | 'unknown';
+export const bootstrapReadinessValues: readonly BootstrapReadiness[] = [
+  'bootstrapped',
+  'bootstrap_available',
+  'bootstrap_requires_admin',
+  'unknown',
+];
+/** An agent that the user can attach a host to. IDs are values for the backend only. */
+export interface VerdictanAgent {
+  agent_id: string;
+  team_id: string;
+  name?: string;
+  configuration_id: string;
+  configuration_version_id: string;
+  configuration_name?: string;
+  version_name?: string;
+  /** True for the Kalkidan agent of the organization. It is first in the list. */
+  default?: boolean;
+}
+/** The visible name of the Kalkidan agent when the service sends no name. */
+export const kalkidanAgentLabel = 'Kalkidan agent';
 /** The visible name of the default Kalkidan configuration. */
 export const kalkidanDefaultLabel = 'Kalkidan default';
 /** IDs are values for the backend only. The optional names are the only visible text. */
@@ -107,6 +138,27 @@ export interface VerdictanSetup {
    * or read it during this check. The other policies stay available. Refresh tries again.
    */
   defaultUnavailable?: boolean;
+  /** Missing when the runtime does not report it (older API). */
+  bootstrapReadiness?: BootstrapReadiness;
+  /** The bootstrap record. Missing before the bootstrap and with older runtimes. */
+  bootstrap?: {
+    status: 'bootstrapped' | 'adopted';
+    agent_id: string;
+    configuration_status: 'available' | 'deleted';
+    agent_status: 'available' | 'inactive' | 'deleted';
+  };
+  /** Set when Kalkidan ran the one-time bootstrap during this check. */
+  bootstrapped?: 'bootstrapped' | 'already_bootstrapped';
+  /**
+   * Why the one-time bootstrap did not run. `team_required`: the administrator has no team
+   * that can hold the Kalkidan agent. `failed`: another failure; Refresh tries again.
+   */
+  bootstrapIssue?: 'team_required' | 'failed';
+  /**
+   * Agents that the user can attach a host to. Missing when the runtime does not send the
+   * list (older runtimes); then the team and policy choice applies.
+   */
+  agents?: VerdictanAgent[];
   /** `name`, `version` and `allowedModels` are present only when the service sends them. */
   teams: { team_id: string; name?: string }[];
   policies: {
@@ -213,10 +265,71 @@ export const connectionLabels = (connections: VerdictanSetup['providerConnection
       sameProvider.indexOf(connections[index])
     ];
   });
+/**
+ * Visible labels for agents. An agent without a name shows "Kalkidan agent" when it is the
+ * default, else "Agent 1", "Agent 2". IDs never show.
+ */
+export const agentLabels = (agents: readonly VerdictanAgent[]) =>
+  labelList(
+    agents,
+    (agent) => serviceName(agent.name) || (agent.default ? kalkidanAgentLabel : undefined),
+    'Agent',
+    'Agent 1',
+  );
+/** The secondary text of an agent: its deployed configuration name and version, or nothing. */
+export function agentConfigurationLabel(agent: VerdictanAgent) {
+  const name =
+    serviceName(agent.configuration_name) || (agent.default ? kalkidanDefaultLabel : undefined);
+  const version = serviceName(agent.version_name);
+  if (name && version) return `${name} · ${version}`;
+  return name || (version ? `Version ${version}` : undefined);
+}
 /** True when a selection uses the default Kalkidan configuration: both policy IDs are empty. */
 export const usesDefaultPolicy = (
-  selection: Pick<VerdictanSelection, 'configurationId' | 'configurationVersionId'>,
-) => !selection.configurationId && !selection.configurationVersionId;
+  selection: Pick<VerdictanSelection, 'configurationId' | 'configurationVersionId'> & {
+    agentId?: string;
+  },
+) => !selection.agentId && !selection.configurationId && !selection.configurationVersionId;
+/**
+ * True when an administrator removed the default Kalkidan setup after the bootstrap: the
+ * default configuration or the Kalkidan agent. Verdictan does not make it again.
+ */
+export const defaultRemoved = (
+  setup: Pick<VerdictanSetup, 'bootstrap' | 'policyReadiness'> | undefined,
+) =>
+  !!setup &&
+  (setup.policyReadiness === 'default_removed' ||
+    setup.bootstrap?.configuration_status === 'deleted' ||
+    setup.bootstrap?.agent_status === 'deleted');
+/** True when the agent choice applies: the runtime sends agents, and there is one or more. */
+export const usesAgentChoice = (setup: Pick<VerdictanSetup, 'agents'> | undefined) =>
+  !!setup?.agents?.length;
+/**
+ * The code that stops a saved selection, or nothing when it can still work. A removed default
+ * and an agent that is not in the list need a new choice.
+ */
+export function selectionIssue(
+  setup: VerdictanSetup,
+  selection: VerdictanSelection | undefined,
+): string | undefined {
+  if (!selection) return 'desktop.setup_selection_required';
+  if (selection.agentId) {
+    if (setup.agents?.some((agent) => agent.agent_id === selection.agentId)) return undefined;
+    return defaultRemoved(setup) && selection.agentId === setup.bootstrap?.agent_id
+      ? 'desktop.setup_default_removed'
+      : 'desktop.setup_agent_unavailable';
+  }
+  if (usesDefaultPolicy(selection) && defaultRemoved(setup)) return 'desktop.setup_default_removed';
+  return undefined;
+}
+/** The note for an administrator who removed the default Kalkidan setup. */
+export const defaultRemovedNotice =
+  'An administrator removed the default Kalkidan setup. Choose another agent.';
+/** The note when the default is removed and the user has no other agent. */
+export const noAgentNotice =
+  'An administrator removed the default Kalkidan setup, and you have no other agent. Ask an organization administrator to give you access to an agent.';
+/** The note for a member before an administrator connects Kalkidan for the first time. */
+export const bootstrapAdminNotice = 'Ask an organization administrator to finish Kalkidan setup.';
 /** The text that tells the user how to get the default configuration, or nothing. */
 export function policyRecovery(readiness: PolicyReadiness | undefined) {
   if (readiness === 'default_configuration_required')
@@ -294,7 +407,23 @@ export const managedErrors: Record<string, ManagedErrorInfo> = {
     section: setUp,
   },
   'desktop.setup_selection_required': {
-    message: 'Choose a team, a policy, a connection and a model for managed agents.',
+    message: 'Choose an agent or a policy, a connection and a model for managed agents.',
+    section: setUp,
+  },
+  'desktop.setup_default_removed': {
+    message: 'An administrator removed the default Kalkidan setup. Choose another agent.',
+    section: setUp,
+  },
+  'desktop.setup_agent_unavailable': {
+    message: 'The agent that you chose is not available now. Choose another agent.',
+    section: setUp,
+  },
+  'desktop.setup_resource_unavailable': {
+    message: 'The agent that you chose is not available now. Choose another agent.',
+    section: setUp,
+  },
+  'desktop.setup_bootstrap_required': {
+    message: 'Ask an organization administrator to finish Kalkidan setup.',
     section: setUp,
   },
   'desktop.history_invalid': {
@@ -605,7 +734,7 @@ export interface ManagedLaunchBlock {
   message: string;
 }
 const setupChoice =
-  'Choose an authorized team, policy, provider access, and model for this agent in managed agent setup.';
+  'Choose an authorized agent or policy, provider access, and model for this agent in managed agent setup.';
 const signInAgain = 'Sign in to Verdictan again. Then send your message again.';
 const runtimeRepair =
   'Install or update the approved Verdictan runtime on the machine where work runs.';
@@ -662,6 +791,22 @@ const launchBlocks: Record<string, [ManagedSetupStep, string]> = {
   'desktop.setup_permission_required': [
     'agent-setup',
     'Ask an organization administrator for access to the Kalkidan default policy.',
+  ],
+  'desktop.setup_default_removed': [
+    'agent-setup',
+    'An administrator removed the default Kalkidan setup. Choose another agent.',
+  ],
+  'desktop.setup_agent_unavailable': [
+    'agent-setup',
+    'The agent that you chose is not available now. Choose another agent.',
+  ],
+  'desktop.setup_resource_unavailable': [
+    'agent-setup',
+    'The agent that you chose is not available now. Choose another agent.',
+  ],
+  'desktop.setup_bootstrap_required': [
+    'agent-setup',
+    'Ask an organization administrator to finish Kalkidan setup.',
   ],
   'desktop.subscription_agent_required': ['agent-setup', setupChoice],
   'desktop.resource_binding_mismatch': ['agent-setup', setupChoice],

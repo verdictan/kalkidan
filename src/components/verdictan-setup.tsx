@@ -3,12 +3,21 @@ import { Check, RefreshCw } from 'lucide-react';
 import type { API } from '../api/contracts';
 import type { ModelOption } from '../domain/conversation';
 import {
+  agentConfigurationLabel,
+  agentLabels,
+  bootstrapAdminNotice,
   connectionLabels,
+  defaultRemoved,
+  defaultRemovedNotice,
   isSubscriptionMode,
+  kalkidanAgentLabel,
   kalkidanDefaultLabel,
+  noAgentNotice,
   policyLabels,
   policyRecovery,
+  selectionIssue,
   teamLabels,
+  usesAgentChoice,
   usesDefaultPolicy,
   type ProviderAccessMode,
   type VerdictanSetup,
@@ -45,16 +54,38 @@ const emptySelection: VerdictanSelection = {
  */
 function initialSelection(setup: VerdictanSetup, agent: ManagedAgent): VerdictanSelection {
   const saved = setup.selections[agent];
-  if (saved) return saved;
+  const issue = saved && selectionIssue(setup, saved);
+  const agentChoice = usesAgentChoice(setup);
+  if (saved && !issue && !!saved.agentId === agentChoice) return saved;
   const connections = setup.providerConnections.filter((p) => p.provider === agentProvider[agent]);
-  // With a default, empty policy IDs select it. Otherwise the only policy, when there is one.
-  const [policy] = !setup.defaultPolicy && setup.policies.length === 1 ? setup.policies : [];
-  return {
+  // A saved selection that needs a new agent or policy keeps its access and model.
+  const { agentId: _agent, ...kept } = saved || {
     ...emptySelection,
+    providerConnectionId: connections.length === 1 ? connections[0].provider_connection_id : '',
+  };
+  if (agentChoice) {
+    // The Kalkidan agent is preselected. When it is gone, the user must choose an agent.
+    const removed = defaultRemoved(setup);
+    const pick = issue
+      ? undefined
+      : setup.agents!.find((a) => a.default) ||
+        (setup.agents!.length === 1 && !removed ? setup.agents![0] : undefined);
+    return {
+      ...kept,
+      agentId: pick?.agent_id || '',
+      teamId: pick?.team_id || '',
+      configurationId: '',
+      configurationVersionId: '',
+    };
+  }
+  // With a default, empty policy IDs select it. Otherwise the only policy, when there is one.
+  const fallback = !defaultRemoved(setup) && !!setup.defaultPolicy;
+  const [policy] = !fallback && setup.policies.length === 1 ? setup.policies : [];
+  return {
+    ...kept,
     teamId: setup.teams.length === 1 ? setup.teams[0].team_id : '',
     configurationId: policy?.configuration_id || '',
     configurationVersionId: policy?.configuration_version_id || '',
-    providerConnectionId: connections.length === 1 ? connections[0].provider_connection_id : '',
   };
 }
 
@@ -117,7 +148,12 @@ export function VerdictanSetupForm({
     setSaving(true);
     setError('');
     try {
-      const next = await api.verdictanSelect(agent, selection);
+      // The agent ID goes only with the agent choice. The team and policy choice omits it.
+      const { agentId, ...rest } = selection;
+      const next = await api.verdictanSelect(
+        agent,
+        agentChoice && agentId ? { ...rest, agentId } : rest,
+      );
       setSetup(next);
       onSetup?.(next);
       showToast(`Saved the ${agentNames[agent]} setup`);
@@ -128,6 +164,10 @@ export function VerdictanSetupForm({
     }
   }
   const busy = loading || saving;
+  const agentChoice = usesAgentChoice(setup);
+  const removed = defaultRemoved(setup);
+  const agents = setup?.agents || [];
+  const chosenAgent = agents.find((a) => a.agent_id === selection.agentId);
   const connections =
     setup?.providerConnections.filter((p) => p.provider === agentProvider[agent]) || [];
   // Each agent can use only its own subscription mode, and only when the runtime offers it.
@@ -137,6 +177,8 @@ export function VerdictanSetupForm({
   const subscription = isSubscriptionMode(selection.providerAccessMode);
   // Visible labels. IDs stay in option values and never show as text.
   // The default shows once, as "Kalkidan default". The list shows the other policies.
+  // A removed default is not a choice. Verdictan does not make it again.
+  const defaultPolicy = removed ? undefined : setup?.defaultPolicy;
   const policies = setup?.defaultPolicy
     ? setup.policies.filter((policy) => !policy.default)
     : setup?.policies || [];
@@ -144,8 +186,8 @@ export function VerdictanSetupForm({
     teams: teamLabels(setup.teams),
     policies: policyLabels(policies),
     connections: connectionLabels(connections),
+    agents: agentLabels(agents),
   };
-  const defaultPolicy = setup?.defaultPolicy;
   const policyValue = usesDefaultPolicy(selection)
     ? defaultPolicy
       ? defaultOption
@@ -155,7 +197,10 @@ export function VerdictanSetupForm({
         !policies.some((p) => p.configuration_version_id === selection.configurationVersionId)
       ? defaultOption
       : selection.configurationVersionId;
-  const recovery = policyRecovery(setup?.policyReadiness);
+  const requiresAdmin = setup?.bootstrapReadiness === 'bootstrap_requires_admin';
+  // The bootstrap note replaces the policy recovery for a member: one note, one action.
+  const recovery = requiresAdmin ? undefined : policyRecovery(setup?.policyReadiness);
+  const otherAgents = agents.filter((a) => !a.default);
   const allowed = allowedModels(setup, agent);
   const modelOptions = (
     allowed
@@ -167,6 +212,7 @@ export function VerdictanSetupForm({
       : [],
   );
   const saved = setup?.selections[agent];
+  const savedIssue = setup && saved ? selectionIssue(setup, saved) : undefined;
   const changed =
     !saved ||
     (Object.keys({ ...saved, ...selection }) as (keyof VerdictanSelection)[]).some(
@@ -174,7 +220,9 @@ export function VerdictanSetupForm({
     );
   const complete =
     !!selection.teamId &&
-    (!!selection.configurationVersionId || (!!defaultPolicy && usesDefaultPolicy(selection))) &&
+    (agentChoice
+      ? !!chosenAgent
+      : !!selection.configurationVersionId || (!!defaultPolicy && usesDefaultPolicy(selection))) &&
     (subscription || !!selection.providerConnectionId) &&
     !!selection.model;
   return (
@@ -217,50 +265,83 @@ export function VerdictanSetupForm({
       {setup && (
         <>
           <div className="managed-setup-grid">
-            <label className="form-label">
-              Team
-              <Choice
-                className="w-full"
-                label="Team"
-                value={selection.teamId}
-                disabled={busy}
-                onChange={(teamId) => setSelection({ ...selection, teamId })}
-                options={[
-                  { value: '', label: 'Choose a team' },
-                  ...setup.teams.map((team, index) => ({
-                    value: team.team_id,
-                    label: labels!.teams[index],
-                  })),
-                ]}
-              />
-            </label>
-            <label className="form-label">
-              Policy
-              <Choice
-                className="w-full"
-                label="Policy"
-                value={policyValue}
-                disabled={busy}
-                onChange={(value) => {
-                  // The default sends no policy IDs. Verdictan then uses its newest version.
-                  const policy = policies.find((p) => p.configuration_version_id === value);
-                  setSelection({
-                    ...selection,
-                    configurationId: policy?.configuration_id || '',
-                    configurationVersionId: policy?.configuration_version_id || '',
-                  });
-                }}
-                options={[
-                  defaultPolicy
-                    ? { value: defaultOption, label: kalkidanDefaultLabel }
-                    : { value: '', label: 'Choose a policy' },
-                  ...policies.map((policy, index) => ({
-                    value: policy.configuration_version_id,
-                    label: labels!.policies[index],
-                  })),
-                ]}
-              />
-            </label>
+            {agentChoice ? (
+              <label className="form-label">
+                Agent
+                <Choice
+                  className="w-full"
+                  label="Agent"
+                  value={chosenAgent ? chosenAgent.agent_id : ''}
+                  disabled={busy}
+                  onChange={(value) => {
+                    // The agent sets the team. Its deployed policy applies, so no policy IDs.
+                    const next = agents.find((a) => a.agent_id === value);
+                    setSelection({
+                      ...selection,
+                      agentId: next?.agent_id || '',
+                      teamId: next?.team_id || '',
+                      configurationId: '',
+                      configurationVersionId: '',
+                    });
+                  }}
+                  options={[
+                    { value: '', label: 'Choose an agent' },
+                    ...agents.map((item, index) => ({
+                      value: item.agent_id,
+                      label: labels!.agents[index],
+                      description: agentConfigurationLabel(item),
+                    })),
+                  ]}
+                />
+              </label>
+            ) : (
+              <>
+                <label className="form-label">
+                  Team
+                  <Choice
+                    className="w-full"
+                    label="Team"
+                    value={selection.teamId}
+                    disabled={busy}
+                    onChange={(teamId) => setSelection({ ...selection, teamId })}
+                    options={[
+                      { value: '', label: 'Choose a team' },
+                      ...setup.teams.map((team, index) => ({
+                        value: team.team_id,
+                        label: labels!.teams[index],
+                      })),
+                    ]}
+                  />
+                </label>
+                <label className="form-label">
+                  Policy
+                  <Choice
+                    className="w-full"
+                    label="Policy"
+                    value={policyValue}
+                    disabled={busy}
+                    onChange={(value) => {
+                      // The default sends no policy IDs. Verdictan then uses its newest version.
+                      const policy = policies.find((p) => p.configuration_version_id === value);
+                      setSelection({
+                        ...selection,
+                        configurationId: policy?.configuration_id || '',
+                        configurationVersionId: policy?.configuration_version_id || '',
+                      });
+                    }}
+                    options={[
+                      defaultPolicy
+                        ? { value: defaultOption, label: kalkidanDefaultLabel }
+                        : { value: '', label: 'Choose a policy' },
+                      ...policies.map((policy, index) => ({
+                        value: policy.configuration_version_id,
+                        label: labels!.policies[index],
+                      })),
+                    ]}
+                  />
+                </label>
+              </>
+            )}
             {(subscriptionOffered || subscription) && (
               <label className="form-label">
                 Model access
@@ -338,7 +419,45 @@ export function VerdictanSetupForm({
               )}
             </label>
           </div>
-          {recovery && (
+          {agentChoice && chosenAgent && agentConfigurationLabel(chosenAgent) && (
+            <p className="form-help">
+              The policy of this agent is {agentConfigurationLabel(chosenAgent)}. The organization
+              changes it in Verdictan.
+            </p>
+          )}
+          {requiresAdmin && (
+            <Alert size="sm" role="note">
+              <AlertDescription className="text-xs leading-4">
+                {bootstrapAdminNotice}
+                {defaultPolicy
+                  ? ` Until then, Kalkidan uses the ${kalkidanDefaultLabel} policy.`
+                  : ''}
+              </AlertDescription>
+            </Alert>
+          )}
+          {removed && (
+            <Alert size="sm" role="note">
+              <AlertDescription className="text-xs leading-4">
+                {agentChoice && otherAgents.length ? defaultRemovedNotice : noAgentNotice}
+                {!agentChoice && policies.length ? ' Until then, choose another policy.' : ''}
+              </AlertDescription>
+            </Alert>
+          )}
+          {setup.bootstrapIssue && !requiresAdmin && (
+            <Alert size="sm" role="note">
+              <AlertDescription className="text-xs leading-4">
+                {setup.bootstrapIssue === 'team_required'
+                  ? 'Kalkidan could not finish Kalkidan setup. You need a team that can make and deploy agents. Ask an organization administrator to add you to one.'
+                  : 'Kalkidan could not finish Kalkidan setup now. Select Refresh choices to try again.'}
+              </AlertDescription>
+            </Alert>
+          )}
+          {setup.bootstrapped === 'bootstrapped' && (
+            <p role="status" className="form-help">
+              Kalkidan set up the {kalkidanAgentLabel} for your organization.
+            </p>
+          )}
+          {recovery && !removed && (
             <Alert size="sm" role="note">
               <AlertDescription className="text-xs leading-4">
                 {recovery}
@@ -379,7 +498,7 @@ export function VerdictanSetupForm({
             started before a change keep their first setup.
           </p>
           <div className="flex items-center justify-end gap-2">
-            {saved && !changed && (
+            {saved && !changed && !savedIssue && (
               <span className="flex items-center gap-1 text-xs leading-4 text-success">
                 <Check className="size-3.5" aria-hidden="true" />
                 Ready for {agentNames[agent]}

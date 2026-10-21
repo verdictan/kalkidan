@@ -48,19 +48,49 @@ without a cursor, so it shows corrections and later requests.
 Kalkidan sends `x-verdictan-desktop-run-id` with each request. A project-bound
 runtime rejects requests without it.
 
-## Default policy
+## Default policy and agents
 
 Kalkidan owns projects. Verdictan is the gateway control plane. One default
-Kalkidan configuration replaces the earlier per-project templates. After
-sign-in, the managed agent setup reads `setup.inspect`. If
-`readiness.policy` is `default_creatable` and the runtime advertises
-`setup.ensure_default`, Kalkidan calls it once. Launches never call it.
+Kalkidan configuration replaces the earlier per-project templates.
 
-The setup shows the default as **Kalkidan default** and selects it. A selection
-of the default has no policy IDs, so `resources.provision` sends neither
-`configuration_id` nor `configuration_version_id`. Kalkidan never sends only one
-of them. It checks `configuration_source` in the response and binds the chat to
-the resolved version. A picked policy keeps the earlier behavior.
+### First connect
+
+After sign-in, the managed agent setup reads `setup.inspect`. When
+`readiness.bootstrap` is `bootstrap_available` and the runtime advertises
+`setup.bootstrap`, Kalkidan sends `setup.bootstrap` one time. Verdictan then
+makes the default configuration and the Kalkidan agent, and deploys the
+configuration to the agent. Kalkidan sends the team of a saved selection, when
+there is one. Then Kalkidan reads `setup.inspect` again. Launches never send a
+setup operation. Other readiness values never send it.
+
+An older runtime does not advertise `setup.bootstrap`. Then Kalkidan uses
+`setup.ensure_default` when `readiness.policy` is `default_creatable`.
+
+A member gets `bootstrap_requires_admin` or `desktop.setup_bootstrap_required`.
+The setup shows a note: "Ask an organization administrator to finish Kalkidan
+setup." This is not an error.
+
+### Agent choice
+
+When `setup.inspect` sends `agents`, the setup shows an **Agent** choice in
+place of the team and policy choices. It shows service names. An agent without
+a name shows "Kalkidan agent" (the default) or "Agent 1". The policy of each
+agent is the secondary text. The Kalkidan agent is selected first.
+`resources.provision` then sends `agent_id` and the team of the agent, and no
+policy IDs. Kalkidan checks `agent_source` and `configuration_source` in the
+response and binds the chat to the deployed version. Each agent kind (Codex or
+Claude Code) keeps its own choice. A runtime without `agents` keeps the team and
+policy choice.
+
+### Removed default
+
+Verdictan does not make the default again after an administrator removes it.
+When `bootstrap.configuration_status` or `bootstrap.agent_status` is `deleted`,
+or `readiness.policy` is `default_removed`, the setup shows a note and the user
+must choose another agent. Without another agent, the note tells the user to
+ask an organization administrator for access to an agent. A launch with the
+removed default gets `desktop.setup_default_removed` and links to the setup
+step.
 
 For `default_configuration_required` and `default_permission_required`, the
 setup step tells the user to ask an organization administrator. A launch that

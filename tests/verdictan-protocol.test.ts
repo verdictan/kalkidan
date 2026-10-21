@@ -434,6 +434,12 @@ test('runtime and host operations preserve command parameters and correlate thei
     ['resources.provision', { parameters: { team_id: runtimeId } }, 'resources.provisioned'],
     ['review.inspect', { escalation_id: runtimeId }, 'review.inspected'],
     ['setup.ensure_default', {}, 'setup.default_ensured'],
+    ['setup.bootstrap', { parameters: { team_id: runtimeId } }, 'setup.bootstrapped'],
+    [
+      'resources.provision',
+      { parameters: { team_id: runtimeId, agent_id: runtimeId } },
+      'resources.provisioned',
+    ],
     [
       'history.list',
       { history_scope: { organization_id: 'org', conversation_id: 'chat-1' }, limit: 25 },

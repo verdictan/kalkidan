@@ -1,17 +1,21 @@
 import {
+  bootstrapReadinessValues,
   isSubscriptionMode,
   policyReadinessValues,
+  selectionIssue,
   providerAccessModes,
   serviceName,
   subscriptionAgent,
   usesDefaultPolicy,
+  type BootstrapReadiness,
   type PolicyReadiness,
   type ProviderAccessMode,
+  type VerdictanAgent,
   type VerdictanSelection,
   type VerdictanSetup,
 } from '../../src/domain/verdictan';
 import { parseAccount, parseCapabilities } from './account';
-import { DesktopProtocolError, type DesktopClient } from './protocol';
+import { DesktopProtocolError, type DesktopClient, type DesktopParameters } from './protocol';
 import { BindingStore, identityKey } from './bindings';
 import { uuid } from './credentials';
 import { policyId } from './policy-id';
@@ -43,6 +47,62 @@ function allowedModels(value: unknown): Pick<VerdictanSetup, 'allowedModels'> {
   }
   return Object.keys(result).length ? { allowedModels: result } : {};
 }
+const serviceId = (value: unknown) =>
+  typeof value === 'string' && /^[A-Za-z0-9_.:-]{1,128}$/.test(value);
+/** The bootstrap record summary, or undefined when it is missing or not valid. */
+function bootstrapRecord(value: unknown): VerdictanSetup['bootstrap'] {
+  if (!value || typeof value !== 'object') return undefined;
+  const record = value as Record<string, unknown>;
+  if (
+    !['bootstrapped', 'adopted'].includes(record.status as string) ||
+    !serviceId(record.agent_id) ||
+    !['available', 'deleted'].includes(record.configuration_status as string) ||
+    !['available', 'inactive', 'deleted'].includes(record.agent_status as string)
+  )
+    return undefined;
+  return {
+    status: record.status as 'bootstrapped' | 'adopted',
+    agent_id: record.agent_id as string,
+    configuration_status: record.configuration_status as 'available' | 'deleted',
+    agent_status: record.agent_status as 'available' | 'inactive' | 'deleted',
+  };
+}
+/**
+ * The agents that a host can attach to. An entry that `resources.provision` cannot accept (an
+ * agent or team ID that is not a UUID, or invalid configuration IDs) is left out. The default
+ * agent is first. Missing when the runtime does not send the list.
+ */
+function agentList(value: unknown): VerdictanAgent[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  if (value.length > 50) throw new DesktopProtocolError('desktop.setup_invalid');
+  const agents: VerdictanAgent[] = [];
+  for (const item of value) {
+    if (!item || typeof item !== 'object') continue;
+    const agent = item as Record<string, unknown>;
+    if (
+      !uuid(agent.agent_id) ||
+      !uuid(agent.team_id) ||
+      !policyId(agent.configuration_id, 'configuration') ||
+      !policyId(agent.configuration_version_id, 'version') ||
+      agents.some((other) => other.agent_id === agent.agent_id)
+    )
+      continue;
+    const configurationName = serviceName(agent.configuration_name);
+    const versionName = serviceName(agent.version_name);
+    agents.push({
+      agent_id: agent.agent_id,
+      team_id: agent.team_id,
+      ...displayName(agent, 'agent_name'),
+      configuration_id: agent.configuration_id as string,
+      configuration_version_id: agent.configuration_version_id as string,
+      ...(configurationName ? { configuration_name: configurationName } : {}),
+      ...(versionName ? { version_name: versionName } : {}),
+      ...(agent.default === true ? { default: true } : {}),
+    });
+  }
+  // The Kalkidan agent is first.
+  return agents.sort((a, b) => Number(!!b.default) - Number(!!a.default));
+}
 /** Codes that mean the session ended. Then the setup cannot show anything. */
 const sessionCodes = new Set([
   'desktop.auth_required',
@@ -50,6 +110,7 @@ const sessionCodes = new Set([
   'desktop.session_rejected',
   'desktop.region_required',
 ]);
+type Inspection = Awaited<ReturnType<VerdictanSetupService['inspect']>>;
 export class VerdictanSetupService {
   constructor(
     private client: () => Promise<DesktopClient>,
@@ -83,13 +144,21 @@ export class VerdictanSetupService {
     const capabilities = advertised.length
       ? parseCapabilities((await client.request('capabilities')).data).capabilities
       : [];
-    const readiness =
+    const readinessRecord =
       data.readiness && typeof data.readiness === 'object'
-        ? (data.readiness as Record<string, unknown>).policy
-        : undefined;
+        ? (data.readiness as Record<string, unknown>)
+        : {};
+    const readiness = readinessRecord.policy;
     const policyReadiness = policyReadinessValues.includes(readiness as PolicyReadiness)
       ? (readiness as PolicyReadiness)
       : undefined;
+    const bootstrapReadiness = bootstrapReadinessValues.includes(
+      readinessRecord.bootstrap as BootstrapReadiness,
+    )
+      ? (readinessRecord.bootstrap as BootstrapReadiness)
+      : undefined;
+    const bootstrap = bootstrapRecord(data.bootstrap);
+    const agents = agentList(data.agents);
     const fallback = data.default_configuration as Record<string, unknown> | null | undefined;
     if (
       fallback != null &&
@@ -108,6 +177,9 @@ export class VerdictanSetupService {
       ],
       status: typeof data.status === 'string' ? data.status : 'unavailable',
       ...(policyReadiness ? { policyReadiness } : {}),
+      ...(bootstrapReadiness ? { bootstrapReadiness } : {}),
+      ...(bootstrap ? { bootstrap } : {}),
+      ...(agents ? { agents } : {}),
       // Provision without policy IDs only when the default exists and the user can read it.
       ...(fallback && policyReadiness !== 'default_permission_required'
         ? {
@@ -161,18 +233,109 @@ export class VerdictanSetupService {
     };
     return { client, account, key, setup };
   }
+  private pending?: Promise<VerdictanSetup>;
+  /**
+   * The bootstrap that this app session ran, by account. Another view can read the setup
+   * first, so the Settings page still shows the result after that.
+   */
+  private ran?: { key: string; result: 'bootstrapped' | 'already_bootstrapped' };
   /**
    * The setup for the Settings page. On the first connect of an organization, an administrator
-   * makes the default Kalkidan configuration here. Launches use `inspect`, which never creates
-   * it. The operation is idempotent, so a second call returns the existing default.
+   * runs the one-time Kalkidan bootstrap here: Verdictan makes the default configuration and
+   * the Kalkidan agent. Kalkidan sends it only when `readiness.bootstrap` is
+   * `bootstrap_available`, so it runs once. Launches use `inspect`, which never sends it.
+   * Concurrent calls share one check.
    */
-  async status(): Promise<VerdictanSetup> {
+  status(): Promise<VerdictanSetup> {
+    this.pending ??= this.check()
+      .then((setup) =>
+        setup.bootstrapped || !this.ran || this.ran.key !== this.lastKey
+          ? setup
+          : { ...setup, bootstrapped: this.ran.result },
+      )
+      .finally(() => {
+        this.pending = undefined;
+      });
+    return this.pending;
+  }
+  private lastKey?: string;
+  private async check(): Promise<VerdictanSetup> {
     const first = await this.inspect();
+    this.lastKey = first.key;
+    const bootstrap = first.setup.bootstrapReadiness === 'bootstrap_available';
+    // Older APIs do not report the bootstrap. Then the earlier default check applies.
+    if (!bootstrap && first.setup.policyReadiness !== 'default_creatable') return first.setup;
+    let capabilities: string[];
+    try {
+      capabilities = parseCapabilities(
+        (await first.client.request('capabilities')).data,
+      ).capabilities;
+    } catch (error) {
+      const code = error instanceof DesktopProtocolError ? error.code : '';
+      if (sessionCodes.has(code)) throw error;
+      return bootstrap
+        ? { ...first.setup, bootstrapIssue: 'failed' }
+        : { ...first.setup, defaultUnavailable: true };
+    }
+    if (capabilities.includes('setup.bootstrap'))
+      return bootstrap ? this.bootstrap(first) : first.setup;
+    // Older runtimes have no `setup.bootstrap`. `setup.ensure_default` runs the same bootstrap.
     if (first.setup.policyReadiness !== 'default_creatable') return first.setup;
+    if (!capabilities.includes('setup.ensure_default')) return first.setup;
+    return this.ensureDefault(first);
+  }
+  /** The team for the Kalkidan agent: the team of a saved selection, when there is one. */
+  private bootstrapTeam(setup: VerdictanSetup): DesktopParameters | undefined {
+    const team = [setup.selections.codex?.teamId, setup.selections.claude?.teamId].find(
+      (id) => !!id && setup.teams.some((t) => t.team_id === id),
+    );
+    return team ? { parameters: { team_id: team } } : undefined;
+  }
+  private async bootstrap(first: Inspection): Promise<VerdictanSetup> {
+    let result: 'bootstrapped' | 'already_bootstrapped';
+    try {
+      const data = (await first.client.request('setup.bootstrap', this.bootstrapTeam(first.setup)))
+        .data;
+      if (
+        data.schema_version !== 1 ||
+        !['bootstrapped', 'already_bootstrapped'].includes(String(data.status)) ||
+        data.marker !== 'kalkidan_default' ||
+        data.mandatory_gateway !== true ||
+        !serviceId(data.agent_id) ||
+        !policyId(data.configuration_id, 'configuration') ||
+        !policyId(data.configuration_version_id, 'version')
+      )
+        throw new DesktopProtocolError('desktop.setup_invalid');
+      result = data.status as 'bootstrapped' | 'already_bootstrapped';
+    } catch (error) {
+      const code = error instanceof DesktopProtocolError ? error.code : '';
+      if (sessionCodes.has(code)) throw error;
+      // A member: an administrator must connect once. This is not an error.
+      if (code === 'desktop.setup_bootstrap_required' || code === 'desktop.permission_denied')
+        return { ...first.setup, bootstrapReadiness: 'bootstrap_requires_admin' };
+      if (
+        code === 'desktop.setup_team_required' ||
+        code === 'desktop.setup_team_membership_required'
+      )
+        return { ...first.setup, bootstrapIssue: 'team_required' };
+      if (code === 'desktop.setup_permission_required')
+        return { ...first.setup, policyReadiness: 'default_permission_required' };
+      // The inspection is still correct. Refresh tries again.
+      return { ...first.setup, bootstrapIssue: 'failed' };
+    }
+    this.ran = { key: first.key, result };
+    try {
+      return { ...(await this.inspect()).setup, bootstrapped: result };
+    } catch (error) {
+      const code = error instanceof DesktopProtocolError ? error.code : '';
+      if (sessionCodes.has(code)) throw error;
+      // The bootstrap is done. The next Refresh shows the agent.
+      return { ...first.setup, bootstrapReadiness: 'bootstrapped', bootstrapped: result };
+    }
+  }
+  private async ensureDefault(first: Inspection): Promise<VerdictanSetup> {
     let ensured: 'created' | 'existing';
     try {
-      const { capabilities } = parseCapabilities((await first.client.request('capabilities')).data);
-      if (!capabilities.includes('setup.ensure_default')) return first.setup;
       const data = (await first.client.request('setup.ensure_default')).data;
       if (
         data.schema_version !== 1 ||
@@ -199,6 +362,9 @@ export class VerdictanSetupService {
         return { ...first.setup, policyReadiness: 'default_configuration_required' };
       if (code === 'desktop.setup_permission_required')
         return { ...first.setup, policyReadiness: 'default_permission_required' };
+      // An administrator removed the default after the bootstrap. Verdictan does not make it.
+      if (code === 'desktop.setup_policy_required')
+        return { ...first.setup, policyReadiness: 'default_removed' };
       return { ...first.setup, defaultUnavailable: true };
     }
     try {
@@ -211,6 +377,12 @@ export class VerdictanSetupService {
     }
   }
   validate(setup: VerdictanSetup, agent: 'codex' | 'claude', value: VerdictanSelection) {
+    // A removed default or a missing agent has its own code, so the user knows what to do.
+    const issue = value && selectionIssue(setup, value);
+    if (issue) throw new DesktopProtocolError(issue);
+    const chosen = value?.agentId
+      ? setup.agents?.find((a) => a.agent_id === value.agentId)
+      : undefined;
     if (
       !value ||
       !['codex', 'claude'].includes(agent) ||
@@ -219,14 +391,22 @@ export class VerdictanSetupService {
       !setup.teams.some((t) => t.team_id === value.teamId) ||
       typeof value.configurationId !== 'string' ||
       typeof value.configurationVersionId !== 'string' ||
+      // An agent: its team, and no policy IDs. Its deployed configuration applies.
+      (value.agentId !== undefined &&
+        (!chosen ||
+          chosen.team_id !== value.teamId ||
+          !!value.configurationId ||
+          !!value.configurationVersionId)) ||
       // No policy IDs: the default Kalkidan configuration. It must exist and be readable.
-      (usesDefaultPolicy(value)
-        ? !setup.defaultPolicy
-        : !setup.policies.some(
-            (p) =>
-              p.configuration_id === value.configurationId &&
-              p.configuration_version_id === value.configurationVersionId,
-          )) ||
+      (chosen
+        ? false
+        : usesDefaultPolicy(value)
+          ? !setup.defaultPolicy
+          : !setup.policies.some(
+              (p) =>
+                p.configuration_id === value.configurationId &&
+                p.configuration_version_id === value.configurationVersionId,
+            )) ||
       !providerAccessModes.includes(value.providerAccessMode || 'byok') ||
       (isSubscriptionMode(value.providerAccessMode)
         ? agent !== subscriptionAgent[value.providerAccessMode] ||
@@ -251,6 +431,7 @@ export class VerdictanSetupService {
       providerConnectionId: value.providerConnectionId,
       ...(value.providerAccessMode ? { providerAccessMode: value.providerAccessMode } : {}),
       model: value.model,
+      ...(value.agentId ? { agentId: value.agentId } : {}),
     });
     return this.status();
   }

@@ -14,7 +14,8 @@ export function Choice({
   label: string;
   value: string;
   onChange: (value: string) => void;
-  options: { value: string; label: string }[];
+  /** `description` is secondary text in the list. The closed choice shows the label only. */
+  options: { value: string; label: string; description?: string }[];
   disabled?: boolean;
   /** A tooltip for the trigger, for example the full value when the trigger truncates it. */
   title?: string;
@@ -48,6 +49,7 @@ export function Choice({
             className="whitespace-normal break-words"
             key={option.value || '__none'}
             value={option.value || '__none'}
+            description={option.description}
           >
             {option.label}
           </SelectItem>
