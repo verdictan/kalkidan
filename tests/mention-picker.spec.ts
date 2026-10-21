@@ -1,4 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
+import { openCodeFolder } from './helpers/navigation';
 
 /** Opens a chat in a project. `board` connects a task board to the project. */
 async function openChat(page: Page, setup: { board?: boolean }) {
@@ -67,7 +68,7 @@ async function openChat(page: Page, setup: { board?: boolean }) {
     };
   }, setup);
   await page.goto('/');
-  await page.locator('.repo-select').click();
+  await openCodeFolder(page);
   await page.getByRole('button', { name: 'Resume Review', exact: true }).click();
   return page.getByLabel('Message agent');
 }

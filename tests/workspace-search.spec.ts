@@ -81,9 +81,12 @@ test('Mod+K opens the palette, Escape closes it and returns the focus', async ({
   await page.keyboard.press('ControlOrMeta+k');
   await expect(palette(page)).toHaveCount(0);
   await expect(trigger).toBeFocused();
-  // A click outside the palette closes it.
+  // A click outside the palette closes it. The dialog starts to listen for outside clicks in a
+  // timer after it opens. A timer that starts later runs after it.
   await openPalette(page);
-  // Click an empty area. The sidebar Settings button sits at the bottom left.
+  // The dialog listens for outside clicks a moment after it opens. Click an empty area: the
+  // sidebar Settings button sits at the bottom left.
+  await page.evaluate(() => new Promise((resolve) => setTimeout(resolve, 0)));
   const { width, height } = page.viewportSize()!;
   await page.mouse.click(width - 10, height - 10);
   await expect(palette(page)).toHaveCount(0);

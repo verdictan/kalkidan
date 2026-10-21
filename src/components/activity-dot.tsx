@@ -25,16 +25,25 @@ export function strongestActivity(states: (SessionActivityState | undefined)[]) 
   if (states.includes('question')) return 'question';
   return states.find(Boolean);
 }
-/** A small status dot. Approval is amber, a question is blue, and work pulses green. */
-export function ActivityDot({ state }: { state?: SessionActivityState }) {
+/** The status of a chat row: an activity state, or 'done' for a finished run not seen yet. */
+export type ChatStatus = SessionActivityState | 'done';
+const statusLabels: Record<ChatStatus, string> = {
+  ...activityLabels,
+  done: 'Agent finished. You did not open the chat yet.',
+};
+/**
+ * A small status dot. Approval is amber, a question is blue, work pulses green, and a finished
+ * run that the user did not see is a hollow green ring.
+ */
+export function ActivityDot({ state }: { state?: ChatStatus }) {
   if (!state) return null;
   return (
     <span
       className="activity-dot"
       data-state={state}
       role="img"
-      aria-label={activityLabels[state]}
-      title={activityLabels[state]}
+      aria-label={statusLabels[state]}
+      title={statusLabels[state]}
     />
   );
 }

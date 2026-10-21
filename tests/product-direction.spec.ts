@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { openCodeFolder, openProjectTab } from './helpers/navigation';
 
 test('project creation is GitHub-backed without client fields or navigation', async ({ page }) => {
   await page.goto('/');
@@ -15,9 +16,7 @@ test('project creation is GitHub-backed without client fields or navigation', as
   await dialog.getByRole('button', { name: 'Atlas roadmap #1', exact: true }).click();
   await dialog.getByRole('button', { name: 'Create project', exact: true }).click();
   await expect(dialog).not.toBeVisible();
-  await expect(page.getByRole('region', { name: 'Project tracker' })).toContainText(
-    'Atlas roadmap',
-  );
+  await expect(page.locator('.project-header')).toContainText('Atlas roadmap');
   await page.getByRole('button', { name: 'Manage project Platform' }).click();
   await page.getByRole('menuitem', { name: 'Rename…', exact: true }).click();
   await expect(page.getByRole('dialog').getByLabel('Client label', { exact: true })).toHaveCount(0);
@@ -98,7 +97,7 @@ for (const allow of [true, false])
       };
     });
     await page.goto('/');
-    await page.locator('.repo-select').click();
+    await openCodeFolder(page);
     await page.getByRole('button', { name: 'Resume Review changes', exact: true }).click();
     await page.getByLabel('Message agent').fill('Review and test');
     await page.getByRole('button', { name: 'Send', exact: true }).click();
@@ -172,7 +171,7 @@ test('task worktree cancellation keeps the task open and a created worktree beco
     };
   });
   await page.goto('/');
-  await page.locator('.project-tree').getByRole('button', { name: 'Tasks', exact: true }).click();
+  await openProjectTab(page, 'Tasks');
   await page.getByRole('button', { name: 'Implement feature', exact: true }).click();
   const dialog = page.getByRole('dialog');
   await dialog
@@ -205,7 +204,7 @@ test('general conversations can add task context later', async ({ page }) => {
   await page.getByRole('button', { name: 'Connect a GitHub Projects board', exact: true }).click();
   await page.getByRole('button', { name: 'Atlas roadmap #1', exact: true }).click();
   await page.getByRole('button', { name: 'Connect board', exact: true }).click();
-  await page.locator('.repo-select').first().click();
+  await openCodeFolder(page);
   await page.getByRole('button', { name: 'New Codex chat', exact: true }).click();
   await page.getByLabel('Message agent').fill('General question');
   await expect(page.getByRole('button', { name: 'Send', exact: true })).toBeEnabled();
@@ -249,9 +248,9 @@ test('project opens its board and filters tasks by repository', async ({ page })
   await expect(
     tracker.getByRole('button', { name: 'Build the project overview', exact: true }),
   ).toBeVisible();
-  await page.locator('.repo-select').filter({ hasText: 'api-service' }).click();
+  await openCodeFolder(page, 'api-service');
   await expect(page.getByRole('heading', { name: 'api-service', exact: true })).toBeVisible();
-  await page.locator('.project-tree').getByRole('button', { name: 'Tasks', exact: true }).click();
+  await openProjectTab(page, 'Tasks');
   await page.setViewportSize({ width: 980, height: 680 });
   await expect(tracker.getByRole('region', { name: 'Tracker board', exact: true })).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);

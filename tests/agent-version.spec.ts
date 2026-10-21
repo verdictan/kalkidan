@@ -1,4 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
+import { openCodeFolder } from './helpers/navigation';
 
 /** A workspace with one project. Each send is refused because Claude Code is too old. */
 async function installWorkspace(page: Page) {
@@ -81,7 +82,7 @@ test('a Claude Code version below the minimum refuses the send and links to Sett
 }) => {
   await installWorkspace(page);
   await page.goto('/');
-  await page.locator('.repo-select').first().click();
+  await openCodeFolder(page);
   await page.getByRole('button', { name: 'Choose an agent', exact: true }).click();
   await page.getByRole('menuitem', { name: 'New Claude Code chat', exact: true }).click();
   const composer = page.getByLabel('Message agent');

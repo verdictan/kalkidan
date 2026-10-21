@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { openProjectTab } from './helpers/navigation';
 
 test.beforeEach(async ({ page }) => {
   await page.addInitScript(() => {
@@ -39,7 +40,7 @@ test('a conflicting Docs draft can be saved as a new page without replacing disk
   page,
 }) => {
   await page.goto('/');
-  await page.getByRole('button', { name: 'Docs', exact: true }).click();
+  await openProjectTab(page, 'Docs');
   await expect(page.getByLabel('Page title', { exact: true })).toHaveValue('Guide');
   await page.getByRole('button', { name: 'Document actions' }).click();
   await page.getByRole('menuitem', { name: 'Markdown source' }).click();
@@ -79,7 +80,7 @@ test('legacy draft recovery retains the old revision and does not overwrite the 
     );
   });
   await page.goto('/');
-  await page.getByRole('button', { name: 'Docs', exact: true }).click();
+  await openProjectTab(page, 'Docs');
   await page.getByRole('button', { name: 'Restore draft', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Save as new page' })).toBeVisible();
   expect(await page.evaluate(() => (window as any).testDocs.p.markdown)).toBe('Original');

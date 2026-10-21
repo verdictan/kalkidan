@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { openCodeFolder } from './helpers/navigation';
 
 test('repository overview omits tasks while the project Board page retains them', async ({
   page,
@@ -11,9 +12,9 @@ test('repository overview omits tasks while the project Board page retains them'
     .click();
   await page.getByRole('button', { name: 'Atlas roadmap #1', exact: true }).click();
   await page.getByRole('button', { name: 'Connect board', exact: true }).click();
-  await page.locator('.repo-select').filter({ hasText: 'atlas-web' }).click();
+  await openCodeFolder(page, 'atlas-web');
   await expect(page.getByRole('region', { name: 'Repository project tasks' })).toHaveCount(0);
-  await page.locator('.repo-select').filter({ hasText: 'api-service' }).click();
+  await openCodeFolder(page, 'api-service');
   await expect(page.getByRole('region', { name: 'Repository project tasks' })).toHaveCount(0);
   await page.locator('.project-tree').getByRole('button', { name: 'Atlas', exact: true }).click();
   await page

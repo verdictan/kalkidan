@@ -34,7 +34,7 @@ import {
   trackerColumns,
   type TaskSelection,
 } from './tracker-list';
-import { ProjectTabs } from './project-tabs';
+import { ProjectHeaderActions, ProjectHeaderMeta, boardNoun } from './project-header';
 import {
   DocsToIssuesDialog,
   PlanningToolDialog,
@@ -43,14 +43,13 @@ import {
   type TaskFilter,
   useUncertainWritesToast,
 } from './planning-tools';
-import { ProjectSettingsDialog, type ProjectSettingsTab } from './project-settings-dialog';
+import type { ProjectSettingsTab } from './project-settings-dialog';
 import {
   ActivityDot,
   activityKey,
   useActivityState,
   type SessionActivityState,
 } from './activity-dot';
-import type { ProjectPage as RoutePage } from '../domain/workspace-route';
 import { projectColors } from '../domain/project-colors';
 import { EmptyState } from './ui/empty-state';
 import { EntityIcon } from './ui/entity-icon';
@@ -143,10 +142,7 @@ const authErrorPattern =
 // The filter button shows when the board has more tasks than this. Search always shows.
 const filterThreshold = 10;
 
-/** The name of the tracker side: "GitHub Projects board", never just "project". */
-export function boardNoun(providerName: string) {
-  return providerName === 'GitHub' ? 'GitHub Projects board' : `${providerName} board`;
-}
+export { boardNoun };
 
 /** Opens Settings at a section. The shell listens for this event. */
 function openSettings(section: string) {
@@ -208,7 +204,6 @@ function readPage(groupId: string): ProjectPage | null {
     return null;
   }
 }
-const toRoutePage = (page: ProjectPage): RoutePage => (page === 'overview' ? 'board' : page);
 
 /** Suggests a branch name for a task: "12-fix-login" or "fix-login" for a draft. */
 export function taskBranchName(item: Pick<TrackerItem, 'number' | 'title'>) {
@@ -340,10 +335,11 @@ export function ProjectTrackerPanel({
     descriptor,
   } = useTracker(api, connection?.provider);
   const linkedProject = connection?.project;
-  // The latest connection, for handlers that run after a refresh.
-  const connectedRef = useRef(false);
-  connectedRef.current = !!linkedProject;
-  const [settingsTab, setSettingsTab] = useState<ProjectSettingsTab | null>(null);
+  // The sidebar keeps the one Project settings dialog. This page opens it at a section.
+  const openProjectSettings = (tab: ProjectSettingsTab) =>
+    window.dispatchEvent(
+      new CustomEvent('kalkidan-open-project-settings', { detail: { groupId: group.id, tab } }),
+    );
   const filterStorage = filterKey(group.id, embedded);
   const [savedFilters] = useState(() => readFilters(filterStorage));
   const [repoFilter, setRepoFilter] = useState(savedFilters.repoFilter);
@@ -886,7 +882,6 @@ export function ProjectTrackerPanel({
     newTask: () => void;
     tool: (name: string) => void;
     filter: (filter: TaskFilter) => void;
-    settings: (tab?: string) => void;
     openTask: (id: string) => void;
     view: (id: string) => void;
     reload: () => void;
@@ -921,9 +916,6 @@ export function ProjectTrackerPanel({
     },
     filter(filter) {
       applyFilter(filter);
-    },
-    settings(tab) {
-      setSettingsTab(tab === 'automation' || tab === 'fields' || tab === 'github' ? tab : 'board');
     },
     openTask(id) {
       if (!openTaskById(id)) pendingTask.current = id;
@@ -965,13 +957,6 @@ export function ProjectTrackerPanel({
         (event) => {
           const detail = forGroup(event);
           if (detail) eventRef.current.filter(detail as TaskFilter);
-        },
-      ],
-      [
-        'kalkidan-open-project-settings',
-        (event) => {
-          const detail = forGroup(event);
-          if (detail) eventRef.current.settings(detail.tab as string | undefined);
         },
       ],
       ['kalkidan-github-writes', (event) => forGroup(event) && eventRef.current.reload()],
@@ -1301,15 +1286,20 @@ export function ProjectTrackerPanel({
         board?.statusField &&
         descriptor?.capabilities.updateStatus &&
         typeof api.trackerConfigure === 'function'
-          ? [{ label: 'Automatic status changes…', action: () => setSettingsTab('automation') }]
+          ? [
+              {
+                label: 'Automatic status changes…',
+                action: () => openProjectSettings('automation'),
+              },
+            ]
           : []),
         ...(github && typeof api.trackerSettings === 'function'
-          ? [{ label: 'GitHub project settings…', action: () => setSettingsTab('github') }]
+          ? [{ label: 'GitHub project settings…', action: () => openProjectSettings('github') }]
           : []),
         ...(github && typeof api.trackerResources === 'function'
-          ? [{ label: 'Fields, views and reports…', action: () => setSettingsTab('fields') }]
+          ? [{ label: 'Fields, views and reports…', action: () => openProjectSettings('fields') }]
           : []),
-        { label: `Change ${boardName}…`, action: () => setSettingsTab('board') },
+        { label: `Change ${boardName}…`, action: () => openProjectSettings('board') },
       ]}
     />
   );
@@ -1350,121 +1340,103 @@ export function ProjectTrackerPanel({
     </div>
   );
   const restricted = board?.restrictedItems || 0;
+  const headerMeta = (
+    <>
+      {showTasks && board && <span className="tracker-subtitle-count">· {countText}</span>}
+      {showTasks && restricted > 0 && (
+        <Hint label="You cannot see these tasks. Ask for access on GitHub.">
+          <span className="tracker-subtitle-count" tabIndex={0}>
+            · {restricted} restricted
+          </span>
+        </Hint>
+      )}
+    </>
+  );
+  const headerActions = showOverview ? (
+    <>
+      <NewSessionSplit
+        repos={repos}
+        sessions={sessions}
+        agent={preferredAgent}
+        preferredRepoId={preferredRepoId}
+        onAgent={chooseAgent}
+        onStart={startSession}
+      />
+      {!!repos.length && (
+        <Button variant="outline" onClick={addFolder}>
+          <FolderPlus />
+          Add a code folder
+        </Button>
+      )}
+      {trackerMenu}
+    </>
+  ) : linkedProject ? (
+    <>
+      <span role="status" className="tracker-sync-status">
+        {syncStatus}
+      </span>
+      <Hint label="Refresh board">
+        <Button
+          variant="ghost"
+          size="icon"
+          aria-label="Refresh board"
+          disabled={busy}
+          onClick={() => void action(refreshBoard, false)}
+        >
+          <RefreshCw size={16} className={busy ? 'animate-spin' : ''} />
+        </Button>
+      </Hint>
+      {showTasks && newTaskButton}
+      {trackerMenu}
+    </>
+  ) : null;
   return (
     <section
       className={embedded ? 'project-tracker embedded-tracker' : 'project-tracker'}
       data-page={shownPage}
       aria-label={embedded ? 'Repository project tasks' : 'Project tracker'}
     >
-      <PageHeader
-        className="tracker-project-heading"
-        icon={
-          <EntityIcon size="lg" color={group.color ? projectColors[group.color] : undefined}>
-            <Folder />
-          </EntityIcon>
-        }
-        title={embedded ? 'Project tasks' : group.name}
-        subtitle={
-          <>
-            {connection?.provider === 'github' || !connection ? (
-              <span
-                className="tracker-provider-mark"
-                style={{ maskImage: 'url(./icons/github.svg)' }}
-                aria-hidden="true"
-              />
-            ) : (
-              <Layers2 size={12} aria-hidden="true" />
-            )}
-            <span className="truncate">
-              {linkedProject ? (
-                <>
-                  {boardName} · <span>{linkedProject.title}</span>
-                  {linkedProject.number ? ` #${linkedProject.number}` : ''}
-                </>
+      {embedded ? (
+        <PageHeader
+          className="tracker-project-heading"
+          icon={
+            <EntityIcon size="lg" color={group.color ? projectColors[group.color] : undefined}>
+              <Folder />
+            </EntityIcon>
+          }
+          title="Project tasks"
+          subtitle={
+            <>
+              {connection?.provider === 'github' || !connection ? (
+                <span
+                  className="tracker-provider-mark"
+                  style={{ maskImage: 'url(./icons/github.svg)' }}
+                  aria-hidden="true"
+                />
               ) : (
-                `No ${boardName}`
+                <Layers2 size={12} aria-hidden="true" />
               )}
-            </span>
-            {showTasks && board && <span className="tracker-subtitle-count">· {countText}</span>}
-            {showTasks && restricted > 0 && (
-              <Hint label="You cannot see these tasks. Ask for access on GitHub.">
-                <span className="tracker-subtitle-count" tabIndex={0}>
-                  · {restricted} restricted
-                </span>
-              </Hint>
-            )}
-          </>
-        }
-        actions={
-          showOverview ? (
-            <>
-              <NewSessionSplit
-                repos={repos}
-                sessions={sessions}
-                agent={preferredAgent}
-                preferredRepoId={preferredRepoId}
-                onAgent={chooseAgent}
-                onStart={startSession}
-              />
-              {!!repos.length && (
-                <Button variant="outline" onClick={addFolder}>
-                  <FolderPlus />
-                  Add a code folder
-                </Button>
-              )}
-              {trackerMenu}
-            </>
-          ) : linkedProject ? (
-            <>
-              <span role="status" className="tracker-sync-status">
-                {syncStatus}
+              <span className="truncate">
+                {linkedProject ? (
+                  <>
+                    {boardName} · <span>{linkedProject.title}</span>
+                    {linkedProject.number ? ` #${linkedProject.number}` : ''}
+                  </>
+                ) : (
+                  `No ${boardName}`
+                )}
               </span>
-              <Hint label="Refresh board">
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  aria-label="Refresh board"
-                  disabled={busy}
-                  onClick={() => void action(refreshBoard, false)}
-                >
-                  <RefreshCw size={16} className={busy ? 'animate-spin' : ''} />
-                </Button>
-              </Hint>
-              {showTasks && newTaskButton}
-              {trackerMenu}
+              {headerMeta}
             </>
-          ) : null
-        }
-      />
-      {!embedded && (
-        <ProjectTabs
-          groupId={group.id}
-          page={toRoutePage(shownPage)}
-          onSelect={(next) => {
-            if (next === 'board') rememberPage('overview');
-            else if (next === 'tasks' || next === 'insights') rememberPage(next);
-          }}
+          }
+          actions={headerActions}
         />
+      ) : (
+        <>
+          <ProjectHeaderMeta>{headerMeta}</ProjectHeaderMeta>
+          <ProjectHeaderActions>{headerActions}</ProjectHeaderActions>
+        </>
       )}
-      <ProjectSettingsDialog
-        api={api}
-        group={group}
-        open={!!settingsTab}
-        tab={settingsTab || undefined}
-        onOpenChange={(open) => {
-          if (open) return;
-          setSettingsTab(null);
-          void action(refreshBoard, false);
-          void onRefresh();
-        }}
-        onConnected={async () => {
-          // Connect and disconnect both end here. After the refresh, a connected board shows
-          // its tasks, and a disconnected project shows the overview.
-          await onRefresh();
-          window.setTimeout(() => setPage(connectedRef.current ? 'tasks' : 'overview'), 0);
-        }}
-        onChanged={() => void action(refreshBoard, false)}
-      />
       {error && (
         <Alert variant="destructive" size="sm">
           <AlertDescription>
@@ -1605,7 +1577,7 @@ export function ProjectTrackerPanel({
             board={board}
             items={sortedItems}
             onOpen={chooseTask}
-            onOpenSettings={github ? () => setSettingsTab('fields') : undefined}
+            onOpenSettings={github ? () => openProjectSettings('fields') : undefined}
           />
         ) : savedView ? (
           <GitHubViewLayout

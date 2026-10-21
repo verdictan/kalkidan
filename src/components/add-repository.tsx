@@ -45,7 +45,13 @@ export function AddRepository({
   size,
   onNotice,
   onProjectCreated = openCreatedProject,
+  trigger = true,
+  openRequest = 0,
 }: {
+  /** False hides the button. The caller then opens the dialog with `openRequest`. */
+  trigger?: boolean;
+  /** Each new value above 0 opens the dialog. */
+  openRequest?: number;
   /** Reports the result of work that continues after the dialog closes. */
   onNotice?: (message: string, error?: boolean) => void;
   /**
@@ -200,22 +206,27 @@ export function AddRepository({
     setOpen(false);
     return `Cloned ${short} into ${projectName}.`;
   }
+  useEffect(() => {
+    if (openRequest > 0) void show();
+  }, [openRequest]);
   const shown = repos.filter((r) => r.nameWithOwner.toLowerCase().includes(query.toLowerCase()));
   return (
     <>
-      <Button
-        variant={variant}
-        size={size}
-        disabled={disabled}
-        className={className}
-        onClick={() => void show()}
-      >
-        {children || (
-          <>
-            <Plus /> Add code folder
-          </>
-        )}
-      </Button>
+      {trigger && (
+        <Button
+          variant={variant}
+          size={size}
+          disabled={disabled}
+          className={className}
+          onClick={() => void show()}
+        >
+          {children || (
+            <>
+              <Plus /> Add code folder
+            </>
+          )}
+        </Button>
+      )}
       {/* The dialog hides while the Create project dialog that it opens shows. */}
       <Dialog open={open && !creatingProject} onOpenChange={(value) => !value && close()}>
         <DialogContent size="lg" layout="scroll">

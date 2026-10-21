@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { openCodeFolder } from './helpers/navigation';
 
 test('overview refreshes only its repository and keeps cached content while revalidating', async ({
   page,
@@ -43,7 +44,7 @@ test('overview refreshes only its repository and keeps cached content while reva
     };
   });
   await page.goto('/');
-  await page.getByRole('button', { name: 'Test repo', exact: true }).click();
+  await openCodeFolder(page, 'Test repo');
   await expect(page.locator('.worktree')).toContainText('main');
   const before = await page.evaluate(() => ({ ...(window as any).ioCalls }));
   await page.getByRole('button', { name: 'Refresh branch copies' }).click();
@@ -56,7 +57,8 @@ test('overview refreshes only its repository and keeps cached content while reva
     .toBe(before.repository + 2);
   const after = await page.evaluate(() => (window as any).ioCalls);
   expect(after.snapshot).toBe(before.snapshot);
-  expect(after.git).toBe(0);
+  // The project overview reads branches. The code folder page does not call Git again.
+  expect(after.git).toBe(before.git);
 });
 
 test('switching projects reuses details and keeps cached content after a failed refresh', async ({
@@ -76,6 +78,8 @@ test('switching projects reuses details and keeps cached content after a failed 
     (window as any).workspace = {
       trackerProviders: async () => [],
       githubAuthCancel: async () => ({ status: 'idle' }),
+      // The project overview reads the branch of each code folder.
+      git: async () => null,
       snapshot: async () => ({
         projects,
         groups: [{ id: 'group', name: 'Test project', repoIds: ['Alpha', 'Beta'] }],
@@ -95,11 +99,11 @@ test('switching projects reuses details and keeps cached content after a failed 
     };
   });
   await page.goto('/');
-  await page.getByRole('button', { name: 'Alpha', exact: true }).click();
+  await openCodeFolder(page, 'Alpha');
   await expect(page.locator('.worktree')).toContainText('Alpha');
-  await page.getByRole('button', { name: 'Beta', exact: true }).click();
+  await openCodeFolder(page, 'Beta');
   await expect(page.locator('.worktree')).toContainText('Beta');
-  await page.getByRole('button', { name: 'Alpha', exact: true }).click();
+  await openCodeFolder(page, 'Alpha');
   await expect(page.locator('.worktree')).toContainText('Alpha');
   expect(await page.evaluate(() => (window as any).detailCalls)).toEqual({ Alpha: 1, Beta: 1 });
   await page.evaluate(() => {

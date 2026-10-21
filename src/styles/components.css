@@ -335,6 +335,10 @@
   background: var(--link);
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--link) 25%, transparent);
 }
+.activity-dot[data-state='done'] {
+  background: transparent;
+  box-shadow: inset 0 0 0 1.5px var(--success);
+}
 .activity-dot[data-state='approval'] {
   background: var(--warning);
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--warning) 25%, transparent);
@@ -350,7 +354,7 @@
   }
 }
 /* Row labels set every span to fill the row. The dot keeps its own size. */
-.repo-select .activity-dot,
+.tree-row-button .activity-dot,
 .session-title .activity-dot {
   flex: 0 0 8px;
   min-width: 8px;

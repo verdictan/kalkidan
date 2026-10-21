@@ -3,51 +3,41 @@ import {
   ActivityDot,
   activityKey,
   strongestActivity,
+  useActivityState,
+  type ChatStatus,
   type SessionActivityState,
 } from './activity-dot';
 import { TreeContextMenu, type TreeAction } from './tree-context-menu';
-import { sessionRepo } from '../lib/session-repository';
-import { worktreeBranch, worktreeParent } from '../lib/worktree-sessions';
-import { agentCatalog, agentLabel } from '../config/agents';
+import { projectSessions, sessionRepo } from '../lib/session-repository';
 import { errorMessage } from '../lib/errors';
 import { CreateProject } from './create-project';
+import { ProjectSettingsDialog, type ProjectSettingsTab } from './project-settings-dialog';
+import { openProjectPage } from './project-tabs';
 import { AddRepository } from './add-repository';
 import { ActionMenu, type ActionMenuItem } from './action-menu';
 import { ChatActionsDropdown, ChatContextMenu } from './chat-action-menu';
 import { useChatListActions } from './chat-list-actions';
 import { viewArchivedSessions } from './session-browser';
 import { Hint } from './hint';
-import { plural, revealLabel } from '../lib/platform';
-import { agentInstalled, agentMenuLabel } from '../lib/agent-preference';
+import { plural } from '../lib/platform';
 import { interfaceConfig } from '../config/interface';
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import {
-  BookOpen,
-  ChartColumn,
   ChevronDown,
   Eye,
   Folder,
-  FolderGit2,
-  Brain,
-  GitBranch,
+  FolderPlus,
   LayoutGrid,
-  ListTodo,
   Loader2,
   MessagesSquare,
   Pin,
   PinOff,
-  Plus,
-  X,
 } from 'lucide-react';
-import { trackerConnection } from '../domain/tracker';
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from './ui/collapsible';
 import { AgentIcon } from './ui/agent-icon';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
 import { EmptyState } from './ui/empty-state';
-import { EntityIcon } from './ui/entity-icon';
-import { SectionHeader } from './ui/page-header';
-import { Input } from './ui/input';
 import { showToast } from './ui/toast';
 import {
   Dialog,
@@ -55,13 +45,12 @@ import {
   DialogHeader,
   DialogTitle,
   DialogDescription,
-  DialogBody,
   DialogFooter,
 } from './ui/dialog';
-import type { Agent, API, Project, ProjectGroup, Session, RemoteHost, TrackerItem } from '../types';
+import type { API, Project, ProjectGroup, Session, RemoteHost, TrackerItem } from '../types';
 
 const collapsedKey = 'kalkidan-collapsed-projects';
-/** Each code folder shows its most recent chats in the sidebar. */
+/** Each project shows its most recent chats in the sidebar. */
 const recentLimit = interfaceConfig.recentChats;
 function savedCollapsed() {
   try {
@@ -88,7 +77,7 @@ function menuItems(actions: TreeAction[]): ActionMenuItem[] {
     separator: item.separator,
   }));
 }
-/** A saved GitHub view that the user pinned under Tasks. */
+/** A saved GitHub view that the user pinned to the sidebar. */
 export interface PinnedView {
   id: string;
   name: string;
@@ -122,59 +111,39 @@ export function ProjectTree({
   onSelect,
   onResume,
   onProject,
-  onTasks,
+  onProjectChats,
   onOverview,
   onAllSessions,
   overviewCurrent = false,
   allSessionsCurrent = false,
-  onDocs,
-  onMemory,
-  onInsights,
-  onNewTask,
-  onProjectSettings,
   taskOf,
   onOpenTask,
   onSessionCommand,
   pinnedViews = {},
   onOpenView,
   onUnpinView,
-  mergedCopies,
-  preferredAgent,
-  projectPage,
   run,
   onNotice,
   onRefresh,
-  onEditRepository,
-  onDeleteBranchCopy,
-  onNewSession,
-  onConnect,
-  connectLabel = 'Connect a GitHub Projects board…',
   activity = {},
   sessionActivity = {},
   openChats = [],
-  onCloseChat,
   cloning = [],
+  addFolderRequest,
   query = '',
 }: {
   /** Reloads the snapshot without a busy state. */
   onRefresh: () => Promise<unknown>;
-  onEditRepository: (repo: Project) => void;
-  /** Opens the one dialog that deletes a branch copy (a Git worktree). */
-  onDeleteBranchCopy?: (repo: Project, branch: string) => void;
-  /** Starts a new session in a code folder. */
-  onNewSession?: (agent: Agent, repo: Project) => void;
-  /** Connects a GitHub Projects board to a project without a board. */
-  onConnect?: (group: ProjectGroup) => void;
-  connectLabel?: string;
   /** Background session state for each repository ID. */
   activity?: Record<string, SessionActivityState>;
   /** Background state of open sessions, by `activityKey`. */
   sessionActivity?: Record<string, SessionActivityState>;
   /** Chats that are open in this window, also in the background. */
   openChats?: OpenChat[];
-  onCloseChat?: (session: Session) => void;
   /** Clones that run after their dialog closed. */
   cloning?: CloneProgress[];
+  /** Each new request opens the Add code folders dialog for that project. */
+  addFolderRequest?: { groupId: string; at: number };
   /** The sidebar search text. The empty search message shows only with a query. */
   query?: string;
   onNotice?: (message: string, error?: boolean) => void;
@@ -182,30 +151,17 @@ export function ProjectTree({
   onAllSessions?: () => void;
   overviewCurrent?: boolean;
   allSessionsCurrent?: boolean;
-  onDocs: (group: ProjectGroup) => void;
-  /** Opens the task board of a project. */
-  onTasks?: (group: ProjectGroup) => void;
-  onMemory: (group: ProjectGroup) => void;
-  /** Opens the Insights page of a project. */
-  onInsights?: (group: ProjectGroup) => void;
-  /** Opens the tasks of a project with the New task form. */
-  onNewTask?: (group: ProjectGroup) => void;
-  /** Opens the Project settings dialog. */
-  onProjectSettings?: (group: ProjectGroup) => void;
+  /** Opens the list of all chats of a project. Without it, "Show all chats" opens the project. */
+  onProjectChats?: (group: ProjectGroup) => void;
   /** The board item that a chat works on. Rows show its number, such as "#12". */
   taskOf?: (session: Session) => TrackerItem | undefined;
   onOpenTask?: (groupId: string, itemId: string) => void;
   /** Runs a session command, such as "session-commit", in a chat. Opens the chat first. */
   onSessionCommand?: (command: string, session: Session) => void;
-  /** Saved GitHub views pinned under Tasks, by project ID. */
+  /** Saved GitHub views pinned to the sidebar, by project ID. */
   pinnedViews?: Record<string, PinnedView[]>;
   onOpenView?: (group: ProjectGroup, view: PinnedView) => void;
   onUnpinView?: (group: ProjectGroup, view: PinnedView) => void;
-  /** Branch copies whose pull request is merged. Their menu offers to delete them. */
-  mergedCopies?: Set<string>;
-  /** The agent of "New chat" rows and menus. */
-  preferredAgent?: Agent;
-  projectPage: 'board' | 'docs' | 'tasks' | 'memory' | 'insights';
   hosts?: RemoteHost[];
   api: API;
   repos: Project[];
@@ -225,6 +181,12 @@ export function ProjectTree({
     { kind: 'repository'; item: Project } | { kind: 'project'; item: ProjectGroup } | null
   >(null);
   const [reconnecting, setReconnecting] = useState('');
+  // The one Add code folders dialog. The project row menu and the app open it.
+  const [addFolder, setAddFolder] = useState<{ groupId: string; at: number }>();
+  useEffect(() => {
+    if (addFolderRequest) setAddFolder(addFolderRequest);
+  }, [addFolderRequest]);
+  const { finished } = useActivityState();
   async function togglePin(session: Session) {
     const pinned = !session.organization?.pinned;
     await run(async () => {
@@ -232,6 +194,15 @@ export function ProjectTree({
       onNotice?.(pinned ? 'Chat pinned. It shows at the top of the sidebar.' : 'Chat unpinned.');
     });
   }
+  const running = (session: Session) =>
+    openChats.find((chat) => sameSession(chat.session, session))?.state ||
+    sessionActivity[activityKey(session.agent, session.id)];
+  /** Work in progress or a wait for the user, else a finished run that the user did not see. */
+  const statusOf = (session: Session): ChatStatus | undefined =>
+    running(session) ||
+    (finished.some((item) => item.agent === session.agent && item.id === session.id)
+      ? 'done'
+      : undefined);
   const chatMenus = useChatListActions({
     api,
     onResume,
@@ -257,41 +228,39 @@ export function ProjectTree({
       const repo = sessionRepo(session, allRepos);
       return {
         open: sameSession(activeSession, session),
-        running: !!(
-          openChats.find((chat) => sameSession(chat.session, session))?.state ||
-          sessionActivity[activityKey(session.agent, session.id)]
-        ),
+        running: !!running(session),
         linkedTask: !!(taskOf?.(session) || session.organization?.taskId || session.task?.id),
         repository: !!repo,
         project: !!repo && groups.some((g) => g.repoIds.includes(repo.id)),
       };
     },
   });
-  const [editing, setEditing] = useState<ProjectGroup | 'new' | null>(null);
-  const [name, setName] = useState('');
-  const [color, setColor] = useState<ProjectColor | null>(null);
-  const managedRepos =
-    editing && editing !== 'new'
-      ? allRepos.filter((repo) => editing.repoIds.includes(repo.id))
-      : [];
-  const canSave =
-    !busy &&
-    !!name.trim() &&
-    !(editing !== 'new' && editing?.name === name.trim() && (editing?.color || null) === color);
-  function saveProject() {
-    void run(async () => {
-      if (editing && editing !== 'new') {
-        if (editing.name !== name.trim()) await api.updateGroup(editing.id, name.trim());
-        if ((editing.color || null) !== color) await api.setGroupColor(editing.id, color);
-      }
-      setEditing(null);
-    });
-  }
-  function edit(group: ProjectGroup | 'new') {
-    setEditing(group);
-    setName(group === 'new' ? '' : group.name);
-    setColor(group === 'new' ? null : group.color || null);
-  }
+  const [creating, setCreating] = useState(false);
+  // The Project settings dialog. The row menu, the project header and other pages open it.
+  const [settings, setSettings] = useState<{
+    groupId: string;
+    tab?: ProjectSettingsTab;
+    rename?: boolean;
+  } | null>(null);
+  const settingsGroup = settings && groups.find((group) => group.id === settings.groupId);
+  const openSettings = (group: ProjectGroup, tab?: ProjectSettingsTab, rename = false) =>
+    setSettings({ groupId: group.id, tab, rename });
+  const latest = useRef({ groups, activeGroup });
+  latest.current = { groups, activeGroup };
+  useEffect(() => {
+    const onOpen = (event: Event) => {
+      const detail = (event as CustomEvent<{ groupId?: string; tab?: string } | undefined>).detail;
+      // An event without a project is for the project that shows.
+      const id = detail?.groupId || latest.current.activeGroup;
+      if (!id || !latest.current.groups.some((group) => group.id === id)) return;
+      setSettings({ groupId: id, tab: detail?.tab as ProjectSettingsTab | undefined });
+    };
+    window.addEventListener('kalkidan-open-project-settings', onOpen);
+    return () => window.removeEventListener('kalkidan-open-project-settings', onOpen);
+  }, []);
+  /** Tells the project page to load its board again. */
+  const boardChanged = (groupId: string) =>
+    window.dispatchEvent(new CustomEvent('kalkidan-github-writes', { detail: { groupId } }));
   const [collapsed, setCollapsed] = useState(savedCollapsed);
   function toggleGroup(id: string, open: boolean) {
     setCollapsed((current) => {
@@ -306,91 +275,10 @@ export function ProjectTree({
       return next;
     });
   }
-  /** The pull request that a chat in this code folder opened. */
-  const pullRequestOf = (repo: Project) =>
-    sessions.find((s) => sessionRepo(s, allRepos)?.id === repo.id && s.organization?.pullRequest)
-      ?.organization?.pullRequest;
-  function repositoryActions(repo: Project, branch?: string): TreeAction[] {
-    const pull = branch ? pullRequestOf(repo) : undefined;
-    const merged = !!branch && !!mergedCopies?.has(repo.id);
-    return [
-      { label: branch ? 'Open branch copy' : 'Open code folder', action: () => onSelect(repo) },
-      ...(onNewSession
-        ? [...agentCatalog]
-            // The preferred agent comes first.
-            .sort((a, b) => Number(b.id === preferredAgent) - Number(a.id === preferredAgent))
-            .map(({ id: agent }) => ({
-              label: agentMenuLabel(agent, `New ${agentLabel(agent)} chat`),
-              disabled: !agentInstalled(agent),
-              reason: `Install ${agentLabel(agent)} in Settings › Agents.`,
-              action: () => onNewSession(agent, repo),
-            }))
-        : []),
-      ...(pull
-        ? [
-            {
-              label: pull.number ? `Open pull request #${pull.number}` : 'Open pull request',
-              action: () => window.open(pull.url, '_blank', 'noreferrer'),
-            },
-          ]
-        : []),
-      {
-        label: 'Edit code folder…',
-        separator: true,
-        disabled: busy,
-        action: () => onEditRepository(repo),
-      },
-      {
-        label: repo.favorite ? 'Remove from favorites' : 'Add to favorites',
-        disabled: busy,
-        action: () => {
-          void run(() => api.update(repo.id, { favorite: !repo.favorite }));
-        },
-      },
-      ...(!repo.hostId
-        ? [
-            {
-              label: revealLabel(),
-              action: () => {
-                void run(() => api.reveal(repo.id));
-              },
-            },
-          ]
-        : []),
-      branch && onDeleteBranchCopy
-        ? {
-            label: merged
-              ? 'Delete branch copy (pull request merged)…'
-              : 'Delete this branch copy…',
-            disabled: busy,
-            destructive: true,
-            separator: true,
-            action: () => onDeleteBranchCopy(repo, branch),
-          }
-        : {
-            label: 'Remove from Kalkidan…',
-            disabled: busy,
-            destructive: true,
-            separator: true,
-            action: () => setRemoving({ kind: 'repository', item: repo }),
-          },
-    ];
-  }
-  // An open session keeps its repository row marked as the current location.
-  const isCurrent = (repo: Project) =>
-    selected === repo.id && (!!activeSession || (!activeGroup && !allSessionsCurrent));
-  /** One chat row: in Open chats, Pinned, or under its code folder. */
-  function sessionRow(
-    session: Session,
-    kind: 'open' | 'pinned' | 'recent',
-    state?: SessionActivityState,
-    deep = false,
-  ) {
+  /** One chat row: in Pinned, or under its project. */
+  function sessionRow(session: Session, kind: 'pinned' | 'recent', folder?: string) {
     const title = titleOf(session);
-    // An open chat is selected only in "Open chats", so one row shows the selection.
-    const current =
-      sameSession(activeSession, session) &&
-      (kind === 'open' || !openChats.some((chat) => sameSession(chat.session, session)));
+    const current = sameSession(activeSession, session);
     const draft = session.id.startsWith('draft-');
     const pinned = !!session.organization?.pinned;
     const task = taskOf?.(session);
@@ -404,175 +292,84 @@ export function ProjectTree({
         <div
           className={
             'tree-row session-row row-hover row-focus' +
-            (kind === 'recent' ? ' tree-session-row' : ' tree-top-row') +
-            (deep ? ' tree-session-deep' : '') +
-            (kind === 'pinned' ? ' pinned-session-row' : '') +
-            (kind === 'open' ? ' open-chat-row' : '') +
+            (kind === 'recent' ? ' tree-session-row' : ' tree-top-row pinned-session-row') +
             (current ? ' selected row-selected' : '')
           }
         >
           <Button
             variant="ghost"
             className={rowButton}
-            title={title}
-            aria-label={
-              kind === 'pinned'
-                ? `Resume pinned ${title}`
-                : kind === 'open'
-                  ? `Open chat: ${title}`
-                  : `Chat: ${title}`
-            }
+            title={folder ? `${title} · ${folder}` : title}
+            aria-label={kind === 'pinned' ? `Resume pinned ${title}` : `Chat: ${title}`}
             aria-current={current ? 'page' : undefined}
             onClick={() => onResume(session)}
           >
             <span className="tree-icon">
               <AgentIcon agent={session.agent} className="size-3.5" />
             </span>
-            <span className="tree-label">{title}</span>
+            <span className={folder ? 'tree-label has-secondary' : 'tree-label'}>{title}</span>
+            {folder && <span className="tree-secondary">{folder}</span>}
             {task?.number && (
               <span className="tree-task-number" title={`Task #${task.number}: ${task.title}`}>
                 #{task.number}
               </span>
             )}
-            <ActivityDot state={state || sessionActivity[activityKey(session.agent, session.id)]} />
+            <ActivityDot state={statusOf(session)} />
           </Button>
-          {kind === 'open' && onCloseChat ? (
-            <Hint label={state ? 'Close chat. The agent keeps working.' : 'Close chat'}>
+          {!draft && (
+            <Hint label={pinned ? 'Unpin' : 'Pin to keep this chat at the top'}>
               <Button
                 variant="ghost"
                 size="icon-xs"
                 className="tree-row-menu"
-                aria-label={`Close ${title}`}
-                onClick={() => onCloseChat(session)}
+                disabled={busy}
+                aria-label={pinned ? `Unpin ${title}` : `Pin ${title}`}
+                onClick={() => void togglePin(session)}
               >
-                <X />
+                {pinned ? <PinOff /> : <Pin />}
               </Button>
             </Hint>
-          ) : (
-            <>
-              {!draft && (
-                <Hint label={pinned ? 'Unpin' : 'Pin to keep this chat at the top'}>
-                  <Button
-                    variant="ghost"
-                    size="icon-xs"
-                    className="tree-row-menu"
-                    disabled={busy}
-                    aria-label={pinned ? `Unpin ${title}` : `Pin ${title}`}
-                    onClick={() => void togglePin(session)}
-                  >
-                    {pinned ? <PinOff /> : <Pin />}
-                  </Button>
-                </Hint>
-              )}
-              <ChatActionsDropdown
-                size="xs"
-                className="tree-row-menu"
-                label={`${title} actions`}
-                groups={menu.groups}
-                onRun={menu.run}
-              />
-            </>
           )}
+          <ChatActionsDropdown
+            size="xs"
+            className="tree-row-menu"
+            label={`${title} actions`}
+            groups={menu.groups}
+            onRun={menu.run}
+          />
         </div>
       </ChatContextMenu>
     );
   }
-  /**
-   * The chats of a code folder, newest first, without pinned chats, drafts and open chats.
-   * An open chat shows once, in "Open chats".
-   */
-  function folderSessions(repo: Project) {
-    return sessions
-      .filter(
-        (s) =>
-          !s.organization?.archived &&
-          !s.organization?.pinned &&
-          !s.id.startsWith('draft-') &&
-          !openChats.some((chat) => sameSession(chat.session, s)) &&
-          sessionRepo(s, allRepos)?.id === repo.id,
-      )
-      .sort((a, b) => (b.updatedAt || '').localeCompare(a.updatedAt || ''));
-  }
-  // Rows stay siblings (no wrapper), so focus can move to the next row after a removal.
-  function repository(repo: Project, parent?: Project) {
-    const current = isCurrent(repo);
-    const branch = parent ? worktreeBranch(repo, parent) : undefined;
-    const actions = repositoryActions(repo, branch);
-    const label = branch ? `branch: ${branch}` : repo.name;
-    const chats = folderSessions(repo);
+  /** The recent chats of a project, newest first. Pinned chats show once, in Pinned. */
+  function projectChats(group: ProjectGroup) {
+    const members = allRepos.filter((repo) => group.repoIds.includes(repo.id));
+    const all = projectSessions(sessions, group, allRepos);
+    const recent = all.filter((s) => !s.organization?.pinned).slice(0, recentLimit);
+    // The code folder shows only when the project has more than one.
+    const folderOf = (session: Session) =>
+      members.length > 1 ? sessionRepo(session, allRepos)?.name : undefined;
     return [
-      <TreeContextMenu
-        key={repo.id}
-        label={branch ? 'Branch copy actions' : 'Code folder actions'}
-        actions={actions}
-      >
-        <div
-          className={
-            'tree-row repo-row row-hover row-focus' +
-            (branch ? ' worktree-row' : '') +
-            (current ? ' selected row-selected' : '')
-          }
-        >
-          <Button
-            variant="ghost"
-            className={'repo-select ' + rowButton}
-            aria-label={label}
-            aria-current={current ? (activeSession ? 'location' : 'page') : undefined}
-            onClick={() => onSelect(repo)}
-            title={branch ? `Branch copy of ${parent!.name}: ${repo.path}` : repo.path}
-          >
-            <span className="tree-icon">
-              {branch ? <FolderGit2 className="size-3.5" /> : <GitBranch className="size-3.5" />}
-            </span>
-            <span className="tree-label">{label}</span>
-            <ActivityDot state={activity[repo.id]} />
-          </Button>
-          <ActionMenu
-            size="xs"
-            className="tree-row-menu"
-            label={`${repo.name} actions`}
-            items={menuItems(actions)}
-          />
-        </div>
-      </TreeContextMenu>,
-      ...chats
-        .slice(0, recentLimit)
-        .map((session) => sessionRow(session, 'recent', undefined, !!branch)),
-      ...(chats.length > recentLimit
+      ...recent.map((session) => sessionRow(session, 'recent', folderOf(session))),
+      ...(all.length > recent.length
         ? [
             <div
-              key={repo.id + ':more'}
-              className={
-                'tree-row tree-session-row tree-more-row row-hover row-focus' +
-                (branch ? ' tree-session-deep' : '')
-              }
+              key={group.id + ':more'}
+              className="tree-row tree-session-row tree-more-row row-hover row-focus"
             >
               <Button
                 variant="ghost"
                 className={rowButton}
-                title={`Open ${repo.name} to see all its chats`}
-                onClick={() => onSelect(repo)}
+                title={`See all chats of ${group.name}`}
+                onClick={() => (onProjectChats || onProject)(group)}
               >
                 <span className="tree-icon" aria-hidden="true" />
-                <span className="tree-label">Show all {plural(chats.length, 'chat')}</span>
+                <span className="tree-label">Show all {plural(all.length, 'chat')}</span>
               </Button>
             </div>,
           ]
         : []),
     ];
-  }
-  /** Code folders of a project. Branch copies show under the code folder they belong to. */
-  function repositories(group: ProjectGroup) {
-    const members = repos.filter((r) => group.repoIds.includes(r.id));
-    const parents = new Map(members.map((repo) => [repo.id, worktreeParent(repo, members)]));
-    return members
-      .filter((repo) => !parents.get(repo.id))
-      .flatMap((repo) => [
-        ...repository(repo),
-        ...members
-          .filter((child) => parents.get(child.id)?.id === repo.id)
-          .flatMap((child) => repository(child, repo)),
-      ]);
   }
   const pinned = sessions.filter(
     (s) =>
@@ -580,40 +377,34 @@ export function ProjectTree({
       !s.organization.archived &&
       repos.some((r) => sessionRepo(s, allRepos)?.id === r.id),
   );
+  const views = groups.flatMap((group) =>
+    (pinnedViews[group.id] || []).map((view) => ({ group, view })),
+  );
   const hasRepositories = (group: ProjectGroup) =>
     group.repoIds.some((id) => allRepos.some((repo) => repo.id === id));
-  function projectActions(group: ProjectGroup): TreeAction[] {
+  const showAddFolder = (group: ProjectGroup) =>
+    setAddFolder((current) => ({ groupId: group.id, at: (current?.at || 0) + 1 }));
+  // Navigation to the project pages is in the project tabs. The menu has no copies of it.
+  function projectActions(group: ProjectGroup, host?: RemoteHost): TreeAction[] {
     return [
       { label: 'Open project', action: () => onProject(group) },
-      ...(onNewTask && trackerConnection(group)
-        ? [{ label: 'New task', action: () => onNewTask(group) }]
-        : []),
-      { label: 'Open docs', action: () => onDocs(group) },
-      { label: 'Open memory', action: () => onMemory(group) },
-      ...(onInsights ? [{ label: 'Insights', action: () => onInsights(group) }] : []),
-      ...(onProjectSettings
-        ? [{ label: 'Project settings…', action: () => onProjectSettings(group) }]
+      { label: 'Project settings…', action: () => openSettings(group) },
+      ...(host && host.status !== 'connected'
+        ? [
+            {
+              label: `Reconnect to ${host.name}`,
+              disabled: reconnecting === host.id || host.status === 'connecting',
+              action: () => void reconnect(host),
+            },
+          ]
         : []),
       {
         label: 'Add a code folder…',
         separator: true,
         disabled: busy,
-        action: () =>
-          window.dispatchEvent(
-            new CustomEvent('kalkidan-add-code-folder', { detail: { groupId: group.id } }),
-          ),
+        action: () => showAddFolder(group),
       },
-      ...(onConnect && !trackerConnection(group)
-        ? [{ label: connectLabel, action: () => onConnect(group) }]
-        : []),
-      { label: 'Rename…', separator: true, disabled: busy, action: () => edit(group) },
-      {
-        label: 'Remove project from Kalkidan…',
-        disabled: busy,
-        destructive: true,
-        separator: true,
-        action: () => setRemoving({ kind: 'project', item: group }),
-      },
+      { label: 'Rename…', disabled: busy, action: () => openSettings(group, 'general', true) },
     ];
   }
   async function reconnect(host: RemoteHost) {
@@ -641,7 +432,7 @@ export function ProjectTree({
   useEffect(() => {
     const tree = treeRef.current;
     if (!tree) return;
-    // Row actions (pin, close, menu, add) are reachable with the context menu key.
+    // Row actions (pin, menu, add) are reachable with the context menu key.
     for (const control of tree.querySelectorAll<HTMLElement>(
       '.tree-row-menu, .tree-row-action, .tree-toggle, .tree-row button:not(.tree-row-button)',
     ))
@@ -720,9 +511,9 @@ export function ProjectTree({
             className="tree-row-action"
             disabled={busy}
             aria-label="New project"
-            onClick={() => edit('new')}
+            onClick={() => setCreating(true)}
           >
-            <Plus />
+            <FolderPlus />
           </Button>
         </Hint>
       </div>
@@ -746,12 +537,41 @@ export function ProjectTree({
           </Button>
         </div>
       )}
-      {pinned.length > 0 && (
+      {(pinned.length > 0 || views.length > 0) && (
         <section className="tree-section pinned-sessions" aria-labelledby="tree-pinned">
           <h2 id="tree-pinned" className="sidebar-label tree-heading">
             Pinned
           </h2>
           {pinned.map((session) => sessionRow(session, 'pinned'))}
+          {views.map(({ group, view }) => (
+            <TreeContextMenu
+              key={'view:' + group.id + view.id}
+              label="View actions"
+              actions={[
+                { label: 'Open view', action: () => onOpenView?.(group, view) },
+                {
+                  label: 'Unpin view',
+                  separator: true,
+                  action: () => onUnpinView?.(group, view),
+                },
+              ]}
+            >
+              <div className="tree-row tree-top-row tree-view-row row-hover row-focus">
+                <Button
+                  variant="ghost"
+                  className={rowButton}
+                  title={`Saved GitHub view: ${view.name} · ${group.name}`}
+                  onClick={() => onOpenView?.(group, view)}
+                >
+                  <span className="tree-icon">
+                    <Eye className="size-3.5" />
+                  </span>
+                  <span className="tree-label has-secondary">{view.name}</span>
+                  <span className="tree-secondary">{group.name}</span>
+                </Button>
+              </div>
+            </TreeContextMenu>
+          ))}
         </section>
       )}
       {/* The heading always shows, so the tree does not move when a chat opens. */}
@@ -759,25 +579,19 @@ export function ProjectTree({
         <h2 className="sidebar-label tree-heading tree-projects-heading">Your projects</h2>
       )}
       {groups.map((group) => {
-        const boardCurrent = activeGroup === group.id && projectPage === 'board' && !activeSession;
-        const tasksCurrent = activeGroup === group.id && projectPage === 'tasks' && !activeSession;
-        const docsCurrent = activeGroup === group.id && projectPage === 'docs' && !activeSession;
-        const insightsCurrent =
-          activeGroup === group.id && projectPage === 'insights' && !activeSession;
         const members = allRepos.filter((repo) => group.repoIds.includes(repo.id));
+        const projectCurrent = activeGroup === group.id && !activeSession;
+        const activeRepo = activeSession ? sessionRepo(activeSession, allRepos) : undefined;
         // The project row shows that the current page is inside it, without a background.
         const containsCurrent =
-          !boardCurrent &&
-          (docsCurrent ||
-            tasksCurrent ||
-            insightsCurrent ||
-            (activeGroup === group.id && projectPage === 'memory') ||
-            members.some((repo) => isCurrent(repo)));
+          !projectCurrent &&
+          (activeRepo
+            ? group.repoIds.includes(activeRepo.id)
+            : !activeGroup && members.some((repo) => selected === repo.id));
         const host = hosts.find((h) => h.id === group.hostId);
         const open = !collapsed.has(group.id);
         const groupState = strongestActivity(members.map((repo) => activity[repo.id]));
-        const views = pinnedViews[group.id] || [];
-        const actions = projectActions(group);
+        const actions = projectActions(group, host);
         const folderColor = {
           value: group.color,
           disabled: busy,
@@ -785,6 +599,12 @@ export function ProjectTree({
             void run(() => api.setGroupColor(group.id, color)),
         };
         const clones = cloning.filter((clone) => clone.groupId === group.id);
+        const chats = projectChats(group);
+        const hostStatus = host?.status || 'disconnected';
+        const hostLabel = group.hostId
+          ? `SSH: ${host?.target || host?.name || 'remote host'} · ${hostStatus}` +
+            (host?.error ? ` · ${host.error}` : '')
+          : '';
         return (
           <Collapsible
             className="project-group"
@@ -797,7 +617,7 @@ export function ProjectTree({
               <div
                 className={
                   'tree-row tree-top-row project-group-heading row-hover row-focus' +
-                  (boardCurrent ? ' selected row-selected' : '') +
+                  (projectCurrent ? ' selected row-selected' : '') +
                   (containsCurrent ? ' contains-current' : '')
                 }
               >
@@ -817,190 +637,48 @@ export function ProjectTree({
                 <Button
                   variant="ghost"
                   className={'project-select ' + rowButton}
-                  title={group.name}
+                  title={hostLabel ? `${group.name} · ${hostLabel}` : group.name}
                   aria-label={group.name}
-                  aria-current={boardCurrent ? 'page' : undefined}
+                  aria-current={projectCurrent ? 'page' : undefined}
                   onClick={() => onProject(group)}
                 >
                   <span className="tree-label">{group.name}</span>
                   {group.hostId && (
-                    <Badge variant="outline" size="sm">
+                    <Badge
+                      variant="outline"
+                      size="sm"
+                      className="project-host-badge"
+                      title={hostLabel}
+                      data-status={hostStatus}
+                    >
+                      <span
+                        className={
+                          'tree-host-dot' +
+                          (hostStatus === 'connected'
+                            ? ' host-connected'
+                            : hostStatus === 'error'
+                              ? ' host-error'
+                              : '')
+                        }
+                        aria-hidden="true"
+                      />
                       SSH
                     </Badge>
                   )}
                   {!open && <ActivityDot state={groupState} />}
                 </Button>
-                <div className="project-group-actions">
-                  <AddRepository
-                    api={api}
-                    groupId={group.id}
-                    disabled={busy}
-                    size="icon-xs"
-                    className="tree-row-action"
-                    onRefresh={onRefresh}
-                    onNotice={onNotice}
-                  >
-                    <Plus />
-                    <span className="sr-only">Add code folders to {group.name}</span>
-                  </AddRepository>
-                  <ActionMenu
-                    size="xs"
-                    className="tree-row-menu"
-                    disabled={busy}
-                    label={`Manage project ${group.name}`}
-                    folderColor={folderColor}
-                    items={menuItems(actions)}
-                  />
-                </div>
+                <ActionMenu
+                  size="xs"
+                  className="tree-row-menu"
+                  disabled={busy}
+                  label={`Manage project ${group.name}`}
+                  folderColor={folderColor}
+                  items={menuItems(actions)}
+                />
               </div>
             </TreeContextMenu>
             <CollapsibleContent className="project-group-children">
-              <div
-                className={
-                  'tree-row project-subpage-row row-hover row-focus' +
-                  (tasksCurrent ? ' selected row-selected' : '')
-                }
-              >
-                <Button
-                  variant="ghost"
-                  className={'project-subpage ' + rowButton}
-                  aria-current={tasksCurrent ? 'page' : undefined}
-                  title={
-                    trackerConnection(group)
-                      ? 'The GitHub Projects board of this project'
-                      : 'Connect a GitHub Projects board to track tasks'
-                  }
-                  onClick={() => (onTasks || onProject)(group)}
-                >
-                  <span className="tree-icon">
-                    <ListTodo className="size-3.5" />
-                  </span>
-                  <span className="tree-label">Tasks</span>
-                </Button>
-              </div>
-              {views.map((view) => (
-                <TreeContextMenu
-                  key={'view:' + view.id}
-                  label="View actions"
-                  actions={[
-                    { label: 'Open view', action: () => onOpenView?.(group, view) },
-                    {
-                      label: 'Unpin view',
-                      separator: true,
-                      action: () => onUnpinView?.(group, view),
-                    },
-                  ]}
-                >
-                  <div className="tree-row project-subpage-row tree-view-row row-hover row-focus">
-                    <Button
-                      variant="ghost"
-                      className={'project-subpage ' + rowButton}
-                      title={`Saved GitHub view: ${view.name}`}
-                      onClick={() => onOpenView?.(group, view)}
-                    >
-                      <span className="tree-icon">
-                        <Eye className="size-3.5" />
-                      </span>
-                      <span className="tree-label">{view.name}</span>
-                    </Button>
-                  </div>
-                </TreeContextMenu>
-              ))}
-              <div
-                className={
-                  'tree-row project-subpage-row row-hover row-focus' +
-                  (docsCurrent ? ' selected row-selected' : '')
-                }
-              >
-                <Button
-                  variant="ghost"
-                  className={'project-subpage ' + rowButton}
-                  aria-current={docsCurrent ? 'page' : undefined}
-                  onClick={() => onDocs(group)}
-                >
-                  <span className="tree-icon">
-                    <BookOpen className="size-3.5" />
-                  </span>
-                  <span className="tree-label">Docs</span>
-                </Button>
-              </div>
-              <div
-                className={
-                  'tree-row project-subpage-row row-hover row-focus' +
-                  (activeGroup === group.id && projectPage === 'memory'
-                    ? ' selected row-selected'
-                    : '')
-                }
-              >
-                <Button
-                  variant="ghost"
-                  className={'project-subpage ' + rowButton}
-                  aria-current={
-                    activeGroup === group.id && projectPage === 'memory' ? 'page' : undefined
-                  }
-                  onClick={() => onMemory(group)}
-                >
-                  <span className="tree-icon">
-                    <Brain className="size-3.5" />
-                  </span>
-                  <span className="tree-label">Memory</span>
-                </Button>
-              </div>
-              {onInsights && (
-                <div
-                  className={
-                    'tree-row project-subpage-row row-hover row-focus' +
-                    (insightsCurrent ? ' selected row-selected' : '')
-                  }
-                >
-                  <Button
-                    variant="ghost"
-                    className={'project-subpage ' + rowButton}
-                    aria-current={insightsCurrent ? 'page' : undefined}
-                    onClick={() => onInsights(group)}
-                  >
-                    <span className="tree-icon">
-                      <ChartColumn className="size-3.5" />
-                    </span>
-                    <span className="tree-label">Insights</span>
-                  </Button>
-                </div>
-              )}
-              {group.hostId && (
-                <div className="tree-row tree-host" title={host?.error || host?.target}>
-                  <span className="tree-icon" aria-hidden="true">
-                    <span
-                      className={
-                        'tree-host-dot' +
-                        (host?.status === 'connected'
-                          ? ' host-connected'
-                          : host?.status === 'error'
-                            ? ' host-error'
-                            : '')
-                      }
-                    />
-                  </span>
-                  <span className="tree-label">{host?.name || 'Remote host'}</span>
-                  {host && host.status !== 'connected' ? (
-                    <Button
-                      variant="ghost"
-                      size="xs"
-                      className="tree-host-action tree-row-button"
-                      disabled={reconnecting === host.id || host.status === 'connecting'}
-                      aria-label={`Reconnect to ${host.name}`}
-                      onClick={() => void reconnect(host)}
-                    >
-                      {reconnecting === host.id || host.status === 'connecting' ? (
-                        <Loader2 className="animate-spin" />
-                      ) : null}
-                      {host.status === 'error' ? 'Try again' : 'Reconnect'}
-                    </Button>
-                  ) : (
-                    <small>{host?.status || 'disconnected'}</small>
-                  )}
-                </div>
-              )}
-              {repositories(group)}
+              {chats}
               {clones.map((clone) => (
                 <div key={clone.id} className="tree-row tree-cloning" role="status">
                   <span className="tree-icon">
@@ -1009,7 +687,7 @@ export function ProjectTree({
                   <span className="tree-label">Cloning {clone.name}…</span>
                 </div>
               ))}
-              {!hasRepositories(group) && !clones.length && (
+              {!hasRepositories(group) && !clones.length ? (
                 <div className="tree-row tree-empty">
                   <span className="tree-icon" aria-hidden="true" />
                   <Button
@@ -1017,35 +695,28 @@ export function ProjectTree({
                     size="xs"
                     className="tree-empty-action tree-row-button"
                     disabled={busy}
-                    onClick={() =>
-                      window.dispatchEvent(
-                        new CustomEvent('kalkidan-add-code-folder', {
-                          detail: { groupId: group.id },
-                        }),
-                      )
-                    }
+                    onClick={() => showAddFolder(group)}
                   >
                     Add a code folder
                   </Button>
                 </div>
+              ) : (
+                !chats.length &&
+                !clones.length && (
+                  <div className="tree-row tree-empty">
+                    <span className="tree-icon" aria-hidden="true" />
+                    <span className="tree-label">No chats yet</span>
+                  </div>
+                )
               )}
             </CollapsibleContent>
           </Collapsible>
         );
       })}
-      {/* Open chats come after the projects, so the projects do not move when a chat opens. */}
-      {openChats.length > 0 && (
-        <section className="tree-section tree-open-chats" aria-labelledby="tree-open-chats">
-          <h2 id="tree-open-chats" className="sidebar-label tree-heading">
-            Open chats
-          </h2>
-          {openChats.map(({ session, state }) => sessionRow(session, 'open', state))}
-        </section>
-      )}
       {!groups.length ? (
         <EmptyState compact icon={<Folder />} title="No projects yet">
-          A project holds your code folders, agent chats and notes. Select + next to Projects to
-          create one.
+          A project holds your code folders, agent chats and notes. Select New project next to
+          Projects to create one.
         </EmptyState>
       ) : (
         searching &&
@@ -1053,6 +724,16 @@ export function ProjectTree({
           <EmptyState compact>No matching projects or code folders.</EmptyState>
         )
       )}
+      {/* The dialog stays mounted, as it did when each project row had its own button. */}
+      <AddRepository
+        key={addFolder?.groupId}
+        api={api}
+        groupId={addFolder?.groupId}
+        trigger={false}
+        openRequest={addFolder?.at}
+        onRefresh={onRefresh}
+        onNotice={onNotice}
+      />
       {chatMenus.dialogs}
       <Dialog open={!!removing} onOpenChange={(open) => !open && setRemoving(null)}>
         <DialogContent size="sm">
@@ -1099,141 +780,46 @@ export function ProjectTree({
       </Dialog>
       <CreateProject
         api={api}
-        open={editing === 'new'}
-        onOpenChange={(open) => !open && setEditing(null)}
+        open={creating}
+        onOpenChange={setCreating}
         onCreated={async (group) => {
           await onRefresh();
           onProject(group);
         }}
       />
-      <Dialog
-        open={!!editing && editing !== 'new'}
-        onOpenChange={(open) => !open && setEditing(null)}
-      >
-        <DialogContent size="md" layout="scroll">
-          <DialogHeader>
-            <div className="project-settings-heading">
-              <EntityIcon size="lg" color={color ? projectColors[color] : undefined}>
-                <Folder />
-              </EntityIcon>
-              <div>
-                <DialogTitle>Manage project</DialogTitle>
-                <DialogDescription className="mt-1">
-                  Change the name and color, and see the code folders of this project.
-                </DialogDescription>
-              </div>
-            </div>
-          </DialogHeader>
-          <DialogBody>
-            <form
-              id="project-settings-form"
-              className="grid gap-4"
-              onSubmit={(event) => {
-                event.preventDefault();
-                if (canSave) saveProject();
-              }}
-            >
-              <label className="form-label">
-                Project name
-                <Input
-                  value={name}
-                  maxLength={150}
-                  disabled={busy}
-                  onChange={(e) => setName(e.target.value)}
-                  placeholder="e.g. Customer platform"
-                />
-              </label>
-              <label className="form-label">
-                Project folder
-                <Input
-                  readOnly
-                  aria-label="Project folder"
-                  value={
-                    editing && editing !== 'new'
-                      ? editing.rootPath || 'Set when this project opens on its host'
-                      : ''
-                  }
-                />
-                <span className="form-help">
-                  Contains docs/, repos/, and worktrees/. Code folders in other places stay linked.
-                </span>
-              </label>
-              <fieldset className="project-settings-colors" disabled={busy}>
-                <legend className="form-label">Folder color</legend>
-                <div className="flex flex-wrap gap-2">
-                  {([null, ...Object.keys(projectColors)] as (ProjectColor | null)[]).map(
-                    (value) => (
-                      <Button
-                        key={value || 'default'}
-                        type="button"
-                        variant="ghost"
-                        size="icon"
-                        aria-label={
-                          value
-                            ? value[0].toUpperCase() + value.slice(1) + ' folder'
-                            : 'Default folder'
-                        }
-                        aria-pressed={color === value}
-                        title={value || 'Default'}
-                        onClick={() => setColor(value)}
-                        style={{ color: value ? projectColors[value] : 'var(--muted-foreground)' }}
-                      >
-                        <Folder />
-                      </Button>
-                    ),
-                  )}
-                </div>
-              </fieldset>
-              <section className="project-settings-repositories" aria-label="Project code folders">
-                <SectionHeader size="sm" title="Code folders" count={managedRepos.length} />
-                {managedRepos.length ? (
-                  <ul className="list-box">
-                    {managedRepos.map((repo) => (
-                      <li key={repo.id} className="list-box-row">
-                        <GitBranch size={14} />
-                        <div>
-                          <strong>{repo.name}</strong>
-                          <span title={repo.path}>{repo.path}</span>
-                        </div>
-                      </li>
-                    ))}
-                  </ul>
-                ) : (
-                  <EmptyState compact>No code folders in this project yet.</EmptyState>
-                )}
-              </section>
-              {editing && editing !== 'new' && (
-                <div className="danger-zone">
-                  <div>
-                    <strong>Remove project</strong>
-                    <p>Kalkidan stops showing it. All files stay on disk.</p>
-                  </div>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className="text-destructive hover:text-destructive"
-                    disabled={busy}
-                    onClick={() => {
-                      setRemoving({ kind: 'project', item: editing });
-                      setEditing(null);
-                    }}
-                  >
-                    Remove project…
-                  </Button>
-                </div>
-              )}
-            </form>
-          </DialogBody>
-          <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => setEditing(null)}>
-              Cancel
-            </Button>
-            <Button type="submit" form="project-settings-form" disabled={!canSave}>
-              {busy ? 'Saving…' : 'Save project'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      {settingsGroup && (
+        <ProjectSettingsDialog
+          api={api}
+          group={settingsGroup}
+          repos={allRepos}
+          host={hosts.find((h) => h.id === settingsGroup.hostId)}
+          open={!!settings}
+          tab={settings?.tab}
+          focusName={!!settings?.rename}
+          onOpenChange={(open) => {
+            if (open) return;
+            setSettings(null);
+            boardChanged(settingsGroup.id);
+            void onRefresh();
+          }}
+          onSaved={() => void onRefresh()}
+          onChanged={() => boardChanged(settingsGroup.id)}
+          onConnected={async () => {
+            await onRefresh();
+            // A connected board shows its tasks on the project page that shows.
+            if (latest.current.activeGroup === settingsGroup.id)
+              openProjectPage(settingsGroup.id, 'tasks');
+          }}
+          onDisconnected={async () => {
+            await onRefresh();
+            if (latest.current.activeGroup === settingsGroup.id)
+              openProjectPage(settingsGroup.id, 'board');
+          }}
+          onAddFolder={() => showAddFolder(settingsGroup)}
+          onRemoveFolder={(repo) => setRemoving({ kind: 'repository', item: repo })}
+          onRemoveProject={() => setRemoving({ kind: 'project', item: settingsGroup })}
+        />
+      )}
     </div>
   );
 }

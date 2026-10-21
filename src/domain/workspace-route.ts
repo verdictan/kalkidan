@@ -1,7 +1,7 @@
 import type { Session } from './conversation';
 import type { SettingsTab } from './settings-route';
 /** 'board' is the project overview page (the old name is kept for saved routes). */
-export type ProjectPage = 'board' | 'docs' | 'tasks' | 'memory' | 'insights';
+export type ProjectPage = 'board' | 'docs' | 'tasks' | 'chats' | 'memory' | 'insights';
 export type WorkspacePage =
   | { kind: 'home' }
   | { kind: 'sessions' }
@@ -67,7 +67,14 @@ export type SavedRoute =
   | WorkspacePage
   | { kind: 'conversation'; agent: string; id: string; hostId?: string; parent: WorkspacePage };
 const pageKinds = new Set(['home', 'sessions', 'project', 'repository']);
-const projectPages = new Set<ProjectPage>(['board', 'docs', 'tasks', 'memory', 'insights']);
+const projectPages = new Set<ProjectPage>([
+  'board',
+  'docs',
+  'tasks',
+  'chats',
+  'memory',
+  'insights',
+]);
 export function saveableRoute(route: WorkspaceRoute): SavedRoute | null {
   // Settings is not a place to return to after a launch.
   if (route.kind === 'settings') return null;

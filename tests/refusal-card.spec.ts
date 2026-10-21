@@ -1,4 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
+import { openCodeFolder } from './helpers/navigation';
 
 const notice =
   'Kalkidan runs agents only through managed Verdictan agents. It does not start a local agent CLI directly.';
@@ -42,7 +43,7 @@ async function refuseWith(page: Page, code: string, extra: Record<string, unknow
     { code, notice, extra },
   );
   await page.goto('/');
-  await page.locator('.repo-select').first().click();
+  await openCodeFolder(page);
   await page.getByRole('button', { name: 'New Codex chat', exact: true }).click();
   const composer = page.getByLabel('Message agent');
   await composer.fill('Reply OK.');

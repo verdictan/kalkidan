@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { openAddCodeFolders } from './helpers/navigation';
 
 test('a project created from Add code folders closes the flow and opens the new project', async ({
   page,
@@ -40,7 +41,7 @@ test('a project created from Add code folders closes the flow and opens the new 
   await expect(page.getByRole('main').getByRole('heading', { name: 'Mobile' })).toBeVisible();
 
   // The dialog of another project still adds to that project.
-  await page.getByRole('button', { name: 'Add code folders to Empty', exact: true }).click();
+  await openAddCodeFolders(page, 'Empty');
   await expect(add.getByRole('combobox', { name: 'Add to project' })).toContainText('Empty');
 });
 
@@ -48,10 +49,7 @@ test('canceling New project returns to Add code folders with the same project', 
   page,
 }) => {
   await page.goto('/');
-  await page
-    .getByRole('button', { name: 'Add code folders to Atlas', exact: true })
-    .first()
-    .click();
+  await openAddCodeFolders(page, 'Atlas');
   const add = page.getByRole('dialog', { name: 'Add code folders', exact: true });
   await add.getByRole('button', { name: 'Create a new project', exact: true }).click();
   const create = page.getByRole('dialog', { name: 'New project', exact: true });

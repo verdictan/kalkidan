@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { openTool } from './helpers/tools';
+import { openCodeFolder } from './helpers/navigation';
 
 test('conversation tools preview evidence, attach it to the draft, and send it only on request', async ({
   page,
@@ -81,7 +82,7 @@ test('conversation tools preview evidence, attach it to the draft, and send it o
     };
   });
   await page.goto('/');
-  await page.locator('.repo-select').click();
+  await openCodeFolder(page);
   await page.getByRole('button', { name: 'New Codex chat', exact: true }).click();
   await page.setViewportSize({ width: 961, height: 988 });
   await page.screenshot({ path: 'test-results/conversation-tools-empty.png' });
@@ -128,7 +129,7 @@ test('browser preview explains native requirements instead of simulating command
   page,
 }) => {
   await page.goto('/');
-  await page.locator('.repo-select').first().click();
+  await openCodeFolder(page);
   await page.getByRole('button', { name: 'New Codex chat', exact: true }).click();
   await openTool(page, 'Terminal');
   await expect(

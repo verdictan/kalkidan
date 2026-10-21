@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { openCodeFolder } from './helpers/navigation';
 test('a failed pull request keeps the successful commit and retries only the pull request', async ({
   page,
 }) => {
@@ -76,7 +77,7 @@ test('a failed pull request keeps the successful commit and retries only the pul
     };
   });
   await page.goto('/');
-  await page.locator('.repo-select').click();
+  await openCodeFolder(page);
   await page.getByRole('button', { name: 'Resume Implement feature', exact: true }).click();
   await page.getByRole('button', { name: 'Chat actions', exact: true }).click();
   await page.getByRole('menuitem', { name: 'Commit changes…', exact: true }).click();

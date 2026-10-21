@@ -1,4 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
+import { openProjectTab } from './helpers/navigation';
 
 /** The save state of the open page. Toasts also use the status role, so look in the editor. */
 const saveState = (page: Page) =>
@@ -8,7 +9,7 @@ test('project Board and Docs pages support live Markdown, subpages and persisten
   page,
 }) => {
   await page.goto('/');
-  await page.getByRole('button', { name: 'Docs', exact: true }).click();
+  await openProjectTab(page, 'Docs');
   await expect(page.getByRole('complementary', { name: 'Document pages' })).toBeVisible();
   await page.getByRole('button', { name: 'New page', exact: true }).click();
   await page.getByLabel('New page title').fill('Engineering handbook');
@@ -46,10 +47,7 @@ test('project Board and Docs pages support live Markdown, subpages and persisten
     'Child documentation',
   );
   await page.reload();
-  await page
-    .getByRole('navigation', { name: 'Projects and repositories' })
-    .getByRole('button', { name: 'Docs', exact: true })
-    .click();
+  await openProjectTab(page, 'Docs');
   await page
     .getByRole('complementary', { name: 'Document pages' })
     .getByRole('button', { name: 'Engineering handbook', exact: true })
@@ -82,7 +80,7 @@ test('rich editor formats in place, supports slash blocks, and saves Markdown', 
   page,
 }) => {
   await page.goto('/');
-  await page.getByRole('button', { name: 'Docs', exact: true }).click();
+  await openProjectTab(page, 'Docs');
   await page.getByRole('button', { name: 'New page', exact: true }).click();
   await page.getByLabel('New page title').fill('Project guide');
   await page.getByRole('button', { name: 'Create page', exact: true }).click();
@@ -146,7 +144,7 @@ test('rich editor preserves tables, links, code, and formatting through save and
     ),
   );
   await page.goto('/');
-  await page.getByRole('button', { name: 'Docs', exact: true }).click();
+  await openProjectTab(page, 'Docs');
   const editor = page.getByRole('textbox', { name: 'Document content' });
   await expect(editor.locator('table')).toContainText('Build');
   await expect(editor.locator('pre')).toContainText('const ready = true');
@@ -188,7 +186,7 @@ test('document context menu preserves selection and supports keyboard block edit
   page,
 }) => {
   await page.goto('/');
-  await page.getByRole('button', { name: 'Docs', exact: true }).click();
+  await openProjectTab(page, 'Docs');
   await page.getByRole('button', { name: 'New page', exact: true }).click();
   await page.getByLabel('New page title').fill('Editing menu');
   await page.getByRole('button', { name: 'Create page', exact: true }).click();
@@ -222,7 +220,7 @@ test('document context menu preserves selection and supports keyboard block edit
 
 test('sidebar organizes nested pages and reveals a newly created child', async ({ page }) => {
   await page.goto('/');
-  await page.getByRole('button', { name: 'Docs', exact: true }).click();
+  await openProjectTab(page, 'Docs');
   await page.getByRole('button', { name: 'New page', exact: true }).click();
   await page.getByLabel('New page title').fill('Handbook');
   await page.getByRole('button', { name: 'Create page', exact: true }).click();
@@ -253,7 +251,7 @@ test('sidebar organizes nested pages and reveals a newly created child', async (
 
 test('link dialog links to another doc page, and the link opens that page', async ({ page }) => {
   await page.goto('/');
-  await page.getByRole('button', { name: 'Docs', exact: true }).click();
+  await openProjectTab(page, 'Docs');
   await page.getByRole('button', { name: 'New page', exact: true }).click();
   await page.getByLabel('New page title').fill('Release checklist');
   await page.getByRole('button', { name: 'Create page', exact: true }).click();
