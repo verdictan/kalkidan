@@ -202,6 +202,10 @@ export interface ProjectAPI {
     groupId: string,
     taskId: string,
   ): Promise<import('../domain/conversation').TaskUsageHistory[]>;
+  /** The Verdictan history of a task or a chat. One page of at most 25 requests. */
+  managedHistory(
+    target: import('../domain/managed-history').ManagedHistoryTarget,
+  ): Promise<import('../domain/managed-history').ManagedHistoryPage>;
   historyPreview(): Promise<HistoryImportPreview>;
   historyImport(request: HistoryImportRequest): Promise<HistoryImportResult>;
   cloneRepository(name: string, groupId?: string): Promise<boolean>;

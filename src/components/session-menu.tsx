@@ -17,6 +17,7 @@ import {
   FileText,
   GitPullRequest,
   ListTodo,
+  Gauge,
 } from 'lucide-react';
 import type { API, ProjectGroup, Session, SessionOrganization, TrackerItem } from '../types';
 import type { WorkingFile, WorkingStatus } from '../api/contracts';
@@ -50,6 +51,7 @@ import {
 } from './ui/dropdown-menu';
 import { Hint } from './hint';
 import { RenameSessionDialog, archiveSessionWithUndo } from './session-actions';
+import { ManagedHistoryView } from './managed-history';
 import {
   fileManagerName,
   hasPrimaryModifier,
@@ -123,7 +125,7 @@ export function SessionMenu({
   /** Opens the Changes tool. The commit dialog links to it. */
   onReviewChanges?: () => void;
 }) {
-  const [dialog, setDialog] = useState<'rename' | 'worktree' | 'commit' | null>(null);
+  const [dialog, setDialog] = useState<'rename' | 'worktree' | 'commit' | 'history' | null>(null);
   const [value, setValue] = useState('');
   const [preview, setPreview] = useState<{ base: string; path: string } | null>(null);
   const [busy, setBusy] = useState(false);
@@ -333,6 +335,12 @@ export function SessionMenu({
               </DropdownMenuItem>
             </DropdownMenuSubContent>
           </DropdownMenuSub>
+          {typeof api.managedHistory === 'function' && !session.hostId && (
+            <DropdownMenuItem disabled={!saved} onSelect={() => setDialog('history')}>
+              <Gauge />
+              Usage history…
+            </DropdownMenuItem>
+          )}
           <DropdownMenuItem disabled={!saved || running} onSelect={() => action('copy-transcript')}>
             <Copy />
             Copy chat as Markdown
@@ -408,6 +416,25 @@ export function SessionMenu({
           }
         />
       )}
+      <Dialog open={dialog === 'history'} onOpenChange={(open) => !open && setDialog(null)}>
+        <DialogContent size="lg">
+          <DialogHeader>
+            <DialogTitle>Usage history</DialogTitle>
+            <DialogDescription>
+              The policy decision, model, tokens, time and settlement of each managed agent request
+              in this chat.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogBody>
+            {dialog === 'history' && (
+              <ManagedHistoryView
+                api={api}
+                target={{ kind: 'conversation', agent: session.agent, sessionId: session.id }}
+              />
+            )}
+          </DialogBody>
+        </DialogContent>
+      </Dialog>
       <RenameSessionDialog
         session={session}
         open={dialog === 'rename'}

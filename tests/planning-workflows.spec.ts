@@ -91,9 +91,43 @@ test.beforeEach(async ({ page }) => {
       }),
       projectServicesStatus: async () => ({
         available: true,
+        historyList: true,
         operations: ['review.list', 'review.decide'],
         permissions: ['review.read', 'review.decide'],
       }),
+      managedHistory: async (target: any) => {
+        writes.push(['history', target]);
+        const entry = {
+          time: '2026-10-21T09:59:00Z',
+          decision: 'allow',
+          reason: 'allowed',
+          review: null,
+          provider: 'openai',
+          model: 'gpt-5.4',
+          agent: 'codex',
+          inputTokens: '100',
+          outputTokens: '20',
+          cachedInputTokens: null,
+          totalTokens: '120',
+          cost: target.cursor ? null : '0.0125',
+          currency: target.cursor ? null : 'USD',
+          settlement: 'completed',
+          corrected: !target.cursor,
+          releasedAt: '2026-10-21T09:59:30Z',
+          settledAt: '2026-10-21T10:00:00Z',
+          startedAt: '2026-10-21T09:58:59Z',
+          completedAt: '2026-10-21T09:59:00Z',
+          latencyMs: '900',
+          audited: true,
+        };
+        return {
+          entries: [entry],
+          cursor: target.cursor ? null : 'page-2',
+          asOf: '2026-10-21T10:00:00Z',
+          observedAt: '2026-10-21T10:00:00Z',
+          source: 'history',
+        };
+      },
       projectServicesRequest: async (_group: string, request: any) => {
         writes.push(['project-service', request]);
         return request.operation === 'review.list'
@@ -400,4 +434,34 @@ test('a usage link from a chat opens Insights at the task without the task sheet
   );
   await expect(usage.locator('dl.meta-list')).toContainText('CostUnknown');
   await expect(page.getByRole('dialog')).toHaveCount(0);
+});
+test('task history from Verdictan shows each request without IDs and restarts to refresh', async ({
+  page,
+}) => {
+  await openInsights(page);
+  await page.getByRole('button', { name: 'Check project services' }).click();
+  await choose(page, 'Project service task', 'Independent issue');
+  const services = page.getByRole('region', { name: 'Managed agent services' });
+  const request = services.locator('.review-row').first();
+  await expect(request).toContainText('Request 1');
+  await expect(request).toContainText('Allowed');
+  await expect(request).toContainText('gpt-5.4');
+  await expect(request).toContainText('120 in total · 100 in · 20 out · unknown cached');
+  await expect(request).toContainText('0.0125 USD');
+  await expect(request).toContainText('Completed · Corrected after release');
+  await services.getByRole('button', { name: 'Next page', exact: true }).click();
+  await expect(services.locator('.review-row')).toHaveCount(2);
+  await expect(services.locator('.review-row').nth(1)).toContainText('CostUnknown');
+  await services.getByRole('button', { name: 'Load again', exact: true }).click();
+  await expect(services.locator('.review-row')).toHaveCount(1);
+  const calls = await page.evaluate(() =>
+    (window as any).planningWrites.filter((call: any) => call[0] === 'history'),
+  );
+  expect(calls.map((call: any) => call[1])).toEqual([
+    { kind: 'task', groupId: 'g', taskId: 'I1' },
+    { kind: 'task', groupId: 'g', taskId: 'I1', cursor: 'page-2' },
+    { kind: 'task', groupId: 'g', taskId: 'I1' },
+  ]);
+  const text = await services.innerText();
+  for (const id of ['page-2', 'I1', 'cfg_', 'vdt_']) expect(text).not.toContain(id);
 });

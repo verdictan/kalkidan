@@ -19,8 +19,12 @@ import {
 import {
   claudeSubscriptionNativeVersion,
   claudeSubscriptionRecovery,
+  usesDefaultPolicy,
   type ProviderAccessMode,
+  type VerdictanSelection,
+  type VerdictanSetup,
 } from '../../src/domain/verdictan';
+import { policyId } from './policy-id';
 import type { ChatRun } from '../../src/domain/conversation';
 
 /** Keeps the safe code and gives the user one recovery action. Never contains secrets. */
@@ -32,6 +36,30 @@ export class SubscriptionRecoveryError extends DesktopProtocolError {
     this.message = recovery.message;
     this.recoveryAction = recovery.action;
   }
+}
+/**
+ * True when `resources.provisioned` used the policy that Kalkidan asked for. A picked policy
+ * must come back unchanged. The default must come back as the default configuration; its
+ * version can be older, because a binding keeps the version that Verdictan deployed first.
+ * Older runtimes do not send `configuration_source`, and they cannot provision the default.
+ */
+export function provisionedPolicy(
+  resources: Record<string, unknown>,
+  selection: VerdictanSelection,
+  fallback: VerdictanSetup['defaultPolicy'],
+) {
+  if (!usesDefaultPolicy(selection))
+    return (
+      (resources.configuration_source ?? 'selected') === 'selected' &&
+      resources.configuration_id === selection.configurationId &&
+      resources.configuration_version_id === selection.configurationVersionId
+    );
+  return (
+    !!fallback &&
+    resources.configuration_source === 'kalkidan_default' &&
+    resources.configuration_id === fallback.configuration_id &&
+    policyId(resources.configuration_version_id, 'version')
+  );
 }
 /** Variables that select API billing instead of the native subscription login. */
 const apiCredentialVariables = ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN'];
@@ -90,6 +118,7 @@ export class VerdictanLaunchService {
     const identity = await (this.identities
       ? this.identities()
       : this.store.identities(this.hostKey));
+    const fallback = usesDefaultPolicy(selection);
     const parameters = {
       installation_id: identity.installationId,
       host_id: identity.hostId,
@@ -97,8 +126,13 @@ export class VerdictanLaunchService {
       ...(request.session.governanceScope?.projectId
         ? { project_id: request.session.governanceScope.projectId }
         : {}),
-      configuration_id: selection.configurationId,
-      configuration_version_id: selection.configurationVersionId,
+      // Send both policy IDs or neither. Without them, Verdictan uses the default.
+      ...(fallback
+        ? {}
+        : {
+            configuration_id: selection.configurationId,
+            configuration_version_id: selection.configurationVersionId,
+          }),
     };
     const resources = (await client.request('resources.provision', { parameters })).data;
     if (
@@ -108,8 +142,7 @@ export class VerdictanLaunchService {
       typeof resources.gateway_id !== 'string' ||
       resources.installation_id !== parameters.installation_id ||
       resources.host_id !== parameters.host_id ||
-      resources.configuration_id !== parameters.configuration_id ||
-      resources.configuration_version_id !== parameters.configuration_version_id
+      !provisionedPolicy(resources, selection, setup.defaultPolicy)
     )
       throw new DesktopProtocolError('desktop.resource_binding_mismatch');
     const previous = await this.store.read(kind, request.forkFrom || request.session.id);
@@ -140,8 +173,9 @@ export class VerdictanLaunchService {
       agent_kind: kind,
       agent_version: agent.version,
       context_format_version: 1,
-      configuration_id: selection.configurationId,
-      configuration_version_id: selection.configurationVersionId,
+      // The resolved policy. With the default, this is the version that Verdictan deployed.
+      configuration_id: resources.configuration_id as string,
+      configuration_version_id: resources.configuration_version_id as string,
       cwd: await realpath(request.session.cwd),
     };
     if (previous && (!request.create || request.forkFrom))
@@ -207,6 +241,8 @@ export class VerdictanLaunchService {
           projectId: binding.project_id || identityKey(binding.cwd),
           taskId: binding.task_id || 'conversation',
           conversationId: binding.conversation_id,
+          // A project-bound runtime needs the run. The history reads requests by run.
+          runId: request.runId,
           turnId: request.runId,
         }),
         endpoint,

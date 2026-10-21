@@ -140,6 +140,7 @@ test('runtime owns provisioning, readiness, rotation and revocation in order', a
     projectId: 'project',
     taskId: 'task',
     conversationId: 'conversation',
+    runId: 'run',
     turnId: 'turn',
   });
   await f.owner.renew(id);
@@ -153,7 +154,7 @@ test('runtime owns provisioning, readiness, rotation and revocation in order', a
   await f.owner.revoke(id);
   assert.equal(f.owner.status()[0].phase, 'revoked');
   await assert.rejects(
-    f.owner.route(id, { projectId: '', taskId: '', conversationId: '', turnId: '' }),
+    f.owner.route(id, { projectId: '', taskId: '', conversationId: '', runId: '', turnId: '' }),
     /unavailable/,
   );
 });
@@ -287,6 +288,7 @@ test('a failed turn preflight stops both owners and removes ready state', async 
       projectId: 'project',
       taskId: 'task',
       conversationId: 'conversation',
+      runId: 'run',
       turnId: 'turn',
     }),
     /readiness_failed/,

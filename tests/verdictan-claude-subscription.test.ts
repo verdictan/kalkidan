@@ -418,6 +418,7 @@ const correlation = {
   projectId: 'project',
   taskId: 'task',
   conversationId: 'conversation',
+  runId: 'run',
   turnId: id,
 };
 

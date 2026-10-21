@@ -5,8 +5,11 @@ import type { ModelOption } from '../domain/conversation';
 import {
   connectionLabels,
   isSubscriptionMode,
+  kalkidanDefaultLabel,
   policyLabels,
+  policyRecovery,
   teamLabels,
+  usesDefaultPolicy,
   type ProviderAccessMode,
   type VerdictanSetup,
   type VerdictanSelection,
@@ -25,6 +28,9 @@ type ManagedAgent = 'codex' | 'claude';
 const agentNames: Record<ManagedAgent, string> = { codex: 'Codex', claude: 'Claude Code' };
 const agentProvider: Record<ManagedAgent, string> = { codex: 'openai', claude: 'anthropic' };
 
+/** The option value of the default Kalkidan configuration. It is not an ID. */
+const defaultOption = 'kalkidan-default';
+
 const emptySelection: VerdictanSelection = {
   teamId: '',
   configurationId: '',
@@ -41,7 +47,8 @@ function initialSelection(setup: VerdictanSetup, agent: ManagedAgent): Verdictan
   const saved = setup.selections[agent];
   if (saved) return saved;
   const connections = setup.providerConnections.filter((p) => p.provider === agentProvider[agent]);
-  const [policy] = setup.policies.length === 1 ? setup.policies : [];
+  // With a default, empty policy IDs select it. Otherwise the only policy, when there is one.
+  const [policy] = !setup.defaultPolicy && setup.policies.length === 1 ? setup.policies : [];
   return {
     ...emptySelection,
     teamId: setup.teams.length === 1 ? setup.teams[0].team_id : '',
@@ -129,11 +136,26 @@ export function VerdictanSetupForm({
   const subscriptionOffered = !!setup?.providerAccessModes?.includes(subscriptionMode);
   const subscription = isSubscriptionMode(selection.providerAccessMode);
   // Visible labels. IDs stay in option values and never show as text.
+  // The default shows once, as "Kalkidan default". The list shows the other policies.
+  const policies = setup?.defaultPolicy
+    ? setup.policies.filter((policy) => !policy.default)
+    : setup?.policies || [];
   const labels = setup && {
     teams: teamLabels(setup.teams),
-    policies: policyLabels(setup.policies),
+    policies: policyLabels(policies),
     connections: connectionLabels(connections),
   };
+  const defaultPolicy = setup?.defaultPolicy;
+  const policyValue = usesDefaultPolicy(selection)
+    ? defaultPolicy
+      ? defaultOption
+      : ''
+    : defaultPolicy &&
+        selection.configurationId === defaultPolicy.configuration_id &&
+        !policies.some((p) => p.configuration_version_id === selection.configurationVersionId)
+      ? defaultOption
+      : selection.configurationVersionId;
+  const recovery = policyRecovery(setup?.policyReadiness);
   const allowed = allowedModels(setup, agent);
   const modelOptions = (
     allowed
@@ -152,7 +174,7 @@ export function VerdictanSetupForm({
     );
   const complete =
     !!selection.teamId &&
-    !!selection.configurationVersionId &&
+    (!!selection.configurationVersionId || (!!defaultPolicy && usesDefaultPolicy(selection))) &&
     (subscription || !!selection.providerConnectionId) &&
     !!selection.model;
   return (
@@ -217,10 +239,11 @@ export function VerdictanSetupForm({
               <Choice
                 className="w-full"
                 label="Policy"
-                value={selection.configurationVersionId}
+                value={policyValue}
                 disabled={busy}
                 onChange={(value) => {
-                  const policy = setup.policies.find((p) => p.configuration_version_id === value);
+                  // The default sends no policy IDs. Verdictan then uses its newest version.
+                  const policy = policies.find((p) => p.configuration_version_id === value);
                   setSelection({
                     ...selection,
                     configurationId: policy?.configuration_id || '',
@@ -228,8 +251,10 @@ export function VerdictanSetupForm({
                   });
                 }}
                 options={[
-                  { value: '', label: 'Choose a policy' },
-                  ...setup.policies.map((policy, index) => ({
+                  defaultPolicy
+                    ? { value: defaultOption, label: kalkidanDefaultLabel }
+                    : { value: '', label: 'Choose a policy' },
+                  ...policies.map((policy, index) => ({
                     value: policy.configuration_version_id,
                     label: labels!.policies[index],
                   })),
@@ -313,6 +338,19 @@ export function VerdictanSetupForm({
               )}
             </label>
           </div>
+          {recovery && (
+            <Alert size="sm" role="note">
+              <AlertDescription className="text-xs leading-4">
+                {recovery}
+                {policies.length ? ' Until then, choose another policy.' : ''}
+              </AlertDescription>
+            </Alert>
+          )}
+          {setup.defaultEnsured === 'created' && (
+            <p role="status" className="form-help">
+              Kalkidan made the {kalkidanDefaultLabel} policy for your organization.
+            </p>
+          )}
           {subscription && (
             <p className="form-help">
               Uses the {agentNames[agent]} subscription that is signed in on the computer where the

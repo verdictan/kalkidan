@@ -94,6 +94,96 @@ test('managed agent setup shows names or numbered generic labels, never IDs', as
     expect(text, `visible text must not contain ${id}`).not.toContain(id);
 });
 
+const signedIn = `verdictanStatus: async () => ({
+  region: 'eu',
+  phase: 'authenticated',
+  executionReady: false,
+  account: {
+    state: 'authenticated',
+    userId: ids.team2,
+    organizationId: ids.team,
+    apiUrl: 'https://api.eu.verdictan.com',
+  },
+}),`;
+async function openSetup(page: Page) {
+  await page.getByRole('button', { name: 'Settings', exact: true }).click();
+  const settings = page.getByRole('dialog', { name: 'Settings' });
+  await settings.getByRole('tab', { name: 'Managed agents', exact: true }).click();
+  return settings
+    .getByRole('region', { name: 'Managed agents' })
+    .getByRole('region', { name: 'Choose setup' });
+}
+
+test('the Kalkidan default policy is preselected and saves without policy IDs', async ({
+  page,
+}) => {
+  await fixture(
+    page,
+    `const saved = [];
+    window.savedSelections = saved;
+    return {
+      ${signedIn}
+      verdictanSetup: async () => ({
+        status: 'ready',
+        policyReadiness: 'default_available',
+        defaultPolicy: { configuration_id: ids.cfg, configuration_version_id: ids.cfgv },
+        defaultEnsured: 'created',
+        providerAccessModes: ['byok'],
+        teams: [{ team_id: ids.team }],
+        policies: [
+          { configuration_id: ids.cfg, configuration_version_id: ids.cfgv, default: true },
+          { configuration_id: ids.cfg, configuration_version_id: ids.cfgv2, name: 'Strict' },
+        ],
+        providerConnections: [{ provider_connection_id: ids.team, provider: 'openai' }],
+        selections: {},
+      }),
+      verdictanSelect: async (agent, selection) => {
+        saved.push([agent, selection]);
+        throw new Error('saved');
+      },
+    };`,
+  );
+  const setup = await openSetup(page);
+  const policy = setup.getByRole('combobox', { name: 'Policy' });
+  await expect(policy).toContainText('Kalkidan default');
+  await expect(setup).toContainText('Kalkidan made the Kalkidan default policy');
+  await policy.click();
+  const labels = (await page.getByRole('option').allInnerTexts()).map((label) => label.trim());
+  expect(labels).toEqual(['Kalkidan default', 'Strict']);
+  await page.keyboard.press('Escape');
+  await setup.getByRole('textbox').fill('gpt-5');
+  await setup.getByRole('button', { name: 'Save Codex setup' }).click();
+  const [[agent, selection]] = await page.evaluate(() => (window as any).savedSelections);
+  expect(agent).toBe('codex');
+  expect(selection).toMatchObject({ configurationId: '', configurationVersionId: '' });
+  const text = await setup.innerText();
+  for (const id of ['cfg_', 'cfgv_', '11111111-1111']) expect(text).not.toContain(id);
+});
+
+test('a member without the default gets the administrator recovery in setup', async ({ page }) => {
+  await fixture(
+    page,
+    `return {
+      ${signedIn}
+      verdictanSetup: async () => ({
+        status: 'ready',
+        policyReadiness: 'default_configuration_required',
+        providerAccessModes: ['byok'],
+        teams: [{ team_id: ids.team }],
+        policies: [],
+        providerConnections: [{ provider_connection_id: ids.team, provider: 'openai' }],
+        selections: {},
+      }),
+    };`,
+  );
+  const setup = await openSetup(page);
+  await expect(setup.getByRole('note').first()).toContainText(
+    'Ask an organization administrator to connect Kalkidan once.',
+  );
+  await expect(setup.getByRole('combobox', { name: 'Policy' })).toContainText('Choose a policy');
+  await expect(setup.getByRole('button', { name: 'Save Codex setup' })).toBeDisabled();
+});
+
 test('a launch block link opens Settings at the exact managed setup step', async ({ page }) => {
   await fixture(
     page,

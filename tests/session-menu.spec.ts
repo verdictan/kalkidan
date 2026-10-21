@@ -52,3 +52,13 @@ test('archive closes the session at once and the toast can undo it', async ({ pa
   await expect(page.getByRole('status').filter({ hasText: 'Chat restored' })).toBeVisible();
   await expect(page.getByText(title, { exact: true }).first()).toBeVisible();
 });
+test('chat actions open the managed agent usage history of the chat', async ({ page }) => {
+  await openSession(page);
+  await page.getByRole('button', { name: 'Chat actions', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Usage history…' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Usage history' });
+  await expect(dialog).toContainText('Verdictan keeps one history for chats and tasks.');
+  await expect(dialog).toContainText('No requests. Verdictan may not have them yet.');
+  await dialog.getByRole('button', { name: 'Load again', exact: true }).click();
+  await expect(dialog.getByRole('button', { name: 'Next page' })).toHaveCount(0);
+});

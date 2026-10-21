@@ -337,7 +337,7 @@ test('a failed capability read after sign-in fails closed', async (t) => {
 test('sessionCapabilities keeps static operations for every account state', () => {
   const value = parseCapabilities({
     ...capabilities,
-    capabilities: ['project.permissions', 'operation.inspect', 'setup.inspect'],
+    capabilities: ['project.permissions', 'operation.inspect', 'history.list', 'setup.inspect'],
   });
   for (const state of ['signed-out', 'authorizing', 'expired'] as const)
     assert.deepEqual(
@@ -433,6 +433,12 @@ test('runtime and host operations preserve command parameters and correlate thei
     ['host.revoke', { installation_id: runtimeId, host_id: runtimeId }, 'host.revoked'],
     ['resources.provision', { parameters: { team_id: runtimeId } }, 'resources.provisioned'],
     ['review.inspect', { escalation_id: runtimeId }, 'review.inspected'],
+    ['setup.ensure_default', {}, 'setup.default_ensured'],
+    [
+      'history.list',
+      { history_scope: { organization_id: 'org', conversation_id: 'chat-1' }, limit: 25 },
+      'history.list_result',
+    ],
   ] as const;
   for (const [operation, parameters, event] of commands) {
     const f = fixture();
@@ -465,6 +471,7 @@ test('project operations use top-level fields and cannot override the protocol e
     'operation',
     'project_scope',
     'parameters',
+    'history_scope',
     'fields',
   ]) {
     await assert.rejects(
@@ -472,5 +479,28 @@ test('project operations use top-level fields and cannot override the protocol e
     );
   }
   await assert.rejects(f.client.request('status', { fields: { task_id: 'task' } }));
+  assert.equal(f.requests.length, 1);
+});
+
+test('the history request has no project scope, and removed template operations stay closed', async (t) => {
+  const f = fixture();
+  t.after(() => f.client.close());
+  const pending = f.client.request('history.list', {
+    history_scope: { organization_id: 'org', task_id: 'task', project_id: 'project' },
+    cursor: 'next',
+    limit: 25,
+  });
+  assert.equal(f.requests[0].operation, 'history.list');
+  assert.equal(f.requests[0].project_scope, undefined);
+  assert.deepEqual(f.requests[0].history_scope, {
+    organization_id: 'org',
+    task_id: 'task',
+    project_id: 'project',
+  });
+  assert.equal(f.requests[0].cursor, 'next');
+  f.reply('history.list_result', { items: [], next_cursor: null });
+  assert.equal((await pending).event, 'history.list_result');
+  for (const operation of ['admin.templates', 'admin.template.save', 'admin.template.apply'])
+    await assert.rejects(f.client.request(operation as any), /operation_unsupported/);
   assert.equal(f.requests.length, 1);
 });
