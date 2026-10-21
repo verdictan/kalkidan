@@ -678,25 +678,49 @@ export function claudeSubscriptionRecovery(code: unknown): SubscriptionRecovery 
   return { code, action: recoveries[code], message: managedErrorText(code) };
 }
 
-const subscriptionMarkers = [
-  'claude_subscription',
-  'codex_subscription',
-  'user_claude_subscription',
-  'user_codex_subscription',
+const subscriptionKeys = [
+  'payer',
+  'credential_origin',
+  'usage_category',
+  'billing_category',
+  'provider_access_mode',
 ];
+const subscriptionMarkers: Record<string, 'claude' | 'codex'> = {
+  claude_subscription: 'claude',
+  codex_subscription: 'codex',
+  user_claude_subscription: 'claude',
+  user_codex_subscription: 'codex',
+};
+/**
+ * The user's own subscription that pays, from the payer and access mode fields of usage or
+ * billing records. Null when no record names a subscription.
+ */
+export function subscriptionPayer(...sources: unknown[]): 'claude' | 'codex' | null {
+  for (const source of sources) {
+    if (!source || typeof source !== 'object') continue;
+    const record = source as Record<string, unknown>;
+    for (const key of subscriptionKeys) {
+      const value = record[key];
+      if (typeof value === 'string' && Object.hasOwn(subscriptionMarkers, value))
+        return subscriptionMarkers[value];
+    }
+  }
+  return null;
+}
+/** The cost text of a request that the user's own subscription pays. */
+export function subscriptionCostLabel(payer: 'claude' | 'codex' | null) {
+  return payer === 'claude'
+    ? 'Included in your Claude subscription'
+    : payer === 'codex'
+      ? 'Included in your Codex subscription'
+      : 'Included in your subscription';
+}
 /** True when a usage or billing record says that the user's own subscription pays. */
 export function isSubscriptionBilling(source: unknown) {
   if (!source || typeof source !== 'object') return false;
-  const record = source as Record<string, unknown>;
   return (
-    [
-      'payer',
-      'credential_origin',
-      'usage_category',
-      'billing_category',
-      'provider_access_mode',
-    ].some((key) => subscriptionMarkers.includes(record[key] as string)) ||
-    record.pricing === 'subscription'
+    subscriptionPayer(source) !== null ||
+    (source as Record<string, unknown>).pricing === 'subscription'
   );
 }
 /**
@@ -707,7 +731,7 @@ export function historyCostLabel(row: Record<string, unknown>) {
   const usage =
     row.usage && typeof row.usage === 'object' ? (row.usage as Record<string, unknown>) : {};
   if (isSubscriptionBilling(row) || isSubscriptionBilling(usage))
-    return 'Paid by your subscription. Provider charge is not known.';
+    return subscriptionCostLabel(subscriptionPayer(row, usage));
   const valid = (cost: unknown, currency: unknown) =>
     (typeof cost === 'number' || (typeof cost === 'string' && /^-?\d+(?:\.\d+)?$/.test(cost))) &&
     typeof currency === 'string' &&

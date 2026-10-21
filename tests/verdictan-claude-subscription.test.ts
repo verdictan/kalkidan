@@ -976,7 +976,11 @@ test('subscription usage keeps null costs and never shows a zero provider charge
     historyCostLabel({
       usage: { measured_cost: 0, currency: null, payer: 'user_claude_subscription' },
     }),
-    'Paid by your subscription. Provider charge is not known.',
+    'Included in your Claude subscription',
+  );
+  assert.equal(
+    historyCostLabel({ payer: 'user_codex_subscription', actual_cost: 0, currency: null }),
+    'Included in your Codex subscription',
   );
   assert.equal(historyCostLabel({ usage: { measured_cost: 0, currency: null } }), 'Unknown');
   assert.equal(historyCostLabel({ actual_cost: 0, currency: null }), 'Unknown');
