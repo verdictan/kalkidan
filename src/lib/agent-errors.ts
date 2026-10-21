@@ -39,12 +39,19 @@ const changeAgentCodes = new Set([
   'desktop.runtime_binding_mismatch',
 ]);
 
+// Codes of a first setup that is not complete.
+const setUpCodes = new Set([
+  'desktop.runtime_missing',
+  'desktop.runtime_not_found',
+  'desktop.region_required',
+]);
+
 /** Plain words and one action for a managed agent code. Uses the backend's code list. */
 function managedError(code: string): AgentError {
   const info = managedErrorInfo(code);
   const action = changeAgentCodes.has(code)
     ? changeAgent
-    : code === 'desktop.runtime_missing' || code === 'desktop.runtime_not_found'
+    : setUpCodes.has(code)
       ? setUp
       : code === 'desktop.agent_version_unsupported'
         ? install

@@ -160,3 +160,47 @@ test('task usage retains settlement changes across restart and scopes history to
     /another account/,
   );
 });
+
+test('chat status returns the failed run when the account cannot be read', async (t) => {
+  const root = await mkdtemp(join(tmpdir(), 'task-status-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  let missing = false,
+    reads = 0;
+  const service = new TaskExecutions(root, {
+    identity: async () => {
+      reads++;
+      if (missing) throw new Error('Managed agents are not set up. [desktop.runtime_missing]');
+      return 'account';
+    },
+    inspect: async () => ({
+      projectId: 'P',
+      fieldId: 'F',
+      sourceStatus: 'doing',
+      targetStatus: 'doing',
+    }),
+    write: async () => {},
+  });
+  const failed: ChatRun = {
+    id: 'chat',
+    agent: 'codex',
+    sessionId: 'session',
+    status: 'failed',
+    sessionReady: false,
+    messages: [],
+    activity: '',
+    error: 'Managed agents are not set up. [desktop.runtime_missing]',
+  };
+  // A chat without a task does not read the account.
+  missing = true;
+  assert.deepEqual(await service.observe(failed), failed);
+  assert.equal(reads, 0);
+  // A task chat still gets its failed status when the runtime goes away.
+  missing = false;
+  const task: ChatRun = { ...failed, id: 'task', status: 'running', error: undefined };
+  await service.start('op', { groupId: 'G', taskId: 'I' }, async () => task);
+  missing = true;
+  const observed = await service.observe({ ...failed, id: 'task' });
+  assert.equal(observed.status, 'failed');
+  assert.match(observed.error || '', /desktop\.runtime_missing/);
+  assert.equal(observed.taskExecution, undefined);
+});

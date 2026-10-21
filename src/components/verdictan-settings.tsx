@@ -246,7 +246,16 @@ export function ManagedAgentsSettings({ api, open }: { api: API; open: boolean }
   const steps = managedSteps(account.status, setup);
   const signedIn = steps.signedIn;
   // One primary button: the action of the first step that is not done.
-  const next = !runtime.status?.installed && !steps.runtime ? 1 : !signedIn ? 2 : 3;
+  // An account error, for example a missing region, does not tell if the runtime is installed.
+  // Then the install status of this computer tells it.
+  const runtimeMissing =
+    account.status?.phase === 'missing' ||
+    (account.status?.phase === 'error' &&
+      host === 'local' &&
+      !!runtime.status &&
+      !runtime.status.installed);
+  const next =
+    runtimeMissing || (!runtime.status?.installed && !steps.runtime) ? 1 : !signedIn ? 2 : 3;
   return (
     <section aria-label="Managed agents" className="managed-agents grid gap-5">
       <div className="grid gap-2">
@@ -278,7 +287,7 @@ export function ManagedAgentsSettings({ api, open }: { api: API; open: boolean }
         <AccountStep
           api={api}
           primary={next === 2}
-          runtimeMissing={account.status?.phase === 'missing'}
+          runtimeMissing={runtimeMissing}
           account={account}
         />
         <Step

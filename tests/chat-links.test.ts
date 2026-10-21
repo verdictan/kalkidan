@@ -34,6 +34,11 @@ test('desktop codes become plain words with a Settings action', () => {
   assert.doesNotMatch(error.message, /desktop\./);
   assert.equal(error.action?.kind, 'settings');
   assert.equal(error.action?.section, 'managed-agents');
+  // A missing region is a first setup step, like a missing runtime.
+  assert.equal(
+    agentErrorMessage('Select the region. [desktop.region_required]').action?.label,
+    'Set up managed agents',
+  );
   assert.equal(agentErrorMessage('session_busy', 'codex').action?.kind, 'retry');
   assert.equal(agentErrorMessage('spawn codex ENOENT', 'codex').action?.kind, 'install');
 });

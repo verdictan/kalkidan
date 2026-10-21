@@ -13,6 +13,7 @@ import { GitHubProjects } from '../electron/github-projects';
 import { canRevertMutation, mutationLabel, mutationStateLabels } from '../src/domain/project-batch';
 import { closesIssue } from '../src/domain/github-content';
 import {
+  claudeSubscriptionRecovery,
   managedErrorCode,
   managedErrorInfo,
   managedErrorText,
@@ -365,12 +366,12 @@ test('managed agent errors keep a stable code and show plain words', () => {
   assert.equal(managedErrorInfo('desktop.transport_lost').retry, true);
   assert.match(managedErrorText('desktop.made_up'), /Check the setup in Settings/);
   assert.equal(withoutManagedCode(error.message).includes('desktop.'), false);
-  const run = { agent: 'codex', error: 'desktop.readiness_failed' } as ChatRun;
+  const run = { agent: 'codex', error: 'desktop.gateway_failed' } as ChatRun;
   normalizeChatFailure(run);
-  assert.equal(run.errorCode, 'desktop.readiness_failed');
+  assert.equal(run.errorCode, 'desktop.gateway_failed');
   assert.equal(
     run.error,
-    'The connection to managed agents stopped. Try again. [desktop.readiness_failed]',
+    'The connection to managed agents stopped. Try again. [desktop.gateway_failed]',
   );
   const busy = { agent: 'codex', error: 'already has an active writer' } as ChatRun;
   normalizeChatFailure(busy);
@@ -438,4 +439,13 @@ test('setup and account pass through display names only when the service sends t
   assert.equal(full.providerConnections[0].name, 'Platform');
   assert.deepEqual(full.allowedModels, { codex: ['gpt-5'] });
   assert.deepEqual((await setup({ allowed_models: ['a-1'] })).allowedModels, ['a-1']);
+});
+
+test('Claude subscription errors use the managed error words and keep the recovery action', () => {
+  const recovery = claudeSubscriptionRecovery('desktop.claude_subscription_login_required');
+  assert.equal(recovery?.action, 'sign_in_native_claude_on_execution_host');
+  assert.equal(recovery?.message, managedErrorText('desktop.claude_subscription_login_required'));
+  assert.equal(managedErrorInfo('desktop.readiness_failed').section, 'managed-agents');
+  assert.equal(managedErrorInfo('desktop.region_required').section, 'managed-agents');
+  assert.doesNotMatch(managedErrorText('desktop.subscription_target_required'), /Verdictan/);
 });
