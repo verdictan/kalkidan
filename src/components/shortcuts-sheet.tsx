@@ -44,7 +44,7 @@ export function shortcutGroups(): { title: string; items: [string, string][] }[]
         ['Show the actions of a sidebar row', shortcutLabel(['shift'], 'F10')],
         ['Move between search results', '↑ ↓'],
         ['Open the search result', 'Enter'],
-        ['Clear the search', 'Esc'],
+        ['Close the search', 'Esc'],
       ],
     },
     {
