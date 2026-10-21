@@ -1,6 +1,7 @@
 import {
   useEffect,
   useId,
+  useMemo,
   useRef,
   useState,
   type ComponentProps,
@@ -19,10 +20,19 @@ import TaskList from '@tiptap/extension-task-list';
 import TaskItem from '@tiptap/extension-task-item';
 import { TableKit } from '@tiptap/extension-table';
 import Image from '@tiptap/extension-image';
-import { Bold, Italic, Strikethrough, Code, FileText, Link as LinkIcon } from 'lucide-react';
+import {
+  Bold,
+  CircleDot,
+  Italic,
+  Strikethrough,
+  Code,
+  FileText,
+  Link as LinkIcon,
+} from 'lucide-react';
 import { Button } from './ui/button';
 import {
   Dialog,
+  DialogBody,
   DialogContent,
   DialogDescription,
   DialogHeader,
@@ -30,6 +40,10 @@ import {
   DialogFooter,
 } from './ui/dialog';
 import { Input } from './ui/input';
+import { SearchInput } from './ui/search-input';
+import { EmptyState } from './ui/empty-state';
+import type { TrackerItem } from '../domain/tracker';
+import type { API } from '../types';
 import { showToast } from './ui/toast';
 import { DocPagePicker } from './doc-page-picker';
 import { WikiContextMenu } from './wiki-context-menu';
@@ -43,6 +57,138 @@ export const pageHref = (id: string) => `./${id}.md`;
 /** Returns the page ID of a docs page link, or null for other links. */
 export function pageIdFromHref(href: string | null | undefined) {
   return /^(?:\.\/)?([\w-]+)\.md$/.exec(href?.trim() || '')?.[1] ?? null;
+}
+
+/** The link of a board task. A draft task has no URL, so its link is a task anchor. */
+export const taskHref = (task: Pick<TrackerItem, 'id' | 'url'>) => task.url || `#task-${task.id}`;
+/** Returns the board task of a link, or undefined for other links. */
+export function taskFromHref(
+  href: string | null | undefined,
+  tasks: TrackerItem[] | null | undefined,
+) {
+  const value = href?.trim();
+  if (!value || !tasks) return undefined;
+  const anchor = /^#task-(.+)$/.exec(value)?.[1];
+  return tasks.find((task) => (anchor ? task.id === anchor : task.url === value));
+}
+const taskText = (task: TrackerItem) =>
+  task.number ? `#${task.number} ${task.title}` : task.title || 'Untitled task';
+
+/** A searchable list of the board tasks. Enter or a click picks a task. */
+function TaskPicker({
+  open,
+  onOpenChange,
+  tasks,
+  onPick,
+  onCloseAutoFocus,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  /** Null while the board loads. */
+  tasks: TrackerItem[] | null;
+  onPick: (task: TrackerItem) => void;
+  onCloseAutoFocus: (event: Event) => void;
+}) {
+  const [query, setQuery] = useState('');
+  const [active, setActive] = useState(0);
+  const listId = useId();
+  useEffect(() => {
+    if (!open) return;
+    setQuery('');
+    setActive(0);
+  }, [open]);
+  const rows = useMemo(() => {
+    const words = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
+    return (tasks || [])
+      .filter((task) => !task.archived)
+      .filter((task) => {
+        const text = `${taskText(task)} ${task.repository || ''}`.toLowerCase();
+        return words.every((word) => text.includes(word));
+      })
+      .slice(0, 100);
+  }, [tasks, query]);
+  const current = Math.min(active, Math.max(0, rows.length - 1));
+  function pick(task: TrackerItem) {
+    onPick(task);
+    onOpenChange(false);
+  }
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent size="md" layout="scroll" onCloseAutoFocus={onCloseAutoFocus}>
+        <DialogHeader>
+          <DialogTitle>Link a task</DialogTitle>
+          <DialogDescription>Search the tasks of the project board.</DialogDescription>
+          <SearchInput
+            className="mt-3"
+            aria-label="Search tasks"
+            placeholder="Search tasks…"
+            autoFocus
+            value={query}
+            role="combobox"
+            aria-expanded="true"
+            aria-controls={listId}
+            aria-activedescendant={rows[current] ? `${listId}-${current}` : undefined}
+            onChange={(e) => {
+              setQuery(e.target.value);
+              setActive(0);
+            }}
+            onKeyDown={(event) => {
+              if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+                event.preventDefault();
+                if (!rows.length) return;
+                const step = event.key === 'ArrowDown' ? 1 : -1;
+                const next = (current + step + rows.length) % rows.length;
+                setActive(next);
+                document.getElementById(`${listId}-${next}`)?.scrollIntoView({ block: 'nearest' });
+              } else if (event.key === 'Enter') {
+                event.preventDefault();
+                if (rows[current]) pick(rows[current]);
+              }
+            }}
+          />
+        </DialogHeader>
+        <DialogBody>
+          {tasks === null ? (
+            <EmptyState compact>Loading tasks…</EmptyState>
+          ) : rows.length ? (
+            <div id={listId} role="listbox" aria-label="Tasks" className="list-box">
+              {rows.map((task, i) => (
+                <div
+                  key={task.id}
+                  id={`${listId}-${i}`}
+                  role="option"
+                  aria-selected={i === current}
+                  className="list-box-row cursor-default"
+                  onMouseMove={() => setActive(i)}
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => pick(task)}
+                >
+                  <CircleDot size={16} className="shrink-0 text-muted-foreground" />
+                  <span className="min-w-0 flex-1 truncate" title={task.title}>
+                    {taskText(task)}
+                  </span>
+                  {task.status && (
+                    <span className="text-subtle max-w-[35%] shrink-0 truncate text-xs">
+                      {task.status}
+                    </span>
+                  )}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <EmptyState compact>
+              {tasks.length ? 'No tasks match your search.' : 'The board has no tasks yet.'}
+            </EmptyState>
+          )}
+        </DialogBody>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>
+            Cancel
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
 }
 
 const reducedMotion = () => window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
@@ -135,7 +281,16 @@ export function WikiEditor({
   onChange,
   groupId,
   onOpenPage,
+  tasks,
+  onOpenTask,
+  api,
 }: {
+  /** The API that the page picker reads pages from. Default: the desktop bridge or the demo. */
+  api?: Pick<API, 'docsMetadata'>;
+  /** The board tasks for "/task". Undefined: the project has no board. Null: the board loads. */
+  tasks?: TrackerItem[] | null;
+  /** Opens a board task from a task link. */
+  onOpenTask?: (itemId: string) => void;
   markdown: string;
   readOnly: boolean;
   onChange: (text: string) => void;
@@ -150,6 +305,7 @@ export function WikiEditor({
   const [url, setUrl] = useState('');
   const [editingLink, setEditingLink] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [taskPickerOpen, setTaskPickerOpen] = useState(false);
   // The format toolbar and the table toolbar each have one tab stop. Arrow keys move between
   // the buttons.
   const toolbar = useRef<HTMLDivElement>(null);
@@ -221,16 +377,27 @@ export function WikiEditor({
   useEffect(() => {
     if (editor && editor.isEditable === readOnly) editor.setEditable(!readOnly, false);
   }, [editor, readOnly]);
-  const allCommands: Command[] = groupId
-    ? [
-        ...commands,
-        {
-          label: 'Link to page',
-          hint: 'Link to a page in these docs',
-          run: () => setPickerOpen(true),
-        },
-      ]
-    : commands;
+  const allCommands: Command[] = [
+    ...commands,
+    ...(groupId
+      ? [
+          {
+            label: 'Link to page',
+            hint: 'Link to a page in these docs',
+            run: () => setPickerOpen(true),
+          },
+        ]
+      : []),
+    ...(tasks !== undefined
+      ? [
+          {
+            label: 'Link to task',
+            hint: 'Link to a task on the board',
+            run: () => setTaskPickerOpen(true),
+          },
+        ]
+      : []),
+  ];
   const filtered = allCommands.filter((c) =>
     c.label.toLowerCase().includes(slash?.query.toLowerCase() || ''),
   );
@@ -278,6 +445,21 @@ export function WikiEditor({
           text: doc.title || 'Untitled',
           marks: [{ type: 'link', attrs: { href } }],
         })
+        .unsetMark('link')
+        .run();
+    else chain.extendMarkRange('link').setLink({ href }).run();
+  }
+  /** Adds a "#12 Title" link to the task. With selected text, it links that text. */
+  function linkTask(task: TrackerItem) {
+    if (!editor) return;
+    const href = taskHref(task);
+    const chain = editor.chain().focus();
+    if (editor.state.selection.empty && !editor.isActive('link'))
+      chain
+        .insertContent([
+          { type: 'text', text: taskText(task), marks: [{ type: 'link', attrs: { href } }] },
+          { type: 'text', text: ' ' },
+        ])
         .unsetMark('link')
         .run();
     else chain.extendMarkRange('link').setLink({ href }).run();
@@ -335,10 +517,20 @@ export function WikiEditor({
     filtered[i].run(editor);
     setSlash(null);
   }
-  /** A click on a docs page link opens that page. Other links do not open from the editor. */
+  /**
+   * A click on a docs page link opens that page. A click on a task link opens the task in
+   * Kalkidan. Other links do not open from the editor.
+   */
   function openPageLink(event: ReactMouseEvent<HTMLDivElement>) {
     const link = (event.target as Element).closest?.('a[href]');
-    const id = pageIdFromHref(link?.getAttribute('href'));
+    const href = link?.getAttribute('href');
+    const task = onOpenTask && taskFromHref(href, tasks);
+    if (link && task) {
+      event.preventDefault();
+      onOpenTask!(task.id);
+      return;
+    }
+    const id = pageIdFromHref(href);
     if (!link || !id || !onOpenPage) return;
     event.preventDefault();
     onOpenPage(id);
@@ -624,8 +816,21 @@ export function WikiEditor({
           </form>
         </DialogContent>
       </Dialog>
+      {tasks !== undefined && (
+        <TaskPicker
+          open={taskPickerOpen}
+          onOpenChange={setTaskPickerOpen}
+          tasks={tasks}
+          onPick={linkTask}
+          onCloseAutoFocus={(event) => {
+            event.preventDefault();
+            editor?.view.focus();
+          }}
+        />
+      )}
       {groupId && (
         <DocPagePicker
+          api={api}
           groupId={groupId}
           open={pickerOpen}
           onOpenChange={setPickerOpen}

@@ -243,6 +243,8 @@ export function parseAccount(data: Record<string, unknown>, apiOrigin: string): 
     organizationId: (data.organization_id as string | undefined) || undefined,
     apiUrl: apiOrigin,
     expiresAt: (data.expires_at as string | undefined) || undefined,
+    ...(text(data.organization_name) ? { organizationName: data.organization_name } : {}),
+    ...(text(data.user_email) ? { userEmail: data.user_email } : {}),
   };
 }
 const sessionOperations = new Set([

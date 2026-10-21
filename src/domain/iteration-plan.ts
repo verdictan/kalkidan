@@ -63,7 +63,7 @@ export function planIteration(board: TrackerBoard, input: IterationPlanInput): I
       result.rows.push({
         itemId: id,
         title: id,
-        reason: 'Task is no longer active in this project.',
+        reason: 'The task is not on the board now.',
       });
       continue;
     }
@@ -74,21 +74,23 @@ export function planIteration(board: TrackerBoard, input: IterationPlanInput): I
         ? value.number
         : undefined;
     let reason = '';
-    if (item.kind !== 'Issue') reason = 'Select a repository issue to verify dependencies.';
+    if (item.kind !== 'Issue')
+      reason = 'Only issues can be planned. Kalkidan cannot check other items for blockers.';
     else if (!item.repository || !input.repositories.includes(item.repository.toLowerCase()))
-      reason = 'Repository is outside the selected planning scope.';
+      reason = 'The task is not in the selected repository.';
     else if (!item.body.trim()) reason = 'Add a description and acceptance criteria.';
     else if (input.activeItemIds.includes(id))
-      reason = 'A linked session already exists. Review overlapping work.';
+      reason = 'A chat is linked to this task. Check that work first.';
     else if (!relation || 'error' in relation)
-      reason = 'Dependency access is incomplete. Refresh before planning.';
+      reason = 'Kalkidan could not read the blockers. Try again.';
     else if (relation.blockedBy.some((issue) => issue.state !== 'CLOSED'))
-      reason = 'An open or unknown blocker must be resolved first.';
+      reason = 'Other issues block this task. Close them first.';
     else if (projectFieldValue(item, field.id) !== null)
-      reason = 'This task already has an iteration. Review it separately.';
+      reason = 'The task is already in an iteration.';
     else if (estimate === undefined)
-      reason = 'Set a positive estimate. Missing estimates are not treated as zero.';
-    else if (result.used + estimate > input.capacity) reason = 'Remaining capacity is too small.';
+      reason = 'Set a positive estimate. Kalkidan does not use zero for a missing estimate.';
+    else if (result.used + estimate > input.capacity)
+      reason = 'The remaining capacity is too small.';
     if (reason) result.rows.push({ itemId: id, title: item.title, estimate, reason });
     else {
       result.used += estimate!;
@@ -96,7 +98,7 @@ export function planIteration(board: TrackerBoard, input: IterationPlanInput): I
         itemId: id,
         title: item.title,
         estimate,
-        reason: 'Fits capacity; no open blockers in the verified snapshot.',
+        reason: 'Fits the capacity. No open issues block it.',
         change: {
           itemId: id,
           fieldId: field.id,

@@ -69,7 +69,10 @@ function split(list: string): string[] {
 async function contractArity(): Promise<Map<string, number>> {
   const arity = new Map<string, number>();
   for (const file of contractFiles) {
-    const source = await readFile(join(root, file), 'utf8');
+    // Comments can hold quote characters, for example "the project's". Drop them first.
+    const source = (await readFile(join(root, file), 'utf8'))
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .replace(/^\s*\/\/.*$/gm, '');
     for (const match of source.matchAll(/^export interface \w+API\b[^{]*\{/gm)) {
       const open = match.index + match[0].length - 1;
       const body = source.slice(open + 1, matching(source, open));

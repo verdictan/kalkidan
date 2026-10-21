@@ -411,7 +411,11 @@ try {
   };
   await page.reload();
   await page.locator('.repo-select').first().click();
-  await page.getByRole('button', { name: 'New Codex session', exact: true }).click();
+  // The default agent is the first installed agent, so the label names Codex or Claude Code.
+  await page
+    .getByRole('button', { name: /^New (Codex|Claude Code) chat$/ })
+    .first()
+    .click();
   await openTool('Browser');
   await page.getByLabel('Preview URL').fill(previewUrl);
   await page.getByRole('button', { name: 'Open preview', exact: true }).click();

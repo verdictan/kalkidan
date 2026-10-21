@@ -20,16 +20,31 @@ export function portfolioItems(projects: PortfolioProject[], login: string) {
       .map((item) => ({ groupId: project.groupId, project: project.board!.project, item })),
   );
 }
-export function portfolioRisks(item: TrackerItem, now: number) {
-  const notes: string[] = [];
-  if (!item.repository) notes.push('No repository');
-  if (!item.statusId) notes.push('No mapped status');
+export type PortfolioRiskCode = 'no-repository' | 'no-status' | 'past-date';
+export interface PortfolioRisk {
+  code: PortfolioRiskCode;
+  label: string;
+}
+/** Words for each risk code, for the filter chips. */
+export const portfolioRiskLabels: Record<PortfolioRiskCode, string> = {
+  'no-repository': 'No repository',
+  'no-status': 'No status',
+  'past-date': 'Date in the past',
+};
+/** Review hints for a task. A past date is a hint, not a deadline. */
+export function portfolioRisks(item: TrackerItem, now: number): PortfolioRisk[] {
+  const notes: PortfolioRisk[] = [];
+  if (!item.repository) notes.push({ code: 'no-repository', label: 'No repository' });
+  if (!item.statusId) notes.push({ code: 'no-status', label: 'No status' });
   for (const value of item.fieldValues || [])
     if (
       typeof value.date === 'string' &&
       Number.isFinite(Date.parse(value.date)) &&
       Date.parse(value.date) + 86400000 < now
     )
-      notes.push(`${(value.field as { name?: string })?.name || 'Date field'} is in the past`);
+      notes.push({
+        code: 'past-date',
+        label: `${(value.field as { name?: string })?.name || 'Date'} is in the past`,
+      });
   return notes;
 }

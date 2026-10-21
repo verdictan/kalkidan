@@ -1,4 +1,4 @@
-import { useState, type ReactElement } from 'react';
+import { useEffect, useRef, useState, type ReactElement } from 'react';
 import { ChevronLeft, ChevronRight, Paperclip } from 'lucide-react';
 import type { RepositoryDiff } from '../types';
 import { diffFiles } from '../lib/diff-files';
@@ -68,6 +68,8 @@ export function DiffReview({
   onAttach,
   disabled,
   disabledReason = '',
+  focusPath,
+  focusRequest = 0,
 }: {
   diff: RepositoryDiff;
   scope: string;
@@ -75,6 +77,10 @@ export function DiffReview({
   disabled: boolean;
   /** Why the attach button is disabled. */
   disabledReason?: string;
+  /** A file to show first. It can be an absolute path or a path in the repository. */
+  focusPath?: string;
+  /** Increase this number to show `focusPath` again. */
+  focusRequest?: number;
 }) {
   const [selection, setSelection] = useState('');
   const changed = diffFiles(scope === 'staged' ? diff.staged : diff.unstaged).map(
@@ -110,6 +116,21 @@ export function DiffReview({
         })
       : []),
   ];
+  // Show the requested file once for each request, when the diff has it.
+  const focused = useRef(0);
+  const focusKey = focusPath
+    ? files.find(
+        (file) =>
+          file.path === focusPath ||
+          focusPath.endsWith('/' + file.path) ||
+          file.path.endsWith('/' + focusPath),
+      )?.key
+    : undefined;
+  useEffect(() => {
+    if (!focusKey || focused.current === focusRequest) return;
+    focused.current = focusRequest;
+    setSelection(focusKey);
+  }, [focusKey, focusRequest]);
   const index = Math.max(
     0,
     files.findIndex((file) => file.key === selection),

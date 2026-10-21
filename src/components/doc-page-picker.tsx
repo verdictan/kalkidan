@@ -113,12 +113,8 @@ export function DocPagePicker({
   }
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent
-        size="md"
-        layout="scroll"
-        className="h-[min(520px,calc(100dvh-2rem))]"
-        onCloseAutoFocus={onCloseAutoFocus}
-      >
+      {/* The dialog fits its content. The page list scrolls after 240px. */}
+      <DialogContent size="md" layout="scroll" onCloseAutoFocus={onCloseAutoFocus}>
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
           <DialogDescription>Search the doc pages of this project.</DialogDescription>
@@ -148,12 +144,7 @@ export function DocPagePicker({
           {pages === null ? (
             <EmptyState compact>Loading pages…</EmptyState>
           ) : rows.length ? (
-            <div
-              id={listId}
-              role="listbox"
-              aria-label="Doc pages"
-              className="list-box max-h-none overflow-visible"
-            >
+            <div id={listId} role="listbox" aria-label="Doc pages" className="list-box">
               {rows.map(({ page, path }, i) => (
                 <div
                   key={page.id}

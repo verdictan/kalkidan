@@ -4,19 +4,19 @@ test('search finds project, session and message text and opens the conversation'
   page,
 }) => {
   await page.goto('/');
-  const input = page.getByLabel('Search projects and sessions');
+  const input = page.getByLabel('Search projects and chats');
   const results = page.getByRole('region', { name: 'Search results' });
   await input.fill('Atlas');
   await expect(results.getByRole('heading', { name: 'Projects', exact: true })).toBeVisible();
   await expect(results.getByRole('option', { name: 'Atlas', exact: true })).toBeVisible();
   await input.fill('authentication');
-  await expect(results.getByRole('heading', { name: 'Sessions', exact: true })).toBeVisible();
+  await expect(results.getByRole('heading', { name: 'Chats', exact: true })).toBeVisible();
   await input.fill('original messages');
   // A message match shows as an excerpt under its session row.
-  await expect(results.getByRole('heading', { name: 'Sessions', exact: true })).toBeVisible();
+  await expect(results.getByRole('heading', { name: 'Chats', exact: true })).toBeVisible();
   await expect(results.locator('.history-search-hit')).toHaveCount(2);
   await results.locator('.history-search-hit').first().click();
-  await expect(page.getByRole('region', { name: 'Session', exact: true })).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Chat', exact: true })).toBeVisible();
   await expect(page.locator('.conversation-toolbar-title')).toContainText('Refine project');
   await input.fill('zzzz-no-result');
   await expect(results.getByText('No matches found.')).toBeVisible();
@@ -26,7 +26,7 @@ test('search finds project, session and message text and opens the conversation'
 
 test('search results support arrow keys, Enter, and Escape', async ({ page }) => {
   await page.goto('/');
-  const input = page.getByLabel('Search projects and sessions');
+  const input = page.getByLabel('Search projects and chats');
   const results = page.getByRole('region', { name: 'Search results' });
   await input.fill('Atlas');
   await expect(results.getByRole('status').first()).toContainText(/\d+ match/);
@@ -73,7 +73,7 @@ test('search discards stale results and reports inaccessible or truncated transc
     };
   });
   await page.goto('/');
-  const input = page.getByLabel('Search projects and sessions');
+  const input = page.getByLabel('Search projects and chats');
   await input.fill('needle');
   await page.waitForTimeout(350);
   await input.fill('other');
@@ -88,7 +88,7 @@ test('search discards stale results and reports inaccessible or truncated transc
 
 test('a one-character query shows only the two-character hint', async ({ page }) => {
   await page.goto('/');
-  const input = page.getByLabel('Search projects and sessions');
+  const input = page.getByLabel('Search projects and chats');
   const results = page.getByRole('region', { name: 'Search results' });
   await input.fill('¤');
   await expect(results.getByRole('status').first()).toHaveText(

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { GitBranch } from 'lucide-react';
 import type { API, FolderScan } from '../types';
 import { Button } from './ui/button';
+import { Checkbox } from './ui/checkbox';
 import {
   Dialog,
   DialogBody,
@@ -14,7 +15,7 @@ import {
 import { cn } from '../lib/utils';
 import { showToast } from './ui/toast';
 
-/** The one checkbox style in dialogs. There is no Checkbox primitive. */
+/** The old checkbox style. New code uses the Checkbox primitive from './ui/checkbox'. */
 export const checkboxClass =
   'size-4 shrink-0 cursor-pointer rounded-sm accent-[var(--primary)] disabled:cursor-not-allowed disabled:opacity-50';
 
@@ -63,12 +64,17 @@ export function RepositoryImportDialog({
   onImported: (paths: string[]) => void;
 }) {
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const primary = useRef<HTMLButtonElement>(null);
   const repositories = scan?.repositories || [];
   const available = repositories.filter((repo) => !repo.added);
-  useEffect(() => {
-    if (open) setSelected(new Set(available.map((repo) => repo.path)));
-    // Select again only when a new scan opens.
-  }, [open, scan]);
+  // Select all new repositories when a new scan opens. Do it during render, so that the main
+  // button is enabled when the dialog moves focus to it.
+  const [selectedScan, setSelectedScan] = useState<FolderScan | null>(null);
+  if (open && scan !== selectedScan) {
+    setSelectedScan(scan);
+    setSelected(new Set(available.map((repo) => repo.path)));
+  }
+  if (!open && selectedScan) setSelectedScan(null);
   const folder = scan ? folderName(scan.root) : '';
   const count = selected.size;
   function toggle(path: string, checked: boolean) {
@@ -81,7 +87,16 @@ export function RepositoryImportDialog({
   }
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent size="md" layout="scroll">
+      <DialogContent
+        size="md"
+        layout="scroll"
+        onOpenAutoFocus={(event) => {
+          // Start on the main action. The user can add the selected folders at once.
+          if (!primary.current || primary.current.disabled) return;
+          event.preventDefault();
+          primary.current.focus();
+        }}
+      >
         <DialogHeader>
           <DialogTitle>
             {repositories.length
@@ -130,9 +145,7 @@ export function RepositoryImportDialog({
                           : 'cursor-pointer hover:bg-[var(--surface-hover)]',
                       )}
                     >
-                      <input
-                        type="checkbox"
-                        className={cn(checkboxClass, 'focus-visible:outline-none')}
+                      <Checkbox
                         disabled={repo.added}
                         checked={repo.added || selected.has(repo.path)}
                         onChange={(event) => toggle(repo.path, event.target.checked)}
@@ -172,11 +185,11 @@ export function RepositoryImportDialog({
             Cancel
           </Button>
           {repositories.length ? (
-            <Button disabled={!count} onClick={() => onImported([...selected])}>
+            <Button ref={primary} disabled={!count} onClick={() => onImported([...selected])}>
               Add {codeFolders(count)}
             </Button>
           ) : (
-            <Button disabled={!scan} onClick={() => scan && onImported([scan.root])}>
+            <Button ref={primary} disabled={!scan} onClick={() => scan && onImported([scan.root])}>
               Add this folder anyway
             </Button>
           )}

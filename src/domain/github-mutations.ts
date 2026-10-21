@@ -40,6 +40,8 @@ export interface GitHubProjectMutationAPI {
   trackerPortfolio(groupIds: string[]): Promise<PortfolioProject[]>;
   trackerDocsPlan(groupId: string, plan: DocsIssuePlan): Promise<DocsIssuePlanResult>;
   trackerMutationHistory(groupId: string, reviewedId?: string): Promise<GitHubMutationHistory>;
+  /** Writes the values from before a confirmed field change. Returns the ID of the new write. */
+  trackerMutationRevert(groupId: string, mutationId: string): Promise<string>;
   trackerBatch(groupId: string, request: ProjectBatchRequest): Promise<ProjectBatchResult>;
   trackerProjectAction(
     groupId: string,

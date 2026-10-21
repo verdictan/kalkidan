@@ -331,6 +331,10 @@
   border-radius: 999px;
   background: var(--success);
 }
+.activity-dot[data-state='question'] {
+  background: var(--link);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--link) 25%, transparent);
+}
 .activity-dot[data-state='approval'] {
   background: var(--warning);
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--warning) 25%, transparent);
@@ -483,4 +487,38 @@
 /* Keyboard focus on rows is drawn inside the row. */
 .row-focus:has(:focus-visible) {
   box-shadow: inset var(--focus-ring);
+}
+
+/* Label and value pairs, for example account details. */
+.meta-list {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: var(--space-2) var(--space-4);
+  margin: 0;
+  font-size: 13px;
+  line-height: 20px;
+}
+.meta-list dt {
+  color: var(--muted-foreground);
+  font-size: 12px;
+  line-height: 20px;
+}
+.meta-list dd {
+  margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+/* Links in app text. */
+.text-link {
+  color: var(--link);
+  text-underline-offset: 2px;
+}
+.text-link:hover {
+  text-decoration: underline;
+}
+.text-link:focus-visible {
+  outline: none;
+  border-radius: var(--radius-xs);
+  box-shadow: var(--focus-ring);
 }

@@ -199,12 +199,56 @@
 .composer-notice > svg {
   color: var(--warning);
 }
-/* The task chip and its unlink button. */
+/* The task chip: a click opens the task, the arrow opens Change task and Unlink task. */
 .composer-task {
   display: inline-flex;
   align-items: center;
-  gap: 2px;
-  max-width: 240px;
+  gap: 1px;
+  max-width: 260px;
+}
+/* "@docs Search project docs" above the composer text after "@". */
+.composer-mentions {
+  margin: 0;
+  padding: 4px;
+  list-style: none;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--popover);
+  color: var(--popover-foreground);
+}
+.composer-mention {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: var(--control-sm);
+  padding: 0 8px;
+  border-radius: var(--radius-sm);
+  cursor: default;
+}
+.composer-mention:hover,
+.composer-mention[aria-selected='true'] {
+  background: var(--surface-selected);
+}
+/* A message that did not reach the agent, with the error and its actions under it. */
+.chat-message[data-failed] {
+  outline: 1px dashed color-mix(in oklab, var(--destructive) 50%, transparent);
+  outline-offset: -1px;
+}
+.chat-send-failure {
+  margin-top: 8px;
+}
+/* "Used 3 doc passages" and "Memory: read 2 · saved 1" under an answer. */
+.chat-sources {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+}
+.chat-sources-label {
+  margin-right: 4px;
+  color: var(--muted-foreground);
+  font-size: 12px;
+  line-height: 16px;
 }
 .composer-actions {
   display: flex;

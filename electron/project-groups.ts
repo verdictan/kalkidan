@@ -163,6 +163,18 @@ export class ProjectGroups {
       else delete group.github;
     });
   }
+  /**
+   * Removes the board connection and its status mapping. Tasks stay on the tracker. Code folders,
+   * docs and memory stay in the project.
+   */
+  disconnect(id: string) {
+    return this.change((groups) => {
+      const group = groups.find((g) => g.id === id);
+      if (!group) throw new Error('Project not found');
+      delete group.tracker;
+      delete group.github;
+    });
+  }
   configure(id: string, mapping: TrackerConnection['statusMapping'], statusFieldId?: string) {
     return this.change((groups) => {
       const group = groups.find((g) => g.id === id);

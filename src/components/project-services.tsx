@@ -1,14 +1,51 @@
 import { useState } from 'react';
 import type { API, TrackerBoard } from '../types';
+import type { ProjectDoc, ProjectDocMetadata } from '../domain/docs';
 import {
   projectServicePermissions,
   type ProjectServiceOperation,
   type ProjectServiceResult,
   type ProjectServicesStatus,
 } from '../domain/project-services';
+import { words } from '../domain/planning-labels';
+import { fullTime } from '../lib/relative-time';
+import { Alert, AlertDescription } from './ui/alert';
 import { Button } from './ui/button';
+import { EmptyState } from './ui/empty-state';
+import { Input } from './ui/input';
+import { SectionHeader } from './ui/page-header';
+import { showToast } from './ui/toast';
+import { ActionRow, ErrorAlert, ReviewRow, ToolSection, FormSelect } from './planning-kit';
 import { errorMessage } from '../lib/errors';
 import { historyCostLabel } from '../domain/verdictan';
+
+/** Plain words for each project service action. */
+const operationLabels: Record<ProjectServiceOperation, string> = {
+  'task.history': 'Read the task history',
+  'review.list': 'Read the reviews',
+  'review.decide': 'Approve or deny a review',
+  'context.settings': 'Read the knowledge settings',
+  'context.configure': 'Turn shared knowledge on or off',
+  'context.search': 'Search the shared knowledge',
+  'context.list': 'List the shared knowledge',
+  'context.publish': 'Publish a doc page as shared knowledge',
+  'context.delete': 'Delete shared knowledge',
+  'admin.templates': 'Read the templates',
+  'admin.template.save': 'Save a template',
+  'admin.template.apply': 'Apply a template',
+  'operation.inspect': 'Check an action',
+};
+const operationLabel = (value: unknown) =>
+  operationLabels[value as ProjectServiceOperation] || words(value, 'Action');
+
+type View = 'history' | 'reviews' | 'context' | 'templates';
+const views: { value: View; label: string; operation: ProjectServiceOperation }[] = [
+  { value: 'history', label: 'Task usage and policy history', operation: 'task.history' },
+  { value: 'reviews', label: 'Reviews and approvals', operation: 'review.list' },
+  { value: 'context', label: 'Shared knowledge (Context Fabric)', operation: 'context.list' },
+  { value: 'templates', label: 'Installation and policy templates', operation: 'admin.templates' },
+];
+const listOperation = (kind: View) => views.find((view) => view.value === kind)!.operation;
 
 const rows = (result?: ProjectServiceResult) =>
   Array.isArray(result?.items)
@@ -18,6 +55,27 @@ const rows = (result?: ProjectServiceResult) =>
       )
     : [];
 const text = (value: unknown) => (typeof value === 'string' ? value : '');
+const record = (value: unknown) =>
+  value && typeof value === 'object' ? (value as Record<string, unknown>) : {};
+
+/** A long ID as 7 monospace characters. The full value is in the tooltip. */
+function ShortId({ value }: { value: unknown }) {
+  const id = typeof value === 'string' || typeof value === 'number' ? String(value) : '';
+  if (!id) return <>Unknown</>;
+  return (
+    <code className="font-mono" title={id}>
+      {id.slice(0, 7)}
+    </code>
+  );
+}
+
+function tokens(row: Record<string, unknown>) {
+  const usage = record(row.usage);
+  if (usage.total_tokens != null) return String(usage.total_tokens);
+  return typeof row.tokens === 'number' ? String(row.tokens) : 'Unknown';
+}
+
+/** Managed-agent services of the project: history, reviews, shared knowledge and templates. */
 export function ProjectServicesPanel({
   api,
   groupId,
@@ -27,15 +85,14 @@ export function ProjectServicesPanel({
   groupId: string;
   board: TrackerBoard;
 }) {
-  const [open, setOpen] = useState(false);
-  const [documents, setDocuments] = useState<import('../domain/docs').ProjectDocMetadata[]>([]);
-  const [document, setDocument] = useState<import('../domain/docs').ProjectDoc>();
+  const [documents, setDocuments] = useState<ProjectDocMetadata[]>([]);
+  const [document, setDocument] = useState<ProjectDoc>();
   const [templateLabel, setTemplateLabel] = useState(''),
     [policyId, setPolicyId] = useState(''),
     [policyVersion, setPolicyVersion] = useState('');
   const [status, setStatus] = useState<ProjectServicesStatus>();
   const [result, setResult] = useState<ProjectServiceResult>();
-  const [kind, setKind] = useState<'history' | 'reviews' | 'context' | 'templates'>('history');
+  const [kind, setKind] = useState<View>('history');
   const [task, setTask] = useState(''),
     [query, setQuery] = useState(''),
     [reason, setReason] = useState(''),
@@ -64,14 +121,6 @@ export function ProjectServicesPanel({
   }
   async function load() {
     setResult(undefined);
-    const operation =
-      kind === 'history'
-        ? 'task.history'
-        : kind === 'reviews'
-          ? 'review.list'
-          : kind === 'context'
-            ? 'context.list'
-            : 'admin.templates';
     if (kind === 'context') {
       setDocuments(await api.docsMetadata(groupId));
       setConsent(
@@ -80,7 +129,7 @@ export function ProjectServicesPanel({
     }
     setResult(
       await api.projectServicesRequest(groupId, {
-        operation,
+        operation: listOperation(kind),
         fields: task && kind !== 'context' && kind !== 'templates' ? { task_id: task } : {},
       }),
     );
@@ -91,7 +140,7 @@ export function ProjectServicesPanel({
     revision: unknown,
   ) {
     if (!text(revision)) {
-      setError('Refresh to obtain the current revision.');
+      setError('Load the data again to get the current version.');
       return;
     }
     setPending({
@@ -99,14 +148,19 @@ export function ProjectServicesPanel({
       fields: { ...fields, operation_id: crypto.randomUUID(), expected_revision: revision },
     });
   }
+  const receipt = (value: ProjectServiceResult) =>
+    value.receipt_id
+      ? `${operationLabel(pending?.operation)}: ${words(value.state)}.`
+      : `${operationLabel(pending?.operation)}: done.`;
   return (
-    <details className="border-t py-3" onToggle={(event) => setOpen(event.currentTarget.open)}>
-      <summary>Project governance and knowledge</summary>
-      {open && (
-        <div className="grid gap-3 py-3">
+    <section aria-labelledby="services-title" className="grid gap-3">
+      <SectionHeader
+        title={<span id="services-title">Managed agent services</span>}
+        actions={
           <Button
-            disabled={busy}
+            size="sm"
             variant="outline"
+            disabled={busy}
             onClick={() =>
               void run(async () => {
                 setStatus(await api.projectServicesStatus(groupId));
@@ -115,337 +169,384 @@ export function ProjectServicesPanel({
               })
             }
           >
-            Check project services
+            {status ? 'Check again' : 'Check project services'}
           </Button>
-          {status && !status.available && <p role="status">{status.message}</p>}
-          {status?.available && (
-            <>
-              {status.pendingOperations?.map((operation) => (
-                <div key={operation.id} className="grid gap-2 border p-3">
-                  <p>
-                    Unresolved {operation.operation} · {operation.id}
-                  </p>
-                  <Button
-                    disabled={busy || !allowed('operation.inspect')}
-                    onClick={() =>
-                      void run(async () =>
-                        setResult(
-                          await api.projectServicesRequest(groupId, {
-                            operation: 'operation.inspect',
-                            fields: { operation_id: operation.id },
-                          }),
-                        ),
-                      )
-                    }
-                  >
-                    Inspect saved operation
-                  </Button>
-                </div>
-              ))}
-              <label>
-                View{' '}
-                <select
-                  aria-label="Project service view"
-                  disabled={busy}
-                  value={kind}
-                  onChange={(event) => {
-                    setKind(event.target.value as typeof kind);
-                    setResult(undefined);
-                    setPending(undefined);
-                  }}
+        }
+      />
+      <p className="form-help">
+        Usage history, reviews, shared knowledge and templates for managed agents in this project.
+      </p>
+      {status && !status.available && (
+        <Alert size="sm">
+          <AlertDescription>
+            {status.message || 'Managed agent services are not available for this project.'}
+          </AlertDescription>
+        </Alert>
+      )}
+      {status?.available && (
+        <>
+          {!!status.pendingOperations?.length && (
+            <div className="review-list">
+              {status.pendingOperations.map((operation) => (
+                <ReviewRow
+                  key={operation.id}
+                  title={operationLabel(operation.operation)}
+                  meta={
+                    <>
+                      Result not known · Action <ShortId value={operation.id} />
+                    </>
+                  }
+                  status={{ label: 'Check needed', tone: 'warning' }}
                 >
-                  <option value="history">Task usage and policy history</option>
-                  <option value="reviews">Reviews and approvals</option>
-                  <option value="context">Context Fabric</option>
-                  <option value="templates">Installation and policy templates</option>
-                </select>
+                  <div className="review-row-actions">
+                    <Button
+                      size="xs"
+                      variant="outline"
+                      disabled={busy || !allowed('operation.inspect')}
+                      onClick={() =>
+                        void run(async () =>
+                          setResult(
+                            await api.projectServicesRequest(groupId, {
+                              operation: 'operation.inspect',
+                              fields: { operation_id: operation.id },
+                            }),
+                          ),
+                        )
+                      }
+                    >
+                      Check the result
+                    </Button>
+                  </div>
+                </ReviewRow>
+              ))}
+            </div>
+          )}
+          <div className="planning-form-grid">
+            <label className="form-label">
+              View
+              <FormSelect
+                label="Project service view"
+                value={kind}
+                disabled={busy}
+                onChange={(value) => {
+                  setKind(value as View);
+                  setResult(undefined);
+                  setPending(undefined);
+                }}
+                options={views.map((view) => ({ value: view.value, label: view.label }))}
+              />
+            </label>
+            {['history', 'reviews'].includes(kind) && (
+              <label className="form-label">
+                Task
+                <FormSelect
+                  label="Project service task"
+                  value={task}
+                  disabled={busy}
+                  onChange={(value) => {
+                    setTask(value);
+                    setResult(undefined);
+                  }}
+                  options={[
+                    ...(kind === 'reviews' ? [{ value: '', label: 'All tasks' }] : []),
+                    ...board.items.map((item) => ({ value: item.id, label: item.title })),
+                  ]}
+                />
               </label>
-              {['history', 'reviews'].includes(kind) && (
-                <label>
-                  Task{' '}
-                  <select
-                    aria-label="Project service task"
-                    disabled={busy}
-                    value={task}
-                    onChange={(event) => {
-                      setTask(event.target.value);
-                      setResult(undefined);
-                    }}
-                  >
-                    <option value="">{kind === 'history' ? 'Select a task' : 'All tasks'}</option>
-                    {board.items.map((item) => (
-                      <option key={item.id} value={item.id}>
-                        {item.title}
-                      </option>
-                    ))}
-                  </select>
-                </label>
+            )}
+            {kind === 'templates' && (
+              <label className="form-label">
+                Installation ID
+                <Input
+                  value={installation}
+                  onChange={(event) => setInstallation(event.target.value)}
+                />
+              </label>
+            )}
+          </div>
+          <ActionRow>
+            <Button
+              variant="outline"
+              disabled={busy || (kind === 'history' && !task) || !allowed(listOperation(kind))}
+              onClick={() => void run(load)}
+            >
+              Load current data
+            </Button>
+          </ActionRow>
+          {kind === 'reviews' && (
+            <label className="form-label">
+              Decision reason
+              <Input
+                value={reason}
+                onChange={(event) => setReason(event.target.value)}
+                maxLength={1000}
+              />
+              <span className="form-help mt-0">
+                Write a reason before you approve or deny a review.
+              </span>
+            </label>
+          )}
+          {kind === 'context' && (
+            <>
+              <p className="form-help">
+                Shared knowledge is off until you turn it on for this project. Agents get only the
+                passages that you search for. Kalkidan does not add docs to agent prompts.
+              </p>
+              {consent && (
+                <ReviewRow
+                  title="Shared knowledge"
+                  status={
+                    consent.enabled === true
+                      ? { label: 'On', tone: 'success' }
+                      : { label: 'Off', tone: 'muted' }
+                  }
+                  aside={
+                    <Button
+                      size="xs"
+                      variant="outline"
+                      disabled={busy || !allowed('context.configure')}
+                      onClick={() =>
+                        review(
+                          'context.configure',
+                          { enabled: consent.enabled !== true },
+                          consent.revision,
+                        )
+                      }
+                    >
+                      {consent.enabled === true ? 'Turn off' : 'Turn on'}
+                    </Button>
+                  }
+                />
               )}
-              <Button
-                disabled={
-                  busy ||
-                  (kind === 'history' && !task) ||
-                  !allowed(
-                    kind === 'history'
-                      ? 'task.history'
-                      : kind === 'reviews'
-                        ? 'review.list'
-                        : kind === 'context'
-                          ? 'context.list'
-                          : 'admin.templates',
-                  )
-                }
-                onClick={() => void run(load)}
-              >
-                Load current data
-              </Button>
-              {kind === 'reviews' && (
-                <label>
-                  Decision reason{' '}
-                  <input
-                    value={reason}
-                    onChange={(event) => setReason(event.target.value)}
+              <div className="flex items-end gap-2">
+                <label className="form-label min-w-0 flex-1">
+                  Search the shared knowledge
+                  <Input
+                    value={query}
+                    onChange={(event) => setQuery(event.target.value)}
                     maxLength={1000}
                   />
                 </label>
-              )}
-              {kind === 'context' && (
+                <Button
+                  variant="outline"
+                  disabled={
+                    busy || !query.trim() || consent?.enabled !== true || !allowed('context.search')
+                  }
+                  onClick={() =>
+                    void run(async () =>
+                      setResult(
+                        await api.projectServicesRequest(groupId, {
+                          operation: 'context.search',
+                          fields: { query, limit: 5, max_characters: 4000 },
+                        }),
+                      ),
+                    )
+                  }
+                >
+                  Search
+                </Button>
+              </div>
+            </>
+          )}
+          {kind === 'context' && consent?.enabled === true && (
+            <ToolSection title="Publish a doc page">
+              <label className="form-label max-w-[360px]">
+                Doc page
+                <FormSelect
+                  label="Doc page"
+                  className="w-full"
+                  value={document?.id || ''}
+                  disabled={busy}
+                  onChange={(id) => {
+                    setDocument(undefined);
+                    if (id) void run(async () => setDocument(await api.docsRead(groupId, id)));
+                  }}
+                  options={documents.map((doc) => ({
+                    value: doc.id,
+                    label: doc.title || 'Untitled',
+                  }))}
+                />
+              </label>
+              {document && (
                 <>
-                  <p className="help-text">
-                    Context Fabric is off until you enable it for this project. Searches are
-                    explicit. Docs are not attached to agent prompts automatically.
-                  </p>
-                  {consent && (
-                    <>
-                      <p>Context Fabric: {consent.enabled === true ? 'Enabled' : 'Disabled'}</p>
-                      <Button
-                        disabled={busy || !allowed('context.configure')}
-                        onClick={() =>
-                          review(
-                            'context.configure',
-                            { enabled: consent.enabled !== true },
-                            consent.revision,
-                          )
-                        }
-                      >
-                        {consent.enabled === true ? 'Disable' : 'Enable'} Context Fabric
-                      </Button>
-                    </>
-                  )}
-                  <label>
-                    Search knowledge{' '}
-                    <input
-                      value={query}
-                      onChange={(event) => setQuery(event.target.value)}
-                      maxLength={1000}
-                    />
-                  </label>
-                  <Button
-                    disabled={
-                      busy ||
-                      !query.trim() ||
-                      consent?.enabled !== true ||
-                      !allowed('context.search')
-                    }
-                    onClick={() =>
-                      void run(async () =>
-                        setResult(
-                          await api.projectServicesRequest(groupId, {
-                            operation: 'context.search',
-                            fields: { query, limit: 5, max_characters: 4000 },
-                          }),
-                        ),
-                      )
-                    }
-                  >
-                    Retrieve matching passages
-                  </Button>
+                  <pre className="planning-pre">{document.markdown}</pre>
+                  <ActionRow>
+                    <Button
+                      variant="outline"
+                      disabled={busy || !allowed('context.publish')}
+                      onClick={() =>
+                        review(
+                          'context.publish',
+                          {
+                            source: { id: document.id, revision: document.revision },
+                            content: document.markdown,
+                          },
+                          consent.revision,
+                        )
+                      }
+                    >
+                      Review the publication
+                    </Button>
+                  </ActionRow>
                 </>
               )}
-              {kind === 'context' && consent?.enabled === true && (
-                <section className="grid gap-2 border-t py-3">
-                  <h4>Publish project knowledge</h4>
-                  <label>
-                    Source document{' '}
-                    <select
-                      value={document?.id || ''}
-                      disabled={busy}
-                      onChange={(event) => {
-                        const id = event.target.value;
-                        setDocument(undefined);
-                        if (id) void run(async () => setDocument(await api.docsRead(groupId, id)));
-                      }}
-                    >
-                      <option value="">Select a document</option>
-                      {documents.map((doc) => (
-                        <option key={doc.id} value={doc.id}>
-                          {doc.title}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  {document && (
-                    <>
-                      <pre className="max-h-48 overflow-auto whitespace-pre-wrap">
-                        {document.markdown}
-                      </pre>
-                      <Button
-                        disabled={busy || !allowed('context.publish')}
-                        onClick={() =>
-                          review(
-                            'context.publish',
-                            {
-                              source: { id: document.id, revision: document.revision },
-                              content: document.markdown,
-                            },
-                            consent.revision,
-                          )
-                        }
-                      >
-                        Review publication
-                      </Button>
-                    </>
-                  )}
-                </section>
-              )}
-              {kind === 'templates' && allowed('admin.template.save') && result && (
-                <section className="grid gap-2 border-t py-3">
-                  <h4>Create administrator template</h4>
-                  <label>
-                    Name{' '}
-                    <input
-                      value={templateLabel}
-                      onChange={(event) => setTemplateLabel(event.target.value)}
-                    />
-                  </label>
-                  <label>
-                    Policy ID{' '}
-                    <input value={policyId} onChange={(event) => setPolicyId(event.target.value)} />
-                  </label>
-                  <label>
-                    Policy version{' '}
-                    <input
-                      value={policyVersion}
-                      onChange={(event) => setPolicyVersion(event.target.value)}
-                    />
-                  </label>
-                  <Button
-                    disabled={
-                      busy || !templateLabel.trim() || !policyId.trim() || !policyVersion.trim()
-                    }
-                    onClick={() =>
-                      review(
-                        'admin.template.save',
-                        {
-                          template: {
-                            template_id: crypto.randomUUID(),
-                            label: templateLabel,
-                            allowed_host_platforms: [
-                              'darwin-arm64',
-                              'darwin-x64',
-                              'linux-arm64',
-                              'linux-x64',
-                            ],
-                            supported_runtime_range: {
-                              minimum: '0.4.1',
-                              maximum_exclusive: '1.0.0',
-                            },
-                            policy_references: [
-                              {
-                                configuration_id: policyId,
-                                configuration_version_id: policyVersion,
-                              },
-                            ],
-                            installation_defaults: { mandatory_gateway: true },
-                          },
-                        },
-                        result.revision,
-                      )
-                    }
-                  >
-                    Review new template
-                  </Button>
-                </section>
-              )}
-              {kind === 'templates' && (
-                <label>
-                  Installation ID{' '}
-                  <input
-                    value={installation}
-                    onChange={(event) => setInstallation(event.target.value)}
+            </ToolSection>
+          )}
+          {kind === 'templates' && allowed('admin.template.save') && result && (
+            <ToolSection title="New administrator template">
+              <div className="planning-form-grid">
+                <label className="form-label">
+                  Name
+                  <Input
+                    value={templateLabel}
+                    onChange={(event) => setTemplateLabel(event.target.value)}
                   />
                 </label>
-              )}
-              {result && (
-                <p className="help-text">
-                  Observed {result.observed_at} · revision {result.revision}
-                </p>
-              )}
+                <label className="form-label">
+                  Policy ID
+                  <Input value={policyId} onChange={(event) => setPolicyId(event.target.value)} />
+                </label>
+                <label className="form-label">
+                  Policy version
+                  <Input
+                    value={policyVersion}
+                    onChange={(event) => setPolicyVersion(event.target.value)}
+                  />
+                </label>
+              </div>
+              <ActionRow>
+                <Button
+                  variant="outline"
+                  disabled={
+                    busy || !templateLabel.trim() || !policyId.trim() || !policyVersion.trim()
+                  }
+                  onClick={() =>
+                    review(
+                      'admin.template.save',
+                      {
+                        template: {
+                          template_id: crypto.randomUUID(),
+                          label: templateLabel,
+                          allowed_host_platforms: [
+                            'darwin-arm64',
+                            'darwin-x64',
+                            'linux-arm64',
+                            'linux-x64',
+                          ],
+                          supported_runtime_range: {
+                            minimum: '0.4.1',
+                            maximum_exclusive: '1.0.0',
+                          },
+                          policy_references: [
+                            {
+                              configuration_id: policyId,
+                              configuration_version_id: policyVersion,
+                            },
+                          ],
+                          installation_defaults: { mandatory_gateway: true },
+                        },
+                      },
+                      result.revision,
+                    )
+                  }
+                >
+                  Review the template
+                </Button>
+              </ActionRow>
+            </ToolSection>
+          )}
+          {result && (
+            <p className="form-help">
+              Loaded {fullTime(text(result.observed_at)) || 'now'} · Version{' '}
+              <ShortId value={result.revision} />
+            </p>
+          )}
+          {rows(result).length > 0 && (
+            <div className="review-list">
               {rows(result).map((row, index) => (
-                <article key={text(row.id) || index} className="grid gap-2 border-t py-3">
-                  <strong>
-                    {text(row.title) ||
-                      text(row.label) ||
-                      text(row.escalation_id) ||
-                      text(row.request_id) ||
-                      text(row.knowledge_id) ||
-                      'Record'}
-                  </strong>
+                <ReviewRow
+                  key={text(row.id) || index}
+                  title={
+                    text(row.title) ||
+                    text(row.label) ||
+                    (kind === 'reviews'
+                      ? 'Review'
+                      : kind === 'history'
+                        ? 'Request'
+                        : kind === 'context'
+                          ? 'Knowledge passage'
+                          : 'Template')
+                  }
+                  status={
+                    kind === 'reviews' && text(row.status)
+                      ? {
+                          label: words(row.status),
+                          tone: ['pending', 'queued', 'claimed'].includes(text(row.status))
+                            ? 'warning'
+                            : 'muted',
+                        }
+                      : undefined
+                  }
+                  meta={
+                    kind === 'history' ? (
+                      <>
+                        Policy: {words(text(row.decision_outcome) || text(row.decision))}
+                        {text(row.reason_code) ? ` · ${words(row.reason_code)}` : ''} · Cost:{' '}
+                        {historyCostLabel(row)} · Tokens: {tokens(row)}
+                        {text(record(row.usage).settlement_state) || text(row.settlement_state)
+                          ? ` · ${words(text(record(row.usage).settlement_state) || text(row.settlement_state))}`
+                          : ''}
+                      </>
+                    ) : kind === 'reviews' ? (
+                      text(row.reason_code) ? (
+                        words(row.reason_code)
+                      ) : undefined
+                    ) : kind === 'context' ? (
+                      <>
+                        Source <ShortId value={row.source_id} /> · Version{' '}
+                        <ShortId value={row.source_revision} />
+                        {text(row.deletion_state) ? ` · ${words(row.deletion_state)}` : ''}
+                      </>
+                    ) : (
+                      `Version ${String(row.version || '')}${text(row.description) ? ` · ${text(row.description)}` : ''}`
+                    )
+                  }
+                >
                   {kind === 'history' && (
-                    <>
-                      <p>
-                        Policy: {text(row.decision_outcome) || text(row.decision) || 'Unavailable'}{' '}
-                        · {text(row.reason_code)} · {text(row.policy_revision)}
-                      </p>
-                      <p>
-                        Cost: {historyCostLabel(row)} · tokens:{' '}
-                        {row.usage &&
-                        typeof row.usage === 'object' &&
-                        (row.usage as any).total_tokens != null
-                          ? String((row.usage as any).total_tokens)
-                          : typeof row.tokens === 'number'
-                            ? row.tokens
-                            : 'Unknown'}{' '}
-                        · {text((row.usage as any)?.settlement_state) || text(row.settlement_state)}
-                      </p>
-                      <p>Audit: {text(row.audit_id) || 'Unavailable'}</p>
-                    </>
-                  )}
-                  {kind === 'reviews' && (
-                    <>
-                      <p>
-                        {text(row.status)} · {text(row.reason_code)}
-                      </p>
-                      {['pending', 'queued', 'claimed'].includes(text(row.status)) &&
-                        (!row.reviewer_id || row.reviewer_id === result?.actor_id) && (
-                          <div className="flex gap-2">
-                            {(['approve', 'deny'] as const).map((decision) => (
-                              <Button
-                                key={decision}
-                                disabled={busy || !reason.trim() || !allowed('review.decide')}
-                                onClick={() =>
-                                  review(
-                                    'review.decide',
-                                    { escalation_id: row.escalation_id, decision, reason },
-                                    row.revision,
-                                  )
-                                }
-                              >
-                                {decision === 'approve' ? 'Approve' : 'Deny'}
-                              </Button>
-                            ))}
-                          </div>
-                        )}
-                    </>
+                    <p className="text-xs leading-4 text-muted-foreground">
+                      Audit record <ShortId value={row.audit_id} />
+                    </p>
                   )}
                   {kind === 'context' && (
-                    <>
-                      <p className="whitespace-pre-wrap">{text(row.content)}</p>
-                      <p>
-                        Source: {text(row.source_id)} · revision {text(row.source_revision)} ·
-                        author {text(row.author_id)} · {text(row.deletion_state)}
-                      </p>
+                    <p className="text-sm whitespace-pre-wrap">{text(row.content)}</p>
+                  )}
+                  {kind === 'reviews' &&
+                    ['pending', 'queued', 'claimed'].includes(text(row.status)) &&
+                    (!row.reviewer_id || row.reviewer_id === result?.actor_id) && (
+                      <div className="review-row-actions">
+                        {(['approve', 'deny'] as const).map((decision) => (
+                          <Button
+                            key={decision}
+                            size="xs"
+                            variant="outline"
+                            disabled={busy || !reason.trim() || !allowed('review.decide')}
+                            onClick={() =>
+                              review(
+                                'review.decide',
+                                { escalation_id: row.escalation_id, decision, reason },
+                                row.revision,
+                              )
+                            }
+                          >
+                            {decision === 'approve' ? 'Approve' : 'Deny'}
+                          </Button>
+                        ))}
+                      </div>
+                    )}
+                  {kind === 'context' && (
+                    <div className="review-row-actions">
                       <Button
+                        size="xs"
                         variant="outline"
                         disabled={busy || !allowed('context.delete')}
                         onClick={() =>
@@ -454,14 +555,13 @@ export function ProjectServicesPanel({
                       >
                         Delete knowledge
                       </Button>
-                    </>
+                    </div>
                   )}
                   {kind === 'templates' && (
-                    <>
-                      <p>
-                        Version {String(row.version || '')} · {text(row.description)}
-                      </p>
+                    <div className="review-row-actions">
                       <Button
+                        size="xs"
+                        variant="outline"
                         disabled={busy || !installation.trim() || !allowed('admin.template.apply')}
                         onClick={() =>
                           review(
@@ -475,129 +575,156 @@ export function ProjectServicesPanel({
                           )
                         }
                       >
-                        Review template application
+                        Review the template
                       </Button>
-                    </>
+                    </div>
                   )}
-                </article>
+                </ReviewRow>
               ))}
-              {result && rows(result).length === 0 && (
-                <p>
-                  {result.receipt_id
-                    ? `Operation ${String(result.state)} · receipt ${String(result.receipt_id)}`
-                    : 'No records were returned.'}
-                </p>
+            </div>
+          )}
+          {result && rows(result).length === 0 && (
+            <EmptyState compact>
+              {result.receipt_id ? (
+                <>
+                  Action {words(result.state)} · Receipt <ShortId value={result.receipt_id} />
+                </>
+              ) : (
+                'No records.'
               )}
-              {result &&
-                Array.isArray(result.installations) &&
-                result.installations.map((installation: any) => (
-                  <p key={installation.installation_id}>
-                    Installation {installation.installation_id}: {installation.status} · runtime
-                    acknowledgment: {installation.runtime_acknowledgment || 'unknown'}
-                  </p>
-                ))}
-              {result && typeof result.cursor === 'string' && (
+            </EmptyState>
+          )}
+          {result &&
+            Array.isArray(result.installations) &&
+            result.installations.map((value) => {
+              const installation = record(value);
+              return (
+                <ReviewRow
+                  key={text(installation.installation_id)}
+                  title={
+                    <>
+                      Installation <ShortId value={installation.installation_id} />
+                    </>
+                  }
+                  meta={`Runtime: ${words(installation.runtime_acknowledgment)}`}
+                  status={{ label: words(installation.status), tone: 'muted' }}
+                />
+              );
+            })}
+          {result && typeof result.cursor === 'string' && (
+            <ActionRow>
+              <Button
+                variant="outline"
+                disabled={busy}
+                onClick={() =>
+                  void run(async () =>
+                    setResult(
+                      await api.projectServicesRequest(groupId, {
+                        operation: listOperation(kind),
+                        fields: {
+                          cursor: result.cursor,
+                          ...(task && ['history', 'reviews'].includes(kind)
+                            ? { task_id: task }
+                            : {}),
+                        },
+                      }),
+                    ),
+                  )
+                }
+              >
+                Next page
+              </Button>
+            </ActionRow>
+          )}
+          {pending && (
+            <section className="panel grid gap-3" aria-label="Review project action">
+              <SectionHeader size="sm" as="h4" title={operationLabel(pending.operation)} />
+              <dl className="meta-list">
+                {Object.entries(pending.fields)
+                  .filter(([key]) => !['operation_id', 'expected_revision'].includes(key))
+                  .map(([key, value]) => (
+                    <div key={key} className="contents">
+                      <dt>{words(key)}</dt>
+                      <dd>
+                        {typeof value === 'string' || typeof value === 'boolean' ? (
+                          typeof value === 'boolean' ? (
+                            value ? (
+                              'Yes'
+                            ) : (
+                              'No'
+                            )
+                          ) : (
+                            <span className="whitespace-pre-wrap">{value}</span>
+                          )
+                        ) : (
+                          <pre className="planning-pre">{JSON.stringify(value, null, 2)}</pre>
+                        )}
+                      </dd>
+                    </div>
+                  ))}
+                <dt>Action</dt>
+                <dd>
+                  <ShortId value={pending.fields.operation_id} />
+                </dd>
+                <dt>Version</dt>
+                <dd>
+                  <ShortId value={pending.fields.expected_revision} />
+                </dd>
+              </dl>
+              <p className="form-help">
+                This action uses your current project permissions. A review decision does not start
+                an agent again or send a request again.
+              </p>
+              <div className="flex flex-wrap justify-end gap-2">
+                <Button
+                  variant="ghost"
+                  disabled={busy || !allowed('operation.inspect')}
+                  onClick={() =>
+                    void run(async () =>
+                      setResult(
+                        await api.projectServicesRequest(groupId, {
+                          operation: 'operation.inspect',
+                          fields: { operation_id: pending.fields.operation_id },
+                        }),
+                      ),
+                    )
+                  }
+                >
+                  Check the result
+                </Button>
+                <Button variant="outline" disabled={busy} onClick={() => setPending(undefined)}>
+                  Cancel
+                </Button>
                 <Button
                   disabled={busy}
                   onClick={() =>
                     void run(async () => {
-                      const operation =
-                        kind === 'history'
-                          ? 'task.history'
-                          : kind === 'reviews'
-                            ? 'review.list'
-                            : kind === 'context'
-                              ? 'context.list'
-                              : 'admin.templates';
-                      setResult(
-                        await api.projectServicesRequest(groupId, {
-                          operation,
-                          fields: {
-                            cursor: result.cursor,
-                            ...(task && ['history', 'reviews'].includes(kind)
-                              ? { task_id: task }
-                              : {}),
-                          },
-                        }),
-                      );
+                      const source = pending.fields.source as
+                        { id: string; revision: string } | undefined;
+                      const value =
+                        pending.operation === 'context.publish' && source
+                          ? await api.projectPublishDoc(
+                              groupId,
+                              source.id,
+                              source.revision,
+                              String(pending.fields.operation_id),
+                              String(pending.fields.expected_revision),
+                            )
+                          : await api.projectServicesRequest(groupId, pending);
+                      showToast(receipt(value));
+                      setPending(undefined);
+                      setResult(value);
                     })
                   }
                 >
-                  Next page
+                  Confirm action
                 </Button>
-              )}
-              {pending && (
-                <section className="grid gap-2 border p-3" aria-label="Review project action">
-                  <strong>Confirm {pending.operation}</strong>
-                  <dl>
-                    {Object.entries(pending.fields)
-                      .filter(([key]) => !['operation_id', 'expected_revision'].includes(key))
-                      .map(([key, value]) => (
-                        <div key={key}>
-                          <dt>{key.replaceAll('_', ' ')}</dt>
-                          <dd className="max-h-48 overflow-auto whitespace-pre-wrap">
-                            {typeof value === 'string' ? value : JSON.stringify(value, null, 2)}
-                          </dd>
-                        </div>
-                      ))}
-                  </dl>
-                  <p>
-                    This action uses your current project permissions. A review decision does not
-                    restart an agent or replay a request.
-                  </p>
-                  <p>Operation: {String(pending.fields.operation_id)}</p>
-                  <p>Revision: {String(pending.fields.expected_revision)}</p>
-                  <div className="flex gap-2">
-                    <Button
-                      disabled={busy}
-                      onClick={() =>
-                        void run(async () => {
-                          const source = pending.fields.source as
-                            { id: string; revision: string } | undefined;
-                          const receipt =
-                            pending.operation === 'context.publish' && source
-                              ? await api.projectPublishDoc(
-                                  groupId,
-                                  source.id,
-                                  source.revision,
-                                  String(pending.fields.operation_id),
-                                  String(pending.fields.expected_revision),
-                                )
-                              : await api.projectServicesRequest(groupId, pending);
-                          setPending(undefined);
-                          setResult(receipt);
-                        })
-                      }
-                    >
-                      Confirm action
-                    </Button>
-                    <Button variant="outline" disabled={busy} onClick={() => setPending(undefined)}>
-                      Cancel
-                    </Button>
-                    <Button
-                      variant="outline"
-                      disabled={busy || !allowed('operation.inspect')}
-                      onClick={() =>
-                        void run(async () =>
-                          setResult(
-                            await api.projectServicesRequest(groupId, {
-                              operation: 'operation.inspect',
-                              fields: { operation_id: pending.fields.operation_id },
-                            }),
-                          ),
-                        )
-                      }
-                    >
-                      Check operation outcome
-                    </Button>
-                  </div>
-                </section>
-              )}
-            </>
+              </div>
+            </section>
           )}
-          {error && <p role="alert">{error}</p>}
-        </div>
+        </>
       )}
-    </details>
+      <ErrorAlert>{error}</ErrorAlert>
+    </section>
   );
 }

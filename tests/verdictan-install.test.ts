@@ -255,3 +255,32 @@ test('runtime archive rejects unexpected paths instead of extracting additional 
   );
   assert.deepEqual(await readdir(output), []);
 });
+test('a newer release that is not approved is a notice and the approved release stays installable', async (t) => {
+  const f = await fixture(t);
+  const newer = { version: '9.9.9', releaseId: 'newer', sha256: 'f'.repeat(64) };
+  const installer = new RuntimeInstaller({
+    ...(f.installer as any).options,
+    changed: undefined,
+    discover: async () => newer,
+  });
+  const before = await installer.check(true);
+  assert.equal(before.discovery, 'available');
+  assert.equal(before.error, undefined);
+  assert.match(before.notice!, /9\.9\.9 is available\. It is not approved/);
+  assert.equal(before.canInstallApproved, true);
+  assert.equal(before.reason, undefined);
+  const installed = await installer.install();
+  assert.equal(installed.operation?.phase, 'completed');
+  assert.equal(installed.canInstallApproved, false);
+  assert.match(installed.reason!, /is installed/);
+  const after = await installer.check(true);
+  assert.equal(after.discovery, 'current');
+  assert.ok(after.notice);
+});
+test('without an approved release, the status gives the reason', async (t) => {
+  const f = await fixture(t);
+  f.unavailable();
+  const result = await f.installer.check(true);
+  assert.equal(result.canInstallApproved, false);
+  assert.match(result.reason!, /No reviewed/);
+});

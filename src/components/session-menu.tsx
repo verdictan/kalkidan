@@ -13,15 +13,21 @@ import {
   GitBranchPlus,
   LoaderCircle,
   Code,
+  ExternalLink,
+  FileText,
+  GitPullRequest,
+  ListTodo,
 } from 'lucide-react';
-import type { API, Session, SessionOrganization } from '../types';
+import type { API, ProjectGroup, Session, SessionOrganization, TrackerItem } from '../types';
 import type { WorkingFile, WorkingStatus } from '../api/contracts';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Textarea } from './ui/textarea';
 import { MoreButton } from './ui/more-button';
 import { Alert, AlertDescription } from './ui/alert';
+import { Checkbox } from './ui/checkbox';
 import { showToast } from './ui/toast';
+import { Choice } from './choice';
 import {
   Dialog,
   DialogBody,
@@ -54,6 +60,22 @@ import {
   shortcutLabel,
 } from '../lib/platform';
 import { errorMessage } from '../lib/errors';
+import {
+  closesTask,
+  pullRequestBody as buildPullRequestBody,
+  pullRequestNumber,
+  type SessionPullRequest,
+} from '../lib/pull-request';
+
+/**
+ * Sends a session command to the open chat view. The chat view sets `handled` when it acts on
+ * the command. Returns true when it did.
+ */
+export function sendSessionCommand(command: string) {
+  const detail: { command: string; handled?: boolean } = { command };
+  window.dispatchEvent(new CustomEvent('kalkidan-session-command', { detail }));
+  return !!detail.handled;
+}
 
 // On Windows and Linux, AltGr sends Ctrl+Alt, so Ctrl+Alt shortcuts do not arrive.
 // There the session shortcuts use Ctrl+Shift. Ctrl+Shift+R is not used because it
@@ -137,8 +159,17 @@ export function SessionMenu({
       archive();
     });
   };
+  // The chat view has the linked task, so its Commit dialog writes the task in the pull
+  // request. This menu opens its own dialog only when no chat view takes the command.
   const commit = () => {
     if (repositoryId && !running) setDialog('commit');
+  };
+  const saveToDocs = () => {
+    if (!sendSessionCommand('save-to-docs'))
+      showToast({
+        message: 'Add this code folder to a project to save chats to Docs.',
+        tone: 'error',
+      });
   };
   const duplicateOnBranch = () => {
     setValue('');
@@ -195,7 +226,15 @@ export function SessionMenu({
       else if (name === 'session-pin') void handlers.current.pin();
       else if (name === 'session-side-chat') void handlers.current.sideChat();
       else if (name === 'session-archive') handlers.current.doArchive();
-      else if (name === 'session-commit') handlers.current.commit();
+      else if (name === 'session-commit') {
+        // Wait until all listeners ran. The chat view marks the command as handled.
+        const detail = (event as CustomEvent<{ handled?: boolean }>).detail;
+        setTimeout(() => {
+          if (detail?.handled) return;
+          detail.handled = true;
+          handlers.current.commit();
+        });
+      }
     };
     window.addEventListener('keydown', key);
     window.addEventListener('kalkidan-session-command', command);
@@ -214,9 +253,9 @@ export function SessionMenu({
         </span>
       )}
       <DropdownMenu>
-        <Hint label="Session actions">
+        <Hint label="Chat actions">
           <DropdownMenuTrigger asChild>
-            <MoreButton label="Session actions" disabled={busy} />
+            <MoreButton label="Chat actions" disabled={busy} />
           </DropdownMenuTrigger>
         </Hint>
         <DropdownMenuContent align="end" className="w-80">
@@ -249,10 +288,33 @@ export function SessionMenu({
               </DropdownMenuItem>
             </DropdownMenuSubContent>
           </DropdownMenuSub>
-          <DropdownMenuItem disabled={!repositoryId || running} onSelect={commit}>
+          <DropdownMenuItem
+            disabled={!repositoryId || running}
+            onSelect={() => void sendSessionCommand('session-commit')}
+          >
             <GitCommitHorizontal />
             Commit changes…
           </DropdownMenuItem>
+          {session.organization?.pullRequest?.url && (
+            <DropdownMenuItem onSelect={() => void sendSessionCommand('open-pull-request')}>
+              <GitPullRequest />
+              Open pull request
+            </DropdownMenuItem>
+          )}
+          {session.organization?.taskId || session.task?.id ? (
+            <DropdownMenuItem onSelect={() => void sendSessionCommand('open-linked-task')}>
+              <ListTodo />
+              Open linked task
+            </DropdownMenuItem>
+          ) : (
+            <DropdownMenuItem
+              disabled={running}
+              onSelect={() => void sendSessionCommand('link-task')}
+            >
+              <ListTodo />
+              Link task…
+            </DropdownMenuItem>
+          )}
           <DropdownMenuSeparator />
           <DropdownMenuSub>
             <DropdownMenuSubTrigger disabled={!saved || running}>
@@ -264,6 +326,11 @@ export function SessionMenu({
                 Export Markdown…
               </DropdownMenuItem>
               <DropdownMenuItem onSelect={() => action('html')}>Export HTML…</DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onSelect={saveToDocs}>
+                <FileText />
+                Save to Docs…
+              </DropdownMenuItem>
             </DropdownMenuSubContent>
           </DropdownMenuSub>
           <DropdownMenuItem disabled={!saved || running} onSelect={() => action('copy-transcript')}>
@@ -284,9 +351,7 @@ export function SessionMenu({
               Developer
             </DropdownMenuSubTrigger>
             <DropdownMenuSubContent>
-              <DropdownMenuItem onSelect={() => action('copy-id')}>
-                Copy session ID
-              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => action('copy-id')}>Copy chat ID</DropdownMenuItem>
               <DropdownMenuItem onSelect={() => action('copy-path')}>
                 Copy folder path
               </DropdownMenuItem>
@@ -331,7 +396,7 @@ export function SessionMenu({
           open={dialog === 'commit'}
           onOpenChange={(open) => !open && setDialog(null)}
           message={title}
-          pullRequestBody={`Changes from the Kalkidan session "${title}".`}
+          sessionTitle={title}
           onReview={
             onReviewChanges ||
             (() =>
@@ -417,9 +482,14 @@ export function CommitDialog({
   open,
   onOpenChange,
   message: initialMessage,
-  pullRequestBody,
+  sessionTitle,
+  summary,
+  task,
+  group,
+  onTaskChange,
   onReview,
   onCommitted,
+  onPullRequest,
 }: {
   api: API;
   repositoryId: string;
@@ -427,11 +497,22 @@ export function CommitDialog({
   onOpenChange: (open: boolean) => void;
   /** The first commit message. The pull request title uses the first line. */
   message: string;
-  pullRequestBody: string;
+  /** The chat title. The pull request description names it. */
+  sessionTitle: string;
+  /** A short summary for the pull request description. */
+  summary?: string;
+  /** The linked task. An issue gets "Closes owner/repo#N" in the pull request. */
+  task?: TrackerItem;
+  /** The project of the task. Draft tasks can change to issues with it. */
+  group?: ProjectGroup;
+  /** Called with the task after it changed to an issue. */
+  onTaskChange?: (task: TrackerItem) => void;
   /** Opens the Changes tool. The dialog closes first. */
   onReview?: () => void;
   /** Called after a commit, a branch change or a pull request. */
   onCommitted?: () => void;
+  /** Called after a pull request opens. */
+  onPullRequest?: (pullRequest: SessionPullRequest) => void;
 }) {
   const [status, setStatus] = useState<WorkingStatus | null>(null);
   const [files, setFiles] = useState<WorkingFile[] | null>(null);
@@ -443,6 +524,55 @@ export function CommitDialog({
   const submitting = useRef(false);
   const operationId = useRef<string | null>(null);
   const [newBranch, setNewBranch] = useState<string | null>(null);
+  // A draft task cannot be closed by a pull request. It can change to an issue first.
+  const draftTask = !!task && !closesTask(task) && task.kind === 'DraftIssue';
+  const [repositories, setRepositories] = useState<string[] | null>(null);
+  const [convertTo, setConvertTo] = useState('');
+  const [converting, setConverting] = useState(false);
+  const canConvert = draftTask && !!group && typeof api.trackerItemAction === 'function';
+  useEffect(() => {
+    if (!open || !canConvert || !group) return;
+    let current = true;
+    setRepositories(null);
+    (api.trackerSettings ? api.trackerSettings(group.id) : Promise.reject(new Error()))
+      .then((settings) => {
+        if (!current) return;
+        const names = settings.repositories.map((repository) => repository.nameWithOwner);
+        setRepositories(names);
+        setConvertTo((previous) => previous || names[0] || '');
+      })
+      .catch(() => current && setRepositories([]));
+    return () => {
+      current = false;
+    };
+  }, [open, canConvert, group?.id]);
+  async function convertTask() {
+    if (!task || !group || !convertTo.trim()) return;
+    setConverting(true);
+    setError('');
+    try {
+      await api.trackerItemAction(group.id, task.id, {
+        kind: 'convert',
+        repository: convertTo.trim(),
+      });
+      const board = await (api.trackerBoard
+        ? api.trackerBoard(group.id, true)
+        : Promise.resolve(null));
+      const next = board?.items.find((item) => item.id === task.id);
+      if (next) onTaskChange?.(next);
+      showToast(`Changed “${task.title}” to an issue in ${convertTo.trim()}.`);
+    } catch (e) {
+      setError(errorMessage(e));
+    } finally {
+      setConverting(false);
+    }
+  }
+  const pullRequestBody = buildPullRequestBody({
+    title: message,
+    summary,
+    task,
+    sessionTitle,
+  });
   /** Reads the status and the files. A reload keeps the user's choice of files. */
   async function load(keep = false) {
     const [nextStatus, nextFiles] = await Promise.all([
@@ -526,10 +656,18 @@ export function CommitDialog({
       if (operation.error) throw new Error(operation.error);
       setResult(next);
       onCommitted?.();
-      if (next.commit)
-        showToast(
-          `Committed ${next.commit.slice(0, 7)}${pullRequest ? ' and opened a pull request' : ''}.`,
-        );
+      const number = next.url ? pullRequestNumber(next.url) : undefined;
+      if (pullRequest && next.url) onPullRequest?.({ url: next.url, number, state: 'open' });
+      const opened = pullRequest && next.url ? (number ? `PR #${number}` : 'a pull request') : '';
+      if (next.commit || opened)
+        showToast({
+          message: next.commit
+            ? `Committed ${next.commit.slice(0, 7)}${opened ? ` and opened ${opened}` : ''}.`
+            : `Opened ${opened}.`,
+          actions: next.url
+            ? [{ label: 'Open', onClick: () => window.open(next.url, '_blank', 'noreferrer') }]
+            : undefined,
+        });
     } catch (e) {
       setError(errorMessage(e));
     } finally {
@@ -663,9 +801,7 @@ export function CommitDialog({
                 {files.map((file) => (
                   <li key={file.path} className="list-box-row">
                     <label className="commit-file" title={file.path}>
-                      <input
-                        type="checkbox"
-                        className="size-4 shrink-0 accent-[var(--primary)]"
+                      <Checkbox
                         checked={selected.has(file.path)}
                         disabled={busy}
                         onChange={(e) =>
@@ -712,6 +848,58 @@ export function CommitDialog({
               onChange={(e) => setMessage(e.target.value)}
             />
           </label>
+          {draftTask && canPullRequest && !result?.url && (
+            <Alert size="sm">
+              <GitPullRequest aria-hidden="true" />
+              <AlertDescription className="grid gap-2 text-xs">
+                <span>
+                  The task “{task!.title}” is a draft. A pull request cannot close a draft, so
+                  Readiness cannot find the evidence.{' '}
+                  {canConvert
+                    ? 'Convert it to an issue first.'
+                    : 'Convert it to an issue on the board first.'}
+                </span>
+                {canConvert && (
+                  <div className="flex flex-wrap items-center gap-2">
+                    {repositories && repositories.length > 0 ? (
+                      <Choice
+                        size="sm"
+                        className="w-56"
+                        label="Issue repository"
+                        value={convertTo}
+                        onChange={setConvertTo}
+                        disabled={converting || busy}
+                        options={repositories.map((name) => ({ value: name, label: name }))}
+                      />
+                    ) : (
+                      <Input
+                        size="sm"
+                        aria-label="Issue repository"
+                        placeholder="owner/repository"
+                        className="w-56 min-w-0"
+                        value={convertTo}
+                        disabled={converting || busy || repositories === null}
+                        onChange={(e) => setConvertTo(e.target.value)}
+                      />
+                    )}
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={converting || busy || !/^[\w.-]+\/[\w.-]+$/.test(convertTo.trim())}
+                      onClick={() => void convertTask()}
+                    >
+                      {converting ? 'Converting…' : 'Convert to issue first'}
+                    </Button>
+                  </div>
+                )}
+              </AlertDescription>
+            </Alert>
+          )}
+          {task && closesTask(task) && canPullRequest && (
+            <p className="form-help">
+              The pull request closes {task.repository}#{task.number} when it merges.
+            </p>
+          )}
           {status && !changes && !result && (
             <p className="form-help">There are no changes to commit.</p>
           )}
@@ -720,12 +908,13 @@ export function CommitDialog({
               {result.commit ? `Committed ${result.commit.slice(0, 7)}.` : 'No new commit.'}{' '}
               {result.url && (
                 <a
-                  className="text-link underline"
+                  className="text-link inline-flex items-center gap-1"
                   href={result.url}
                   target="_blank"
                   rel="noreferrer"
                 >
                   Open pull request
+                  <ExternalLink className="size-3.5" aria-hidden="true" />
                 </a>
               )}
             </p>

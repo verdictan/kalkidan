@@ -389,23 +389,28 @@
 .management-pane:has(> .page) {
   padding: 0;
 }
-/* The table bleeds 8px on each side, so the hover fill has an inset and the text still
-   starts at the page title. */
+/* The table stays inside the page column. */
 .project-directory {
-  margin-inline: calc(-1 * var(--space-2));
+  margin-inline: 0;
 }
 .project-directory table {
   table-layout: fixed;
   min-width: 440px;
 }
 .project-name-column {
-  width: 48%;
+  width: 36%;
 }
 .project-repositories-column {
-  width: 29%;
+  width: 18%;
 }
 .project-sessions-column {
-  width: 23%;
+  width: 14%;
+}
+.project-tasks-column {
+  width: 14%;
+}
+.project-waiting-column {
+  width: 18%;
 }
 .project-directory .project-open {
   width: 100%;
@@ -546,11 +551,12 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* Old name for .form-help. New code uses .form-help. The parent gap sets the spacing. */
 .help-text {
   color: var(--muted-foreground);
   font-size: var(--text-xs);
   line-height: 16px;
-  margin: var(--space-2) 0;
+  margin: 0;
 }
 .warnings {
   flex-shrink: 0;
@@ -611,8 +617,85 @@
   gap: var(--space-2);
   padding-bottom: var(--space-4);
 }
-.project-tracker[data-page='overview'] .tracker-filterbar {
-  padding-bottom: var(--space-6);
+/* One tab bar for the pages of a project. It matches the rows under the project in the sidebar. */
+.project-tabs {
+  margin-bottom: var(--space-4);
+  border-bottom: 1px solid var(--border);
+}
+.project-tabs-list {
+  display: flex;
+  gap: var(--space-4);
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.project-tab {
+  position: relative;
+  flex-shrink: 0;
+  height: var(--control-md);
+  padding: 0 var(--space-1);
+  border: 0;
+  border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+  background: none;
+  color: var(--muted-foreground);
+  font: inherit;
+  font-size: 13px;
+  line-height: 20px;
+  font-weight: 500;
+  cursor: pointer;
+  outline: none;
+  transition: color var(--motion-fast);
+}
+.project-tab:hover {
+  color: var(--foreground);
+}
+.project-tab:focus-visible {
+  box-shadow: var(--focus-ring);
+}
+.project-tab[aria-current='page'] {
+  color: var(--foreground);
+}
+.project-tab[aria-current='page']::after {
+  content: '';
+  position: absolute;
+  right: 0;
+  bottom: -1px;
+  left: 0;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--foreground);
+}
+.project-tracker[data-page='overview'] .project-tabs,
+.project-tracker[data-page='insights'] .project-tabs {
+  margin-bottom: var(--space-6);
+}
+/* "View: All project items" and its refresh button sit in the task toolbar. */
+.tracker-saved-views {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  min-width: 0;
+}
+.tracker-saved-view-trigger {
+  max-width: 240px;
+}
+.tracker-saved-view-error {
+  display: inline-flex;
+  align-items: center;
+  color: var(--destructive);
+  border-radius: var(--radius-sm);
+  outline: none;
+}
+.tracker-saved-view-error:focus-visible {
+  box-shadow: var(--focus-ring);
+}
+.tracker-view-filter {
+  outline: none;
+}
+.tracker-view-filter:focus-visible {
+  box-shadow: var(--focus-ring);
+}
+.tracker-archived-chip[aria-pressed='true'] {
+  color: var(--foreground);
 }
 .tracker-filter-divider {
   width: 1px;
@@ -622,9 +705,12 @@
 }
 .tracker-filter-end {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: var(--space-3);
+  justify-content: flex-end;
+  gap: var(--space-2);
   margin-left: auto;
+  min-width: 0;
 }
 .tracker-count {
   color: var(--muted-foreground);
@@ -654,19 +740,15 @@
   margin-top: calc(-1 * var(--space-2));
   padding-bottom: var(--space-4);
 }
-/* On a narrow page, the task count moves into the subtitle, so it does not wrap alone. */
+/* The task count and the restricted count show in the subtitle. */
 .tracker-subtitle-count {
-  display: none;
   flex-shrink: 0;
+  border-radius: var(--radius-sm);
   font-variant-numeric: tabular-nums;
+  outline: none;
 }
-@container tracker (max-width: 760px) {
-  .tracker-subtitle-count {
-    display: inline;
-  }
-  .tracker-filter-end .tracker-count {
-    display: none;
-  }
+.tracker-subtitle-count:focus-visible {
+  box-shadow: var(--focus-ring);
 }
 .tracker-board {
   display: flex;
@@ -705,8 +787,8 @@
 .tracker-column {
   display: flex;
   flex-direction: column;
-  flex: 1 1 264px;
-  min-width: 264px;
+  flex: 1 1 260px;
+  min-width: 260px;
   max-width: 360px;
   min-height: 0;
   border-radius: var(--radius-lg);
@@ -722,6 +804,7 @@
   padding: 0 var(--space-1) var(--space-2);
 }
 .tracker-column-heading h4 {
+  min-width: 0;
   font-size: 13px;
   line-height: 20px;
   font-weight: 600;
@@ -745,15 +828,128 @@
   padding: 0 var(--space-1) var(--space-2);
   overflow-y: auto;
 }
-.tracker-column-empty {
-  margin: 0;
-  padding: var(--space-3) var(--space-1);
-  color: var(--muted-foreground);
-  font-size: 12px;
-  line-height: 16px;
+/* An empty column: a dashed drop area, so it still reads as a column. */
+.empty-state.tracker-column-empty {
+  padding: var(--space-4) var(--space-2);
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-md);
+}
+/* In a narrow window the columns shrink, so the Done column stays in view longer. */
+@container tracker (max-width: 1000px) {
+  .tracker-column {
+    flex-basis: 220px;
+    min-width: 220px;
+  }
 }
 .tracker-task {
+  position: relative;
   transition: border-color var(--motion-fast);
+}
+.tracker-task[data-selected] {
+  border-color: var(--ring);
+  background: color-mix(in srgb, var(--ring) 6%, var(--card));
+}
+/* The check box shows on hover and focus, and on every card while the user selects. */
+.tracker-task-select {
+  opacity: 0;
+  transition: opacity var(--motion-fast);
+}
+.tracker-task .tracker-task-select {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+}
+.tracker-task:has(.tracker-task-select) .tracker-task-title {
+  padding-right: var(--space-6);
+}
+.tracker-task:hover .tracker-task-select,
+.tracker-task:focus-within .tracker-task-select,
+.tracker-list-row:hover .tracker-task-select,
+.tracker-list-row:focus-within .tracker-task-select,
+.tracker-task-select:checked,
+.tracker-task-select:focus-visible,
+[data-selecting] .tracker-task-select,
+thead .tracker-task-select {
+  opacity: 1;
+}
+/* "Start" shows on hover and focus. The S key starts a chat from a focused card. */
+.tracker-task-start {
+  margin-left: auto;
+  opacity: 0;
+  transition: opacity var(--motion-fast);
+}
+.tracker-task:hover .tracker-task-start,
+.tracker-task:focus-within .tracker-task-start,
+.tracker-list-row:hover .tracker-task-start,
+.tracker-list-row:focus-within .tracker-task-start {
+  opacity: 1;
+}
+.tracker-list-row .tracker-task-start {
+  margin-left: 0;
+}
+@media (hover: none) {
+  .tracker-task-select,
+  .tracker-task-start {
+    opacity: 1;
+  }
+}
+/* The chats of a task: the live state, or a count. */
+.tracker-task-chats {
+  min-width: 0;
+  color: var(--muted-foreground);
+  font-weight: 400;
+}
+.tracker-task-chats[data-state='approval'],
+.tracker-task-chats[data-state='question'] {
+  color: var(--foreground);
+  font-weight: 500;
+}
+.tracker-task-chats .activity-dot,
+.tracker-chat-state .activity-dot,
+.list-box-row .activity-dot {
+  margin-left: 0;
+}
+.tracker-task-pr {
+  color: var(--muted-foreground);
+  font-weight: 400;
+  text-decoration: none;
+}
+.tracker-task-pr:hover {
+  color: var(--foreground);
+}
+.tracker-task-pr[data-state='open'] svg {
+  color: var(--success);
+}
+.tracker-task-pr[data-state='merged'] svg {
+  color: var(--link);
+}
+/* The actions for the selected tasks take the place of the task toolbar. */
+.tracker-selection-bar {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  gap: var(--space-1);
+  min-width: 0;
+  min-height: var(--control-sm);
+  padding: 0 var(--space-1) 0 var(--space-3);
+  border-radius: var(--radius-md);
+  background: var(--surface-selected);
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.tracker-selection-bar > :last-child {
+  margin-left: auto;
+}
+.tracker-selection-count {
+  flex-shrink: 0;
+  font-size: 13px;
+  line-height: 20px;
+  font-weight: 600;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.tracker-list-check {
+  width: 28px;
 }
 .tracker-task:hover {
   border-color: color-mix(in srgb, var(--foreground) 20%, var(--border));
@@ -813,20 +1009,42 @@
   overflow-y: auto;
   padding: var(--space-4) var(--space-6) var(--space-6);
 }
+/* The header of the task sheet stays in place. Only the body scrolls. */
 .tracker-issue-nav {
   display: flex;
+  flex-shrink: 0;
   align-items: center;
   justify-content: space-between;
-  min-height: var(--control-sm);
-  /* Room for the close button. */
-  padding-right: calc(var(--control-sm) + var(--space-3));
+  gap: var(--space-3);
+  height: 48px;
+  padding: 0 var(--space-4) 0 var(--space-6);
+  border-bottom: 1px solid var(--border);
+  background: var(--card);
   color: var(--muted-foreground);
   font-size: 12px;
   line-height: 16px;
 }
 .tracker-issue-nav > div {
   display: flex;
+  flex-shrink: 0;
+  align-items: center;
   gap: var(--space-1);
+}
+.tracker-chat-row {
+  padding-right: var(--space-1);
+}
+.tracker-chat-row svg[data-slot] {
+  flex-shrink: 0;
+}
+.tracker-chat-state {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: var(--space-1);
+  margin-left: auto;
+  color: var(--muted-foreground);
+  font-size: 12px;
+  line-height: 16px;
 }
 .tracker-issue-properties {
   display: grid;
@@ -931,14 +1149,6 @@
 .tracker-checkout-option:has(:focus-visible) {
   box-shadow: var(--focus-ring);
 }
-.tracker-checkout-option input {
-  flex-shrink: 0;
-  width: 14px;
-  height: 14px;
-  margin-top: 3px;
-  accent-color: var(--primary);
-  outline: none;
-}
 .tracker-checkout:disabled .tracker-checkout-option {
   opacity: 0.5;
 }
@@ -955,6 +1165,154 @@
   padding: var(--space-4) var(--space-6);
   border-top: 1px solid var(--border);
   background: var(--card);
+}
+
+/* Roadmap: one row per task. The title column lines up with the axis label. */
+.tracker-roadmap {
+  --roadmap-label: minmax(160px, 28%);
+  display: grid;
+  gap: var(--space-4);
+  padding-bottom: var(--space-4);
+}
+.tracker-roadmap-fields {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+}
+.tracker-roadmap-field {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--muted-foreground);
+  font-size: 12px;
+  line-height: 16px;
+}
+.tracker-roadmap-chart {
+  display: grid;
+  min-width: 0;
+}
+.tracker-roadmap-rows {
+  display: grid;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.tracker-roadmap-row {
+  display: grid;
+  grid-template-columns: var(--roadmap-label) minmax(0, 1fr);
+  align-items: center;
+  gap: var(--space-3);
+  min-height: var(--row-height);
+}
+.tracker-roadmap-axis {
+  min-height: 24px;
+  border-bottom: 1px solid var(--border);
+  color: var(--muted-foreground);
+  font-size: 12px;
+  line-height: 16px;
+}
+.tracker-roadmap-label {
+  min-width: 0;
+  padding-left: var(--space-2);
+}
+.tracker-roadmap-title {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  height: var(--row-height);
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-size: 13px;
+  line-height: 20px;
+  text-align: left;
+  cursor: pointer;
+  outline: none;
+}
+.tracker-roadmap-title:hover {
+  background: var(--surface-hover);
+}
+.tracker-roadmap-title:focus-visible {
+  box-shadow: var(--focus-ring);
+}
+.tracker-roadmap-track {
+  position: relative;
+  height: 100%;
+  min-height: 24px;
+}
+.tracker-roadmap-tick {
+  position: absolute;
+  bottom: 4px;
+  padding-left: var(--space-1);
+  border-left: 1px solid var(--border);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.tracker-roadmap-gridline {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: color-mix(in srgb, var(--border) 60%, transparent);
+}
+.tracker-roadmap-bar {
+  position: absolute;
+  top: 50%;
+  height: 20px;
+  min-width: 8px;
+  padding: 0;
+  border: 0;
+  border-left: 2px solid var(--bar-color);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--bar-color) 24%, transparent);
+  cursor: pointer;
+  transform: translateY(-50%);
+}
+.tracker-roadmap-bar:hover {
+  background: color-mix(in srgb, var(--bar-color) 36%, transparent);
+}
+.tracker-roadmap-undated {
+  display: grid;
+  gap: var(--space-2);
+}
+.tracker-roadmap-undated .list-box {
+  max-height: none;
+  margin: 0;
+  list-style: none;
+}
+/* A saved GitHub view uses the same board columns and table as the main board. */
+.tracker-saved-view {
+  display: grid;
+  gap: var(--space-5);
+  padding-bottom: var(--space-4);
+}
+.tracker-saved-view-group {
+  display: grid;
+  gap: var(--space-2);
+  min-width: 0;
+}
+.tracker-view-fields {
+  display: grid;
+  gap: 2px;
+  margin: var(--space-1) 0 0;
+  font-size: 12px;
+  line-height: 16px;
+}
+.tracker-view-fields > div {
+  display: flex;
+  gap: var(--space-2);
+  min-width: 0;
+}
+.tracker-view-fields dt {
+  flex-shrink: 0;
+  color: var(--muted-foreground);
+}
+.tracker-view-fields dd {
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
 }
 
 /* Project overview: code folders and sessions, with tasks and docs at the side. */
@@ -1784,6 +2142,17 @@
   font-size: 13px;
   line-height: 20px;
 }
+/* The board tasks that link to the page, under the text of the page. */
+.doc-linked-tasks {
+  margin-top: var(--space-8);
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--border);
+}
+.doc-linked-task-list {
+  list-style: none;
+  margin: 0;
+  max-height: none;
+}
 .docs-empty {
   display: grid;
   place-items: center;
@@ -1950,44 +2319,569 @@
   color: var(--muted-foreground);
 }
 
-.project-memory {
-  padding: 28px;
-}
+/* Memory: the topic list matches the docs page list. The entry uses the shared prose style. */
 .memory-layout {
   display: grid;
-  grid-template-columns: minmax(140px, 220px) minmax(0, 1fr);
-  gap: 28px;
-  padding-top: 24px;
+  grid-template-columns: minmax(160px, 220px) minmax(0, 1fr);
+  gap: var(--space-8);
+  align-items: start;
 }
-.memory-markdown {
-  line-height: 1.7;
+.memory-topics {
+  position: sticky;
+  top: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-width: 0;
 }
-.memory-markdown :is(p, ul, ol, pre, blockquote) {
-  margin-bottom: 1em;
+.memory-topics ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
 }
-.memory-markdown :is(h1, h2, h3) {
+.memory-topics-label {
+  display: flex;
+  align-items: center;
+  min-height: var(--control-sm);
+  padding: 0 var(--space-2);
+}
+.memory-topic {
+  width: 100%;
+  font-weight: 400;
+  text-align: left;
+}
+.memory-entry {
+  min-width: 0;
+  max-width: var(--reading-width);
+  overflow-wrap: anywhere;
+}
+.memory-entry-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-4);
+  margin-bottom: var(--space-4);
+}
+.memory-entry-title {
+  font-size: 15px;
+  line-height: 24px;
   font-weight: 600;
-  margin: 1em 0 0.5em;
 }
-.memory-markdown ul {
-  list-style: disc;
-  padding-left: 24px;
+.memory-entry-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  color: var(--muted-foreground);
+  font-size: 12px;
+  line-height: 16px;
 }
-.memory-markdown ol {
-  list-style: decimal;
-  padding-left: 24px;
+.memory-status {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0 4px;
+  min-width: 0;
 }
-.memory-markdown pre {
-  overflow: auto;
-  padding: 12px;
-  background: var(--muted);
-  border-radius: 8px;
+.memory-status .text-link,
+.memory-entry-meta .text-link {
+  font-size: inherit;
+  line-height: inherit;
 }
 @media (max-width: 800px) {
-  .project-memory {
-    padding: 20px;
-  }
   .memory-layout {
     grid-template-columns: minmax(0, 1fr);
   }
+  .memory-topics {
+    position: static;
+  }
+  .memory-entry-header {
+    flex-direction: column;
+  }
+}
+
+/* Planning tools and the Insights page: one review row, one selected-task list and one
+   collapsible section for every tool. */
+.review-list {
+  display: grid;
+}
+.review-row {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  min-width: 0;
+  padding-block: var(--space-2);
+  border-bottom: 1px solid var(--border);
+}
+.review-row:last-child {
+  border-bottom: 0;
+}
+.review-row-leading {
+  display: flex;
+  align-items: center;
+  min-height: 20px;
+}
+.review-row-text {
+  display: grid;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+}
+.review-row-title {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-size: 13px;
+  line-height: 20px;
+  font-weight: 500;
+}
+.review-row-meta {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: var(--muted-foreground);
+  font-size: 12px;
+  line-height: 16px;
+}
+.review-row-aside {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 20px;
+  color: var(--subtle-foreground);
+  font-size: 12px;
+  line-height: 16px;
+}
+.review-row-link {
+  max-width: 100%;
+  border-radius: var(--radius-xs);
+  text-align: left;
+  font: inherit;
+  overflow-wrap: anywhere;
+  text-underline-offset: 2px;
+}
+.review-row-link:hover {
+  text-decoration: underline;
+}
+.review-row-link:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+.review-row-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  padding-top: var(--space-1);
+}
+.selected-tasks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  max-height: 120px;
+  overflow-y: auto;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.selected-task {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 280px;
+  height: var(--control-xs);
+  padding-inline: var(--space-2) 4px;
+  border-radius: 999px;
+  background: var(--secondary);
+  font-size: 12px;
+  line-height: 16px;
+}
+.selected-task-remove {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 999px;
+  color: var(--muted-foreground);
+}
+.selected-task-remove:hover {
+  background: var(--surface-hover);
+  color: var(--foreground);
+}
+.selected-task-remove:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+/* Short form fields in two columns of at most 360px. */
+.planning-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 360px));
+  gap: var(--space-3) var(--space-4);
+}
+.planning-form-grid > .form-label > button[data-slot='select-trigger'] {
+  width: 100%;
+}
+@media (max-width: 720px) {
+  .planning-form-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+.tool-section-trigger {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  min-height: var(--control-md);
+  padding-inline: var(--space-2);
+  border-radius: var(--radius-md);
+  color: var(--foreground);
+  text-align: left;
+}
+.tool-section-trigger:hover {
+  background: var(--surface-hover);
+}
+.tool-section-trigger:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+.tool-section-title {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  line-height: 20px;
+  font-weight: 600;
+}
+.tool-section-aside {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: var(--space-2);
+}
+.tool-section-content {
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-2) var(--space-2) 30px;
+}
+.planning-pre {
+  max-height: 240px;
+  margin: 0;
+  overflow: auto;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  background: var(--secondary);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 16px;
+  white-space: pre-wrap;
+}
+.project-insights-sections {
+  display: grid;
+  gap: var(--space-8);
+}
+.project-insights-sections > section {
+  display: grid;
+  gap: var(--space-3);
+  min-width: 0;
+}
+/* The section gap sets the space below a header. */
+.project-insights-sections .section-header {
+  margin-bottom: 0;
+}
+.health-dot {
+  width: 8px;
+  height: 8px;
+  flex-shrink: 0;
+  border-radius: 999px;
+}
+.count-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: var(--space-2);
+}
+.count-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  height: var(--control-lg);
+  padding-inline: var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  font-size: 13px;
+  line-height: 20px;
+}
+.count-item-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted-foreground);
+}
+.count-item-value {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.issue-plan-entry {
+  display: grid;
+  gap: var(--space-3);
+}
+
+/* Settings › Managed agents: three numbered steps. */
+.managed-steps {
+  display: grid;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.managed-step {
+  display: flex;
+  gap: var(--space-4);
+  padding: var(--space-4) 0;
+  border-top: 1px solid var(--border);
+}
+.managed-step:first-child {
+  padding-top: 0;
+  border-top: 0;
+}
+.managed-step > section {
+  flex: 1;
+}
+.managed-step .section-actions {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+.managed-step[data-disabled] .section-title {
+  color: var(--muted-foreground);
+}
+.managed-step-number {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--muted-foreground);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.managed-step-number[data-done] {
+  border-color: transparent;
+  background: var(--primary);
+  color: var(--primary-foreground);
+}
+.managed-setup-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: var(--space-3) var(--space-4);
+}
+
+/* Settings › Updates: one card for each component. */
+.update-card {
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg, 10px);
+}
+
+/* The Settings content pane shows a shadow at an edge when more content is past it. */
+.settings-scroll {
+  background:
+    linear-gradient(var(--card) 30%, transparent) center top / 100% 24px no-repeat local,
+    linear-gradient(transparent, var(--card) 70%) center bottom / 100% 24px no-repeat local,
+    radial-gradient(farthest-side at 50% 0, rgb(0 0 0 / 0.14), transparent) center top / 100% 8px
+      no-repeat scroll,
+    radial-gradient(farthest-side at 50% 100%, rgb(0 0 0 / 0.14), transparent) center bottom / 100%
+      8px no-repeat scroll;
+}
+
+/* Shell: breadcrumbs, sidebar rows, "Needs you" and project home additions. */
+.topbar-content {
+  container: topbar / inline-size;
+}
+.topbar-crumb-current {
+  color: var(--foreground);
+}
+/* In a narrow title bar, "Projects" and the project crumb hide first. The chat title keeps
+   at least 24 characters. */
+@container topbar (max-width: 640px) {
+  .topbar-title [data-optional],
+  .conversation-trail [data-optional] {
+    display: none;
+  }
+}
+/* Above that width, the optional crumbs keep their text up to 16 characters. */
+.topbar-crumb[data-optional] {
+  flex-shrink: 0;
+  max-width: 16ch;
+}
+.conversation-trail .conversation-toolbar-title {
+  min-width: min(24ch, 100%);
+}
+.tree-task-number,
+.session-task-number {
+  flex-shrink: 0;
+  color: var(--muted-foreground);
+  font-size: 12px;
+  line-height: 16px;
+  font-variant-numeric: tabular-nums;
+}
+.session-title .session-task-number {
+  font-weight: 400;
+}
+.tree-more-row .tree-label {
+  color: var(--muted-foreground);
+  font-size: 12px;
+}
+.tree-more-row:hover .tree-label {
+  color: var(--foreground);
+}
+/* The collapse button looks 16px wide, but it takes clicks in a 24 x 24 px area. */
+.tree-toggle::after {
+  content: '';
+  position: absolute;
+  inset: -4px;
+}
+.tree-open-chats {
+  margin-top: var(--space-2);
+}
+.sidebar-update-dot {
+  width: 6px;
+  height: 6px;
+  margin-left: auto;
+  border-radius: 999px;
+  background: var(--link);
+}
+.project-overview-tabs {
+  margin-bottom: var(--space-4);
+}
+.project-needs-you {
+  margin-bottom: var(--space-6);
+}
+.needs-you-list {
+  display: grid;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+}
+.needs-you-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-height: var(--row-height-lg);
+  padding: 6px var(--space-3);
+}
+.needs-you-row + .needs-you-row {
+  border-top: 1px solid var(--border);
+}
+.needs-you-text {
+  display: grid;
+  flex: 1;
+  min-width: 0;
+}
+.needs-you-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  line-height: 20px;
+  font-weight: 500;
+}
+.needs-you-meta {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted-foreground);
+  font-size: 12px;
+  line-height: 16px;
+}
+.needs-you-row .activity-dot {
+  margin-left: 0;
+}
+.project-home-status-list li {
+  display: block;
+}
+.project-home-status {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: calc(100% + 2 * var(--space-2));
+  min-height: 28px;
+  margin-inline: calc(-1 * var(--space-2));
+  padding: 4px var(--space-2);
+  border: 0;
+  border-radius: var(--radius-md);
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-size: 13px;
+  line-height: 20px;
+  text-align: left;
+  cursor: default;
+}
+.project-home-status:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+.project-home-status-chevron {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  color: var(--muted-foreground);
+  opacity: 0;
+}
+.project-home-status:hover .project-home-status-chevron,
+.project-home-status:focus-visible .project-home-status-chevron {
+  opacity: 1;
+}
+.project-home-progress {
+  display: grid;
+  gap: var(--space-1);
+}
+.project-home-doc .activity-dot {
+  margin-left: auto;
+}
+.project-home-inline-icon {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  margin-right: 6px;
+  vertical-align: -2px;
+}
+/* Project tabs above the Docs and Memory pages. They line up with the page column. */
+.project-page-tabs {
+  flex-shrink: 0;
+  margin: var(--page-padding-top)
+    max(var(--page-padding-x), calc((100% - var(--page-max-width)) / 2 + var(--page-padding-x)))
+    var(--space-6);
+}
+.project-page-tabs + .page {
+  padding-top: 0;
+}
+.management-pane:has(> .project-page-tabs + .project-docs) {
+  display: flex;
+  flex-direction: column;
+}
+.project-page-tabs:has(+ .project-docs) {
+  margin: var(--space-3) var(--space-4) 0;
+}
+.project-page-tabs + .project-docs {
+  flex: 1;
+  height: auto;
+}
+.search-option-icon {
+  display: inline-flex;
+  flex-shrink: 0;
+  color: var(--muted-foreground);
+}
+.search-option-icon svg {
+  width: 14px;
+  height: 14px;
 }

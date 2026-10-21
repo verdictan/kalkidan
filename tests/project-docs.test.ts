@@ -126,3 +126,24 @@ test('docs sort sibling pages by order, then by title, and list the tree in orde
     ['z:0', 'a:0', 'c:1', 'b:0'],
   );
 });
+
+test('docs show linked board tasks and resolve task links', async () => {
+  const { taskLabel, tasksForPage } = await import('../src/components/project-docs');
+  const { taskFromHref, taskHref } = await import('../src/components/wiki-editor');
+  const tasks = [
+    { id: 'i1', title: 'Fix login', body: '', number: 12, url: 'https://github.com/o/r/issues/12' },
+    { id: 'i2', title: 'Draft idea', body: '' },
+  ];
+  assert.equal(taskLabel(tasks[0]), '#12 Fix login');
+  assert.equal(taskLabel(tasks[1]), 'Draft idea');
+  assert.deepEqual(
+    tasksForPage('p', { i1: ['p'], i2: ['q'] }, tasks).map((task) => task.id),
+    ['i1'],
+  );
+  assert.deepEqual(tasksForPage('p', undefined, tasks), []);
+  assert.equal(taskHref(tasks[1]), '#task-i2');
+  assert.equal(taskFromHref(taskHref(tasks[0]), tasks)?.id, 'i1');
+  assert.equal(taskFromHref('#task-i2', tasks)?.id, 'i2');
+  assert.equal(taskFromHref('https://example.com', tasks), undefined);
+  assert.equal(taskFromHref('#task-i1', null), undefined);
+});

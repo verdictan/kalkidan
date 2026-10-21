@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { Check, FolderOpen, RefreshCw } from 'lucide-react';
+import { Check, Circle, FolderOpen, RefreshCw } from 'lucide-react';
 import type { API, Snapshot, Agent, AgentInstallation, Project } from '../types';
 import { agentCatalog, agentLabel } from '../config/agents';
 import { CreateProject } from './create-project';
@@ -22,8 +22,15 @@ import {
   DialogFooter,
 } from './ui/dialog';
 import { errorMessage } from '../lib/errors';
-import { readPreferredAgent, savePreferredAgent } from '../lib/agent-preference';
+import {
+  readPreferredAgent,
+  savePreferredAgent,
+  setAgentInstallations,
+} from '../lib/agent-preference';
 import { cn } from '../lib/utils';
+import { managedAgentsChangedEvent } from './verdictan-settings';
+import { managedSteps, type ManagedSteps } from '../lib/verdictan-labels';
+import type { VerdictanSetup, VerdictanStatus } from '../domain/verdictan';
 
 const starters = [
   {
@@ -92,6 +99,9 @@ export function Onboarding({
   const [checking, setChecking] = useState(false);
   const [checkError, setCheckError] = useState('');
   const [checkRevision, setCheckRevision] = useState(0);
+  // The managed-agent state. Undefined while unknown, for example in older desktop builds.
+  const [managed, setManaged] = useState<{ status: VerdictanStatus; setup?: VerdictanSetup }>();
+  const [managedError, setManagedError] = useState('');
   const [starter, setStarter] = useState(starters[0].name);
   const [prompt, setPrompt] = useState(starters[0].prompt);
   const groups = data.groups || [];
@@ -167,6 +177,7 @@ export function Onboarding({
       .then((value) => {
         if (!active) return;
         setInstallations(value);
+        setAgentInstallations(value);
         setAgent((current) =>
           value.some((item) => item.agent === current && item.status === 'installed')
             ? current
@@ -184,14 +195,53 @@ export function Onboarding({
       active = false;
     };
   }, [api, open, repo?.hostId, preview, checkRevision]);
+  // Agents run through managed agents. Check the runtime, the sign-in, and the agent setup.
+  const managedSupported = !preview && typeof api.verdictanStatus === 'function';
+  useEffect(() => {
+    if (!open || !managedSupported) return;
+    let live = true;
+    const read = async () => {
+      try {
+        const status = await api.verdictanStatus();
+        const setup =
+          status.phase === 'authenticated'
+            ? await Promise.resolve()
+                .then(() => api.verdictanSetup())
+                .catch(() => undefined)
+            : undefined;
+        if (!live) return;
+        setManaged({ status, setup });
+        setManagedError('');
+      } catch (error) {
+        if (live) setManagedError(errorMessage(error));
+      }
+    };
+    void read();
+    window.addEventListener('focus', read);
+    window.addEventListener(managedAgentsChangedEvent, read);
+    const unsubscribe = api.onVerdictanChanged?.(() => void read());
+    return () => {
+      live = false;
+      window.removeEventListener('focus', read);
+      window.removeEventListener(managedAgentsChangedEvent, read);
+      unsubscribe?.();
+    };
+  }, [api, open, managedSupported, checkRevision]);
+  const steps: ManagedSteps | undefined = managed
+    ? managedSteps(managed.status, managed.setup)
+    : undefined;
+  // Without a managed-agent check (browser preview, older builds), do not block the draft.
+  const managedReady =
+    !managedSupported || !steps || steps[agent === 'claude' ? 'claude' : 'codex'];
   const agentReady =
     preview ||
     (repo?.hostId
       ? host?.status === 'connected'
       : installation?.status === 'installed' && !checking && !checkError);
   const missing = !preview && !repo?.hostId && !checking && installation?.status === 'missing';
-  // The session opens with a draft and sends nothing, so a missing agent does not block it.
-  const canStart = !!repo && !!prompt.trim();
+  // The chat opens with a draft and sends nothing, so a missing CLI does not block it. A send
+  // fails without managed agents, so their setup does block it.
+  const canStart = !!repo && !!prompt.trim() && managedReady;
   const status = preview
     ? 'Browser preview: explore setup and prepare a draft. Run agents in the desktop app.'
     : repo?.hostId
@@ -201,7 +251,7 @@ export function Onboarding({
         : checkError
           ? `Could not check agents: ${checkError}`
           : installation?.status === 'installed'
-            ? `${agentName} is ready. It uses its own sign-in.`
+            ? `${agentName} is installed on this computer.`
             : `Kalkidan cannot find ${agentName} on this computer. Select Check again after you install it.`;
   function start() {
     if (!canStart || !repo) return;
@@ -214,7 +264,7 @@ export function Onboarding({
         <DialogContent size="lg" layout="scroll">
           <DialogHeader>
             <p className="text-xs font-medium text-muted-foreground">Get started with Kalkidan</p>
-            <DialogTitle className="text-xl">Set up your first session</DialogTitle>
+            <DialogTitle className="text-xl">Set up your first chat</DialogTitle>
             <DialogDescription>
               Choose your code, choose an agent, and write a first message. Kalkidan sends nothing
               until you select Send.
@@ -291,7 +341,7 @@ export function Onboarding({
                   </div>
                 )}
               </Step>
-              <Step number={2} done={!!repo && agentReady} title="Choose an agent">
+              <Step number={2} done={!!repo && agentReady && managedReady} title="Choose an agent">
                 <div className="flex flex-wrap gap-2">
                   <Choice
                     label="Setup agent"
@@ -318,6 +368,14 @@ export function Onboarding({
                 <div role="status" className="text-xs text-muted-foreground">
                   {missing ? <AgentInstallHelp agent={agent} /> : <p>{status}</p>}
                 </div>
+                {managedSupported && (steps || managedError) && !managedReady && (
+                  <ManagedSetupNotice steps={steps} agentName={agentName} agent={agent} />
+                )}
+                {managedSupported && managedError && (
+                  <p className="text-xs leading-4 text-muted-foreground">
+                    Could not check managed agents: {managedError}
+                  </p>
+                )}
               </Step>
               <Step number={3} done={false} title="Write a clear first message">
                 <label className="form-label">
@@ -346,8 +404,8 @@ export function Onboarding({
                   rows={4}
                 />
                 <p className="text-xs text-muted-foreground">
-                  You can change this draft in the session before you send it. Press{' '}
-                  <kbd className="kbd">{shortcutLabel(['mod'], 'Enter')}</kbd> to open the session.
+                  You can change this draft in the chat before you send it. Press{' '}
+                  <kbd className="kbd">{shortcutLabel(['mod'], 'Enter')}</kbd> to open the chat.
                 </p>
               </Step>
               <Step
@@ -356,8 +414,8 @@ export function Onboarding({
                 title="Track tasks (optional)"
               >
                 <p className="text-sm text-muted-foreground">
-                  Connect a {boardLabel('GitHub')} to see the tasks of the project and start
-                  sessions from them. You can do this later from the project page.
+                  Connect a {boardLabel('GitHub')} to see the tasks of the project and start chats
+                  from them. You can do this later from the project page.
                 </p>
                 {onConnectBoard && group && !group.tracker && !group.github && (
                   <Button
@@ -384,13 +442,15 @@ export function Onboarding({
                   ? 'Choose a code folder first'
                   : !prompt.trim()
                     ? 'Write the first message'
-                    : agentReady
-                      ? 'Opens the session with your draft'
-                      : `Opens the session with your draft. Make ${agentName} available before you send it.`
+                    : !managedReady
+                      ? 'Set up managed agents first. Agents run through managed agents.'
+                      : agentReady
+                        ? 'Opens the chat with your draft'
+                        : `Opens the chat with your draft. Make ${agentName} available before you send it.`
               }
             >
               <Button disabled={!canStart} onClick={start}>
-                Open first session
+                Open first chat
               </Button>
             </Hint>
           </DialogFooter>
@@ -410,6 +470,61 @@ export function Onboarding({
         />
       )}
     </>
+  );
+}
+
+/** Opens Settings › Managed agents. Onboarding stays open under it. */
+function openManagedAgents() {
+  window.dispatchEvent(
+    new CustomEvent('kalkidan-open-settings', { detail: { section: 'managed-agents' } }),
+  );
+}
+
+/** Says why the first chat cannot run yet, and shows each managed-agent step. */
+function ManagedSetupNotice({
+  steps,
+  agent,
+  agentName,
+}: {
+  steps?: ManagedSteps;
+  agent: Agent;
+  agentName: string;
+}) {
+  const items = [
+    { label: 'Install runtime', done: !!steps?.runtime },
+    { label: 'Sign in', done: !!steps?.signedIn },
+    {
+      label: `Choose setup for ${agentName}`,
+      done: !!steps?.[agent === 'claude' ? 'claude' : 'codex'],
+    },
+  ];
+  return (
+    <div className="grid gap-3 rounded-lg border p-3" role="group" aria-label="Managed agents">
+      <p className="text-sm">Agents run through managed agents. Set them up first.</p>
+      <ul className="grid gap-1.5 text-xs leading-4">
+        {items.map((item) => (
+          <li
+            key={item.label}
+            className={cn(
+              'flex items-center gap-2',
+              item.done ? 'text-foreground' : 'text-muted-foreground',
+            )}
+          >
+            {item.done ? (
+              <Check className="size-3.5 text-success" aria-label="Done" />
+            ) : (
+              <Circle className="size-3.5" aria-label="Not done" />
+            )}
+            {item.label}
+          </li>
+        ))}
+      </ul>
+      <div className="flex justify-end">
+        <Button variant="outline" size="sm" onClick={openManagedAgents}>
+          Set up managed agents
+        </Button>
+      </div>
+    </div>
   );
 }
 

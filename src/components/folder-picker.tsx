@@ -7,7 +7,7 @@ import { Input } from './ui/input';
 import { SearchInput } from './ui/search-input';
 import { Hint } from './hint';
 import { EmptyState } from './ui/empty-state';
-import { checkboxClass } from './repository-import';
+import { CheckboxRow } from './ui/checkbox';
 import {
   Dialog,
   DialogBody,
@@ -155,15 +155,12 @@ export function FolderPicker({
                   <RefreshCw />
                 </Button>
               </Hint>
-              <label className="ml-auto flex cursor-pointer items-center gap-2 text-sm text-muted-foreground">
-                <input
-                  type="checkbox"
-                  className={checkboxClass}
-                  checked={hidden}
-                  onChange={(event) => setHidden(event.target.checked)}
-                />
-                Show hidden
-              </label>
+              <CheckboxRow
+                className="ml-auto cursor-pointer text-muted-foreground"
+                label="Show hidden"
+                checked={hidden}
+                onChange={(event) => setHidden(event.target.checked)}
+              />
             </div>
             <SearchInput
               aria-label="Filter folder entries"
