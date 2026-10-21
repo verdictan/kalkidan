@@ -14,6 +14,7 @@ import {
   importLegacyDocs,
 } from './storage/project-location';
 import { memoryDirectory, readProjectMemory } from './storage/project-memory';
+import { projectMemory } from './storage/managed-memory';
 import { resourceRevision } from './storage/resource-revision';
 import { remoteProtocolVersion } from '../src/domain/host';
 import { ProjectDocs } from './storage/project-docs';
@@ -43,6 +44,7 @@ import {
   gitCommit,
   gitPullRequest,
   gitSwitchNewBranch,
+  pullRequestStatus,
   removeWorktree,
   workingFiles,
   workingStatus,
@@ -62,7 +64,7 @@ const locations = new ProjectLocationCache(join(homedir(), '.kalkidan', 'project
 const projectDocs = new Map<string, ProjectDocs>();
 const pty = new PtyTerminal();
 const chats = createAgentRuntimes(async (request) => {
-  if (!verdictanRuntime) throw new DesktopProtocolError('desktop.host_runtime_missing');
+  if (!verdictanRuntime) throw new DesktopProtocolError('desktop.remote_runtime_missing');
   return verdictanRuntime.launch.prepare(request);
 });
 const terminal = new CommandTerminal();
@@ -180,6 +182,8 @@ async function dispatch(method: string, args: any[]): Promise<any> {
       const root = await locations.get(a, b);
       if (c === 'path') return memoryDirectory(root);
       if (c === 'list') return readProjectMemory(root);
+      if (c === 'entries') return projectMemory(root).list();
+      if (c === 'forget') return projectMemory(root).forget(d[0], d[1]);
       throw new Error('Unknown memory operation.');
     }
     case 'project-docs': {
@@ -196,7 +200,11 @@ async function dispatch(method: string, args: any[]): Promise<any> {
       try {
         switch (c) {
           case 'search':
-            return await docs.search(a, d[0]);
+            return await docs.search(a, d[0], d[1] ?? undefined);
+          case 'task-links':
+            return await docs.taskLinks(a);
+          case 'set-task-links':
+            return await docs.setTaskLinks(a, d[0], d[1]);
           case 'metadata':
             return await docs.metadata(a);
           case 'read':
@@ -335,6 +343,8 @@ async function dispatch(method: string, args: any[]): Promise<any> {
       return gitSwitchNewBranch(await folder(a), b);
     case 'git-pull-request':
       return gitPullRequest(await folder(a), b, c, () => executable('gh'));
+    case 'pull-request-status':
+      return pullRequestStatus(await folder(a), b, () => executable('gh'));
     case 'repositoryDiff':
       return repositoryDiff(await folder(a));
     case 'terminalStart':
@@ -367,7 +377,7 @@ async function dispatch(method: string, args: any[]): Promise<any> {
             id: randomUUID(),
             cwd: await folder(a),
             agent: b,
-            title: 'New session',
+            title: 'New chat',
             governanceScope: args[6],
             updatedAt: new Date().toISOString(),
           },

@@ -1,60 +1,149 @@
-import { useEffect, useState } from 'react';
-import type { API, TrackerBoard, Project } from '../types';
+import { useEffect, useRef, useState } from 'react';
+import type { Agent, Project, TrackerItem } from '../types';
 import type { DispatchPlan } from '../domain/parallel-dispatch';
+import { agentCatalog } from '../config/agents';
+import { dispatchRowStateLabel, dispatchStateLabel, plural } from '../domain/planning-labels';
+import { readPreferredAgent } from '../lib/agent-preference';
+import { pathBasename } from '../lib/platform';
+import { Alert, AlertDescription } from './ui/alert';
 import { Button } from './ui/button';
+import { DialogBody, DialogFooter } from './ui/dialog';
+import { SectionHeader } from './ui/page-header';
+import { SegmentedControl } from './ui/segmented-control';
+import { showToast } from './ui/toast';
+import {
+  ErrorAlert,
+  ReviewRow,
+  SelectedTasks,
+  StatusBadge,
+  TaskTitle,
+  ToolSection,
+  type PlanningToolProps,
+  FormSelect,
+} from './planning-kit';
 import { errorMessage } from '../lib/errors';
 
-export function ParallelDispatchPanel({
+export const dispatchLimit = 20;
+const storageKey = (groupId: string) => `kalkidan.dispatch.${groupId}`;
+
+/** The code folder for a task: the folder with the same name as the task repository. */
+export function repoForTask(item: Pick<TrackerItem, 'repository'>, repos: Project[]) {
+  if (!item.repository) return undefined;
+  const name = pathBasename(item.repository).toLowerCase();
+  return repos.find(
+    (repo) => repo.name.toLowerCase() === name || pathBasename(repo.path).toLowerCase() === name,
+  );
+}
+
+function readSaved(groupId: string) {
+  try {
+    return localStorage.getItem(storageKey(groupId)) || '';
+  } catch {
+    return '';
+  }
+}
+
+/**
+ * Run tasks in parallel: each issue starts in its own branch copy with its own chat. The user
+ * reviews the prompts first. With `autoPrepare`, the prompts are prepared when the tool opens.
+ */
+export function DispatchTool({
   api,
-  groupId,
+  group,
   board,
-}: {
-  api: API;
-  groupId: string;
-  board: TrackerBoard;
-}) {
-  const [open, setOpen] = useState(false);
-  const [repositories, setRepositories] = useState<Project[]>([]);
+  items,
+  onRemove,
+  onOpenTask,
+  onClose,
+  repos,
+  autoPrepare,
+}: PlanningToolProps & { autoPrepare?: boolean }) {
+  const issues = items.filter((item) => item.kind === 'Issue');
+  const others = items.filter((item) => item.kind !== 'Issue');
   const [selected, setSelected] = useState<Record<string, string>>({});
-  const [agent, setAgent] = useState<'codex' | 'claude'>('codex');
-  const [concurrency, setConcurrency] = useState(2);
+  const [agent, setAgent] = useState<Agent>(readPreferredAgent);
+  const [concurrency, setConcurrency] = useState(() =>
+    autoPrepare ? Math.min(4, Math.max(1, issues.length)) : 2,
+  );
   const [plan, setPlan] = useState<DispatchPlan>();
+  const [loading, setLoading] = useState(() => !!readSaved(group.id));
+  const [release, setRelease] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const pending = useRef(false);
+  const repoId = (item: TrackerItem) =>
+    item.id in selected ? selected[item.id] : repoForTask(item, repos)?.id || '';
+  const tasks = issues.slice(0, dispatchLimit).flatMap((item) => {
+    const id = repoId(item);
+    return id ? [{ taskId: item.id, repositoryId: id }] : [];
+  });
+
+  async function act(action: () => Promise<DispatchPlan>, done?: (plan: DispatchPlan) => string) {
+    if (pending.current) return;
+    pending.current = true;
+    setBusy(true);
+    setError('');
+    try {
+      const value = await action();
+      setPlan(value);
+      try {
+        localStorage.setItem(storageKey(group.id), value.id);
+      } catch {
+        // Storage can be unavailable. The run then does not show after a restart.
+      }
+      if (done) showToast(done(value));
+    } catch (failure) {
+      setError(errorMessage(failure));
+    } finally {
+      pending.current = false;
+      setBusy(false);
+    }
+  }
+  const prepare = () =>
+    act(() =>
+      api.dispatchPrepare({
+        id: crypto.randomUUID(),
+        groupId: group.id,
+        agent,
+        concurrency,
+        tasks,
+      }),
+    );
+
+  // A saved run shows first. A wave from the readiness check prepares its prompts at once.
+  const started = useRef(false);
   useEffect(() => {
-    if (!open) return;
-    let disposed = false;
-    void api
-      .snapshot()
-      .then((snapshot) => {
-        if (disposed) return;
-        const group = snapshot.groups?.find((group) => group.id === groupId);
-        setRepositories(snapshot.projects.filter((repo) => group?.repoIds.includes(repo.id)));
-      })
-      .catch((failure) => {
-        if (!disposed) setError(errorMessage(failure));
-      });
-    const saved = localStorage.getItem(`kalkidan.dispatch.${groupId}`);
+    if (started.current) return;
+    started.current = true;
+    const saved = readSaved(group.id);
     if (saved)
       void api
         .dispatchStatus(saved)
         .then((value) => {
-          if (!disposed) setPlan(value);
+          setPlan(value);
+          if (
+            autoPrepare &&
+            ['completed', 'canceled'].includes(value.state) &&
+            tasks.length === issues.length
+          )
+            void prepare();
         })
-        .catch((failure) => {
-          if (!disposed) setError(errorMessage(failure));
-        });
-    return () => {
-      disposed = true;
-    };
-  }, [api, groupId, open]);
+        .catch(() => {
+          // The saved run is gone. Start a new one.
+          if (autoPrepare && tasks.length && tasks.length === issues.length) void prepare();
+        })
+        .finally(() => setLoading(false));
+    else if (autoPrepare && tasks.length && tasks.length === issues.length) void prepare();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   useEffect(() => {
-    if (!open || !plan || !['running', 'paused'].includes(plan.state)) return;
+    if (!plan || !['running', 'paused'].includes(plan.state)) return;
     let disposed = false,
-      pending = false;
+      polling = false;
     const timer = setInterval(() => {
-      if (pending) return;
-      pending = true;
+      if (polling) return;
+      polling = true;
       void api
         .dispatchStatus(plan.id)
         .then((value) => {
@@ -64,176 +153,241 @@ export function ParallelDispatchPanel({
           if (!disposed) setError(errorMessage(failure));
         })
         .finally(() => {
-          pending = false;
+          polling = false;
         });
     }, 2000);
     return () => {
       disposed = true;
       clearInterval(timer);
     };
-  }, [api, plan?.id, plan?.state, open]);
-  async function act(action: () => Promise<DispatchPlan>) {
-    if (busy) return;
-    setBusy(true);
-    setError('');
+  }, [api, plan?.id, plan?.state]);
+
+  function clear() {
     try {
-      const value = await action();
-      setPlan(value);
-      localStorage.setItem(`kalkidan.dispatch.${groupId}`, value.id);
-    } catch (failure) {
-      setError(errorMessage(failure));
-    } finally {
-      setBusy(false);
+      localStorage.removeItem(storageKey(group.id));
+    } catch {
+      // Storage can be unavailable.
     }
+    setPlan(undefined);
+    setError('');
   }
+  const ended = !!plan && ['completed', 'canceled'].includes(plan.state);
+  const agentName = (id: string) => agentCatalog.find((value) => value.id === id)?.name || 'Agent';
+
   return (
-    <details className="border-t py-3" onToggle={(event) => setOpen(event.currentTarget.open)}>
-      <summary>Automatic agent dispatch</summary>
-      {open && (
-        <div className="grid gap-3 py-3">
-          <p className="help-text">
-            Select up to 20 issues and their repositories. Review the prompts before starting. Each
-            agent can edit its own worktree. Work starts as slots become available.
-          </p>
-          {!plan && (
-            <>
-              <label>
-                Agent{' '}
-                <select
+    <>
+      <DialogBody className="grid content-start gap-4">
+        {loading && <p className="form-help">Loading the last run…</p>}
+        {!loading && !plan && (
+          <>
+            <SelectedTasks
+              items={issues}
+              onRemove={onRemove}
+              limit={dispatchLimit}
+              label="Issues to run"
+            />
+            {others.length > 0 && (
+              <Alert size="sm">
+                <AlertDescription>
+                  Only issues can run. Kalkidan leaves out {plural(others.length, 'other item')}.
+                </AlertDescription>
+              </Alert>
+            )}
+            <div className="planning-form-grid">
+              <label className="form-label">
+                Agent
+                <FormSelect
+                  label="Agent"
                   value={agent}
-                  onChange={(event) => setAgent(event.target.value as typeof agent)}
-                >
-                  <option value="codex">Codex</option>
-                  <option value="claude">Claude Code</option>
-                </select>
+                  disabled={busy}
+                  onChange={(value) => setAgent(value as Agent)}
+                  options={agentCatalog.map((value) => ({ value: value.id, label: value.name }))}
+                />
               </label>
-              <label>
-                Parallel agents{' '}
-                <select
-                  value={concurrency}
-                  onChange={(event) => setConcurrency(Number(event.target.value))}
-                >
-                  {[1, 2, 3, 4].map((n) => (
-                    <option key={n}>{n}</option>
-                  ))}
-                </select>
-              </label>
-              {board.items
-                .filter((item) => item.kind === 'Issue')
-                .map((item) => (
-                  <label key={item.id} className="flex items-center justify-between gap-3">
-                    {item.title}
-                    <select
-                      aria-label={`Repository for ${item.title}`}
-                      value={selected[item.id] || ''}
-                      onChange={(event) =>
-                        setSelected({ ...selected, [item.id]: event.target.value })
+              <div className="form-label">
+                <span>Chats at the same time</span>
+                <SegmentedControl
+                  label="Chats at the same time"
+                  className="w-fit"
+                  value={String(concurrency)}
+                  onChange={(value) => setConcurrency(Number(value))}
+                  options={['1', '2', '3', '4'].map((value) => ({ value, label: value }))}
+                />
+              </div>
+            </div>
+            {issues.length > 0 && (
+              <section className="grid gap-1" aria-label="Code folders">
+                <SectionHeader size="sm" as="h4" title="Code folder for each issue" />
+                <div className="review-list">
+                  {issues.slice(0, dispatchLimit).map((item) => (
+                    <ReviewRow
+                      key={item.id}
+                      title={<TaskTitle title={item.title} onOpen={() => onOpenTask(item.id)} />}
+                      meta={item.repository || 'No repository'}
+                      aside={
+                        <FormSelect
+                          label={`Code folder for ${item.title}`}
+                          size="sm"
+                          className="w-44"
+                          value={repoId(item)}
+                          disabled={busy}
+                          onChange={(value) => setSelected({ ...selected, [item.id]: value })}
+                          options={[
+                            { value: '', label: 'Do not run' },
+                            ...repos.map((repo) => ({ value: repo.id, label: repo.name })),
+                          ]}
+                        />
                       }
-                    >
-                      <option value="">Do not dispatch</option>
-                      {repositories.map((repo) => (
-                        <option key={repo.id} value={repo.id}>
-                          {repo.name}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                ))}
+                    />
+                  ))}
+                </div>
+                {!repos.length && (
+                  <ErrorAlert>
+                    This project has no code folders. Add a code folder, then try again.
+                  </ErrorAlert>
+                )}
+              </section>
+            )}
+            <p className="form-help">
+              Each issue gets its own branch copy and its own chat. The agent can edit files in that
+              copy only. Chats start when a place is free.
+            </p>
+          </>
+        )}
+        {plan && (
+          <>
+            <div className="flex flex-wrap items-center gap-2" role="status">
+              <StatusBadge value={dispatchStateLabel(plan.state)} />
+              <span className="text-xs text-muted-foreground">
+                {agentName(plan.agent)} · {plan.concurrency} at the same time
+              </span>
+            </div>
+            <div className="review-list">
+              {plan.rows.map((row) => (
+                <ReviewRow
+                  key={row.operationId}
+                  title={<TaskTitle title={row.title} onOpen={() => onOpenTask(row.taskId)} />}
+                  meta={
+                    <>
+                      Branch <code className="font-mono">{row.branch}</code>
+                      {row.message ? ` · ${row.message}` : ''}
+                    </>
+                  }
+                  status={dispatchRowStateLabel(row.state)}
+                >
+                  <ToolSection title="Prompt">
+                    <pre className="planning-pre">{row.prompt}</pre>
+                  </ToolSection>
+                  {['uncertain', 'failed', 'dispatching'].includes(row.state) && (
+                    <div className="grid gap-2">
+                      <div className="review-row-actions">
+                        <Button
+                          size="xs"
+                          variant="outline"
+                          disabled={busy}
+                          onClick={() =>
+                            void act(() => api.dispatchReconcile(plan.id, row.taskId, false))
+                          }
+                        >
+                          Check the chat
+                        </Button>
+                        <Button
+                          size="xs"
+                          variant="ghost"
+                          disabled={busy}
+                          onClick={() => setRelease(release === row.taskId ? '' : row.taskId)}
+                        >
+                          Release the task…
+                        </Button>
+                      </div>
+                      {release === row.taskId && (
+                        <Alert size="sm">
+                          <AlertDescription>
+                            Check the chat history first. This frees the task. Kalkidan does not
+                            send the prompt again. Stop an active chat first.
+                            <div className="flex justify-end gap-2 self-stretch">
+                              <Button size="xs" variant="outline" onClick={() => setRelease('')}>
+                                Cancel
+                              </Button>
+                              <Button
+                                size="xs"
+                                variant="destructive"
+                                disabled={busy}
+                                onClick={() =>
+                                  void act(
+                                    () => api.dispatchReconcile(plan.id, row.taskId, true),
+                                    () => `Released ${row.title}.`,
+                                  ).then(() => setRelease(''))
+                                }
+                              >
+                                Release task
+                              </Button>
+                            </div>
+                          </AlertDescription>
+                        </Alert>
+                      )}
+                    </div>
+                  )}
+                </ReviewRow>
+              ))}
+            </div>
+          </>
+        )}
+        <ErrorAlert>{error}</ErrorAlert>
+      </DialogBody>
+      <DialogFooter>
+        {!plan ? (
+          <>
+            <Button variant="outline" onClick={onClose}>
+              Cancel
+            </Button>
+            <Button
+              disabled={busy || loading || !tasks.length || issues.length > dispatchLimit}
+              onClick={() => void prepare()}
+            >
+              {busy ? 'Preparing prompts…' : `Review ${plural(tasks.length, 'prompt')}`}
+            </Button>
+          </>
+        ) : ended ? (
+          <>
+            <Button variant="outline" onClick={clear}>
+              Start a new run
+            </Button>
+            <Button onClick={onClose}>Done</Button>
+          </>
+        ) : (
+          <>
+            <Button
+              variant="outline"
+              disabled={busy}
+              onClick={() =>
+                void act(
+                  () => api.dispatchCancel(plan.id),
+                  () => 'Stopped the run and its chats.',
+                )
+              }
+            >
+              {plan.state === 'review' ? 'Cancel run' : 'Stop all chats'}
+            </Button>
+            {['review', 'paused'].includes(plan.state) ? (
               <Button
-                disabled={busy || !Object.values(selected).some(Boolean)}
+                disabled={busy}
                 onClick={() =>
-                  void act(() =>
-                    api.dispatchPrepare({
-                      id: crypto.randomUUID(),
-                      groupId,
-                      agent,
-                      concurrency,
-                      tasks: Object.entries(selected)
-                        .filter(([, id]) => id)
-                        .map(([taskId, repositoryId]) => ({ taskId, repositoryId })),
-                    }),
+                  void act(
+                    () => api.dispatchStart(plan.id),
+                    (value) =>
+                      `Started ${plural(value.rows.length, 'chat')}. Each task runs in its own branch copy.`,
                   )
                 }
               >
-                Prepare dispatch
+                {plan.state === 'paused' ? 'Resume' : `Start ${plural(plan.rows.length, 'chat')}`}
               </Button>
-            </>
-          )}
-          {plan && (
-            <>
-              <p role="status">
-                Dispatch: {plan.state} · {plan.concurrency} parallel agents
-              </p>
-              {plan.rows.map((row) => (
-                <article key={row.operationId} className="grid gap-2 border-t py-2">
-                  <strong>{row.title}</strong>
-                  <p>
-                    {row.state} · {row.branch}
-                  </p>
-                  {row.message && <p>{row.message}</p>}
-                  {['uncertain', 'failed', 'dispatching'].includes(row.state) && (
-                    <div className="grid gap-2">
-                      <Button
-                        disabled={busy}
-                        onClick={() =>
-                          void act(() => api.dispatchReconcile(plan.id, row.taskId, false))
-                        }
-                      >
-                        Inspect owned session
-                      </Button>
-                      <details>
-                        <summary>Release task reservation</summary>
-                        <p>
-                          Inspect session history first. This closes the reservation without
-                          replaying a prompt. Active sessions must stop first.
-                        </p>
-                        <Button
-                          disabled={busy}
-                          onClick={() =>
-                            void act(() => api.dispatchReconcile(plan.id, row.taskId, true))
-                          }
-                        >
-                          I inspected the session — release task
-                        </Button>
-                      </details>
-                    </div>
-                  )}
-                  <details>
-                    <summary>Agent prompt</summary>
-                    <pre className="whitespace-pre-wrap">{row.prompt}</pre>
-                  </details>
-                </article>
-              ))}
-              {['review', 'paused'].includes(plan.state) && (
-                <Button disabled={busy} onClick={() => void act(() => api.dispatchStart(plan.id))}>
-                  {plan.state === 'paused' ? 'Resume reviewed queue' : 'Start reviewed tasks'}
-                </Button>
-              )}
-              {!['completed', 'canceled'].includes(plan.state) && (
-                <Button
-                  variant="outline"
-                  disabled={busy}
-                  onClick={() => void act(() => api.dispatchCancel(plan.id))}
-                >
-                  Cancel dispatch and stop its agents
-                </Button>
-              )}
-              {['completed', 'canceled'].includes(plan.state) && (
-                <Button
-                  variant="outline"
-                  onClick={() => {
-                    localStorage.removeItem(`kalkidan.dispatch.${groupId}`);
-                    setPlan(undefined);
-                  }}
-                >
-                  Prepare another dispatch
-                </Button>
-              )}
-            </>
-          )}
-          {error && <p role="alert">{error}</p>}
-        </div>
-      )}
-    </details>
+            ) : (
+              <Button onClick={onClose}>Close</Button>
+            )}
+          </>
+        )}
+      </DialogFooter>
+    </>
   );
 }

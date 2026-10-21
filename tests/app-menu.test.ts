@@ -93,20 +93,30 @@ function item(items: MenuItemConstructorOptions[], label: string) {
 }
 
 for (const mac of [true, false])
-  test(`Session, File and Help menus send their commands (mac: ${mac})`, () => {
+  test(`Chat, File, Go and Help menus send their commands (mac: ${mac})`, () => {
     const sent: string[] = [];
     const template = menu(mac, sent);
     const expected: [string, string, string][] = [
       ['File', 'Add code folder…', 'add-code-folder'],
       ['File', 'New task', 'new-task'],
-      ['Session', 'New session', 'session-new'],
-      ['Session', 'Terminal', 'session-terminal'],
-      ['Session', 'Changes', 'session-changes'],
-      ['Session', 'Rename…', 'session-rename'],
-      ['Session', 'Pin', 'session-pin'],
-      ['Session', 'Open a second chat beside this one', 'session-side-chat'],
-      ['Session', 'Commit…', 'session-commit'],
-      ['Session', 'Archive', 'session-archive'],
+      ['Go', 'Overview', 'go-overview'],
+      ['Go', 'Tasks', 'go-tasks'],
+      ['Go', 'Docs', 'go-docs'],
+      ['Go', 'Memory', 'go-memory'],
+      ['Go', 'Insights', 'go-insights'],
+      ['Go', 'All chats', 'all-sessions'],
+      ['Chat', 'New chat', 'session-new'],
+      ['Chat', 'Terminal', 'session-terminal'],
+      ['Chat', 'Changes', 'session-changes'],
+      ['Chat', 'Rename…', 'session-rename'],
+      ['Chat', 'Pin', 'session-pin'],
+      ['Chat', 'Open a second chat beside this one', 'session-side-chat'],
+      ['Chat', 'Commit…', 'session-commit'],
+      ['Chat', 'Open linked task', 'open-linked-task'],
+      ['Chat', 'Link task…', 'link-task'],
+      ['Chat', 'Open pull request', 'open-pull-request'],
+      ['Chat', 'Archive', 'session-archive'],
+      [mac ? 'Kalkidan' : 'Help', 'Check for updates…', 'check-updates'],
       ['Help', 'Get started', 'get-started'],
       ['Help', 'Keyboard shortcuts', 'shortcuts'],
     ];
@@ -116,9 +126,11 @@ for (const mac of [true, false])
       sent,
       expected.map(([, , command]) => command),
     );
-    // The Session menu comes before the Window menu.
+    // The Chat menu comes before the Window menu.
     const order = template.map((entry) => entry.label);
-    assert.ok(order.indexOf('Session') < order.indexOf('Window'));
+    assert.ok(order.indexOf('Chat') < order.indexOf('Window'));
+    // Each menu shows Check for updates once.
+    assert.equal(labels(template).filter((label) => label === 'Check for updates…').length, 1);
   });
 
 for (const mac of [true, false])
@@ -137,8 +149,36 @@ for (const mac of [true, false])
     const keys = [...new Set(registered)].map((entry) => entry.split(' ')[0]);
     assert.equal(new Set(keys).size, keys.length, keys.join(', '));
     // The session view handles these keys, so the menu must not take them first.
-    const session = submenu(menu(mac), 'Session');
+    const session = submenu(menu(mac), 'Chat');
     assert.equal(item(session, 'Terminal').registerAccelerator, false);
     assert.equal(item(session, 'Changes').registerAccelerator, false);
-    assert.equal(item(session, 'New session').accelerator, 'CmdOrCtrl+Shift+N');
+    assert.equal(item(session, 'New chat').accelerator, 'CmdOrCtrl+Shift+N');
+    // The renderer uses these keys. Menu items must not take them.
+    const renderer = [
+      'CmdOrCtrl+T',
+      'CmdOrCtrl+F',
+      'CmdOrCtrl+S',
+      'CmdOrCtrl+A',
+      'CmdOrCtrl+Shift+A',
+      'CmdOrCtrl+Shift+G',
+      'CmdOrCtrl+Shift+P',
+      'CmdOrCtrl+Shift+S',
+      'CmdOrCtrl+Shift+E',
+    ];
+    for (const key of renderer) assert.ok(!keys.includes(key), key);
+    const go = submenu(menu(mac), 'Go');
+    assert.deepEqual(
+      ['Overview', 'Tasks', 'Docs', 'Memory', 'Insights', 'All chats'].map(
+        (label) => item(go, label).accelerator,
+      ),
+      [
+        'CmdOrCtrl+1',
+        'CmdOrCtrl+2',
+        'CmdOrCtrl+3',
+        'CmdOrCtrl+4',
+        'CmdOrCtrl+5',
+        'CmdOrCtrl+Shift+L',
+      ],
+    );
+    assert.equal(item(submenu(menu(mac), 'File'), 'New task').accelerator, 'CmdOrCtrl+Shift+K');
   });

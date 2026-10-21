@@ -78,7 +78,7 @@ test('a failed pull request keeps the successful commit and retries only the pul
   await page.goto('/');
   await page.locator('.repo-select').click();
   await page.getByRole('button', { name: 'Resume Implement feature', exact: true }).click();
-  await page.getByRole('button', { name: 'Session actions', exact: true }).click();
+  await page.getByRole('button', { name: 'Chat actions', exact: true }).click();
   await page.getByRole('menuitem', { name: 'Commit changes…', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: 'Commit changes' });
   await dialog.getByRole('button', { name: 'Commit and open pull request' }).click();

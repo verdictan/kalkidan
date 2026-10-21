@@ -73,12 +73,15 @@ export interface TrackerDescriptor {
   id: string;
   name: string;
   capabilities: TrackerCapabilities;
-  statusNames: { progress: string; done: string };
+  /** The usual option names. `review` is the option for an open pull request. */
+  statusNames: { progress: string; done: string; review?: string };
 }
+/** The task states that Kalkidan sets: work starts, a pull request opens, work ends. */
+export type TaskPhase = 'progress' | 'review' | 'done';
 export interface TrackerConnection {
   provider: string;
   project: TrackerProject;
-  statusMapping?: Partial<Record<'progress' | 'done', string>>;
+  statusMapping?: Partial<Record<TaskPhase, string>>;
   statusFieldId?: string;
 }
 export function trackerConnection(
@@ -92,7 +95,7 @@ export const githubDescriptor: TrackerDescriptor = {
   id: 'github',
   name: 'GitHub',
   capabilities: { createProject: true, createItem: true, importItem: true, updateStatus: true },
-  statusNames: { progress: 'In progress', done: 'Done' },
+  statusNames: { progress: 'In progress', done: 'Done', review: 'In review' },
 };
 
 /** Validate persisted adapter data without requiring the adapter to be installed. */
@@ -121,7 +124,7 @@ export function isTrackerConnection(value: unknown): value is TrackerConnection 
       typeof v.statusMapping === 'object' &&
       !Array.isArray(v.statusMapping) &&
       Object.entries(v.statusMapping).every(
-        ([key, value]) => ['progress', 'done'].includes(key) && typeof value === 'string',
+        ([key, value]) => ['progress', 'review', 'done'].includes(key) && typeof value === 'string',
       ))
   );
 }

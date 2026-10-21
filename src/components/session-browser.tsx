@@ -1,4 +1,10 @@
-import { ActivityDot, activityKey, type SessionActivityState } from './activity-dot';
+import {
+  ActivityDot,
+  activityKey,
+  useActivityState,
+  waitsForUser,
+  type SessionActivityState,
+} from './activity-dot';
 import { useEffect, useState } from 'react';
 import { ArchiveRestore, GitBranch, History, Pin } from 'lucide-react';
 import { agentCatalog, agentLabel } from '../config/agents';
@@ -24,7 +30,7 @@ import {
   DialogTitle,
 } from './ui/dialog';
 import { errorMessage } from '../lib/errors';
-import type { API, Session, SessionOrganization } from '../types';
+import type { API, Session, SessionOrganization, TrackerItem } from '../types';
 
 interface Props {
   /** The API for rename and archive. A remote session uses the API of its host. */
@@ -47,14 +53,25 @@ interface Props {
   branchOf?: (session: Session) => string | undefined;
   /** The project and code folder of each session. With it, the list shows a Project filter. */
   placeOf?: (session: Session) => { project?: string; folder?: string } | undefined;
+  /** The board item that a chat works on. Rows show "#12" and the list a Task filter. */
+  taskOf?: (session: Session) => TrackerItem | undefined;
+  /** Opens the task that a chat works on. */
+  onOpenTask?: (session: Session, task: TrackerItem) => void;
 }
 interface SavedView {
   agent: string;
   scope: string;
   collection: string;
   project: string;
+  task: string;
 }
-const defaultView: SavedView = { agent: 'all', scope: 'active', collection: 'all', project: 'all' };
+const defaultView: SavedView = {
+  agent: 'all',
+  scope: 'active',
+  collection: 'all',
+  project: 'all',
+  task: 'all',
+};
 /** Filters show only for longer lists, or when more than one agent made the sessions. */
 const filterThreshold = 8;
 function readView(key: string | undefined): SavedView {
@@ -91,10 +108,17 @@ export function SessionBrowser({
   onResume,
   storageKey,
   activity = {},
-  newSessionLabel = 'New session',
+  newSessionLabel = 'New chat',
   branchOf,
   placeOf,
+  taskOf,
+  onOpenTask,
 }: Props) {
+  const { finished } = useActivityState();
+  /** True when the chat waits for an approval or an answer, or finished and is not seen. */
+  const waiting = (session: Session) =>
+    waitsForUser(activity[activityKey(session.agent, session.id)]) ||
+    finished.some((item) => item.agent === session.agent && item.id === session.id);
   const listKey = storageKey ?? sessions[0]?.projectId;
   const repositoryKey = listKey ? sessionViewKey(listKey) : undefined;
   const [loadedKey, setLoadedKey] = useState(repositoryKey);
@@ -104,7 +128,7 @@ export function SessionBrowser({
     setLoadedKey(repositoryKey);
     setView(readView(repositoryKey));
   }
-  const { agent, scope, collection, project } = view;
+  const { agent, scope, collection, project, task } = view;
   useEffect(() => {
     if (!loadedKey) return;
     try {
@@ -126,6 +150,9 @@ export function SessionBrowser({
   const setCollection = (value: string) =>
     setView((previous) => ({ ...previous, collection: value }));
   const setProject = (value: string) => setView((previous) => ({ ...previous, project: value }));
+  const setTask = (value: string) => setView((previous) => ({ ...previous, task: value }));
+  const linkedCount = taskOf ? sessions.filter((s) => !!taskOf(s)).length : 0;
+  const waitingCount = sessions.filter((s) => !s.organization?.archived && waiting(s)).length;
   const [editing, setEditing] = useState<Session | null>(null);
   const [renaming, setRenaming] = useState<Session | null>(null);
   const [draft, setDraft] = useState<SessionOrganization>({});
@@ -149,10 +176,13 @@ export function SessionBrowser({
     (sessions.length >= filterThreshold ||
       agents.size > 1 ||
       projects.length > 1 ||
+      linkedCount > 0 ||
+      waitingCount > 0 ||
       scope !== 'active' ||
       agent !== 'all' ||
       collection !== 'all' ||
-      project !== 'all');
+      project !== 'all' ||
+      task !== 'all');
   const list = sessions
     .filter((session) => {
       const org = session.organization || {};
@@ -162,10 +192,13 @@ export function SessionBrowser({
           : (agent === 'all' || session.agent === agent) &&
             (scope === 'archived'
               ? org.archived
-              : !org.archived && (scope !== 'pinned' || org.pinned)) &&
+              : !org.archived &&
+                (scope !== 'pinned' || org.pinned) &&
+                (scope !== 'waiting' || waiting(session))) &&
             (collection === 'all' || org.collection === collection) &&
-            (project === 'all' || placeOf?.(session)?.project === project)) &&
-        `${org.title || session.title} ${session.title} ${session.cwd} ${session.agent} ${org.notes || ''} ${org.collection || ''}`
+            (project === 'all' || placeOf?.(session)?.project === project) &&
+            (task === 'all' || (task === 'linked') === !!taskOf?.(session))) &&
+        `${org.title || session.title} ${session.title} ${session.cwd} ${session.agent} ${org.notes || ''} ${org.collection || ''} ${taskOf?.(session)?.number ? '#' + taskOf(session)!.number : ''} ${taskOf?.(session)?.title || ''}`
           .toLowerCase()
           .includes(query.toLowerCase())
       );
@@ -186,13 +219,18 @@ export function SessionBrowser({
       {showFilters && (
         <div className="session-filters">
           <SegmentedControl
-            label="Session view"
+            label="Chat view"
             value={scope}
             onChange={setScope}
-            options={['active', 'pinned', 'archived'].map((value) => ({
-              value,
-              label: value[0].toUpperCase() + value.slice(1),
-            }))}
+            options={[
+              { value: 'active', label: 'Active' },
+              {
+                value: 'waiting',
+                label: waitingCount ? `Waiting for you (${waitingCount})` : 'Waiting for you',
+              },
+              { value: 'pinned', label: 'Pinned' },
+              { value: 'archived', label: 'Archived' },
+            ]}
           />
           {(agents.size > 1 || agent !== 'all') && (
             <Choice
@@ -220,6 +258,20 @@ export function SessionBrowser({
               ]}
             />
           )}
+          {(linkedCount > 0 || task !== 'all') && (
+            <Choice
+              label="Filter by task"
+              size="sm"
+              className="min-w-32"
+              value={task}
+              onChange={setTask}
+              options={[
+                { value: 'all', label: 'All chats' },
+                { value: 'linked', label: 'Linked to a task' },
+                { value: 'unlinked', label: 'No task' },
+              ]}
+            />
+          )}
           {(collections.length > 0 || collection !== 'all') && (
             <Choice
               label="Filter by group"
@@ -241,6 +293,7 @@ export function SessionBrowser({
             const org = session.organization || {};
             const title = org.title || session.title;
             const branch = branchOf?.(session);
+            const linked = taskOf?.(session);
             const place = placeOf?.(session);
             const where = place ? [place.project, place.folder].filter(Boolean).join(' › ') : '';
             return (
@@ -259,6 +312,11 @@ export function SessionBrowser({
                   >
                     {org.pinned && <Pin className="size-3" aria-hidden="true" />}
                     <span>{title}</span>
+                    {linked?.number && (
+                      <span className="session-task-number" title={`Task: ${linked.title}`}>
+                        #{linked.number}
+                      </span>
+                    )}
                     <ActivityDot state={activity[activityKey(session.agent, session.id)]} />
                   </Button>
                   <div className="session-meta">
@@ -298,13 +356,21 @@ export function SessionBrowser({
                     label={`${title} actions`}
                     items={[
                       { label: 'Open', action: () => onResume(session) },
+                      ...(linked && onOpenTask
+                        ? [
+                            {
+                              label: linked.number ? `Open task #${linked.number}` : 'Open task',
+                              action: () => onOpenTask(session, linked),
+                            },
+                          ]
+                        : []),
                       { label: 'Rename…', action: () => setRenaming(session) },
                       {
                         label: org.pinned ? 'Unpin' : 'Pin',
                         action: () => void togglePin(session),
                       },
                       {
-                        label: 'Session details…',
+                        label: 'Chat details…',
                         action: () => {
                           setSaveError('');
                           setEditing(session);
@@ -347,19 +413,23 @@ export function SessionBrowser({
           icon={<History />}
           title={
             scope === 'archived' && !compact
-              ? 'No archived sessions'
+              ? 'No archived chats'
               : scope === 'pinned' && !compact
-                ? 'No pinned sessions'
-                : sessions.length
-                  ? 'No sessions found'
-                  : 'No sessions yet'
+                ? 'No pinned chats'
+                : scope === 'waiting' && !compact
+                  ? 'Nothing waits for you'
+                  : sessions.length
+                    ? 'No chats found'
+                    : 'No chats yet'
           }
         >
-          {sessions.length
-            ? 'Try a different search or filter. Use ⋯ on a session to pin, group, or archive it.'
-            : placeOf
-              ? 'No agent chats yet. Open a code folder, then start a session.'
-              : `No agent chats in this folder yet. Select ${newSessionLabel} above.`}
+          {scope === 'waiting' && !compact
+            ? 'Chats that ask for an approval or an answer, and finished runs, show here.'
+            : sessions.length
+              ? 'Try a different search or filter. Use ⋯ on a chat to pin, group, or archive it.'
+              : placeOf
+                ? 'No agent chats yet. Open a code folder, then start a chat.'
+                : `No agent chats in this folder yet. Select ${newSessionLabel} above.`}
         </EmptyState>
       )}
       {!showFilters && !compact && archivedCount > 0 && (
@@ -369,7 +439,7 @@ export function SessionBrowser({
           className="session-archived-link"
           onClick={() => setScope('archived')}
         >
-          View archived ({plural(archivedCount, 'session')})
+          View archived ({plural(archivedCount, 'chat')})
         </Button>
       )}
       <RenameSessionDialog
@@ -387,9 +457,9 @@ export function SessionBrowser({
       >
         <DialogContent size="md">
           <DialogHeader>
-            <DialogTitle>Session details</DialogTitle>
+            <DialogTitle>Chat details</DialogTitle>
             <DialogDescription>
-              Kalkidan keeps these details. The agent session does not change.
+              Kalkidan keeps these details. The agent chat does not change.
             </DialogDescription>
           </DialogHeader>
           <label className="form-label">
@@ -433,7 +503,7 @@ export function SessionBrowser({
                   if (await onUpdate(editing, draft)) setEditing(null);
                   else
                     setSaveError(
-                      'Could not save the session. Make sure that the session is available, then try again.',
+                      'Could not save the chat details. Make sure that the chat is available, then try again.',
                     );
                 } finally {
                   setSaving(false);

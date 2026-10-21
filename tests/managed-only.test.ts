@@ -51,7 +51,7 @@ test('managed launch failures explain the managed-only rule and name the setup s
     [new DesktopProtocolError('desktop.auth_required'), 'sign-in'],
     [new DesktopProtocolError('desktop.region_required'), 'region'],
     [new DesktopProtocolError('desktop.runtime_missing'), 'runtime'],
-    [new DesktopProtocolError('desktop.host_runtime_missing'), 'runtime'],
+    [new DesktopProtocolError('desktop.remote_runtime_missing'), 'runtime'],
     [new DesktopProtocolError('desktop.resume_binding_required'), 'agent-setup'],
     [new DesktopProtocolError('desktop.gateway_unavailable'), 'status'],
     [new SubscriptionRecoveryError('desktop.claude_subscription_login_required'), 'agent-setup'],

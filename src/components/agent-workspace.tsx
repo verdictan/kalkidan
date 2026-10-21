@@ -22,6 +22,7 @@ export function AgentWorkspace({
   sessions,
   projects = [],
   projectGroups = [],
+  initialTabs = [],
   selected,
   visible,
   returnLabel = 'Repository details',
@@ -40,6 +41,8 @@ export function AgentWorkspace({
   onCreated?: (draft: Session, id: string, title: string) => void;
   api: API;
   sessions: Session[];
+  /** Chats that were open at the end of the last run. They show in "Open chats" again. */
+  initialTabs?: Session[];
   projects?: Project[];
   projectGroups?: ProjectGroup[];
   selected: Session;
@@ -58,7 +61,18 @@ export function AgentWorkspace({
   onActivity?: (activity: SessionActivity[]) => void;
   onComplete: () => void;
 }) {
-  const [tabs, setTabs] = useState<Session[]>([selected]);
+  const [tabs, setTabs] = useState<Session[]>(() => [
+    selected,
+    ...initialTabs.filter((tab) => keyOf(tab) !== keyOf(selected)),
+  ]);
+  // The restored chats can arrive after the first render.
+  useEffect(() => {
+    if (!initialTabs.length) return;
+    setTabs((previous) => [
+      ...previous,
+      ...initialTabs.filter((tab) => !previous.some((item) => keyOf(item) === keyOf(tab))),
+    ]);
+  }, [initialTabs]);
   const [sideKey, setSideKey] = useState<string | null>(null);
   const [running, setRunning] = useState<Record<string, SessionActivityState | null>>({});
   const [created, setCreated] = useState<Record<string, { id: string; title: string }>>({});
@@ -206,7 +220,7 @@ export function AgentWorkspace({
       cwd: repo.path,
       hostId: repo.hostId,
       agent: live.agent,
-      title: fork ? 'Fork of ' + titleOf(live) : 'New side session',
+      title: fork ? 'Fork of ' + titleOf(live) : 'New side chat',
       updatedAt: new Date().toISOString(),
       forkFrom: fork ? resolvedId || live.id : undefined,
     };
@@ -219,7 +233,7 @@ export function AgentWorkspace({
     } else setSideKey(keyOf(draft));
   }
   return (
-    <section className="agent-workspace" aria-label="Sessions" hidden={!visible}>
+    <section className="agent-workspace" aria-label="Chats" hidden={!visible}>
       {visible &&
         document.getElementById('conversation-titlebar-actions') &&
         createPortal(
@@ -257,6 +271,7 @@ export function AgentWorkspace({
                   <button
                     type="button"
                     className="topbar-crumb"
+                    data-optional
                     aria-label="Projects overview"
                     title="Projects"
                     onClick={onOpenOverview}
@@ -265,6 +280,7 @@ export function AgentWorkspace({
                   </button>
                   <ChevronRight
                     aria-hidden="true"
+                    data-optional
                     className="size-3 shrink-0 text-muted-foreground"
                   />
                 </>
@@ -274,6 +290,7 @@ export function AgentWorkspace({
                   <button
                     type="button"
                     className="topbar-crumb"
+                    data-optional
                     aria-label={`${group.name} project`}
                     title={group.name}
                     onClick={() => onOpenProject(group)}
@@ -282,6 +299,7 @@ export function AgentWorkspace({
                   </button>
                   <ChevronRight
                     aria-hidden="true"
+                    data-optional
                     className="size-3 shrink-0 text-muted-foreground"
                   />
                 </>
@@ -347,11 +365,11 @@ export function AgentWorkspace({
                 >
                   {key === sideKey && (
                     <div className="tool-toolbar justify-between">
-                      <span className="pl-1">Side session</span>
+                      <span className="pl-1">Side chat</span>
                       <Button
                         size="icon-sm"
                         variant="ghost"
-                        aria-label="Close side session"
+                        aria-label="Close side chat"
                         disabled={!!running[key]}
                         onClick={() => setSideKey(null)}
                       >
@@ -374,6 +392,15 @@ export function AgentWorkspace({
                     onDraftChange={(draft) => {
                       if (draft) drafts.current.set(key, draft);
                       else drafts.current.delete(key);
+                    }}
+                    onTitleChange={(title) => {
+                      // A draft takes the first line of its first message as its title, so a
+                      // failed first send does not leave "New … chat".
+                      if (!title || created[key] || !tab.id.startsWith('draft-')) return;
+                      setTabs((previous) =>
+                        previous.map((t) => (keyOf(t) === key ? { ...t, title } : t)),
+                      );
+                      onDraft({ ...liveSession(tab), title });
                     }}
                     onSessionCreated={(id, title) => {
                       setCreated((previous) => ({ ...previous, [key]: { id, title } }));

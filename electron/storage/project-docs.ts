@@ -9,6 +9,15 @@ const hash = (text: string) => createHash('sha256').update(text).digest('hex');
 /** Returns the sibling order of a page header, or nothing when the header has no valid order. */
 const orderOf = (value: unknown) =>
   typeof value === 'number' && Number.isFinite(value) ? { order: value } : {};
+const TASK_LINKS_BYTES = 1024 * 1024;
+const validPage = (id: string) => /^[\w-]{1,200}$/.test(id);
+// Board item IDs are opaque provider IDs. Refuse control characters and long values.
+const validItem = (id: unknown): id is string =>
+  typeof id === 'string' &&
+  id.length > 0 &&
+  id.length <= 200 &&
+  ![...id].some((character) => character.charCodeAt(0) < 32) &&
+  !['__proto__', 'constructor', 'prototype'].includes(id);
 export class ProjectDocs {
   private queues = new Map<string, Promise<unknown>>();
   private bodies = new Map<string, { stamp: string; doc: ProjectDoc }>();
@@ -80,7 +89,7 @@ export class ProjectDocs {
     );
   }
   /** Refresh changed pages only. Deleted and trashed pages leave the index immediately. */
-  async search(group: string, query: string) {
+  async search(group: string, query: string, limit?: number) {
     if (typeof query !== 'string') throw new Error('Enter a document search query.');
     const dir = await this.directory(group);
     if (!docSearchTerms(query).length) return [];
@@ -100,7 +109,7 @@ export class ProjectDocs {
           const stamp = this.stamp(info);
           if (index.stamps.get(id) !== stamp) index.update(await this.read(dir, id), stamp);
         }
-        return index.search(query);
+        return index.search(query, limit);
       } finally {
         this.activeSearches.delete(dir);
         for (const [key, cached] of this.searchIndexes) {
@@ -275,6 +284,69 @@ export class ProjectDocs {
       const doc = await this.write(dir, { ...deleted, id, parentId });
       await rm(this.file(trash, trashId), { force: true });
       return doc;
+    });
+  }
+  private async readLinks(dir: string): Promise<Record<string, string[]>> {
+    const file = join(dir, '.task-links.json');
+    let text: string;
+    try {
+      const info = await lstat(file);
+      if (!info.isFile()) throw new Error('Task links must be a file.');
+      if (info.size > TASK_LINKS_BYTES) throw new Error('Task links file is too large.');
+      text = await readFile(file, 'utf8');
+    } catch (error: any) {
+      if (error.code === 'ENOENT') return {};
+      throw error;
+    }
+    const value = JSON.parse(text);
+    const links: Record<string, string[]> = {};
+    if (value?.version !== 1 || !value.links || typeof value.links !== 'object') return links;
+    for (const [item, ids] of Object.entries(value.links))
+      if (validItem(item) && Array.isArray(ids))
+        links[item] = ids.filter((id): id is string => typeof id === 'string' && validPage(id));
+    return links;
+  }
+  /**
+   * Returns the task-to-doc links of the project. Keys are board item IDs. Links to pages that
+   * are deleted are left out. They come back when the page is restored.
+   */
+  async taskLinks(group: string): Promise<Record<string, string[]>> {
+    const dir = await this.directory(group);
+    const [links, pages] = await Promise.all([this.readLinks(dir), this.metadata(group)]);
+    const existing = new Set(pages.map((page) => page.id));
+    const result: Record<string, string[]> = {};
+    for (const [item, ids] of Object.entries(links)) {
+      const present = ids.filter((id) => existing.has(id));
+      if (present.length) result[item] = present;
+    }
+    return result;
+  }
+  /** Replaces the docs linked to one task. An empty list removes the task's links. */
+  setTaskLinks(group: string, itemId: string, docIds: string[]) {
+    if (!validItem(itemId)) throw new Error('Invalid task ID.');
+    if (
+      !Array.isArray(docIds) ||
+      docIds.length > 50 ||
+      docIds.some((id) => typeof id !== 'string' || !validPage(id))
+    )
+      throw new Error('Choose up to 50 pages.');
+    return this.change(group, async () => {
+      const dir = await this.directory(group);
+      const links = await this.readLinks(dir);
+      const ids = [...new Set(docIds)];
+      if (ids.length) links[itemId] = ids;
+      else delete links[itemId];
+      const text = JSON.stringify({ version: 1, links }, null, 2) + '\n';
+      if (Buffer.byteLength(text) > TASK_LINKS_BYTES)
+        throw new Error('Too many task links. Remove some links first.');
+      const file = join(dir, '.task-links.json');
+      const temp = file + '.' + randomUUID() + '.tmp';
+      try {
+        await writeFile(temp, text, { mode: 0o600 });
+        await rename(temp, file);
+      } finally {
+        await rm(temp, { force: true });
+      }
     });
   }
 }

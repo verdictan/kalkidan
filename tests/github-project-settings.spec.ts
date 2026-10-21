@@ -58,20 +58,27 @@ test('GitHub settings require reload after an uncertain save and preserve permis
     .getByRole('button', { name: 'Platform', exact: true })
     .click();
   await page
-    .getByRole('group', { name: 'Project page', exact: true })
+    .getByRole('navigation', { name: 'Project page', exact: true })
     .getByRole('button', { name: 'Tasks', exact: true })
     .click();
   await page.getByRole('button', { name: 'Board actions', exact: true }).click();
   await page.getByRole('menuitem', { name: 'GitHub project settings…' }).click();
-  const dialog = page.getByRole('dialog');
+  const dialog = page.getByRole('dialog', { name: 'Project settings' });
+  await expect(dialog.getByRole('tab', { name: 'GitHub project' })).toHaveAttribute(
+    'aria-selected',
+    'true',
+  );
   await dialog.getByLabel('Title', { exact: true }).fill('Changed title');
   await dialog.getByRole('button', { name: 'Save changes', exact: true }).click();
   await expect(dialog.getByRole('alert')).toContainText('unknown');
+  // After a failed save, the dialog loads the current settings again by itself.
+  await expect(dialog.getByRole('alert')).toContainText('Kalkidan loaded the current settings.');
+  await expect(dialog.getByLabel('Title', { exact: true })).toHaveValue('Changed title');
   await expect(dialog.getByRole('button', { name: 'Save changes' })).toBeDisabled();
   expect(await page.evaluate(() => (window as any).writes)).toBe(1);
-  await dialog.getByRole('button', { name: 'Reload settings' }).click();
-  await expect(dialog.getByLabel('Title', { exact: true })).toHaveValue('Changed title');
-  await dialog.getByRole('button', { name: 'Use as a template' }).click();
+  await dialog.getByRole('switch', { name: 'Use as a template' }).click();
+  await dialog.getByRole('button', { name: 'Save changes', exact: true }).click();
+  await expect.poll(() => page.evaluate(() => (window as any).writes)).toBe(2);
   await expect(dialog.getByText('You have read-only access to this project.')).toBeVisible();
   await expect(dialog.getByRole('button', { name: 'Save changes' })).toBeDisabled();
 });

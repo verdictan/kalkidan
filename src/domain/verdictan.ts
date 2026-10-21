@@ -9,6 +9,8 @@ export interface VerdictanAccount {
   userName?: string;
   apiUrl: string;
   expiresAt?: string;
+  /** The user email. Present only when the runtime sends it. */
+  userEmail?: string;
 }
 export interface VerdictanCapabilities {
   cliVersion: string;
@@ -74,14 +76,18 @@ export interface VerdictanSelection {
 export interface VerdictanSetup {
   providerAccessModes?: ProviderAccessMode[];
   status: string;
+  /** `name`, `version` and `allowedModels` are present only when the service sends them. */
   teams: { team_id: string; name?: string }[];
   policies: {
     configuration_id: string;
     configuration_version_id: string;
     name?: string;
     version_name?: string;
+    version?: string | number;
   }[];
   providerConnections: { provider_connection_id: string; provider: string; name?: string }[];
+  /** Models that the organization allows: one list, or one list for each agent. */
+  allowedModels?: string[] | Partial<Record<'codex' | 'claude', string[]>>;
   selections: Partial<Record<'codex' | 'claude', VerdictanSelection>>;
 }
 
@@ -155,7 +161,12 @@ export const policyLabels = (policies: VerdictanSetup['policies']) =>
     policies,
     (policy) => {
       const name = serviceName(policy.name);
-      const version = serviceName(policy.version_name);
+      const number = policy.version;
+      const version =
+        serviceName(policy.version_name) ||
+        (typeof number === 'number' && Number.isFinite(number)
+          ? `version ${number}`
+          : serviceName(number) && `version ${serviceName(number)}`);
       return name && version ? `${name} · ${version}` : name;
     },
     'Policy',
@@ -174,8 +185,249 @@ export function accountLabel(account?: Pick<VerdictanAccount, 'organizationName'
   return serviceName(account?.organizationName) || 'Your account';
 }
 
+/**
+ * Managed agent errors. The desktop and the runtime send a stable code, for example
+ * `desktop.runtime_missing`. The backend error message is the plain text, then the code in
+ * square brackets: "Managed agents are not set up. … [desktop.runtime_missing]". Read the code
+ * with `managedErrorCode`. Show the message without the brackets, and never show a code alone.
+ *
+ * `section` is the Settings section that fixes the error. `retry` is true when the same action
+ * can work a second time without a change.
+ *
+ * There is no fallback to an unmanaged local agent. Each local chat starts through managed agents,
+ * so the policy and the inference guard always apply. When managed agents are not set up, the chat
+ * does not start, and the error tells the user to set them up.
+ */
 /** The only native Claude Code version qualified for subscription access. */
 export const claudeSubscriptionNativeVersion = '2.1.304';
+export interface ManagedErrorInfo {
+  message: string;
+  section?: 'managed-agents' | 'agents' | 'updates';
+  retry?: boolean;
+}
+const setUp = 'managed-agents' as const;
+const signInClaude =
+  'Sign in to Claude Code on the machine where work runs. Then send the message again.';
+export const managedErrors: Record<string, ManagedErrorInfo> = {
+  'desktop.runtime_missing': {
+    message: 'Managed agents are not set up. Install the runtime in Settings to start a chat.',
+    section: setUp,
+  },
+  'desktop.remote_runtime_missing': {
+    message: 'Managed agents are not installed on this host. Install the runtime for this host.',
+    section: setUp,
+  },
+  'desktop.runtime_not_found': {
+    message: 'Managed agents are not set up on this computer.',
+    section: setUp,
+  },
+  'desktop.executable_invalid': {
+    message: 'The managed agents runtime is damaged. Install it again in Settings.',
+    section: 'updates',
+  },
+  'desktop.auth_required': { message: 'Sign in to managed agents.', section: setUp },
+  'desktop.auth_expired': {
+    message: 'Your managed agents session expired. Sign in again.',
+    section: setUp,
+  },
+  'desktop.account_invalid': {
+    message: 'The managed agents account is not valid. Sign in again.',
+    section: setUp,
+  },
+  'desktop.identity_mismatch': {
+    message: 'The browser account is not the saved account. Use the same account, or sign out.',
+    section: setUp,
+  },
+  'desktop.region_mismatch': {
+    message: 'The saved account is in a different region. Sign out, then change the region.',
+    section: setUp,
+  },
+  'desktop.browser_failed': { message: 'The browser did not open. Try again.', retry: true },
+  'desktop.cancel_failed': { message: 'The sign-in did not stop. Check the status.', retry: true },
+  'desktop.setup_invalid': {
+    message: 'The managed agents setup is not complete. Finish the setup in Settings.',
+    section: setUp,
+  },
+  'desktop.setup_selection_required': {
+    message: 'Choose a team, a policy, a connection and a model for managed agents.',
+    section: setUp,
+  },
+  'desktop.runtime_expired': {
+    message: 'Managed agents access for this computer expired. Renew it in Settings.',
+    section: setUp,
+  },
+  'desktop.invalid_runtime_credential': {
+    message: 'Managed agents access for this computer is not valid. Renew it in Settings.',
+    section: setUp,
+  },
+  'desktop.host_revoked': {
+    message: 'This computer cannot run managed agents now. Connect it again in Settings.',
+    section: setUp,
+  },
+  'desktop.runtime_reconciliation_required': {
+    message: 'Managed agents must update their records. Check the status in Settings.',
+    section: setUp,
+  },
+  'desktop.agent_version_unsupported': {
+    message: `Managed agents do not support the installed agent version. Claude subscription access needs Claude Code ${claudeSubscriptionNativeVersion}.`,
+    section: 'agents',
+  },
+  'desktop.subscription_agent_required': {
+    message: 'Your subscription access works with a different agent. Change the agent.',
+    section: setUp,
+  },
+  'desktop.resume_incompatible': {
+    message: 'Managed agents cannot continue this chat. Start a new chat.',
+  },
+  'desktop.resume_binding_required': {
+    message: 'Managed agents cannot continue this chat. Start a new chat.',
+  },
+  'desktop.resume_binding_invalid': {
+    message: 'Managed agents cannot continue this chat. Start a new chat.',
+  },
+  'desktop.runtime_binding_mismatch': {
+    message: 'This chat belongs to a different managed agents setup. Start a new chat.',
+  },
+  'desktop.process_isolation_unavailable': {
+    message: 'This computer cannot keep the agent apart from other programs. Check the setup.',
+    section: setUp,
+  },
+  'desktop.isolation_scope_invalid': {
+    message: 'This computer cannot keep the agent apart from other programs. Check the setup.',
+    section: setUp,
+  },
+  'desktop.protected_pipe_unavailable': {
+    message: 'Managed agents cannot open a private connection on this computer. Check the setup.',
+    section: setUp,
+  },
+  'desktop.loopback_required': {
+    message: 'Managed agents need a local network connection that is not available.',
+    section: setUp,
+  },
+  'desktop.secure_storage_unavailable': {
+    message: 'The system keychain is locked. Unlock it, then try again.',
+    retry: true,
+  },
+  'desktop.operation_in_progress': {
+    message: 'Another managed agents operation is running. Wait, then try again.',
+    retry: true,
+  },
+  'desktop.runtime_limit': {
+    message: 'Too many managed agent runs are open. Stop a chat, then try again.',
+    retry: true,
+  },
+  'desktop.runtime_already_owned': {
+    message: 'This chat already runs in managed agents. Wait, then try again.',
+    retry: true,
+  },
+  'desktop.connection_limit': {
+    message: 'Too many connections to managed agents are open. Try again.',
+    retry: true,
+  },
+  'desktop.request_timeout': {
+    message: 'Managed agents did not reply in time. Try again.',
+    retry: true,
+  },
+  'desktop.runtime_starting': {
+    message: 'Managed agents are starting. Wait, then try again.',
+    retry: true,
+  },
+  'desktop.runtime_stopped': { message: 'Managed agents stopped. Try again.', retry: true },
+  'desktop.operation_unsupported': {
+    message: 'The installed managed agents runtime cannot do this. Update the runtime.',
+    section: 'updates',
+  },
+  'desktop.region_required': {
+    message: 'Select the EU or US region, then sign in to managed agents.',
+    section: setUp,
+  },
+  'desktop.session_rejected': {
+    message: 'The managed agents service did not accept the sign-in. Sign in again.',
+    section: setUp,
+  },
+  'desktop.readiness_required': {
+    message:
+      'The managed agents check did not pass. Check the status, then send the message again.',
+    section: setUp,
+  },
+  'desktop.readiness_failed': {
+    message:
+      'The managed agents check did not pass. Check the status, then send the message again.',
+    section: setUp,
+  },
+  'desktop.claude_subscription_unsupported': {
+    message:
+      'This runtime cannot use your Claude subscription. Your work is safe. Update the runtime.',
+    section: 'updates',
+  },
+  'desktop.claude_subscription_login_required': {
+    message: `${signInClaude} Kalkidan does not send your message again.`,
+    section: setUp,
+  },
+  'desktop.claude_subscription_native_profile_unsupported': {
+    message:
+      'This computer uses a custom Claude Code profile. Use the default Claude Code sign-in on this computer. Then send the message again.',
+    section: setUp,
+  },
+  'desktop.claude_subscription_login_expiring': {
+    message:
+      'Your Claude Code sign-in expires soon. Run /login in Claude Code on the machine where work runs. Then send the message again.',
+    section: setUp,
+  },
+  'desktop.claude_subscription_identity_unavailable': {
+    message:
+      'Managed agents cannot check your Claude account now. Check the status, then try again.',
+    section: setUp,
+  },
+  'desktop.claude_subscription_route_unsupported': {
+    message:
+      'Claude Code sent a request that managed agents do not support. Your work is safe. Check the Claude Code version.',
+    section: 'agents',
+  },
+  'desktop.subscription_account_mismatch': {
+    message: 'The Claude account changed. Stop this chat and start a new chat.',
+  },
+  'desktop.subscription_account_required': {
+    message: 'Sign in to Claude Code on the machine where work runs. Then start this chat again.',
+    section: setUp,
+  },
+  'desktop.subscription_credentials_invalid': {
+    message: 'The managed agents launch settings are not valid. Choose the setup again.',
+    section: setUp,
+  },
+  'desktop.subscription_target_required': {
+    message:
+      'Your policy does not allow the selected model. Choose an allowed model, or ask your administrator.',
+    section: setUp,
+  },
+};
+// Codes for a lost or failed connection. The same action can work a second time.
+const connectionCodes =
+  /^desktop\.(transport_\w+|gateway_\w+|process_failed|credential_\w+|readiness_\w+|evidence_\w+|events_\w+|snapshot_\w+)$/;
+/** Returns the managed agent code in an error message, or nothing. */
+export function managedErrorCode(text: unknown) {
+  return typeof text === 'string' ? text.match(/\bdesktop\.[a-z_]{1,100}\b/)?.[0] : undefined;
+}
+/** Returns plain words and the fix for a managed agent code. Unknown codes get general words. */
+export function managedErrorInfo(code: string): ManagedErrorInfo {
+  return (
+    managedErrors[code] ||
+    (connectionCodes.test(code)
+      ? { message: 'The connection to managed agents stopped. Try again.', retry: true }
+      : {
+          message: 'Managed agents could not complete this operation. Check the setup in Settings.',
+          section: setUp,
+        })
+  );
+}
+/** The error message for a code: plain words, then the code in square brackets. */
+export function managedErrorText(code: string) {
+  return `${managedErrorInfo(code).message} [${code}]`;
+}
+/** Removes the code in square brackets from a message, for display. */
+export function withoutManagedCode(text: string) {
+  return text.replace(/\s*\[desktop\.[a-z_]{1,100}\]\s*$/, '');
+}
 
 export type SubscriptionRecoveryAction =
   | 'update_runtime'
@@ -191,68 +443,28 @@ export interface SubscriptionRecovery {
   action: SubscriptionRecoveryAction;
   message: string;
 }
-const signIn =
-  'Sign in to Claude Code on the machine where work runs. Then start a new turn. Kalkidan does not send your prompt again automatically.';
-const recoveries: Record<string, [SubscriptionRecoveryAction, string]> = {
-  'desktop.claude_subscription_unsupported': [
-    'update_runtime',
-    'This runtime does not support Claude subscription access. Keep your work and update the managed runtime.',
-  ],
-  'desktop.claude_subscription_login_required': ['sign_in_native_claude_on_execution_host', signIn],
-  'desktop.claude_subscription_native_profile_unsupported': [
+// The recovery action for each Claude subscription code. The words come from `managedErrors`.
+const recoveries: Record<string, SubscriptionRecoveryAction> = {
+  'desktop.claude_subscription_unsupported': 'update_runtime',
+  'desktop.claude_subscription_login_required': 'sign_in_native_claude_on_execution_host',
+  'desktop.claude_subscription_native_profile_unsupported':
     'sign_in_native_claude_on_execution_host',
-    'This machine uses a custom Claude Code profile. Use the default Claude Code sign-in on this machine. Then start a new turn.',
-  ],
-  'desktop.claude_subscription_login_expiring': [
-    'sign_in_native_claude_on_execution_host',
-    'Your Claude Code sign-in expires soon. Run /login in Claude Code on the machine where work runs. Then start a new turn.',
-  ],
-  'desktop.claude_subscription_identity_unavailable': [
-    'inspect_runtime',
-    'Claude account verification is not available. Inspect the runtime before you start the turn again.',
-  ],
-  'desktop.claude_subscription_route_unsupported': [
-    'check_native_compatibility',
-    'Claude Code sent a request that Verdictan does not support. Keep your work and check native compatibility.',
-  ],
-  'desktop.subscription_account_mismatch': [
-    'reauthorize_new_session',
-    'The Claude account changed. Stop this session and start a new authorized session.',
-  ],
-  'desktop.subscription_account_required': [
-    'verify_native_account',
-    'Verify the Claude account on the machine where work runs before you start this session.',
-  ],
-  'desktop.subscription_credentials_invalid': [
-    'repair_managed_launch',
-    'The managed launch configuration is not valid. Repair the managed launch configuration.',
-  ],
-  'desktop.subscription_target_required': [
-    'open_authorized_setup',
-    'The Verdictan policy does not permit the selected model. Choose an authorized model, or ask your administrator.',
-  ],
-  'desktop.readiness_required': [
-    'inspect_runtime',
-    'The Verdictan readiness check did not pass. Inspect the runtime before you start the turn again.',
-  ],
-  'desktop.readiness_failed': [
-    'inspect_runtime',
-    'The Verdictan readiness check did not pass. Inspect the runtime before you start the turn again.',
-  ],
-  'desktop.resume_incompatible': [
-    'reauthorize_new_session',
-    'This conversation has a different access binding. Start a new authorized session to change it.',
-  ],
-  'desktop.agent_version_unsupported': [
-    'check_native_compatibility',
-    `Claude subscription access requires Claude Code ${claudeSubscriptionNativeVersion}. Install that version on the machine where work runs.`,
-  ],
+  'desktop.claude_subscription_login_expiring': 'sign_in_native_claude_on_execution_host',
+  'desktop.claude_subscription_identity_unavailable': 'inspect_runtime',
+  'desktop.claude_subscription_route_unsupported': 'check_native_compatibility',
+  'desktop.subscription_account_mismatch': 'reauthorize_new_session',
+  'desktop.subscription_account_required': 'verify_native_account',
+  'desktop.subscription_credentials_invalid': 'repair_managed_launch',
+  'desktop.subscription_target_required': 'open_authorized_setup',
+  'desktop.readiness_required': 'inspect_runtime',
+  'desktop.readiness_failed': 'inspect_runtime',
+  'desktop.resume_incompatible': 'reauthorize_new_session',
+  'desktop.agent_version_unsupported': 'check_native_compatibility',
 };
 /** Maps a safe Claude subscription error code to one user recovery action. */
 export function claudeSubscriptionRecovery(code: unknown): SubscriptionRecovery | null {
   if (typeof code !== 'string' || !Object.hasOwn(recoveries, code)) return null;
-  const [action, message] = recoveries[code];
-  return { code, action, message };
+  return { code, action: recoveries[code], message: managedErrorText(code) };
 }
 
 const subscriptionMarkers = [
@@ -301,17 +513,29 @@ export type ManagedSetupStep = 'region' | 'sign-in' | 'status' | 'agent-setup' |
 /** Where each step is in Settings: the section, the element that gets focus, and a label. */
 export const managedSetupTargets: Record<
   ManagedSetupStep,
-  { section: 'accounts' | 'updates'; anchor: string; label: string }
+  { section: 'managed-agents'; anchor: string; label: string }
 > = {
-  region: { section: 'accounts', anchor: 'verdictan-region', label: 'Select Verdictan region' },
-  'sign-in': { section: 'accounts', anchor: 'verdictan-account', label: 'Sign in to Verdictan' },
-  status: { section: 'accounts', anchor: 'verdictan-account', label: 'Check Verdictan status' },
+  region: { section: 'managed-agents', anchor: 'verdictan-region', label: 'Select the region' },
+  'sign-in': {
+    section: 'managed-agents',
+    anchor: 'verdictan-account',
+    label: 'Sign in to managed agents',
+  },
+  status: {
+    section: 'managed-agents',
+    anchor: 'verdictan-account',
+    label: 'Check managed agent status',
+  },
   'agent-setup': {
-    section: 'accounts',
+    section: 'managed-agents',
     anchor: 'managed-agent-setup',
     label: 'Open managed agent setup',
   },
-  runtime: { section: 'updates', anchor: 'verdictan-runtime', label: 'Open managed runtime' },
+  runtime: {
+    section: 'managed-agents',
+    anchor: 'verdictan-runtime',
+    label: 'Install managed runtime',
+  },
 };
 /** The first sentence of each message that stops a managed launch. */
 export const managedOnlyNotice =
@@ -350,8 +574,14 @@ const launchBlocks: Record<string, [ManagedSetupStep, string]> = {
   'desktop.runtime_missing': ['runtime', runtimeRepair],
   'desktop.host_runtime_missing': [
     'runtime',
-    'Install the managed runtime on this SSH host. Select the host in Updates.',
+    'Install the managed runtime on this SSH host. Select the host in Managed agents.',
   ],
+  'desktop.remote_runtime_missing': [
+    'runtime',
+    'Install the managed runtime on this SSH host. Select the host in Managed agents.',
+  ],
+  'desktop.runtime_not_found': ['runtime', runtimeRepair],
+  'desktop.runtime_starting': ['status', 'The managed runtime is starting. Wait, then try again.'],
   'desktop.managed_launch_unavailable': ['runtime', runtimeRepair],
   'desktop.capabilities_invalid': ['runtime', runtimeRepair],
   'desktop.protocol_invalid': ['runtime', runtimeRepair],
@@ -409,16 +639,25 @@ export function managedLaunchBlock(error: unknown): ManagedLaunchBlock {
         ? error.trim()
         : '';
   const raw = typeof record.code === 'string' ? record.code : text;
-  const code = /^desktop\.[a-z_]{1,100}$/.test(raw) ? raw : 'desktop.launch_blocked';
+  const code = /^desktop\.[a-z_]{1,100}$/.test(raw)
+    ? raw
+    : managedErrorCode(raw) || managedErrorCode(text) || 'desktop.launch_blocked';
   const recovery = claudeSubscriptionRecovery(code);
-  const known: [ManagedSetupStep, string] | undefined = recovery
-    ? [recoverySteps[recovery.action], recovery.message]
-    : launchBlocks[code];
-  const own = text && text !== code && !/^desktop\.[a-z_]+$/.test(text) ? text : '';
-  const [step, detail] = known || [
-    'status',
-    own || 'The managed launch checks did not pass. Check Verdictan status in Settings.',
-  ];
+  const section = managedErrors[code]?.section;
+  const step: ManagedSetupStep = recovery
+    ? recoverySteps[recovery.action]
+    : launchBlocks[code]?.[0] ||
+      (section === 'updates' ? 'runtime' : section ? 'agent-setup' : 'status');
+  // Backend messages end with the code in square brackets. The code is never shown.
+  const plain = withoutManagedCode(text)
+    .replace(/\bdesktop\.[a-z_]{1,100}\b/g, '')
+    .trim();
+  const own = plain && !/^[\s.:[\]]*$/.test(plain) ? plain : '';
+  const detail =
+    managedErrors[code]?.message ||
+    launchBlocks[code]?.[1] ||
+    own ||
+    'The managed launch checks did not pass. Check the managed agent status in Settings.';
   return {
     code,
     step,

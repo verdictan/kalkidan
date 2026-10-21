@@ -74,6 +74,8 @@ export interface TrackerAPI
     title: string,
   ): Promise<TrackerProject>;
   trackerLink(groupId: string, provider: string, reference: string): Promise<void>;
+  /** Disconnects the board. Tasks stay on the tracker. Clears the status mapping. */
+  trackerUnlink(groupId: string): Promise<void>;
   trackerBoard(groupId: string, force?: boolean): Promise<TrackerBoard>;
   trackerStatus(groupId: string, itemId: string, optionId: string): Promise<void>;
   trackerDraft(groupId: string, title: string, body: string): Promise<string | void>;
@@ -229,6 +231,11 @@ export interface ProjectAPI {
   removeGroup(id: string, withRepositories?: boolean): Promise<void>;
   moveRepo(repoId: string, groupId: string | null): Promise<void>;
   discover(groupId: string): Promise<{ added: number }>;
+  /** Reads the state of a pull request with `gh`. `id` is the repository entry. */
+  pullRequestStatus(
+    id: string,
+    url: string,
+  ): Promise<{ state: 'open' | 'merged' | 'closed'; number: number; title?: string }>;
   /** Opens the native folder dialog. Resolves null when the user cancels. Electron only. */
   chooseFolder(title?: string, buttonLabel?: string): Promise<string | null>;
   /**
@@ -326,6 +333,16 @@ export const menuCommands = [
   'session-side-chat',
   'session-commit',
   'session-archive',
+  'go-overview',
+  'go-tasks',
+  'go-docs',
+  'go-memory',
+  'go-insights',
+  'all-sessions',
+  'check-updates',
+  'open-linked-task',
+  'link-task',
+  'open-pull-request',
 ] as const;
 export type MenuCommand = (typeof menuCommands)[number];
 export interface MenuAPI {
@@ -347,6 +364,10 @@ export interface MenuAPI {
 }
 export interface MemoryAPI {
   memoryList(groupId: string): Promise<import('../domain/memory').ProjectMemory>;
+  /** Memory entries with their source session and revision. */
+  memoryEntries(groupId: string): Promise<import('../domain/memory').MemoryEntry[]>;
+  /** Marks an entry as wrong. The entry stops being given to agents. The file keeps a record. */
+  memoryForget(groupId: string, id: string, revision: string): Promise<void>;
   projectResourceRevision?(groupId: string, kind: 'docs' | 'memory'): Promise<string>;
 }
 export interface API

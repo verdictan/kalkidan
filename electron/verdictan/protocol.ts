@@ -1,5 +1,6 @@
 import { projectServicePermissions } from '../../src/domain/project-services';
 import type { ProjectServiceOperation } from '../../src/domain/project-services';
+import { managedErrorText } from '../../src/domain/verdictan';
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { isAbsolute } from 'node:path';
@@ -106,9 +107,10 @@ export function terminalEventsFor(operation: DesktopOperation, parameters: Deskt
   const mode = (parameters.parameters as RuntimeProvision | undefined)?.provider_access_mode;
   return mode === 'claude_subscription' ? ['runtime.provisioned'] : ['runtime.provisioning_result'];
 }
+/** `code` is stable. The message is plain words, then the code in square brackets. */
 export class DesktopProtocolError extends Error {
   constructor(public readonly code: string) {
-    super(code);
+    super(managedErrorText(code));
   }
 }
 /** One process owns the secure CLI profile. Do not log its streams or arguments. */

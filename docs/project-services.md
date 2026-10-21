@@ -73,8 +73,9 @@ expires. Do not relax hash, target, or expiry checks to use an unapproved releas
 
 ## Account region
 
-Open **Settings**, then **Accounts**. Select **European Union** or **United States**
-in **Account region**. Then sign in. Kalkidan saves the region in
+Open **Settings**, then **Managed agents**. In step 2, **Sign in**, select
+**European Union** or **United States** in **Account region**. Then sign in. The first
+selection applies immediately. A later change asks you to confirm, because it stops work. Kalkidan saves the region in
 `verdictan-region.json` in the app data folder. An operator can preselect a region:
 set `KALKIDAN_VERDICTAN_REGION=eu` or `KALKIDAN_VERDICTAN_REGION=us` before the
 first start. A saved region has priority. Other values leave the region unselected.

@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react';
-import type { API, TrackerBoard } from '../types';
+import type { TrackerField } from '../domain/tracker';
 import {
   projectFieldValue,
   type ProjectBatchRequest,
@@ -7,101 +7,185 @@ import {
 } from '../domain/project-batch';
 import type { ProjectFieldValue } from '../domain/github-mutations';
 import { projectFieldText } from '../domain/project-view';
-import { FieldEditor } from './github-item-editor';
+import { batchStateLabel, plural } from '../domain/planning-labels';
 import { Button } from './ui/button';
+import { CheckboxRow } from './ui/checkbox';
+import { DialogBody, DialogFooter } from './ui/dialog';
+import { Input } from './ui/input';
+import { SectionHeader } from './ui/page-header';
+import { showToast } from './ui/toast';
+import {
+  describeFieldValue,
+  ErrorAlert,
+  notifyGitHubWrites,
+  ReviewRow,
+  SelectedTasks,
+  TaskTitle,
+  type PlanningToolProps,
+  FormSelect,
+} from './planning-kit';
 import { errorMessage } from '../lib/errors';
-export function ProjectBatch({
-  api,
-  groupId,
-  board,
-  onSaved,
+
+/** The field types that the batch tool can write. */
+const batchFieldTypes = ['TEXT', 'NUMBER', 'DATE', 'SINGLE_SELECT', 'MULTI_SELECT', 'ITERATION'];
+export const batchLimit = 50;
+
+function readRequest(key: string): ProjectBatchRequest | undefined {
+  try {
+    const saved = JSON.parse(localStorage.getItem(key) || 'null');
+    return saved &&
+      typeof saved.id === 'string' &&
+      Array.isArray(saved.changes) &&
+      saved.changes.length <= batchLimit &&
+      saved.changes.every(
+        (change: { itemId?: string; fieldId?: string }) =>
+          typeof change?.itemId === 'string' && typeof change?.fieldId === 'string',
+      )
+      ? saved
+      : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** One input for a new field value: a select, a group of check boxes or a text box. */
+function FieldValueInput({
+  field,
+  value,
+  onChange,
+  disabled,
 }: {
-  api: API;
-  groupId: string;
-  board: TrackerBoard;
-  onSaved: () => Promise<void>;
+  field: TrackerField;
+  value: string | string[];
+  onChange: (value: string | string[]) => void;
+  disabled?: boolean;
 }) {
-  const storageKey = `kalkidan-field-batch:${groupId}:${board.project.id}`;
-  const [selected, setSelected] = useState<string[]>([]),
-    [fieldId, setFieldId] = useState('');
-  const [request, setRequest] = useState<ProjectBatchRequest | undefined>(() => {
-    try {
-      const saved = JSON.parse(localStorage.getItem(storageKey) || 'null');
-      return saved &&
-        typeof saved.id === 'string' &&
-        Array.isArray(saved.changes) &&
-        saved.changes.length <= 50 &&
-        saved.changes.every(
-          (change: { itemId?: string; fieldId?: string }) =>
-            typeof change?.itemId === 'string' && typeof change?.fieldId === 'string',
-        )
-        ? saved
+  if (field.dataType === 'MULTI_SELECT') {
+    const values = Array.isArray(value) ? value : [];
+    return (
+      <fieldset className="grid gap-2" disabled={disabled}>
+        <legend className="form-label mb-2">New value</legend>
+        {field.options?.map((option) => (
+          <CheckboxRow
+            key={option.id}
+            label={option.name}
+            checked={values.includes(option.id)}
+            onChange={(event) =>
+              onChange(
+                event.target.checked
+                  ? [...values, option.id]
+                  : values.filter((id) => id !== option.id),
+              )
+            }
+          />
+        ))}
+      </fieldset>
+    );
+  }
+  const choices =
+    field.dataType === 'SINGLE_SELECT'
+      ? field.options
+      : field.dataType === 'ITERATION'
+        ? field.iterations?.map((iteration) => ({ id: iteration.id, name: iteration.title }))
         : undefined;
-    } catch {
-      return undefined;
-    }
-  });
+  return (
+    <label className="form-label">
+      New value
+      {choices ? (
+        <FormSelect
+          label="New value"
+          value={typeof value === 'string' ? value : ''}
+          disabled={disabled}
+          onChange={onChange}
+          options={[
+            { value: '', label: 'No value' },
+            ...choices.map((option) => ({ value: option.id, label: option.name })),
+          ]}
+        />
+      ) : (
+        <Input
+          aria-label="New value"
+          type={
+            field.dataType === 'NUMBER' ? 'number' : field.dataType === 'DATE' ? 'date' : 'text'
+          }
+          value={typeof value === 'string' ? value : ''}
+          disabled={disabled}
+          onChange={(event) => onChange(event.target.value)}
+        />
+      )}
+    </label>
+  );
+}
+
+function toFieldValue(field: TrackerField, value: string | string[]): ProjectFieldValue {
+  if (field.dataType === 'MULTI_SELECT')
+    return { multiSelectOptionIds: (Array.isArray(value) ? value : []).sort() };
+  if (value === '' || Array.isArray(value)) return null;
+  if (field.dataType === 'SINGLE_SELECT') return { singleSelectOptionId: value };
+  if (field.dataType === 'ITERATION') return { iterationId: value };
+  if (field.dataType === 'NUMBER') return { number: Number(value) };
+  if (field.dataType === 'DATE') return { date: value };
+  return { text: value };
+}
+
+/** Edit fields of several tasks: choose a field and a value, review each change, then apply. */
+export function FieldsTool({
+  api,
+  group,
+  board,
+  items,
+  onRemove,
+  onOpenTask,
+  onClose,
+  onSaved,
+}: PlanningToolProps) {
+  const storageKey = `kalkidan-field-batch:${group.id}:${board.project.id}`;
+  const [fieldId, setFieldId] = useState(''),
+    [value, setValue] = useState<string | string[]>('');
+  const [request, setRequest] = useState(() => readRequest(storageKey));
   const [result, setResult] = useState<ProjectBatchResult>(),
     [error, setError] = useState(''),
     [busy, setBusy] = useState(false);
   const pending = useRef(false);
-  const [open, setOpen] = useState(false);
-  const fields = (board.fields || []).filter((field) =>
-    ['TEXT', 'NUMBER', 'DATE', 'SINGLE_SELECT', 'MULTI_SELECT', 'ITERATION'].includes(
-      field.dataType,
-    ),
-  );
+  const fields = (board.fields || []).filter((field) => batchFieldTypes.includes(field.dataType));
   const field = fields.find((field) => field.id === fieldId);
-  async function prepare(value: ProjectFieldValue) {
-    if (!field || !selected.length) return;
-    if (selected.some((id) => !board.items.some((item) => item.id === id))) {
-      setError('A selected task was removed. Select the current tasks again.');
-      setSelected([]);
+  const tooMany = items.length > batchLimit;
+  const title = (id: string) => board.items.find((item) => item.id === id)?.title || 'Removed task';
+  const fieldOf = (id: string) => board.fields?.find((field) => field.id === id);
+
+  function review() {
+    if (!field || !items.length || tooMany) return;
+    if (field.dataType === 'NUMBER' && value !== '' && !Number.isFinite(Number(value))) {
+      setError('Enter a number.');
       return;
     }
     setError('');
     setResult(undefined);
     const next = {
       id: crypto.randomUUID(),
-      changes: selected.map((itemId) => ({
-        itemId,
+      changes: items.map((item) => ({
+        itemId: item.id,
         fieldId: field.id,
-        before: projectFieldValue(
-          board.items.find((item) => item.id === itemId)!,
-          field.id,
-        ),
-        value,
+        before: projectFieldValue(item, field.id),
+        value: toFieldValue(field, value),
       })),
     };
     try {
       localStorage.setItem(storageKey, JSON.stringify(next));
       setRequest(next);
     } catch {
-      setError(
-        'Cannot save the batch recovery record. Enable local storage before changing fields.',
-      );
+      setError('Kalkidan cannot save a recovery record. Turn on local storage, then try again.');
     }
   }
-  function describe(fieldId: string, value: ProjectFieldValue) {
-    if (value === null) return 'No value';
-    const definition = fields.find((field) => field.id === fieldId);
-    if ('singleSelectOptionId' in value)
-      return (
-        definition?.options?.find((option) => option.id === value.singleSelectOptionId)?.name ||
-        value.singleSelectOptionId
-      );
-    if ('iterationId' in value)
-      return (
-        definition?.iterations?.find((option) => option.id === value.iterationId)?.title ||
-        value.iterationId
-      );
-    if ('multiSelectOptionIds' in value)
-      return (
-        value.multiSelectOptionIds
-          .map((id) => definition?.options?.find((option) => option.id === id)?.name || id)
-          .join(', ') || 'No value'
-      );
-    return String(Object.values(value)[0]);
+  function restart() {
+    try {
+      localStorage.removeItem(storageKey);
+    } catch {
+      // Storage can be unavailable. The record then stays until the next start.
+    }
+    setRequest(undefined);
+    setResult(undefined);
+    setError('');
   }
   async function apply() {
     if (!request || pending.current) return;
@@ -109,8 +193,14 @@ export function ProjectBatch({
     setBusy(true);
     setError('');
     try {
-      setResult(await api.trackerBatch(groupId, request));
-      await onSaved();
+      const value = await api.trackerBatch(group.id, request);
+      setResult(value);
+      onSaved();
+      const saved = value.rows.filter((row) => row.state === 'confirmed').length;
+      const unknown = value.rows.filter((row) => row.state === 'unknown-outcome').length;
+      const name = fieldOf(request.changes[0]?.fieldId)?.name || 'the field';
+      if (saved) showToast(`Changed ${name} on ${plural(saved, 'task')}.`);
+      if (unknown) notifyGitHubWrites(group.id, unknown);
     } catch (failure) {
       setError(errorMessage(failure));
     } finally {
@@ -118,123 +208,128 @@ export function ProjectBatch({
       setBusy(false);
     }
   }
+
+  const finished = !!result?.rows.every((row) => row.state === 'confirmed');
+  const rowState = (itemId: string, fieldId: string) =>
+    result?.rows.find((row) => row.itemId === itemId && row.fieldId === fieldId)?.state;
   return (
-    <details className="border-t py-3" onToggle={(event) => setOpen(event.currentTarget.open)}>
-      <summary>Batch fields and iteration planning</summary>
-      {open && (
-        <div className="grid gap-3 py-3">
-          <p className="help-text">
-            Select up to 50 tasks. Review the exact field changes before applying them. Each result
-            is independent. Issue state and pull requests stay unchanged.
-          </p>
-          {!request ? (
-            <>
+    <>
+      <DialogBody className="grid content-start gap-4">
+        {!request ? (
+          <>
+            <SelectedTasks items={items} onRemove={onRemove} limit={batchLimit} />
+            <div className="planning-form-grid">
               <label className="form-label">
                 Field
-                <select
-                  aria-label="Batch field"
+                <FormSelect
+                  label="Field"
                   value={fieldId}
-                  onChange={(event) => setFieldId(event.target.value)}
-                >
-                  <option value="">Choose field</option>
-                  {fields.map((field) => (
-                    <option key={field.id} value={field.id}>
-                      {field.name}
-                    </option>
-                  ))}
-                </select>
+                  disabled={busy}
+                  onChange={(id) => {
+                    setFieldId(id);
+                    setValue('');
+                  }}
+                  options={fields.map((field) => ({ value: field.id, label: field.name }))}
+                />
               </label>
-              <div className="grid max-h-64 gap-2 overflow-auto">
-                {board.items.map((item) => (
-                  <label key={item.id} className="flex gap-2">
-                    <input
-                      type="checkbox"
-                      checked={selected.includes(item.id)}
-                      disabled={!selected.includes(item.id) && selected.length >= 50}
-                      onChange={(event) =>
-                        setSelected(
-                          event.target.checked
-                            ? [...selected, item.id]
-                            : selected.filter((id) => id !== item.id),
-                        )
-                      }
-                    />
-                    {item.title}
-                    {field && (
-                      <span className="text-muted-foreground">
-                        {' '}
-                        · {projectFieldText(item, field) || 'No value'}
-                      </span>
-                    )}
-                  </label>
-                ))}
-              </div>
               {field && (
-                <FieldEditor
+                <FieldValueInput
                   key={field.id}
                   field={field}
-                  item={{ id: 'preview', title: '', body: '' }}
-                  disabled={!selected.length || !board.writable}
-                  onSave={prepare}
-                  saveLabel="Review batch"
+                  value={value}
+                  onChange={setValue}
+                  disabled={busy}
                 />
               )}
-            </>
-          ) : (
-            <>
-              <h4>Review {request.changes.length} field changes</h4>
-              {request.changes.map((change) => (
-                <div key={`${change.itemId}:${change.fieldId}`} className="border-b pb-2 text-sm">
-                  <strong>
-                    {board.items.find((item) => item.id === change.itemId)?.title || change.itemId}
-                  </strong>
-                  <p>
-                    {fields.find((field) => field.id === change.fieldId)?.name || change.fieldId}:{' '}
-                    {describe(change.fieldId, change.before)} →{' '}
-                    {describe(change.fieldId, change.value)}
-                  </p>
+            </div>
+            {field && items.length > 0 && (
+              <section className="grid gap-1" aria-label="Current values">
+                <SectionHeader size="sm" as="h4" title="Current values" />
+                <div className="review-list">
+                  {items.slice(0, batchLimit).map((item) => (
+                    <ReviewRow
+                      key={item.id}
+                      title={<TaskTitle title={item.title} onOpen={() => onOpenTask(item.id)} />}
+                      meta={`${field.name}: ${projectFieldText(item, field) || 'No value'}`}
+                    />
+                  ))}
                 </div>
-              ))}
-              <Button
-                disabled={
-                  busy || !board.writable || result?.rows.every((row) => row.state === 'confirmed')
-                }
-                onClick={() => void apply()}
-              >
-                {busy
-                  ? 'Checking field results…'
-                  : result
-                    ? 'Resume and inspect batch'
-                    : 'Apply reviewed batch'}
-              </Button>
-              <Button
-                variant="outline"
-                disabled={busy}
-                onClick={() => {
-                  localStorage.removeItem(storageKey);
-                  setRequest(undefined);
-                  setResult(undefined);
-                  setSelected([]);
-                }}
-              >
-                Start a new batch
-              </Button>
-              {result?.rows.map((row) => (
-                <p key={`${row.itemId}:${row.fieldId}`} role="status">
-                  {board.items.find((item) => item.id === row.itemId)?.title || row.itemId}:{' '}
-                  {row.state}
-                  {row.message ? ` · ${row.message}` : ''}
-                </p>
-              ))}
-              <p className="help-text">
-                Resuming never repeats a confirmed or uncertain write. A conflict requires a new
-                reviewed batch.
+              </section>
+            )}
+            {!board.writable && (
+              <p className="form-help">You can only read this board. Ask the owner for access.</p>
+            )}
+          </>
+        ) : (
+          <section className="grid gap-1" aria-label="Changes to review">
+            <SectionHeader
+              size="sm"
+              as="h4"
+              title={result ? 'Results' : 'Review the changes'}
+              count={request.changes.length}
+            />
+            <div className="review-list">
+              {request.changes.map((change) => {
+                const state = rowState(change.itemId, change.fieldId);
+                const definition = fieldOf(change.fieldId);
+                return (
+                  <ReviewRow
+                    key={`${change.itemId}:${change.fieldId}`}
+                    title={
+                      <TaskTitle
+                        title={title(change.itemId)}
+                        onOpen={() => onOpenTask(change.itemId)}
+                      />
+                    }
+                    meta={`${definition?.name || 'Field'}: ${describeFieldValue(definition, change.before)} → ${describeFieldValue(definition, change.value)}`}
+                    status={state ? batchStateLabel(state) : undefined}
+                  />
+                );
+              })}
+            </div>
+            {(!result || result.rows.some((row) => row.state === 'unknown-outcome')) && (
+              <p className="form-help mt-2">
+                {result
+                  ? 'Kalkidan does not send a change again when its result is not confirmed. Check it on GitHub.'
+                  : 'Each change is written alone. Issue state and pull requests do not change.'}
               </p>
-            </>
-          )}
-          {error && <p role="alert">{error}</p>}
-        </div>
-      )}
-    </details>
+            )}
+          </section>
+        )}
+        <ErrorAlert>{error}</ErrorAlert>
+      </DialogBody>
+      <DialogFooter>
+        {!request ? (
+          <>
+            <Button variant="outline" onClick={onClose}>
+              Cancel
+            </Button>
+            <Button
+              disabled={busy || !field || !items.length || tooMany || !board.writable}
+              onClick={review}
+            >
+              Review {plural(Math.min(items.length, batchLimit), 'change')}
+            </Button>
+          </>
+        ) : (
+          <>
+            <Button variant="outline" disabled={busy} onClick={restart}>
+              Start again
+            </Button>
+            {finished ? (
+              <Button onClick={onClose}>Done</Button>
+            ) : (
+              <Button disabled={busy || !board.writable} onClick={() => void apply()}>
+                {busy
+                  ? 'Applying…'
+                  : result
+                    ? 'Try again'
+                    : `Apply ${plural(request.changes.length, 'change')}`}
+              </Button>
+            )}
+          </>
+        )}
+      </DialogFooter>
+    </>
   );
 }

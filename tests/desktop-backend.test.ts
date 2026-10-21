@@ -37,6 +37,9 @@ test('desktop routes project, docs, agent, terminal and remote handlers to the e
     'delete',
     'trash',
     'restore',
+    'search',
+    'task-links',
+    'set-task-links',
   ]) {
     await call('docs-' + operation, 'g', 'page', 'body');
     await call('docs-' + operation, 'remote', 'page', 'body');
@@ -52,6 +55,9 @@ test('desktop routes project, docs, agent, terminal and remote handlers to the e
   await assert.rejects(call('project-resource-revision', 'g', 'bad'), /Invalid project resource/);
   await call('memory-list', 'g');
   await call('memory-list', 'remote');
+  await call('memory-entries', 'remote');
+  await call('memory-forget', 'remote', 'a'.repeat(64), 'b'.repeat(64));
+  await assert.rejects(call('memory-entries', 'missing'), /not found/);
   await assert.rejects(call('memory-list', 'missing'), /not found/);
   for (const [method, args] of Object.entries({
     'pty-open': ['/repo', 80, 24],
@@ -86,6 +92,7 @@ test('desktop routes project, docs, agent, terminal and remote handlers to the e
     'tracker-auth-open': ['github'],
     'tracker-field': ['g', 'item', 'field', { text: 'Value' }],
     'tracker-item-action': ['g', 'item', { kind: 'archive' }],
+    'tracker-mutation-revert': ['g', 'mutation'],
     'app-menu': [],
     models: ['codex'],
     'github-link': ['g', null],
@@ -224,7 +231,12 @@ test('desktop routes project, docs, agent, terminal and remote handlers to the e
   await assert.rejects(call('worktree', 'r', '-bad'), /valid new branch/);
   await call('worktree', 'r', 'feature');
   await call('task-worktree', 'rr', 'feature');
-  for (const method of ['working-status', 'git-commit', 'git-pull-request']) {
+  for (const method of [
+    'working-status',
+    'git-commit',
+    'git-pull-request',
+    'pull-request-status',
+  ]) {
     await call(method, 'r', 'message', 'body');
     await call(method, 'rr', 'message', 'body');
   }

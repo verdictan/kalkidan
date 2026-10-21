@@ -1,8 +1,17 @@
 import { useEffect, useRef, useState } from 'react';
+import { MessageCircleQuestion } from 'lucide-react';
 import type { API, ChatRun, AgentAnswers, AgentQuestionRequest } from '../types';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
+import { CheckboxRow } from './ui/checkbox';
+import { showToast } from './ui/toast';
+import { agentLabel } from '../config/agents';
 import { errorMessage } from '../lib/errors';
+
+/** One style for approval and question cards: 12px padding, 16px icon, 13/600 title. */
+export const requestCardClass =
+  'space-y-3 rounded-lg bg-muted p-3 focus-visible:shadow-[var(--focus-ring)] focus-visible:outline-none';
+export const requestTitleClass = 'text-sm font-semibold';
 
 // Drafts survive panel remounts in this process only. Secret answers are never retained.
 const drafts = new Map<string, AgentAnswers>();
@@ -18,11 +27,11 @@ export function AgentQuestions({
   return (
     <>
       {!!run.unsupportedRequests && (
-        <div role="status" className="rounded-lg border p-4 text-sm">
-          <p className="font-medium">An agent request could not be displayed</p>
-          <p className="mt-1 text-muted-foreground">
-            Kalkidan declined the unsupported request. No permission was granted. Ask the agent to
-            send its question as a message, then reply in the conversation.
+        <div role="status" className={requestCardClass}>
+          <h3 className={requestTitleClass}>Kalkidan cannot show an agent request</h3>
+          <p className="text-xs text-muted-foreground">
+            Kalkidan declined the unsupported request. No permission was given. Ask the agent to
+            send its question as a message, then reply in the chat.
           </p>
         </div>
       )}
@@ -69,11 +78,15 @@ function QuestionForm({
       return next;
     });
   }
+  const agent = agentLabel(request.provider);
+  const count = request.questions.length;
+  const title = count === 1 ? `${agent} asks a question` : `${agent} asks ${count} questions`;
   return (
     <form
       aria-label="Agent questions"
       data-approval-pending={pending ? '' : undefined}
-      className="space-y-4 rounded-lg bg-muted p-4"
+      tabIndex={-1}
+      className={requestCardClass}
       onSubmit={async (event) => {
         event.preventDefault();
         if (!pending || submitting.current) return;
@@ -84,6 +97,7 @@ function QuestionForm({
           await api.chatRespond(request.runId, request.id, answers);
           drafts.delete(key);
           setAnswers({});
+          showToast(`Answer sent to ${agent}.`);
           onUpdate(await api.chatStatus(request.runId));
         } catch (error) {
           setError(errorMessage(error));
@@ -96,9 +110,12 @@ function QuestionForm({
         }
       }}
     >
-      <h3 className="font-semibold">Agent questions</h3>
+      <div className="flex items-center gap-2">
+        <MessageCircleQuestion size={16} className="shrink-0" aria-hidden="true" />
+        <h3 className={requestTitleClass}>{title}</h3>
+      </div>
       {!pending ? (
-        <p role="status" className="text-sm text-muted-foreground">
+        <p role="status" className="text-xs text-muted-foreground">
           {request.status === 'answered' ? 'Answer sent.' : 'This request is no longer active.'}
         </p>
       ) : (
@@ -107,32 +124,27 @@ function QuestionForm({
             const value = answers[q.id] || [];
             const custom = value.filter((v) => !q.options.some((o) => o.label === v)).join(', ');
             return (
-              <fieldset key={q.id} className="space-y-2" disabled={busy}>
-                <legend className="text-sm font-medium">{q.question}</legend>
+              <fieldset key={q.id} className="grid gap-2" disabled={busy}>
+                <legend className="mb-2 text-sm font-medium">{q.question}</legend>
                 {q.options.map((option) => (
-                  <label key={option.label} className="flex gap-2 text-sm">
-                    <input
-                      type={q.kind === 'multiple-choice' ? 'checkbox' : 'radio'}
-                      name={key + q.id}
-                      checked={value.includes(option.label)}
-                      onChange={(e) =>
-                        change(
-                          q.id,
-                          q.kind === 'multiple-choice'
-                            ? e.target.checked
-                              ? [...value, option.label]
-                              : value.filter((v) => v !== option.label)
-                            : [option.label],
-                        )
-                      }
-                    />
-                    <span>
-                      {option.label}
-                      {option.description && (
-                        <span className="block text-muted-foreground">{option.description}</span>
-                      )}
-                    </span>
-                  </label>
+                  <CheckboxRow
+                    key={option.label}
+                    type={q.kind === 'multiple-choice' ? 'checkbox' : 'radio'}
+                    name={key + q.id}
+                    label={option.label}
+                    description={option.description || undefined}
+                    checked={value.includes(option.label)}
+                    onChange={(e) =>
+                      change(
+                        q.id,
+                        q.kind === 'multiple-choice'
+                          ? e.target.checked
+                            ? [...value, option.label]
+                            : value.filter((v) => v !== option.label)
+                          : [option.label],
+                      )
+                    }
+                  />
                 ))}
                 {q.allowOther && (
                   <Input
@@ -148,13 +160,15 @@ function QuestionForm({
               </fieldset>
             );
           })}
-          <Button
-            type="submit"
-            size="sm"
-            disabled={busy || request.questions.some((q) => !answers[q.id]?.length)}
-          >
-            {busy ? 'Sending…' : 'Send answer'}
-          </Button>
+          <div className="flex gap-2">
+            <Button
+              type="submit"
+              size="sm"
+              disabled={busy || request.questions.some((q) => !answers[q.id]?.length)}
+            >
+              {busy ? 'Sending…' : 'Send answer'}
+            </Button>
+          </div>
         </>
       )}
       {error && (

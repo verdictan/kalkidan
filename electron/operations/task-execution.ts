@@ -109,17 +109,20 @@ export class TaskExecutions {
       id,
     );
   }
+  /**
+   * Adds the task execution to a run status. The status always comes back: when the account,
+   * the runtime or the receipt cannot be read, the run comes back without task data. A failed
+   * run must show as failed, also when managed agents are not set up.
+   */
   async observe(run: ChatRun, hostId?: string): Promise<ChatRun> {
-    const identity = await this.effects.identity?.();
+    try {
+      return await this.observeTask(run, hostId);
+    } catch {
+      return run;
+    }
+  }
+  private async observeTask(run: ChatRun, hostId?: string): Promise<ChatRun> {
     const key = `${hostId || 'local'}:${run.id}`;
-    const cached = this.observations.get(key);
-    const governance = JSON.stringify(run.governance);
-    if (
-      cached?.identity === identity &&
-      cached?.status === run.status &&
-      cached.governance === governance
-    )
-      return { ...run, taskExecution: structuredClone(cached.value) };
     let id: string;
     try {
       ({ id } = JSON.parse(
@@ -129,10 +132,20 @@ export class TaskExecutions {
         ),
       ));
     } catch (error: any) {
+      // Most chats have no task. They do not need the account.
       if (error.code === 'ENOENT') return run;
       throw error;
     }
     if (!/^[a-f0-9]{64}$/.test(id)) throw new Error('Invalid task execution index.');
+    const identity = await this.effects.identity?.();
+    const cached = this.observations.get(key);
+    const governance = JSON.stringify(run.governance);
+    if (
+      cached?.identity === identity &&
+      cached?.status === run.status &&
+      cached.governance === governance
+    )
+      return { ...run, taskExecution: structuredClone(cached.value) };
     return withDirectoryLock(
       this.root,
       async (owned) => {

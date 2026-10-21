@@ -29,6 +29,7 @@ export function appMenuTemplate({
             label: appName,
             submenu: [
               { role: 'about', label: `About ${appName}` },
+              { label: 'Check for updates…', click: command('check-updates') },
               separator,
               { label: 'Settings…', accelerator: 'Cmd+,', click: command('settings') },
               separator,
@@ -52,7 +53,7 @@ export function appMenuTemplate({
           accelerator: 'CmdOrCtrl+Shift+O',
           click: command('add-code-folder'),
         },
-        { label: 'New task', click: command('new-task') },
+        { label: 'New task', accelerator: 'CmdOrCtrl+Shift+K', click: command('new-task') },
         // The renderer handles this key at once, so typed text does not reach the focused field.
         {
           label: 'Search',
@@ -115,13 +116,22 @@ export function appMenuTemplate({
       submenu: [
         { label: 'Back', accelerator: 'CmdOrCtrl+[', click: command('back') },
         { label: 'Forward', accelerator: 'CmdOrCtrl+]', click: command('forward') },
+        separator,
+        // These open a page of the current project. Without a project, the renderer does nothing.
+        { label: 'Overview', accelerator: 'CmdOrCtrl+1', click: command('go-overview') },
+        { label: 'Tasks', accelerator: 'CmdOrCtrl+2', click: command('go-tasks') },
+        { label: 'Docs', accelerator: 'CmdOrCtrl+3', click: command('go-docs') },
+        { label: 'Memory', accelerator: 'CmdOrCtrl+4', click: command('go-memory') },
+        { label: 'Insights', accelerator: 'CmdOrCtrl+5', click: command('go-insights') },
+        separator,
+        { label: 'All chats', accelerator: 'CmdOrCtrl+Shift+L', click: command('all-sessions') },
       ],
     },
     {
-      // The renderer sends these commands to the open session.
-      label: 'Session',
+      // The renderer sends these commands to the open chat.
+      label: 'Chat',
       submenu: [
-        { label: 'New session', accelerator: 'CmdOrCtrl+Shift+N', click: command('session-new') },
+        { label: 'New chat', accelerator: 'CmdOrCtrl+Shift+N', click: command('session-new') },
         separator,
         // The renderer handles these keys in the session view, so the menu only shows them.
         {
@@ -141,6 +151,10 @@ export function appMenuTemplate({
         { label: 'Pin', click: command('session-pin') },
         { label: 'Open a second chat beside this one', click: command('session-side-chat') },
         { label: 'Commit…', click: command('session-commit') },
+        separator,
+        { label: 'Open linked task', click: command('open-linked-task') },
+        { label: 'Link task…', click: command('link-task') },
+        { label: 'Open pull request', click: command('open-pull-request') },
         separator,
         { label: 'Archive', click: command('session-archive') },
       ],
@@ -168,6 +182,12 @@ export function appMenuTemplate({
       submenu: [
         { label: 'Get started', click: command('get-started') },
         { label: 'Keyboard shortcuts', accelerator: 'CmdOrCtrl+/', click: command('shortcuts') },
+        ...(mac
+          ? []
+          : ([
+              separator,
+              { label: 'Check for updates…', click: command('check-updates') },
+            ] satisfies MenuItemConstructorOptions[])),
         separator,
         {
           label: `${appName} user guide`,

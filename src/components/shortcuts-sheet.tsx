@@ -8,7 +8,7 @@ import {
   DialogTitle,
 } from './ui/dialog';
 
-// On Windows and Linux, AltGr sends Ctrl+Alt, so the session shortcuts use Ctrl+Shift there.
+// On Windows and Linux, AltGr sends Ctrl+Alt, so the chat shortcuts use Ctrl+Shift there.
 // Keep these keys the same as session-menu.tsx.
 const sessionKey = (key: string) => shortcutLabel(isMac ? ['mod', 'alt'] : ['mod', 'shift'], key);
 
@@ -22,6 +22,7 @@ export function shortcutGroups(): { title: string; items: [string, string][] }[]
         ['Show keyboard shortcuts', shortcutLabel(['mod'], '/')],
         ['Open settings', shortcutLabel(['mod'], ',')],
         ['New project', shortcutLabel(['mod'], 'N')],
+        ['New task', shortcutLabel(['mod', 'shift'], 'K')],
         ['Add a code folder', shortcutLabel(['mod', 'shift'], 'O')],
         ['Show or hide the sidebar', shortcutLabel(['mod'], 'B')],
         ['Close the tool tab or the chat', shortcutLabel(['mod'], 'W')],
@@ -32,15 +33,24 @@ export function shortcutGroups(): { title: string; items: [string, string][] }[]
       items: [
         ['Go back', isMac ? shortcutLabel(['mod'], '[') : shortcutLabel(['alt'], '←')],
         ['Go forward', isMac ? shortcutLabel(['mod'], ']') : shortcutLabel(['alt'], '→')],
+        ['Go to the project overview', shortcutLabel(['mod'], '1')],
+        ['Go to Tasks', shortcutLabel(['mod'], '2')],
+        ['Go to Docs', shortcutLabel(['mod'], '3')],
+        ['Go to Memory', shortcutLabel(['mod'], '4')],
+        ['Go to Insights', shortcutLabel(['mod'], '5')],
+        ['Show all chats', shortcutLabel(['mod', 'shift'], 'L')],
+        ['Move between sidebar rows', '↑ ↓'],
+        ['Expand or collapse a project', '→ ←'],
+        ['Show the actions of a sidebar row', shortcutLabel(['shift'], 'F10')],
         ['Move between search results', '↑ ↓'],
         ['Open the search result', 'Enter'],
         ['Clear the search', 'Esc'],
       ],
     },
     {
-      title: 'Session',
+      title: 'Chat',
       items: [
-        ['New session in the open code folder', shortcutLabel(['mod', 'shift'], 'N')],
+        ['New chat in the open code folder', shortcutLabel(['mod', 'shift'], 'N')],
         ['Send the message', 'Enter'],
         ['Add a new line', shortcutLabel(['shift'], 'Enter')],
         ['Rename the chat', sessionKey(isMac ? 'R' : 'E')],

@@ -1,8 +1,8 @@
 import { useEffect, useId, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react';
-import { X } from 'lucide-react';
+import { Clock, FileText, Folder, FolderGit2, LayoutGrid, MessagesSquare, X } from 'lucide-react';
 import { agentLabel } from '../config/agents';
 import { trackerConnection, type TrackerItem } from '../domain/tracker';
-import type { ProjectDocMetadata } from '../domain/docs';
+import type { DocPassage, ProjectDocMetadata } from '../domain/docs';
 import { sessionAPI } from '../lib/remote-api';
 import { sessionRepo } from '../lib/session-repository';
 import { trackerClient } from '../lib/tracker-client';
@@ -30,6 +30,21 @@ export interface SearchAction {
   shortcut?: string;
   run: () => void;
 }
+
+/** A place that the user opened before, for "Recent" in an empty search. */
+export interface RecentPlace {
+  key: string;
+  label: string;
+  /** The project or agent, shown after the label. */
+  context?: string;
+  kind: 'home' | 'sessions' | 'project' | 'repository' | 'conversation';
+  agent?: string;
+  open: () => void;
+}
+
+/** The heading and the excerpt of a doc passage, for the result row. */
+const snippetOf = (passage?: DocPassage) =>
+  passage ? [passage.heading, passage.excerpt].filter(Boolean).join(' · ') || undefined : undefined;
 
 /** Shows each match of `term` in `text` with a subtle highlight. */
 function Highlight({ text, term }: { text: string; term: string }) {
@@ -65,11 +80,17 @@ export function WorkspaceSearch({
   onRepository,
   onSession,
   actions = [],
+  suggested = [],
+  recent = [],
   activity = {},
   children,
 }: {
   /** Commands that show in the results when they match the query. */
   actions?: SearchAction[];
+  /** Commands that show with an empty query, under "Suggested". */
+  suggested?: SearchAction[];
+  /** The last places, under "Recent" with an empty query. */
+  recent?: RecentPlace[];
   /** Background state of open sessions, by `activityKey`. */
   activity?: Record<string, SessionActivityState>;
   /** Opens a docs page of a project. */
@@ -97,6 +118,34 @@ export function WorkspaceSearch({
   const [partial, setPartial] = useState(0);
   const [active, setActive] = useState(-1);
   useEffect(() => setActive(-1), [term]);
+  // With the focus in an empty field, the panel shows Recent and Suggested.
+  const [focused, setFocused] = useState(false);
+  const showStart = focused && !term && (recent.length > 0 || suggested.length > 0);
+  // Full-text doc results, with the heading of the passage as a snippet.
+  const [passages, setPassages] = useState<{ group: ProjectGroup; passage: DocPassage }[]>([]);
+  useEffect(() => {
+    setPassages([]);
+    if (term.length < 2 || !onDoc) return;
+    let live = true;
+    const timer = setTimeout(() => {
+      void Promise.all(
+        groups.map((group) =>
+          Promise.resolve()
+            .then(() =>
+              typeof api.docsSearch === 'function' ? api.docsSearch(group.id, term, 8) : [],
+            )
+            .then((list) => list.map((passage) => ({ group, passage })))
+            .catch(() => []),
+        ),
+      ).then((lists) => {
+        if (live) setPassages(lists.flat());
+      });
+    }, 250);
+    return () => {
+      live = false;
+      clearTimeout(timer);
+    };
+  }, [api, term, groups]);
   // Transcripts stay cached by session and update time, so a refresh reads only changed
   // sessions. Failures, docs and tasks stay cached until the search is cleared.
   const transcripts = useRef(new Map<string, Transcript | 'failed'>());
@@ -230,13 +279,40 @@ export function WorkspaceSearch({
       ? sessions.filter((s) => transcripts.current.get(transcriptKey(s)) === 'failed').length
       : 0;
   const projectMatches = term ? groups.filter((g) => matches(g.name)) : [];
-  const docMatches = term
+  // Title matches first, then pages that the full-text search found. One row per page.
+  const titleMatches = term
     ? groups.flatMap((group) =>
         (docs.current.get(group.id) || [])
           .filter((doc) => matches(doc.title))
-          .map((doc) => ({ group, doc })),
+          .map((doc) => ({ group, doc, snippet: undefined as string | undefined })),
       )
     : [];
+  const docMatches = [
+    ...titleMatches.map((match) => ({
+      ...match,
+      snippet: snippetOf(
+        passages.find(
+          (item) => item.group.id === match.group.id && item.passage.id === match.doc.id,
+        )?.passage,
+      ),
+    })),
+    ...passages
+      .filter(
+        ({ group, passage }, index, list) =>
+          !titleMatches.some(
+            (match) => match.group.id === group.id && match.doc.id === passage.id,
+          ) &&
+          list.findIndex((item) => item.group.id === group.id && item.passage.id === passage.id) ===
+            index,
+      )
+      .map(({ group, passage }) => ({
+        group,
+        doc:
+          (docs.current.get(group.id) || []).find((doc) => doc.id === passage.id) ||
+          ({ id: passage.id, title: passage.title } as ProjectDocMetadata),
+        snippet: snippetOf(passage),
+      })),
+  ];
   const taskMatches = term
     ? groups.flatMap((group) =>
         (tasks.current.get(group.id) || [])
@@ -274,27 +350,50 @@ export function WorkspaceSearch({
   const projectOf = (repo?: Project) =>
     repo ? groups.find((g) => g.repoIds.includes(repo.id))?.name : undefined;
   const context = (...parts: (string | undefined)[]) => parts.filter(Boolean).join(' › ');
-  const options: SearchOption[] = [
-    ...projectMatches.map((g) => ({ key: 'project:' + g.id, open: () => onProject(g) })),
-    ...repoMatches.map((p) => ({ key: 'repo:' + p.id, open: () => onRepository(p) })),
-    ...sessionResults.map((s) => ({ key: 'session:' + sessionKey(s), open: () => onSession(s) })),
-    ...docMatches.map(({ group, doc }) => ({
-      key: `doc:${group.id}:${doc.id}`,
-      open: () => onDoc?.(group, doc),
-    })),
-    ...taskMatches.map(({ group, task }) => ({
-      key: `task:${group.id}:${task.id}`,
-      open: () => onTask?.(group, task),
-    })),
-    // Commands come last, so Enter on a name opens the item, not a command.
-    ...actionMatches.map((action) => ({
-      key: 'action:' + action.key,
-      open: () => {
-        onQueryChange('');
-        action.run();
-      },
-    })),
-  ];
+  const startOptions: SearchOption[] = showStart
+    ? [
+        ...recent.map((place) => ({
+          key: 'recent:' + place.key,
+          open: () => {
+            place.open();
+            inputRef?.current?.blur();
+          },
+        })),
+        ...suggested.map((action) => ({
+          key: 'suggested:' + action.key,
+          open: () => {
+            action.run();
+            inputRef?.current?.blur();
+          },
+        })),
+      ]
+    : [];
+  const options: SearchOption[] = showStart
+    ? startOptions
+    : [
+        ...projectMatches.map((g) => ({ key: 'project:' + g.id, open: () => onProject(g) })),
+        ...repoMatches.map((p) => ({ key: 'repo:' + p.id, open: () => onRepository(p) })),
+        ...sessionResults.map((s) => ({
+          key: 'session:' + sessionKey(s),
+          open: () => onSession(s),
+        })),
+        ...docMatches.map(({ group, doc }) => ({
+          key: `doc:${group.id}:${doc.id}`,
+          open: () => onDoc?.(group, doc),
+        })),
+        ...taskMatches.map(({ group, task }) => ({
+          key: `task:${group.id}:${task.id}`,
+          open: () => onTask?.(group, task),
+        })),
+        // Commands come last, so Enter on a name opens the item, not a command.
+        ...actionMatches.map((action) => ({
+          key: 'action:' + action.key,
+          open: () => {
+            onQueryChange('');
+            action.run();
+          },
+        })),
+      ];
   const optionId = (key: string) => `${id}-${key.replace(/[^\w-]/g, '_')}`;
   const activeOption = options[active];
   useEffect(() => {
@@ -330,13 +429,15 @@ export function WorkspaceSearch({
           variant="filled"
           style={{ paddingRight: query ? 32 : 44 }}
           role="combobox"
-          aria-label="Search projects and sessions"
-          aria-expanded={!!term}
-          aria-controls={term ? listId : undefined}
+          aria-label="Search projects and chats"
+          aria-expanded={!!term || showStart}
+          aria-controls={term || showStart ? listId : undefined}
           aria-autocomplete="list"
           aria-activedescendant={activeOption ? optionId(activeOption.key) : undefined}
-          placeholder="Search or run a command…"
+          placeholder="Search or run…"
           value={query}
+          onFocus={() => setFocused(true)}
+          onBlur={() => setFocused(false)}
           onChange={(e) => onQueryChange(e.target.value)}
           onKeyDown={(event) => {
             if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
@@ -355,7 +456,7 @@ export function WorkspaceSearch({
               event.preventDefault();
               if (query) onQueryChange('');
               else event.currentTarget.blur();
-            }
+            } else if (event.key === 'Tab' && showStart) setFocused(false);
           }}
         />
         {query ? (
@@ -375,15 +476,73 @@ export function WorkspaceSearch({
           <kbd className="kbd search-kbd">{shortcutLabel(['mod'], 'K')}</kbd>
         )}
       </div>
-      {term ? (
+      {showStart ? (
+        <section className="workspace-search-results" aria-label="Recent and suggested">
+          <div id={listId} role="listbox" aria-label="Recent and suggested">
+            {!!recent.length && (
+              <div role="group" aria-labelledby={`${id}-recent`}>
+                <h3 id={`${id}-recent`} className="sidebar-label">
+                  Recent
+                </h3>
+                {recent.map((place) =>
+                  option(
+                    'recent:' + place.key,
+                    <span className="search-option-action">
+                      <span className="search-option-icon" aria-hidden="true">
+                        {place.kind === 'conversation' && place.agent ? (
+                          <AgentIcon agent={place.agent} className="size-3.5" />
+                        ) : place.kind === 'repository' ? (
+                          <FolderGit2 />
+                        ) : place.kind === 'sessions' ? (
+                          <MessagesSquare />
+                        ) : place.kind === 'project' && place.label === 'Docs' ? (
+                          <FileText />
+                        ) : place.kind === 'project' ? (
+                          <Folder />
+                        ) : place.kind === 'home' ? (
+                          <LayoutGrid />
+                        ) : (
+                          <Clock />
+                        )}
+                      </span>
+                      <span className="search-option-title">{place.label}</span>
+                      {place.context && (
+                        <span className="search-option-context">{place.context}</span>
+                      )}
+                    </span>,
+                    { title: [place.label, place.context].filter(Boolean).join(' · ') },
+                  ),
+                )}
+              </div>
+            )}
+            {!!suggested.length && (
+              <div role="group" aria-labelledby={`${id}-suggested`}>
+                <h3 id={`${id}-suggested`} className="sidebar-label">
+                  Suggested
+                </h3>
+                {suggested.map((action) =>
+                  option(
+                    'suggested:' + action.key,
+                    <span className="search-option-action">
+                      <span className="search-option-title">{action.label}</span>
+                      {action.shortcut && <kbd className="kbd">{action.shortcut}</kbd>}
+                    </span>,
+                    { title: action.label },
+                  ),
+                )}
+              </div>
+            )}
+          </div>
+          <p className="search-status">Type to search projects, chats, docs, tasks and actions.</p>
+        </section>
+      ) : term ? (
         <section className="workspace-search-results" aria-label="Search results">
           <p role="status" className="search-status">
             {shortTerm && !total
               ? 'Type at least two characters to search message text.'
               : busy && !total
-                ? 'Searching session messages…'
-                : plural(total, 'match', 'matches') +
-                  (busy ? ' · Searching session messages…' : '')}
+                ? 'Searching chat messages…'
+                : plural(total, 'match', 'matches') + (busy ? ' · Searching chat messages…' : '')}
           </p>
           <div id={listId} role="listbox" aria-label="Results">
             {!!projectMatches.length && (
@@ -401,7 +560,7 @@ export function WorkspaceSearch({
             {!!repoMatches.length && (
               <div role="group" aria-labelledby={`${id}-repositories`}>
                 <h3 id={`${id}-repositories`} className="sidebar-label">
-                  Repositories
+                  Code folders
                 </h3>
                 {repoMatches.map((p) =>
                   option(
@@ -422,7 +581,7 @@ export function WorkspaceSearch({
             {!!sessionResults.length && (
               <div role="group" aria-labelledby={`${id}-sessions`}>
                 <h3 id={`${id}-sessions`} className="sidebar-label">
-                  Sessions
+                  Chats
                 </h3>
                 {sessionResults.map((s) => {
                   const repo = sessionRepo(s, projects);
@@ -459,14 +618,19 @@ export function WorkspaceSearch({
                 <h3 id={`${id}-docs`} className="sidebar-label">
                   Docs
                 </h3>
-                {docMatches.map(({ group, doc }) =>
+                {docMatches.map(({ group, doc, snippet }) =>
                   option(
                     `doc:${group.id}:${doc.id}`,
                     <>
                       <span className="search-option-title">
-                        <Highlight text={doc.title} term={term} />
+                        <Highlight text={doc.title || 'Untitled'} term={term} />
                       </span>
                       <span className="search-option-context">{group.name}</span>
+                      {snippet && snippet !== doc.title && (
+                        <span className="search-option-excerpt">
+                          <Highlight text={snippet} term={term} />
+                        </span>
+                      )}
                     </>,
                     { title: doc.title },
                   ),
@@ -517,13 +681,13 @@ export function WorkspaceSearch({
           {!shortTerm && !busy && !total && <p className="search-status">No matches found.</p>}
           {!!failed && (
             <p role="alert" className="field-error search-error">
-              {plural(failed, 'session')} could not be searched. Check the host connection and try
+              {plural(failed, 'chat')} could not be searched. Check the host connection and try
               again.
             </p>
           )}
           {!!partial && (
             <p role="status" className="search-status">
-              For {plural(partial, 'long session')}, the search used only the most recent messages.
+              For {plural(partial, 'long chat')}, the search used only the most recent messages.
             </p>
           )}
         </section>

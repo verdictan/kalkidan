@@ -48,6 +48,15 @@ export interface ComponentUpdateStatus {
   operation?: UpdateOperation;
   history: UpdateOperation[];
   error?: string;
+  /**
+   * Information only: a newer release exists, but this desktop policy does not approve it yet.
+   * It never blocks the install of the approved release.
+   */
+  notice?: string;
+  /** True when the approved release is not installed and Kalkidan can install it now. */
+  canInstallApproved?: boolean;
+  /** Plain words for why the approved release cannot be installed now. */
+  reason?: string;
 }
 export interface UpdatesAPI {
   componentUpdates(force?: boolean): Promise<ComponentInventory>;

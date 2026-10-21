@@ -43,6 +43,7 @@ test('repository fields reject foreign IDs and reviews bind to the loaded pull r
       };
     const key = [
       'closedByPullRequestsReferences',
+      'timelineItems',
       'assignees',
       'labels',
       'comments',
@@ -65,9 +66,19 @@ test('repository fields reject foreign IDs and reviews bind to the loaded pull r
       },
     };
   };
-  const service = new GitHubProjectContent(query, () => {}),
+  const queries: string[] = [];
+  const service = new GitHubProjectContent(
+      async (text: string, variables: any) => {
+        queries.push(text);
+        return query(text, variables);
+      },
+      () => {},
+    ),
     project = { id: 'P' } as GitHubProject;
   let snapshot = await service.read(project, 'I');
+  // Comments, reviews and labels carry their time and color for the UI.
+  assert.ok(queries.some((text) => /comments\(.*createdAt/.test(text)));
+  assert.ok(queries.some((text) => /labels\(.*color/.test(text)));
   await assert.rejects(
     service.change(project, 'I', snapshot.revision, { kind: 'milestone', id: 'foreign' }),
     /repository/,
@@ -80,6 +91,7 @@ test('repository fields reject foreign IDs and reviews bind to the loaded pull r
   ]);
   kind = 'PullRequest';
   snapshot = await service.read(project, 'I');
+  assert.ok(queries.some((text) => /reviews\(.*submittedAt/.test(text)));
   await service.change(project, 'I', snapshot.revision, {
     kind: 'request-review',
     login: 'reviewer',
@@ -147,6 +159,7 @@ test('content writes use issue permissions, repository labels, revisions and typ
       };
     const key = [
       'closedByPullRequestsReferences',
+      'timelineItems',
       'assignees',
       'labels',
       'comments',

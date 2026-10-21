@@ -1,5 +1,6 @@
 import type { Session } from './conversation';
-export type ProjectPage = 'board' | 'docs' | 'tasks' | 'memory';
+/** 'board' is the project overview page (the old name is kept for saved routes). */
+export type ProjectPage = 'board' | 'docs' | 'tasks' | 'memory' | 'insights';
 export type WorkspacePage =
   | { kind: 'home' }
   | { kind: 'sessions' }
@@ -55,4 +56,61 @@ export function resolveRouteSession(
     route.session.hostId === before.hostId
     ? { ...route, session: after }
     : route;
+}
+
+/** A route that the app saves between launches. A chat is saved by its agent and ID. */
+export type SavedRoute =
+  | WorkspacePage
+  | { kind: 'conversation'; agent: string; id: string; hostId?: string; parent: WorkspacePage };
+const pageKinds = new Set(['home', 'sessions', 'project', 'repository']);
+const projectPages = new Set<ProjectPage>(['board', 'docs', 'tasks', 'memory', 'insights']);
+export function saveableRoute(route: WorkspaceRoute): SavedRoute | null {
+  if (route.kind !== 'conversation') return route;
+  // A draft has no saved file. Reopen its parent page.
+  if (route.session.id.startsWith('draft-')) return route.parent;
+  return {
+    kind: 'conversation',
+    agent: route.session.agent,
+    id: route.session.id,
+    hostId: route.session.hostId,
+    parent: route.parent,
+  };
+}
+function readPage(value: unknown): WorkspacePage | null {
+  if (!value || typeof value !== 'object') return null;
+  const page = value as Record<string, unknown>;
+  if (!pageKinds.has(page.kind as string)) return null;
+  if (page.kind === 'project')
+    return typeof page.groupId === 'string' && projectPages.has(page.page as ProjectPage)
+      ? { kind: 'project', groupId: page.groupId, page: page.page as ProjectPage }
+      : null;
+  if (page.kind === 'repository')
+    return typeof page.repositoryId === 'string'
+      ? { kind: 'repository', repositoryId: page.repositoryId }
+      : null;
+  return { kind: page.kind as 'home' | 'sessions' };
+}
+/**
+ * The saved route when its project, code folder and chat still exist. Else the nearest page
+ * that exists, or null.
+ */
+export function restoreRoute(
+  value: unknown,
+  groups: readonly { id: string }[],
+  repositories: readonly { id: string }[],
+  sessions: readonly Session[],
+): WorkspaceRoute | null {
+  if (!value || typeof value !== 'object') return null;
+  const saved = value as Record<string, unknown>;
+  if (saved.kind === 'conversation') {
+    const parent = readPage(saved.parent) || { kind: 'home' };
+    const session = sessions.find(
+      (s) =>
+        s.agent === saved.agent && s.id === saved.id && (s.hostId || '') === (saved.hostId || ''),
+    );
+    if (!session) return reconcileRoute(parent, groups, repositories);
+    return reconcileRoute({ kind: 'conversation', session, parent }, groups, repositories);
+  }
+  const page = readPage(saved);
+  return page ? reconcileRoute(page, groups, repositories) : null;
 }

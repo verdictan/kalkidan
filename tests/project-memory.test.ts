@@ -67,3 +67,40 @@ test('agent prompts use managed memory tools and tolerate unavailable storage', 
   fail = true;
   assert.match(await prompt('/repo', 'Implement a feature'), /Project memory is unavailable/);
 });
+
+test('memory topics read as words and the page does not repeat its title', async () => {
+  const { memoryTopicName, withoutRepeatedTitle, entryForPage, extractionText } =
+    await import('../src/components/project-memory');
+  assert.equal(memoryTopicName({ name: 'test-conventions.md' }), 'Test conventions');
+  assert.equal(memoryTopicName({ topic: 'release steps', name: 'x.md' }), 'Release steps');
+  assert.equal(
+    withoutRepeatedTitle('# Release steps\n\nTag first.', 'Release steps'),
+    'Tag first.',
+  );
+  assert.equal(withoutRepeatedTitle('# Other\n\nText', 'Release steps'), '# Other\n\nText');
+  const entry = {
+    version: 1 as const,
+    id: 'e',
+    topic: 'release steps',
+    content: 'Tag first.',
+    revision: 'r',
+    provenance: 'verified' as const,
+    source: { sessionId: 's', turnId: 't', references: [] },
+    createdAt: '',
+    updatedAt: '',
+    supersedes: [],
+  };
+  const page = {
+    topic: 'release steps',
+    name: 'a.md',
+    content: 'Tag first.',
+    updatedAt: '',
+    truncated: false,
+  };
+  assert.equal(entryForPage(page, [entry]), entry);
+  assert.equal(entryForPage({ ...page, topic: 'other' }, [entry]), undefined);
+  const base = { id: 'x', turnId: 't', updatedAt: '' };
+  assert.equal(extractionText({ ...base, status: 'saved', saved: 2 }), 'Saved 2 entries');
+  assert.equal(extractionText({ ...base, status: 'saved', saved: 0 }), 'Nothing new to save');
+  assert.equal(extractionText({ ...base, status: 'failed' }), 'Could not save memory');
+});

@@ -82,10 +82,10 @@ test('conversation tools preview evidence, attach it to the draft, and send it o
   });
   await page.goto('/');
   await page.locator('.repo-select').click();
-  await page.getByRole('button', { name: 'New Codex session', exact: true }).click();
+  await page.getByRole('button', { name: 'New Codex chat', exact: true }).click();
   await page.setViewportSize({ width: 961, height: 988 });
   await page.screenshot({ path: 'test-results/conversation-tools-empty.png' });
-  const tools = page.getByRole('region', { name: 'Session', exact: true });
+  const tools = page.getByRole('region', { name: 'Chat', exact: true });
   await openTool(page, 'Terminal');
   let dialog = page.getByRole('region', { name: 'Repository tools' });
   await expect(dialog.getByLabel('Interactive terminal')).toContainText('Tests passed: 12');
@@ -129,7 +129,7 @@ test('browser preview explains native requirements instead of simulating command
 }) => {
   await page.goto('/');
   await page.locator('.repo-select').first().click();
-  await page.getByRole('button', { name: 'New Codex session', exact: true }).click();
+  await page.getByRole('button', { name: 'New Codex chat', exact: true }).click();
   await openTool(page, 'Terminal');
   await expect(
     page.getByRole('region', { name: 'Repository tools' }).getByRole('alert'),

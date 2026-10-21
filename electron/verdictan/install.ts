@@ -158,12 +158,23 @@ export class RuntimeInstaller {
     }
   }
   status() {
-    const result = structuredClone({
+    const result: ComponentUpdateStatus = structuredClone({
       ...this.view,
       installed: this.state.active?.release,
       operation: this.state.operation,
       history: this.state.history,
     });
+    // An interrupted operation from an earlier process does not block. Install resumes it.
+    const busy = !!this.installPending || result.discovery === 'checking';
+    const current = !!result.approved && result.installed?.sha256 === result.approved.sha256;
+    result.canInstallApproved = !!result.approved && !current && !busy;
+    result.reason = result.canInstallApproved
+      ? undefined
+      : !result.approved
+        ? result.error || 'No approved version is known yet. Check for updates.'
+        : current
+          ? `Version ${result.approved.version} is installed.`
+          : 'An install or check is in progress. Wait for it to finish.';
     if (
       !this.installPending &&
       result.operation &&
@@ -249,14 +260,14 @@ export class RuntimeInstaller {
         this.view.discovered = discovered;
         this.view.discovery =
           this.state.active?.release.sha256 === target.sha256 ? 'current' : 'available';
-        if (discovered && discovered.sha256 !== target.sha256) {
-          this.view.discovery = 'blocked';
-          this.view.error =
-            'A runtime release is available but is not approved by this desktop policy.';
-        }
+        // A newer release that is not approved is information. The approved one stays installable.
+        this.view.notice =
+          discovered && discovered.sha256 !== target.sha256
+            ? `Version ${discovered.version} is available. It is not approved for this version of Kalkidan yet.`
+            : undefined;
         this.view.lastSuccessAt = this.now();
         this.view.stale = false;
-        if (!discovered || discovered.sha256 === target.sha256) this.view.error = undefined;
+        this.view.error = undefined;
       } catch (error) {
         this.view.discovery = discovering ? 'failed' : 'blocked';
         this.view.stale = true;

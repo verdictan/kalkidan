@@ -51,7 +51,7 @@ test('session right-click actions rename, pin and archive without opening a conv
   await page.getByRole('button', { name: 'Save name' }).click();
   const session = tree.getByRole('button', { name: 'Resume pinned Navigation polish' });
   await expect(session).toBeVisible();
-  await expect(page.getByRole('region', { name: 'Session', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('region', { name: 'Chat', exact: true })).toHaveCount(0);
   await session.click({ button: 'right' });
   await expect(page.getByRole('menuitem', { name: 'Unpin', exact: true })).toBeVisible();
   await page.getByRole('menuitem', { name: 'Archive', exact: true }).click();

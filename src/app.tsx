@@ -2,6 +2,9 @@ import {
   routeKey,
   reconcileRoute,
   resolveRouteSession,
+  restoreRoute,
+  saveableRoute,
+  type WorkspacePage,
   type WorkspaceRoute,
   type ProjectPage,
 } from './domain/workspace-route';
@@ -13,11 +16,19 @@ import { ProjectDocsPanel } from './components/project-docs';
 import { WorkspaceSearch, type SearchAction } from './components/workspace-search';
 import { ShortcutsSheet } from './components/shortcuts-sheet';
 import { branchCopyHelp } from './components/session-menu';
-import { useSidebarWidth } from './hooks/use-sidebar-width';
+import { useSidebarOpen, useSidebarWidth } from './hooks/use-sidebar-width';
+import { useProjectBoards, sessionTask } from './hooks/use-project-boards';
+import { useUpdateStatus } from './hooks/use-update-status';
+import { setPendingDraft } from './lib/pending-draft';
+import { applyAppearance, saveAppearance, type Appearance } from './lib/appearance';
+import { ProjectTabs } from './components/project-tabs';
 import { SidebarResizer } from './components/sidebar-resizer';
 import { useNavigationHistory } from './hooks/use-navigation-history';
 import { agentCatalog, agentLabel } from './config/agents';
 import {
+  agentInstalled,
+  agentMenuLabel,
+  loadAgentInstallations,
   onPreferredAgentChange,
   readPreferredAgent,
   savePreferredAgent,
@@ -33,16 +44,25 @@ import {
   hasPrimaryModifier,
   isMac,
   isTypingTarget,
+  plural,
   revealLabel,
   shortcutLabel,
 } from './lib/platform';
 
 import { AddRepository } from './components/add-repository';
-import { Fragment, useEffect, useRef, useState, type CSSProperties } from 'react';
+import {
+  Fragment,
+  useEffect,
+  useRef,
+  useState,
+  type ComponentProps,
+  type CSSProperties,
+} from 'react';
 import { Toaster, showToast } from './components/ui/toast';
 import { Alert, AlertDescription } from './components/ui/alert';
 import {
   PanelLeft,
+  FolderGit2,
   FolderPlus,
   ArrowUpRight,
   GitBranch,
@@ -92,6 +112,11 @@ import { sessionRepo } from './lib/session-repository';
 import {
   activityKey,
   ActivityDot,
+  markFinished,
+  markSeen,
+  publishActivity,
+  strongestActivity,
+  waitsForUser,
   type SessionActivity,
   type SessionActivityState,
 } from './components/activity-dot';
@@ -104,8 +129,32 @@ import type { API, Snapshot, Agent, Project, ProjectGroup, Session, TrackerItem 
 const sidebarAction = 'sidebar-action w-full justify-start px-2 has-[>svg]:px-2';
 type RepositoryModal = 'worktree' | 'edit' | 'remove' | 'remove-worktree';
 /** The notification target of a session: its agent and ID. */
-const notificationTarget = (session: { agent: string; id: string }) =>
-  JSON.stringify({ agent: session.agent, id: session.id });
+const notificationTarget = (session: { agent: string; id: string }, review = false) =>
+  JSON.stringify({ agent: session.agent, id: session.id, ...(review ? { review } : {}) });
+/** The detail of a window event, or an empty object. */
+const detailOf = (event: Event) =>
+  ((event as CustomEvent<unknown>).detail || {}) as Record<string, unknown>;
+const text = (value: unknown) => (typeof value === 'string' && value ? value : undefined);
+const sameChat = (a: { agent: string; id: string } | null | undefined, b: Session) =>
+  !!a && a.agent === b.agent && a.id === b.id;
+const routeStorageKey = 'kalkidan-last-route';
+const pinnedViewsKey = 'kalkidan-pinned-views';
+type SavedView = { id: string; name: string };
+const openChatsStorageKey = 'kalkidan-open-chats';
+function readStored(key: string): unknown {
+  try {
+    return JSON.parse(localStorage.getItem(key) || 'null');
+  } catch {
+    return null;
+  }
+}
+function writeStored(key: string, value: unknown) {
+  try {
+    localStorage.setItem(key, JSON.stringify(value));
+  } catch {
+    /* The app starts on Projects next time. */
+  }
+}
 /** Removes the Electron IPC prefix from an error message. */
 function errorText(error: unknown) {
   return error instanceof Error
@@ -140,17 +189,58 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
   const [onboardingOpen, setOnboardingOpen] = useState(false);
   const onboardingChecked = useRef(false);
   const sidebar = useSidebarWidth();
-  const [navigationOpen, setNavigationOpen] = useState(true);
+  // Below 1100 px the sidebar starts closed. The user's choice is kept for each window size.
+  const { open: navigationOpen, setOpen: setNavigationOpen } = useSidebarOpen();
   const [connectRequest, setConnectRequest] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsSection, setSettingsSection] = useState('general');
+  // The element that opened a dialog. Focus goes back to it when the dialog closes.
+  const lastFocus = useRef<HTMLElement | null>(null);
+  const dialogTrigger = useRef<HTMLElement | null>(null);
+  useEffect(() => {
+    // A menu item is not a good return target: it is removed when its menu closes.
+    const onFocus = (event: FocusEvent) => {
+      const target = event.target;
+      if (
+        target instanceof HTMLElement &&
+        !target.closest('[role="menu"], [role="dialog"], [role="alertdialog"]')
+      )
+        lastFocus.current = target;
+    };
+    document.addEventListener('focusin', onFocus);
+    return () => document.removeEventListener('focusin', onFocus);
+  }, []);
+  function rememberTrigger() {
+    dialogTrigger.current = lastFocus.current;
+  }
+  /** Moves the focus back to the element that opened the dialog, after Radix restores it. */
+  function returnFocus() {
+    const target = dialogTrigger.current;
+    dialogTrigger.current = null;
+    if (!target) return;
+    setTimeout(() => {
+      if (target.isConnected && !document.querySelector('[role="dialog"]')) target.focus();
+    }, 0);
+  }
+  /** Focus-return handler for dialogs that this file renders. */
+  const restoreTriggerFocus = (event: Event) => {
+    if (dialogTrigger.current?.isConnected) {
+      event.preventDefault();
+      returnFocus();
+    }
+  };
   // The element that gets focus when Settings opens, for example one managed setup step.
   const [settingsAnchor, setSettingsAnchor] = useState<{ id: string; request: number }>();
   function openSettings(section = 'general', anchor?: string) {
+    rememberTrigger();
     setSettingsSection(section);
     setSettingsAnchor(anchor ? { id: anchor, request: Date.now() } : undefined);
     setSettingsOpen(true);
   }
+  // The project page that the Projects overview shows: the projects, or "My work".
+  const [overviewTab, setOverviewTab] = useState<'projects' | 'my-work'>('projects');
+  // The title of the open doc page, for the breadcrumb. The docs page reports it.
+  const [docTitle, setDocTitle] = useState<{ groupId: string; title: string } | null>(null);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
   // The list of all sessions in every project.
@@ -183,6 +273,7 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
     dirty: boolean;
   } | null>(null);
   const [sessionFilter, setSessionFilter] = useState('');
+  const [allChatsFilter, setAllChatsFilter] = useState('');
   useEffect(() => setSessionFilter(''), [selected]);
   const [activity, setActivity] = useState<SessionActivity[]>([]);
   // Keep the last modal content while the dialog animates closed.
@@ -190,6 +281,7 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
   if (modal) lastModal.current = modal;
   const shownModal = modal ?? lastModal.current;
   function openModal(kind: RepositoryModal, repo = selected) {
+    if (!modal) rememberTrigger();
     setModalRepo(repo);
     setModalError('');
     setModal(kind);
@@ -215,6 +307,13 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
   const [revision, setRevision] = useState(0);
   const [drafts, setDrafts] = useState<Session[]>([]);
   const [chatSession, setChatSession] = useState<Session | null>(null);
+  // Effects read the open chat through these refs.
+  const chatSessionRef = useRef(chatSession);
+  chatSessionRef.current = chatSession;
+  const chatOpenRef = useRef(false);
+  chatOpenRef.current = route.kind === 'conversation';
+  // Chats to show in "Open chats" after a launch. AgentWorkspace adds them as tabs.
+  const [restoredChats, setRestoredChats] = useState<Session[]>([]);
   const navigation = useNavigationHistory(route, routeKey, (next) => {
     const valid = reconcileRoute(next, data.groups || [], data.projects);
     navigate(valid);
@@ -282,7 +381,21 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
         } else if (event.code === 'KeyN') {
           event.preventDefault();
           commandRef.current('session-new');
+        } else if (event.code === 'KeyL') {
+          event.preventDefault();
+          commandRef.current('all-sessions' as MenuCommand);
+        } else if (event.code === 'KeyK') {
+          event.preventDefault();
+          commandRef.current('new-task');
         }
+        return;
+      }
+      // The browser preview has no native Go menu. Mod+1 to Mod+5 open the project pages.
+      const goKeys = ['go-overview', 'go-tasks', 'go-docs', 'go-memory', 'go-insights'];
+      if (preview && /^Digit[1-5]$/.test(event.code)) {
+        if (isTypingTarget(event.target) || dialogOpen()) return;
+        event.preventDefault();
+        commandRef.current(goKeys[Number(event.code.slice(5)) - 1] as MenuCommand);
         return;
       }
       if (key === '/' && preview) {
@@ -328,21 +441,45 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
   }, []);
   // Menu commands and keys read the latest state through this ref.
   const commandRef = useRef<(command: MenuCommand) => void>(() => {});
-  commandRef.current = (command) => {
+  commandRef.current = (menuCommand) => {
+    // The backend adds the newer commands to `menuCommands`. Compare them as text.
+    const command: string = menuCommand;
+    const goPage: Record<string, ProjectPage> = {
+      'go-overview': 'board',
+      'go-tasks': 'tasks',
+      'go-docs': 'docs',
+      'go-memory': 'memory',
+      'go-insights': 'insights',
+    };
     if (command === 'back') navigationRef.current.back();
     else if (command === 'forward') navigationRef.current.forward();
-    else if (command === 'new-project') setCreateOpen(true);
-    else if (command === 'settings') openSettings();
+    else if (command === 'new-project') {
+      rememberTrigger();
+      setCreateOpen(true);
+    } else if (command === 'settings') openSettings();
     else if (command === 'search') focusSearch();
     else if (command === 'toggle-sidebar') toggleSidebar();
     else if (command === 'close-tab') closeTab();
-    else if (command === 'shortcuts') setShortcutsOpen(true);
-    else if (command === 'get-started') setOnboardingOpen(true);
+    else if (command === 'shortcuts') {
+      rememberTrigger();
+      setShortcutsOpen(true);
+    } else if (command === 'get-started') setOnboardingOpen(true);
     else if (command === 'add-code-folder') addCodeFolder();
     else if (command === 'new-task') newTask();
     else if (command === 'session-new') newSessionHere();
-    else if (command.startsWith('session-'))
-      window.dispatchEvent(new CustomEvent('kalkidan-session-command', { detail: { command } }));
+    else if (goPage[command]) {
+      const group = currentProjectGroup() || data.groups?.[0];
+      if (group) openGroup(group, goPage[command]);
+      else openOverview();
+    } else if (command === 'all-sessions') openAllSessions();
+    else if (command === 'check-updates') openSettings('updates');
+    else if (
+      command === 'open-linked-task' ||
+      command === 'link-task' ||
+      command === 'open-pull-request' ||
+      command.startsWith('session-')
+    )
+      sessionCommand(command);
   };
   useEffect(
     () =>
@@ -385,26 +522,35 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
         else void reloadRef.current();
       }
     };
-    window.addEventListener('kalkidan-open-settings', onSettings);
-    window.addEventListener('kalkidan-new-task', onNewTask);
-    window.addEventListener('kalkidan-add-code-folder', onAddFolder);
-    window.addEventListener('kalkidan-clone-progress', onClone);
+    // Routing events from the pages. Each one reads the latest state through routeEvents.
+    const handlers: [string, (event: Event) => void][] = [
+      ['kalkidan-open-settings', onSettings],
+      ['kalkidan-new-task', onNewTask],
+      ['kalkidan-add-code-folder', onAddFolder],
+      ['kalkidan-clone-progress', onClone],
+      ['kalkidan-open-task', (event) => routeEvents.current.openTask(detailOf(event))],
+      ['kalkidan-open-project-page', (event) => routeEvents.current.openPage(detailOf(event))],
+      ['kalkidan-open-session', (event) => routeEvents.current.openSession(detailOf(event))],
+      ['kalkidan-new-session', (event) => void routeEvents.current.newSession(detailOf(event))],
+      ['kalkidan-doc-selected', (event) => routeEvents.current.docSelected(detailOf(event))],
+    ];
+    for (const [name, handler] of handlers) window.addEventListener(name, handler);
     return () => {
-      window.removeEventListener('kalkidan-open-settings', onSettings);
-      window.removeEventListener('kalkidan-new-task', onNewTask);
-      window.removeEventListener('kalkidan-add-code-folder', onAddFolder);
-      window.removeEventListener('kalkidan-clone-progress', onClone);
+      for (const [name, handler] of handlers) window.removeEventListener(name, handler);
     };
   }, []);
   /** Success notices show as toasts. Errors stay until the user closes them. */
   function notify(message: string, failed = false) {
     showToast(failed ? { message, tone: 'error' } : message);
   }
+  // Async handlers read the latest snapshot through this ref.
+  const dataRef = useRef(data);
   const refreshSequence = useRef(0);
   async function refresh() {
     const request = ++refreshSequence.current;
     const value = await api.snapshot();
     if (request !== refreshSequence.current) return;
+    dataRef.current = value;
     setData(value);
     if (!onboardingChecked.current) {
       onboardingChecked.current = true;
@@ -458,19 +604,94 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
       unsubscribe?.();
     };
   }, [api]);
+  // The first snapshot opens a deep link, else the page and the chats of the last run.
   const routed = useRef(false);
   useEffect(() => {
-    if (routed.current || !data.sessions.length || !location.hash.startsWith('#session=')) return;
+    if (routed.current || revision === 0) return;
     routed.current = true;
-    try {
-      const target = JSON.parse(decodeURIComponent(location.hash.slice(9)));
-      const session = data.sessions.find((s) => s.id === target.id && s.agent === target.agent);
-      if (session) openConversation(session);
-      else setError('This session is no longer available.');
-    } catch {
-      setError('Invalid session link.');
+    if (location.hash.length > 1) {
+      openDeepLink(location.hash.slice(1));
+      return;
     }
-  }, [data.sessions]);
+    const groups = data.groups || [];
+    const chats = (
+      Array.isArray(readStored(openChatsStorageKey))
+        ? (readStored(openChatsStorageKey) as unknown[])
+        : []
+    )
+      .map((value) =>
+        restoreRoute(
+          { ...(value as object), kind: 'conversation', parent: { kind: 'home' } },
+          groups,
+          data.projects,
+          data.sessions,
+        ),
+      )
+      .flatMap((value) => (value?.kind === 'conversation' ? [value.session] : []));
+    const saved = restoreRoute(readStored(routeStorageKey), groups, data.projects, data.sessions);
+    if (saved?.kind === 'conversation') {
+      setRestoredChats(chats);
+      openConversation(saved.session, saved.parent);
+    } else {
+      if (saved) navigate(saved);
+      if (chats.length) {
+        // The chats show in "Open chats". The page stays where it was.
+        setRestoredChats(chats);
+        setChatSession(chats[0]);
+      }
+    }
+  }, [revision]);
+  // Save the page and the open chats, so the next launch opens them again.
+  useEffect(() => {
+    if (!routed.current) return;
+    writeStored(routeStorageKey, saveableRoute(route));
+  }, [routeKey(route)]);
+  useEffect(() => {
+    if (!routed.current) return;
+    writeStored(
+      openChatsStorageKey,
+      openChats
+        .filter((chat) => !chat.session.id.startsWith('draft-'))
+        .map(({ session }) => ({ agent: session.agent, id: session.id, hostId: session.hostId })),
+    );
+  }, [openChats]);
+  /**
+   * Opens a link such as #session={"agent":"codex","id":"…"}, #task=groupId/itemId,
+   * #doc=groupId/docId or #settings=accounts.
+   */
+  function openDeepLink(hash: string) {
+    const [kind, ...rest] = hash.split('=');
+    const raw = decodeURIComponent(rest.join('='));
+    const pair = (): [string, string] | null => {
+      try {
+        const value = JSON.parse(raw) as Record<string, unknown>;
+        const first = text(value.groupId);
+        const second = text(value.itemId) || text(value.docId) || text(value.id);
+        return first && second ? [first, second] : null;
+      } catch {
+        const index = raw.indexOf('/');
+        return index > 0 ? [raw.slice(0, index), raw.slice(index + 1)] : null;
+      }
+    };
+    if (kind === 'session') {
+      try {
+        const target = JSON.parse(raw) as { agent?: string; id?: string };
+        const session = data.sessions.find((s) => s.id === target.id && s.agent === target.agent);
+        if (session) openConversation(session);
+        else setError('This chat is no longer available.');
+      } catch {
+        setError('This chat link is not valid.');
+      }
+    } else if (kind === 'task' || kind === 'doc') {
+      const target = pair();
+      const group = target && data.groups?.find((g) => g.id === target[0]);
+      if (!target || !group) setError(`This ${kind === 'doc' ? 'doc' : 'task'} link is not valid.`);
+      else if (kind === 'task')
+        routeEvents.current.openTask({ groupId: group.id, itemId: target[1] });
+      else routeEvents.current.openPage({ groupId: group.id, page: 'docs', docId: target[1] });
+    } else if (kind === 'settings') openSettings(raw || 'general');
+    else setError('This link is not valid.');
+  }
   const [repositoryRevision, setRepositoryRevision] = useState(0);
   const repositoryState = useProjectDetails(
     api,
@@ -529,55 +750,85 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
         .includes(query.toLowerCase()),
     )
     .sort((a, b) => Number(b.favorite) - Number(a.favorite) || a.name.localeCompare(b.name));
-  // Status dots for open sessions that work or wait for approval in the background.
+  // Status dots for open chats that work, wait for approval or wait for an answer.
   const sessionActivity: Record<string, SessionActivityState> = {};
   const repoActivity: Record<string, SessionActivityState> = {};
   for (const item of activity) {
     sessionActivity[activityKey(item.agent, item.id)] = item.state;
     const repo = sessionRepo(item, data.projects);
-    if (repo && repoActivity[repo.id] !== 'approval') repoActivity[repo.id] = item.state;
+    if (repo) repoActivity[repo.id] = strongestActivity([repoActivity[repo.id], item.state])!;
   }
-  // OS notifications: an agent asks for approval or finishes while the window is not focused.
+  const boards = useProjectBoards(api, data.groups || [], revision);
+  const updates = useUpdateStatus(api);
+  // OS notifications: an agent asks for approval, asks a question, or finishes while the
+  // window is not focused. A run that finishes out of view is marked for "Needs you".
   const previousActivity = useRef(new Map<string, SessionActivity>());
   useEffect(() => {
+    publishActivity(activity);
     const before = previousActivity.current;
     const now = new Map(activity.map((item) => [activityKey(item.agent, item.id), item]));
     previousActivity.current = now;
+    const sessionOf = (item: { agent: string; id: string }) =>
+      [...drafts, ...data.sessions].find((s) => s.agent === item.agent && s.id === item.id);
     const titleOf = (item: { agent: string; id: string }) => {
-      const session = [...drafts, ...data.sessions].find(
-        (s) => s.agent === item.agent && s.id === item.id,
-      );
-      return session?.organization?.title || session?.title || 'Agent session';
+      const session = sessionOf(item);
+      return session?.organization?.title || session?.title || 'Agent chat';
     };
-    if (!document.hasFocus())
-      for (const [key, item] of now) {
-        if (item.state === 'approval' && before.get(key)?.state !== 'approval')
-          void api.notify?.({
-            title: `${agentLabel(item.agent as Agent)} needs your approval`,
-            body: titleOf(item),
-            target: notificationTarget(item),
-          });
-      }
-    if (!document.hasFocus())
-      for (const [key, item] of before)
-        if (!now.has(key) && item.state === 'running')
+    const focused = document.hasFocus();
+    for (const [key, item] of now) {
+      const agent = agentLabel(item.agent as Agent);
+      if (focused || item.state === 'running' || before.get(key)?.state === item.state) continue;
+      void api.notify?.({
+        title:
+          item.state === 'question' ? `${agent} asks a question` : `${agent} needs your approval`,
+        body: titleOf(item),
+        target: notificationTarget(item),
+      });
+    }
+    for (const [key, item] of before) {
+      if (now.has(key) || item.state !== 'running') continue;
+      const visible = focused && chatOpenRef.current && sameChat(item, chatSessionRef.current!);
+      if (!visible) markFinished(item.agent, item.id);
+      if (focused) continue;
+      const session = sessionOf(item);
+      const task = session && sessionTask(session, boards);
+      const repo = sessionRepo(item, data.projects);
+      // "Task #12 · 4 files changed". Each part shows only when it is known.
+      void Promise.resolve()
+        .then(() => (repo ? api.workingStatus?.(repo.id) : undefined))
+        .catch(() => undefined)
+        .then((status) => {
+          const files = status ? status.changed + status.untracked : 0;
+          const parts = [
+            task?.number ? `Task #${task.number}` : task ? `Task: ${task.title}` : '',
+            files ? plural(files, 'file') + ' changed' : '',
+          ].filter(Boolean);
           void api.notify?.({
             title: `${agentLabel(item.agent as Agent)} finished`,
-            body: titleOf(item),
-            target: notificationTarget(item),
+            body: parts.length ? `${titleOf(item)} · ${parts.join(' · ')}` : titleOf(item),
+            target: notificationTarget(item, files > 0),
           });
-    void api.setBadgeCount?.(activity.filter((item) => item.state === 'approval').length);
+        });
+    }
+    void api.setBadgeCount?.(activity.filter((item) => waitsForUser(item.state)).length);
   }, [activity]);
   const openRef = useRef<(session: Session) => void>(() => {});
   useEffect(
     () =>
       api.onNotificationClick?.((target) => {
         try {
-          const { agent, id } = JSON.parse(target) as { agent: string; id: string };
+          const { agent, id, review } = JSON.parse(target) as {
+            agent: string;
+            id: string;
+            review?: boolean;
+          };
           const session =
             openChats.find((chat) => chat.session.agent === agent && chat.session.id === id)
               ?.session || data.sessions.find((s) => s.agent === agent && s.id === id);
-          if (session) openRef.current(session);
+          if (!session) return;
+          openRef.current(session);
+          // A finished run with changes opens at the review controls.
+          if (review) sessionCommandLater('session-changes');
         } catch {
           /* A notification from an older version has no session target. */
         }
@@ -613,7 +864,12 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
     navigate({ kind: 'repository', repositoryId: p.id });
   }
   // A docs page or task chosen in search. The panel opens it once after it loads.
-  const [searchTarget, setSearchTarget] = useState<{ page?: string; task?: string }>({});
+  const [searchTarget, setSearchTarget] = useState<{
+    page?: string;
+    task?: string;
+    topic?: string;
+    heading?: string;
+  }>({});
   function openGroup(group: ProjectGroup, page: ProjectPage = 'board') {
     navigate({ kind: 'project', groupId: group.id, page });
   }
@@ -690,6 +946,122 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
       else openOverview();
     }
   }
+  /** Sends a command to the session menu of the open chat. With `session`, opens it first. */
+  function sessionCommand(command: string, session?: Session) {
+    if (session && !(chatOpen && sameChat(chatSession, session))) {
+      openConversation(session);
+      sessionCommandLater(command);
+      return;
+    }
+    if (!chatOpen) {
+      showToast('Open a chat first. Then try again.');
+      return;
+    }
+    window.dispatchEvent(new CustomEvent('kalkidan-session-command', { detail: { command } }));
+  }
+  /** Sends a session command after the chat that opens now has its menu. */
+  function sessionCommandLater(command: string) {
+    setTimeout(
+      () =>
+        window.dispatchEvent(new CustomEvent('kalkidan-session-command', { detail: { command } })),
+      250,
+    );
+  }
+  /** Opens a project page and then sends an event to the page that opens there. */
+  function openPageThen(group: ProjectGroup, page: ProjectPage, event: string, detail: object) {
+    openGroup(group, page);
+    setTimeout(() => window.dispatchEvent(new CustomEvent(event, { detail })), 60);
+  }
+  // Window events from the pages. They read the latest state through this ref.
+  const routeEvents = useRef({
+    openTask: (_: Record<string, unknown>) => {},
+    openPage: (_: Record<string, unknown>) => {},
+    openSession: (_: Record<string, unknown>) => {},
+    newSession: async (_: Record<string, unknown>) => {},
+    docSelected: (_: Record<string, unknown>) => {},
+  });
+  routeEvents.current = {
+    openTask: (detail) => {
+      const group = data.groups?.find((g) => g.id === detail.groupId);
+      const itemId = text(detail.itemId);
+      if (!group || !itemId) return;
+      setSearchTarget({ task: itemId });
+      openGroup(group, 'tasks');
+    },
+    openPage: (detail) => {
+      const group = data.groups?.find((g) => g.id === detail.groupId);
+      const pages: ProjectPage[] = ['board', 'tasks', 'docs', 'memory', 'insights'];
+      const page = pages.find((value) => value === detail.page) || 'board';
+      if (!group) return;
+      // The event is the source of truth for the route. Its targets go to the panels.
+      if (text(detail.docId) || text(detail.topic) || text(detail.heading) || text(detail.taskId))
+        setSearchTarget({
+          page: text(detail.docId),
+          topic: text(detail.topic),
+          heading: text(detail.heading),
+          task: text(detail.taskId),
+        });
+      openGroup(group, page);
+    },
+    openSession: (detail) => {
+      const session =
+        openChats.find(
+          (chat) => chat.session.agent === detail.agent && chat.session.id === detail.id,
+        )?.session ||
+        [...drafts, ...data.sessions].find((s) => s.agent === detail.agent && s.id === detail.id);
+      if (session) openConversation(session);
+      else setError('This chat is no longer available.');
+    },
+    newSession: async (detail) => {
+      // The board can create a branch copy just before it sends this event. Read the latest
+      // snapshot, and refresh once when the code folder is not in it yet.
+      const latest = dataRef.current;
+      const repoId = text(detail.repoId);
+      if (repoId && !latest.projects.some((p) => p.id === repoId) && !detail.retried) {
+        await refresh().catch(() => undefined);
+        // Run again with the handlers of the next render, which see the new snapshot.
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        return routeEvents.current.newSession({ ...detail, retried: true });
+      }
+      const group =
+        latest.groups?.find((g) => g.id === detail.groupId) ||
+        latest.groups?.find((g) => g.repoIds.includes(repoId || ''));
+      const repo =
+        latest.projects.find((p) => p.id === repoId) ||
+        (group && latest.projects.find((p) => group.repoIds.includes(p.id)));
+      if (!repo) {
+        showToast({
+          message: 'Add a code folder to this project first. Agents work in a code folder.',
+          actions: [{ label: 'Add a code folder', onClick: () => addCodeFolder(group?.id) }],
+        });
+        return;
+      }
+      const requested = agentCatalog.find((item) => item.id === detail.agent)?.id;
+      const agent = requested && agentInstalled(requested) ? requested : preferredAgent;
+      const taskId = text(detail.taskId);
+      const task = taskId
+        ? Object.values(boards)
+            .flatMap((board) => board.items)
+            .find((item) => item.id === taskId)
+        : undefined;
+      const prompt = text(detail.prompt);
+      const draft = newSession(agent, repo, task, prompt);
+      if (!draft) return;
+      const docIds = Array.isArray(detail.docIds)
+        ? detail.docIds.filter((id): id is string => typeof id === 'string')
+        : [];
+      setPendingDraft(activityKey(draft.agent, draft.id), {
+        prompt,
+        docIds,
+        groupId: group?.id || latest.groups?.find((g) => g.repoIds.includes(repo.id))?.id,
+        taskId,
+      });
+    },
+    docSelected: (detail) => {
+      const groupId = text(detail.groupId);
+      setDocTitle(groupId ? { groupId, title: text(detail.title) || 'Untitled' } : null);
+    },
+  };
   // Closing a session returns to the view before it. Without history, show the repository.
   function closeConversation() {
     if (navigation.canBack) navigation.back();
@@ -699,35 +1071,79 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
   const projectGroup = project
     ? data.groups?.find((g) => g.repoIds.includes(project.id))
     : undefined;
-  // The title bar shows the trail to the page. The page header shows the page title, so the
-  // title bar leaves it out. The overview is the top page and has no trail.
+  // The title bar shows the trail to the page, with the page itself last:
+  // "Projects › Atlas › Docs › Page title". The overview is the top page and has no trail.
+  // In a narrow window, the optional crumbs ("Projects" and the project) hide first.
   const trailGroup = currentGroup || projectGroup;
-  const viewTrail: { label: string; name: string; open: () => void }[] =
-    home || (!currentGroup && !project && !sessionsPage)
-      ? []
-      : [
-          { label: 'Projects', name: 'Projects overview', open: openOverview },
-          ...(trailGroup && !sessionsPage && (projectPage !== 'board' || !currentGroup)
-            ? [
-                {
-                  label: trailGroup.name,
-                  name: `${trailGroup.name} project`,
-                  open: () => openGroup(trailGroup),
-                },
-              ]
-            : []),
-        ];
+  const pageNames: Record<ProjectPage, string> = {
+    board: 'Overview',
+    tasks: 'Tasks',
+    docs: 'Docs',
+    memory: 'Memory',
+    insights: 'Insights',
+  };
+  type Crumb = { label: string; name: string; open?: () => void; optional?: boolean };
+  const viewTrail: Crumb[] = home
+    ? []
+    : sessionsPage
+      ? [
+          { label: 'Projects', name: 'Projects overview', open: openOverview, optional: true },
+          { label: 'All chats', name: 'All chats' },
+        ]
+      : currentGroup
+        ? [
+            { label: 'Projects', name: 'Projects overview', open: openOverview, optional: true },
+            {
+              label: currentGroup.name,
+              name: `${currentGroup.name} project`,
+              open: projectPage !== 'board' ? () => openGroup(currentGroup) : undefined,
+              optional: projectPage !== 'board',
+            },
+            ...(projectPage !== 'board'
+              ? [
+                  {
+                    label: pageNames[projectPage],
+                    name: `${currentGroup.name} ${pageNames[projectPage]}`,
+                    open:
+                      projectPage === 'docs' && docTitle?.groupId === currentGroup.id
+                        ? () => openGroup(currentGroup, 'docs')
+                        : undefined,
+                  },
+                ]
+              : []),
+            ...(projectPage === 'docs' && docTitle?.groupId === currentGroup.id
+              ? [{ label: docTitle.title, name: docTitle.title }]
+              : []),
+          ]
+        : project
+          ? [
+              { label: 'Projects', name: 'Projects overview', open: openOverview, optional: true },
+              ...(trailGroup
+                ? [
+                    {
+                      label: trailGroup.name,
+                      name: `${trailGroup.name} project`,
+                      open: () => openGroup(trailGroup),
+                      optional: true,
+                    },
+                  ]
+                : []),
+              { label: project.name, name: project.name },
+            ]
+          : [];
   openRef.current = (session: Session) => openConversation(session);
-  function openConversation(session: Session) {
+  function openConversation(session: Session, parentPage?: WorkspacePage) {
     const repo = sessionRepo(session, data.projects);
     if (repo) setLastRepository(repo.id);
     const parent =
-      basePage.kind === 'project' &&
+      parentPage ||
+      (basePage.kind === 'project' &&
       data.groups?.find((group) => group.id === basePage.groupId)?.repoIds.includes(repo?.id || '')
         ? basePage
         : repo
           ? { kind: 'repository' as const, repositoryId: repo.id }
-          : { kind: 'sessions' as const };
+          : { kind: 'sessions' as const });
+    markSeen(session.agent, session.id);
     setChatSession(session);
     navigate({ kind: 'conversation', session, repositoryId: repo?.id, parent });
   }
@@ -739,8 +1155,12 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
     task?: TrackerItem,
     initialPrompt?: string,
     cwd = repo?.path,
-  ) {
+  ): Session | undefined {
     if (!repo) return;
+    if (!agentInstalled(agent)) {
+      agentMissing(agent, (other) => newSession(other, repo, task, initialPrompt, cwd));
+      return;
+    }
     setLastRepository(repo.id);
     const draft: Session = {
       id: 'draft-' + crypto.randomUUID(),
@@ -754,18 +1174,44 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
         (task
           ? `Work on this task: ${task.title}. Review the repository and propose an implementation plan first.`
           : undefined),
-      title: `New ${agentLabel(agent)} session`,
+      title: `New ${agentLabel(agent)} chat`,
       updatedAt: new Date().toISOString(),
     };
     setDrafts((previous) => [...previous, draft]);
     openConversation(draft);
+    return draft;
   }
-  // The split button starts the preferred agent. Settings and every "New session" menu
-  // change the preference.
+  /** Tells the user that an agent is not installed, and offers the other agent. */
+  function agentMissing(agent: Agent, retry: (agent: Agent) => void) {
+    const other = agentCatalog.find((item) => item.id !== agent && agentInstalled(item.id))?.id;
+    showToast({
+      message: `${agentLabel(agent)} is not installed on this computer.`,
+      tone: 'error',
+      actions: [
+        ...(other
+          ? [
+              {
+                label: `Use ${agentLabel(other)}`,
+                onClick: () => {
+                  savePreferredAgent(other);
+                  retry(other);
+                },
+              },
+            ]
+          : []),
+        { label: `How to install ${agentLabel(agent)}`, onClick: () => openSettings('agents') },
+      ],
+    });
+  }
+  // The split button starts the preferred agent. Settings and every "New chat" menu change
+  // the preference. An agent that is not installed is never the default.
   const [preferredAgent, setPreferredAgent] = useState<Agent>(readPreferredAgent);
   useEffect(() => onPreferredAgentChange(setPreferredAgent), []);
+  useEffect(() => {
+    if (!preview) void loadAgentInstallations(() => api.agentInstallations());
+  }, [api]);
   function startSession(agent: Agent, repo = project, cwd?: string) {
-    if (agent === 'codex' || agent === 'claude') savePreferredAgent(agent);
+    if (agentInstalled(agent)) savePreferredAgent(agent);
     newSession(agent, repo, undefined, undefined, cwd);
   }
   function editRepository(repo: Project) {
@@ -852,13 +1298,26 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
         sessions={sessions}
         query={sessionFilter}
         busy={sessionBusy}
-        newSessionLabel={`New ${agentLabel(preferredAgent)} session`}
+        newSessionLabel={`New ${agentLabel(preferredAgent)} chat`}
         branchOf={(session) => sessionBranch.get(session.agent + ':' + session.id)}
+        taskOf={(session) => sessionTask(session, boards)}
+        onOpenTask={openSessionTask}
         onResume={openConversation}
         onUpdate={updateSession}
       />
     );
   }
+  /** Opens the task of a chat in the Tasks page of its project. */
+  function openSessionTask(session: Session, task: TrackerItem) {
+    const repo = sessionRepo(session, data.projects);
+    const group = repo && data.groups?.find((g) => g.repoIds.includes(repo.id));
+    if (group) routeEvents.current.openTask({ groupId: group.id, itemId: task.id });
+  }
+  /** The pull request that a chat in this code folder opened, if any. */
+  const pullRequestOf = (repo: Project) =>
+    data.sessions.find(
+      (s) => sessionRepo(s, data.projects)?.id === repo.id && s.organization?.pullRequest,
+    )?.organization?.pullRequest;
   // Setup is done when there is a project with a code folder and one agent chat.
   const setupDone = !!data.groups?.length && data.projects.length > 0 && data.sessions.length > 0;
   const placeOf = (session: Session) => {
@@ -870,16 +1329,255 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
   };
   const currentRepoForActions =
     chatOpen && chatSession ? sessionRepo(chatSession, data.projects) : !home ? project : undefined;
+  const actionGroup = currentProjectGroup();
+  // Saved GitHub views of the current project, for "View: …" in search.
+  const [savedViews, setSavedViews] = useState<{ groupId: string; views: SavedView[] }>({
+    groupId: '',
+    views: [],
+  });
+  const viewsGroup = actionGroup && trackerConnection(actionGroup) ? actionGroup.id : '';
+  useEffect(() => {
+    let live = true;
+    if (!viewsGroup || typeof api.trackerResources !== 'function') return;
+    Promise.resolve()
+      .then(() => api.trackerResources(viewsGroup, 'views'))
+      .then((snapshot) => {
+        if (live)
+          setSavedViews({
+            groupId: viewsGroup,
+            views: snapshot.records.map((record) => ({
+              id: String(record.id),
+              name: String(record.name),
+            })),
+          });
+      })
+      .catch(() => {
+        /* Without views, search shows no "View:" actions. */
+      });
+    return () => {
+      live = false;
+    };
+  }, [api, viewsGroup, revision]);
+  const [pinnedViews, setPinnedViews] = useState<Record<string, SavedView[]>>(() => {
+    const value = readStored(pinnedViewsKey);
+    return value && typeof value === 'object' ? (value as Record<string, SavedView[]>) : {};
+  });
+  function pinView(groupId: string, view: SavedView, pinned: boolean) {
+    setPinnedViews((current) => {
+      const list = (current[groupId] || []).filter((item) => item.id !== view.id);
+      const next = { ...current, [groupId]: pinned ? [...list, view] : list };
+      writeStored(pinnedViewsKey, next);
+      return next;
+    });
+    showToast(pinned ? `View ${view.name} pinned under Tasks.` : `View ${view.name} unpinned.`);
+  }
+  function openView(group: ProjectGroup, view: SavedView) {
+    openPageThen(group, 'tasks', 'kalkidan-board-view', { groupId: group.id, viewId: view.id });
+  }
+  function planningTool(group: ProjectGroup, tool: string) {
+    openPageThen(group, 'tasks', 'kalkidan-planning-tool', { groupId: group.id, tool });
+  }
+  function setTheme(mode: Appearance) {
+    saveAppearance(mode);
+    applyAppearance(mode);
+    void api.setAppearance?.(mode);
+  }
+  async function newDocPage(group: ProjectGroup) {
+    try {
+      const page = await api.docsCreate(group.id, 'Untitled', null);
+      routeEvents.current.openPage({ groupId: group.id, page: 'docs', docId: page.id });
+    } catch (e) {
+      setError('Could not create the page: ' + errorText(e));
+    }
+  }
+  const inProject = (group: ProjectGroup | undefined, label: string) =>
+    group && (data.groups?.length || 0) > 1 ? `${label} in ${group.name}` : label;
+  const chatActions: SearchAction[] = chatOpen
+    ? [
+        {
+          key: 'chat-changes',
+          label: 'Show changes',
+          keywords: 'diff review files',
+          run: () => sessionCommand('session-changes'),
+        },
+        {
+          key: 'chat-commit',
+          label: 'Commit…',
+          keywords: 'git save changes',
+          run: () => sessionCommand('session-commit'),
+        },
+        {
+          key: 'chat-pr',
+          label: 'Open pull request',
+          keywords: 'github pr review',
+          run: () => sessionCommand('open-pull-request'),
+        },
+        {
+          key: 'chat-link-task',
+          label: 'Link task…',
+          keywords: 'issue board connect',
+          run: () => sessionCommand('link-task'),
+        },
+        {
+          key: 'chat-open-task',
+          label: 'Open linked task',
+          keywords: 'issue board',
+          run: () => sessionCommand('open-linked-task'),
+        },
+        {
+          key: 'chat-terminal',
+          label: 'Open terminal',
+          keywords: 'shell console',
+          run: () => sessionCommand('session-terminal'),
+        },
+        {
+          key: 'chat-branch-copy',
+          label: 'New branch copy…',
+          keywords: 'worktree branch',
+          run: () => {
+            const repo = chatSession && sessionRepo(chatSession, data.projects);
+            if (!repo) return;
+            setBranch('');
+            openModal('worktree', repo.id);
+          },
+        },
+      ]
+    : [];
+  const projectPageActions: SearchAction[] = (data.groups || []).flatMap((group) =>
+    (['board', 'tasks', 'docs', 'memory', 'insights'] as ProjectPage[]).map((page) => ({
+      key: `go-${page}-${group.id}`,
+      label: `Go to ${pageNames[page]} of ${group.name}`,
+      keywords: `open ${page === 'board' ? 'home project' : page} ${page === 'memory' ? 'open memory' : ''}`,
+      run: () => openGroup(group, page),
+    })),
+  );
+  const projectToolActions: SearchAction[] = actionGroup
+    ? [
+        {
+          key: 'new-page',
+          label: inProject(actionGroup, 'New page'),
+          keywords: 'docs wiki write note',
+          run: () => void newDocPage(actionGroup),
+        },
+        {
+          key: 'plan-iteration',
+          label: inProject(actionGroup, 'Plan an iteration…'),
+          keywords: 'sprint planning cycle',
+          run: () => planningTool(actionGroup, 'iteration'),
+        },
+        {
+          key: 'readiness',
+          label: inProject(actionGroup, 'Check readiness…'),
+          keywords: 'ready tasks start',
+          run: () => planningTool(actionGroup, 'readiness'),
+        },
+        {
+          key: 'dispatch',
+          label: inProject(actionGroup, 'Run tasks in parallel…'),
+          keywords: 'dispatch agents many',
+          run: () => planningTool(actionGroup, 'dispatch'),
+        },
+        {
+          key: 'fields',
+          label: inProject(actionGroup, 'Edit fields in bulk…'),
+          keywords: 'batch change status',
+          run: () => planningTool(actionGroup, 'fields'),
+        },
+        {
+          key: 'docs-to-issues',
+          label: inProject(actionGroup, 'Create tasks from a doc…'),
+          keywords: 'issues plan docs',
+          run: () => planningTool(actionGroup, 'docs-to-issues'),
+        },
+        {
+          key: 'add-existing',
+          label: inProject(actionGroup, 'Add existing task…'),
+          keywords: 'issue import board',
+          run: () => planningTool(actionGroup, 'add-existing'),
+        },
+        {
+          key: 'health',
+          label: inProject(actionGroup, 'Project health'),
+          keywords: 'insights report status',
+          run: () => openGroup(actionGroup, 'insights'),
+        },
+        {
+          key: 'write-history',
+          label: inProject(actionGroup, 'Write history'),
+          keywords: 'insights changes github undo',
+          run: () => openGroup(actionGroup, 'insights'),
+        },
+        {
+          key: 'project-settings',
+          label: inProject(actionGroup, 'Project settings…'),
+          keywords: 'board automation fields github',
+          run: () =>
+            openPageThen(actionGroup, 'board', 'kalkidan-open-project-settings', {
+              groupId: actionGroup.id,
+            }),
+        },
+        ...(!chatOpen && project && !project.hostId && !boardGroup && !home
+          ? [
+              {
+                key: 'terminal',
+                label: `Open terminal in ${project.name}`,
+                keywords: 'shell console',
+                run: () => void launchTerminal(),
+              },
+            ]
+          : []),
+        ...(!chatOpen && project && git && !boardGroup && !home
+          ? [
+              {
+                key: 'branch-copy',
+                label: `New branch copy of ${project.name}…`,
+                keywords: 'worktree branch',
+                run: () => {
+                  setBranch('');
+                  openModal('worktree');
+                },
+              },
+            ]
+          : []),
+        ...(savedViews.groupId === actionGroup.id
+          ? savedViews.views.flatMap((view) => {
+              const pinned = (pinnedViews[actionGroup.id] || []).some((p) => p.id === view.id);
+              return [
+                {
+                  key: 'view-' + view.id,
+                  label: `View: ${view.name}`,
+                  keywords: 'saved github board filter',
+                  run: () => openView(actionGroup, view),
+                },
+                {
+                  key: 'pin-view-' + view.id,
+                  label: pinned
+                    ? `Unpin view ${view.name} from the sidebar`
+                    : `Pin view ${view.name} in the sidebar`,
+                  keywords: 'saved github board',
+                  run: () => pinView(actionGroup.id, view, !pinned),
+                },
+              ];
+            })
+          : []),
+      ]
+    : [];
   const searchActions: SearchAction[] = [
     ...(currentRepoForActions
       ? agentCatalog.map(({ id: agent }) => ({
           key: 'new-session-' + agent,
-          label: `New ${agentLabel(agent)} session in ${currentRepoForActions.name}`,
-          keywords: 'start chat agent',
+          label: agentMenuLabel(
+            agent,
+            `New ${agentLabel(agent)} chat in ${currentRepoForActions.name}`,
+          ),
+          keywords: 'start chat agent session',
           shortcut: agent === preferredAgent ? shortcutLabel(['mod', 'shift'], 'N') : undefined,
           run: () => startSession(agent, currentRepoForActions),
         }))
       : []),
+    ...chatActions,
+    ...projectToolActions,
+    ...projectPageActions,
     {
       key: 'add-folder',
       label: 'Add a code folder…',
@@ -892,14 +1590,26 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
       label: 'New project…',
       keywords: 'create',
       shortcut: shortcutLabel(['mod'], 'N'),
-      run: () => setCreateOpen(true),
+      run: () => {
+        rememberTrigger();
+        setCreateOpen(true);
+      },
     },
     { key: 'new-task', label: 'New task', keywords: 'issue board', run: newTask },
     {
       key: 'all-sessions',
-      label: 'See all sessions',
-      keywords: 'chats history',
+      label: 'See all chats',
+      keywords: 'sessions history',
       run: openAllSessions,
+    },
+    {
+      key: 'portfolio',
+      label: 'My work across projects',
+      keywords: 'portfolio overview assigned',
+      run: () => {
+        setOverviewTab('my-work');
+        openOverview();
+      },
     },
     {
       key: 'settings',
@@ -915,11 +1625,32 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
       run: () => openSettings('accounts'),
     },
     {
+      key: 'check-updates',
+      label: 'Check for updates',
+      keywords: 'version upgrade',
+      run: () => openSettings('updates'),
+    },
+    {
+      key: 'managed-agents',
+      label: 'Set up managed agents',
+      keywords: 'verdictan runtime governance',
+      run: () => openSettings('managed-agents'),
+    },
+    ...(['light', 'dark', 'system'] as Appearance[]).map((mode) => ({
+      key: 'theme-' + mode,
+      label: `Theme: ${mode[0].toUpperCase() + mode.slice(1)}`,
+      keywords: 'appearance color dark light mode',
+      run: () => setTheme(mode),
+    })),
+    {
       key: 'shortcuts',
       label: 'Keyboard shortcuts',
       keywords: 'keys help',
       shortcut: shortcutLabel(['mod'], '/'),
-      run: () => setShortcutsOpen(true),
+      run: () => {
+        rememberTrigger();
+        setShortcutsOpen(true);
+      },
     },
     {
       key: 'sidebar',
@@ -935,6 +1666,78 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
       run: () => setOnboardingOpen(true),
     },
   ];
+  // The last places, for "Recent" in an empty search. The current place is left out.
+  const [recentRoutes, setRecentRoutes] = useState<WorkspaceRoute[]>([]);
+  useEffect(() => {
+    if (route.kind === 'home') return;
+    setRecentRoutes((list) =>
+      [route, ...list.filter((item) => routeKey(item) !== routeKey(route))].slice(0, 6),
+    );
+  }, [routeKey(route)]);
+  function placeLabel(place: WorkspaceRoute): { label: string; context?: string } | null {
+    if (place.kind === 'sessions') return { label: 'All chats' };
+    if (place.kind === 'home') return { label: 'Projects' };
+    if (place.kind === 'project') {
+      const group = data.groups?.find((g) => g.id === place.groupId);
+      return group ? { label: pageNames[place.page], context: group.name } : null;
+    }
+    if (place.kind === 'repository') {
+      const repo = data.projects.find((p) => p.id === place.repositoryId);
+      return repo
+        ? { label: repo.name, context: data.groups?.find((g) => g.repoIds.includes(repo.id))?.name }
+        : null;
+    }
+    const session = data.sessions.find((s) => sameChat(place.session, s)) || place.session;
+    return {
+      label: session.organization?.title || session.title,
+      context: agentLabel(session.agent),
+    };
+  }
+  const recentPlaces = recentRoutes
+    .filter((place) => routeKey(place) !== routeKey(route))
+    .flatMap((place) => {
+      const label = placeLabel(place);
+      return label
+        ? [
+            {
+              key: routeKey(place),
+              ...label,
+              kind: place.kind,
+              agent: place.kind === 'conversation' ? place.session.agent : undefined,
+              open: () =>
+                place.kind === 'conversation'
+                  ? openConversation(
+                      data.sessions.find((s) => sameChat(place.session, s)) || place.session,
+                    )
+                  : navigate(reconcileRoute(place, data.groups || [], data.projects)),
+            },
+          ]
+        : [];
+    })
+    .slice(0, 5);
+  // With an empty search, these show under "Suggested". They depend on the page.
+  const suggestedKeys = [
+    ...(chatOpen ? ['chat-changes', 'chat-commit', 'chat-link-task'] : []),
+    ...(actionGroup ? ['new-page', 'plan-iteration', 'readiness'] : []),
+    ...(currentRepoForActions ? ['new-session-' + preferredAgent] : []),
+    ...(!data.groups?.length ? ['new-project', 'get-started'] : ['new-task', 'all-sessions']),
+  ];
+  const suggestedActions = suggestedKeys
+    .map((key) => searchActions.find((action) => action.key === key))
+    .filter((action): action is SearchAction => !!action)
+    .slice(0, 6);
+  const settingsButton = (
+    <Button
+      variant="ghost"
+      className={sidebarAction + ' min-w-0 flex-1 font-normal'}
+      aria-description={updates.available ? 'Update available' : undefined}
+      onClick={() => openSettings(updates.available ? 'updates' : 'general')}
+    >
+      <Settings2 />
+      Settings
+      {updates.available && <span className="sidebar-update-dot" aria-hidden="true" />}
+    </Button>
+  );
   const navigationToggle = (
     <Hint label={navigationOpen ? 'Hide sidebar' : 'Show sidebar'}>
       <Button
@@ -969,9 +1772,54 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
     }
   }
   function deleteBranchCopy(repo: Project, branch: string) {
+    rememberTrigger();
     setWorktreeTarget({ id: repo.id, branch, dirty: false });
     openModal('remove-worktree', repo.id);
   }
+  // Branch copies whose pull request is merged. The sidebar offers to delete them, and a
+  // toast asks once for each pull request.
+  const [mergedCopies, setMergedCopies] = useState<Set<string>>(new Set());
+  const checkedPulls = useRef(new Set<string>());
+  useEffect(() => {
+    if (typeof api.pullRequestStatus !== 'function') return;
+    for (const repo of data.projects) {
+      const parent = worktreeParent(repo, data.projects);
+      if (!parent) continue;
+      const pull = data.sessions.find(
+        (s) => sessionRepo(s, data.projects)?.id === repo.id && s.organization?.pullRequest,
+      )?.organization?.pullRequest;
+      if (!pull || checkedPulls.current.has(pull.url)) continue;
+      checkedPulls.current.add(pull.url);
+      const branch = worktreeBranch(repo, parent);
+      Promise.resolve()
+        .then((): Promise<{ state: string }> =>
+          pull.state === 'merged'
+            ? Promise.resolve({ state: 'merged' })
+            : api.pullRequestStatus!(repo.id, pull.url),
+        )
+        .then((status) => {
+          if (status.state !== 'merged') return;
+          setMergedCopies((current) => new Set(current).add(repo.id));
+          const asked = readStored('kalkidan-merged-asked');
+          const list = Array.isArray(asked) ? (asked as string[]) : [];
+          if (list.includes(pull.url)) return;
+          writeStored('kalkidan-merged-asked', [...list, pull.url].slice(-200));
+          showToast({
+            message: `The pull request of ${branch} is merged. You can delete the branch copy.`,
+            actions: [
+              {
+                label: `Delete branch copy ${branch}`,
+                onClick: () => deleteBranchCopy(repo, branch),
+              },
+            ],
+          });
+        })
+        .catch(() => {
+          // Try again on the next refresh.
+          checkedPulls.current.delete(pull.url);
+        });
+    }
+  }, [api, data.projects, data.sessions]);
   return (
     <div
       className={
@@ -1032,20 +1880,41 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
         <div className="topbar-content">
           {!chatOpen && viewTrail.length > 0 && (
             <nav className="topbar-title" aria-label="Breadcrumb">
-              {viewTrail.map((part, index) => (
-                <Fragment key={index}>
-                  {index > 0 && <ChevronRight size={12} aria-hidden="true" />}
-                  <button
-                    type="button"
-                    className="topbar-crumb"
-                    aria-label={part.name}
-                    title={part.label}
-                    onClick={part.open}
-                  >
-                    {part.label}
-                  </button>
-                </Fragment>
-              ))}
+              {viewTrail.map((part, index) => {
+                const last = index === viewTrail.length - 1;
+                return (
+                  <Fragment key={index}>
+                    {index > 0 && (
+                      <ChevronRight
+                        size={12}
+                        aria-hidden="true"
+                        data-optional={viewTrail[index - 1].optional || undefined}
+                      />
+                    )}
+                    {part.open && !last ? (
+                      <button
+                        type="button"
+                        className="topbar-crumb"
+                        data-optional={part.optional || undefined}
+                        aria-label={part.name}
+                        title={part.label}
+                        onClick={part.open}
+                      >
+                        {part.label}
+                      </button>
+                    ) : (
+                      <span
+                        className="topbar-crumb topbar-crumb-current"
+                        data-optional={part.optional || undefined}
+                        aria-current={last ? 'page' : undefined}
+                        title={part.label}
+                      >
+                        {part.label}
+                      </span>
+                    )}
+                  </Fragment>
+                );
+              })}
             </nav>
           )}
           <div id="conversation-titlebar-heading" />
@@ -1070,6 +1939,8 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
           groups={data.groups || []}
           sessions={data.sessions}
           actions={searchActions}
+          suggested={suggestedActions}
+          recent={recentPlaces}
           activity={sessionActivity}
           onProject={(group) => openGroup(group)}
           onDoc={(group, doc) => {
@@ -1091,6 +1962,29 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
             onDocs={(group) => openGroup(group, 'docs')}
             onTasks={(group) => openGroup(group, 'tasks')}
             onMemory={(group) => openGroup(group, 'memory')}
+            onInsights={(group) => openGroup(group, 'insights')}
+            onNewTask={(group) => {
+              openGroup(group, 'tasks');
+              setTimeout(
+                () =>
+                  window.dispatchEvent(
+                    new CustomEvent('kalkidan-new-task', { detail: { forwarded: true } }),
+                  ),
+                60,
+              );
+            }}
+            onProjectSettings={(group) =>
+              openPageThen(group, 'board', 'kalkidan-open-project-settings', {
+                groupId: group.id,
+              })
+            }
+            taskOf={(session) => sessionTask(session, boards)}
+            onOpenTask={(groupId, itemId) => routeEvents.current.openTask({ groupId, itemId })}
+            onSessionCommand={(command, session) => sessionCommand(command, session)}
+            pinnedViews={pinnedViews}
+            onOpenView={openView}
+            onUnpinView={(group, view) => pinView(group.id, view, false)}
+            mergedCopies={mergedCopies}
             onOverview={openOverview}
             overviewCurrent={home}
             onAllSessions={openAllSessions}
@@ -1098,6 +1992,7 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
             onEditRepository={editRepository}
             onDeleteBranchCopy={deleteBranchCopy}
             onNewSession={(agent, repo) => startSession(agent, repo)}
+            preferredAgent={preferredAgent}
             onConnect={(group) => connectTracker(group)}
             openChats={openChats}
             onCloseChat={(session) =>
@@ -1153,21 +2048,21 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
             </Button>
           )}
           <div className="sidebar-footer-row">
-            <Button
-              variant="ghost"
-              className={sidebarAction + ' min-w-0 flex-1 font-normal'}
-              onClick={() => openSettings()}
-            >
-              <Settings2 />
-              Settings
-            </Button>
+            {updates.available ? (
+              <Hint label={updates.label || 'Update available'}>{settingsButton}</Hint>
+            ) : (
+              settingsButton
+            )}
             <Hint label={`Keyboard shortcuts (${shortcutLabel(['mod'], '/')})`}>
               <Button
                 variant="ghost"
                 size="icon-sm"
                 className="text-muted-foreground"
                 aria-label="Keyboard shortcuts"
-                onClick={() => setShortcutsOpen(true)}
+                onClick={() => {
+                  rememberTrigger();
+                  setShortcutsOpen(true);
+                }}
               >
                 <Keyboard />
               </Button>
@@ -1208,16 +2103,29 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
                     sessions={data.sessions}
                     query=""
                     activity={sessionActivity}
+                    boards={boards}
+                    tab={overviewTab}
+                    onTabChange={setOverviewTab}
                     onRefresh={refresh}
                     onSelect={(group) => openGroup(group)}
                     onResume={openConversation}
                     onAllSessions={openAllSessions}
                   />
                 ) : sessionsPage ? (
-                  <section className="page" aria-label="All sessions">
+                  <section className="page" aria-label="All chats">
                     <PageHeader
-                      title="All sessions"
+                      title="All chats"
                       subtitle="The agent chats of every project. Use the filters to find one."
+                      actions={
+                        <SearchInput
+                          size="sm"
+                          className="repository-session-filter"
+                          aria-label="Filter chats"
+                          placeholder="Filter chats"
+                          value={allChatsFilter}
+                          onChange={(event) => setAllChatsFilter(event.target.value)}
+                        />
+                      }
                     />
                     <SessionBrowser
                       api={api}
@@ -1225,43 +2133,59 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
                       activity={sessionActivity}
                       storageKey="all-sessions"
                       sessions={data.sessions.filter((s) => !!sessionRepo(s, data.projects))}
+                      query={allChatsFilter}
                       busy={sessionBusy}
                       placeOf={placeOf}
+                      taskOf={(session) => sessionTask(session, boards)}
+                      onOpenTask={openSessionTask}
                       onResume={openConversation}
                       onUpdate={updateSession}
                     />
                   </section>
-                ) : boardGroup && data.groups?.find((g) => g.id === boardGroup) ? (
-                  projectPage === 'memory' ? (
-                    <ProjectMemoryPanel
-                      key={boardGroup}
-                      api={api}
-                      group={data.groups.find((g) => g.id === boardGroup)!}
-                    />
-                  ) : projectPage === 'docs' ? (
-                    <ProjectDocsPanel
-                      key={boardGroup}
-                      initialPageId={searchTarget.page}
-                      api={api}
-                      group={data.groups.find((g) => g.id === boardGroup)!}
-                    />
+                ) : boardGroup && currentGroup ? (
+                  projectPage === 'memory' || projectPage === 'docs' ? (
+                    <>
+                      <ProjectTabs
+                        groupId={currentGroup.id}
+                        page={projectPage}
+                        className="project-page-tabs"
+                      />
+                      {projectPage === 'memory' ? (
+                        <ProjectMemoryPanel
+                          key={boardGroup}
+                          api={api}
+                          group={currentGroup}
+                          sessions={data.sessions}
+                          initialTopic={searchTarget.topic}
+                        />
+                      ) : (
+                        <ProjectDocsPanel
+                          key={boardGroup}
+                          initialPageId={searchTarget.page}
+                          initialHeading={searchTarget.heading}
+                          api={api}
+                          group={currentGroup}
+                        />
+                      )}
+                    </>
                   ) : (
                     <ProjectTrackerPanel
                       initialTaskId={searchTarget.task}
                       connectRequested={connectRequest === boardGroup}
                       onConnectHandled={() => setConnectRequest(null)}
                       key={boardGroup}
-                      // The project row opens the overview. The Tasks row opens the board.
-                      page={projectPage === 'tasks' ? 'tasks' : 'overview'}
-                      onPageChange={(page) => setProjectPage(page === 'tasks' ? 'tasks' : 'board')}
+                      // The project row opens the overview. The Tasks row opens the tasks, also
+                      // without a board: the page then offers to connect one.
+                      page={projectPage as ComponentProps<typeof ProjectTrackerPanel>['page']}
+                      onPageChange={(page) =>
+                        setProjectPage(page === 'overview' ? 'board' : (page as ProjectPage))
+                      }
                       revision={revision}
                       api={api}
                       sessions={data.sessions}
                       onResume={openConversation}
-                      group={data.groups.find((g) => g.id === boardGroup)!}
-                      repos={data.projects.filter((p) =>
-                        data.groups!.find((g) => g.id === boardGroup)!.repoIds.includes(p.id),
-                      )}
+                      group={currentGroup}
+                      repos={data.projects.filter((p) => currentGroup.repoIds.includes(p.id))}
                       onRefresh={refresh}
                       onRepo={openProject}
                       onTask={(repo, agent, task) => newSession(agent, repo, task)}
@@ -1269,10 +2193,8 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
                       onNewSession={(repo, agent) => startSession(agent, repo)}
                       onOpenSession={openConversation}
                       onOpenDocs={(pageId) => {
-                        const group = data.groups?.find((g) => g.id === boardGroup);
-                        if (!group) return;
                         setSearchTarget({ page: pageId });
-                        openGroup(group, 'docs');
+                        openGroup(currentGroup, 'docs');
                       }}
                       onAllSessions={openAllSessions}
                     />
@@ -1359,14 +2281,14 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
                               },
                             ]}
                           />
-                          <div className="split-button" role="group" aria-label="New session">
+                          <div className="split-button" role="group" aria-label="New chat">
                             <Button
                               className="rounded-r-none"
-                              aria-label={`New ${agentLabel(preferredAgent)} session`}
+                              aria-label={`New ${agentLabel(preferredAgent)} chat`}
                               onClick={() => startSession(preferredAgent)}
                             >
                               <Plus />
-                              New {agentLabel(preferredAgent)} session
+                              New {agentLabel(preferredAgent)} chat
                             </Button>
                             <DropdownMenu>
                               <Hint label="Choose an agent">
@@ -1384,12 +2306,23 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
                                 {agentCatalog.map(({ id: agent }) => (
                                   <DropdownMenuItem
                                     key={agent}
+                                    disabled={!agentInstalled(agent)}
+                                    title={
+                                      agentInstalled(agent)
+                                        ? undefined
+                                        : `Install ${agentLabel(agent)} in Settings › Agents`
+                                    }
                                     onSelect={() => startSession(agent)}
                                   >
                                     <AgentIcon agent={agent} />
-                                    New {agentLabel(agent)} session
+                                    {agentMenuLabel(agent, `New ${agentLabel(agent)} chat`)}
                                   </DropdownMenuItem>
                                 ))}
+                                {agentCatalog.some(({ id }) => !agentInstalled(id)) && (
+                                  <DropdownMenuItem onSelect={() => openSettings('agents')}>
+                                    Install agents in Settings…
+                                  </DropdownMenuItem>
+                                )}
                               </DropdownMenuContent>
                             </DropdownMenu>
                           </div>
@@ -1399,18 +2332,18 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
                     <div className="repository-overview">
                       <section
                         className="repository-overview-section"
-                        aria-label="Repository sessions"
+                        aria-label="Code folder chats"
                       >
                         <SectionHeader
-                          title="Sessions"
+                          title="Chats"
                           count={sessions.length}
                           actions={
                             sessions.length > 0 && (
                               <SearchInput
                                 size="sm"
                                 className="repository-session-filter"
-                                aria-label="Filter sessions"
-                                placeholder="Filter sessions"
+                                aria-label="Filter chats"
+                                placeholder="Filter chats"
                                 value={sessionFilter}
                                 onChange={(event) => setSessionFilter(event.target.value)}
                               />
@@ -1425,7 +2358,7 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
                       >
                         <SectionHeader
                           title="Branch copies"
-                          count={git?.worktrees.length}
+                          count={git ? Math.max(0, git.worktrees.length - 1) : undefined}
                           actions={
                             <>
                               <Hint label="Refresh branch copies">
@@ -1473,12 +2406,14 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
                               return (
                                 <div className="worktree list-row" key={tree.path}>
                                   <EntityIcon className="mt-0.5">
-                                    <GitBranch />
+                                    {linked ? <FolderGit2 /> : <GitBranch />}
                                   </EntityIcon>
                                   <div className="worktree-text">
-                                    <strong title={tree.branch}>{tree.branch}</strong>
+                                    <strong title={tree.branch}>
+                                      {linked ? tree.branch : `Main folder · ${tree.branch}`}
+                                    </strong>
                                     <span className="worktree-path" title={tree.path}>
-                                      {here ? 'This folder' : tree.path}
+                                      {tree.path}
                                     </span>
                                     <div className="worktree-sessions">
                                       {worktreeSessions(
@@ -1516,7 +2451,7 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
                                   </div>
                                   {here && (
                                     <Badge variant="secondary" size="sm">
-                                      Open now
+                                      Current
                                     </Badge>
                                   )}
                                   <ActionMenu
@@ -1524,12 +2459,30 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
                                     label={`${tree.branch} branch copy actions`}
                                     items={[
                                       ...agentCatalog.map(({ id: agent }) => ({
-                                        label: `New ${agentLabel(agent)} session`,
+                                        label: agentMenuLabel(
+                                          agent,
+                                          `New ${agentLabel(agent)} chat`,
+                                        ),
+                                        disabled: !agentInstalled(agent),
+                                        reason: `Install ${agentLabel(agent)} in Settings › Agents.`,
                                         action: () =>
                                           treeRepo
                                             ? startSession(agent, treeRepo)
                                             : startSession(agent, project, tree.path),
                                       })),
+                                      ...(linked && treeRepo && pullRequestOf(treeRepo)
+                                        ? [
+                                            {
+                                              label: 'Open pull request',
+                                              action: () =>
+                                                window.open(
+                                                  pullRequestOf(treeRepo)!.url,
+                                                  '_blank',
+                                                  'noreferrer',
+                                                ),
+                                            },
+                                          ]
+                                        : []),
                                       ...(linked && treeRepo
                                         ? [
                                             {
@@ -1630,6 +2583,7 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
                   projects={data.projects}
                   projectGroups={data.groups}
                   sessions={data.sessions}
+                  initialTabs={restoredChats}
                   selected={chatSession}
                   returnLabel={
                     boardGroup
@@ -1654,7 +2608,13 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
         </div>
       </main>
       <Toaster />
-      <ShortcutsSheet open={shortcutsOpen} onOpenChange={setShortcutsOpen} />
+      <ShortcutsSheet
+        open={shortcutsOpen}
+        onOpenChange={(open) => {
+          setShortcutsOpen(open);
+          if (!open) returnFocus();
+        }}
+      />
       {onboardingOpen && (
         <Onboarding
           api={api}
@@ -1686,15 +2646,22 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
       <CreateProject
         api={api}
         open={createOpen}
-        onOpenChange={setCreateOpen}
+        onOpenChange={(open) => {
+          setCreateOpen(open);
+          if (!open) returnFocus();
+        }}
         onCreated={async (group) => {
+          dialogTrigger.current = null;
           await refresh();
           openGroup(group);
         }}
       />
       <SettingsDialog
         open={settingsOpen}
-        onOpenChange={setSettingsOpen}
+        onOpenChange={(open) => {
+          setSettingsOpen(open);
+          if (!open) returnFocus();
+        }}
         section={settingsSection as SettingsSectionId}
         anchor={settingsAnchor}
         api={api}
@@ -1705,6 +2672,7 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
         <DialogContent
           size={shownModal === 'remove' || shownModal === 'remove-worktree' ? 'sm' : 'md'}
           layout={shownModal === 'edit' ? 'scroll' : 'simple'}
+          onCloseAutoFocus={restoreTriggerFocus}
         >
           <DialogHeader>
             <DialogTitle>

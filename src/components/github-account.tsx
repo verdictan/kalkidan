@@ -3,6 +3,7 @@ import { Copy, ExternalLink, RefreshCw } from 'lucide-react';
 import type { API, GitHubAuthState, GitHubCliStatus } from '../types';
 import { trackerAuthPending } from '../domain/tracker';
 import { interfaceConfig } from '../config/interface';
+import { Badge } from './ui/badge';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { EntityIcon } from './ui/entity-icon';
@@ -329,9 +330,9 @@ function AccountRow({
         {children}
       </div>
       <div className="flex shrink-0 items-center gap-3">
-        <span className={cn('text-xs', ready ? 'text-success' : 'text-muted-foreground')}>
+        <Badge variant={ready ? 'success' : 'muted'} size="sm">
           {status}
-        </span>
+        </Badge>
         {action}
       </div>
     </li>

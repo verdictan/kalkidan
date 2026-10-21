@@ -1,5 +1,5 @@
 import { constants } from 'node:fs';
-import { lstat, open, readdir, realpath, rename, rm } from 'node:fs/promises';
+import { lstat, mkdir, open, readdir, readFile, realpath, rename, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import { writeJSON } from './atomic-json';
@@ -155,6 +155,64 @@ export class ManagedMemory {
     return withDirectoryLock(directory, async () =>
       (await this.load(directory)).map(({ entry }) => entry),
     );
+  }
+  /**
+   * Marks an entry as wrong. The file moves to the `.forgotten` folder, so agents no longer get
+   * it, and `.forgotten/log.json` keeps a record. Rejects when the entry changed.
+   */
+  async forget(id: string, revision: string) {
+    if (typeof id !== 'string' || !/^[a-f0-9]{64}$/.test(id) || typeof revision !== 'string')
+      throw new Error('Invalid memory entry.');
+    const directory = await this.directory();
+    const action = (queues.get(directory) || Promise.resolve())
+      .catch(() => {})
+      .then(() =>
+        withDirectoryLock(directory, async (assertOwned) => {
+          const found = (await this.load(directory)).find(({ entry }) => entry.id === id);
+          if (!found) throw new Error('Memory entry not found. Reload memory.');
+          if (found.entry.revision !== revision)
+            throw new Error('This memory entry changed. Reload memory and try again.');
+          const archive = join(directory, '.forgotten');
+          await mkdir(archive, { recursive: true, mode: 0o700 });
+          if ((await lstat(archive)).isSymbolicLink())
+            throw new Error('Memory archive cannot be a symbolic link.');
+          const date = this.now();
+          const name = date.replace(/[^0-9]/g, '').slice(0, 17) + '-' + found.name;
+          const logFile = join(archive, 'log.json');
+          let log: unknown[] = [];
+          try {
+            const value = JSON.parse(await readFile(logFile, 'utf8'));
+            if (Array.isArray(value)) log = value.slice(-499);
+          } catch (error: any) {
+            if (error.code !== 'ENOENT' && !(error instanceof SyntaxError)) throw error;
+          }
+          assertOwned();
+          await rename(join(directory, found.name), join(archive, name));
+          await writeJSON(logFile, [
+            ...log,
+            {
+              id,
+              topic: found.entry.topic,
+              revision,
+              file: name,
+              forgottenAt: date,
+              sessionId: found.entry.source.sessionId || undefined,
+            },
+          ]);
+          const index = await this.index(directory);
+          if (id in index) {
+            delete index[id];
+            await writeJSON(join(directory, '.managed-index.json'), index);
+          }
+          this.changed();
+        }),
+      );
+    queues.set(directory, action);
+    try {
+      return await action;
+    } finally {
+      if (queues.get(directory) === action) queues.delete(directory);
+    }
   }
   async read(id: string) {
     const entry = (await this.list()).find((value) => value.id === id);
@@ -368,4 +426,9 @@ export class ManagedMemory {
       if (queues.get(directory) === action) queues.delete(directory);
     }
   }
+}
+
+/** Memory of a project root for the UI. It reads and forgets entries. It cannot save them. */
+export function projectMemory(root: string, changed?: () => void) {
+  return new ManagedMemory({ root, sessionId: '', turnId: '', sources: () => [] }, changed);
 }

@@ -601,7 +601,7 @@ runtime, and SSH helper versions.
 To update the desktop app:
 
 1. Open **Settings > Updates**.
-2. Select **Download Kalkidan VERSION**. Kalkidan downloads the release file for
+2. On the **Kalkidan** card, select **Download VERSION**. Kalkidan downloads the release file for
    this computer and shows the progress.
 3. Kalkidan compares the file with the published `SHA256SUMS.txt` file and the
    GitHub asset digest. A file that does not match is deleted.

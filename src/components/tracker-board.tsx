@@ -1,11 +1,22 @@
-import { StatusIcon, trackerColumns } from './tracker-list';
-import { ChevronDown, MessageSquare, Plus } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import {
+  StatusIcon,
+  TaskChats,
+  TaskCheckbox,
+  TaskStartButton,
+  linkedChats,
+  selectionClick,
+  selectionKeys,
+  taskKeys,
+  trackerColumns,
+  type TaskWorkProps,
+} from './tracker-list';
+import { ChevronDown, Plus } from 'lucide-react';
+import { useEffect, useRef, useState, type ReactNode, type RefObject } from 'react';
 import { pathBasename, plural } from '../lib/platform';
 import type { TrackerBoard, TrackerItem, Session } from '../types';
 import { Card, CardContent } from './ui/card';
 import { Button } from './ui/button';
-import { Badge } from './ui/badge';
+import { EmptyState } from './ui/empty-state';
 import {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -14,30 +25,38 @@ import {
   DropdownMenuItem,
 } from './ui/dropdown-menu';
 
-export function TrackerBoard({
-  board,
-  items,
-  busy,
-  sessions,
-  onOpen,
-  onCreate,
-  onStatus,
+/** The heading of a board column: status icon, name, task count and an optional action. */
+export function BoardColumnHeading({
+  name,
+  count,
+  icon,
+  action,
 }: {
-  board: TrackerBoard;
-  items: TrackerItem[];
-  busy: boolean;
-  sessions: Session[];
-  onOpen: (item: TrackerItem) => void;
-  onCreate?: (status: string) => void;
-  onStatus: (item: TrackerItem, status: string) => void;
+  name: string;
+  count: number;
+  icon?: ReactNode;
+  action?: ReactNode;
 }) {
-  const [dragged, setDragged] = useState<string | null>(null);
-  const [over, setOver] = useState<string | null>(null);
-  const [announcement, setAnnouncement] = useState('');
-  const options = board.statusField?.options || [];
-  const columns = trackerColumns(board);
-  // Columns that do not fit scroll sideways. A faded edge shows that more columns are there.
-  const scroller = useRef<HTMLDivElement>(null);
+  return (
+    <div className="tracker-column-heading">
+      {icon ?? <StatusIcon name={name} />}
+      <h4 className="truncate" title={name}>
+        {name}
+      </h4>
+      <span>
+        <span aria-hidden="true">{count}</span>
+        <span className="sr-only">{plural(count, 'task')}</span>
+      </span>
+      {action}
+    </div>
+  );
+}
+
+/**
+ * Columns that do not fit scroll sideways. A faded edge shows that more columns are there.
+ * Returns the data attributes for the scrolling element.
+ */
+export function useScrollShadow(scroller: RefObject<HTMLElement | null>, key: unknown) {
   const [overflow, setOverflow] = useState({ start: false, end: false });
   useEffect(() => {
     const element = scroller.current;
@@ -57,17 +76,50 @@ export function TrackerBoard({
       observer.disconnect();
       element.removeEventListener('scroll', measure);
     };
-  }, [columns.length]);
+  }, [scroller, key]);
+  return {
+    'data-overflow-start': overflow.start || undefined,
+    'data-overflow-end': overflow.end || undefined,
+  };
+}
+
+export function TrackerBoard({
+  board,
+  items,
+  busy,
+  sessions,
+  onOpen,
+  onCreate,
+  onStatus,
+  ...work
+}: {
+  board: TrackerBoard;
+  items: TrackerItem[];
+  busy: boolean;
+  sessions: Session[];
+  onOpen: (item: TrackerItem) => void;
+  onCreate?: (status: string) => void;
+  onStatus: (item: TrackerItem, status: string) => void;
+} & TaskWorkProps) {
+  const [dragged, setDragged] = useState<string | null>(null);
+  const [over, setOver] = useState<string | null>(null);
+  const [announcement, setAnnouncement] = useState('');
+  const options = board.statusField?.options || [];
+  const columns = trackerColumns(board);
+  const scroller = useRef<HTMLDivElement>(null);
+  const shadow = useScrollShadow(scroller, columns.length);
+  const { selection } = work;
   return (
     <div
       ref={scroller}
       className="tracker-board"
-      data-overflow-start={overflow.start || undefined}
-      data-overflow-end={overflow.end || undefined}
+      {...shadow}
+      data-selecting={selection?.ids.size ? true : undefined}
       role="region"
       aria-label="Tracker board"
       aria-busy={busy}
       tabIndex={0}
+      onKeyDown={selectionKeys(selection)}
     >
       <span className="sr-only" role="status">
         {announcement}
@@ -106,52 +158,53 @@ export function TrackerBoard({
             aria-label={`${column.name} column`}
             className="tracker-column"
           >
-            <div className="tracker-column-heading">
-              <StatusIcon name={column.name} />
-              <h4>{column.name}</h4>
-              <span>
-                <span aria-hidden="true">{tasks.length}</span>
-                <span className="sr-only">{plural(tasks.length, 'task')}</span>
-              </span>
-              {onCreate && (
-                <Button
-                  variant="ghost"
-                  size="icon-xs"
-                  className="tracker-column-add"
-                  aria-label={`New task in ${column.name}`}
-                  disabled={busy}
-                  onClick={() => onCreate(column.id)}
-                >
-                  <Plus size={14} />
-                </Button>
-              )}
-            </div>
+            <BoardColumnHeading
+              name={column.name}
+              count={tasks.length}
+              action={
+                onCreate && (
+                  <Button
+                    variant="ghost"
+                    size="icon-xs"
+                    className="tracker-column-add"
+                    aria-label={`New task in ${column.name}`}
+                    disabled={busy}
+                    onClick={() => onCreate(column.id)}
+                  >
+                    <Plus size={14} />
+                  </Button>
+                )
+              }
+            />
             <div
               className="tracker-column-items"
               role={tasks.length ? 'list' : undefined}
               aria-label={tasks.length ? `${column.name} tasks` : undefined}
             >
               {tasks.map((item) => {
-                const count = sessions.filter(
-                  (session) =>
-                    !session.organization?.archived && session.organization?.taskId === item.id,
-                ).length;
+                const chats = linkedChats(sessions, item.id);
                 const statusName =
                   options.find((option) => option.id === item.statusId)?.name || 'No status';
+                const selected = !!selection?.ids.has(item.id);
                 return (
                   // The title button is the only focus stop that opens the task. A
                   // pointer click on the card body also opens it. The status pill moves
-                  // the task without drag and drop.
+                  // the task without drag and drop. Shift or ⌘ with a click selects.
                   <Card
                     key={item.id}
                     role="listitem"
+                    data-selected={selected || undefined}
+                    onKeyDown={taskKeys(item, work)}
                     onClick={(event) => {
-                      if (!(event.target as HTMLElement).closest('button, a, [role="menuitem"]'))
-                        onOpen(item);
+                      if (
+                        (event.target as HTMLElement).closest('button, a, input, [role="menuitem"]')
+                      )
+                        return;
+                      if (!selectionClick(event, item, selection)) onOpen(item);
                     }}
                     draggable={!busy && !!board.statusField}
                     onDragStart={(event) => {
-                      if ((event.target as HTMLElement).closest('button, [role="combobox"]')) {
+                      if ((event.target as HTMLElement).closest('button, a, input')) {
                         event.preventDefault();
                         return;
                       }
@@ -167,20 +220,25 @@ export function TrackerBoard({
                     className="tracker-task gap-0 has-[.tracker-task-title:focus-visible]:shadow-[var(--focus-ring)]"
                   >
                     <CardContent className="flex flex-col items-start gap-1 p-0">
+                      {selection && <TaskCheckbox item={item} selection={selection} />}
                       <Button
                         variant="bare"
                         className="tracker-task-title max-w-full px-0 text-left text-sm leading-5 font-medium whitespace-normal break-words focus-visible:ring-0"
-                        onClick={() => onOpen(item)}
+                        data-task-focus={item.id}
+                        aria-keyshortcuts={work.onStart ? 'S' : undefined}
+                        onClick={(event) => {
+                          if (!selectionClick(event, item, selection)) onOpen(item);
+                        }}
                       >
                         {item.title}
                       </Button>
                       <p className="tracker-task-meta">
                         {item.repository
                           ? pathBasename(item.repository)
-                          : 'Not linked to a repository'}
+                          : 'Not linked to a GitHub repository'}
                         {item.number ? ` #${item.number}` : ''}
                       </p>
-                      {(board.statusField || count > 0) && (
+                      {(board.statusField || chats.length > 0 || work.onStart) && (
                         <div className="tracker-task-footer">
                           {board.statusField && (
                             <DropdownMenu>
@@ -212,11 +270,13 @@ export function TrackerBoard({
                               </DropdownMenuContent>
                             </DropdownMenu>
                           )}
-                          {count > 0 && (
-                            <Badge variant="outline" size="sm">
-                              <MessageSquare size={12} />
-                              {plural(count, 'linked session')}
-                            </Badge>
+                          <TaskChats
+                            chats={chats}
+                            activity={work.activity}
+                            onOpenChat={work.onOpenChat}
+                          />
+                          {work.onStart && (
+                            <TaskStartButton item={item} onStart={() => work.onStart?.(item)} />
                           )}
                         </div>
                       )}
@@ -224,7 +284,11 @@ export function TrackerBoard({
                   </Card>
                 );
               })}
-              {!tasks.length && <p className="tracker-column-empty">No tasks</p>}
+              {!tasks.length && (
+                <EmptyState compact className="tracker-column-empty">
+                  No tasks
+                </EmptyState>
+              )}
             </div>
           </section>
         );

@@ -15,6 +15,9 @@ const badgeVariants = cva(
           'border-border text-foreground [a&]:hover:bg-accent [a&]:hover:text-accent-foreground',
         ghost: '[a&]:hover:bg-accent [a&]:hover:text-accent-foreground',
         link: 'text-primary underline-offset-4 [a&]:hover:underline',
+        success: 'bg-[color-mix(in_srgb,var(--success)_16%,transparent)] text-success',
+        warning: 'bg-[color-mix(in_srgb,var(--warning)_18%,transparent)] text-warning',
+        muted: 'bg-secondary text-muted-foreground',
       },
       size: {
         // sm 20px for tags in rows, md 24px for status badges.

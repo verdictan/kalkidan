@@ -2,18 +2,25 @@ import { test, expect } from '@playwright/test';
 
 test('Memory is beneath Docs and opens a read-only project page', async ({ page }) => {
   await page.goto('/');
-  const docs = page.getByRole('button', { name: 'Docs', exact: true });
-  const memory = page.getByRole('button', { name: 'Memory', exact: true });
+  const tree = page.getByRole('navigation', { name: 'Projects and repositories' });
+  const docs = tree.getByRole('button', { name: 'Docs', exact: true });
+  const memory = tree.getByRole('button', { name: 'Memory', exact: true });
   const docsBox = await docs.boundingBox();
   const memoryBox = await memory.boundingBox();
   expect(memoryBox!.y).toBeGreaterThan(docsBox!.y);
   await memory.click();
   const panel = page.getByRole('region', { name: 'Project memory', exact: true });
-  await expect(panel.getByRole('heading', { name: 'Atlas memory' })).toBeVisible();
-  await expect(panel.getByRole('heading', { name: 'No project memory yet' })).toBeVisible();
+  await expect(panel.getByRole('heading', { name: 'Memory', exact: true })).toBeVisible();
+  await expect(panel.locator('header').first()).toContainText('Atlas');
+  // The demo has saved entries. The page shows them by topic and has no text fields.
+  const topics = panel.getByRole('navigation', { name: 'Memory topics' });
+  await expect(topics.getByRole('button', { name: 'Testing', exact: true })).toBeVisible();
+  await expect(panel.getByRole('article', { name: 'Testing' })).toContainText('npm run test:ui');
   await expect(panel.getByRole('textbox')).toHaveCount(0);
   await panel.getByRole('button', { name: 'Refresh memory' }).click();
-  await expect(panel.getByRole('heading', { name: 'No project memory yet' })).toBeVisible();
+  await topics.getByRole('button', { name: 'Authentication', exact: true }).click();
+  await expect(panel.getByRole('article', { name: 'Authentication' })).toBeVisible();
+  await expect(panel.getByRole('textbox')).toHaveCount(0);
   await docs.click();
   await expect(page.getByRole('complementary', { name: 'Document pages' })).toBeVisible();
 });
@@ -103,7 +110,9 @@ test('late Memory reads cannot display content in another project', async ({ pag
     .poll(() => page.evaluate(() => typeof (window as any).resolveAlpha))
     .toBe('function');
   await page.getByRole('button', { name: 'Memory', exact: true }).nth(1).click();
-  await expect(page.getByRole('heading', { name: 'Beta memory' })).toBeVisible();
+  const panel = page.getByRole('region', { name: 'Project memory', exact: true });
+  await expect(panel.getByRole('heading', { name: 'Memory', exact: true })).toBeVisible();
+  await expect(panel.locator('header').first()).toContainText('Beta');
   await expect(page.getByRole('alert')).toContainText('Beta is offline');
   await page.evaluate(() =>
     (window as any).resolveAlpha({

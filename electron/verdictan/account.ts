@@ -265,6 +265,11 @@ export function parseAccount(data: Record<string, unknown>, apiOrigin: string): 
     organizationId: (data.organization_id as string | undefined) || undefined,
     apiUrl: apiOrigin,
     expiresAt: (data.expires_at as string | undefined) || undefined,
+    // A name that is only an ID stays missing. The UI then shows a generic label.
+    ...(serviceName(data.organization_name)
+      ? { organizationName: serviceName(data.organization_name) }
+      : {}),
+    ...(text(data.user_email) ? { userEmail: data.user_email } : {}),
   };
 }
 const sessionOperations = new Set([

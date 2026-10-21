@@ -1,100 +1,141 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { API, TrackerBoard } from '../types';
 import type { TaskUsageHistory } from '../domain/conversation';
+import { evidenceStateLabel, runPhaseLabel } from '../domain/planning-labels';
+import { fullTime } from '../lib/relative-time';
 import { Button } from './ui/button';
+import { EmptyState } from './ui/empty-state';
+import { SectionHeader } from './ui/page-header';
+import { ErrorAlert, ReviewRow, ToolSection, FormSelect } from './planning-kit';
 import { errorMessage } from '../lib/errors';
+
+const unknown = (value: string | null) => value ?? 'Unknown';
+
+/** Saved usage and policy records of the managed-agent runs of one task. */
 export function TaskUsageHistoryPanel({
   api,
   groupId,
   board,
+  initialTaskId,
 }: {
   api: API;
   groupId: string;
   board: TrackerBoard;
+  /** Selects this task, loads its runs and scrolls the section into view. */
+  initialTaskId?: string;
 }) {
-  const [open, setOpen] = useState(false);
   const [task, setTask] = useState(''),
     [history, setHistory] = useState<TaskUsageHistory[]>(),
     [busy, setBusy] = useState(false),
     [error, setError] = useState('');
+  const section = useRef<HTMLElement>(null);
+  function load(id: string) {
+    setTask(id);
+    setHistory(undefined);
+    if (!id) return;
+    setBusy(true);
+    setError('');
+    void api
+      .taskUsageHistory(groupId, id)
+      .then(setHistory)
+      .catch((failure) => setError(errorMessage(failure)))
+      .finally(() => setBusy(false));
+  }
+  // A usage chip of a chat opens Insights at its task.
+  useEffect(() => {
+    if (!initialTaskId || !board.items.some((item) => item.id === initialTaskId)) return;
+    load(initialTaskId);
+    const element = section.current;
+    element?.scrollIntoView({ block: 'start', behavior: 'smooth' });
+    element?.querySelector<HTMLElement>('[role="combobox"]')?.focus({ preventScroll: true });
+    // Only a new task ID selects again. Board refreshes keep the user's choice.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialTaskId]);
   return (
-    <details className="border-t py-3" onToggle={(event) => setOpen(event.currentTarget.open)}>
-      <summary>Task usage and policy history</summary>
-      {open && (
-        <div className="grid gap-3 py-3">
-          <label>
-            Task{' '}
-            <select
-              aria-label="History task"
-              value={task}
-              disabled={busy}
-              onChange={(event) => {
-                setTask(event.target.value);
-                setHistory(undefined);
-              }}
+    <section ref={section} aria-labelledby="usage-title" className="grid gap-3">
+      <SectionHeader
+        title={<span id="usage-title">Usage</span>}
+        actions={
+          task ? (
+            <Button size="sm" variant="ghost" disabled={busy} onClick={() => load(task)}>
+              Refresh
+            </Button>
+          ) : undefined
+        }
+      />
+      <p className="form-help">
+        The usage and policy records that this computer saved for managed-agent runs. Kalkidan keeps
+        the last 100 runs. A missing value is unknown. This is not a bill.
+      </p>
+      <label className="form-label max-w-[360px]">
+        Task
+        <FormSelect
+          label="Task"
+          className="w-full"
+          value={task}
+          disabled={busy}
+          onChange={load}
+          options={board.items.map((item) => ({ value: item.id, label: item.title }))}
+        />
+      </label>
+      <ErrorAlert>{error}</ErrorAlert>
+      {busy && <p className="form-help">Loading runs…</p>}
+      {history?.length === 0 && (
+        <EmptyState compact>No saved runs for this task and account.</EmptyState>
+      )}
+      {!!history?.length && (
+        <div className="review-list">
+          {history.map((run, runIndex) => (
+            <ReviewRow
+              key={run.runId}
+              // Run and host IDs are internal. Show the run number and the kind of host.
+              title={`Run ${runIndex + 1} on ${run.hostId ? 'an SSH host' : 'this computer'}`}
+              meta={`Updated ${fullTime(new Date(run.updatedAt).toISOString())}`}
+              status={runPhaseLabel(run.phase)}
             >
-              <option value="">Select a task</option>
-              {board.items.map((item) => (
-                <option key={item.id} value={item.id}>
-                  {item.title}
-                </option>
-              ))}
-            </select>
-          </label>
-          <Button
-            disabled={!task || busy}
-            onClick={() => {
-              setBusy(true);
-              setError('');
-              void api
-                .taskUsageHistory(groupId, task)
-                .then(setHistory)
-                .catch((failure) => setError(errorMessage(failure)))
-                .finally(() => setBusy(false));
-            }}
-          >
-            Load saved evidence
-          </Button>
-          <p className="help-text">
-            Saved observations from this desktop. Up to 20 revisions per run and 100 recent runs.
-            Missing usage is unknown. This view is not a complete billing ledger.
-          </p>
-          {history?.map((run, runIndex) => (
-            <article key={run.runId} className="grid gap-2 border-t py-3">
-              <strong>
-                Run {runIndex + 1} · {run.phase} · {run.hostId ? 'SSH host' : 'This machine'}
-              </strong>
-              {!run.evidence.length && <p>No governance evidence was captured.</p>}
+              {!run.evidence.length && (
+                <p className="text-xs leading-4 text-muted-foreground">
+                  Kalkidan saved no usage records for this run.
+                </p>
+              )}
               {run.evidence.map((snapshot, index) => (
-                <details key={index} open={index === run.evidence.length - 1}>
-                  <summary>
-                    {new Date(snapshot.observedAt).toLocaleString()} · {snapshot.value.status}
-                    {snapshot.value.finalized ? ' · Finalized' : ''}
-                  </summary>
-                  {snapshot.value.requests.map((request, requestIndex) => (
-                    <div key={request.id} className="py-2">
-                      <p>Request {requestIndex + 1}</p>
-                      <p>
-                        Policy: {request.policy ?? 'Unknown'} · usage: {request.usage ?? 'Unknown'}
-                      </p>
-                      <p>
-                        Cost:{' '}
+                <ToolSection
+                  key={index}
+                  defaultOpen={index === run.evidence.length - 1}
+                  title={fullTime(new Date(snapshot.observedAt).toISOString())}
+                  aside={
+                    <span className="text-xs text-muted-foreground">
+                      {evidenceStateLabel(snapshot.value.status)}
+                      {snapshot.value.finalized ? ' · Final' : ''}
+                    </span>
+                  }
+                >
+                  {snapshot.value.requests.map((request) => (
+                    <dl key={request.id} className="meta-list">
+                      <dt>Policy</dt>
+                      <dd>{unknown(request.policy)}</dd>
+                      <dt>Usage</dt>
+                      <dd>{unknown(request.usage)}</dd>
+                      <dt>Cost</dt>
+                      <dd>
                         {request.billing === 'subscription'
                           ? 'Paid by your subscription. Provider charge is not known.'
-                          : `${request.actualCost ?? 'Unknown'} ${request.currency ?? ''}`}{' '}
-                        · tokens: {request.tokens ?? 'Unknown'}
-                      </p>
-                      <p>Audit: {request.audit ?? 'Unknown'}</p>
-                    </div>
+                          : request.actualCost === null
+                            ? 'Unknown'
+                            : `${request.actualCost} ${request.currency ?? ''}`.trim()}
+                      </dd>
+                      <dt>Tokens</dt>
+                      <dd>{unknown(request.tokens)}</dd>
+                      <dt>Audit record</dt>
+                      <dd>{unknown(request.audit)}</dd>
+                    </dl>
                   ))}
-                </details>
+                </ToolSection>
               ))}
-            </article>
+            </ReviewRow>
           ))}
-          {history?.length === 0 && <p>No saved runs for this task and account.</p>}
-          {error && <p role="alert">{error}</p>}
         </div>
       )}
-    </details>
+    </section>
   );
 }

@@ -1,8 +1,9 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { interfaceConfig } from '../config/interface';
 
 const storageKey = 'kalkidan-sidebar-width';
-const { min, max, initial, contentMin } = interfaceConfig.sidebar;
+const openKey = 'kalkidan-sidebar-open';
+const { min, max, initial, contentMin, collapseBelow } = interfaceConfig.sidebar;
 export function useSidebarWidth() {
   const [preferred, setPreferred] = useState(() => {
     try {
@@ -30,4 +31,57 @@ export function useSidebarWidth() {
     }
   }
   return { width, min, maximum, initial, update };
+}
+
+type OpenChoice = { narrow?: boolean; wide?: boolean };
+const narrowWindow = () => window.innerWidth < collapseBelow;
+function savedChoice(): OpenChoice {
+  try {
+    const value: unknown = JSON.parse(localStorage.getItem(openKey) || '{}');
+    return value && typeof value === 'object' ? (value as OpenChoice) : {};
+  } catch {
+    return {};
+  }
+}
+/** The open state for a window size: the user's choice, else closed in a narrow window. */
+function openFor(narrow: boolean) {
+  const choice = savedChoice()[narrow ? 'narrow' : 'wide'];
+  return typeof choice === 'boolean' ? choice : !narrow;
+}
+
+/**
+ * The open state of the sidebar. Below 1100 px the sidebar is closed by default. The user can
+ * open it, and the app keeps that choice for narrow and for wide windows separately.
+ */
+export function useSidebarOpen() {
+  const [narrow, setNarrow] = useState(narrowWindow);
+  const [open, setOpenState] = useState(() => openFor(narrowWindow()));
+  const sizeClass = useRef(narrow);
+  useEffect(() => {
+    const resize = () => {
+      const next = narrowWindow();
+      if (sizeClass.current === next) return;
+      sizeClass.current = next;
+      setNarrow(next);
+      setOpenState(openFor(next));
+    };
+    window.addEventListener('resize', resize);
+    return () => window.removeEventListener('resize', resize);
+  }, []);
+  /** Changes the state and keeps it as the choice for this window size. */
+  function setOpen(value: boolean | ((open: boolean) => boolean)) {
+    setOpenState((current) => {
+      const next = typeof value === 'function' ? value(current) : value;
+      try {
+        localStorage.setItem(
+          openKey,
+          JSON.stringify({ ...savedChoice(), [narrow ? 'narrow' : 'wide']: next }),
+        );
+      } catch {
+        /* Optional preference. */
+      }
+      return next;
+    });
+  }
+  return { open, setOpen, narrow };
 }

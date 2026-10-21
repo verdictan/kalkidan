@@ -71,23 +71,32 @@ test('GitHub inspector edits fields, retains a failed draft, and restores archiv
     .getByRole('button', { name: 'Platform', exact: true })
     .click();
   await page
-    .getByRole('group', { name: 'Project page', exact: true })
+    .getByRole('navigation', { name: 'Project page', exact: true })
     .getByRole('button', { name: 'Tasks', exact: true })
     .click();
   await page.getByRole('button', { name: 'Plan work', exact: true }).click();
   const dialog = page.getByRole('dialog');
-  await dialog.getByRole('spinbutton', { name: 'Estimate', exact: true }).fill('5');
-  await dialog.getByRole('button', { name: 'Save Estimate', exact: true }).click();
+  const estimate = dialog.getByRole('spinbutton', { name: 'Estimate', exact: true });
+  // Fields save on Enter. A failed write keeps the value, so Enter tries again.
+  await estimate.fill('5');
+  await estimate.press('Enter');
   await expect(dialog.getByRole('alert')).toContainText('Permission changed');
-  await expect(dialog.getByRole('spinbutton', { name: 'Estimate', exact: true })).toHaveValue('5');
-  await dialog.getByRole('button', { name: 'Save Estimate', exact: true }).click();
+  await expect(estimate).toHaveValue('5');
+  await estimate.press('Enter');
   await expect(dialog.getByRole('alert')).toHaveCount(0);
-  await dialog.getByRole('button', { name: 'Archive item', exact: true }).click();
-  await expect(dialog.getByRole('button', { name: 'Restore item', exact: true })).toBeVisible();
-  await dialog.getByRole('button', { name: 'Restore item', exact: true }).click();
-  await expect(dialog.getByRole('button', { name: 'Archive item', exact: true })).toBeVisible();
+  await expect(dialog.getByRole('status').filter({ hasText: 'Saved' })).toBeVisible();
+  const actions = dialog.getByRole('button', { name: 'Task actions', exact: true });
+  await actions.click();
+  await page.getByRole('menuitem', { name: 'Archive item', exact: true }).click();
+  await expect.poll(() => page.evaluate(() => (window as any).calls.length)).toBe(3);
+  await actions.click();
+  await page.getByRole('menuitem', { name: 'Restore item', exact: true }).click();
+  await expect.poll(() => page.evaluate(() => (window as any).calls.length)).toBe(4);
+  await actions.click();
+  await expect(page.getByRole('menuitem', { name: 'Archive item', exact: true })).toBeVisible();
   await page.keyboard.press('Escape');
-  await expect(page.getByText('1 restricted items.', { exact: false })).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(page.getByText('· 1 restricted', { exact: false })).toBeVisible();
   expect(await page.evaluate(() => (window as any).calls)).toEqual([
     ['g', 'I', 'estimate', { number: 5 }],
     ['g', 'I', 'estimate', { number: 5 }],

@@ -13,6 +13,33 @@ import { BindingStore, identityKey } from './bindings';
 import { uuid } from './credentials';
 import { policyId } from './policy-id';
 
+/**
+ * A display name from the service. A missing, unsafe, or ID-only name stays missing, so the UI
+ * shows a generic label. `extra` names other fields that can hold the name.
+ */
+function displayName(value: Record<string, unknown>, ...extra: string[]) {
+  const name = serviceName(value.name, value.display_name, ...extra.map((key) => value[key]));
+  return name ? { name } : {};
+}
+const modelList = (value: unknown) =>
+  Array.isArray(value) && value.length <= 200
+    ? value.filter(
+        (item): item is string =>
+          typeof item === 'string' && /^[A-Za-z0-9][A-Za-z0-9_.:/-]{0,159}$/.test(item),
+      )
+    : undefined;
+/** Allowed models: one list, or `{ codex, claude }`. Anything else stays missing. */
+function allowedModels(value: unknown): Pick<VerdictanSetup, 'allowedModels'> {
+  const list = modelList(value);
+  if (list) return { allowedModels: list };
+  if (!value || typeof value !== 'object') return {};
+  const result: Partial<Record<'codex' | 'claude', string[]>> = {};
+  for (const agent of ['codex', 'claude'] as const) {
+    const models = modelList((value as Record<string, unknown>)[agent]);
+    if (models) result[agent] = models;
+  }
+  return Object.keys(result).length ? { allowedModels: result } : {};
+}
 export class VerdictanSetupService {
   constructor(
     private client: () => Promise<DesktopClient>,
@@ -56,9 +83,7 @@ export class VerdictanSetupService {
       status: typeof data.status === 'string' ? data.status : 'unavailable',
       teams: data.teams.map((t) => {
         if (!uuid(t.team_id)) throw new DesktopProtocolError('desktop.setup_invalid');
-        // Names are optional. A missing or unsafe name keeps a generic label in the UI.
-        const name = serviceName(t.name, t.display_name, t.team_name);
-        return { team_id: t.team_id, ...(name ? { name } : {}) };
+        return { team_id: t.team_id, ...displayName(t, 'team_name') };
       }),
       policies: data.policies.map((p) => {
         if (
@@ -66,25 +91,33 @@ export class VerdictanSetupService {
           !policyId(p.configuration_version_id, 'version')
         )
           throw new DesktopProtocolError('desktop.setup_invalid');
-        const name = serviceName(p.name, p.display_name, p.configuration_name);
-        const version = serviceName(p.version_name, p.version_label, p.configuration_version_name);
+        const version = p.version_number ?? p.version;
+        const versionName = serviceName(
+          p.version_name,
+          p.version_label,
+          p.configuration_version_name,
+        );
         return {
           configuration_id: p.configuration_id,
           configuration_version_id: p.configuration_version_id,
-          ...(name ? { name } : {}),
-          ...(version ? { version_name: version } : {}),
+          ...displayName(p, 'configuration_name'),
+          ...(versionName ? { version_name: versionName } : {}),
+          ...((typeof version === 'number' && Number.isSafeInteger(version)) ||
+          (typeof version === 'string' && !!version.trim() && version.length <= 40)
+            ? { version }
+            : {}),
         };
       }),
       providerConnections: data.provider_connections.map((p) => {
         if (!uuid(p.provider_connection_id) || typeof p.provider !== 'string')
           throw new DesktopProtocolError('desktop.setup_invalid');
-        const name = serviceName(p.name, p.display_name);
         return {
           provider_connection_id: p.provider_connection_id,
           provider: p.provider,
-          ...(name ? { name } : {}),
+          ...displayName(p),
         };
       }),
+      ...allowedModels(data.allowed_models),
       selections: this.selectionSource
         ? await this.selectionSource()
         : await this.store.selections(key),

@@ -1,4 +1,9 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, type Page } from '@playwright/test';
+
+/** Below 1100px wide, the sidebar starts closed. Opens it. */
+async function openSidebar(page: Page) {
+  await page.getByRole('button', { name: 'Toggle sidebar', exact: true }).click();
+}
 
 test('repository dialog contains long names, scrolls results, and keeps actions visible on compact windows', async ({
   page,
@@ -34,6 +39,7 @@ test('repository dialog contains long names, scrolls results, and keeps actions 
     };
   });
   await page.goto('/');
+  await openSidebar(page);
   await page
     .getByRole('button', {
       name: 'Add code folders to Customer platform and shared infrastructure across multiple repositories',
@@ -75,12 +81,13 @@ test('notifications and a long draft do not push the composer outside the window
 }) => {
   await page.setViewportSize({ width: 980, height: 680 });
   await page.goto('/');
+  await openSidebar(page);
   await page.locator('.repo-select').first().click();
   await page.getByRole('button', { name: 'Repository actions', exact: true }).click();
   await page.getByRole('menuitem', { name: 'Edit code folder…', exact: true }).click();
   await page.getByRole('button', { name: 'Save changes', exact: true }).click();
   await expect(page.getByRole('status').filter({ hasText: 'Code folder updated.' })).toBeVisible();
-  await page.getByRole('button', { name: 'New Codex session', exact: true }).click();
+  await page.getByRole('button', { name: 'New Codex chat', exact: true }).click();
   await page
     .getByLabel('Message agent')
     .fill('Review the repository and explain the next steps.\n'.repeat(20));
@@ -109,7 +116,7 @@ test('notifications and a long draft do not push the composer outside the window
   ).toBe(true);
   expect(
     await page
-      .getByRole('region', { name: 'Sessions', exact: true })
+      .getByRole('region', { name: 'Chats', exact: true })
       .evaluate((el) => el.getBoundingClientRect().bottom <= innerHeight),
   ).toBe(true);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
@@ -121,8 +128,9 @@ test('the title bar keeps one row at the minimum window width with tools open', 
 }) => {
   await page.setViewportSize({ width: 980, height: 680 });
   await page.goto('/');
+  await openSidebar(page);
   await page.locator('.repo-select').first().click();
-  await page.getByRole('button', { name: 'New Codex session', exact: true }).click();
+  await page.getByRole('button', { name: 'New Codex chat', exact: true }).click();
   await page.getByLabel('Message agent').blur();
   await page.keyboard.press('ControlOrMeta+t');
   await page.keyboard.press('ControlOrMeta+Shift+g');

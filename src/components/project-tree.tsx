@@ -1,5 +1,10 @@
 import { projectColors, type ProjectColor } from '../domain/project-colors';
-import { ActivityDot, activityKey, type SessionActivityState } from './activity-dot';
+import {
+  ActivityDot,
+  activityKey,
+  strongestActivity,
+  type SessionActivityState,
+} from './activity-dot';
 import { TreeContextMenu, type TreeAction } from './tree-context-menu';
 import { sessionRepo } from '../lib/session-repository';
 import { worktreeBranch, worktreeParent } from '../lib/worktree-sessions';
@@ -11,11 +16,15 @@ import { ActionMenu, type ActionMenuItem } from './action-menu';
 import { RenameSessionDialog, archiveSessionWithUndo } from './session-actions';
 import { viewArchivedSessions } from './session-browser';
 import { Hint } from './hint';
-import { revealLabel } from '../lib/platform';
-import { useState } from 'react';
+import { plural, revealLabel } from '../lib/platform';
+import { agentInstalled, agentMenuLabel } from '../lib/agent-preference';
+import { interfaceConfig } from '../config/interface';
+import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import {
   BookOpen,
+  ChartColumn,
   ChevronDown,
+  Eye,
   Folder,
   FolderGit2,
   Brain,
@@ -48,11 +57,11 @@ import {
   DialogBody,
   DialogFooter,
 } from './ui/dialog';
-import type { Agent, API, Project, ProjectGroup, Session, RemoteHost } from '../types';
+import type { Agent, API, Project, ProjectGroup, Session, RemoteHost, TrackerItem } from '../types';
 
 const collapsedKey = 'kalkidan-collapsed-projects';
 /** Each code folder shows its most recent chats in the sidebar. */
-const recentLimit = 3;
+const recentLimit = interfaceConfig.recentChats;
 function savedCollapsed() {
   try {
     const value: unknown = JSON.parse(localStorage.getItem(collapsedKey) || '[]');
@@ -78,9 +87,16 @@ function menuItems(actions: TreeAction[]): ActionMenuItem[] {
     separator: item.separator,
   }));
 }
-/** An approval request is stronger than work in progress. */
-function strongest(states: (SessionActivityState | undefined)[]) {
-  return states.includes('approval') ? 'approval' : states.find(Boolean);
+/** A saved GitHub view that the user pinned under Tasks. */
+export interface PinnedView {
+  id: string;
+  name: string;
+}
+/** The main buttons of the visible tree rows, in order. */
+function treeRows(tree: HTMLElement) {
+  return [...tree.querySelectorAll<HTMLElement>('.tree-row-button')].filter(
+    (row) => !row.closest('[hidden]') && row.offsetParent !== null,
+  );
 }
 export interface OpenChat {
   session: Session;
@@ -112,6 +128,17 @@ export function ProjectTree({
   allSessionsCurrent = false,
   onDocs,
   onMemory,
+  onInsights,
+  onNewTask,
+  onProjectSettings,
+  taskOf,
+  onOpenTask,
+  onSessionCommand,
+  pinnedViews = {},
+  onOpenView,
+  onUnpinView,
+  mergedCopies,
+  preferredAgent,
   projectPage,
   run,
   onNotice,
@@ -158,7 +185,26 @@ export function ProjectTree({
   /** Opens the task board of a project. */
   onTasks?: (group: ProjectGroup) => void;
   onMemory: (group: ProjectGroup) => void;
-  projectPage: 'board' | 'docs' | 'tasks' | 'memory';
+  /** Opens the Insights page of a project. */
+  onInsights?: (group: ProjectGroup) => void;
+  /** Opens the tasks of a project with the New task form. */
+  onNewTask?: (group: ProjectGroup) => void;
+  /** Opens the Project settings dialog. */
+  onProjectSettings?: (group: ProjectGroup) => void;
+  /** The board item that a chat works on. Rows show its number, such as "#12". */
+  taskOf?: (session: Session) => TrackerItem | undefined;
+  onOpenTask?: (groupId: string, itemId: string) => void;
+  /** Runs a session command, such as "session-commit", in a chat. Opens the chat first. */
+  onSessionCommand?: (command: string, session: Session) => void;
+  /** Saved GitHub views pinned under Tasks, by project ID. */
+  pinnedViews?: Record<string, PinnedView[]>;
+  onOpenView?: (group: ProjectGroup, view: PinnedView) => void;
+  onUnpinView?: (group: ProjectGroup, view: PinnedView) => void;
+  /** Branch copies whose pull request is merged. Their menu offers to delete them. */
+  mergedCopies?: Set<string>;
+  /** The agent of "New chat" rows and menus. */
+  preferredAgent?: Agent;
+  projectPage: 'board' | 'docs' | 'tasks' | 'memory' | 'insights';
   hosts?: RemoteHost[];
   api: API;
   repos: Project[];
@@ -202,10 +248,50 @@ export function ProjectTree({
     );
   }
   function sessionActions(session: Session): TreeAction[] {
-    const disabled = busy || session.id.startsWith('draft-');
+    const draft = session.id.startsWith('draft-');
+    const disabled = busy || draft;
+    const task = taskOf?.(session);
+    const group = groups.find((g) => g.repoIds.includes(sessionRepo(session, allRepos)?.id || ''));
+    const command = (label: string, name: string, extra: Partial<TreeAction> = {}) =>
+      onSessionCommand ? [{ label, action: () => onSessionCommand(name, session), ...extra }] : [];
     return [
       { label: 'Open', action: () => onResume(session) },
-      { label: 'Rename…', disabled, action: () => setRenaming(session) },
+      ...(task && group && onOpenTask
+        ? [
+            {
+              label: task.number ? `Open task #${task.number}` : 'Open linked task',
+              action: () => onOpenTask(group.id, task.id),
+            },
+          ]
+        : command(
+            task ? 'Open linked task' : 'Link task…',
+            task ? 'open-linked-task' : 'link-task',
+            {
+              disabled: !group,
+              reason: 'Add this code folder to a project first.',
+            },
+          )),
+      ...command('Commit…', 'session-commit', {
+        separator: true,
+        disabled: draft,
+        reason: 'Send a message first.',
+      }),
+      ...(session.organization?.pullRequest
+        ? [
+            {
+              label: session.organization.pullRequest.number
+                ? `Open pull request #${session.organization.pullRequest.number}`
+                : 'Open pull request',
+              action: () =>
+                window.open(session.organization!.pullRequest!.url, '_blank', 'noreferrer'),
+            },
+          ]
+        : []),
+      ...command('Save to Docs…', 'save-to-docs', {
+        disabled: draft || !group,
+        reason: draft ? 'Send a message first.' : 'Add this code folder to a project first.',
+      }),
+      { label: 'Rename…', separator: true, disabled, action: () => setRenaming(session) },
       {
         label: session.organization?.pinned ? 'Unpin' : 'Pin to top',
         disabled,
@@ -253,14 +339,33 @@ export function ProjectTree({
       return next;
     });
   }
+  /** The pull request that a chat in this code folder opened. */
+  const pullRequestOf = (repo: Project) =>
+    sessions.find((s) => sessionRepo(s, allRepos)?.id === repo.id && s.organization?.pullRequest)
+      ?.organization?.pullRequest;
   function repositoryActions(repo: Project, branch?: string): TreeAction[] {
+    const pull = branch ? pullRequestOf(repo) : undefined;
+    const merged = !!branch && !!mergedCopies?.has(repo.id);
     return [
       { label: branch ? 'Open branch copy' : 'Open code folder', action: () => onSelect(repo) },
       ...(onNewSession
-        ? agentCatalog.map(({ id: agent }) => ({
-            label: `New ${agentLabel(agent)} session`,
-            action: () => onNewSession(agent, repo),
-          }))
+        ? [...agentCatalog]
+            // The preferred agent comes first.
+            .sort((a, b) => Number(b.id === preferredAgent) - Number(a.id === preferredAgent))
+            .map(({ id: agent }) => ({
+              label: agentMenuLabel(agent, `New ${agentLabel(agent)} chat`),
+              disabled: !agentInstalled(agent),
+              reason: `Install ${agentLabel(agent)} in Settings › Agents.`,
+              action: () => onNewSession(agent, repo),
+            }))
+        : []),
+      ...(pull
+        ? [
+            {
+              label: pull.number ? `Open pull request #${pull.number}` : 'Open pull request',
+              action: () => window.open(pull.url, '_blank', 'noreferrer'),
+            },
+          ]
         : []),
       {
         label: 'Edit code folder…',
@@ -287,7 +392,9 @@ export function ProjectTree({
         : []),
       branch && onDeleteBranchCopy
         ? {
-            label: 'Delete this branch copy…',
+            label: merged
+              ? 'Delete branch copy (pull request merged)…'
+              : 'Delete this branch copy…',
             disabled: busy,
             destructive: true,
             separator: true,
@@ -313,13 +420,17 @@ export function ProjectTree({
     deep = false,
   ) {
     const title = titleOf(session);
-    const current = sameSession(activeSession, session);
+    // An open chat is selected only in "Open chats", so one row shows the selection.
+    const current =
+      sameSession(activeSession, session) &&
+      (kind === 'open' || !openChats.some((chat) => sameSession(chat.session, session)));
     const draft = session.id.startsWith('draft-');
     const pinned = !!session.organization?.pinned;
+    const task = taskOf?.(session);
     return (
       <TreeContextMenu
         key={kind + session.agent + session.id}
-        label="Session actions"
+        label="Chat actions"
         actions={sessionActions(session)}
       >
         <div
@@ -350,6 +461,11 @@ export function ProjectTree({
               <AgentIcon agent={session.agent} className="size-3.5" />
             </span>
             <span className="tree-label">{title}</span>
+            {task?.number && (
+              <span className="tree-task-number" title={`Task #${task.number}: ${task.title}`}>
+                #{task.number}
+              </span>
+            )}
             <ActivityDot state={state || sessionActivity[activityKey(session.agent, session.id)]} />
           </Button>
           {kind === 'open' && onCloseChat ? (
@@ -392,18 +508,21 @@ export function ProjectTree({
       </TreeContextMenu>
     );
   }
-  /** The most recent chats of a code folder, without pinned chats and drafts. */
-  function recentSessions(repo: Project) {
+  /**
+   * The chats of a code folder, newest first, without pinned chats, drafts and open chats.
+   * An open chat shows once, in "Open chats".
+   */
+  function folderSessions(repo: Project) {
     return sessions
       .filter(
         (s) =>
           !s.organization?.archived &&
           !s.organization?.pinned &&
           !s.id.startsWith('draft-') &&
+          !openChats.some((chat) => sameSession(chat.session, s)) &&
           sessionRepo(s, allRepos)?.id === repo.id,
       )
-      .sort((a, b) => (b.updatedAt || '').localeCompare(a.updatedAt || ''))
-      .slice(0, recentLimit);
+      .sort((a, b) => (b.updatedAt || '').localeCompare(a.updatedAt || ''));
   }
   // Rows stay siblings (no wrapper), so focus can move to the next row after a removal.
   function repository(repo: Project, parent?: Project) {
@@ -411,6 +530,7 @@ export function ProjectTree({
     const branch = parent ? worktreeBranch(repo, parent) : undefined;
     const actions = repositoryActions(repo, branch);
     const label = branch ? `branch: ${branch}` : repo.name;
+    const chats = folderSessions(repo);
     return [
       <TreeContextMenu
         key={repo.id}
@@ -446,7 +566,30 @@ export function ProjectTree({
           />
         </div>
       </TreeContextMenu>,
-      ...recentSessions(repo).map((session) => sessionRow(session, 'recent', undefined, !!branch)),
+      ...chats
+        .slice(0, recentLimit)
+        .map((session) => sessionRow(session, 'recent', undefined, !!branch)),
+      ...(chats.length > recentLimit
+        ? [
+            <div
+              key={repo.id + ':more'}
+              className={
+                'tree-row tree-session-row tree-more-row row-hover row-focus' +
+                (branch ? ' tree-session-deep' : '')
+              }
+            >
+              <Button
+                variant="ghost"
+                className={rowButton}
+                title={`Open ${repo.name} to see all its chats`}
+                onClick={() => onSelect(repo)}
+              >
+                <span className="tree-icon" aria-hidden="true" />
+                <span className="tree-label">Show all {plural(chats.length, 'chat')}</span>
+              </Button>
+            </div>,
+          ]
+        : []),
     ];
   }
   /** Code folders of a project. Branch copies show under the code folder they belong to. */
@@ -473,8 +616,18 @@ export function ProjectTree({
   function projectActions(group: ProjectGroup): TreeAction[] {
     return [
       { label: 'Open project', action: () => onProject(group) },
+      ...(onNewTask && trackerConnection(group)
+        ? [{ label: 'New task', action: () => onNewTask(group) }]
+        : []),
+      { label: 'Open docs', action: () => onDocs(group) },
+      { label: 'Open memory', action: () => onMemory(group) },
+      ...(onInsights ? [{ label: 'Insights', action: () => onInsights(group) }] : []),
+      ...(onProjectSettings
+        ? [{ label: 'Project settings…', action: () => onProjectSettings(group) }]
+        : []),
       {
         label: 'Add a code folder…',
+        separator: true,
         disabled: busy,
         action: () =>
           window.dispatchEvent(
@@ -513,8 +666,67 @@ export function ProjectTree({
     removing?.kind === 'project'
       ? allRepos.filter((repo) => removing.item.repoIds.includes(repo.id)).length
       : 0;
+  const treeRef = useRef<HTMLDivElement>(null);
+  // The row that has the one tab stop of the tree. The arrow keys move it.
+  const activeRow = useRef<HTMLElement | null>(null);
+  useEffect(() => {
+    const tree = treeRef.current;
+    if (!tree) return;
+    // Row actions (pin, close, menu, add) are reachable with the context menu key.
+    for (const control of tree.querySelectorAll<HTMLElement>(
+      '.tree-row-menu, .tree-row-action, .tree-toggle, .tree-row button:not(.tree-row-button)',
+    ))
+      control.tabIndex = -1;
+    const rows = treeRows(tree);
+    const active =
+      (activeRow.current && rows.includes(activeRow.current) && activeRow.current) ||
+      rows.find((row) => row.getAttribute('aria-current') === 'page') ||
+      rows.find((row) => row.getAttribute('aria-current')) ||
+      rows[0];
+    for (const row of rows) row.tabIndex = row === active ? 0 : -1;
+  });
+  function moveFocus(row: HTMLElement | undefined) {
+    if (!row) return;
+    activeRow.current = row;
+    for (const item of treeRows(treeRef.current!)) item.tabIndex = item === row ? 0 : -1;
+    row.focus();
+  }
+  function onTreeKey(event: KeyboardEvent<HTMLDivElement>) {
+    const target = event.target as HTMLElement;
+    if (!target.classList.contains('tree-row-button') || event.altKey || event.metaKey) return;
+    const rows = treeRows(treeRef.current!);
+    const index = rows.indexOf(target);
+    const groupElement = target.closest<HTMLElement>('.project-group');
+    const groupId = groupElement?.dataset.group;
+    const projectRow = target.classList.contains('project-select');
+    const expanded = groupId ? !collapsed.has(groupId) : false;
+    if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+      event.preventDefault();
+      moveFocus(rows[index + (event.key === 'ArrowDown' ? 1 : -1)]);
+    } else if (event.key === 'Home' || event.key === 'End') {
+      event.preventDefault();
+      moveFocus(event.key === 'Home' ? rows[0] : rows[rows.length - 1]);
+    } else if (event.key === 'ArrowRight') {
+      event.preventDefault();
+      if (projectRow && groupId && !expanded) toggleGroup(groupId, true);
+      else if (projectRow) moveFocus(rows[index + 1]);
+    } else if (event.key === 'ArrowLeft') {
+      event.preventDefault();
+      if (projectRow && groupId && expanded) toggleGroup(groupId, false);
+      else if (!projectRow && groupElement)
+        moveFocus(groupElement.querySelector<HTMLElement>('.project-select') || undefined);
+    }
+  }
   return (
-    <div className="project-list project-tree">
+    <div
+      ref={treeRef}
+      className="project-list project-tree"
+      onKeyDown={onTreeKey}
+      onFocus={(event) => {
+        if ((event.target as HTMLElement).classList.contains('tree-row-button'))
+          activeRow.current = event.target as HTMLElement;
+      }}
+    >
       <div
         className={
           'tree-row tree-top-row tree-nav-row row-hover row-focus' +
@@ -561,17 +773,9 @@ export function ProjectTree({
             <span className="tree-icon">
               <MessagesSquare className="size-3.5" />
             </span>
-            <span className="tree-label">All sessions</span>
+            <span className="tree-label">All chats</span>
           </Button>
         </div>
-      )}
-      {openChats.length > 0 && (
-        <section className="tree-section" aria-labelledby="tree-open-chats">
-          <h2 id="tree-open-chats" className="sidebar-label tree-heading">
-            Open chats
-          </h2>
-          {openChats.map(({ session, state }) => sessionRow(session, 'open', state))}
-        </section>
       )}
       {pinned.length > 0 && (
         <section className="tree-section pinned-sessions" aria-labelledby="tree-pinned">
@@ -581,24 +785,29 @@ export function ProjectTree({
           {pinned.map((session) => sessionRow(session, 'pinned'))}
         </section>
       )}
-      {groups.length > 0 && (openChats.length > 0 || pinned.length > 0) && (
+      {/* The heading always shows, so the tree does not move when a chat opens. */}
+      {groups.length > 0 && (
         <h2 className="sidebar-label tree-heading tree-projects-heading">Your projects</h2>
       )}
       {groups.map((group) => {
         const boardCurrent = activeGroup === group.id && projectPage === 'board' && !activeSession;
         const tasksCurrent = activeGroup === group.id && projectPage === 'tasks' && !activeSession;
         const docsCurrent = activeGroup === group.id && projectPage === 'docs' && !activeSession;
+        const insightsCurrent =
+          activeGroup === group.id && projectPage === 'insights' && !activeSession;
         const members = allRepos.filter((repo) => group.repoIds.includes(repo.id));
         // The project row shows that the current page is inside it, without a background.
         const containsCurrent =
           !boardCurrent &&
           (docsCurrent ||
             tasksCurrent ||
+            insightsCurrent ||
             (activeGroup === group.id && projectPage === 'memory') ||
             members.some((repo) => isCurrent(repo)));
         const host = hosts.find((h) => h.id === group.hostId);
         const open = !collapsed.has(group.id);
-        const groupState = strongest(members.map((repo) => activity[repo.id]));
+        const groupState = strongestActivity(members.map((repo) => activity[repo.id]));
+        const views = pinnedViews[group.id] || [];
         const actions = projectActions(group);
         const folderColor = {
           value: group.color,
@@ -700,6 +909,34 @@ export function ProjectTree({
                   <span className="tree-label">Tasks</span>
                 </Button>
               </div>
+              {views.map((view) => (
+                <TreeContextMenu
+                  key={'view:' + view.id}
+                  label="View actions"
+                  actions={[
+                    { label: 'Open view', action: () => onOpenView?.(group, view) },
+                    {
+                      label: 'Unpin view',
+                      separator: true,
+                      action: () => onUnpinView?.(group, view),
+                    },
+                  ]}
+                >
+                  <div className="tree-row project-subpage-row tree-view-row row-hover row-focus">
+                    <Button
+                      variant="ghost"
+                      className={'project-subpage ' + rowButton}
+                      title={`Saved GitHub view: ${view.name}`}
+                      onClick={() => onOpenView?.(group, view)}
+                    >
+                      <span className="tree-icon">
+                        <Eye className="size-3.5" />
+                      </span>
+                      <span className="tree-label">{view.name}</span>
+                    </Button>
+                  </div>
+                </TreeContextMenu>
+              ))}
               <div
                 className={
                   'tree-row project-subpage-row row-hover row-focus' +
@@ -740,6 +977,26 @@ export function ProjectTree({
                   <span className="tree-label">Memory</span>
                 </Button>
               </div>
+              {onInsights && (
+                <div
+                  className={
+                    'tree-row project-subpage-row row-hover row-focus' +
+                    (insightsCurrent ? ' selected row-selected' : '')
+                  }
+                >
+                  <Button
+                    variant="ghost"
+                    className={'project-subpage ' + rowButton}
+                    aria-current={insightsCurrent ? 'page' : undefined}
+                    onClick={() => onInsights(group)}
+                  >
+                    <span className="tree-icon">
+                      <ChartColumn className="size-3.5" />
+                    </span>
+                    <span className="tree-label">Insights</span>
+                  </Button>
+                </div>
+              )}
               {group.hostId && (
                 <div className="tree-row tree-host" title={host?.error || host?.target}>
                   <span className="tree-icon" aria-hidden="true">
@@ -759,7 +1016,7 @@ export function ProjectTree({
                     <Button
                       variant="ghost"
                       size="xs"
-                      className="tree-host-action"
+                      className="tree-host-action tree-row-button"
                       disabled={reconnecting === host.id || host.status === 'connecting'}
                       aria-label={`Reconnect to ${host.name}`}
                       onClick={() => void reconnect(host)}
@@ -789,7 +1046,7 @@ export function ProjectTree({
                   <Button
                     variant="link"
                     size="xs"
-                    className="tree-empty-action"
+                    className="tree-empty-action tree-row-button"
                     disabled={busy}
                     onClick={() =>
                       window.dispatchEvent(
@@ -807,6 +1064,15 @@ export function ProjectTree({
           </Collapsible>
         );
       })}
+      {/* Open chats come after the projects, so the projects do not move when a chat opens. */}
+      {openChats.length > 0 && (
+        <section className="tree-section tree-open-chats" aria-labelledby="tree-open-chats">
+          <h2 id="tree-open-chats" className="sidebar-label tree-heading">
+            Open chats
+          </h2>
+          {openChats.map(({ session, state }) => sessionRow(session, 'open', state))}
+        </section>
+      )}
       {!groups.length ? (
         <EmptyState compact icon={<Folder />} title="No projects yet">
           A project holds your code folders, agent chats and notes. Select + next to Projects to

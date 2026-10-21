@@ -20,6 +20,8 @@ export interface SessionOrganization {
   pinned?: boolean;
   archived?: boolean;
   taskId?: string;
+  /** The pull request opened from this session. */
+  pullRequest?: { url: string; number?: number; state?: 'open' | 'merged' | 'closed' };
 }
 export interface Session {
   governanceScope?: { projectId: string; taskId?: string };
@@ -102,7 +104,8 @@ export interface ChatRun {
   messages: ChatMessage[];
   activity: string;
   error?: string;
-  errorCode?: 'session_busy' | 'transport_lost' | 'managed_launch_blocked';
+  /** `desktop.*` codes are managed agent errors. See managedErrors in verdictan.ts. */
+  errorCode?: 'session_busy' | 'transport_lost' | 'managed_launch_blocked' | `desktop.${string}`;
   /** With `managed_launch_blocked`: the setup step that can remove the block. */
   managedSetup?: ManagedSetupStep;
   sessionReady?: boolean;

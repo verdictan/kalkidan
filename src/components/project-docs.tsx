@@ -16,13 +16,19 @@ import {
   BookOpen,
   ChevronDown,
   ChevronRight,
+  CircleDot,
   Eye,
   FileText,
   Pencil,
   Plus,
   Trash2,
 } from 'lucide-react';
-import type { API, ProjectGroup } from '../types';
+import type { API, ProjectGroup, TrackerItem } from '../types';
+import { trackerConnection } from '../domain/tracker';
+import { trackerClient } from '../lib/tracker-client';
+import { useProjectBoard } from '../hooks/use-project-board';
+import { DocsToIssuesDialog } from './planning-tools';
+import { SectionHeader } from './ui/page-header';
 import type { DeletedProjectDoc, ProjectDoc, ProjectDocMetadata } from '../domain/docs';
 import { hasPrimaryModifier } from '../lib/platform';
 import { Button } from './ui/button';
@@ -104,6 +110,24 @@ export function pageAfterDelete(pages: ProjectDocMetadata[], deletedId: string) 
   }
   return sortedSiblings(remaining, null)[0]?.id || remaining[0]?.id || '';
 }
+
+/** The label of a board task in docs: "#12 Title", or only the title for a draft. */
+export function taskLabel(task: Pick<TrackerItem, 'number' | 'title'>) {
+  return task.number ? `#${task.number} ${task.title}` : task.title;
+}
+
+/** Returns the board tasks that link to a doc page, in board order. */
+export function tasksForPage(
+  pageId: string,
+  links: Record<string, string[]> | undefined,
+  tasks: TrackerItem[] | null | undefined,
+) {
+  if (!links || !tasks) return [];
+  return tasks.filter((task) => links[task.id]?.includes(pageId));
+}
+
+const openTask = (groupId: string, itemId: string) =>
+  window.dispatchEvent(new CustomEvent('kalkidan-open-task', { detail: { groupId, itemId } }));
 
 /** Alerts in the editor: under the document bar, at the width of the text column. */
 const docAlertClass = 'mx-auto mt-3 w-[min(var(--reading-width),calc(100%-3rem))]';
@@ -214,9 +238,24 @@ function DocEditor({
   onNavigate,
   onReorder,
   onTitleEditing,
+  heading,
   treeCommand,
   onTreeCommandHandled,
+  onAskAgent,
+  onPlanTasks,
+  tasks,
+  linkedTasks,
 }: {
+  /** Starts a new chat with this page attached. */
+  onAskAgent: (doc: ProjectDoc) => void;
+  /** Opens the planner for this page. Undefined when the project has no board. */
+  onPlanTasks?: () => void;
+  /** The board tasks for "/task". Undefined: no board. Null: the board loads. */
+  tasks?: TrackerItem[] | null;
+  /** The board tasks that link to this page. */
+  linkedTasks: TrackerItem[];
+  /** Scrolls to the heading with this text. The serial repeats a request for the same text. */
+  heading?: { text: string; serial: number };
   onTreeCommandHandled: () => void;
   treeCommand?: TreeCommand;
   onSubpage: () => void;
@@ -239,6 +278,29 @@ function DocEditor({
   const [moving, setMoving] = useState(false);
   const [moveTarget, setMoveTarget] = useState('root');
   const titleInput = useRef<HTMLInputElement>(null);
+  const body = useRef<HTMLDivElement>(null);
+  // Scroll to the requested heading. The editor renders after mount, so try for a short time.
+  useEffect(() => {
+    if (!heading?.text) return;
+    const wanted = heading.text.trim().toLowerCase();
+    let frame = 0;
+    let tries = 0;
+    const find = () => {
+      const target = [
+        ...(body.current?.querySelectorAll<HTMLElement>(
+          '.ProseMirror :is(h1, h2, h3, h4, h5, h6)',
+        ) || []),
+      ].find((node) => node.textContent?.trim().toLowerCase() === wanted);
+      if (target) target.scrollIntoView({ block: 'start' });
+      else if (tries++ < 30) frame = requestAnimationFrame(find);
+    };
+    find();
+    return () => cancelAnimationFrame(frame);
+  }, [heading?.serial]);
+  /** Moves focus from the title to the text of the page. */
+  function focusBody() {
+    body.current?.querySelector<HTMLElement>('.ProseMirror, .wiki-source')?.focus();
+  }
   function rename() {
     setMode('write');
     requestAnimationFrame(() => {
@@ -432,7 +494,19 @@ function DocEditor({
           <ActionMenu
             label="Document actions"
             items={[
-              { label: 'Rename page', action: rename },
+              {
+                label: 'Ask an agent about this page',
+                action: () => void flush().then(() => onAskAgent(latest.current)),
+              },
+              ...(onPlanTasks
+                ? [
+                    {
+                      label: 'Create tasks from this page…',
+                      action: () => void flush().then(onPlanTasks),
+                    },
+                  ]
+                : []),
+              { label: 'Rename page', action: rename, separator: true },
               { label: 'Move page', action: startMove },
               {
                 label: 'Move up',
@@ -448,8 +522,9 @@ function DocEditor({
               {
                 label: mode === 'source' ? 'Rich text editor' : 'Markdown source',
                 action: () => setMode(mode === 'source' ? 'write' : 'source'),
+                separator: true,
               },
-              { label: 'Delete page', danger: true, action: requestDelete },
+              { label: 'Delete page', danger: true, action: requestDelete, separator: true },
             ]}
           />
         </div>
@@ -576,7 +651,7 @@ function DocEditor({
           </DialogFooter>
         </DialogContent>
       </Dialog>
-      <div className="wiki-page">
+      <div className="wiki-page" ref={body}>
         <input
           ref={titleInput}
           className="doc-title"
@@ -586,6 +661,12 @@ function DocEditor({
           readOnly={mode === 'read' || resolving || !!recovery}
           onChange={(e) => update({ ...latest.current, title: e.target.value })}
           onFocus={() => onTitleEditing(true)}
+          onKeyDown={(e) => {
+            // Enter moves to the text of the page. The title keeps all typed text.
+            if (e.key !== 'Enter' || e.nativeEvent.isComposing) return;
+            e.preventDefault();
+            focusBody();
+          }}
           onBlur={() => {
             onTitleEditing(false);
             void flush();
@@ -611,7 +692,33 @@ function DocEditor({
               if (pages.some((p) => p.id === id)) onNavigate(id);
               else showToast({ message: 'This page is not in these docs.', tone: 'error' });
             }}
+            tasks={tasks}
+            api={api}
+            onOpenTask={(itemId) => openTask(groupId, itemId)}
           />
+        )}
+        {linkedTasks.length > 0 && (
+          <section className="doc-linked-tasks" aria-label="Linked tasks">
+            <SectionHeader size="sm" title="Linked tasks" count={linkedTasks.length} />
+            <ul className="list-box doc-linked-task-list">
+              {linkedTasks.map((task) => (
+                <li key={task.id}>
+                  <button
+                    type="button"
+                    className="list-box-row row-hover"
+                    title={task.title}
+                    onClick={() => openTask(groupId, task.id)}
+                  >
+                    <CircleDot size={16} className="shrink-0 text-muted-foreground" />
+                    <span className="min-w-0 flex-1 truncate">{taskLabel(task)}</span>
+                    {task.status && (
+                      <span className="text-subtle shrink-0 text-xs">{task.status}</span>
+                    )}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </section>
         )}
       </div>
     </section>
@@ -622,13 +729,40 @@ export function ProjectDocsPanel({
   api,
   group,
   initialPageId,
+  initialHeading,
 }: {
   api: API;
   group: ProjectGroup;
   /** Opens this page, for example from a search result. */
   initialPageId?: string;
+  /** Scrolls the opened page to the heading with this text. */
+  initialHeading?: string;
 }) {
   const [selected, setSelected] = useState('');
+  const [heading, setHeading] = useState<{ text: string; serial: number } | undefined>(
+    initialHeading ? { text: initialHeading, serial: 1 } : undefined,
+  );
+  useEffect(() => {
+    if (initialHeading)
+      setHeading((current) => ({ text: initialHeading, serial: (current?.serial ?? 0) + 1 }));
+  }, [initialHeading]);
+  // Other pages can open a doc page of this project, and a heading on it.
+  useEffect(() => {
+    const open = (event: Event) => {
+      const detail = (
+        event as CustomEvent<{ groupId?: string; page?: string; docId?: string; heading?: string }>
+      ).detail;
+      if (detail?.groupId !== group.id || detail.page !== 'docs') return;
+      if (detail.docId) setSelected(detail.docId);
+      if (detail.heading)
+        setHeading((current) => ({
+          text: detail.heading!,
+          serial: (current?.serial ?? 0) + 1,
+        }));
+    };
+    window.addEventListener('kalkidan-open-project-page', open);
+    return () => window.removeEventListener('kalkidan-open-project-page', open);
+  }, [group.id]);
   const dirtyPages = useRef(new Set<string>());
   const metadata = useProjectResource(api, group, 'docs-metadata', () =>
     api.docsMetadata(group.id),
@@ -645,6 +779,16 @@ export function ProjectDocsPanel({
     !!selected && pages.some((p) => p.id === selected),
   );
   const page = content.state.value || null;
+  // The breadcrumb of the shell shows the open page. Tell it the page and its current title.
+  const selectedTitle = pages.find((p) => p.id === selected)?.title;
+  useEffect(() => {
+    if (!selected || selectedTitle === undefined) return;
+    window.dispatchEvent(
+      new CustomEvent('kalkidan-doc-selected', {
+        detail: { groupId: group.id, docId: selected, title: selectedTitle || 'Untitled' },
+      }),
+    );
+  }, [group.id, selected, selectedTitle]);
   const [treeCommand, setTreeCommand] = useState<TreeCommand>();
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
   const [error, setError] = useState('');
@@ -660,6 +804,44 @@ export function ProjectDocsPanel({
   const [width, setWidth] = useState(readLibraryWidth);
   // Only Rename moves focus to the page title. Other menu items return focus to the menu.
   const focusTitle = useRef(false);
+  // After New page, focus goes to the title of the new page, not back to the page list.
+  const createdPage = useRef<string | null>(null);
+  const workspace = useRef<HTMLDivElement>(null);
+  const [planning, setPlanning] = useState(false);
+  const connection = trackerConnection(group);
+  const provider = connection?.provider || 'github';
+  const client = useMemo(() => trackerClient(api, provider), [api, provider]);
+  const board = useProjectBoard(api, client, provider, group.id, connection?.project);
+  const boardTasks: TrackerItem[] | null | undefined = !connection
+    ? undefined
+    : board.state.value
+      ? board.state.value.items
+      : board.state.status === 'error'
+        ? []
+        : null;
+  const [taskLinks, setTaskLinks] = useState<Record<string, string[]>>();
+  useEffect(() => {
+    if (!connection || !api.taskDocLinks) return;
+    let live = true;
+    api
+      .taskDocLinks(group.id)
+      .then((links) => live && setTaskLinks(links))
+      .catch(() => live && setTaskLinks(undefined));
+    return () => {
+      live = false;
+    };
+  }, [api, group.id, !!connection, selected]);
+  function askAgent(doc: ProjectDoc) {
+    window.dispatchEvent(
+      new CustomEvent('kalkidan-new-session', {
+        detail: {
+          groupId: group.id,
+          docIds: [doc.id],
+          prompt: `Read the attached page "${doc.title || 'Untitled'}". `,
+        },
+      }),
+    );
+  }
   function resizeLibrary(value: number) {
     const next = Math.round(Math.min(libraryWidth.max, Math.max(libraryWidth.min, value)));
     setWidth(next);
@@ -715,9 +897,20 @@ export function ProjectDocsPanel({
       const doc = await api.docsCreate(group.id, title.trim(), creating?.parentId || null);
       setProjectResource(api, group, 'docs-page', doc, doc.id);
       setPages((p) => [...p.filter((page) => page.id !== doc.id), doc]);
+      createdPage.current = doc.id;
       setSelected(doc.id);
       setCreating(null);
     });
+  }
+  /** Puts focus in the title of the new page, with the cursor after the text. */
+  function focusCreatedTitle(event: Event) {
+    if (!createdPage.current) return;
+    createdPage.current = null;
+    const input = workspace.current?.querySelector<HTMLInputElement>('.doc-title');
+    if (!input) return;
+    event.preventDefault();
+    input.focus();
+    input.setSelectionRange(input.value.length, input.value.length);
   }
   function command(id: string, kind: TreeCommand['kind']) {
     setSelected(id);
@@ -906,6 +1099,7 @@ export function ProjectDocsPanel({
         </aside>
         {page && page.id === selected ? (
           <div
+            ref={workspace}
             className="doc-workspace"
             // The document bar shows its bottom border only after the page scrolls.
             onScroll={(e) =>
@@ -937,6 +1131,11 @@ export function ProjectDocsPanel({
               initial={page}
               pages={pages}
               onSaved={saved}
+              onAskAgent={askAgent}
+              onPlanTasks={connection ? () => setPlanning(true) : undefined}
+              tasks={boardTasks}
+              linkedTasks={tasksForPage(page.id, taskLinks, boardTasks)}
+              heading={heading}
               onDelete={() => {
                 setError('');
                 setDeleting(true);
@@ -974,7 +1173,7 @@ export function ProjectDocsPanel({
         )}
       </div>
       <Dialog open={!!creating} onOpenChange={(open) => !open && !busy && setCreating(null)}>
-        <DialogContent>
+        <DialogContent onCloseAutoFocus={focusCreatedTitle}>
           <form className="contents" onSubmit={createPage}>
             <DialogHeader>
               <DialogTitle>{creating?.parentId ? 'New subpage' : 'New page'}</DialogTitle>
@@ -1048,6 +1247,15 @@ export function ProjectDocsPanel({
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      {connection && (
+        <DocsToIssuesDialog
+          api={api}
+          group={group}
+          open={planning}
+          onOpenChange={setPlanning}
+          pageId={page?.id}
+        />
+      )}
       <Dialog
         open={deletedPages !== null}
         onOpenChange={(open) => !open && !busy && setDeletedPages(null)}

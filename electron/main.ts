@@ -31,6 +31,7 @@ import {
   importLegacyDocs,
 } from './storage/project-location';
 import { memoryDirectory, readProjectMemory } from './storage/project-memory';
+import { projectMemory } from './storage/managed-memory';
 import { resourceRevision } from './storage/resource-revision';
 import { ProjectDocs } from './storage/project-docs';
 import { dataDirectory } from './storage/data-directory';
@@ -82,6 +83,7 @@ import { executable } from './chat';
 import {
   gitCommit,
   gitPullRequest,
+  pullRequestStatus,
   gitSwitchNewBranch,
   removeWorktree,
   workingFiles,
@@ -119,7 +121,7 @@ const owned = new Map<
 >();
 const previews = new Map<BrowserWindow, AnnotationBrowser>();
 const chatRunner = createAgentRuntimes(async (request) => {
-  if (!verdictan) throw new DesktopProtocolError('desktop.runtime_missing');
+  if (!verdictan) throw new DesktopProtocolError('desktop.runtime_starting');
   request.session.governanceScope = await resolveManagedScope(
     request.session.cwd,
     request.session.organization?.taskId,
@@ -332,6 +334,7 @@ function handle(channel: string, fn: (...args: any[]) => any) {
             'tracker-draft',
             'tracker-add-issue',
             'tracker-link',
+            'tracker-unlink',
             'tracker-configure',
             'tracker-auth-start',
             'github-link',
@@ -605,18 +608,18 @@ app.whenReady().then(async () => {
     'delete',
     'trash',
     'restore',
+    'search',
+    'task-links',
+    'set-task-links',
   ] as const) {
     handle('docs-' + operation, async (id, ...args) => {
       const group = projectGroups.groups.find((g) => g.id === id);
       if (!group) throw new Error('Project not found');
       const result = await (async () => {
         if (group.hostId)
-          return remote.call(group.hostId, 'project-docs', [
-            id,
-            await projectRoot(id),
-            operation,
-            args,
-          ]);
+          return remote
+            .call(group.hostId, 'project-docs', [id, await projectRoot(id), operation, args])
+            .catch(helperTooOld);
         try {
           switch (operation) {
             case 'metadata':
@@ -635,13 +638,19 @@ app.whenReady().then(async () => {
               return await docs.trash(id);
             case 'restore':
               return await docs.restore(id, args[0]);
+            case 'search':
+              return await docs.search(id, args[0], args[1] ?? undefined);
+            case 'task-links':
+              return await docs.taskLinks(id);
+            case 'set-task-links':
+              return await docs.setTaskLinks(id, args[0], args[1]);
           }
         } catch (error) {
           locations.invalidate(id, group.rootPath);
           throw error;
         }
       })();
-      if (['create', 'save', 'delete', 'restore'].includes(operation)) {
+      if (['create', 'save', 'delete', 'restore', 'set-task-links'].includes(operation)) {
         for (const window of windows)
           if (!window.isDestroyed())
             window.webContents.send('project-resource-changed', { groupId: id, resource: 'docs' });
@@ -1025,6 +1034,34 @@ app.whenReady().then(async () => {
       ? remote.call(group.hostId, 'project-memory', [id, root, 'list'])
       : readProjectMemory(root);
   });
+  // An older helper on the host does not know the newer operations.
+  function helperTooOld(error: any): never {
+    if (/^(Unknown (document|memory) operation|Unsupported remote operation)/.test(error?.message))
+      throw new Error('Update the Kalkidan helper on this host in Settings to use this action.');
+    throw error;
+  }
+  async function memoryGroup(id: string) {
+    const group = projectGroups.groups.find((g) => g.id === id);
+    if (!group) throw new Error('Project not found.');
+    return { group, root: await projectRoot(id) };
+  }
+  handle('memory-entries', async (id) => {
+    const { group, root } = await memoryGroup(id);
+    return group.hostId
+      ? remote.call(group.hostId, 'project-memory', [id, root, 'entries']).catch(helperTooOld)
+      : projectMemory(root).list();
+  });
+  handle('memory-forget', async (id, entryId, revision) => {
+    const { group, root } = await memoryGroup(id);
+    if (group.hostId)
+      await remote
+        .call(group.hostId, 'project-memory', [id, root, 'forget', [entryId, revision]])
+        .catch(helperTooOld);
+    else await projectMemory(root).forget(entryId, revision);
+    for (const window of windows)
+      if (!window.isDestroyed())
+        window.webContents.send('project-resource-changed', { groupId: id, resource: 'memory' });
+  });
   handle('project-resource-revision', async (id, kind) => {
     const group = projectGroups.groups.find((g) => g.id === id);
     if (!group) throw new Error('Project not found.');
@@ -1178,7 +1215,7 @@ app.whenReady().then(async () => {
               id: randomUUID(),
               agent,
               cwd: p.path,
-              title: 'New session',
+              title: 'New chat',
               organization: options?.taskId ? { taskId: options.taskId } : undefined,
               updatedAt: new Date().toISOString(),
             },
@@ -1723,6 +1760,11 @@ app.whenReady().then(async () => {
       worktreePreview(project(id).path, branch, root, existsSync),
     );
   });
+  handle('pull-request-status', (id, url) =>
+    hostGit(id, 'pull-request-status', [url], () =>
+      pullRequestStatus(project(id).path, url, () => executable('gh')),
+    ),
+  );
   handle('git-pull-request', (id, title, body) =>
     hostGit(id, 'git-pull-request', [title, body], () =>
       gitPullRequest(project(id).path, title, body, () => executable('gh')),
@@ -2150,14 +2192,14 @@ app.whenReady().then(async () => {
           '</pre></body></html>';
     const extension = action === 'markdown' ? 'md' : 'html';
     const result = await dialog.showSaveDialog(win, {
-      title: 'Export session',
+      title: 'Export chat',
       defaultPath:
-        (session.title.replace(/[^a-zA-Z0-9 _-]/g, '').slice(0, 90) || 'session') + '.' + extension,
+        (session.title.replace(/[^a-zA-Z0-9 _-]/g, '').slice(0, 90) || 'chat') + '.' + extension,
       filters: [{ name: action === 'markdown' ? 'Markdown' : 'HTML', extensions: [extension] }],
     });
     if (result.canceled || !result.filePath) return null;
     await writeFile(result.filePath, content, { mode: 0o600 });
-    return 'Session exported';
+    return 'Chat exported';
   });
   // Menu commands go to the renderer of the focused window.
   const command = (name: MenuCommand) => () => {

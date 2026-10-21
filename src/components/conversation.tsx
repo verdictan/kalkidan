@@ -1,6 +1,6 @@
 import { interfaceConfig } from '../config/interface';
 import { trackerConnection } from '../domain/tracker';
-import { managedSetupTargets } from '../domain/verdictan';
+import { managedOnlyNotice } from '../domain/verdictan';
 import { trackerClient } from '../lib/tracker-client';
 import {
   ConversationTools,
@@ -17,10 +17,10 @@ import {
   DialogFooter,
 } from './ui/dialog';
 import { changeTaskStatus } from '../lib/task-status';
-import { agentLabel } from '../config/agents';
+import { agentCatalog, agentLabel } from '../config/agents';
 import { ConfirmDialog } from './confirm-dialog';
 import { CommitDialog } from './session-menu';
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import {
   ArrowUp,
   FileDiff,
@@ -28,6 +28,7 @@ import {
   Globe,
   LoaderCircle,
   Lock,
+  MessageCircleQuestion,
   Paperclip,
   ShieldAlert,
   Square,
@@ -36,8 +37,28 @@ import {
 } from 'lucide-react';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { Choice } from './choice';
 import { Alert, AlertDescription } from './ui/alert';
+import { showToast } from './ui/toast';
+import { errorMessage } from '../lib/errors';
+import { agentErrorMessage, managedLaunchError, type AgentError } from '../lib/agent-errors';
+import { takePendingDraft } from '../lib/pending-draft';
+import { moveTaskToReview, pullRequestLabel, type SessionPullRequest } from '../lib/pull-request';
+import type { DocPassage } from '../domain/docs';
+import {
+  AgentErrorActions,
+  MentionSuggestions,
+  PullRequestChip,
+  SaveToDocsDialog,
+  SendFailure,
+  TaskChip,
+  TaskLinkDialog,
+  composerMentions,
+  dispatchApp,
+  mentionQuery,
+  openExternal,
+  openTask,
+  takeQueuedSessionCommand,
+} from './chat-links';
 import { MoreButton } from './ui/more-button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import {
@@ -96,7 +117,7 @@ function savePermission(repositoryId: string | undefined, value: 'edit' | 'read'
 
 const permissionModes = {
   read: {
-    label: 'Can read only',
+    label: 'Read only',
     description: 'The agent reads files and answers. It cannot change files.',
   },
   edit: {
@@ -142,6 +163,29 @@ function refusedWrite(run: ChatRun) {
   return run.messages.some((message) => message.role !== 'user' && writeRefusal.test(message.text));
 }
 
+/** A message that did not reach the agent. Its error shows under the message. */
+interface SendFailureState {
+  messageId: string;
+  text: string;
+  prompt: string;
+  error: AgentError;
+}
+
+/** The "@docs" search text of a message, or an empty string. The desktop app uses the same rule. */
+function docsQuery(text: string) {
+  return /^\s*@docs(?:\s+|$)/i.test(text) ? text.replace(/^\s*@docs(?:\s+|$)/i, '').trim() : '';
+}
+
+/** The chat as Markdown for a doc page. */
+function chatMarkdown(title: string, agentName: string, messages: ChatMessage[]) {
+  return [
+    `# ${title}`,
+    ...messages.map(
+      (message) => `## ${message.role === 'user' ? 'You' : agentName}\n\n${message.text.trim()}`,
+    ),
+  ].join('\n\n');
+}
+
 /** Only web and mail links open outside Kalkidan. Other links show as text. */
 function safeLink(href: string | undefined) {
   if (!href) return undefined;
@@ -165,6 +209,7 @@ export function Conversation({
   onComplete,
   onActivityChange,
   onSessionCreated,
+  onTitleChange,
 }: {
   api: API;
   titlebarVisible?: boolean;
@@ -178,6 +223,8 @@ export function Conversation({
   onComplete: () => void;
   onActivityChange: (activity: SessionActivityState | null) => void;
   onSessionCreated?: (id: string, title: string) => void;
+  /** Gives the chat a title from its first message when the first send fails. */
+  onTitleChange?: (title: string) => void;
 }) {
   const [toolOpen, setToolOpen] = useState(false);
   const [toolRequest, setToolRequest] = useState<ToolRequest | null>(null);
@@ -194,9 +241,20 @@ export function Conversation({
   const textarea = useRef<HTMLTextAreaElement>(null);
   const [linkOpen, setLinkOpen] = useState(false);
   const [linkItems, setLinkItems] = useState<TrackerItem[]>([]);
-  const [linkChoice, setLinkChoice] = useState('');
   const [linkError, setLinkError] = useState('');
-  const [linkBusy, setLinkBusy] = useState(false);
+  const [linkLoading, setLinkLoading] = useState(false);
+  const [saveDocsOpen, setSaveDocsOpen] = useState(false);
+  const [pullRequest, setPullRequest] = useState<SessionPullRequest | undefined>(
+    session.organization?.pullRequest,
+  );
+  // "PR #12 is not merged. Mark Done anyway?"
+  const [prNotMerged, setPrNotMerged] = useState<SessionPullRequest | null>(null);
+  const [sendFailure, setSendFailure] = useState<SendFailureState | null>(null);
+  // The doc passages that "@docs" gave to the agent, for each run.
+  const [docPassages, setDocPassages] = useState<Record<string, DocPassage[]>>({});
+  const [mentionActive, setMentionActive] = useState(0);
+  const [mentionClosed, setMentionClosed] = useState(false);
+  const mentionListId = useId();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [contexts, setContexts] = useState<ConversationContext[]>(draft?.contexts || []);
   const [prompt, setPrompt] = useState(draft?.prompt ?? (session.initialPrompt || ''));
@@ -211,6 +269,11 @@ export function Conversation({
   const [unlinkOpen, setUnlinkOpen] = useState(false);
   const [reviewTask, setReviewTask] = useState(false);
   const [reviewChanges, setReviewChanges] = useState(0);
+  const [reviewPath, setReviewPath] = useState<string>();
+  const review = (path?: string) => {
+    setReviewPath(path);
+    setReviewChanges((n) => n + 1);
+  };
   const [taskBusy, setTaskBusy] = useState(false);
   const [taskNotice, setTaskNotice] = useState('');
   const [uncommitted, setUncommitted] = useState(0);
@@ -221,11 +284,13 @@ export function Conversation({
     if (next.taskExecution) {
       setTaskNotice(
         next.taskExecution.message ||
-          (next.taskExecution.sync === 'confirmed'
-            ? 'Task status confirmed on GitHub.'
-            : next.taskExecution.sync === 'pending'
-              ? 'Waiting for the agent before updating task status.'
-              : `Task sync: ${next.taskExecution.sync}`),
+          {
+            confirmed: 'Task status confirmed on GitHub.',
+            pending: 'Waiting for the agent before updating task status.',
+            writing: 'Updating the task status on GitHub…',
+            blocked: 'Kalkidan cannot update the task status. Change it on the board.',
+            'unknown-outcome': 'Kalkidan cannot confirm the task status. Check the board.',
+          }[next.taskExecution.sync],
       );
       return;
     }
@@ -250,8 +315,64 @@ export function Conversation({
       }
     });
   }
-  /** Checks for uncommitted changes first. The user can commit them or continue. */
-  async function requestDone() {
+  /** Saves organization changes when the chat has an ID. A draft chat saves them later. */
+  function saveOrganization(changes: Parameters<API['updateSession']>[2]) {
+    const id = providerSession.current || (!session.projectId ? session.id : null);
+    return id ? api.updateSession(session.agent, id, changes) : Promise.resolve();
+  }
+  /** Saves the pull request and moves the linked task to the review status of the board. */
+  function pullRequestOpened(next: SessionPullRequest) {
+    setPullRequest(next);
+    void saveOrganization({ pullRequest: next })
+      .then(() => completed.current())
+      .catch((e) => setError('Could not save the pull request on the chat: ' + errorMessage(e)));
+    if (!taskId || !projectGroup) return;
+    taskUpdates.current = taskUpdates.current.then(async () => {
+      try {
+        const name = await moveTaskToReview(api, projectGroup, taskId);
+        if (name) {
+          setTaskNotice(`Task moved to ${name}.`);
+          completed.current();
+        }
+      } catch (e) {
+        setTaskNotice('Task status could not be updated: ' + errorMessage(e));
+      }
+    });
+  }
+  /** Reads the pull request state again. Returns the current value. */
+  async function refreshPullRequest(current = pullRequest) {
+    if (!current || !repositoryId || !api.pullRequestStatus) return current;
+    const status = await api.pullRequestStatus(repositoryId, current.url);
+    const next = { ...current, state: status.state, number: status.number || current.number };
+    if (next.state !== current.state || next.number !== current.number) {
+      setPullRequest(next);
+      void saveOrganization({ pullRequest: next }).catch(() => {
+        /* The chip shows the new state. The next read saves it again. */
+      });
+    }
+    return next;
+  }
+  /**
+   * Checks the pull request and the uncommitted changes first. The user can open the pull
+   * request, commit the changes or continue.
+   */
+  async function requestDone(options: { skipPullRequest?: boolean } = {}) {
+    setPrNotMerged(null);
+    if (pullRequest && !options.skipPullRequest) {
+      setTaskBusy(true);
+      let current = pullRequest;
+      try {
+        current = (await refreshPullRequest()) || pullRequest;
+      } catch {
+        /* Use the saved state. */
+      } finally {
+        setTaskBusy(false);
+      }
+      if (current.state !== 'merged') {
+        setPrNotMerged(current);
+        return;
+      }
+    }
     if (repositoryId && api.workingStatus) {
       setTaskBusy(true);
       try {
@@ -372,6 +493,8 @@ export function Conversation({
   const stopRequested = useRef(false);
   const runRef = useRef<ChatRun | null>(null);
   const providerSession = useRef<string | null>(null);
+  // The number of messages before the first message of this chat view.
+  const messagesBefore = useRef(0);
   const submitted = useRef<{
     runId: string;
     messageId: string;
@@ -385,16 +508,17 @@ export function Conversation({
 
     if (session.projectId && !providerSession.current && next.sessionReady && next.sessionId) {
       providerSession.current = next.sessionId;
-      if (taskId || session.organization)
+      if (taskId || pullRequest || session.organization)
         void api
           .updateSession(session.agent, next.sessionId, {
             ...session.organization,
             ...(taskId ? { taskId } : {}),
+            ...(pullRequest ? { pullRequest } : {}),
           })
           .then(() => completed.current())
           .catch((e) =>
             setError(
-              'Session saved, but its name, pin, or task link could not be saved: ' + e.message,
+              'Chat saved, but its name, pin or task link could not be saved: ' + errorMessage(e),
             ),
           );
       onSessionCreated?.(
@@ -403,21 +527,31 @@ export function Conversation({
         submitted.current?.prompt.trim().slice(0, 100) || session.title,
       );
     }
-    if (next.error) setError(next.error);
+    const sent = submitted.current?.runId === next.id ? submitted.current : null;
+    // The agent did not answer: show the error under the message and put the text back.
+    if (
+      sent &&
+      (next.error || next.errorCode) &&
+      next.status !== 'stopped' &&
+      !next.messages.some((message) => message.role === 'assistant')
+    ) {
+      setSendFailure({
+        messageId: sent.messageId,
+        text: sent.text,
+        prompt: sent.prompt,
+        error:
+          next.errorCode === 'managed_launch_blocked' && next.error
+            ? managedLaunchError(next.error, next.managedSetup)
+            : agentErrorMessage(`${next.error || ''} ${next.errorCode || ''}`, session.agent),
+      });
+      setPrompt((current) => current || sent.prompt);
+      if (!providerSession.current && !messagesBefore.current)
+        onTitleChange?.(sent.prompt.trim().split('\n', 1)[0].slice(0, 100));
+    } else if (next.error) setError(next.error);
     if (!runEdits.current && next.status !== 'stopped' && refusedWrite(next)) setEditsRefused(true);
     setRunsFinished((n) => n + 1);
     setChangesNotice(true);
     readWorking.current();
-    if (
-      next.errorCode === 'session_busy' &&
-      !next.messages.length &&
-      submitted.current?.runId === next.id
-    ) {
-      const sent = submitted.current;
-      setPrompt(sent.text);
-      setMessages((previous) => previous.filter((message) => message.id !== sent.messageId));
-      submitted.current = null;
-    }
     completed.current();
   }
   const completed = useRef(onComplete);
@@ -477,14 +611,17 @@ export function Conversation({
   useEffect(() => {
     if (follow.current && scroll.current) scroll.current.scrollTop = scroll.current.scrollHeight;
   }, [messages, run, loading, open]);
-  const pendingApprovals =
-    (run?.approvals || []).filter((a) => a.status === 'pending').length +
-    (run?.requests || []).filter((r) => r.status === 'pending').length;
-  const activity: SessionActivityState | null = pendingApprovals
+  // An approval and a question are two states: the shell names them in notifications.
+  const approvalsPending = (run?.approvals || []).filter((a) => a.status === 'pending').length;
+  const questionsPending = (run?.requests || []).filter((r) => r.status === 'pending').length;
+  const pendingApprovals = approvalsPending + questionsPending;
+  const activity: SessionActivityState | null = approvalsPending
     ? 'approval'
-    : active
-      ? 'running'
-      : null;
+    : questionsPending
+      ? 'question'
+      : active
+        ? 'running'
+        : null;
   useEffect(() => {
     onActivityChange(activity);
     return () => onActivityChange(null);
@@ -511,12 +648,15 @@ export function Conversation({
     target.scrollIntoView({ behavior: 'smooth', block: 'center' });
     target.focus({ preventScroll: true });
   }
-  /** Sends the composer text. A retry sends the last message again with other permissions. */
-  async function send(retry?: { allowEdits: boolean }) {
-    const again = retry ? submitted.current : null;
+  /**
+   * Sends the composer text. `allowEdits` sends the last message again with other permissions.
+   * `resend` sends a message that failed.
+   */
+  async function send(retry?: { allowEdits?: boolean; resend?: { text: string; prompt: string } }) {
+    const again = retry ? retry.resend || submitted.current : null;
     if (retry ? !again : !prompt.trim()) return;
     if (active || taskBusy || startingRef.current || loading) return;
-    const edits = retry ? retry.allowEdits : allowEdits;
+    const edits = retry?.allowEdits ?? allowEdits;
     const text = again
       ? again.text
       : [prompt, ...contexts.map((context) => context.text)].join('\n\n');
@@ -526,6 +666,13 @@ export function Conversation({
       );
       return;
     }
+    const sentPrompt = again?.prompt ?? prompt;
+    // A new message replaces a failed one. Its text is in the composer.
+    if (sendFailure) {
+      const failed = sendFailure.messageId;
+      setMessages((existing) => existing.filter((message) => message.id !== failed));
+      setSendFailure(null);
+    }
     stopRequested.current = false;
     startingRef.current = true;
     setStarting(true);
@@ -534,7 +681,19 @@ export function Conversation({
     setTaskNotice('');
     setEditsRefused(false);
     setChangesNotice(false);
+    setMentionClosed(false);
     runEdits.current = edits;
+    if (!providerSession.current) messagesBefore.current = messages.length;
+    /** Moves the messages of the last run into the history, before a new message. */
+    const previousMessages = () => {
+      const previous = runRef.current;
+      if (previous && (previous.tools?.length || previous.diff))
+        setPastActivity((list) => [...list.slice(-19), previous]);
+      return (previous?.messages || []).map((message) => ({
+        ...message,
+        id: previous!.id + ':' + message.id,
+      }));
+    };
     try {
       const signature = Array.from(
         new Uint8Array(
@@ -567,35 +726,71 @@ export function Conversation({
       localStorage.removeItem(key);
       if (stopRequested.current) await api.chatStop(next.id);
       if (!mounted.current) return;
-      if (runRef.current && (runRef.current.tools?.length || runRef.current.diff))
-        setPastActivity((previous) => [...previous.slice(-19), runRef.current!]);
-      const previousMessages = (runRef.current?.messages || []).map((message) => ({
-        ...message,
-        id: runRef.current!.id + ':' + message.id,
-      }));
+      const moved = previousMessages();
       const messageId = crypto.randomUUID();
-      submitted.current = { runId: next.id, messageId, text, prompt: again?.prompt ?? prompt };
-      setMessages((existing) => [
-        ...existing,
-        ...previousMessages,
-        { id: messageId, role: 'user', text },
-      ]);
+      submitted.current = { runId: next.id, messageId, text, prompt: sentPrompt };
+      setMessages((existing) => [...existing, ...moved, { id: messageId, role: 'user', text }]);
       syncStartedTask(next);
-      if (!again) {
+      if (!again || (retry?.resend && prompt.trim() === sentPrompt.trim())) {
         setPrompt('');
         setContexts([]);
       }
+      // Show the doc passages that "@docs" gives to the agent. The search is the same.
+      const query = docsQuery(text);
+      if (query && projectGroup && api.docsSearch)
+        void api
+          .docsSearch(projectGroup.id, query, 3)
+          .then((passages) =>
+            setDocPassages((current) => ({ ...current, [next.id]: passages.slice(0, 3) })),
+          )
+          .catch(() => {
+            /* The answer shows without the passage chips. */
+          });
       runRef.current = next;
       setRun(next);
       follow.current = true;
-      if (next.error) setError(next.error);
       if (next.status !== 'running') finishRun(next);
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      if (!mounted.current) return;
+      // The message did not reach the agent. Show it with the error under it, and keep the
+      // text in the composer, so the user can send it again or change the agent.
+      const moved = previousMessages();
+      runRef.current = null;
+      setRun(null);
+      const messageId = crypto.randomUUID();
+      setMessages((existing) => [...existing, ...moved, { id: messageId, role: 'user', text }]);
+      setSendFailure({
+        messageId,
+        text,
+        prompt: sentPrompt,
+        error: agentErrorMessage(e, session.agent),
+      });
+      if (again) setPrompt((current) => current || sentPrompt);
+      follow.current = true;
+      if (session.projectId && !providerSession.current && !messagesBefore.current)
+        onTitleChange?.(sentPrompt.trim().split('\n', 1)[0].slice(0, 100));
     } finally {
       startingRef.current = false;
       setStarting(false);
     }
+  }
+  /** Sends the failed message again. */
+  function retrySend() {
+    const failed = sendFailure;
+    if (!failed) return;
+    void send({ resend: { text: failed.text, prompt: failed.prompt } });
+  }
+  /** Starts a new chat with the other agent, with the same message and task. */
+  function changeAgent() {
+    const failed = sendFailure;
+    const other = agentCatalog.find((agent) => agent.id !== session.agent)?.id;
+    dispatchApp('kalkidan-new-session', {
+      groupId: projectGroup?.id,
+      repoId: repositoryId,
+      agent: other,
+      prompt: failed?.prompt || prompt,
+      taskId: taskId || undefined,
+    });
   }
   async function stop() {
     stopRequested.current = true;
@@ -609,36 +804,36 @@ export function Conversation({
   async function openTaskLink() {
     if (!projectGroup || !trackerConnection(projectGroup)) return;
     setLinkOpen(true);
-    setLinkBusy(true);
+    setLinkLoading(true);
     setLinkError('');
-    setLinkChoice(taskId);
     try {
       setLinkItems(
         (await trackerClient(api, trackerConnection(projectGroup)?.provider).board(projectGroup.id))
           .items,
       );
     } catch (e) {
-      setLinkError(e instanceof Error ? e.message : String(e));
+      setLinkError(errorMessage(e));
     } finally {
-      setLinkBusy(false);
+      setLinkLoading(false);
     }
   }
-  async function saveTaskLink() {
-    setLinkBusy(true);
-    setLinkError('');
-    try {
-      const id = providerSession.current || (!session.projectId ? session.id : null);
-      if (id) await api.updateSession(session.agent, id, { taskId: linkChoice });
-      setTaskId(linkChoice);
-      setReviewTask(false);
-      setTaskNotice('');
-      setLinkOpen(false);
-      completed.current();
-    } catch (e) {
-      setLinkError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setLinkBusy(false);
-    }
+  async function saveTaskLink(choice: string, created?: TrackerItem) {
+    await saveOrganization({ taskId: choice });
+    if (created) setLinkItems((items) => [...items.filter((i) => i.id !== created.id), created]);
+    setTaskId(choice);
+    setReviewTask(false);
+    setTaskNotice('');
+    completed.current();
+    const groupId = projectGroup?.id;
+    if (created && groupId)
+      showToast({
+        message: `Made the task “${created.title}” and linked it to this chat.`,
+        actions: [{ label: 'Open task', onClick: () => openTask(groupId, created.id) }],
+      });
+  }
+  /** Opens the task sheet of the linked task on the project Tasks page. */
+  function openLinkedTask() {
+    if (projectGroup && taskId) openTask(projectGroup.id, taskId);
   }
   // A session on an SSH host fails when the host disconnects. Offer to connect again.
   const [reconnecting, setReconnecting] = useState(false);
@@ -646,6 +841,15 @@ export function Conversation({
     !!session.hostId &&
     !!error &&
     /host|ssh|disconnect|not connected|connection|ECONNRESET|EPIPE|timed out/i.test(error);
+  // Desktop codes and agent errors show as plain words with an action.
+  const errorInfo: AgentError | null = error
+    ? run?.errorCode === 'managed_launch_blocked' && run.error === error
+      ? managedLaunchError(error, run.managedSetup)
+      : /\bdesktop\.[a-z_]+|verdictan is not ready/i.test(error) ||
+          error.startsWith(managedOnlyNotice)
+        ? agentErrorMessage(error, session.agent)
+        : { message: errorMessage(error) }
+    : null;
   async function reconnect() {
     if (!session.hostId) return;
     setReconnecting(true);
@@ -661,10 +865,10 @@ export function Conversation({
       setReconnecting(false);
     }
   }
-  async function attachDoc(doc: { id: string; title: string }) {
-    if (!projectGroup) return;
+  async function attachDoc(doc: { id: string; title: string }, groupId = projectGroup?.id) {
+    if (!groupId) return;
     try {
-      const page = await api.docsRead(projectGroup.id, doc.id);
+      const page = await api.docsRead(groupId, doc.id);
       const title = page.title || doc.title || 'Untitled';
       setContexts((previous) => [
         ...previous,
@@ -678,9 +882,31 @@ export function Conversation({
         },
       ]);
     } catch (e) {
-      setError('Could not attach the doc page: ' + (e instanceof Error ? e.message : String(e)));
+      setError('Could not attach the doc page: ' + errorMessage(e));
     }
   }
+  // A page that starts a chat leaves a draft: the text, doc pages and a task to link.
+  useEffect(() => {
+    const pending = takePendingDraft(`${session.agent}:${session.id}`);
+    if (!pending) return;
+    if (pending.prompt) setPrompt(pending.prompt);
+    if (pending.taskId) {
+      setTaskId(pending.taskId);
+      void saveOrganization({ taskId: pending.taskId }).catch(() => {
+        /* A draft chat saves the link with the first message. */
+      });
+    }
+    for (const id of pending.docIds || [])
+      void attachDoc({ id, title: '' }, pending.groupId || projectGroup?.id);
+    requestAnimationFrame(() => textarea.current?.focus());
+  }, []);
+  // The open pull request can merge or close on GitHub. Read its state again.
+  useEffect(() => {
+    if (!pullRequest?.url || pullRequest.state === 'merged') return;
+    refreshPullRequest().catch(() => {
+      /* The chip keeps the saved state. */
+    });
+  }, [pullRequest?.url, repositoryId]);
   // A classic scrollbar (Windows, Linux) takes width on the right of the messages only. The
   // CSS subtracts it from the right padding, so messages and composer share one column.
   const panel = useRef<HTMLElement>(null);
@@ -717,13 +943,63 @@ export function Conversation({
     setUnlinkOpen(false);
     const previous = taskId;
     setTaskId('');
-    const id = providerSession.current || (!session.projectId ? session.id : null);
-    if (id)
-      void api.updateSession(session.agent, id, { taskId: '' }).catch((e) => {
-        // Show the link again when the change was not saved.
-        setTaskId(previous);
-        setError(e instanceof Error ? e.message : String(e));
-      });
+    void saveOrganization({ taskId: '' }).catch((e) => {
+      // Show the link again when the change was not saved.
+      setTaskId(previous);
+      setError(errorMessage(e));
+    });
+  }
+  // The application menu and the chat menu send these commands to the visible chat.
+  const commands = useRef<(name: string) => boolean>(() => false);
+  commands.current = (name) => {
+    if (name === 'session-commit' && repositoryId) setCommitOpen(true);
+    else if (name === 'save-to-docs' && projectGroup) setSaveDocsOpen(true);
+    else if (name === 'open-linked-task' && taskId && projectGroup) openLinkedTask();
+    else if (name === 'link-task' && trackerConnection(projectGroup) && !active)
+      void openTaskLink();
+    else if (name === 'open-pull-request' && pullRequest) openExternal(pullRequest.url);
+    else return false;
+    return true;
+  };
+  const visible = open && titlebarVisible;
+  useEffect(() => {
+    if (!visible) return;
+    const command = (event: Event) => {
+      const detail = (event as CustomEvent<{ command?: string; handled?: boolean }>).detail;
+      if (detail?.command && commands.current(detail.command)) detail.handled = true;
+    };
+    window.addEventListener('kalkidan-session-command', command);
+    // Run a command that arrived before this view was visible. The Changes tool reads its
+    // own commands, so this view opens it only for a queued command.
+    const queued = takeQueuedSessionCommand();
+    const timer = queued
+      ? setTimeout(() => {
+          if (queued === 'session-changes') review();
+          else if (queued === 'session-terminal') showTool('terminal');
+          else commands.current(queued);
+        })
+      : undefined;
+    return () => {
+      clearTimeout(timer);
+      window.removeEventListener('kalkidan-session-command', command);
+    };
+  }, [visible]);
+  const allMessages = [
+    ...messages,
+    ...(run?.messages || []).map((message) => ({ ...message, id: run!.id + ':' + message.id })),
+  ];
+  const lastAnswer =
+    [...allMessages].reverse().find((message) => message.role === 'assistant')?.text || '';
+  const firstMessage = allMessages.find((message) => message.role === 'user')?.text || prompt || '';
+  const mention = projectGroup && !mentionClosed && !active ? mentionQuery(prompt) : null;
+  const mentionOptions =
+    mention === null
+      ? []
+      : composerMentions.filter((item) => item.value.slice(1).startsWith(mention));
+  function pickMention(value: string) {
+    setPrompt(value + ' ');
+    setMentionActive(0);
+    requestAnimationFrame(() => textarea.current?.focus());
   }
   const modelName = models.find((m) => m.id === model)?.name || model;
   const mode = permissionModes[allowEdits ? 'edit' : 'read'];
@@ -732,13 +1008,14 @@ export function Conversation({
   return (
     <ConversationTools
       reviewRequest={reviewChanges}
+      reviewPath={reviewPath}
       toolRequest={toolRequest}
       changeCount={repositoryId ? changedFiles : null}
       runsFinished={runsFinished}
       onChangesRead={() => readWorking.current()}
       onCommit={repositoryId ? () => setCommitOpen(true) : undefined}
       onToolChange={setToolOpen}
-      visible={open && titlebarVisible}
+      visible={visible}
       remote={!!session.hostId}
       api={api}
       cwd={session.cwd}
@@ -749,7 +1026,7 @@ export function Conversation({
       <section
         ref={panel}
         className={'conversation-panel' + (empty ? ' conversation-empty' : '')}
-        aria-label="Session"
+        aria-label="Chat"
         data-tool-open={toolOpen}
       >
         <div
@@ -762,7 +1039,7 @@ export function Conversation({
         >
           {loading && (
             <div className="chat-loading">
-              <LoaderCircle className="size-3.5 animate-spin" aria-hidden="true" /> Loading session…
+              <LoaderCircle className="size-3.5 animate-spin" aria-hidden="true" /> Loading chat…
             </div>
           )}
           {truncated && (
@@ -773,7 +1050,7 @@ export function Conversation({
           )}
           {!loading && !messages.length && (
             <div className="conversation-welcome">
-              <h3>{session.projectId ? 'What are we working on?' : 'Resume your session'}</h3>
+              <h3>{session.projectId ? 'What are we working on?' : 'Resume your chat'}</h3>
               <p>
                 {session.projectId
                   ? `Plan, build, and review with ${agentName}.`
@@ -804,16 +1081,14 @@ export function Conversation({
             role="log"
             aria-live="polite"
             aria-relevant="additions"
-            aria-label="Session messages"
+            aria-label="Chat messages"
           >
-            {[
-              ...messages,
-              ...(run?.messages || []).map((message) => ({
-                ...message,
-                id: run!.id + ':' + message.id,
-              })),
-            ].map((message) => (
-              <article className={'chat-message ' + message.role} key={message.id}>
+            {allMessages.map((message) => (
+              <article
+                className={'chat-message ' + message.role}
+                key={message.id}
+                data-failed={sendFailure?.messageId === message.id || undefined}
+              >
                 <div className="chat-message-author">
                   {message.role === 'user' ? 'You' : agentName}
                 </div>
@@ -837,17 +1112,38 @@ export function Conversation({
                     {message.text}
                   </Markdown>
                 </div>
+                {sendFailure?.messageId === message.id && (
+                  <SendFailure
+                    error={sendFailure.error}
+                    busy={!!active}
+                    onRetry={retrySend}
+                    onChangeAgent={changeAgent}
+                  />
+                )}
               </article>
             ))}
           </div>
           {pastActivity.map((previous) => (
-            <AgentActivity key={previous.id} api={api} run={previous} onUpdate={() => {}} />
+            <AgentActivity
+              key={previous.id}
+              api={api}
+              run={previous}
+              onUpdate={() => {}}
+              groupId={projectGroup?.id}
+              taskId={taskId || undefined}
+              docPassages={docPassages[previous.id]}
+              onReviewChanges={repositoryId ? review : undefined}
+            />
           ))}
           {run && (
             <AgentActivity
               key={run.id}
               api={api}
               run={run}
+              groupId={projectGroup?.id}
+              taskId={taskId || undefined}
+              docPassages={docPassages[run.id]}
+              onReviewChanges={repositoryId ? review : undefined}
               onUpdate={(next) => {
                 if (runRef.current?.id !== next.id) return;
                 runRef.current = next;
@@ -869,10 +1165,18 @@ export function Conversation({
         <div className="composer-dock">
           {approvalHidden && (
             <div className="approval-banner" role="status">
-              <ShieldAlert size={16} aria-hidden="true" />
-              <span>The agent is waiting for your response</span>
+              {approvalsPending ? (
+                <ShieldAlert size={16} aria-hidden="true" />
+              ) : (
+                <MessageCircleQuestion size={16} aria-hidden="true" />
+              )}
+              <span>
+                {approvalsPending
+                  ? `${agentName} is waiting for your approval`
+                  : `${agentName} asks a question`}
+              </span>
               <Button size="sm" variant="outline" onClick={reviewApproval}>
-                Review
+                {approvalsPending ? 'Review' : 'Answer'}
               </Button>
             </div>
           )}
@@ -881,7 +1185,7 @@ export function Conversation({
               <FileDiff className="size-3.5" aria-hidden="true" />
               <span>{plural(changedFiles, 'file')} changed</span>
               <span aria-hidden="true">·</span>
-              <Button variant="chip" onClick={() => setReviewChanges((n) => n + 1)}>
+              <Button variant="chip" onClick={() => review()}>
                 Review
               </Button>
               <span aria-hidden="true">·</span>
@@ -924,7 +1228,7 @@ export function Conversation({
             {editsRefused && !allowEdits && !active && (
               <div className="composer-notice" role="group" aria-label="Allow edits">
                 <Lock className="size-3.5 shrink-0" aria-hidden="true" />
-                <span className="min-w-0 flex-1">This chat can read only. Allow edits?</span>
+                <span className="min-w-0 flex-1">This chat is read only. Allow edits?</span>
                 {submitted.current && (
                   <Button
                     size="sm"
@@ -961,8 +1265,8 @@ export function Conversation({
             )}
             {taskOnDefault && !allowEdits && !messages.length && !run && (
               <p className="form-help px-2">
-                You are on {working?.branch}, so this task chat starts with Can read only. Your
-                checkout stays clean. Allow edits when you are ready.
+                You are on {working?.branch}, so this task chat starts as Read only. Your checkout
+                stays clean. Allow edits when you are ready.
               </p>
             )}
             {taskId && !reviewTask && (
@@ -983,17 +1287,22 @@ export function Conversation({
               >
                 <p className="text-sm font-medium">Complete this task?</p>
                 <p className="text-xs text-muted-foreground">
-                  Review the changes and verify the result before marking the linked tracker task
-                  Done.
+                  Review the changes and verify the result before you mark the linked task Done.
+                  {pullRequest && ` ${pullRequestLabel(pullRequest)}.`}
                 </p>
                 <div className="flex flex-wrap gap-2">
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => setReviewChanges((n) => n + 1)}
-                  >
+                  <Button size="sm" variant="outline" onClick={() => review()}>
                     Review changes
                   </Button>
+                  {pullRequest && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => openExternal(pullRequest.url)}
+                    >
+                      Open pull request
+                    </Button>
+                  )}
                   {repositoryId && (
                     <Button
                       size="sm"
@@ -1022,10 +1331,11 @@ export function Conversation({
                 </div>
               </div>
             )}
-            {error && (
+            {errorInfo && (
               <Alert variant="destructive" size="sm" className="max-h-32 overflow-auto">
-                <AlertDescription className="text-xs whitespace-pre-wrap">
-                  {error.replace(/^Error invoking remote method '[^']+': Error: /, '')}
+                <AlertDescription className="grid gap-1 text-xs whitespace-pre-wrap">
+                  {errorInfo.message}
+                  {errorInfo.action && <AgentErrorActions error={errorInfo} />}
                   {hostError && (
                     <Button
                       variant="outline"
@@ -1037,48 +1347,66 @@ export function Conversation({
                       {reconnecting ? 'Reconnecting…' : 'Reconnect'}
                     </Button>
                   )}
-                  {run?.errorCode === 'managed_launch_blocked' && (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="mt-1"
-                      onClick={() => {
-                        const target = managedSetupTargets[run.managedSetup || 'status'];
-                        window.dispatchEvent(
-                          new CustomEvent('kalkidan-open-settings', {
-                            detail: { section: target.section, anchor: target.anchor },
-                          }),
-                        );
-                      }}
-                    >
-                      {managedSetupTargets[run.managedSetup || 'status'].label}
-                    </Button>
-                  )}
-                  {run?.errorCode === 'session_busy' && (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="mt-1"
-                      disabled={!!active || !prompt.trim()}
-                      onClick={() => void send()}
-                    >
-                      Retry session
-                    </Button>
-                  )}
                 </AlertDescription>
               </Alert>
+            )}
+            {!!mentionOptions.length && (
+              <MentionSuggestions
+                id={mentionListId}
+                query={mention || ''}
+                active={Math.min(mentionActive, mentionOptions.length - 1)}
+                onPick={pickMention}
+              />
             )}
             <Textarea
               ref={textarea}
               data-composer=""
               className="max-h-[clamp(80px,20vh,180px)] min-h-8 resize-none rounded-none border-0 bg-transparent px-2 py-1 text-base shadow-none focus-visible:ring-0 dark:bg-transparent"
               aria-label="Message agent"
-              aria-description="Press Enter to send. Press Shift+Enter for a new line."
-              placeholder="Ask anything…"
+              aria-description={
+                'Press Enter to send. Press Shift+Enter for a new line.' +
+                (projectGroup ? ' Type @docs to search the project docs.' : '')
+              }
+              aria-autocomplete={projectGroup ? 'list' : undefined}
+              aria-controls={mentionOptions.length ? mentionListId : undefined}
+              aria-expanded={projectGroup ? !!mentionOptions.length : undefined}
+              aria-activedescendant={
+                mentionOptions.length
+                  ? `${mentionListId}-${Math.min(mentionActive, mentionOptions.length - 1)}`
+                  : undefined
+              }
+              placeholder={
+                projectGroup ? 'Ask anything. Type @ to search project docs.' : 'Ask anything…'
+              }
               value={prompt}
               maxLength={100000}
-              onChange={(e) => setPrompt(e.target.value)}
+              onChange={(e) => {
+                setPrompt(e.target.value);
+                if (!e.target.value.trimStart().startsWith('@')) setMentionClosed(false);
+                setMentionActive(0);
+              }}
               onKeyDown={(event) => {
+                if (mentionOptions.length && !event.nativeEvent.isComposing) {
+                  const index = Math.min(mentionActive, mentionOptions.length - 1);
+                  if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+                    event.preventDefault();
+                    const step = event.key === 'ArrowDown' ? 1 : -1;
+                    setMentionActive(
+                      (index + step + mentionOptions.length) % mentionOptions.length,
+                    );
+                    return;
+                  }
+                  if ((event.key === 'Enter' && !event.shiftKey) || event.key === 'Tab') {
+                    event.preventDefault();
+                    pickMention(mentionOptions[index].value);
+                    return;
+                  }
+                  if (event.key === 'Escape') {
+                    event.preventDefault();
+                    setMentionClosed(true);
+                    return;
+                  }
+                }
                 if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
                   event.preventDefault();
                   void send();
@@ -1180,29 +1508,17 @@ export function Conversation({
                   </Button>
                 )}
                 {taskId && (
-                  <span className="composer-task min-w-0" title={`Task · ${taskTitle}`}>
-                    <Button
-                      variant="chip"
-                      className="min-w-0 bg-secondary text-secondary-foreground"
-                      disabled={!!active || !trackerConnection(projectGroup)}
-                      aria-label={`Task: ${taskTitle}. Change task`}
-                      onClick={() => void openTaskLink()}
-                    >
-                      <span className="truncate">Task · {taskTitle}</span>
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="icon-2xs"
-                      className="rounded-full"
-                      aria-label="Unlink task"
-                      title="Unlink task"
-                      disabled={!!active}
-                      onClick={() => setUnlinkOpen(true)}
-                    >
-                      <X />
-                    </Button>
-                  </span>
+                  <TaskChip
+                    title={taskTitle}
+                    disabled={!!active}
+                    onOpen={projectGroup ? openLinkedTask : undefined}
+                    onChange={
+                      trackerConnection(projectGroup) ? () => void openTaskLink() : undefined
+                    }
+                    onUnlink={() => setUnlinkOpen(true)}
+                  />
                 )}
+                {pullRequest && <PullRequestChip pr={pullRequest} />}
                 <DropdownMenu>
                   <Hint label="More options">
                     <DropdownMenuTrigger asChild>
@@ -1283,36 +1599,60 @@ export function Conversation({
             </div>
           </div>
         </div>
-        <Dialog open={linkOpen} onOpenChange={(value) => !linkBusy && setLinkOpen(value)}>
-          <DialogContent size="md">
+        {projectGroup && trackerConnection(projectGroup) && (
+          <TaskLinkDialog
+            api={api}
+            group={projectGroup}
+            open={linkOpen}
+            onOpenChange={setLinkOpen}
+            items={linkItems}
+            loading={linkLoading}
+            loadError={linkError}
+            current={taskId}
+            chat={{
+              title: /^New( .*)? (session|chat)$/.test(sessionTitle)
+                ? docsQuery(firstMessage).split('\n', 1)[0].slice(0, 120) ||
+                  firstMessage.trim().split('\n', 1)[0].slice(0, 120) ||
+                  sessionTitle
+                : sessionTitle,
+              firstMessage,
+              summary: lastAnswer.slice(0, 4000),
+            }}
+            onSave={saveTaskLink}
+          />
+        )}
+        <Dialog open={!!prNotMerged} onOpenChange={(value) => !value && setPrNotMerged(null)}>
+          <DialogContent size="sm">
             <DialogHeader>
-              <DialogTitle>Link a task</DialogTitle>
+              <DialogTitle>
+                {prNotMerged?.number ? `PR #${prNotMerged.number}` : 'The pull request'} is not
+                merged
+              </DialogTitle>
               <DialogDescription>
-                Add task context to this session. General sessions can stay unlinked.
+                {prNotMerged?.state === 'closed'
+                  ? 'The pull request is closed without a merge. Mark the task Done anyway?'
+                  : 'The changes are not in the default branch yet. Mark the task Done anyway?'}
               </DialogDescription>
             </DialogHeader>
-            <Choice
-              className="w-full"
-              label="Session task"
-              value={linkChoice}
-              onChange={setLinkChoice}
-              disabled={linkBusy}
-              options={[
-                { value: '', label: 'No task' },
-                ...linkItems.map((item) => ({ value: item.id, label: item.title })),
-              ]}
-            />
-            {linkError && (
-              <p role="alert" className="field-error">
-                {linkError}
-              </p>
-            )}
             <DialogFooter>
-              <Button variant="outline" disabled={linkBusy} onClick={() => setLinkOpen(false)}>
+              <Button variant="outline" onClick={() => setPrNotMerged(null)}>
                 Cancel
               </Button>
-              <Button disabled={linkBusy || !!linkError} onClick={() => void saveTaskLink()}>
-                Save task link
+              <Button
+                variant="outline"
+                disabled={taskBusy}
+                onClick={() => void requestDone({ skipPullRequest: true })}
+              >
+                Mark Done anyway
+              </Button>
+              <Button
+                autoFocus
+                onClick={() => {
+                  if (prNotMerged) openExternal(prNotMerged.url);
+                  setPrNotMerged(null);
+                }}
+              >
+                Open pull request
               </Button>
             </DialogFooter>
           </DialogContent>
@@ -1351,17 +1691,19 @@ export function Conversation({
             repositoryId={repositoryId}
             open={commitOpen}
             onOpenChange={setCommitOpen}
-            onReview={() => setReviewChanges((n) => n + 1)}
+            onReview={() => review()}
             onCommitted={() => {
               readWorking.current();
               setRunsFinished((n) => n + 1);
             }}
             message={sessionTitle}
-            pullRequestBody={
-              taskId && linkedTask
-                ? [`Task: ${linkedTask.title}`, linkedTask.url].filter(Boolean).join('\n')
-                : `Changes from the Kalkidan session "${sessionTitle}".`
+            sessionTitle={sessionTitle}
+            task={taskId ? linkedTask : undefined}
+            group={projectGroup}
+            onTaskChange={(item) =>
+              setLinkItems((items) => [...items.filter((entry) => entry.id !== item.id), item])
             }
+            onPullRequest={pullRequestOpened}
           />
         )}
         {projectGroup && (
@@ -1377,10 +1719,21 @@ export function Conversation({
             }}
           />
         )}
+        {projectGroup && (
+          <SaveToDocsDialog
+            api={api}
+            groupId={projectGroup.id}
+            open={saveDocsOpen}
+            onOpenChange={setSaveDocsOpen}
+            chatTitle={sessionTitle}
+            wholeChat={allMessages.length ? chatMarkdown(sessionTitle, agentName, allMessages) : ''}
+            lastAnswer={lastAnswer}
+          />
+        )}
         <ConfirmDialog
           open={unlinkOpen}
           title="Unlink task"
-          description="The agent no longer gets this task as context. The task stays in the tracker. You can link it again later."
+          description="The agent no longer gets this task as context. The task stays on the board. You can link it again later."
           confirmLabel="Unlink task"
           onCancel={() => setUnlinkOpen(false)}
           onConfirm={unlinkTask}
