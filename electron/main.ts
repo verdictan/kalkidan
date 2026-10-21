@@ -103,6 +103,7 @@ const history = (codex: string, claude: string, sources?: Map<string, string>) =
 import { codexTranscript } from './codex-store';
 import { ProjectGroups } from './project-groups';
 import { SessionLibrary } from './session-library';
+import { ChatOutcomes } from './chat-outcomes';
 import { readTranscript } from './transcript';
 import { listRepositories, cloneRepository, repositoryName } from './repositories';
 import { GitHubAuth } from './github-auth';
@@ -128,6 +129,10 @@ const owned = new Map<
   { kind: 'chat' | 'pty' | 'terminal'; id: string; hostId?: string }[]
 >();
 const previews = new Map<BrowserWindow, AnnotationBrowser>();
+// The outcome of the latest run of each chat, for the status dots.
+const chatOutcomes = new ChatOutcomes(join(dataRoot, 'chat-outcomes.json'));
+const keepOutcome = (run: Parameters<ChatOutcomes['finished']>[0]) =>
+  void chatOutcomes.finished(run).catch((error) => console.warn('Chat outcome not saved', error));
 const chatRunner = createAgentRuntimes(async (request) => {
   if (!verdictan) throw new DesktopProtocolError('desktop.runtime_starting');
   request.session.governanceScope = await resolveManagedScope(
@@ -135,7 +140,7 @@ const chatRunner = createAgentRuntimes(async (request) => {
     request.session.organization?.taskId,
   );
   return verdictan.launch.prepare(request);
-});
+}, keepOutcome);
 const githubAuth = new GitHubAuth(() => shell.openExternal('https://github.com/login/device'));
 let remote: RemoteHosts;
 let resolveManagedScope: (
@@ -676,7 +681,11 @@ app.whenReady().then(async () => {
       return result;
     });
   }
-  const sessionLibrary = new SessionLibrary(join(app.getPath('userData'), 'sessions.json'));
+  const sessionLibrary = new SessionLibrary(
+    join(app.getPath('userData'), 'sessions.json'),
+    chatOutcomes,
+  );
+  await chatOutcomes.load().catch((error) => console.warn('Chat outcomes not loaded', error));
   try {
     await sessionLibrary.load();
   } catch (error: any) {
@@ -804,6 +813,7 @@ app.whenReady().then(async () => {
       verdictan!.remoteBroker.request(hostId, operation, parameters),
   );
   await remote.load();
+  remote.onRunEnded(keepOutcome);
   handle('remote-hosts', () => remote.list());
   handle('remote-add', (name, target) => remote.add(name, target));
   handle('remote-check', (id) => remote.check(id));

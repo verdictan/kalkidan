@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import { writeJSON } from './storage/atomic-json';
 import type { Agent, Session, SessionOrganization } from '../src/types';
+import type { ChatOutcomes } from './chat-outcomes';
 
 export function validateOrganization(value: unknown): SessionOrganization {
   if (!value || typeof value !== 'object' || Array.isArray(value))
@@ -25,7 +26,11 @@ export function validateOrganization(value: unknown): SessionOrganization {
 export class SessionLibrary {
   private entries = new Map<string, SessionOrganization>();
   private writes = Promise.resolve();
-  constructor(private file: string) {}
+  constructor(
+    private file: string,
+    /** With it, each decorated session also gets the outcome of its latest run. */
+    private outcomes?: Pick<ChatOutcomes, 'get'>,
+  ) {}
   async load() {
     try {
       const data = JSON.parse(await readFile(this.file, 'utf8'));
@@ -39,10 +44,14 @@ export class SessionLibrary {
     }
   }
   decorate(sessions: Session[]) {
-    return sessions.map((session) => ({
-      ...session,
-      organization: this.entries.get(`${session.agent}:${session.id}`) || {},
-    }));
+    return sessions.map((session) => {
+      const outcome = this.outcomes?.get(session.agent, session.id);
+      return {
+        ...session,
+        organization: this.entries.get(`${session.agent}:${session.id}`) || {},
+        ...(outcome ? { outcome } : {}),
+      };
+    });
   }
   async update(agent: Agent, id: string, changes: unknown) {
     return this.updateMany([{ agent, id, changes }]);

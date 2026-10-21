@@ -54,7 +54,41 @@ export class RemoteHosts {
   private stopped = new Set<string>();
   private closing = false;
   private reconciling?: Promise<void>;
-  private runs = new Map<string, { hostId: string; state: ChatRun }>();
+  private runs = new Map<
+    string,
+    { hostId: string; state: ChatRun; create?: boolean; sessionId?: string; reported?: boolean }
+  >();
+  private runEnded?: (run: {
+    hostId: string;
+    state: ChatRun;
+    sessionId: string;
+    create: boolean;
+  }) => void;
+  /** Sets the listener for remote runs that end. The chat outcome store uses it. */
+  onRunEnded(listener: NonNullable<RemoteHosts['runEnded']>) {
+    this.runEnded = listener;
+  }
+  private reportRun(entry: {
+    hostId: string;
+    state: ChatRun;
+    create?: boolean;
+    sessionId?: string;
+    reported?: boolean;
+  }) {
+    if (entry.reported || entry.state.status === 'running' || !this.runEnded) return;
+    entry.reported = true;
+    try {
+      this.runEnded({
+        hostId: entry.hostId,
+        state: entry.state,
+        sessionId: entry.sessionId || entry.state.sessionId,
+        // An unknown start counts as a new chat: only a saved session gets an outcome.
+        create: entry.create !== false,
+      });
+    } catch {
+      // The outcome is status data only. It must not change the run.
+    }
+  }
   private interruptRuns(hostId: string) {
     for (const run of this.runs.values()) {
       if (
@@ -80,6 +114,7 @@ export class RemoteHosts {
           ['pending', 'submitting'].includes(r.status) ? { ...r, status: 'expired' } : r,
         ),
       };
+      this.reportRun(run);
     }
   }
   private waiters = new Map<
@@ -670,8 +705,19 @@ export class RemoteHosts {
       ) {
         const key = JSON.stringify([id, result.id]);
         const state = structuredClone(result) as ChatRun;
-        this.runs.set(key, { hostId: id, state });
+        const previous = this.runs.get(key);
+        const entry = {
+          hostId: id,
+          state,
+          create:
+            method === 'chatCreate' ? true : method === 'chatStart' ? false : previous?.create,
+          sessionId:
+            method === 'chatStart' && typeof args[1] === 'string' ? args[1] : previous?.sessionId,
+          reported: previous?.reported,
+        };
+        this.runs.set(key, entry);
         if (this.connections.get(id) !== connection) this.interruptRuns(id);
+        else this.reportRun(entry);
         for (const [old, value] of this.runs)
           if (this.runs.size > 30 && value.state.status !== 'running' && old !== key)
             this.runs.delete(old);
