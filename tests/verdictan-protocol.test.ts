@@ -8,6 +8,7 @@ import {
   VerdictanAccountService,
   parseAccount,
   parseCapabilities,
+  sessionCapabilities,
 } from '../electron/verdictan/account';
 
 function fixture() {
@@ -148,9 +149,9 @@ test('profile owner coalesces checks, retains unready capabilities and opens onl
   assert.equal(account.check(), checked);
   await assert.rejects(account.authorize('login'), /operation_in_progress/);
   await drain();
-  f.reply('capabilities', capabilities);
-  await drain();
   f.reply('account.status', signedOut);
+  await drain();
+  f.reply('capabilities', capabilities);
   assert.equal((await checked).phase, 'signed-out');
   assert.equal(account.status().executionReady, false);
   const login = account.authorize('login');
@@ -169,12 +170,16 @@ test('profile owner coalesces checks, retains unready capabilities and opens onl
     organization_id: 'org',
     expires_at: '2026-10-21T00:00:00Z',
   });
+  await drain();
+  f.reply('capabilities', capabilities);
   const status = await login;
   assert.equal(status.phase, 'authenticated');
   assert.equal(status.executionReady, false);
   const logout = account.logout();
   await drain();
   f.reply('session.logged_out', { remote_revoked: false, execution_blocked: true });
+  await drain();
+  f.reply('capabilities', capabilities);
   assert.equal((await logout).remoteRevocationPending, true);
   assert.equal(account.status().account, undefined);
 });
@@ -226,13 +231,124 @@ test('account owner invalidates idle state when the CLI exits and discards a lat
   const ready = account.check();
   resolve(second.client);
   await drain();
-  second.reply('capabilities', capabilities);
-  await drain();
   second.reply('account.status', signedOut);
+  await drain();
+  second.reply('capabilities', capabilities);
   assert.equal((await ready).phase, 'signed-out');
   second.child.emit('close', 1);
   assert.equal(account.status().phase, 'error');
   assert.equal(account.status().executionReady, false);
+});
+
+test('session capabilities come from the account profile and refresh after each account change', async (t) => {
+  const f = fixture();
+  const account = new VerdictanAccountService({
+    apiOrigin: signedOut.api_url,
+    consoleOrigin: 'https://console.verdictan.com',
+    connect: async () => f.client,
+    openBrowser: async () => {},
+  });
+  t.after(() => account.dispose());
+  const project = ['project.permissions', 'review.decide', 'context.search'];
+  const signedIn = {
+    ...signedOut,
+    state: 'authenticated',
+    user_id: 'user',
+    organization_id: 'org',
+    expires_at: '2026-10-21T00:00:00Z',
+  };
+  const advertised = { ...capabilities, capabilities: [...project, 'session.renew'] };
+  const names = () => account.status().capabilities?.capabilities;
+  // A signed-out profile is never authoritative for session operations.
+  const checked = account.check();
+  await drain();
+  f.reply('account.status', signedOut);
+  await drain();
+  f.reply('capabilities', advertised);
+  await checked;
+  assert.deepEqual(names(), ['session.renew']);
+  // Sign-in reads the capabilities again from the same account profile.
+  const login = account.authorize('login');
+  await drain();
+  f.reply('authorization.completed', {});
+  await drain();
+  f.reply('account.status', signedIn);
+  await drain();
+  assert.equal(f.requests.at(-1).operation, 'capabilities');
+  f.reply('capabilities', advertised);
+  assert.equal((await login).phase, 'authenticated');
+  assert.deepEqual(names(), advertised.capabilities);
+  // Renewal reads them again. An expired account loses session operations.
+  const renew = account.renew();
+  await drain();
+  f.reply('session.renewed', {});
+  await drain();
+  f.reply('account.status', { ...signedIn, state: 'expired' });
+  await drain();
+  f.reply('capabilities', advertised);
+  await renew;
+  assert.deepEqual(names(), ['session.renew']);
+  const again = account.check();
+  await drain();
+  f.reply('account.status', signedIn);
+  await drain();
+  f.reply('capabilities', advertised);
+  await again;
+  assert.deepEqual(names(), advertised.capabilities);
+  // Sign-out drops session operations before the next read. A failed read leaves none.
+  const logout = account.logout();
+  await drain();
+  f.reply('session.logged_out', { remote_revoked: false, execution_blocked: true });
+  await drain();
+  assert.equal(account.status().capabilities, undefined);
+  f.reply('error', { code: 'desktop.operation_failed' });
+  const status = await logout;
+  assert.equal(status.phase, 'signed-out');
+  assert.equal(status.remoteRevocationPending, true);
+  assert.equal(status.capabilities, undefined);
+});
+test('a failed capability read after sign-in fails closed', async (t) => {
+  const f = fixture();
+  const account = new VerdictanAccountService({
+    apiOrigin: signedOut.api_url,
+    consoleOrigin: 'https://console.verdictan.com',
+    connect: async () => f.client,
+    openBrowser: async () => {},
+  });
+  t.after(() => account.dispose());
+  const login = account.authorize('login');
+  await drain();
+  f.reply('authorization.completed', {});
+  await drain();
+  f.reply('account.status', {
+    ...signedOut,
+    state: 'authenticated',
+    user_id: 'user',
+    organization_id: 'org',
+    expires_at: '2026-10-21T00:00:00Z',
+  });
+  await drain();
+  f.reply('capabilities', { ...capabilities, capabilities: 'project.permissions' });
+  const status = await login;
+  assert.equal(status.phase, 'error');
+  assert.equal(status.error, 'desktop.capabilities_invalid');
+  assert.equal(status.capabilities, undefined);
+});
+test('sessionCapabilities keeps static operations for every account state', () => {
+  const value = parseCapabilities({
+    ...capabilities,
+    capabilities: ['project.permissions', 'operation.inspect', 'setup.inspect'],
+  });
+  for (const state of ['signed-out', 'authorizing', 'expired'] as const)
+    assert.deepEqual(
+      sessionCapabilities(value, { state, apiUrl: signedOut.api_url }).capabilities,
+      ['setup.inspect'],
+    );
+  assert.deepEqual(sessionCapabilities(value).capabilities, ['setup.inspect']);
+  assert.equal(
+    sessionCapabilities(value, { state: 'authenticated', apiUrl: signedOut.api_url }),
+    value,
+  );
 });
 
 test('capabilities accept the real supported-agent registry and reject the old invented shape', () => {

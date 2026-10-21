@@ -99,6 +99,27 @@ test('old runtimes send no unsupported permission or mutation requests', async (
   await assert.rejects(f.service.request('group', decision()), /does not support/);
   assert.deepEqual(f.calls, ['capabilities', 'capabilities']);
 });
+test('project services read capabilities from the resolved account client and fail closed', async (t) => {
+  const f = await fixture(t);
+  assert.equal((await f.service.status('group')).available, true);
+  assert.deepEqual(f.calls, ['capabilities', 'project.permissions']);
+  const failing = new ProjectServices(f.root, async () => ({
+    client: {
+      ...f.client,
+      request: async (operation: DesktopOperation) => {
+        f.calls.push(operation);
+        throw Error('desktop.transport_lost');
+      },
+    } as DesktopClient,
+    organizationId: 'org',
+    projectId: 'project',
+    actorId: 'reviewer',
+  }));
+  f.calls.length = 0;
+  await assert.rejects(failing.status('group'), /transport_lost/);
+  await assert.rejects(failing.request('group', decision()), /transport_lost/);
+  assert.deepEqual(f.calls, ['capabilities', 'capabilities']);
+});
 test('reviewer permission is fresh, scoped, and enforced before a mutation', async (t) => {
   const f = await fixture(t);
   f.permissions(false);

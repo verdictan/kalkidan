@@ -15,7 +15,8 @@ export interface VerdictanCapabilities {
   testedAgents: { kind: 'codex' | 'claude_code'; version: string }[];
 }
 export interface VerdictanStatus {
-  region?: 'global' | 'eu';
+  /** Undefined until the user selects a region. */
+  region?: 'eu' | 'us';
   phase:
     'missing' | 'checking' | 'signed-out' | 'authorizing' | 'authenticated' | 'expired' | 'error';
   account?: VerdictanAccount;
@@ -26,7 +27,7 @@ export interface VerdictanStatus {
   executionReady: boolean;
 }
 export interface VerdictanAPI {
-  verdictanSetRegion(region: 'global' | 'eu'): Promise<VerdictanStatus>;
+  verdictanSetRegion(region: 'eu' | 'us'): Promise<VerdictanStatus>;
   onVerdictanChanged?(listener: () => void): () => void;
   verdictanSetup(): Promise<VerdictanSetup>;
   verdictanSelect(

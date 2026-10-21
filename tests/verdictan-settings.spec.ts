@@ -5,7 +5,7 @@ test('Settings separates account sign-in from execution readiness and shows upda
 }) => {
   await page.addInitScript(() => {
     const state = {
-      account: { phase: 'missing', executionReady: false } as any,
+      account: { region: 'eu', phase: 'missing', executionReady: false } as any,
       update: {
         hostId: 'local',
         component: 'verdictan',
@@ -30,21 +30,24 @@ test('Settings separates account sign-in from execution readiness and shows upda
       githubCliCheck: async () => ({ status: 'missing' }),
       githubAuthStatus: async () => ({ status: 'idle' }),
       verdictanStatus: async () => state.account,
-      verdictanCheck: async () => (state.account = { phase: 'signed-out', executionReady: false }),
+      verdictanCheck: async () =>
+        (state.account = { region: 'eu', phase: 'signed-out', executionReady: false }),
       verdictanAuthorize: async () =>
         (state.account = {
+          region: 'eu',
           phase: 'authenticated',
           executionReady: false,
           account: {
             state: 'authenticated',
             userId: 'user',
             organizationId: 'org',
-            apiUrl: 'https://api.verdictan.com',
+            apiUrl: 'https://api.eu.verdictan.com',
             expiresAt: '2026-11-01T00:00:00Z',
           },
         }),
       verdictanLogout: async () =>
         (state.account = {
+          region: 'eu',
           phase: 'signed-out',
           executionReady: false,
           remoteRevocationPending: true,
@@ -91,4 +94,50 @@ test('Settings separates account sign-in from execution readiness and shows upda
   await updates.getByRole('button', { name: 'Cancel update' }).click();
   await expect(updates).toContainText('canceled');
   await expect(updates).toContainText('Not installed');
+});
+
+test('Settings requires an explicit EU or US region before sign-in', async ({ page }) => {
+  await page.addInitScript(() => {
+    const state = {
+      account: { phase: 'error', error: 'desktop.region_required', executionReady: false } as any,
+      regions: [] as string[],
+    };
+    (window as any).regionFixture = state;
+    (window as any).workspace = {
+      snapshot: async () => ({
+        projects: [],
+        groups: [{ id: 'g', name: 'Project', repoIds: [] }],
+        sessions: [],
+        warnings: [],
+        platform: 'darwin',
+      }),
+      trackerProviders: async () => [],
+      remoteHosts: async () => [],
+      agentInstallations: async () => [],
+      githubCliCheck: async () => ({ status: 'missing' }),
+      githubAuthStatus: async () => ({ status: 'idle' }),
+      verdictanStatus: async () => state.account,
+      verdictanSetRegion: async (region: string) => {
+        state.regions.push(region);
+        return (state.account = { region, phase: 'signed-out', executionReady: false });
+      },
+    };
+  });
+  await page.goto('http://127.0.0.1:5173');
+  await page.getByRole('button', { name: 'Settings', exact: true }).click();
+  const settings = page.getByRole('dialog', { name: 'Settings' });
+  await settings.getByRole('tab', { name: 'Accounts', exact: true }).click();
+  const account = settings.getByRole('region', { name: 'Verdictan account' });
+  const region = account.getByRole('combobox', { name: 'Verdictan region' });
+  await expect(region).toHaveValue('');
+  await expect(region.locator('option', { hasText: 'Global' })).toHaveCount(0);
+  await expect(account).toContainText('Select the region of your Verdictan organization');
+  await expect(account.getByRole('button', { name: 'Sign in', exact: true })).toBeDisabled();
+  await expect(account.getByRole('button', { name: 'Create account' })).toBeDisabled();
+  await region.selectOption('us');
+  await account.getByRole('button', { name: 'Stop work and switch region' }).click();
+  await expect(region).toHaveValue('us');
+  await expect(account.getByRole('button', { name: 'Sign in', exact: true })).toBeEnabled();
+  await expect(account).not.toContainText('Select the region of your Verdictan organization');
+  expect(await page.evaluate(() => (window as any).regionFixture.regions)).toEqual(['us']);
 });
