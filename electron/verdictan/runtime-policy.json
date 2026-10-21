@@ -41,13 +41,13 @@
       "downloadOrigins": ["https://github.com", "https://release-assets.githubusercontent.com"]
     },
     "linux-x64": {
-      "manifest": "{\n  \"schema_version\": 1,\n  \"source_revision\": \"be47270c251be6892f7ab78a9e6c50e1b98c1032\",\n  \"version\": \"0.6.1\",\n  \"sequence\": 1792582749000,\n  \"issued_at\": 1792582749,\n  \"expires_at\": 1793187549,\n  \"minimum_desktop_version\": \"0.1.0\",\n  \"protocol\": {\n    \"min\": 1,\n    \"max\": 1\n  },\n  \"revoked_versions\": [\n    \"0.4.0\"\n  ],\n  \"artifacts\": [\n    {\n      \"target\": \"x86_64-unknown-linux-gnu\",\n      \"os\": \"linux\",\n      \"arch\": \"x64\",\n      \"redistribution_notice\": \"KALKIDAN_REDISTRIBUTION.md\",\n      \"executable_sha256\": \"f4784283f864f9f433e2632d023e5b84db0111b8114c32bee38d75187ddb88a5\",\n      \"url\": \"https://github.com/verdictan/packages/releases/download/v0.6.1/verdictan-x86_64-unknown-linux-gnu.tar.gz\",\n      \"sha256\": \"436f5b8f426404fab204dfd7b976cb2d811e6a17403da8c0cd7fa43e9c40d144\",\n      \"size\": 98317795,\n      \"node_included\": true,\n      \"minimum_os_version\": \"6.12.0\",\n      \"required_runtime_dependencies\": [\n        \"glibc (validated on Enterprise Linux 10.2)\",\n        \"bubblewrap >= 0.10.0\",\n        \"python3\"\n      ]\n    }\n  ]\n}\n",
+      "manifest": "{\n  \"schema_version\": 1,\n  \"source_revision\": \"856f06919b1c93d28668ed136fe688cc7ce0d032\",\n  \"version\": \"0.6.3\",\n  \"sequence\": 1792590862000,\n  \"issued_at\": 1792590862,\n  \"expires_at\": 1793195662,\n  \"minimum_desktop_version\": \"0.1.0\",\n  \"protocol\": {\n    \"min\": 1,\n    \"max\": 1\n  },\n  \"revoked_versions\": [\n    \"0.4.0\"\n  ],\n  \"artifacts\": [\n    {\n      \"target\": \"x86_64-unknown-linux-gnu\",\n      \"os\": \"linux\",\n      \"arch\": \"x64\",\n      \"redistribution_notice\": \"KALKIDAN_REDISTRIBUTION.md\",\n      \"executable_sha256\": \"270b9341f894bdac0ca7e03483d4cf2ca0c5a87c288214b5af473f56ac4ffe99\",\n      \"url\": \"https://github.com/verdictan/packages/releases/download/v0.6.3/verdictan-x86_64-unknown-linux-gnu.tar.gz\",\n      \"sha256\": \"d16e9a77044babfa3fa0549e3fb35f407d559fed4c31994855af409fece0d652\",\n      \"size\": 98320112,\n      \"node_included\": true,\n      \"minimum_os_version\": \"6.12.0\",\n      \"required_runtime_dependencies\": [\n        \"glibc (validated on Enterprise Linux 10.2)\",\n        \"bubblewrap >= 0.10.0\",\n        \"python3\"\n      ]\n    }\n  ]\n}\n",
       "pin": {
         "schema_version": 1,
-        "version": "0.6.1",
-        "manifest_sha256": "8403328eee5e36173af79bc33380687148ec7fdd2f63cadc4cf2297cfccbc5bf",
-        "artifact_url": "https://github.com/verdictan/packages/releases/download/v0.6.1/verdictan-x86_64-unknown-linux-gnu.tar.gz",
-        "artifact_sha256": "436f5b8f426404fab204dfd7b976cb2d811e6a17403da8c0cd7fa43e9c40d144",
+        "version": "0.6.3",
+        "manifest_sha256": "57166785bf7774d7b887841370e253243784b63943c91786befbc8c2b83eac5c",
+        "artifact_url": "https://github.com/verdictan/packages/releases/download/v0.6.3/verdictan-x86_64-unknown-linux-gnu.tar.gz",
+        "artifact_sha256": "d16e9a77044babfa3fa0549e3fb35f407d559fed4c31994855af409fece0d652",
         "revoked_versions": ["0.4.0"]
       },
       "downloadOrigins": ["https://github.com", "https://release-assets.githubusercontent.com"]

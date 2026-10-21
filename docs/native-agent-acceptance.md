@@ -206,6 +206,39 @@ for `darwin arm64 26.7.1`. The approval uses these values:
 `tests/acceptance/runtime-install.ts` installed 0.6.3 from the public release in
 a disposable root. Clean install, restart, and the capability probe passed.
 
+### Kalkidan-reviewed Linux x64 pin
+
+Linux x64 uses a Kalkidan-reviewed manifest for 0.6.3. Verdictan did not publish
+it. The Verdictan desktop manifest lists only macOS ARM64. The 0.6.1 Linux pin
+used the same method.
+
+The operator made the manifest from the public archive and its checksum data.
+The manifest keeps the 0.6.1 Linux values for the protocol range (1 to 1), the
+minimum desktop version (0.1.0), the revoked versions (`0.4.0`), the
+redistribution notice, and `node_included`. The operator approved it with
+`scripts/approve-runtime.ts` for `linux x64 6.12.0`. The approval uses these
+values:
+
+- Archive `verdictan-x86_64-unknown-linux-gnu.tar.gz`, size 98320112 bytes,
+  SHA-256 `d16e9a77044babfa3fa0549e3fb35f407d559fed4c31994855af409fece0d652`.
+- Executable SHA-256
+  `270b9341f894bdac0ca7e03483d4cf2ca0c5a87c288214b5af473f56ac4ffe99`.
+- Reviewed manifest SHA-256
+  `57166785bf7774d7b887841370e253243784b63943c91786befbc8c2b83eac5c`,
+  sequence `1792590862000`. This sequence is higher than the 0.6.1 reviewed
+  sequence `1792582749000`.
+- Minimum Linux kernel 6.12.0. Dependencies: glibc (validated on Enterprise
+  Linux 10.2), bubblewrap 0.10.0 or later, and Python 3.
+- Manifest expiry: `1793195662` (2026-10-28 13:54:22 UTC). Renew the approval
+  before this time.
+
+`tests/acceptance/runtime-install.ts` ran on a Linux x64 host: Red Hat
+Enterprise Linux 10.2, kernel 6.12.0, glibc 2.39, bubblewrap 0.10.0, and
+Python 3.15. The operator bundled the script with esbuild and ran it with
+Node.js 26.11.1, not 24.21.0. The script used an owner-only temporary directory.
+It installed 0.6.3 from the public release. Clean install, restart, and the
+capability probe passed. The operator then removed the temporary directory.
+
 ## Claude subscription adapter on 2026-10-21
 
 Verdictan CLI 0.6.1 advertises `provider_access.claude_subscription`. The Kalkidan
