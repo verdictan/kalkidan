@@ -1567,6 +1567,7 @@ export function ProjectTrackerPanel({
         <ProjectInsights
           api={api}
           group={group}
+          sessions={projectSessions}
           board={board || undefined}
           onOpenTask={(id) => void openTaskById(id)}
           onFilter={applyFilter}

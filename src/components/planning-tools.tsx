@@ -17,6 +17,8 @@ import { ProjectHealth } from './project-health';
 import { GitHubWriteHistory } from './github-write-history';
 import { TaskUsageHistoryPanel } from './task-usage-history';
 import { ProjectServicesPanel } from './project-services';
+import { ProjectUsageInsights } from './project-usage';
+import { sessionRepo } from '../lib/session-repository';
 import { ErrorAlert, githubWritesEvent } from './planning-kit';
 import { errorMessage } from '../lib/errors';
 
@@ -196,6 +198,7 @@ export function PlanningToolDialog({
 export function ProjectInsights({
   api,
   group,
+  sessions: givenSessions,
   board: givenBoard,
   onOpenTask,
   onFilter,
@@ -203,6 +206,8 @@ export function ProjectInsights({
 }: {
   api: API;
   group: ProjectGroup;
+  /** The chats of the project. Without them, the page reads the chats itself. */
+  sessions?: Session[];
   board?: TrackerBoard;
   /** Selects this task in the Usage section and scrolls the section into view. */
   initialTaskId?: string;
@@ -215,7 +220,10 @@ export function ProjectInsights({
   const [busy, setBusy] = useState(false);
   const [tool, setTool] = useState<{ ids: string[] }>();
   const board = givenBoard || loaded;
-  const context = useProjectContext(api, group, !!connection);
+  const context = useProjectContext(api, group, !!connection || !givenSessions);
+  const projectSessions =
+    givenSessions || context.sessions.filter((session) => !!sessionRepo(session, context.repos));
+  const usage = <ProjectUsageInsights api={api} groupId={group.id} sessions={projectSessions} />;
   async function load(force = false) {
     if (!connection) return;
     setBusy(true);
@@ -257,26 +265,32 @@ export function ProjectInsights({
         </div>
       )}
       {!connection ? (
-        <EmptyState
-          icon={<BarChart3 />}
-          title="Connect a board"
-          action={
-            <Button
-              variant="outline"
-              onClick={() =>
-                window.dispatchEvent(
-                  new CustomEvent('kalkidan-open-project-settings', {
-                    detail: { groupId: group.id, tab: 'board' },
-                  }),
-                )
-              }
-            >
-              Connect a GitHub Projects board
-            </Button>
-          }
-        >
-          Insights use the tasks of a GitHub Projects board.
-        </EmptyState>
+        <div className="project-insights-sections">
+          {usage}
+          <EmptyState
+            compact
+            icon={<BarChart3 />}
+            title="Task insights"
+            action={
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() =>
+                  window.dispatchEvent(
+                    new CustomEvent('kalkidan-open-project-settings', {
+                      detail: { groupId: group.id, tab: 'board' },
+                    }),
+                  )
+                }
+              >
+                Connect a GitHub Projects board
+              </Button>
+            }
+          >
+            Health, readiness and GitHub changes use the tasks of a GitHub Projects board. Local
+            tasks do not have these insights.
+          </EmptyState>
+        </div>
       ) : !board ? (
         error ? (
           <ErrorAlert>{error}</ErrorAlert>
@@ -316,6 +330,7 @@ export function ProjectInsights({
           {typeof api.projectServicesStatus === 'function' && (
             <ProjectServicesPanel api={api} groupId={group.id} board={board} />
           )}
+          {usage}
         </div>
       )}
       {board && (

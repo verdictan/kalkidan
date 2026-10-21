@@ -261,6 +261,9 @@ function demoContentFor(item: string): GitHubContentSnapshot {
   return content;
 }
 export const demo: API = {
+  projectUsage: async () => {
+    throw new Error('Managed-agent history requires the desktop app.');
+  },
   taskUsageHistory: async () => [],
   managedHistory: async () => ({
     entries: [],
