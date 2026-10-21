@@ -104,6 +104,7 @@ const api: API = {
   remoteCall: ((id, method, args) =>
     ipcRenderer.invoke('remote-call', id, method, args)) as API['remoteCall'],
   directoryList: (path, hostId) => ipcRenderer.invoke('directory-list', path, hostId),
+  mentionFiles: (cwd, hostId) => ipcRenderer.invoke('mention-files', cwd, hostId),
   remoteFolders: (id, path) => ipcRenderer.invoke('remote-folders', id, path),
   remoteAddRepository: (id, path, clone) =>
     ipcRenderer.invoke('remote-add-repository', id, path, clone),

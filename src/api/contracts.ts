@@ -190,6 +190,8 @@ export interface RemoteAPI {
     args: Parameters<SessionHostAPI[M]>,
   ): ReturnType<SessionHostAPI[M]>;
   directoryList(path: string, hostId?: string): Promise<DirectoryListing>;
+  /** The files of a chat folder for the "@" picker. No host ID means this computer. */
+  mentionFiles(cwd: string, hostId?: string): Promise<import('../domain/mentions').MentionFileList>;
   remoteFolders(hostId: string, path: string): Promise<RemoteFolders>;
   remoteAddRepository(groupId: string, path: string, clone?: string): Promise<void>;
 }

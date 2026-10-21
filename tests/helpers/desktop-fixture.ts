@@ -437,6 +437,14 @@ export async function desktopFixture(platform = 'linux', failure = '') {
   });
   stub('codex-store', { codexTranscript: async () => ({ messages: [] }) });
   stub('storage/directory-list', { listDirectory: asyncRecord('directory') });
+  stub('projects/mention-files', {
+    listMentionFiles: asyncRecord('mentionFiles', { files: ['a.ts'], truncated: false }),
+    readMentionFile: asyncRecord('mentionFileRead', (cwd: string, path: string) => ({
+      path,
+      size: 3,
+      content: `${cwd}:${path}`,
+    })),
+  });
   stub('github-cli-check', { githubCliCheck: asyncRecord('cli') });
   stub('agent-installations', {
     agentInstallations: asyncRecord('installs'),

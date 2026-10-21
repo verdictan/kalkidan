@@ -4,6 +4,7 @@ import { PublishOperations, publishEffects } from './operations/publish';
 import { RemoteAccountClient } from './verdictan/remote-broker';
 import { DesktopProtocolError } from './verdictan/protocol';
 import { listDirectory } from './storage/directory-list';
+import { listMentionFiles, readMentionFile } from './projects/mention-files';
 import { createVerdictanServices } from './verdictan/service';
 import { isVerdictanRegion } from './verdictan/region';
 import { desktopVersion } from './verdictan/release';
@@ -262,6 +263,10 @@ async function dispatch(method: string, args: any[]): Promise<any> {
     }
     case 'directory-list':
       return listDirectory(a);
+    case 'mention-files':
+      return listMentionFiles(await folder(a));
+    case 'mention-file-read':
+      return readMentionFile(await folder(a), b);
     case 'folders': {
       const listing = await listDirectory(a || '~');
       return {

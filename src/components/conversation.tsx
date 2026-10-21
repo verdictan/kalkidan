@@ -38,7 +38,7 @@ import {
   SquareTerminal,
   X,
 } from 'lucide-react';
-import Markdown from 'react-markdown';
+import Markdown, { defaultUrlTransform } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Alert, AlertDescription } from './ui/alert';
 import { showToast } from './ui/toast';
@@ -51,15 +51,12 @@ import type { DocPassage } from '../domain/docs';
 import {
   AgentErrorActions,
   AgentErrorNote,
-  MentionSuggestions,
   PullRequestChip,
   SaveToDocsDialog,
   SendFailure,
   TaskChip,
   TaskLinkDialog,
-  composerMentions,
   dispatchApp,
-  mentionQuery,
   openExternal,
   openTask,
   takeQueuedSessionCommand,
@@ -74,6 +71,16 @@ import {
 } from './ui/dropdown-menu';
 import { Hint } from './hint';
 import { DocPagePicker } from './doc-page-picker';
+import { MentionChip, MentionPicker, mentionMarkdown, useMentionSources } from './mention-picker';
+import { flatOptions, mentionSections, type MentionChat } from '../lib/mention-sections';
+import {
+  activeMention,
+  insertMention,
+  mentionPlainText,
+  parseMentions,
+  removeMention,
+  removeMentionBefore,
+} from '../domain/mentions';
 import { cn } from '../lib/utils';
 import { plural } from '../lib/platform';
 import type { WorkingStatus } from '../api/contracts';
@@ -206,6 +213,28 @@ function safeLink(href: string | undefined) {
   }
 }
 
+/** Keeps the mention links of user messages. Other links use the default rules. */
+function mentionUrl(url: string) {
+  return /^kalkidan-mention:(file|doc|task|memory|chat)$/.test(url)
+    ? url
+    : defaultUrlTransform(url);
+}
+
+/** The items that a sent message mentions, as small chips under the message. */
+function SentMentions({ text }: { text: string }) {
+  const mentions = parseMentions(text);
+  if (!mentions.length) return null;
+  return (
+    <div className="chat-mentions" role="list" aria-label="Mentioned items">
+      {mentions.map((mention) => (
+        <span role="listitem" key={mention.kind + ':' + mention.id}>
+          <MentionChip kind={mention.kind} label={mention.label} />
+        </span>
+      ))}
+    </div>
+  );
+}
+
 export function Conversation({
   api,
   session,
@@ -220,8 +249,11 @@ export function Conversation({
   onSessionCreated,
   onTitleChange,
   hostName,
+  mentionChats = [],
 }: {
   api: API;
+  /** The other chats of the project, for "@" mentions. */
+  mentionChats?: MentionChat[];
   /** The name of the SSH host of the session. Refusal messages name it. */
   hostName?: string;
   titlebarVisible?: boolean;
@@ -267,7 +299,9 @@ export function Conversation({
   // The doc passages that "@docs" gave to the agent, for each run.
   const [docPassages, setDocPassages] = useState<Record<string, DocPassage[]>>({});
   const [mentionActive, setMentionActive] = useState(0);
-  const [mentionClosed, setMentionClosed] = useState(false);
+  // The position of the "@" that the user closed with Escape. That picker stays closed.
+  const [mentionClosed, setMentionClosed] = useState<number | null>(null);
+  const [caret, setCaret] = useState(0);
   const mentionListId = useId();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [contexts, setContexts] = useState<ConversationContext[]>(draft?.contexts || []);
@@ -711,7 +745,7 @@ export function Conversation({
     setTaskNotice('');
     setEditsRefused(false);
     setChangesNotice(false);
-    setMentionClosed(false);
+    setMentionClosed(null);
     runEdits.current = edits;
     if (!providerSession.current) messagesBefore.current = messages.length;
     /** Moves the messages of the last run into the history, before a new message. */
@@ -795,7 +829,7 @@ export function Conversation({
       clearComposer();
       follow.current = true;
       if (session.projectId && !providerSession.current && !messagesBefore.current)
-        onTitleChange?.(sentPrompt.trim().split('\n', 1)[0].slice(0, 100));
+        onTitleChange?.(mentionPlainText(sentPrompt).trim().split('\n', 1)[0].slice(0, 100));
     } finally {
       startingRef.current = false;
       setStarting(false);
@@ -1018,15 +1052,43 @@ export function Conversation({
   const lastAnswer =
     [...allMessages].reverse().find((message) => message.role === 'assistant')?.text || '';
   const firstMessage = allMessages.find((message) => message.role === 'user')?.text || prompt || '';
-  const mention = projectGroup && !mentionClosed && !active ? mentionQuery(prompt) : null;
-  const mentionOptions =
-    mention === null
-      ? []
-      : composerMentions.filter((item) => item.value.slice(1).startsWith(mention));
-  function pickMention(value: string) {
-    setPrompt(value + ' ');
+  const mentionAt = projectGroup && !active ? activeMention(prompt, caret) : null;
+  const pickerOpen = !!mentionAt && mentionAt.start !== mentionClosed;
+  const mentionSources = useMentionSources({
+    api,
+    projectGroup,
+    cwd: session.cwd,
+    hostId: session.hostId,
+    chats: mentionChats,
+    enabled: pickerOpen,
+  });
+  const pickerSections =
+    pickerOpen && mentionAt
+      ? mentionSections(mentionAt.query, !prompt.slice(0, mentionAt.start).trim(), mentionSources)
+      : [];
+  const mentionOptions = flatOptions(pickerSections);
+  const mentionIndex = Math.min(mentionActive, Math.max(0, mentionOptions.length - 1));
+  const draftMentions = projectGroup ? parseMentions(prompt) : [];
+  /** Moves the caret after a change of the text. */
+  function placeCaret(position: number) {
+    setCaret(position);
+    pendingCaret.current = position;
+  }
+  // Move the caret in the same commit as the new text, before the next key press.
+  const pendingCaret = useRef<number | null>(null);
+  useLayoutEffect(() => {
+    const position = pendingCaret.current;
+    if (position === null || !textarea.current) return;
+    pendingCaret.current = null;
+    textarea.current.focus();
+    textarea.current.setSelectionRange(position, position);
+  }, [prompt]);
+  function pickMention(option: (typeof mentionOptions)[number]) {
+    if (!mentionAt) return;
+    const next = insertMention(prompt, mentionAt.start, caret, option.insert);
+    setPrompt(next.text);
     setMentionActive(0);
-    requestAnimationFrame(() => textarea.current?.focus());
+    placeCaret(next.caret);
   }
   const modelOptions = useModelChoice(api, session.agent, models, agentName);
   const mode = permissionModes[allowEdits ? 'edit' : 'read'];
@@ -1122,9 +1184,12 @@ export function Conversation({
                 <div className="chat-markdown prose-ui" data-variant="chat">
                   <Markdown
                     remarkPlugins={[remarkGfm]}
+                    urlTransform={mentionUrl}
                     components={{
                       img: ({ alt }) => <span>[Image{alt ? `: ${alt}` : ''}]</span>,
                       a: ({ href, children }) => {
+                        if (href?.startsWith('kalkidan-mention:'))
+                          return <span className="chat-mention-inline">@{children}</span>;
                         const link = safeLink(href);
                         return link ? (
                           <a className="chat-link" href={link} target="_blank" rel="noreferrer">
@@ -1136,9 +1201,10 @@ export function Conversation({
                       },
                     }}
                   >
-                    {message.text}
+                    {message.role === 'user' ? mentionMarkdown(message.text) : message.text}
                   </Markdown>
                 </div>
+                {message.role === 'user' && <SentMentions text={message.text} />}
                 {sendFailure?.messageId === message.id && (
                   <SendFailure
                     error={sendFailure.error}
@@ -1232,6 +1298,25 @@ export function Conversation({
             </div>
           )}
           <div className="conversation-composer @container/composer">
+            {!!draftMentions.length && (
+              <div className="context-attachments" aria-label="Mentions">
+                {draftMentions.map((mention) => (
+                  <div key={mention.kind + ':' + mention.id} title={mention.label}>
+                    <MentionChip kind={mention.kind} label={mention.label} />
+                    <Button
+                      variant="ghost"
+                      size="icon-2xs"
+                      className="rounded-full"
+                      aria-label={`Remove ${mention.label}`}
+                      disabled={!!active}
+                      onClick={() => setPrompt((current) => removeMention(current, mention))}
+                    >
+                      <X />
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            )}
             {!!contexts.length && (
               <div className="context-attachments" aria-label="Attached context">
                 {contexts.map((context) => (
@@ -1381,12 +1466,15 @@ export function Conversation({
                 </AlertDescription>
               </Alert>
             )}
-            {!!mentionOptions.length && (
-              <MentionSuggestions
+            {pickerOpen && mentionAt && (
+              <MentionPicker
                 id={mentionListId}
-                query={mention || ''}
-                active={Math.min(mentionActive, mentionOptions.length - 1)}
+                sections={pickerSections}
+                active={mentionIndex}
+                anchor={textarea}
+                index={mentionAt.start}
                 onPick={pickMention}
+                onHover={setMentionActive}
               />
             )}
             <Textarea
@@ -1396,45 +1484,60 @@ export function Conversation({
               aria-label="Message agent"
               aria-description={
                 'Press Enter to send. Press Shift+Enter for a new line.' +
-                (projectGroup ? ' Type @docs to search the project docs.' : '')
+                (projectGroup
+                  ? ' Type @ to mention a file, doc, task, memory entry or chat. Type @docs to search the project docs.'
+                  : '')
               }
               aria-autocomplete={projectGroup ? 'list' : undefined}
-              aria-controls={mentionOptions.length ? mentionListId : undefined}
-              aria-expanded={projectGroup ? !!mentionOptions.length : undefined}
+              aria-controls={pickerOpen ? mentionListId : undefined}
+              aria-expanded={projectGroup ? pickerOpen : undefined}
               aria-activedescendant={
-                mentionOptions.length
-                  ? `${mentionListId}-${Math.min(mentionActive, mentionOptions.length - 1)}`
-                  : undefined
+                pickerOpen && mentionOptions.length ? `${mentionListId}-${mentionIndex}` : undefined
               }
-              placeholder={
-                projectGroup ? 'Ask anything. Type @ to search project docs.' : 'Ask anything…'
-              }
+              placeholder={projectGroup ? 'Ask anything. Type @ to mention.' : 'Ask anything…'}
               value={prompt}
               maxLength={100000}
               onChange={(e) => {
                 setPrompt(e.target.value);
-                if (!e.target.value.trimStart().startsWith('@')) setMentionClosed(false);
+                setCaret(e.target.selectionStart ?? e.target.value.length);
                 setMentionActive(0);
               }}
+              onSelect={(e) => setCaret(e.currentTarget.selectionStart ?? 0)}
               onKeyDown={(event) => {
-                if (mentionOptions.length && !event.nativeEvent.isComposing) {
-                  const index = Math.min(mentionActive, mentionOptions.length - 1);
-                  if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+                if (pickerOpen && mentionAt && !event.nativeEvent.isComposing) {
+                  const count = mentionOptions.length;
+                  if (count && (event.key === 'ArrowDown' || event.key === 'ArrowUp')) {
                     event.preventDefault();
                     const step = event.key === 'ArrowDown' ? 1 : -1;
-                    setMentionActive(
-                      (index + step + mentionOptions.length) % mentionOptions.length,
-                    );
+                    setMentionActive((mentionIndex + step + count) % count);
                     return;
                   }
-                  if ((event.key === 'Enter' && !event.shiftKey) || event.key === 'Tab') {
+                  if (
+                    count &&
+                    ((event.key === 'Enter' && !event.shiftKey) || event.key === 'Tab')
+                  ) {
                     event.preventDefault();
-                    pickMention(mentionOptions[index].value);
+                    pickMention(mentionOptions[mentionIndex]);
                     return;
                   }
                   if (event.key === 'Escape') {
                     event.preventDefault();
-                    setMentionClosed(true);
+                    setMentionClosed(mentionAt.start);
+                    return;
+                  }
+                }
+                // Backspace after a mention removes the whole mention.
+                if (
+                  event.key === 'Backspace' &&
+                  projectGroup &&
+                  !event.nativeEvent.isComposing &&
+                  event.currentTarget.selectionStart === event.currentTarget.selectionEnd
+                ) {
+                  const removed = removeMentionBefore(prompt, event.currentTarget.selectionStart);
+                  if (removed) {
+                    event.preventDefault();
+                    setPrompt(removed.text);
+                    placeCaret(removed.caret);
                     return;
                   }
                 }

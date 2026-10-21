@@ -621,6 +621,10 @@ export const demo: API = {
   remoteRemove: nativeOnly,
   remoteCall: nativeOnly as API['remoteCall'],
   directoryList: nativeOnly,
+  mentionFiles: async () => ({
+    files: ['README.md', 'package.json', 'src/app.tsx', 'src/main.tsx', 'src/styles.css'],
+    truncated: false,
+  }),
   remoteFolders: nativeOnly,
   remoteAddRepository: nativeOnly,
   ptyOpen: nativeOnly,

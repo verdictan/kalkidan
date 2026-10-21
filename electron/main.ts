@@ -42,7 +42,8 @@ import { dataDirectory } from './storage/data-directory';
 import { HistoryImport } from './history-import';
 import { isAgent } from '../src/config/agents';
 import { createProjectPrompt } from './projects/prompt';
-import { sessionHostMethods } from '../src/domain/host';
+import { listMentionFiles, readMentionFile } from './projects/mention-files';
+import { providerSessionId, sessionHostMethods } from '../src/domain/host';
 import { writeJSON } from './storage/atomic-json';
 import {
   isAppearanceMode,
@@ -82,7 +83,7 @@ import { homedir } from 'node:os';
 import { randomUUID } from 'node:crypto';
 import { pathToFileURL } from 'node:url';
 import * as TOML from '@iarna/toml';
-import type { Project, Agent } from '../src/types';
+import type { Project, Agent, ProjectGroup } from '../src/types';
 import { exec, launchCommand, parseWorktrees } from './core';
 import { executable } from './chat';
 import {
@@ -1130,6 +1131,63 @@ app.whenReady().then(async () => {
             [query],
           ])
         : docs.search(group.id, query),
+    mentionFile: (cwd, path, hostId) =>
+      hostId
+        ? remote.call(hostId, 'mention-file-read', [cwd, path]).catch(helperTooOld)
+        : readMentionFile(cwd, path),
+    readDoc: async (group, id) =>
+      group.hostId
+        ? remote.call(group.hostId, 'project-docs', [
+            group.id,
+            await projectRoot(group.id),
+            'read',
+            [id],
+          ])
+        : docs.get(group.id, id),
+    memoryEntries: async (group) =>
+      group.hostId
+        ? remote.call(group.hostId, 'project-memory', [
+            group.id,
+            await projectRoot(group.id),
+            'entries',
+          ])
+        : projectMemory(await projectRoot(group.id)).list(),
+    chatMessages: projectChatMessages,
+  });
+  /** True when a folder is in one of the code folders of the project. */
+  function inProject(group: ProjectGroup, path: string) {
+    return projects.some(
+      (p) =>
+        p.hostId === group.hostId && group.repoIds.includes(p.id) && pathContains(p.path, path),
+    );
+  }
+  /** The messages of a chat for a mention. Only chats in the project folders are read. */
+  async function projectChatMessages(group: ProjectGroup, agent: string, id: string) {
+    if (!isAgent(agent)) throw new Error('Invalid session');
+    if (group.hostId) {
+      const provider = providerSessionId(group.hostId, id);
+      const host = await remote.call(group.hostId, 'snapshot', []);
+      const session = host.sessions.find((s: any) => s.agent === agent && s.id === provider);
+      if (!session || !inProject(group, session.cwd))
+        throw new Error('The chat is not in this project.');
+      const transcript = await remote.call(group.hostId, 'transcript', [agent, provider]);
+      return { title: session.organization?.title || session.title, messages: transcript.messages };
+    }
+    const { session } = await sessionSource(agent, id);
+    if (!inProject(group, session.cwd)) throw new Error('The chat is not in this project.');
+    const transcript = await sessionTranscript(agent, id);
+    return { title: session.organization?.title || session.title, messages: transcript.messages };
+  }
+  handle('mention-files', (cwd, hostId) => {
+    if (
+      typeof cwd !== 'string' ||
+      (hostId !== undefined && typeof hostId !== 'string') ||
+      !projects.some((p) => p.hostId === (hostId || undefined) && pathContains(p.path, cwd))
+    )
+      throw new Error('Add this folder to a project first.');
+    return hostId
+      ? remote.call(hostId, 'mention-files', [cwd]).catch(helperTooOld)
+      : listMentionFiles(cwd);
   });
   const remoteSnapshots = new RemoteSnapshotCache<{ sessions: any[]; warnings: string[] }>(() => {
     for (const window of windows)
@@ -1191,7 +1249,8 @@ app.whenReady().then(async () => {
       throw new Error('Session not found in local history. Refresh and try again.');
     return { session, path };
   }
-  handle('transcript', async (agent, id) => {
+  handle('transcript', sessionTranscript);
+  async function sessionTranscript(agent: Agent, id: string) {
     const { path } = await sessionSource(agent, id);
     if (agent === 'codex') {
       if (path) {
@@ -1204,7 +1263,7 @@ app.whenReady().then(async () => {
       return codexTranscript(codexRoot, id);
     }
     return readTranscript(path!, agent);
-  });
+  }
   const agentStarts = new AgentStarts(join(dataRoot, 'operations', 'agent-start'), (id) =>
     chatRunner.status(id),
   );

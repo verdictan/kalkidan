@@ -604,51 +604,6 @@ export function SaveToDocsDialog({
   );
 }
 
-/** Mentions that the composer suggests after "@". */
-export const composerMentions = [{ value: '@docs', description: 'Search project docs' }] as const;
-
-/** The mention that the text before the caret starts, or null. Only the first word counts. */
-export function mentionQuery(text: string) {
-  const match = text.match(/^\s*@(\w*)$/);
-  return match ? match[1].toLowerCase() : null;
-}
-
-/** The suggestions under the composer when the message starts with "@". */
-export function MentionSuggestions({
-  id,
-  query,
-  active,
-  onPick,
-}: {
-  id: string;
-  query: string;
-  active: number;
-  onPick: (value: string) => void;
-}) {
-  const options = composerMentions.filter((mention) => mention.value.slice(1).startsWith(query));
-  if (!options.length) return null;
-  return (
-    <ul id={id} role="listbox" aria-label="Mentions" className="composer-mentions">
-      {options.map((mention, index) => (
-        <li
-          key={mention.value}
-          id={`${id}-${index}`}
-          role="option"
-          aria-selected={index === active}
-          className="composer-mention"
-          onMouseDown={(event) => {
-            event.preventDefault();
-            onPick(mention.value);
-          }}
-        >
-          <span className="font-mono text-xs">{mention.value}</span>
-          <span className="text-xs text-muted-foreground">{mention.description}</span>
-        </li>
-      ))}
-    </ul>
-  );
-}
-
 // A session command can arrive before the chat view that handles it is visible, for example
 // from the sidebar menu right after it opens a chat. Keep the last command that no view
 // handled for a short time, so the next visible chat view can run it.
