@@ -24,6 +24,7 @@ import { RemoteSnapshotCache } from './remote-snapshot-cache';
 import { createVerdictanServices } from './verdictan/service';
 import { spawn } from 'node:child_process';
 import { appMenuTemplate } from './app-menu';
+import { parseChatActionState, type ChatActionState } from '../src/domain/chat-actions';
 import { pathContains } from './platform';
 import { githubCliCheck } from './github-cli-check';
 import { listDirectory } from './storage/directory-list';
@@ -2289,14 +2290,35 @@ app.whenReady().then(async () => {
     const focused = BrowserWindow.getFocusedWindow() ?? win;
     if (focused && !focused.isDestroyed()) focused.webContents.send('menu-command', name);
   };
-  const template = appMenuTemplate({
-    mac: process.platform === 'darwin',
-    packaged: app.isPackaged,
-    appName: app.name,
-    command,
-    openExternal: (url) => void shell.openExternal(url),
+  // The Chat menu shows the state of the open chat in the focused window. The renderer sends
+  // the state when it changes and when its window gets the focus.
+  let chatMenuState: ChatActionState | null = null;
+  const buildMenu = () =>
+    Menu.setApplicationMenu(
+      Menu.buildFromTemplate(
+        appMenuTemplate({
+          mac: process.platform === 'darwin',
+          packaged: app.isPackaged,
+          appName: app.name,
+          command,
+          openExternal: (url) => void shell.openExternal(url),
+          platform:
+            process.platform === 'darwin'
+              ? 'mac'
+              : process.platform === 'win32'
+                ? 'windows'
+                : 'linux',
+          chat: chatMenuState,
+        }),
+      ),
+    );
+  handle('chat-menu-state', (state: unknown) => {
+    const next = parseChatActionState(state);
+    if (JSON.stringify(next) === JSON.stringify(chatMenuState)) return;
+    chatMenuState = next;
+    buildMenu();
   });
-  Menu.setApplicationMenu(Menu.buildFromTemplate(template));
+  buildMenu();
   createWindow();
   void remote.connectSaved();
   app.on('activate', () => {

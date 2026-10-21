@@ -21,6 +21,8 @@ import { changeTaskStatus } from '../lib/task-status';
 import { agentCatalog, agentLabel } from '../config/agents';
 import { ConfirmDialog } from './confirm-dialog';
 import { CommitDialog } from './session-menu';
+import { ModelChip, useModelChoice } from './model-chip';
+import { chosenModel } from '../domain/model-choice';
 import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import {
   ArrowUp,
@@ -62,19 +64,12 @@ import {
   openTask,
   takeQueuedSessionCommand,
 } from './chat-links';
-import { MoreButton } from './ui/more-button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuLabel,
-  DropdownMenuRadioGroup,
-  DropdownMenuRadioItem,
-  DropdownMenuSeparator,
-  DropdownMenuSub,
-  DropdownMenuSubContent,
-  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from './ui/dropdown-menu';
 import { Hint } from './hint';
@@ -750,12 +745,12 @@ export function Conversation({
           ? await api.chatCreate(session.projectId, session.agent, text, edits, {
               operationId,
               forkFrom: session.forkFrom,
-              model: model || undefined,
+              model: chosenModel(modelOptions, model) || undefined,
               taskId: taskId || undefined,
             })
           : await api.chatStart(session.agent, providerSession.current || session.id, text, edits, {
               operationId,
-              model: model || undefined,
+              model: chosenModel(modelOptions, model) || undefined,
               taskId: taskId || undefined,
             });
       localStorage.removeItem(key);
@@ -1033,7 +1028,7 @@ export function Conversation({
     setMentionActive(0);
     requestAnimationFrame(() => textarea.current?.focus());
   }
-  const modelName = models.find((m) => m.id === model)?.name || model;
+  const modelOptions = useModelChoice(api, session.agent, models, agentName);
   const mode = permissionModes[allowEdits ? 'edit' : 'read'];
   const linkTaskAvailable = !!trackerConnection(projectGroup) && !taskId;
   const showChanges = changesNotice && !active && changedFiles > 0 && !!repositoryId;
@@ -1521,18 +1516,13 @@ export function Conversation({
                     ))}
                   </SelectContent>
                 </Select>
-                {model && (
-                  <Button
-                    variant="chip"
-                    className="min-w-0 max-w-[180px]"
-                    title={`Model: ${modelName}. Select to use the default model.`}
-                    disabled={!!active}
-                    onClick={() => setModel('')}
-                  >
-                    <span className="truncate">{modelName}</span>
-                    <X aria-hidden="true" />
-                  </Button>
-                )}
+                <ModelChip
+                  choice={modelOptions}
+                  value={model}
+                  onChange={setModel}
+                  disabled={!!active}
+                  failed={modelsFailed}
+                />
                 {linkTaskAvailable && (
                   <Button
                     variant="chip"
@@ -1555,53 +1545,6 @@ export function Conversation({
                   />
                 )}
                 {pullRequest && <PullRequestChip pr={pullRequest} />}
-                <DropdownMenu>
-                  <Hint label="More options">
-                    <DropdownMenuTrigger asChild>
-                      <MoreButton
-                        size="sm"
-                        label="More options"
-                        className="rounded-full text-muted-foreground"
-                        disabled={!!active}
-                      />
-                    </DropdownMenuTrigger>
-                  </Hint>
-                  <DropdownMenuContent align="start" className="w-60">
-                    <DropdownMenuSub>
-                      <DropdownMenuSubTrigger>
-                        Model
-                        <span className="ml-auto max-w-28 truncate pl-2 text-xs text-muted-foreground">
-                          {model ? modelName : 'Default'}
-                        </span>
-                      </DropdownMenuSubTrigger>
-                      <DropdownMenuSubContent className="max-h-80 w-56 overflow-y-auto">
-                        <DropdownMenuRadioGroup value={model} onValueChange={setModel}>
-                          <DropdownMenuRadioItem value="">
-                            {agentName} · Default
-                          </DropdownMenuRadioItem>
-                          {models.map((m) => (
-                            <DropdownMenuRadioItem key={m.id} value={m.id} title={m.name}>
-                              <span className="truncate">{m.name}</span>
-                            </DropdownMenuRadioItem>
-                          ))}
-                        </DropdownMenuRadioGroup>
-                        {modelsFailed && (
-                          <p className="px-2 py-1.5 text-xs text-muted-foreground">
-                            Could not load models. The default model is used.
-                          </p>
-                        )}
-                      </DropdownMenuSubContent>
-                    </DropdownMenuSub>
-                    {linkTaskAvailable && (
-                      <>
-                        <DropdownMenuSeparator />
-                        <DropdownMenuItem onSelect={() => void openTaskLink()}>
-                          Link task…
-                        </DropdownMenuItem>
-                      </>
-                    )}
-                  </DropdownMenuContent>
-                </DropdownMenu>
               </div>
               <span className="composer-shortcut" aria-hidden="true">
                 Enter to send · Shift+Enter for new line

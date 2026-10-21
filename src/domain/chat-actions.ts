@@ -1,0 +1,613 @@
+import type { Session } from './conversation';
+
+/**
+ * The one list of chat actions. The chat header menu, the chat row menus, the chat context
+ * menus, the application menu bar and the command palette all read this list. Each surface
+ * supplies only the code that runs an action.
+ */
+
+/** The action groups, in menu order. A separator goes between two groups. */
+export const chatActionGroups = [
+  'open',
+  'organize',
+  'work',
+  'share',
+  'developer',
+  'archive',
+] as const;
+export type ChatActionGroup = (typeof chatActionGroups)[number];
+
+/**
+ * Where a menu shows the actions.
+ * - `list`: the menu and the context menu of a chat row (sidebar and All chats).
+ * - `header`: the Chat actions menu of the open chat.
+ * - `menu-bar`: the Chat menu of the application menu bar. It acts on the open chat.
+ * - `palette`: the command palette. It acts on the open chat.
+ */
+export type ChatActionSurface = 'list' | 'header' | 'menu-bar' | 'palette';
+export type ChatActionPlatform = 'mac' | 'windows' | 'linux';
+
+/**
+ * What a menu knows about a chat. An optional value that is missing is not known. A value that
+ * is not known never blocks an action: the chat view checks it again when it runs the action.
+ */
+export interface ChatActionState {
+  /** The chat is the open chat of this window. */
+  open: boolean;
+  /** The agent created the chat. A new chat is saved after its first message. */
+  saved: boolean;
+  /** The agent works or waits for an answer in this chat. */
+  running: boolean;
+  pinned: boolean;
+  archived: boolean;
+  linkedTask: boolean;
+  pullRequest: boolean;
+  /** The chat is on a remote computer. */
+  remote: boolean;
+  /** The app can show the managed agent usage history. */
+  usageHistory: boolean;
+  /** Kalkidan knows the code folder of the chat. */
+  repository?: boolean;
+  /** The code folder of the chat is in a project. */
+  project?: boolean;
+  /** The code folder has no changes to commit. */
+  noChanges?: boolean;
+}
+
+export type ChatActionId =
+  | 'open'
+  | 'open-beside'
+  | 'open-window'
+  | 'rename'
+  | 'pin'
+  | 'link-task'
+  | 'open-linked-task'
+  | 'notes'
+  | 'commit'
+  | 'open-pull-request'
+  | 'duplicate'
+  | 'duplicate-here'
+  | 'duplicate-branch'
+  | 'show-folder'
+  | 'share'
+  | 'export-markdown'
+  | 'export-html'
+  | 'save-to-docs'
+  | 'copy-markdown'
+  | 'usage-history'
+  | 'developer'
+  | 'copy-id'
+  | 'copy-path'
+  | 'open-vscode'
+  | 'open-cursor'
+  | 'archive';
+
+export type ChatShortcutModifier = 'mod' | 'alt' | 'shift';
+export interface ChatShortcutKeys {
+  modifiers: ChatShortcutModifier[];
+  /** One capital letter. */
+  key: string;
+}
+/** A shortcut for macOS and for Windows and Linux. */
+export interface ChatShortcut {
+  mac: ChatShortcutKeys;
+  other: ChatShortcutKeys;
+}
+
+/** The code that a surface gives to run actions. */
+export type ChatActionTarget = Partial<Record<ChatActionId, () => void>> & {
+  /** Sends a session command to the chat view. Actions without own code use it. */
+  command?: (name: ChatCommand) => void;
+};
+
+/** True, or the reason why the action is not available now. */
+export type ChatActionAvailability = true | string;
+
+export interface ChatActionDefinition {
+  id: ChatActionId;
+  label: string | ((state: ChatActionState, platform: ChatActionPlatform) => string);
+  group: ChatActionGroup;
+  /** Extra words for the command palette search. */
+  keywords?: string;
+  shortcut?: ChatShortcut;
+  /** The session command that the menu bar and the palette send. Submenus have none. */
+  command?: ChatCommand;
+  /** Draws a separator above this item. Only submenu items use it. */
+  separator?: boolean;
+  enabled?: (state: ChatActionState) => ChatActionAvailability;
+  visible?: (context: ChatActionContext) => boolean;
+  children?: ChatActionDefinition[];
+  /** Runs the action with the code of a surface. */
+  run: (target: ChatActionTarget) => void;
+}
+export interface ChatActionContext {
+  surface: ChatActionSurface;
+  state: ChatActionState;
+}
+
+// On Windows and Linux, AltGr sends Ctrl+Alt, so Ctrl+Alt shortcuts do not arrive. There the
+// session shortcuts use Ctrl+Shift. Ctrl+Shift+R is not used because it reloads the page.
+const sessionShortcut = (mac: string, other: string): ChatShortcut => ({
+  mac: { modifiers: ['mod', 'alt'], key: mac },
+  other: { modifiers: ['mod', 'shift'], key: other },
+});
+
+export const reasons = {
+  firstMessage: 'Send a message first.',
+  running: 'Wait for the agent to finish.',
+  noFolder: 'Kalkidan does not know the code folder of this chat.',
+  noProject: 'Add this code folder to a project first.',
+  noChanges: 'No changes to commit.',
+  noPullRequest: 'This chat has not opened a pull request.',
+  remote: 'The folder is on a remote computer.',
+} as const;
+
+type Check = (state: ChatActionState) => string | false;
+const checks = {
+  saved: (state) => !state.saved && reasons.firstMessage,
+  idle: (state) => state.running && reasons.running,
+  repository: (state) => state.repository === false && reasons.noFolder,
+  project: (state) => state.project === false && reasons.noProject,
+  local: (state) => state.remote && reasons.remote,
+} satisfies Record<string, Check>;
+/** The first reason that blocks the action, or true. */
+const all =
+  (...list: Check[]) =>
+  (state: ChatActionState): ChatActionAvailability => {
+    for (const check of list) {
+      const reason = check(state);
+      if (reason) return reason;
+    }
+    return true;
+  };
+
+type Definition = Omit<ChatActionDefinition, 'run' | 'children'> & {
+  run?: ChatActionDefinition['run'];
+  children?: Definition[];
+};
+const ids = new Set<string>();
+function define(definition: Definition): ChatActionDefinition {
+  if (ids.has(definition.id)) throw new Error(`Chat action ${definition.id} is defined twice`);
+  ids.add(definition.id);
+  const own = definition.command;
+  return {
+    ...definition,
+    children: definition.children?.map(define),
+    run:
+      definition.run ||
+      ((target) => {
+        const handler = target[definition.id];
+        if (handler) handler();
+        else if (own) target.command?.(own);
+      }),
+  };
+}
+
+/** The chat actions in menu order. Each group keeps this order in every surface. */
+export const chatActions: readonly ChatActionDefinition[] = [
+  define({
+    id: 'open',
+    label: 'Open',
+    group: 'open',
+    // An open chat cannot open again. The menu bar and the palette act on the open chat.
+    visible: ({ state }) => !state.open,
+  }),
+  define({
+    id: 'open-beside',
+    label: 'Open a second chat beside this one',
+    group: 'open',
+    keywords: 'side split new chat',
+    shortcut: sessionShortcut('S', 'S'),
+    command: 'session-side-chat',
+    enabled: all(checks.repository),
+  }),
+  define({
+    id: 'open-window',
+    label: 'Open in new window',
+    group: 'open',
+    keywords: 'window separate',
+    command: 'session-window',
+    enabled: all(checks.saved),
+  }),
+  define({
+    id: 'rename',
+    label: 'Rename…',
+    group: 'organize',
+    keywords: 'title name',
+    shortcut: sessionShortcut('R', 'E'),
+    command: 'session-rename',
+  }),
+  define({
+    id: 'pin',
+    label: (state) => (state.pinned ? 'Unpin' : 'Pin'),
+    group: 'organize',
+    keywords: 'pin unpin top favorite',
+    shortcut: sessionShortcut('P', 'P'),
+    command: 'session-pin',
+  }),
+  define({
+    id: 'link-task',
+    label: 'Link task…',
+    group: 'organize',
+    keywords: 'issue board connect task',
+    command: 'link-task',
+    // A chat links one task. With a linked task, Open linked task shows.
+    visible: ({ state }) => !state.linkedTask,
+    enabled: all(checks.idle, checks.project),
+  }),
+  define({
+    id: 'open-linked-task',
+    label: 'Open linked task',
+    group: 'organize',
+    keywords: 'issue board task',
+    command: 'open-linked-task',
+    visible: ({ state }) => state.linkedTask,
+  }),
+  define({
+    id: 'notes',
+    label: 'Notes…',
+    group: 'organize',
+    keywords: 'note comment remember',
+    command: 'session-notes',
+  }),
+  define({
+    id: 'commit',
+    label: 'Commit changes…',
+    group: 'work',
+    keywords: 'git save changes commit',
+    command: 'session-commit',
+    enabled: all(checks.repository, checks.idle, (state) => !!state.noChanges && reasons.noChanges),
+  }),
+  define({
+    id: 'open-pull-request',
+    label: 'Open pull request',
+    group: 'work',
+    keywords: 'github pr review',
+    command: 'open-pull-request',
+    enabled: (state) => state.pullRequest || reasons.noPullRequest,
+  }),
+  define({
+    id: 'duplicate',
+    label: 'Duplicate chat',
+    group: 'work',
+    enabled: all(checks.saved, checks.idle),
+    children: [
+      {
+        id: 'duplicate-here',
+        label: 'Continue here',
+        group: 'work',
+        keywords: 'duplicate fork copy chat',
+        command: 'session-duplicate',
+      },
+      {
+        id: 'duplicate-branch',
+        label: 'Continue on a new branch…',
+        group: 'work',
+        keywords: 'duplicate fork worktree branch copy',
+        command: 'session-duplicate-branch',
+        enabled: all(checks.repository),
+      },
+    ],
+  }),
+  define({
+    id: 'show-folder',
+    label: (_state, platform) =>
+      `Show folder in ${platform === 'mac' ? 'Finder' : platform === 'windows' ? 'File Explorer' : 'file manager'}`,
+    group: 'work',
+    keywords: 'reveal folder finder explorer',
+    command: 'session-show-folder',
+    enabled: all(checks.saved, checks.local),
+  }),
+  define({
+    id: 'share',
+    label: 'Share',
+    group: 'share',
+    enabled: all(checks.saved, checks.idle),
+    children: [
+      {
+        id: 'export-markdown',
+        label: 'Export Markdown…',
+        group: 'share',
+        keywords: 'share export save file',
+        command: 'session-export-markdown',
+      },
+      {
+        id: 'export-html',
+        label: 'Export HTML…',
+        group: 'share',
+        keywords: 'share export save file web',
+        command: 'session-export-html',
+      },
+      {
+        id: 'save-to-docs',
+        label: 'Save to Docs…',
+        group: 'share',
+        keywords: 'share docs wiki page',
+        command: 'save-to-docs',
+        separator: true,
+        enabled: all(checks.project),
+      },
+    ],
+  }),
+  define({
+    id: 'copy-markdown',
+    label: 'Copy chat as Markdown',
+    group: 'share',
+    keywords: 'copy transcript clipboard',
+    command: 'session-copy-markdown',
+    enabled: all(checks.saved, checks.idle),
+  }),
+  define({
+    id: 'usage-history',
+    label: 'Usage history…',
+    group: 'share',
+    keywords: 'tokens cost requests managed',
+    command: 'session-usage-history',
+    // The history needs managed agents on this computer.
+    visible: ({ state }) => state.usageHistory && !state.remote,
+    enabled: all(checks.saved),
+  }),
+  define({
+    id: 'developer',
+    label: 'Developer',
+    group: 'developer',
+    enabled: all(checks.saved),
+    children: [
+      {
+        id: 'copy-id',
+        label: 'Copy chat ID',
+        group: 'developer',
+        keywords: 'developer identifier',
+        command: 'session-copy-id',
+      },
+      {
+        id: 'copy-path',
+        label: 'Copy folder path',
+        group: 'developer',
+        keywords: 'developer directory',
+        command: 'session-copy-path',
+      },
+      {
+        id: 'open-vscode',
+        label: 'Open in VS Code',
+        group: 'developer',
+        keywords: 'developer editor code',
+        command: 'session-open-vscode',
+        separator: true,
+        enabled: all(checks.local),
+      },
+      {
+        id: 'open-cursor',
+        label: 'Open in Cursor',
+        group: 'developer',
+        keywords: 'developer editor',
+        command: 'session-open-cursor',
+        enabled: all(checks.local),
+      },
+    ],
+  }),
+  define({
+    id: 'archive',
+    label: (state) => (state.archived ? 'Restore' : 'Archive'),
+    group: 'archive',
+    keywords: 'archive hide remove restore',
+    shortcut: {
+      mac: { modifiers: ['mod', 'shift'], key: 'A' },
+      other: { modifiers: ['mod', 'shift'], key: 'A' },
+    },
+    command: 'session-archive',
+    enabled: all(checks.idle),
+  }),
+];
+
+/** The session commands, in menu order. The menu bar and the palette send them. */
+export const chatCommands = [
+  'session-side-chat',
+  'session-window',
+  'session-rename',
+  'session-pin',
+  'link-task',
+  'open-linked-task',
+  'session-notes',
+  'session-commit',
+  'open-pull-request',
+  'session-duplicate',
+  'session-duplicate-branch',
+  'session-show-folder',
+  'session-export-markdown',
+  'session-export-html',
+  'save-to-docs',
+  'session-copy-markdown',
+  'session-usage-history',
+  'session-copy-id',
+  'session-copy-path',
+  'session-open-vscode',
+  'session-open-cursor',
+  'session-archive',
+] as const;
+export type ChatCommand = (typeof chatCommands)[number];
+export const isChatCommand = (value: string): value is ChatCommand =>
+  (chatCommands as readonly string[]).includes(value);
+
+/** All actions, with the submenu items after their submenu. */
+export function flatChatActions(list: readonly ChatActionDefinition[] = chatActions) {
+  return list.flatMap((action): ChatActionDefinition[] => [
+    action,
+    ...flatChatActions(action.children || []),
+  ]);
+}
+export function chatAction(id: ChatActionId) {
+  return flatChatActions().find((action) => action.id === id);
+}
+export function chatActionForCommand(command: string) {
+  return flatChatActions().find((action) => action.command === command);
+}
+
+/** An action as one surface shows it now. */
+export interface ChatMenuItem {
+  id: ChatActionId;
+  label: string;
+  group: ChatActionGroup;
+  shortcut?: ChatShortcut;
+  command?: ChatCommand;
+  keywords?: string;
+  disabled: boolean;
+  /** Why the item is disabled. */
+  reason?: string;
+  separator?: boolean;
+  children?: ChatMenuItem[];
+  definition: ChatActionDefinition;
+}
+export interface ChatMenuGroup {
+  group: ChatActionGroup;
+  items: ChatMenuItem[];
+}
+
+function availability(action: ChatActionDefinition, state: ChatActionState) {
+  return action.enabled ? action.enabled(state) : true;
+}
+/** True, or the reason why the action cannot run now. A submenu item also checks its submenu. */
+export function chatActionAvailability(
+  id: ChatActionId,
+  state: ChatActionState,
+): ChatActionAvailability {
+  const parent = chatActions.find((action) => action.children?.some((child) => child.id === id));
+  const action = chatAction(id);
+  if (!action) return 'Unknown action.';
+  const outer = parent ? availability(parent, state) : true;
+  return outer === true ? availability(action, state) : outer;
+}
+
+function resolve(
+  action: ChatActionDefinition,
+  context: ChatActionContext,
+  platform: ChatActionPlatform,
+): ChatMenuItem | null {
+  if (action.visible && !action.visible(context)) return null;
+  const available = availability(action, context.state);
+  const children = action.children
+    ?.map((child) => resolve(child, context, platform))
+    .filter((child): child is ChatMenuItem => !!child);
+  if (children && !children.length) return null;
+  return {
+    id: action.id,
+    label:
+      typeof action.label === 'function' ? action.label(context.state, platform) : action.label,
+    group: action.group,
+    shortcut: action.shortcut,
+    command: action.command,
+    keywords: action.keywords,
+    disabled: available !== true,
+    reason: available === true ? undefined : available,
+    separator: action.separator,
+    children,
+    definition: action,
+  };
+}
+
+/** The actions that one surface shows for a chat, in groups and in menu order. */
+export function chatActionMenu(
+  surface: ChatActionSurface,
+  state: ChatActionState,
+  platform: ChatActionPlatform,
+): ChatMenuGroup[] {
+  const context = { surface, state };
+  return chatActionGroups
+    .map((group) => ({
+      group,
+      items: chatActions
+        .filter((action) => action.group === group)
+        .map((action) => resolve(action, context, platform))
+        .filter((item): item is ChatMenuItem => !!item),
+    }))
+    .filter((entry) => entry.items.length > 0);
+}
+
+/** The menu items without submenus. Each submenu item takes the reason of its submenu. */
+export function leafChatActions(groups: ChatMenuGroup[]): ChatMenuItem[] {
+  return groups.flatMap((entry) =>
+    entry.items.flatMap((item) =>
+      item.children
+        ? item.children.map((child) =>
+            item.disabled ? { ...child, disabled: true, reason: item.reason } : child,
+          )
+        : [item],
+    ),
+  );
+}
+
+/** The keys of a shortcut on one platform. */
+export function chatShortcutKeys(shortcut: ChatShortcut, platform: ChatActionPlatform) {
+  return platform === 'mac' ? shortcut.mac : shortcut.other;
+}
+/** The Electron accelerator of a shortcut, such as "Cmd+Alt+R" or "Ctrl+Shift+E". */
+export function chatAccelerator(shortcut: ChatShortcut, platform: ChatActionPlatform) {
+  const keys = chatShortcutKeys(shortcut, platform);
+  const names = { mod: platform === 'mac' ? 'Cmd' : 'Ctrl', alt: 'Alt', shift: 'Shift' };
+  const order: ChatShortcutModifier[] = ['mod', 'alt', 'shift'];
+  return [...order.filter((m) => keys.modifiers.includes(m)).map((m) => names[m]), keys.key].join(
+    '+',
+  );
+}
+/** The action whose shortcut matches a key press, if any. */
+export function chatActionForKey(
+  event: Pick<KeyboardEvent, 'code' | 'metaKey' | 'ctrlKey' | 'altKey' | 'shiftKey'>,
+  platform: ChatActionPlatform,
+) {
+  const mod = platform === 'mac' ? event.metaKey : event.ctrlKey && !event.altKey;
+  if (!mod) return undefined;
+  return flatChatActions().find((action) => {
+    if (!action.shortcut) return false;
+    const keys = chatShortcutKeys(action.shortcut, platform);
+    return (
+      event.code === 'Key' + keys.key &&
+      event.altKey === keys.modifiers.includes('alt') &&
+      event.shiftKey === keys.modifiers.includes('shift')
+    );
+  });
+}
+
+/** The state that the session record alone gives. Each surface adds what it knows. */
+export function sessionActionState(
+  session: Session,
+  known: Partial<ChatActionState> = {},
+): ChatActionState {
+  const organization = session.organization || {};
+  return {
+    open: false,
+    saved: !session.id.startsWith('draft-'),
+    running: false,
+    pinned: !!organization.pinned,
+    archived: !!organization.archived,
+    linkedTask: !!(organization.taskId || session.task?.id),
+    pullRequest: !!organization.pullRequest?.url,
+    remote: !!session.hostId,
+    usageHistory: false,
+    ...known,
+  };
+}
+
+const stateKeys: (keyof ChatActionState)[] = [
+  'open',
+  'saved',
+  'running',
+  'pinned',
+  'archived',
+  'linkedTask',
+  'pullRequest',
+  'remote',
+  'usageHistory',
+];
+const optionalKeys: (keyof ChatActionState)[] = ['repository', 'project', 'noChanges'];
+/** Reads a state from an untrusted value, such as an IPC message. Returns null when invalid. */
+export function parseChatActionState(value: unknown): ChatActionState | null {
+  if (!value || typeof value !== 'object') return null;
+  const record = value as Record<string, unknown>;
+  if (stateKeys.some((key) => typeof record[key] !== 'boolean')) return null;
+  const state = Object.fromEntries(stateKeys.map((key) => [key, record[key]])) as Record<
+    string,
+    boolean
+  >;
+  for (const key of optionalKeys) if (typeof record[key] === 'boolean') state[key] = record[key];
+  return state as unknown as ChatActionState;
+}

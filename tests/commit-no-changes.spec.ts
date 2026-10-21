@@ -56,9 +56,18 @@ test('Commit is disabled with a reason when there are no changes', async ({ page
   await expect(commit).toBeDisabled();
   await expect(commit.locator('..')).toHaveAccessibleDescription('No changes to commit.');
 
-  // The chat menu does not open the Commit flow. It tells the user why.
+  // The chat menu disables Commit changes and tells the user why.
   await page.getByRole('button', { name: 'Chat actions', exact: true }).click();
-  await page.getByRole('menuitem', { name: 'Commit changes…', exact: true }).click();
+  const item = page.getByRole('menuitem', { name: /^Commit changes…/ });
+  await expect(item).toBeDisabled();
+  await expect(item).toContainText('No changes to commit.');
+  await page.keyboard.press('Escape');
+  // A session command, such as one from the menu bar, shows the reason.
+  await page.evaluate(() =>
+    window.dispatchEvent(
+      new CustomEvent('kalkidan-session-command', { detail: { command: 'session-commit' } }),
+    ),
+  );
   await expect(page.getByText('No changes to commit.', { exact: true }).first()).toBeVisible();
   await expect(page.getByRole('dialog', { name: 'Commit changes' })).toHaveCount(0);
 });

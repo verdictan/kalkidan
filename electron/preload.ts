@@ -182,6 +182,7 @@ const api: API = {
   gitCommit: (id, message, files) => ipcRenderer.invoke('git-commit', id, message, files),
   gitPullRequest: (id, title, body) => ipcRenderer.invoke('git-pull-request', id, title, body),
   showAppMenu: () => ipcRenderer.invoke('app-menu'),
+  setChatMenuState: (state) => ipcRenderer.invoke('chat-menu-state', state),
   setAppearance: (mode) => ipcRenderer.invoke('appearance', mode),
   notify: (input) => ipcRenderer.invoke('notify', input),
   setBadgeCount: (count) => ipcRenderer.invoke('badge-count', count),

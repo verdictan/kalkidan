@@ -1,30 +1,22 @@
 import { useEffect, useRef, useState } from 'react';
-import {
-  Pencil,
-  Pin,
-  PanelRight,
-  CopyPlus,
-  Share2,
-  Copy,
-  AppWindow,
-  FolderOpen,
-  Archive,
-  GitCommitHorizontal,
-  GitBranchPlus,
-  LoaderCircle,
-  Code,
-  ExternalLink,
-  FileText,
-  GitPullRequest,
-  ListTodo,
-  Gauge,
-} from 'lucide-react';
+import { GitBranchPlus, LoaderCircle, ExternalLink, GitPullRequest } from 'lucide-react';
 import type { API, ProjectGroup, Session, SessionOrganization, TrackerItem } from '../types';
 import type { WorkingFile, WorkingStatus } from '../api/contracts';
+import {
+  chatAction,
+  chatActionAvailability,
+  chatActionForCommand,
+  chatActionForKey,
+  chatActionMenu,
+  sessionActionState,
+  type ChatActionId,
+  type ChatActionState,
+  type ChatActionTarget,
+  type ChatMenuItem,
+} from '../domain/chat-actions';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Textarea } from './ui/textarea';
-import { MoreButton } from './ui/more-button';
 import { Alert, AlertDescription } from './ui/alert';
 import { Checkbox } from './ui/checkbox';
 import { showToast } from './ui/toast';
@@ -38,28 +30,15 @@ import {
   DialogDescription,
   DialogFooter,
 } from './ui/dialog';
-import {
-  DropdownMenu,
-  DropdownMenuTrigger,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuSub,
-  DropdownMenuSubTrigger,
-  DropdownMenuSubContent,
-  DropdownMenuShortcut,
-} from './ui/dropdown-menu';
-import { Hint } from './hint';
-import { RenameSessionDialog, archiveSessionWithUndo } from './session-actions';
+import { ChatActionsDropdown } from './chat-action-menu';
+import { NotesDialog, RenameSessionDialog, archiveSessionWithUndo } from './session-actions';
 import { ManagedHistoryView } from './managed-history';
 import {
-  fileManagerName,
   hasPrimaryModifier,
-  isMac,
   isTypingTarget,
   pathBasename,
+  platform,
   plural,
-  shortcutLabel,
 } from '../lib/platform';
 import { errorMessage } from '../lib/errors';
 import {
@@ -79,25 +58,21 @@ export function sendSessionCommand(command: string) {
   return !!detail.handled;
 }
 
-// On Windows and Linux, AltGr sends Ctrl+Alt, so Ctrl+Alt shortcuts do not arrive.
-// There the session shortcuts use Ctrl+Shift. Ctrl+Shift+R is not used because it
-// reloads the page.
-const sessionKeys = isMac
-  ? { modifiers: ['mod', 'alt'] as const, rename: 'R', pin: 'P', side: 'S' }
-  : { modifiers: ['mod', 'shift'] as const, rename: 'E', pin: 'P', side: 'S' };
-const shortcuts = {
-  rename: shortcutLabel([...sessionKeys.modifiers], sessionKeys.rename),
-  pin: shortcutLabel([...sessionKeys.modifiers], sessionKeys.pin),
-  side: shortcutLabel([...sessionKeys.modifiers], sessionKeys.side),
-  archive: shortcutLabel(['mod', 'shift'], 'A'),
-};
-/** True when the key press has the second session modifier: Option on macOS, Shift elsewhere. */
-function sessionModifier(e: KeyboardEvent) {
-  return isMac ? e.altKey && !e.shiftKey : e.shiftKey && !e.altKey;
-}
 /** The text that explains a branch copy. Use it once in each flow that makes one. */
 export const branchCopyHelp =
   'A branch copy is a separate folder on its own branch, so the agent’s changes stay apart from your work.';
+
+/**
+ * The chat view runs these actions, because it has the linked task and the pull request. The
+ * menu sends their commands. When no chat view takes a command, the menu runs a fallback.
+ */
+const chatViewActions = new Set<ChatActionId>([
+  'commit',
+  'link-task',
+  'open-linked-task',
+  'open-pull-request',
+  'save-to-docs',
+]);
 
 export function SessionMenu({
   api,
@@ -108,6 +83,7 @@ export function SessionMenu({
   branch,
   archive,
   repositoryId,
+  inProject,
   onViewArchived,
   onReviewChanges,
 }: {
@@ -117,6 +93,8 @@ export function SessionMenu({
   running: boolean;
   /** The repository entry of the session checkout. Commit needs it. */
   repositoryId?: string;
+  /** True when the code folder of the chat is in a project. Missing: not known. */
+  inProject?: boolean;
   update: (changes: SessionOrganization) => Promise<void>;
   branch: (fork: boolean, worktree?: string) => Promise<void>;
   archive: () => void;
@@ -125,12 +103,16 @@ export function SessionMenu({
   /** Opens the Changes tool. The commit dialog links to it. */
   onReviewChanges?: () => void;
 }) {
-  const [dialog, setDialog] = useState<'rename' | 'worktree' | 'commit' | 'history' | null>(null);
+  const [dialog, setDialog] = useState<
+    'rename' | 'notes' | 'worktree' | 'commit' | 'history' | null
+  >(null);
   const [value, setValue] = useState('');
   const [preview, setPreview] = useState<{ base: string; path: string } | null>(null);
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState('');
   const [error, setError] = useState('');
+  // True when Git reports no changed files. Unknown (undefined) does not block Commit.
+  const [noChanges, setNoChanges] = useState<boolean>();
   const statusTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   useEffect(() => () => clearTimeout(statusTimer.current), []);
   function showStatus(text: string) {
@@ -150,34 +132,17 @@ export function SessionMenu({
       setBusy(false);
     }
   }
-  const title = session.organization?.title || session.title;
-  const rename = () => setDialog('rename');
-  const pin = () => perform(() => update({ pinned: !session.organization?.pinned }));
-  const sideChat = () => perform(() => branch(false));
-  const doArchive = () => {
-    if (running) return;
-    void perform(async () => {
-      await archiveSessionWithUndo(session, { save: update, onViewArchived });
-      archive();
-    });
+  /** Reads if the checkout has changes to commit. */
+  const readChanges = useRef(() => {});
+  readChanges.current = () => {
+    if (!repositoryId || typeof api.workingStatus !== 'function') return;
+    Promise.resolve()
+      .then(() => api.workingStatus(repositoryId))
+      .then((working) => setNoChanges(!!working && working.changed + working.untracked === 0))
+      .catch(() => setNoChanges(undefined));
   };
-  // The chat view has the linked task, so its Commit dialog writes the task in the pull
-  // request. This menu opens its own dialog only when no chat view takes the command.
-  const commit = () => {
-    if (repositoryId && !running) setDialog('commit');
-  };
-  const saveToDocs = () => {
-    if (!sendSessionCommand('save-to-docs'))
-      showToast({
-        message: 'Add this code folder to a project to save chats to Docs.',
-        tone: 'error',
-      });
-  };
-  const duplicateOnBranch = () => {
-    setValue('');
-    setPreview(null);
-    setDialog('worktree');
-  };
+  // Read again when a run ends, because the agent can change files.
+  useEffect(() => readChanges.current(), [api, repositoryId, running]);
   // Shows where the branch copy starts and where its folder goes.
   useEffect(() => {
     const name = value.trim();
@@ -197,46 +162,116 @@ export function SessionMenu({
       clearTimeout(timer);
     };
   }, [dialog, value, repositoryId, api]);
-  // The latest handlers, for the listeners below.
-  const handlers = useRef({ rename, pin, sideChat, doArchive, commit });
-  handlers.current = { rename, pin, sideChat, doArchive, commit };
+  const title = session.organization?.title || session.title;
+  const state: ChatActionState = sessionActionState(session, {
+    open: true,
+    saved,
+    running,
+    usageHistory: typeof api.managedHistory === 'function',
+    repository: !!repositoryId,
+    project: inProject,
+    noChanges,
+  });
+  const groups = chatActionMenu('header', state, platform);
+  const action = (kind: Parameters<API['sessionAction']>[1]) =>
+    void perform(() => api.sessionAction(session, kind));
+  const doArchive = () =>
+    void perform(async () => {
+      await archiveSessionWithUndo(session, { save: update, onViewArchived });
+      archive();
+    });
+  const duplicateOnBranch = () => {
+    setValue('');
+    setPreview(null);
+    setDialog('worktree');
+  };
+  /** The code of the actions that this menu runs itself. */
+  const local: ChatActionTarget = {
+    'open-beside': () => void perform(() => branch(false)),
+    'open-window': () => action('window'),
+    rename: () => setDialog('rename'),
+    pin: () => void perform(() => update({ pinned: !session.organization?.pinned })),
+    notes: () => setDialog('notes'),
+    'duplicate-here': () => void perform(() => branch(true)),
+    'duplicate-branch': duplicateOnBranch,
+    'show-folder': () => action('finder'),
+    'export-markdown': () => action('markdown'),
+    'export-html': () => action('html'),
+    'copy-markdown': () => action('copy-transcript'),
+    'usage-history': () => setDialog('history'),
+    'copy-id': () => action('copy-id'),
+    'copy-path': () => action('copy-path'),
+    'open-vscode': () => action('vscode'),
+    'open-cursor': () => action('cursor'),
+    archive: doArchive,
+  };
+  /** Runs when no chat view took a command of `chatViewActions`. */
+  function fallback(id: ChatActionId) {
+    if (id === 'commit') {
+      if (repositoryId) setDialog('commit');
+    } else if (id === 'save-to-docs')
+      showToast({
+        message: 'Add this code folder to a project to save chats to Docs.',
+        tone: 'error',
+      });
+    else if (id === 'link-task')
+      showToast({ message: 'Connect a task board to this project first.', tone: 'error' });
+    else if (id === 'open-pull-request' && session.organization?.pullRequest?.url)
+      window.open(session.organization.pullRequest.url, '_blank', 'noreferrer');
+  }
+  /**
+   * Runs an action, or tells the user why it cannot run now. `fromCommand` is true when a
+   * session command asks for the action, so the action must not send the command again.
+   */
+  function runAction(id: ChatActionId, fromCommand = false) {
+    const available = chatActionAvailability(id, state);
+    if (available !== true) {
+      showToast({ message: available });
+      return;
+    }
+    if (chatViewActions.has(id)) {
+      // The listener below runs the fallback when no chat view takes the command.
+      const name = chatAction(id)?.command;
+      if (!fromCommand && name) sendSessionCommand(name);
+      return;
+    }
+    local[id]?.();
+  }
+  const runItem = (item: ChatMenuItem) => runAction(item.id);
+  // The latest code, for the listeners below.
+  const latest = useRef({ runAction, fallback, state });
+  latest.current = { runAction, fallback, state };
   useEffect(() => {
     const key = (e: KeyboardEvent) => {
       if (!hasPrimaryModifier(e) || isTypingTarget(e.target)) return;
       if (document.querySelector('[role="dialog"]')) return;
-      if (sessionModifier(e) && e.code === 'Key' + sessionKeys.rename) {
-        e.preventDefault();
-        handlers.current.rename();
-      }
-      if (sessionModifier(e) && e.code === 'Key' + sessionKeys.pin) {
-        e.preventDefault();
-        void handlers.current.pin();
-      }
-      if (sessionModifier(e) && e.code === 'Key' + sessionKeys.side) {
-        e.preventDefault();
-        void handlers.current.sideChat();
-      }
-      if (e.shiftKey && !e.altKey && e.code === 'KeyA' && !running) {
-        e.preventDefault();
-        handlers.current.doArchive();
-      }
+      const found = chatActionForKey(e, platform);
+      if (!found) return;
+      e.preventDefault();
+      latest.current.runAction(found.id);
     };
-    // The application menu sends the session commands. Only the open session menu is mounted.
+    // The menu bar, the palette and the chat rows send the session commands. Only the menu of
+    // the open chat is mounted.
     const command = (event: Event) => {
-      const name = (event as CustomEvent<{ command?: string }>).detail?.command;
-      if (name === 'session-rename') handlers.current.rename();
-      else if (name === 'session-pin') void handlers.current.pin();
-      else if (name === 'session-side-chat') void handlers.current.sideChat();
-      else if (name === 'session-archive') handlers.current.doArchive();
-      else if (name === 'session-commit') {
-        // Wait until all listeners ran. The chat view marks the command as handled.
-        const detail = (event as CustomEvent<{ handled?: boolean }>).detail;
-        setTimeout(() => {
-          if (detail?.handled) return;
-          detail.handled = true;
-          handlers.current.commit();
-        });
+      const detail = (event as CustomEvent<{ command?: string; handled?: boolean }>).detail;
+      const found = detail?.command ? chatActionForCommand(detail.command) : undefined;
+      if (!found) return;
+      if (!chatViewActions.has(found.id)) {
+        latest.current.runAction(found.id, true);
+        return;
       }
+      if (chatActionAvailability(found.id, latest.current.state) !== true) {
+        // The chat view must not act on a blocked action. The menu tells the user why.
+        detail!.handled = true;
+        latest.current.runAction(found.id, true);
+        return;
+      }
+      // Wait until all listeners ran. The chat view marks the command as handled.
+      setTimeout(() => {
+        if (detail!.handled) return;
+        detail!.handled = true;
+        latest.current.fallback(found.id);
+      });
     };
     window.addEventListener('keydown', key);
     window.addEventListener('kalkidan-session-command', command);
@@ -244,9 +279,22 @@ export function SessionMenu({
       window.removeEventListener('keydown', key);
       window.removeEventListener('kalkidan-session-command', command);
     };
-  }, [running]);
-  const action = (kind: Parameters<API['sessionAction']>[1]) =>
-    void perform(() => api.sessionAction(session, kind));
+  }, []);
+  // The Chat menu of the menu bar shows the state of the open chat of the focused window.
+  const menuState = JSON.stringify(state);
+  useEffect(() => {
+    const setState = api.setChatMenuState?.bind(api);
+    if (!setState) return;
+    const report = () => {
+      if (document.hasFocus()) void setState(JSON.parse(menuState)).catch(() => {});
+    };
+    report();
+    window.addEventListener('focus', report);
+    return () => {
+      window.removeEventListener('focus', report);
+      if (document.hasFocus()) void setState(null).catch(() => {});
+    };
+  }, [api, menuState]);
   return (
     <>
       {status && (
@@ -254,136 +302,13 @@ export function SessionMenu({
           {status}
         </span>
       )}
-      <DropdownMenu>
-        <Hint label="Chat actions">
-          <DropdownMenuTrigger asChild>
-            <MoreButton label="Chat actions" disabled={busy} />
-          </DropdownMenuTrigger>
-        </Hint>
-        <DropdownMenuContent align="end" className="w-80">
-          <DropdownMenuItem onSelect={rename}>
-            <Pencil />
-            Rename…<DropdownMenuShortcut>{shortcuts.rename}</DropdownMenuShortcut>
-          </DropdownMenuItem>
-          <DropdownMenuItem onSelect={() => void pin()}>
-            <Pin />
-            {session.organization?.pinned ? 'Unpin' : 'Pin'}
-            <DropdownMenuShortcut>{shortcuts.pin}</DropdownMenuShortcut>
-          </DropdownMenuItem>
-          <DropdownMenuSeparator />
-          <DropdownMenuItem onSelect={() => void sideChat()}>
-            <PanelRight />
-            Open a second chat beside this one
-            <DropdownMenuShortcut>{shortcuts.side}</DropdownMenuShortcut>
-          </DropdownMenuItem>
-          <DropdownMenuSub>
-            <DropdownMenuSubTrigger disabled={!saved || running}>
-              <CopyPlus />
-              Duplicate chat
-            </DropdownMenuSubTrigger>
-            <DropdownMenuSubContent className="w-64">
-              <DropdownMenuItem onSelect={() => void perform(() => branch(true))}>
-                Continue here
-              </DropdownMenuItem>
-              <DropdownMenuItem disabled={!repositoryId} onSelect={duplicateOnBranch}>
-                Continue on a new branch…
-              </DropdownMenuItem>
-            </DropdownMenuSubContent>
-          </DropdownMenuSub>
-          <DropdownMenuItem
-            disabled={!repositoryId || running}
-            onSelect={() => void sendSessionCommand('session-commit')}
-          >
-            <GitCommitHorizontal />
-            Commit changes…
-          </DropdownMenuItem>
-          {session.organization?.pullRequest?.url && (
-            <DropdownMenuItem onSelect={() => void sendSessionCommand('open-pull-request')}>
-              <GitPullRequest />
-              Open pull request
-            </DropdownMenuItem>
-          )}
-          {session.organization?.taskId || session.task?.id ? (
-            <DropdownMenuItem onSelect={() => void sendSessionCommand('open-linked-task')}>
-              <ListTodo />
-              Open linked task
-            </DropdownMenuItem>
-          ) : (
-            <DropdownMenuItem
-              disabled={running}
-              onSelect={() => void sendSessionCommand('link-task')}
-            >
-              <ListTodo />
-              Link task…
-            </DropdownMenuItem>
-          )}
-          <DropdownMenuSeparator />
-          <DropdownMenuSub>
-            <DropdownMenuSubTrigger disabled={!saved || running}>
-              <Share2 />
-              Share
-            </DropdownMenuSubTrigger>
-            <DropdownMenuSubContent>
-              <DropdownMenuItem onSelect={() => action('markdown')}>
-                Export Markdown…
-              </DropdownMenuItem>
-              <DropdownMenuItem onSelect={() => action('html')}>Export HTML…</DropdownMenuItem>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem onSelect={saveToDocs}>
-                <FileText />
-                Save to Docs…
-              </DropdownMenuItem>
-            </DropdownMenuSubContent>
-          </DropdownMenuSub>
-          {typeof api.managedHistory === 'function' && !session.hostId && (
-            <DropdownMenuItem disabled={!saved} onSelect={() => setDialog('history')}>
-              <Gauge />
-              Usage history…
-            </DropdownMenuItem>
-          )}
-          <DropdownMenuItem disabled={!saved || running} onSelect={() => action('copy-transcript')}>
-            <Copy />
-            Copy chat as Markdown
-          </DropdownMenuItem>
-          <DropdownMenuItem disabled={!saved} onSelect={() => action('window')}>
-            <AppWindow />
-            Open in new window
-          </DropdownMenuItem>
-          <DropdownMenuItem disabled={!saved || !!session.hostId} onSelect={() => action('finder')}>
-            <FolderOpen />
-            Show folder in {fileManagerName()}
-          </DropdownMenuItem>
-          <DropdownMenuSub>
-            <DropdownMenuSubTrigger disabled={!saved}>
-              <Code />
-              Developer
-            </DropdownMenuSubTrigger>
-            <DropdownMenuSubContent>
-              <DropdownMenuItem onSelect={() => action('copy-id')}>Copy chat ID</DropdownMenuItem>
-              <DropdownMenuItem onSelect={() => action('copy-path')}>
-                Copy folder path
-              </DropdownMenuItem>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem disabled={!!session.hostId} onSelect={() => action('vscode')}>
-                Open in VS Code
-              </DropdownMenuItem>
-              <DropdownMenuItem disabled={!!session.hostId} onSelect={() => action('cursor')}>
-                Open in Cursor
-              </DropdownMenuItem>
-            </DropdownMenuSubContent>
-          </DropdownMenuSub>
-          <DropdownMenuSeparator />
-          <DropdownMenuItem disabled={running} onSelect={doArchive}>
-            <Archive />
-            Archive<DropdownMenuShortcut>{shortcuts.archive}</DropdownMenuShortcut>
-          </DropdownMenuItem>
-          {!saved && (
-            <p className="px-2 py-2 text-xs text-muted-foreground">
-              Send the first message to unlock export and duplicate.
-            </p>
-          )}
-        </DropdownMenuContent>
-      </DropdownMenu>
+      <ChatActionsDropdown
+        label="Chat actions"
+        disabled={busy}
+        groups={groups}
+        onRun={runItem}
+        onOpenChange={(open) => open && readChanges.current()}
+      />
       {error && (
         <Dialog open onOpenChange={() => setError('')}>
           <DialogContent size="sm" role="alertdialog">
@@ -438,6 +363,12 @@ export function SessionMenu({
       <RenameSessionDialog
         session={session}
         open={dialog === 'rename'}
+        onOpenChange={(open) => !open && setDialog(null)}
+        save={update}
+      />
+      <NotesDialog
+        session={session}
+        open={dialog === 'notes'}
         onOpenChange={(open) => !open && setDialog(null)}
         save={update}
       />

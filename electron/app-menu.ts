@@ -1,5 +1,12 @@
 import type { MenuItemConstructorOptions } from 'electron';
 import type { MenuCommand } from '../src/api/contracts';
+import {
+  chatAccelerator,
+  chatActionMenu,
+  type ChatActionPlatform,
+  type ChatActionState,
+  type ChatMenuItem,
+} from '../src/domain/chat-actions';
 
 export interface AppMenuOptions {
   mac: boolean;
@@ -8,6 +15,57 @@ export interface AppMenuOptions {
   appName: string;
   command: (name: MenuCommand) => () => void;
   openExternal: (url: string) => void;
+  /** The platform for labels and shortcuts. The default follows `mac`. */
+  platform?: ChatActionPlatform;
+  /** The state of the open chat in the focused window. Null or missing: no chat is open. */
+  chat?: ChatActionState | null;
+}
+
+/** A state with no open chat. The Chat menu then shows its actions as disabled. */
+const noChat: ChatActionState = {
+  open: true,
+  saved: false,
+  running: false,
+  pinned: false,
+  archived: false,
+  linkedTask: false,
+  pullRequest: false,
+  remote: false,
+  usageHistory: false,
+};
+
+/**
+ * The chat actions of the Chat menu, from the one chat action list. The renderer handles the
+ * shortcut keys, so the menu shows them but does not register them.
+ */
+export function chatMenuItems(
+  command: AppMenuOptions['command'],
+  platform: ChatActionPlatform,
+  chat: ChatActionState | null | undefined,
+): MenuItemConstructorOptions[] {
+  const state = chat ? { ...chat, open: true } : noChat;
+  const item = (entry: ChatMenuItem): MenuItemConstructorOptions => ({
+    id: `chat-${entry.id}`,
+    label: entry.label,
+    enabled: !!chat && !entry.disabled,
+    ...(entry.shortcut
+      ? { accelerator: chatAccelerator(entry.shortcut, platform), registerAccelerator: false }
+      : {}),
+    ...(entry.children
+      ? {
+          submenu: entry.children.flatMap((child) => [
+            ...(child.separator ? [{ type: 'separator' } as const] : []),
+            item(child),
+          ]),
+        }
+      : entry.command
+        ? { click: command(entry.command) }
+        : {}),
+  });
+  return chatActionMenu('menu-bar', state, platform).flatMap((group, index) => [
+    ...(index ? [{ type: 'separator' } as const] : []),
+    ...group.items.map(item),
+  ]);
 }
 
 /**
@@ -20,6 +78,8 @@ export function appMenuTemplate({
   appName,
   command,
   openExternal,
+  platform = mac ? 'mac' : 'windows',
+  chat,
 }: AppMenuOptions): MenuItemConstructorOptions[] {
   const separator: MenuItemConstructorOptions = { type: 'separator' };
   return [
@@ -147,16 +207,7 @@ export function appMenuTemplate({
           click: command('session-changes'),
         },
         separator,
-        { label: 'Rename…', click: command('session-rename') },
-        { label: 'Pin', click: command('session-pin') },
-        { label: 'Open a second chat beside this one', click: command('session-side-chat') },
-        { label: 'Commit…', click: command('session-commit') },
-        separator,
-        { label: 'Open linked task', click: command('open-linked-task') },
-        { label: 'Link task…', click: command('link-task') },
-        { label: 'Open pull request', click: command('open-pull-request') },
-        separator,
-        { label: 'Archive', click: command('session-archive') },
+        ...chatMenuItems(command, platform, chat),
       ],
     },
     {

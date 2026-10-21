@@ -3,6 +3,7 @@ import type { API, Session, SessionOrganization } from '../types';
 import { errorMessage } from '../lib/errors';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
+import { Textarea } from './ui/textarea';
 import { showToast } from './ui/toast';
 import {
   Dialog,
@@ -107,6 +108,96 @@ export function RenameSessionDialog({
             </Button>
             <Button type="submit" disabled={busy || !value.trim()}>
               Save name
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/**
+ * The one notes UI for a chat. Every chat menu opens it with "Notes…". The chat header shows
+ * the note. Without `save`, the dialog saves the note with `api.updateSession`.
+ */
+export function NotesDialog({
+  session,
+  open,
+  onOpenChange,
+  api,
+  save,
+  onSaved,
+}: {
+  session: Session | null;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  api?: API;
+  /** Saves the change. Use it for a session that the agent has not created yet. */
+  save?: SaveSession;
+  /** Called after the note is saved, for example to read the session list again. */
+  onSaved?: (notes: string) => void;
+}) {
+  const [value, setValue] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  useEffect(() => {
+    if (!open || !session) return;
+    setValue(session.organization?.notes || '');
+    setError('');
+  }, [open, session?.agent, session?.id]);
+  async function submit() {
+    if (!session) return;
+    setBusy(true);
+    setError('');
+    try {
+      const notes = value.trim();
+      if (save) await save({ notes });
+      else await saveWith(session, { notes }, api);
+      onSaved?.(notes);
+      onOpenChange(false);
+    } catch (e) {
+      setError(errorMessage(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <Dialog open={open && !!session} onOpenChange={(next) => !busy && onOpenChange(next)}>
+      <DialogContent size="md">
+        <DialogHeader>
+          <DialogTitle>Notes</DialogTitle>
+          <DialogDescription>
+            Kalkidan keeps the note. The chat header shows it. The agent does not see it.
+          </DialogDescription>
+        </DialogHeader>
+        <form
+          className="grid gap-4"
+          onSubmit={(e) => {
+            e.preventDefault();
+            void submit();
+          }}
+        >
+          <Textarea
+            autoFocus
+            rows={4}
+            maxLength={20000}
+            aria-label="Notes"
+            placeholder="Where you stopped, next steps…"
+            value={value}
+            aria-invalid={!!error || undefined}
+            onChange={(e) => setValue(e.target.value)}
+          />
+          {error && (
+            <p role="alert" className="field-error break-words">
+              {error}
+            </p>
+          )}
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+              Cancel
+            </Button>
+            <Button type="submit" disabled={busy}>
+              {busy ? 'Saving…' : 'Save notes'}
             </Button>
           </DialogFooter>
         </form>

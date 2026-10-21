@@ -2,9 +2,28 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { MenuItemConstructorOptions } from 'electron';
 import { appMenuTemplate } from '../electron/app-menu';
+import {
+  chatActionMenu,
+  sessionActionState,
+  type ChatActionState,
+} from '../src/domain/chat-actions';
 
 // Proper names keep their capital letters in sentence case.
-const properNames = new Set(['Kalkidan']);
+const properNames = new Set([
+  'Kalkidan',
+  'Markdown',
+  'HTML',
+  'Markdown…',
+  'HTML…',
+  'Docs…',
+  'VS',
+  'Code',
+  'Cursor',
+  'ID',
+  'Finder',
+  'File',
+  'Explorer',
+]);
 
 function labels(items: MenuItemConstructorOptions[]): string[] {
   return items.flatMap((item) => [
@@ -108,13 +127,11 @@ for (const mac of [true, false])
       ['Chat', 'New chat', 'session-new'],
       ['Chat', 'Terminal', 'session-terminal'],
       ['Chat', 'Changes', 'session-changes'],
+      ['Chat', 'Open a second chat beside this one', 'session-side-chat'],
       ['Chat', 'Rename…', 'session-rename'],
       ['Chat', 'Pin', 'session-pin'],
-      ['Chat', 'Open a second chat beside this one', 'session-side-chat'],
-      ['Chat', 'Commit…', 'session-commit'],
-      ['Chat', 'Open linked task', 'open-linked-task'],
       ['Chat', 'Link task…', 'link-task'],
-      ['Chat', 'Open pull request', 'open-pull-request'],
+      ['Chat', 'Commit changes…', 'session-commit'],
       ['Chat', 'Archive', 'session-archive'],
       [mac ? 'Kalkidan' : 'Help', 'Check for updates…', 'check-updates'],
       ['Help', 'Get started', 'get-started'],
@@ -182,3 +199,122 @@ for (const mac of [true, false])
     );
     assert.equal(item(submenu(menu(mac), 'File'), 'New task').accelerator, 'CmdOrCtrl+Shift+K');
   });
+
+const openChat: ChatActionState = sessionActionState(
+  { id: 'chat', agent: 'codex', cwd: '/repo', title: 'Chat', updatedAt: '' },
+  { open: true, usageHistory: true, repository: true, project: true },
+);
+function chatMenu(mac: boolean, chat: ChatActionState | null, sent: string[] = []) {
+  return submenu(
+    appMenuTemplate({
+      mac,
+      packaged: true,
+      appName: 'Kalkidan',
+      command: (name) => () => sent.push(name),
+      openExternal: () => {},
+      platform: mac ? 'mac' : 'linux',
+      chat,
+    }),
+    'Chat',
+  );
+}
+/** The labels of a menu, with "---" for a separator and "›" before a submenu. */
+function outline(items: MenuItemConstructorOptions[]): string[] {
+  return items.map((entry) =>
+    entry.type === 'separator'
+      ? '---'
+      : Array.isArray(entry.submenu)
+        ? `${entry.label} › ${outline(entry.submenu).join(', ')}`
+        : String(entry.label),
+  );
+}
+
+for (const mac of [true, false])
+  test(`the Chat menu shows the chat action list in its groups (mac: ${mac})`, () => {
+    const items = chatMenu(mac, openChat);
+    const platform = mac ? 'mac' : 'linux';
+    // The menu starts with New chat, Terminal and Changes. The chat actions follow.
+    const actions = outline(items).slice(outline(items).indexOf('Changes') + 2);
+    const expected = chatActionMenu('menu-bar', openChat, platform).flatMap((group, index) => [
+      ...(index ? ['---'] : []),
+      ...group.items.map((item) =>
+        item.children
+          ? `${item.label} › ${item.children
+              .flatMap((child) => [...(child.separator ? ['---'] : []), child.label])
+              .join(', ')}`
+          : item.label,
+      ),
+    ]);
+    assert.deepEqual(actions, expected);
+    assert.deepEqual(actions, [
+      'Open a second chat beside this one',
+      'Open in new window',
+      '---',
+      'Rename…',
+      'Pin',
+      'Link task…',
+      'Notes…',
+      '---',
+      'Commit changes…',
+      'Open pull request',
+      'Duplicate chat › Continue here, Continue on a new branch…',
+      `Show folder in ${mac ? 'Finder' : 'file manager'}`,
+      '---',
+      'Share › Export Markdown…, Export HTML…, ---, Save to Docs…',
+      'Copy chat as Markdown',
+      'Usage history…',
+      '---',
+      'Developer › Copy chat ID, Copy folder path, ---, Open in VS Code, Open in Cursor',
+      '---',
+      'Archive',
+    ]);
+  });
+
+for (const mac of [true, false])
+  test(`the Chat menu shows the shortcuts of the chat actions without registering them (mac: ${mac})`, () => {
+    const items = chatMenu(mac, openChat);
+    const shortcut = (label: string) => {
+      const entry = item(items, label);
+      assert.equal(entry.registerAccelerator, false, label);
+      return entry.accelerator;
+    };
+    assert.equal(shortcut('Rename…'), mac ? 'Cmd+Alt+R' : 'Ctrl+Shift+E');
+    assert.equal(shortcut('Pin'), mac ? 'Cmd+Alt+P' : 'Ctrl+Shift+P');
+    assert.equal(
+      shortcut('Open a second chat beside this one'),
+      mac ? 'Cmd+Alt+S' : 'Ctrl+Shift+S',
+    );
+    assert.equal(shortcut('Archive'), mac ? 'Cmd+Shift+A' : 'Ctrl+Shift+A');
+  });
+
+test('the Chat menu follows the state of the open chat', () => {
+  const sent: string[] = [];
+  // No open chat: the chat actions are disabled. New chat stays available.
+  const closed = chatMenu(true, null);
+  assert.equal(item(closed, 'New chat').enabled, undefined);
+  assert.equal(item(closed, 'Rename…').enabled, false);
+  assert.equal(item(closed, 'Archive').enabled, false);
+  // A running chat with a pinned state, a task and a pull request.
+  const busy = chatMenu(
+    true,
+    { ...openChat, running: true, pinned: true, linkedTask: true, pullRequest: true },
+    sent,
+  );
+  assert.equal(item(busy, 'Unpin').enabled, true);
+  assert.equal(item(busy, 'Open linked task').enabled, true);
+  assert.ok(!busy.some((entry) => entry.label === 'Link task…'));
+  assert.equal(item(busy, 'Open pull request').enabled, true);
+  assert.equal(item(busy, 'Commit changes…').enabled, false);
+  assert.equal(item(busy, 'Archive').enabled, false);
+  // No changes to commit disables Commit changes.
+  assert.equal(
+    item(chatMenu(true, { ...openChat, noChanges: true }), 'Commit changes…').enabled,
+    false,
+  );
+  // Submenu items send their commands.
+  const share = item(chatMenu(true, openChat, sent), 'Share')
+    .submenu as MenuItemConstructorOptions[];
+  (item(share, 'Export HTML…').click as () => void)();
+  (item(busy, 'Unpin').click as () => void)();
+  assert.deepEqual(sent, ['session-export-html', 'session-pin']);
+});

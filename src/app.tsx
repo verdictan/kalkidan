@@ -34,6 +34,12 @@ import {
   savePreferredAgent,
 } from './lib/agent-preference';
 import { trackerConnection } from './domain/tracker';
+import {
+  chatActionMenu,
+  isChatCommand,
+  leafChatActions,
+  sessionActionState,
+} from './domain/chat-actions';
 import { useTracker } from './hooks/use-tracker';
 import { SettingsDialog, type SettingsSectionId } from './components/settings-dialog';
 import { ProjectOverview } from './components/project-overview';
@@ -44,6 +50,7 @@ import {
   hasPrimaryModifier,
   isMac,
   isTypingTarget,
+  platform,
   plural,
   revealLabel,
   shortcutLabel,
@@ -476,13 +483,7 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
       else openOverview();
     } else if (command === 'all-sessions') openAllSessions();
     else if (command === 'check-updates') openSettings('updates');
-    else if (
-      command === 'open-linked-task' ||
-      command === 'link-task' ||
-      command === 'open-pull-request' ||
-      command.startsWith('session-')
-    )
-      sessionCommand(command);
+    else if (isChatCommand(command) || command.startsWith('session-')) sessionCommand(command);
   };
   useEffect(
     () =>
@@ -1399,30 +1400,31 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
           keywords: 'diff review files',
           run: () => sessionCommand('session-changes'),
         },
-        {
-          key: 'chat-commit',
-          label: 'Commit…',
-          keywords: 'git save changes',
-          run: () => sessionCommand('session-commit'),
-        },
-        {
-          key: 'chat-pr',
-          label: 'Open pull request',
-          keywords: 'github pr review',
-          run: () => sessionCommand('open-pull-request'),
-        },
-        {
-          key: 'chat-link-task',
-          label: 'Link task…',
-          keywords: 'issue board connect',
-          run: () => sessionCommand('link-task'),
-        },
-        {
-          key: 'chat-open-task',
-          label: 'Open linked task',
-          keywords: 'issue board',
-          run: () => sessionCommand('open-linked-task'),
-        },
+        // The chat actions come from the one chat action list. The chat menu checks each one.
+        ...(chatSession
+          ? leafChatActions(
+              chatActionMenu(
+                'palette',
+                sessionActionState(chatSession, {
+                  open: true,
+                  usageHistory: typeof api.managedHistory === 'function',
+                }),
+                platform,
+              ),
+            )
+          : []
+        ).flatMap((action) =>
+          action.command
+            ? [
+                {
+                  key: `chat-${action.id}`,
+                  label: action.label,
+                  keywords: action.keywords || '',
+                  run: () => sessionCommand(action.command!),
+                },
+              ]
+            : [],
+        ),
         {
           key: 'chat-terminal',
           label: 'Open terminal',

@@ -13,7 +13,8 @@ import { errorMessage } from '../lib/errors';
 import { CreateProject } from './create-project';
 import { AddRepository } from './add-repository';
 import { ActionMenu, type ActionMenuItem } from './action-menu';
-import { RenameSessionDialog, archiveSessionWithUndo } from './session-actions';
+import { ChatActionsDropdown, ChatContextMenu } from './chat-action-menu';
+import { useChatListActions } from './chat-list-actions';
 import { viewArchivedSessions } from './session-browser';
 import { Hint } from './hint';
 import { plural, revealLabel } from '../lib/platform';
@@ -223,7 +224,6 @@ export function ProjectTree({
   const [removing, setRemoving] = useState<
     { kind: 'repository'; item: Project } | { kind: 'project'; item: ProjectGroup } | null
   >(null);
-  const [renaming, setRenaming] = useState<Session | null>(null);
   const [reconnecting, setReconnecting] = useState('');
   async function togglePin(session: Session) {
     const pinned = !session.organization?.pinned;
@@ -232,74 +232,41 @@ export function ProjectTree({
       onNotice?.(pinned ? 'Chat pinned. It shows at the top of the sidebar.' : 'Chat unpinned.');
     });
   }
-  function archive(session: Session) {
-    const repo = sessionRepo(session, allRepos);
-    void archiveSessionWithUndo(session, {
-      api,
-      onChange: () => void onRefresh(),
-      onViewArchived: repo
-        ? () => {
-            viewArchivedSessions(repo.id);
-            onSelect(repo);
-          }
-        : undefined,
-    }).catch((e) =>
-      showToast({ message: 'Could not archive the chat: ' + errorMessage(e), tone: 'error' }),
-    );
-  }
-  function sessionActions(session: Session): TreeAction[] {
-    const draft = session.id.startsWith('draft-');
-    const disabled = busy || draft;
-    const task = taskOf?.(session);
-    const group = groups.find((g) => g.repoIds.includes(sessionRepo(session, allRepos)?.id || ''));
-    const command = (label: string, name: string, extra: Partial<TreeAction> = {}) =>
-      onSessionCommand ? [{ label, action: () => onSessionCommand(name, session), ...extra }] : [];
-    return [
-      { label: 'Open', action: () => onResume(session) },
-      ...(task && group && onOpenTask
-        ? [
-            {
-              label: task.number ? `Open task #${task.number}` : 'Open linked task',
-              action: () => onOpenTask(group.id, task.id),
-            },
-          ]
-        : command(
-            task ? 'Open linked task' : 'Link task…',
-            task ? 'open-linked-task' : 'link-task',
-            {
-              disabled: !group,
-              reason: 'Add this code folder to a project first.',
-            },
-          )),
-      ...command('Commit…', 'session-commit', {
-        separator: true,
-        disabled: draft,
-        reason: 'Send a message first.',
-      }),
-      ...(session.organization?.pullRequest
-        ? [
-            {
-              label: session.organization.pullRequest.number
-                ? `Open pull request #${session.organization.pullRequest.number}`
-                : 'Open pull request',
-              action: () =>
-                window.open(session.organization!.pullRequest!.url, '_blank', 'noreferrer'),
-            },
-          ]
-        : []),
-      ...command('Save to Docs…', 'save-to-docs', {
-        disabled: draft || !group,
-        reason: draft ? 'Send a message first.' : 'Add this code folder to a project first.',
-      }),
-      { label: 'Rename…', separator: true, disabled, action: () => setRenaming(session) },
-      {
-        label: session.organization?.pinned ? 'Unpin' : 'Pin to top',
-        disabled,
-        action: () => void togglePin(session),
-      },
-      { label: 'Archive', disabled, separator: true, action: () => archive(session) },
-    ];
-  }
+  const chatMenus = useChatListActions({
+    api,
+    onResume,
+    onSessionCommand,
+    onChanged: () => void onRefresh(),
+    onViewArchived: (session) => {
+      const repo = sessionRepo(session, allRepos);
+      if (!repo) return;
+      viewArchivedSessions(repo.id);
+      onSelect(repo);
+    },
+    onOpenTask: onOpenTask
+      ? (session) => {
+          const task = taskOf?.(session);
+          const group = groups.find((g) =>
+            g.repoIds.includes(sessionRepo(session, allRepos)?.id || ''),
+          );
+          if (task && group) onOpenTask(group.id, task.id);
+          else onSessionCommand?.('open-linked-task', session);
+        }
+      : undefined,
+    stateOf: (session) => {
+      const repo = sessionRepo(session, allRepos);
+      return {
+        open: sameSession(activeSession, session),
+        running: !!(
+          openChats.find((chat) => sameSession(chat.session, session))?.state ||
+          sessionActivity[activityKey(session.agent, session.id)]
+        ),
+        linkedTask: !!(taskOf?.(session) || session.organization?.taskId || session.task?.id),
+        repository: !!repo,
+        project: !!repo && groups.some((g) => g.repoIds.includes(repo.id)),
+      };
+    },
+  });
   const [editing, setEditing] = useState<ProjectGroup | 'new' | null>(null);
   const [name, setName] = useState('');
   const [color, setColor] = useState<ProjectColor | null>(null);
@@ -427,11 +394,12 @@ export function ProjectTree({
     const draft = session.id.startsWith('draft-');
     const pinned = !!session.organization?.pinned;
     const task = taskOf?.(session);
+    const menu = chatMenus.menuFor(session);
     return (
-      <TreeContextMenu
+      <ChatContextMenu
         key={kind + session.agent + session.id}
-        label="Chat actions"
-        actions={sessionActions(session)}
+        groups={menu.groups}
+        onRun={menu.run}
       >
         <div
           className={
@@ -496,16 +464,17 @@ export function ProjectTree({
                   </Button>
                 </Hint>
               )}
-              <ActionMenu
+              <ChatActionsDropdown
                 size="xs"
                 className="tree-row-menu"
                 label={`${title} actions`}
-                items={menuItems(sessionActions(session))}
+                groups={menu.groups}
+                onRun={menu.run}
               />
             </>
           )}
         </div>
-      </TreeContextMenu>
+      </ChatContextMenu>
     );
   }
   /**
@@ -1084,16 +1053,7 @@ export function ProjectTree({
           <EmptyState compact>No matching projects or code folders.</EmptyState>
         )
       )}
-      <RenameSessionDialog
-        api={api}
-        session={renaming}
-        open={!!renaming}
-        onOpenChange={(open) => !open && setRenaming(null)}
-        onRenamed={() => {
-          void onRefresh();
-          onNotice?.('Chat renamed.');
-        }}
-      />
+      {chatMenus.dialogs}
       <Dialog open={!!removing} onOpenChange={(open) => !open && setRemoving(null)}>
         <DialogContent size="sm">
           <DialogHeader>

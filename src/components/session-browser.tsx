@@ -10,26 +10,14 @@ import { ArchiveRestore, GitBranch, History, Pin } from 'lucide-react';
 import { agentCatalog, agentLabel } from '../config/agents';
 import { fullTime, relativeTime } from '../lib/relative-time';
 import { plural } from '../lib/platform';
-import { ActionMenu } from './action-menu';
 import { Choice } from './choice';
-import { RenameSessionDialog, archiveSessionWithUndo } from './session-actions';
+import { ChatActionsDropdown, ChatContextMenu } from './chat-action-menu';
+import { useChatListActions } from './chat-list-actions';
 import { AgentIcon } from './ui/agent-icon';
 import { Button } from './ui/button';
 import { EmptyState } from './ui/empty-state';
 import { EntityIcon } from './ui/entity-icon';
 import { SegmentedControl } from './ui/segmented-control';
-import { Input } from './ui/input';
-import { Textarea } from './ui/textarea';
-import { showToast } from './ui/toast';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from './ui/dialog';
-import { errorMessage } from '../lib/errors';
 import type { API, Session, SessionOrganization, TrackerItem } from '../types';
 
 interface Props {
@@ -57,18 +45,21 @@ interface Props {
   taskOf?: (session: Session) => TrackerItem | undefined;
   /** Opens the task that a chat works on. */
   onOpenTask?: (session: Session, task: TrackerItem) => void;
+  /** Opens a chat, then runs a session command in it, such as "session-commit". */
+  onSessionCommand?: (command: string, session: Session) => void;
+  /** True for the chat that is open in this window. Its menu has no Open. */
+  isOpen?: (session: Session) => boolean;
 }
 interface SavedView {
   agent: string;
   scope: string;
-  collection: string;
   project: string;
   task: string;
 }
+// Older versions saved a group filter. The list does not use it.
 const defaultView: SavedView = {
   agent: 'all',
   scope: 'active',
-  collection: 'all',
   project: 'all',
   task: 'all',
 };
@@ -113,6 +104,8 @@ export function SessionBrowser({
   placeOf,
   taskOf,
   onOpenTask,
+  onSessionCommand,
+  isOpen,
 }: Props) {
   const { finished } = useActivityState();
   /** True when the chat waits for an approval or an answer, or finished and is not seen. */
@@ -128,7 +121,7 @@ export function SessionBrowser({
     setLoadedKey(repositoryKey);
     setView(readView(repositoryKey));
   }
-  const { agent, scope, collection, project, task } = view;
+  const { agent, scope, project, task } = view;
   useEffect(() => {
     if (!loadedKey) return;
     try {
@@ -147,20 +140,36 @@ export function SessionBrowser({
   }, [listKey]);
   const setAgent = (value: string) => setView((previous) => ({ ...previous, agent: value }));
   const setScope = (value: string) => setView((previous) => ({ ...previous, scope: value }));
-  const setCollection = (value: string) =>
-    setView((previous) => ({ ...previous, collection: value }));
   const setProject = (value: string) => setView((previous) => ({ ...previous, project: value }));
   const setTask = (value: string) => setView((previous) => ({ ...previous, task: value }));
   const linkedCount = taskOf ? sessions.filter((s) => !!taskOf(s)).length : 0;
   const waitingCount = sessions.filter((s) => !s.organization?.archived && waiting(s)).length;
-  const [editing, setEditing] = useState<Session | null>(null);
-  const [renaming, setRenaming] = useState<Session | null>(null);
-  const [draft, setDraft] = useState<SessionOrganization>({});
-  const [saving, setSaving] = useState(false);
-  const [saveError, setSaveError] = useState('');
-  const collections = [
-    ...new Set(sessions.map((s) => s.organization?.collection).filter((c): c is string => !!c)),
-  ].sort();
+  const { menuFor, dialogs } = useChatListActions({
+    api,
+    onResume,
+    onSessionCommand,
+    onChanged,
+    // The list saves with its own update, so it shows its busy state and its errors.
+    update: async (session, changes) => {
+      if (!(await onUpdate(session, { ...session.organization, ...changes })))
+        throw new Error('The chat did not change. Try again.');
+    },
+    onViewArchived: listKey ? () => viewArchivedSessions(listKey) : undefined,
+    onOpenTask: onOpenTask
+      ? (session) => {
+          const linked = taskOf?.(session);
+          if (linked) onOpenTask(session, linked);
+          else onSessionCommand?.('open-linked-task', session);
+        }
+      : undefined,
+    stateOf: (session) => ({
+      open: !!isOpen?.(session),
+      running: !!activity[activityKey(session.agent, session.id)],
+      linkedTask: !!(taskOf?.(session) || session.organization?.taskId || session.task?.id),
+      repository: placeOf ? !!placeOf(session)?.folder : undefined,
+      project: placeOf ? !!placeOf(session)?.project : undefined,
+    }),
+  });
   const projects = placeOf
     ? [
         ...new Set(
@@ -180,7 +189,6 @@ export function SessionBrowser({
       waitingCount > 0 ||
       scope !== 'active' ||
       agent !== 'all' ||
-      collection !== 'all' ||
       project !== 'all' ||
       task !== 'all');
   const list = sessions
@@ -195,10 +203,9 @@ export function SessionBrowser({
               : !org.archived &&
                 (scope !== 'pinned' || org.pinned) &&
                 (scope !== 'waiting' || waiting(session))) &&
-            (collection === 'all' || org.collection === collection) &&
             (project === 'all' || placeOf?.(session)?.project === project) &&
             (task === 'all' || (task === 'linked') === !!taskOf?.(session))) &&
-        `${org.title || session.title} ${session.title} ${session.cwd} ${session.agent} ${org.notes || ''} ${org.collection || ''} ${taskOf?.(session)?.number ? '#' + taskOf(session)!.number : ''} ${taskOf?.(session)?.title || ''}`
+        `${org.title || session.title} ${session.title} ${session.cwd} ${session.agent} ${org.notes || ''} ${taskOf?.(session)?.number ? '#' + taskOf(session)!.number : ''} ${taskOf?.(session)?.title || ''}`
           .toLowerCase()
           .includes(query.toLowerCase())
       );
@@ -209,11 +216,6 @@ export function SessionBrowser({
         b.updatedAt.localeCompare(a.updatedAt),
     );
   const shown = compact ? list.slice(0, 3) : list;
-  async function togglePin(session: Session) {
-    const org = session.organization || {};
-    if (await onUpdate(session, { ...org, pinned: !org.pinned }))
-      showToast(org.pinned ? 'Chat unpinned.' : 'Chat pinned. It shows at the top of the sidebar.');
-  }
   return (
     <>
       {showFilters && (
@@ -272,19 +274,6 @@ export function SessionBrowser({
               ]}
             />
           )}
-          {(collections.length > 0 || collection !== 'all') && (
-            <Choice
-              label="Filter by group"
-              size="sm"
-              className="min-w-32"
-              value={collection}
-              onChange={setCollection}
-              options={[
-                { value: 'all', label: 'All groups' },
-                ...collections.map((c) => ({ value: c, label: c })),
-              ]}
-            />
-          )}
         </div>
       )}
       {shown.length ? (
@@ -296,114 +285,75 @@ export function SessionBrowser({
             const linked = taskOf?.(session);
             const place = placeOf?.(session);
             const where = place ? [place.project, place.folder].filter(Boolean).join(' › ') : '';
+            const menu = menuFor(session);
             return (
-              <div className="list-row" key={session.agent + session.id}>
-                <EntityIcon>
-                  <AgentIcon agent={session.agent} />
-                </EntityIcon>
-                <div className="min-w-0 flex-1">
-                  <Button
-                    variant="bare"
-                    className="session-title max-w-full justify-start gap-1.5 text-left font-medium"
-                    title={title}
-                    disabled={busy}
-                    aria-label={`Resume ${title}`}
-                    onClick={() => onResume(session)}
-                  >
-                    {org.pinned && <Pin className="size-3" aria-hidden="true" />}
-                    <span>{title}</span>
-                    {linked?.number && (
-                      <span className="session-task-number" title={`Task: ${linked.title}`}>
-                        #{linked.number}
-                      </span>
-                    )}
-                    <ActivityDot state={activity[activityKey(session.agent, session.id)]} />
-                  </Button>
-                  <div className="session-meta">
-                    {agentLabel(session.agent)} ·{' '}
-                    <time dateTime={session.updatedAt} title={fullTime(session.updatedAt)}>
-                      {relativeTime(session.updatedAt)}
-                    </time>
-                    {where && ` · ${where}`}
-                    {branch && (
-                      <span className="session-branch" title={`Branch copy: ${branch}`}>
-                        {' · '}
-                        <GitBranch className="size-3" aria-hidden="true" />
-                        <span className="sr-only">Branch </span>
-                        {branch}
-                      </span>
-                    )}
-                    {org.collection && ` · ${org.collection}`}
-                  </div>
-                  {org.notes && !compact && <p className="session-note">{org.notes}</p>}
-                </div>
-                <div className="session-actions">
-                  {org.archived && !compact && (
+              <ChatContextMenu
+                key={session.agent + session.id}
+                groups={menu.groups}
+                onRun={menu.run}
+              >
+                <div className="list-row">
+                  <EntityIcon>
+                    <AgentIcon agent={session.agent} />
+                  </EntityIcon>
+                  <div className="min-w-0 flex-1">
                     <Button
-                      variant="outline"
+                      variant="bare"
+                      className="session-title max-w-full justify-start gap-1.5 text-left font-medium"
+                      title={title}
+                      disabled={busy}
+                      aria-label={`Resume ${title}`}
+                      onClick={() => onResume(session)}
+                    >
+                      {org.pinned && <Pin className="size-3" aria-hidden="true" />}
+                      <span>{title}</span>
+                      {linked?.number && (
+                        <span className="session-task-number" title={`Task: ${linked.title}`}>
+                          #{linked.number}
+                        </span>
+                      )}
+                      <ActivityDot state={activity[activityKey(session.agent, session.id)]} />
+                    </Button>
+                    <div className="session-meta">
+                      {agentLabel(session.agent)} ·{' '}
+                      <time dateTime={session.updatedAt} title={fullTime(session.updatedAt)}>
+                        {relativeTime(session.updatedAt)}
+                      </time>
+                      {where && ` · ${where}`}
+                      {branch && (
+                        <span className="session-branch" title={`Branch copy: ${branch}`}>
+                          {' · '}
+                          <GitBranch className="size-3" aria-hidden="true" />
+                          <span className="sr-only">Branch </span>
+                          {branch}
+                        </span>
+                      )}
+                    </div>
+                    {org.notes && !compact && <p className="session-note">{org.notes}</p>}
+                  </div>
+                  <div className="session-actions">
+                    {org.archived && !compact && (
+                      <Button
+                        variant="outline"
+                        size="xs"
+                        disabled={busy}
+                        aria-label={`Restore ${title}`}
+                        onClick={() => void onUpdate(session, { ...org, archived: false })}
+                      >
+                        <ArchiveRestore aria-hidden="true" />
+                        Restore
+                      </Button>
+                    )}
+                    <ChatActionsDropdown
                       size="xs"
                       disabled={busy}
-                      aria-label={`Restore ${title}`}
-                      onClick={() => void onUpdate(session, { ...org, archived: false })}
-                    >
-                      <ArchiveRestore aria-hidden="true" />
-                      Restore
-                    </Button>
-                  )}
-                  <ActionMenu
-                    size="xs"
-                    disabled={busy}
-                    label={`${title} actions`}
-                    items={[
-                      { label: 'Open', action: () => onResume(session) },
-                      ...(linked && onOpenTask
-                        ? [
-                            {
-                              label: linked.number ? `Open task #${linked.number}` : 'Open task',
-                              action: () => onOpenTask(session, linked),
-                            },
-                          ]
-                        : []),
-                      { label: 'Rename…', action: () => setRenaming(session) },
-                      {
-                        label: org.pinned ? 'Unpin' : 'Pin',
-                        action: () => void togglePin(session),
-                      },
-                      {
-                        label: 'Chat details…',
-                        action: () => {
-                          setSaveError('');
-                          setEditing(session);
-                          setDraft({ ...org });
-                        },
-                      },
-                      org.archived
-                        ? {
-                            label: 'Restore',
-                            separator: true,
-                            action: () => void onUpdate(session, { ...org, archived: false }),
-                          }
-                        : {
-                            label: 'Archive',
-                            separator: true,
-                            action: () =>
-                              void archiveSessionWithUndo(session, {
-                                api,
-                                onChange: onChanged,
-                                onViewArchived: listKey
-                                  ? () => viewArchivedSessions(listKey)
-                                  : undefined,
-                              }).catch((e) =>
-                                showToast({
-                                  message: 'Could not archive the chat: ' + errorMessage(e),
-                                  tone: 'error',
-                                }),
-                              ),
-                          },
-                    ]}
-                  />
+                      label={`${title} actions`}
+                      groups={menu.groups}
+                      onRun={menu.run}
+                    />
+                  </div>
                 </div>
-              </div>
+              </ChatContextMenu>
             );
           })}
         </div>
@@ -426,7 +376,7 @@ export function SessionBrowser({
           {scope === 'waiting' && !compact
             ? 'Chats that ask for an approval or an answer, and finished runs, show here.'
             : sessions.length
-              ? 'Try a different search or filter. Use ⋯ on a chat to pin, group, or archive it.'
+              ? 'Try a different search or filter. Use ⋯ on a chat to pin it, add notes, or archive it.'
               : placeOf
                 ? 'No agent chats yet. Open a code folder, then start a chat.'
                 : `No agent chats in this folder yet. Select ${newSessionLabel} above.`}
@@ -442,79 +392,7 @@ export function SessionBrowser({
           View archived ({plural(archivedCount, 'chat')})
         </Button>
       )}
-      <RenameSessionDialog
-        api={api}
-        onRenamed={() => onChanged?.()}
-        session={renaming}
-        open={!!renaming}
-        onOpenChange={(open) => !open && setRenaming(null)}
-      />
-      <Dialog
-        open={!!editing}
-        onOpenChange={(open) => {
-          if (!open && !saving) setEditing(null);
-        }}
-      >
-        <DialogContent size="md">
-          <DialogHeader>
-            <DialogTitle>Chat details</DialogTitle>
-            <DialogDescription>
-              Kalkidan keeps these details. The agent chat does not change.
-            </DialogDescription>
-          </DialogHeader>
-          <label className="form-label">
-            Group
-            <span className="form-help">
-              Put related chats in one group, for example one group for each feature. Then filter
-              the list by group.
-            </span>
-            <Input
-              maxLength={160}
-              placeholder="e.g. Website redesign"
-              value={draft.collection || ''}
-              onChange={(e) => setDraft({ ...draft, collection: e.target.value })}
-            />
-          </label>
-          <label className="form-label">
-            Notes
-            <Textarea
-              rows={3}
-              maxLength={20000}
-              placeholder="Where you stopped, next steps…"
-              value={draft.notes || ''}
-              onChange={(e) => setDraft({ ...draft, notes: e.target.value })}
-            />
-          </label>
-          {saveError && (
-            <p role="alert" className="field-error">
-              {saveError}
-            </p>
-          )}
-          <DialogFooter>
-            <Button variant="outline" disabled={saving} onClick={() => setEditing(null)}>
-              Cancel
-            </Button>
-            <Button
-              disabled={saving || busy}
-              onClick={async () => {
-                if (!editing) return;
-                setSaving(true);
-                try {
-                  if (await onUpdate(editing, draft)) setEditing(null);
-                  else
-                    setSaveError(
-                      'Could not save the chat details. Make sure that the chat is available, then try again.',
-                    );
-                } finally {
-                  setSaving(false);
-                }
-              }}
-            >
-              {saving ? 'Saving…' : 'Save details'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      {dialogs}
     </>
   );
 }
