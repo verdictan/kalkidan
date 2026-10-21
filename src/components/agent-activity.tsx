@@ -58,11 +58,15 @@ export function AgentActivity({
             <p key={request.id}>
               Policy: {request.policy || 'unknown'} · Usage: {request.usage || 'unknown'} · Audit:{' '}
               {request.audit || 'unknown'}
-              {request.actualCost !== null && (
-                <>
-                  {' '}
-                  · Recorded cost: {request.actualCost} {request.currency}
-                </>
+              {request.billing === 'subscription' ? (
+                <> · Paid by your subscription. Provider charge is not known.</>
+              ) : (
+                request.actualCost !== null && (
+                  <>
+                    {' '}
+                    · Recorded cost: {request.actualCost} {request.currency}
+                  </>
+                )
               )}
             </p>
           ))}
