@@ -67,6 +67,21 @@ export async function downloadReleaseFile(
   return Buffer.concat(chunks);
 }
 
+/** Read the size of a release file from its response headers, without the file body. */
+export async function releaseFileSize(
+  url: string,
+  approvedOrigins: string[],
+  signal: AbortSignal,
+  request: typeof fetch = fetch,
+) {
+  const response = await requestRelease(url, approvedOrigins, signal, request);
+  await response.body.cancel().catch(() => {});
+  const size = Number(response.headers.get('content-length'));
+  if (!Number.isSafeInteger(size) || size < 1 || size > 512 * 1024 * 1024)
+    throw new Error('The release file size is not known.');
+  return size;
+}
+
 export async function downloadRuntime(
   artifact: InstallArtifact,
   file: string,
