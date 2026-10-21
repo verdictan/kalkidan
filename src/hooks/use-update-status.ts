@@ -53,9 +53,9 @@ export function useUpdateStatus(api: API): UpdateSummary {
       }
       if (runtime.status === 'fulfilled' && runtime.value) {
         const status = runtime.value;
-        // An approved runtime that is not installed is part of setup. Only updates count here.
+        // A runtime that is not installed is part of setup. Only updates count here.
         if (status.installed && runtimeOutdated(status) && !updateRunning(status))
-          labels.push(`Managed agents runtime ${status.approved!.version} available`);
+          labels.push(`Managed agents runtime ${status.latest!.version} available`);
       }
       setSummary(
         labels.length ? { available: true, label: labels.join(' · ') } : { available: false },

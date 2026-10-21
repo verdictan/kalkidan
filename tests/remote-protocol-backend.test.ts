@@ -195,7 +195,7 @@ test('remote RPC validates envelopes, dispatches supported operations, reports f
   input.emit('line', '{}');
   input.emit('line', 'x'.repeat(16000001));
   assert.equal(outputs.length, 0);
-  assert.equal((await request('hello')).result.protocol, 4);
+  assert.equal((await request('hello')).result.protocol, 5);
   assert.match((await request('unsupported')).error, /Unsupported/);
   assert.match((await request('validate', [null])).error, /Choose/);
   directory = false;

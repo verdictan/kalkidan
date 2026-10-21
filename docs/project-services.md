@@ -120,20 +120,47 @@ IPC, or preload method. Use the default policy instead.
 See [the broker contract](verdictan-project-services-contract.md) for the exact
 operations and acceptance cases.
 
-## Runtime approval maintenance
+## Runtime release trust
 
-Use an independently reviewed pin and its exact manifest. First inspect the change:
+Kalkidan installs the newest stable Verdictan release from `verdictan/packages`.
+It trusts the Verdictan release signing key. It does not keep a list of approved
+versions. A new Verdictan release does not need a Kalkidan change.
 
-```sh
-npx tsx scripts/approve-runtime.ts manifest.json reviewed-pin.json darwin arm64 26.7.1
-```
+Kalkidan contains the public key from `cli/ci/release/cosign.pub` in the Verdictan
+repository (ECDSA P-256). The key fingerprint is
+`Dr3T2tADxE25O3ud8opzE524ADfoCUzLNJBwBW7Ik5I=`. This is the base64 SHA-256 digest
+of the DER public key. If Verdictan changes its key, update
+`electron/verdictan/signature.ts`.
 
-Add `--apply` to update the bundled host policy. Review the Git diff. Run bundled
-policy tests and `tests/acceptance/runtime-install.ts` on that host. Commit the
-policy and evidence together. Discovery alone must not approve a runtime. The
-script checks manifest validity, expiry, target, digest, and downgrade sequence.
-Use the operator-reviewed download origins. Renew approval before its manifest
-expires. Do not relax hash, target, or expiry checks to use an unapproved release.
+For each install or check, Kalkidan does these steps:
+
+1. It finds the newest stable `vX.Y.Z` release that has the archive for the host.
+   The GitHub API gives the version, the archive size, and the archive digest.
+2. It downloads `desktop-release-manifest.v1.json`, its `.sigstore.json` bundle,
+   and the `.sigstore.json` bundle of the archive.
+3. It verifies the manifest signature with the embedded key. The bundle must name
+   the same key fingerprint.
+4. It checks that the manifest version is the discovered version. On macOS, the
+   manifest archive URL, digest, and size must agree with discovery. The manifest
+   lists only the macOS archive. On Linux, the archive signature is the authority.
+5. It checks the release checkpoint, the revoked versions, the minimum Kalkidan
+   version, the protocol, and the minimum OS version.
+6. It downloads the archive, checks its SHA-256 digest, and verifies the archive
+   signature. Then it extracts the archive and probes the executable version.
+
+Each manifest expires 7 days after Verdictan issues it. Kalkidan does not reject an
+out-of-date manifest that has a valid signature. Otherwise, the newest release
+stops installing when no release comes for a week. The checkpoint prevents a
+replay of an older release. Kalkidan rejects a manifest with an issue time in the
+future.
+
+When a newer signed release is available, Kalkidan installs it automatically. It
+waits until no managed agent runs. An automatic update that fails or that you
+cancel does not start again for the same release. Select **Update to version X** in Settings to
+try again. Any signature, digest, URL, or checkpoint failure stops the install.
+
+Run `tests/acceptance/runtime-install.ts` on a host to install the newest public
+release in a temporary folder.
 
 ## Account region
 

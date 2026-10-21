@@ -19,7 +19,7 @@ import { DesktopUpdates, releaseOrigin } from './updates/desktop';
 import { detectInstallation } from './updates/desktop-install';
 import { createHash } from 'node:crypto';
 import { RemoteSnapshotCache } from './remote-snapshot-cache';
-import { createVerdictanServices, runtimePolicyReader } from './verdictan/service';
+import { createVerdictanServices } from './verdictan/service';
 import { spawn } from 'node:child_process';
 import { appMenuTemplate } from './app-menu';
 import { pathContains } from './platform';
@@ -388,7 +388,6 @@ app.whenReady().then(async () => {
   powerMonitor.on('resume', () => {
     void remote?.reconcile().catch(() => {});
   });
-  const runtimePolicy = runtimePolicyReader(__dirname);
   const makeVerdictan = (region: VerdictanRegion | undefined) =>
     createVerdictanServices({
       region,
@@ -396,7 +395,6 @@ app.whenReady().then(async () => {
       root: dataRoot,
       hostId: 'local',
       desktopVersion: app.getVersion(),
-      policy: runtimePolicy,
       busy: () => chatRunner.runningCount() > 0,
       openBrowser: (url) => shell.openExternal(url),
     });
@@ -542,7 +540,6 @@ app.whenReady().then(async () => {
           throw new Error('Remote host not found.');
         return remote.call(hostId, 'runtime-update', [
           action,
-          await runtimePolicy(),
           app.getVersion(),
           hostId,
           verdictan!.region,
@@ -861,7 +858,6 @@ app.whenReady().then(async () => {
     if (method === 'chatCreate' || method === 'chatStart')
       await remote.call(hostId, 'runtime-update', [
         'status',
-        await runtimePolicy(),
         app.getVersion(),
         hostId,
         verdictan!.region,

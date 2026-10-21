@@ -1,41 +1,65 @@
-import { createHash } from 'node:crypto';
+import { createHash, type KeyObject } from 'node:crypto';
+import type { ComponentRelease } from '../../src/domain/updates';
+import { parseReleaseSignature, releasePublicKey, verifySignedBytes } from './signature';
 
-export interface RuntimeArtifact {
+/** The archive fields that the download and the extraction use. */
+export interface InstallArtifact {
   target: string;
   os: string;
   arch: string;
   url: string;
   sha256: string;
   size: number;
+  /** Optional. When present, the extracted executable must match it. */
+  executable_sha256?: string;
+}
+export interface RuntimeArtifact extends InstallArtifact {
   minimum_os_version: string;
   node_included: true;
   required_runtime_dependencies: string[];
-  /** Optional in older manifests. When present, the extracted executable must match it. */
-  executable_sha256?: string;
-}
-export interface RuntimePin {
-  schema_version: 1;
-  version: string;
-  manifest_sha256: string;
-  artifact_url: string;
-  artifact_sha256: string;
-  revoked_versions: string[];
 }
 export interface ReleaseCheckpoint {
   sequence: number;
   digest: string;
 }
+/** A published release from discovery. Discovery is not trust. The signature gives trust. */
+export interface RuntimeDiscovery extends ComponentRelease {
+  /** The archive size in bytes. */
+  size: number;
+}
 export interface VerifiedRuntimeRelease {
   version: string;
-  artifact: RuntimeArtifact;
+  artifact: InstallArtifact;
   checkpoint: ReleaseCheckpoint;
-  expiresAt: number;
+  revoked: string[];
 }
+export const releaseDownloadOrigins = [
+  'https://github.com',
+  'https://release-assets.githubusercontent.com',
+];
+export const releaseManifestName = 'desktop-release-manifest.v1.json';
+const releaseDownloadBase = 'https://github.com/verdictan/packages/releases/download';
+const runtimeTargets: Record<string, string> = {
+  'darwin-arm64': 'aarch64-apple-darwin',
+  'linux-x64': 'x86_64-unknown-linux-gnu',
+};
+/** The Verdictan build target for a host, or undefined when Kalkidan has no runtime for it. */
+export function runtimeTarget(os: string, arch: string) {
+  const key = `${os}-${arch}`;
+  return Object.hasOwn(runtimeTargets, key) ? runtimeTargets[key] : undefined;
+}
+/** The canonical download URL of a release file. */
+export function releaseAssetURL(version: string, name: string) {
+  return `${releaseDownloadBase}/v${version}/${name}`;
+}
+export const runtimeArchiveName = (target: string) => `verdictan-${target}.tar.gz`;
 export const sha256 = (bytes: Buffer | string) => createHash('sha256').update(bytes).digest('hex');
 const digest = (value: unknown): value is string =>
   typeof value === 'string' && /^[a-f0-9]{64}$/.test(value);
 const version = (value: unknown): value is string =>
   typeof value === 'string' && /^\d{1,8}\.\d{1,8}\.\d{1,8}$/.test(value);
+const archiveSize = (value: unknown): value is number =>
+  Number.isSafeInteger(value) && (value as number) >= 1 && (value as number) <= 512 * 1024 * 1024;
 export const desktopVersion = (value: unknown): value is string =>
   typeof value === 'string' &&
   /^\d{1,8}\.\d{1,8}\.\d{1,8}(?:-build\.\d{1,16}\.[a-f0-9]{12})?$/.test(value);
@@ -50,13 +74,24 @@ export function releaseURL(value: unknown) {
   if (typeof value !== 'string' || value.length > 2048) throw new Error('Invalid release URL.');
   const url = new URL(value);
   if (url.protocol !== 'https:' || url.username || url.password || url.search || url.hash)
-    throw new Error('Release downloads require an approved HTTPS URL.');
+    throw new Error('Release downloads require an HTTPS URL.');
   return url;
 }
-/** The pin is bundled/reviewed metadata, never values taken from a downloaded manifest. */
+const olderThan = (current: number[], minimum: number[]) => {
+  for (let i = 0; i < 3; i++) {
+    if (current[i] < minimum[i]) return true;
+    if (current[i] > minimum[i]) return false;
+  }
+  return false;
+};
+/**
+ * Verify a signed release manifest against the published release from discovery. The expected
+ * version, archive URL, and archive digest come from discovery, never from the manifest.
+ */
 export function verifyRuntimeRelease(
   bytes: Buffer,
-  pin: RuntimePin,
+  signature: Buffer,
+  discovered: RuntimeDiscovery,
   options: {
     now: number;
     desktopVersion: string;
@@ -64,24 +99,29 @@ export function verifyRuntimeRelease(
     arch: string;
     systemVersion: string;
     checkpoint?: ReleaseCheckpoint;
+    key?: KeyObject;
   },
 ): VerifiedRuntimeRelease {
-  if (
-    bytes.length > 262144 ||
-    pin?.schema_version !== 1 ||
-    !version(pin.version) ||
-    !digest(pin.manifest_sha256) ||
-    !digest(pin.artifact_sha256) ||
-    !Array.isArray(pin.revoked_versions) ||
-    !pin.revoked_versions.every(version)
-  )
-    throw new Error('Invalid reviewed release metadata.');
-  releaseURL(pin.artifact_url);
+  if (!version(discovered?.version) || !digest(discovered.sha256) || !archiveSize(discovered.size))
+    throw new Error('Invalid runtime release from discovery.');
+  const target = runtimeTarget(options.os, options.arch);
+  if (!target) throw new Error('No runtime release supports this execution host.');
+  if (bytes.length > 262144) throw new Error('Invalid release manifest.');
+  const key = options.key ?? releasePublicKey();
+  verifySignedBytes(bytes, parseReleaseSignature(signature, key), key);
   const manifestDigest = sha256(bytes);
-  if (manifestDigest !== pin.manifest_sha256) throw new Error('Release manifest checksum failed.');
-  const manifest = JSON.parse(bytes.toString('utf8'));
-  if (manifest?.schema_version !== 1 || manifest.version !== pin.version)
-    throw new Error('Release version does not match reviewed metadata.');
+  let manifest: any;
+  try {
+    manifest = JSON.parse(bytes.toString('utf8'));
+  } catch {
+    throw new Error('Invalid release manifest.');
+  }
+  if (manifest?.schema_version !== 1 || manifest.version !== discovered.version)
+    throw new Error('Release manifest does not match the published release.');
+  // Each manifest expires 7 days after it is issued. Kalkidan installs the newest signed
+  // release, so the manifest of the newest release is out of date when no release comes for a
+  // week. The signature and the checkpoint below prevent the replay of an older release, so
+  // Kalkidan does not reject an out-of-date manifest. It rejects a manifest from the future.
   if (
     !Number.isSafeInteger(options.now) ||
     !Number.isSafeInteger(manifest.sequence) ||
@@ -90,11 +130,10 @@ export function verifyRuntimeRelease(
     !Number.isSafeInteger(manifest.expires_at) ||
     manifest.issued_at < 0 ||
     manifest.issued_at > options.now ||
-    manifest.expires_at <= options.now ||
     manifest.expires_at <= manifest.issued_at ||
     manifest.expires_at - manifest.issued_at > 604800
   )
-    throw new Error('Release metadata expired or the system clock is incorrect.');
+    throw new Error('Release metadata is not valid, or the system clock is incorrect.');
   const checkpoint = options.checkpoint;
   if (
     checkpoint &&
@@ -107,8 +146,9 @@ export function verifyRuntimeRelease(
     throw new Error('Release metadata is older than the installed checkpoint.');
   if (
     !Array.isArray(manifest.revoked_versions) ||
+    manifest.revoked_versions.length > 100 ||
     !manifest.revoked_versions.every(version) ||
-    [...manifest.revoked_versions, ...pin.revoked_versions].includes(pin.version)
+    manifest.revoked_versions.includes(manifest.version)
   )
     throw new Error('This runtime release has been revoked.');
   if (
@@ -120,12 +160,13 @@ export function verifyRuntimeRelease(
     manifest.protocol.max < 1
   )
     throw new Error('The release is incompatible with this desktop protocol.');
-  const current = options.desktopVersion.split('-')[0].split('.').map(Number);
-  const minimum = manifest.minimum_desktop_version.split('.').map(Number);
-  for (let i = 0; i < 3; i++) {
-    if (current[i] < minimum[i]) throw new Error('Update Kalkidan before installing this runtime.');
-    if (current[i] > minimum[i]) break;
-  }
+  if (
+    olderThan(
+      options.desktopVersion.split('-')[0].split('.').map(Number),
+      manifest.minimum_desktop_version.split('.').map(Number),
+    )
+  )
+    throw new Error('Update Kalkidan before installing this runtime.');
   if (
     !Array.isArray(manifest.artifacts) ||
     !manifest.artifacts.length ||
@@ -142,9 +183,7 @@ export function verifyRuntimeRelease(
       seen.has(artifact.target) ||
       !digest(artifact.sha256) ||
       (artifact.executable_sha256 !== undefined && !digest(artifact.executable_sha256)) ||
-      !Number.isSafeInteger(artifact.size) ||
-      artifact.size < 1 ||
-      artifact.size > 512 * 1024 * 1024 ||
+      !archiveSize(artifact.size) ||
       artifact.node_included !== true ||
       !version(artifact.minimum_os_version) ||
       !Array.isArray(artifact.required_runtime_dependencies) ||
@@ -157,26 +196,44 @@ export function verifyRuntimeRelease(
     releaseURL(artifact.url);
     seen.add(artifact.target);
   }
-  const artifact = manifest.artifacts.find(
+  const url = releaseAssetURL(discovered.version, runtimeArchiveName(target));
+  const listed: RuntimeArtifact | undefined = manifest.artifacts.find(
     (entry: RuntimeArtifact) => entry.os === options.os && entry.arch === options.arch,
   );
-  if (!artifact) throw new Error('No runtime release supports this execution host.');
-  if (!version(options.systemVersion)) throw new Error('Cannot verify the host OS version.');
-  const host = options.systemVersion.split('.').map(Number);
-  const required = artifact.minimum_os_version.split('.').map(Number);
-  for (let i = 0; i < 3; i++) {
-    if (host[i] < required[i])
-      throw new Error(
-        `This runtime requires ${options.os} ${artifact.minimum_os_version} or later.`,
-      );
-    if (host[i] > required[i]) break;
-  }
-  if (artifact.url !== pin.artifact_url || artifact.sha256 !== pin.artifact_sha256)
-    throw new Error('Runtime artifact does not match reviewed metadata.');
+  let artifact: InstallArtifact;
+  if (listed) {
+    if (!version(options.systemVersion)) throw new Error('Cannot verify the host OS version.');
+    if (
+      olderThan(
+        options.systemVersion.split('.').map(Number),
+        listed.minimum_os_version.split('.').map(Number),
+      )
+    )
+      throw new Error(`This runtime requires ${options.os} ${listed.minimum_os_version} or later.`);
+    if (
+      listed.target !== target ||
+      listed.url !== url ||
+      listed.sha256 !== discovered.sha256 ||
+      listed.size !== discovered.size
+    )
+      throw new Error('Runtime artifact does not match the published release.');
+    artifact = structuredClone(listed);
+  } else if (options.os === 'linux') {
+    // The manifest lists only the macOS archive. For Linux, the signature of the archive is the
+    // authority. The installer verifies it after the download and before the extraction.
+    artifact = {
+      target,
+      os: options.os,
+      arch: options.arch,
+      url,
+      sha256: discovered.sha256,
+      size: discovered.size,
+    };
+  } else throw new Error('No runtime release supports this execution host.');
   return {
-    version: pin.version,
-    artifact: structuredClone(artifact),
+    version: manifest.version,
+    artifact,
     checkpoint: { sequence: manifest.sequence, digest: manifestDigest },
-    expiresAt: manifest.expires_at,
+    revoked: [...manifest.revoked_versions],
   };
 }

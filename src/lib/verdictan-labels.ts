@@ -87,31 +87,16 @@ export function runtimeBusy(status: ComponentUpdateStatus | undefined) {
   return updateRunning(status) || !!status?.installing;
 }
 
-/** True when the approved runtime release is not installed and Kalkidan can install it now. */
+/** True when the latest runtime release is not installed and Kalkidan can install it now. */
 export function runtimeInstallable(status: ComponentUpdateStatus | undefined) {
-  if (!status?.approved) return false;
-  if (typeof status.canInstallApproved === 'boolean') return status.canInstallApproved;
-  return status.installed?.sha256 !== status.approved.sha256;
+  if (!status?.latest) return false;
+  if (typeof status.canInstall === 'boolean') return status.canInstall;
+  return status.installed?.sha256 !== status.latest.sha256;
 }
 
-/** True when the approved release is not installed, also when it cannot be installed now. */
+/** True when the latest release is not installed, also when it cannot be installed now. */
 export function runtimeOutdated(status: ComponentUpdateStatus | undefined) {
-  return !!status?.approved && status.installed?.sha256 !== status.approved.sha256;
-}
-
-/**
- * True when an older desktop build reports a newer release that the policy does not approve.
- * Newer builds send `notice` for this.
- */
-export function runtimeNewerNotApproved(status: ComponentUpdateStatus | undefined) {
-  return (
-    !!status?.discovered &&
-    !!status.approved &&
-    status.notice === undefined &&
-    status.canInstallApproved === undefined &&
-    status.discovered.sha256 !== status.approved.sha256 &&
-    status.discovered.version !== status.approved.version
-  );
+  return !!status?.latest && status.installed?.sha256 !== status.latest.sha256;
 }
 
 /** The runtime state in Settings › Managed agents › Install runtime and in Updates. */
@@ -121,11 +106,11 @@ export function runtimeStatusLabel(status: ComponentUpdateStatus | undefined): S
     return { label: updatePhaseLabel(status.operation!.phase), tone: 'secondary' };
   if (status.installing) return { label: 'Installing…', tone: 'secondary' };
   if (!status.installed)
-    return status.approved
+    return status.latest
       ? { label: 'Not installed', tone: 'warning' }
       : { label: 'Not installed', tone: 'muted' };
   if (runtimeOutdated(status))
-    return { label: `Version ${status.approved!.version} available`, tone: 'warning' };
+    return { label: `Version ${status.latest!.version} available`, tone: 'warning' };
   if (status.discovery === 'failed') return { label: 'Check failed', tone: 'destructive' };
   return { label: `Installed ${status.installed.version}`, tone: 'success' };
 }

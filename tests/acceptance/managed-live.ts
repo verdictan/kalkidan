@@ -1,10 +1,10 @@
 import { spawn } from 'node:child_process';
 import { ManagedGateway } from '../../electron/verdictan/gateway';
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, readFile, realpath, rm } from 'node:fs/promises';
+import { mkdtemp, mkdir, realpath, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { createHash, randomUUID } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 import { setTimeout as delay } from 'node:timers/promises';
 import { DesktopProtocol } from '../../electron/verdictan/protocol';
 import { BindingStore } from '../../electron/verdictan/bindings';
@@ -12,29 +12,11 @@ import { VerdictanSetupService } from '../../electron/verdictan/setup';
 import { ManagedRuntimes } from '../../electron/verdictan/runtime';
 import { VerdictanLaunchService } from '../../electron/verdictan/launch';
 import { InteractiveChatRunner } from '../../electron/interactive-chat';
-import policy from '../../electron/verdictan/runtime-policy.json';
-import { runtimePolicyForHost, type RuntimePolicy } from '../../electron/verdictan/install';
 
 async function main() {
   const [runtime, binary, policyIndex = '0'] = process.argv.slice(2);
-  assert.ok(runtime && binary, 'Supply the approved runtime and native Codex executable.');
-  const approval = runtimePolicyForHost(policy as RuntimePolicy, process.platform, process.arch);
-  const manifest = JSON.parse(approval.manifest);
-  // The installer verifies archive approval. Acceptance also binds the executable to that manifest.
-  assert.equal(
-    createHash('sha256').update(approval.manifest).digest('hex'),
-    approval.pin.manifest_sha256,
-  );
-  const artifact = manifest.artifacts.find(
-    (a: any) => a.os === process.platform && a.arch === process.arch,
-  );
-  assert.ok(artifact?.executable_sha256, 'The approval must identify the executable.');
-  assert.equal(
-    createHash('sha256')
-      .update(await readFile(runtime))
-      .digest('hex'),
-    artifact.executable_sha256,
-  );
+  // The installer verifies the release signature. Supply a runtime that the installer installed.
+  assert.ok(runtime && binary, 'Supply the installed runtime and native Codex executable.');
   const root = await realpath(await mkdtemp(join(tmpdir(), 'kalkidan-managed-live-')));
   const cwd = join(root, 'project');
   await mkdir(cwd);

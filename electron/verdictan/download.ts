@@ -1,16 +1,15 @@
 import { createHash } from 'node:crypto';
 import { open } from 'node:fs/promises';
-import { releaseURL, type RuntimeArtifact } from './release';
+import { releaseURL, type InstallArtifact } from './release';
 
-export async function downloadRuntime(
-  artifact: RuntimeArtifact,
-  file: string,
+/** Send a GET request. Follow at most 5 redirects, and only to approved HTTPS origins. */
+async function requestRelease(
+  value: string,
   approvedOrigins: string[],
   signal: AbortSignal,
-  progress: (bytes: number) => void,
-  request: typeof fetch = fetch,
+  request: typeof fetch,
 ) {
-  let url = releaseURL(artifact.url);
+  let url = releaseURL(value);
   const origins = new Set(approvedOrigins);
   if (!origins.has(url.origin)) throw new Error('The release download origin is not approved.');
   let response: Response | undefined;
@@ -39,10 +38,48 @@ export async function downloadRuntime(
     await response?.body?.cancel();
     throw new Error('The runtime download is unavailable. Retry later.');
   }
+  return response as Response & { body: ReadableStream<Uint8Array> };
+}
+
+/** Download a small release file, such as a manifest or a signature, into memory. */
+export async function downloadReleaseFile(
+  url: string,
+  approvedOrigins: string[],
+  limit: number,
+  signal: AbortSignal,
+  request: typeof fetch = fetch,
+) {
+  const response = await requestRelease(url, approvedOrigins, signal, request);
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let received = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      received += value.byteLength;
+      if (received > limit) throw new Error('The release file exceeds its size limit.');
+      chunks.push(value);
+    }
+  } finally {
+    await reader.cancel().catch(() => {});
+  }
+  return Buffer.concat(chunks);
+}
+
+export async function downloadRuntime(
+  artifact: InstallArtifact,
+  file: string,
+  approvedOrigins: string[],
+  signal: AbortSignal,
+  progress: (bytes: number) => void,
+  request: typeof fetch = fetch,
+) {
+  const response = await requestRelease(artifact.url, approvedOrigins, signal, request);
   const length = response.headers.get('content-length');
   if (length !== null && Number(length) !== artifact.size) {
     await response.body.cancel();
-    throw new Error('The runtime download size does not match reviewed metadata.');
+    throw new Error('The runtime download size does not match the published release.');
   }
   const reader = response.body.getReader();
   let output;

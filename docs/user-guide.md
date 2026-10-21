@@ -665,8 +665,9 @@ If macOS does not let Kalkidan replace the app, the previous version starts
 again and Settings shows the release page. A Homebrew cask installation can
 update in the app; `brew upgrade` also continues to work.
 
-Managed runtime installation validates the approved version and archive digest.
-It records progress and supports cancellation and rollback. Finish active work
+Managed runtime installation verifies the Verdictan release signature and the
+archive digest. Kalkidan installs new signed releases automatically when no
+managed agent runs. It records progress and supports cancellation and rollback. Finish active work
 before updating an SSH helper. Externally installed Codex and Claude Code remain
 under their installer or package manager.
 

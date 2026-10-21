@@ -4,7 +4,7 @@ import {
   displayVersion,
   managedSteps,
   runtimeInstallable,
-  runtimeNewerNotApproved,
+  runtimeOutdated,
   runtimeStatusLabel,
   updatePhaseLabel,
 } from '../src/lib/verdictan-labels';
@@ -23,18 +23,22 @@ const base: ComponentUpdateStatus = {
   history: [],
 };
 
-test('an approved release installs even when a newer release is not approved', () => {
-  const status = { ...base, approved: release('0.3.0', 'a'), discovered: release('0.6.1', 'b') };
+test('the latest signed release installs when it is not installed', () => {
+  const status = { ...base, latest: release('0.6.6', 'a') };
   assert.equal(runtimeInstallable(status), true);
-  assert.equal(runtimeNewerNotApproved(status), true);
   assert.deepEqual(runtimeStatusLabel(status), { label: 'Not installed', tone: 'warning' });
-  assert.equal(runtimeInstallable({ ...status, canInstallApproved: false }), false);
-  assert.equal(runtimeNewerNotApproved({ ...status, notice: 'Newer release' }), false);
+  assert.equal(runtimeInstallable({ ...status, canInstall: false }), false);
+  const outdated = { ...status, installed: release('0.6.5', 'b') };
+  assert.equal(runtimeOutdated(outdated), true);
+  assert.deepEqual(runtimeStatusLabel(outdated), {
+    label: 'Version 0.6.6 available',
+    tone: 'warning',
+  });
 });
 
-test('the installed approved release is up to date', () => {
-  const approved = release('0.3.0', 'a');
-  const status = { ...base, discovery: 'current' as const, approved, installed: approved };
+test('the installed latest release is up to date', () => {
+  const latest = release('0.3.0', 'a');
+  const status = { ...base, discovery: 'current' as const, latest, installed: latest };
   assert.equal(runtimeInstallable(status), false);
   assert.equal(runtimeStatusLabel(status).label, 'Installed 0.3.0');
 });

@@ -6,7 +6,6 @@ import { DesktopProtocolError } from './verdictan/protocol';
 import { listDirectory } from './storage/directory-list';
 import { createVerdictanServices } from './verdictan/service';
 import { isVerdictanRegion } from './verdictan/region';
-import type { RuntimePolicy } from './verdictan/install';
 import { desktopVersion } from './verdictan/release';
 import {
   ProjectLocationCache,
@@ -69,7 +68,6 @@ const chats = createAgentRuntimes(async (request) => {
 });
 const terminal = new CommandTerminal();
 let verdictanRuntime: ReturnType<typeof createVerdictanServices> | undefined;
-let verdictanPolicy: RuntimePolicy | null = null;
 let verdictanOwner = '';
 let accountProxy = new RemoteAccountClient((frame) =>
   process.stdout.write(JSON.stringify(frame) + '\n'),
@@ -122,20 +120,19 @@ async function dispatch(method: string, args: any[]): Promise<any> {
     case 'runtime-update': {
       if (
         !['status', 'check', 'install', 'cancel'].includes(a) ||
-        !desktopVersion(c) ||
-        (e != null && !isVerdictanRegion(e)) ||
-        typeof d !== 'string' ||
-        !/^[A-Za-z0-9_-]{1,128}$/.test(d)
+        !desktopVersion(b) ||
+        (d != null && !isVerdictanRegion(d)) ||
+        typeof c !== 'string' ||
+        !/^[A-Za-z0-9_-]{1,128}$/.test(c)
       )
         throw new Error('Invalid runtime update request.');
-      if (verdictanOwner && verdictanOwner !== d) throw new Error('Runtime host identity changed.');
+      if (verdictanOwner && verdictanOwner !== c) throw new Error('Runtime host identity changed.');
       // No region means that the desktop has no selected account region yet.
-      const region = e ?? undefined;
+      const region = d ?? undefined;
       if (verdictanRuntime && verdictanRuntime.region !== region)
         throw new Error('Reconnect this host before changing the Verdictan region.');
-      verdictanPolicy = b;
       if (!verdictanRuntime) {
-        verdictanOwner = d;
+        verdictanOwner = c;
         verdictanRuntime = createVerdictanServices({
           root: join(homedir(), '.kalkidan'),
           client: async () => {
@@ -147,10 +144,9 @@ async function dispatch(method: string, args: any[]): Promise<any> {
           },
           selections: () => accountProxy.query('setup.selection'),
           identities: () => accountProxy.query('host.identity'),
-          hostId: d,
+          hostId: c,
           region,
-          desktopVersion: c,
-          policy: async () => verdictanPolicy,
+          desktopVersion: b,
           busy: () => chats.runningCount() > 0,
           openBrowser: async () => {
             throw new Error('Account authorization belongs to the desktop.');

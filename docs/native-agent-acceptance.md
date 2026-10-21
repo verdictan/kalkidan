@@ -66,6 +66,11 @@ does not substitute unrestricted execution.
 
 ## Runtime installation evidence — 2026-10-21
 
+Note: The runtime approval sections below record the earlier method. Kalkidan
+then used bundled pins from `scripts/approve-runtime.ts`. Kalkidan now trusts the
+Verdictan release signing key and installs the newest signed release. See
+"Runtime release trust" in `project-services.md`.
+
 `tests/acceptance/runtime-install.ts` exercised the production installer against
 public v0.3.0 archives from `verdictan/packages`. Clean installation, a new installer
 owner after restart, and the real desktop protocol capability probe passed on

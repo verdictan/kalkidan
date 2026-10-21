@@ -1,5 +1,5 @@
 /** Operations available to a session on either the Mac or an SSH execution host. */
-export const remoteProtocolVersion = 4;
+export const remoteProtocolVersion = 5;
 export const sessionHostMethods = [
   'ptyOpen',
   'ptyRead',

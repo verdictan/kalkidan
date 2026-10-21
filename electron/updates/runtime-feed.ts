@@ -1,17 +1,21 @@
-import type { ComponentRelease } from '../../src/domain/updates';
-/** Public release metadata is discovery only. Approval stays in the bundled/operator policy. */
+import {
+  releaseAssetURL,
+  runtimeArchiveName,
+  runtimeTarget,
+  type RuntimeDiscovery,
+} from '../verdictan/release';
+/**
+ * Find the newest stable release that has an archive for this host. Discovery is not trust. The
+ * installer accepts the release only when the Verdictan release key signs it.
+ */
 export async function discoverRuntime(
   os: string,
   arch: string,
   request: typeof fetch = fetch,
-): Promise<ComponentRelease | undefined> {
-  const target = (
-    { 'darwin-arm64': 'aarch64-apple-darwin', 'linux-x64': 'x86_64-unknown-linux-gnu' } as Record<
-      string,
-      string
-    >
-  )[`${os}-${arch}`];
+): Promise<RuntimeDiscovery | undefined> {
+  const target = runtimeTarget(os, arch);
   if (!target) return undefined;
+  const name = runtimeArchiveName(target);
   const signal = AbortSignal.timeout(15000);
   for (let page = 1; page <= 5; page++) {
     const response = await request(
@@ -43,20 +47,22 @@ export async function discoverRuntime(
       )
         continue;
       const asset =
-        Array.isArray(row.assets) &&
-        row.assets.find((asset: any) => asset.name === `verdictan-${target}.tar.gz`);
+        Array.isArray(row.assets) && row.assets.find((asset: any) => asset.name === name);
       if (!asset) continue;
       if (
         !Number.isSafeInteger(row.id) ||
         !/^sha256:[a-f0-9]{64}$/.test(asset.digest) ||
-        asset.browser_download_url !==
-          `https://github.com/verdictan/packages/releases/download/${row.tag_name}/verdictan-${target}.tar.gz`
+        !Number.isSafeInteger(asset.size) ||
+        asset.size < 1 ||
+        asset.size > 512 * 1024 * 1024 ||
+        asset.browser_download_url !== releaseAssetURL(row.tag_name.slice(1), name)
       )
         throw new Error('Runtime release identity is incomplete.');
       return {
         version: row.tag_name.slice(1),
         releaseId: String(row.id),
         sha256: asset.digest.slice(7),
+        size: asset.size,
       };
     }
     if (records.length < 100) break;
