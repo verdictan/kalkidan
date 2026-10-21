@@ -102,6 +102,11 @@ export interface VerdictanSetup {
   defaultPolicy?: { configuration_id: string; configuration_version_id: string };
   /** Set when Kalkidan made sure that the default exists during this check. */
   defaultEnsured?: 'created' | 'existing';
+  /**
+   * True when the service reports that it can make the default, but Kalkidan could not make it
+   * or read it during this check. The other policies stay available. Refresh tries again.
+   */
+  defaultUnavailable?: boolean;
   /** `name`, `version` and `allowedModels` are present only when the service sends them. */
   teams: { team_id: string; name?: string }[];
   policies: {

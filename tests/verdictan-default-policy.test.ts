@@ -161,7 +161,7 @@ test('a member without permission gets the administrator recovery, not an error'
   await assert.rejects(service.status(), /auth_expired/);
 });
 
-test('an invalid default configuration or ensure result is a setup error', async () => {
+test('an invalid default configuration is a setup error; an invalid ensure result is not', async () => {
   const bad = fixture({ policy: 'default_available' });
   const original = bad.service['client'];
   bad.service['client'] = async () => {
@@ -176,8 +176,47 @@ test('an invalid default configuration or ensure result is a setup error', async
     } as any;
   };
   await assert.rejects(bad.service.status(), /setup_invalid/);
+  // An invalid ensure result does not hide the policies that the inspection found.
   const ensure = fixture({ policy: 'default_creatable', ensure: 'unknown' });
-  await assert.rejects(ensure.service.status(), /setup_invalid/);
+  const setup = await ensure.service.status();
+  assert.equal(setup.defaultUnavailable, true);
+  assert.equal(setup.defaultPolicy, undefined);
+  assert.deepEqual(setup.policies, [other]);
+});
+
+test('an ensure failure keeps the inspected policies and shows the administrator recovery', async () => {
+  for (const code of [
+    'desktop.permission_denied',
+    'desktop.setup_default_configuration_required',
+    'desktop.setup_permission_required',
+  ]) {
+    const { service, calls } = fixture({ policy: 'default_creatable', ensure: code });
+    const setup = await service.status();
+    assert.ok(calls.includes('setup.ensure_default'), code);
+    // The inspection result stays: the user can choose an existing policy.
+    assert.deepEqual(setup.policies, [other], code);
+    assert.equal(setup.teams.length, 1, code);
+    assert.equal(setup.providerConnections.length, 1, code);
+    assert.equal(setup.defaultUnavailable, undefined, code);
+    assert.match(policyRecovery(setup.policyReadiness)!, /Ask an organization administrator/, code);
+    // An explicit choice of an existing policy is valid without the default.
+    const picked = {
+      teamId: id,
+      configurationId: other.configuration_id,
+      configurationVersionId: other.configuration_version_id,
+      providerConnectionId: id,
+      model: 'gpt-5',
+    };
+    assert.equal(service.validate(setup, 'codex', picked), picked, code);
+  }
+  // Another failure, for example a lost connection, keeps the result. Refresh tries again.
+  const lost = fixture({ policy: 'default_creatable', ensure: 'desktop.transport_lost' });
+  const setup = await lost.service.status();
+  assert.equal(setup.defaultUnavailable, true);
+  assert.equal(setup.policyReadiness, 'default_creatable');
+  assert.deepEqual(setup.policies, [other]);
+  await lost.service.status();
+  assert.equal(lost.calls.filter((call) => call === 'setup.ensure_default').length, 2);
 });
 
 test('a selection without policy IDs needs a readable default; one ID alone is never valid', () => {

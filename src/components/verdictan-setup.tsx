@@ -346,6 +346,16 @@ export function VerdictanSetupForm({
               </AlertDescription>
             </Alert>
           )}
+          {setup.defaultUnavailable && !recovery && (
+            <Alert size="sm" role="note">
+              <AlertDescription className="text-xs leading-4">
+                Kalkidan could not make the {kalkidanDefaultLabel} policy now.
+                {policies.length
+                  ? ' Choose another policy, or select Refresh choices to try again.'
+                  : ' Select Refresh choices to try again.'}
+              </AlertDescription>
+            </Alert>
+          )}
           {setup.defaultEnsured === 'created' && (
             <p role="status" className="form-help">
               Kalkidan made the {kalkidanDefaultLabel} policy for your organization.
