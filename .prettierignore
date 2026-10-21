@@ -14,6 +14,8 @@ ci-results
 coverage
 # Byte copies of the Verdictan shared contract (cli/docs/contracts).
 tests/fixtures/verdictan/desktop-*.json
+# Signed Verdictan release files. A format change breaks the signature.
+tests/fixtures/verdictan/release-*/
 
 # Local agent worktrees and session data
 .claude/

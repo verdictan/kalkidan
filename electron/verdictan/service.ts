@@ -1,6 +1,5 @@
 import { discoverRuntime } from '../updates/runtime-feed';
 import { verdictanRegion, type VerdictanRegion } from './region';
-import bundledPolicy from './runtime-policy.json';
 import { RemoteAccountBroker } from './remote-broker';
 import type { VerdictanSetup } from '../../src/domain/verdictan';
 import type { DesktopClient } from './protocol';
@@ -13,14 +12,13 @@ import { ManagedRuntimes } from './runtime';
 import { DesktopProtocol, DesktopProtocolError } from './protocol';
 import { desktopVersion } from './release';
 import { VerdictanAccountService, parseCapabilities } from './account';
-import { RuntimeInstaller, readRuntimePolicy, type RuntimePolicy } from './install';
+import { RuntimeInstaller } from './install';
 
 export function createVerdictanServices(options: {
   root: string;
   desktopVersion: string;
   hostId: string;
   region?: string;
-  policy: () => Promise<RuntimePolicy | null>;
   busy(): boolean;
   openBrowser(url: string): Promise<unknown>;
   changed?(): void;
@@ -54,7 +52,6 @@ export function createVerdictanServices(options: {
     os: process.platform,
     arch: process.arch,
     systemVersion: hostSystemVersion(),
-    policy: options.policy,
     discover: () => discoverRuntime(process.platform, process.arch),
     busy: () => options.busy() || managed.busy() || account.status().phase === 'authorizing',
     beforeActivate: async () => {
@@ -69,7 +66,7 @@ export function createVerdictanServices(options: {
       try {
         const capabilities = parseCapabilities((await client.request('capabilities')).data);
         if (capabilities.cliVersion !== version)
-          throw new Error('Runtime executable version does not match the approved release.');
+          throw new Error('Runtime executable version does not match the signed release.');
       } finally {
         client.close();
       }
@@ -109,17 +106,4 @@ export function createVerdictanServices(options: {
   );
   const remoteBroker = new RemoteAccountBroker(setup, bindings);
   return { installer, account, managed, setup, launch, bindings, remoteBroker, region };
-}
-
-/** Configuration comes from the desktop distribution or its operator, never renderer input. */
-export function runtimePolicyReader(bundleDirectory: string) {
-  const path =
-    process.env.KALKIDAN_VERDICTAN_RELEASE_FILE || join(bundleDirectory, 'verdictan-runtime.json');
-  return async () => {
-    const configured = await readRuntimePolicy(path);
-    return (
-      configured ||
-      (process.env.KALKIDAN_VERDICTAN_RELEASE_FILE ? null : (bundledPolicy as RuntimePolicy))
-    );
-  };
 }

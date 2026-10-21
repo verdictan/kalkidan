@@ -11,7 +11,7 @@ test('Settings separates account sign-in from execution readiness and shows upda
         component: 'verdictan',
         discovery: 'available',
         stale: false,
-        approved: { version: '0.2.1', releaseId: 'release', sha256: 'a'.repeat(64) },
+        latest: { version: '0.2.1', releaseId: 'release', sha256: 'a'.repeat(64) },
         history: [],
       } as any,
     };
@@ -62,7 +62,7 @@ test('Settings separates account sign-in from execution readiness and shows upda
             phase: 'waiting-for-idle',
             receivedBytes: 100,
             totalBytes: 100,
-            target: state.update.approved,
+            target: state.update.latest,
           },
         }),
       runtimeUpdateCancel: async () =>

@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { discoverRuntime } from '../electron/updates/runtime-feed';
-test('runtime discovery accepts public artifact identity without treating it as approval', async () => {
+test('runtime discovery finds the newest published archive and its size', async () => {
   let calls = 0;
   const row = {
     id: 1,
@@ -14,6 +14,7 @@ test('runtime discovery accepts public artifact identity without treating it as 
         browser_download_url:
           'https://github.com/verdictan/packages/releases/download/v0.3.0/verdictan-aarch64-apple-darwin.tar.gz',
         digest: 'sha256:' + 'a'.repeat(64),
+        size: 1024,
       },
     ],
   };
@@ -26,6 +27,7 @@ test('runtime discovery accepts public artifact identity without treating it as 
     version: '0.3.0',
     releaseId: '1',
     sha256: 'a'.repeat(64),
+    size: 1024,
   });
   assert.equal(await discoverRuntime('win32', 'x64', request), undefined);
   assert.equal(calls, 1);

@@ -62,18 +62,18 @@ test('the runtime step shows the install and its result without a manual refresh
     let reads = -1;
     const base = () => ({
       hostId: 'local', component: 'verdictan', discovery: 'available', stale: false,
-      approved: release, history: [], lastSuccessAt: 1,
+      latest: release, history: [], lastSuccessAt: 1,
     });
     window.statusReads = () => reads;
     return {
       verdictanStatus: async () => ({ phase: 'missing', region: 'eu', executionReady: false }),
       runtimeUpdateStatus: async () => {
-        if (reads < 0) return { ...base(), canInstallApproved: true };
+        if (reads < 0) return { ...base(), canInstall: true };
         reads++;
         if (reads < 3)
-          return { ...base(), installing: true, canInstallApproved: false,
+          return { ...base(), installing: true, canInstall: false,
             reason: 'An install or check is in progress. Wait for it to finish.' };
-        return { ...base(), discovery: 'current', installed: release, canInstallApproved: false,
+        return { ...base(), discovery: 'current', installed: release, canInstall: false,
           reason: 'Version 0.6.4 is installed.',
           operation: { id: 'op', generation: 1, sequence: 9, hostId: 'local',
             component: 'verdictan', phase: 'completed', target: release, receivedBytes: 1,
@@ -82,7 +82,7 @@ test('the runtime step shows the install and its result without a manual refresh
       // Like the desktop: the install starts and the call returns before the first journal entry.
       runtimeUpdateInstall: async () => {
         reads = 0;
-        return { ...base(), installing: true, canInstallApproved: false,
+        return { ...base(), installing: true, canInstall: false,
           reason: 'An install or check is in progress. Wait for it to finish.' };
       },
       verdictanCheck: async () => ({ phase: 'signed-out', region: 'eu', executionReady: false }),

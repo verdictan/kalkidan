@@ -761,8 +761,7 @@ export interface ManagedLaunchBlock {
 const setupChoice =
   'Choose an authorized agent or policy, provider access, and model for this agent in managed agent setup.';
 const signInAgain = 'Sign in to Verdictan again. Then send your message again.';
-const runtimeRepair =
-  'Install or update the approved Verdictan runtime on the machine where work runs.';
+const runtimeRepair = 'Install or update the Verdictan runtime on the machine where work runs.';
 const supportedAgent = `Install Codex ${agentMinimumVersions.codex} or later, or Claude Code ${agentMinimumVersions.claude_code} or later, on the machine where work runs.`;
 const isolation =
   'This machine cannot isolate managed agents. Use a supported macOS or Linux machine.';

@@ -2,18 +2,15 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import assert from 'node:assert/strict';
-import {
-  RuntimeInstaller,
-  runtimePolicyForHost,
-  type RuntimePolicy,
-} from '../../electron/verdictan/install';
-import policy from '../../electron/verdictan/runtime-policy.json';
+import { RuntimeInstaller } from '../../electron/verdictan/install';
+import { discoverRuntime } from '../../electron/updates/runtime-feed';
 import { hostSystemVersion } from '../../electron/verdictan/system-version';
 import { DesktopProtocol } from '../../electron/verdictan/protocol';
 import { parseCapabilities } from '../../electron/verdictan/account';
 async function main() {
-  const approved = runtimePolicyForHost(policy as RuntimePolicy, process.platform, process.arch);
-  const expectedVersion = approved.pin.version;
+  const discovered = await discoverRuntime(process.platform, process.arch);
+  assert.ok(discovered, 'No Verdictan release supports this host.');
+  const expectedVersion = discovered.version;
   const root = await mkdtemp(join(tmpdir(), 'kalkidan-native-install-'));
   try {
     const options = {
@@ -23,8 +20,7 @@ async function main() {
       os: process.platform,
       arch: process.arch,
       systemVersion: hostSystemVersion(),
-      policy: async () =>
-        runtimePolicyForHost(policy as RuntimePolicy, process.platform, process.arch),
+      discover: async () => discovered,
       busy: () => false,
       probe: async (executable: string, version: string) => {
         const client = new DesktopProtocol(executable, [

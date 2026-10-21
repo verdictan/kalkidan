@@ -5,13 +5,13 @@ import { join } from 'node:path';
 import { pipeline } from 'node:stream/promises';
 import { extract } from 'tar';
 import { openPromise } from 'yauzl';
-import type { RuntimeArtifact } from './release';
+import type { InstallArtifact } from './release';
 
 /** Extract only executables and notices from the platform packaging contract. */
 export async function extractRuntime(
   archive: string,
   destination: string,
-  artifact: RuntimeArtifact,
+  artifact: InstallArtifact,
 ) {
   const executable = artifact.os === 'win32' ? 'verdictan.exe' : 'verdictan';
   const updater = artifact.os === 'win32' ? 'verdictan-update.exe' : 'verdictan-update';

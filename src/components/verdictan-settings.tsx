@@ -24,7 +24,6 @@ import {
   managedSteps,
   runtimeInstallable,
   runtimeBusy,
-  runtimeNewerNotApproved,
   runtimeOutdated,
   runtimeStatusLabel,
   updatePhaseLabel,
@@ -515,7 +514,7 @@ function RuntimeStep({
             >
               {waitingForIdle
                 ? 'Finish install'
-                : `${status?.installed ? 'Update to' : 'Install'} version ${status!.approved!.version}`}
+                : `${status?.installed ? 'Update to' : 'Install'} version ${status!.latest!.version}`}
             </Button>
           )}
         </>
@@ -542,8 +541,8 @@ function RuntimeStep({
             <dd>{status.running.version}</dd>
           </>
         )}
-        <dt>Approved</dt>
-        <dd>{status?.approved?.version || 'No approved version'}</dd>
+        <dt>Latest</dt>
+        <dd>{status?.latest?.version || 'Not known'}</dd>
         {status?.lastSuccessAt && (
           <>
             <dt>Last checked</dt>
@@ -551,21 +550,17 @@ function RuntimeStep({
           </>
         )}
       </dl>
-      {/* A newer release that is not approved is information only. It never blocks the install. */}
-      {(status?.notice || runtimeNewerNotApproved(status)) && (
+      {status?.installed && (
         <p className="flex items-start gap-2 text-xs leading-4 text-muted-foreground">
           <Info className="mt-px size-3.5 shrink-0" aria-hidden="true" />
-          {status!.notice ||
-            `Version ${status!.discovered!.version} is out. Your desktop policy has not approved it yet, so Kalkidan installs version ${status!.approved!.version}.`}
+          Kalkidan installs new signed Verdictan releases automatically when no managed agent runs.
         </p>
       )}
       {runtimeOutdated(status) && !installable && !running && !starting && status?.reason && (
         <p className="form-help">{status.reason}</p>
       )}
-      {!status?.approved && status && status.discovery !== 'checking' && !error && (
-        <p className="form-help">
-          No approved version is available. Check for updates later, or ask your administrator.
-        </p>
+      {!status?.latest && status && status.discovery !== 'checking' && !error && !statusError && (
+        <p className="form-help">No Verdictan release is known. Check for updates later.</p>
       )}
       {operation && running && (
         <div className="grid gap-2" aria-live="polite">
@@ -594,7 +589,7 @@ function RuntimeStep({
       {starting && (
         <div className="grid gap-2" aria-live="polite">
           <span className="text-xs leading-4">
-            Starting the install of version {status!.approved?.version}
+            Starting the install of version {status!.latest?.version}
           </span>
           <Progress label="Runtime install" />
         </div>

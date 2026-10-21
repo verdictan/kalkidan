@@ -1,7 +1,7 @@
 import { constants } from 'node:fs';
 import { lstat, mkdir, mkdtemp, open, rename, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { createHash, randomUUID } from 'node:crypto';
+import { createHash, randomUUID, type KeyObject } from 'node:crypto';
 import { withDirectoryLock } from '../storage/directory-lock';
 import { writeJSON } from '../storage/atomic-json';
 import type {
@@ -11,42 +11,16 @@ import type {
   UpdatePhase,
 } from '../../src/domain/updates';
 import {
-  verifyRuntimeRelease,
-  type RuntimePin,
-  type VerifiedRuntimeRelease,
+  releaseDownloadOrigins,
   type ReleaseCheckpoint,
+  type RuntimeDiscovery,
+  type VerifiedRuntimeRelease,
 } from './release';
+import { fetchRuntimeRelease, type SignedRuntimeRelease } from './release-source';
+import { releasePublicKey, verifySignedFile } from './signature';
 import { downloadRuntime } from './download';
 import { extractRuntime } from './archive';
 
-export interface RuntimePolicy {
-  manifest: string;
-  pin: RuntimePin;
-  hostPolicies?: Record<string, RuntimePolicy>;
-  pins?: Record<string, RuntimePin>;
-  downloadOrigins: string[];
-}
-export function runtimePolicyForHost(
-  policy: RuntimePolicy,
-  os: string,
-  arch: string,
-): RuntimePolicy {
-  const key = `${os}-${arch}`;
-  if (policy.hostPolicies && Object.hasOwn(policy.hostPolicies, key)) {
-    const selected = policy.hostPolicies[key];
-    if (!selected || selected.hostPolicies) throw new Error('Invalid host runtime policy.');
-    return runtimePolicyForHost(selected, os, arch);
-  }
-  if (!policy.pins) return policy;
-  if (
-    typeof policy.pins !== 'object' ||
-    Array.isArray(policy.pins) ||
-    Object.keys(policy.pins).length > 5 ||
-    !Object.hasOwn(policy.pins, key)
-  )
-    throw new Error('No reviewed Verdictan artifact is available for this host.');
-  return { ...policy, pin: policy.pins[key] };
-}
 interface Receipt {
   schema: 1;
   release: ComponentRelease;
@@ -62,6 +36,8 @@ interface InstallationState {
   staged?: Receipt;
   operation?: UpdateOperation;
   history: UpdateOperation[];
+  /** The revoked versions from the newest verified manifest. Launch checks them offline. */
+  revoked?: string[];
 }
 export interface RuntimeInstallerOptions {
   root: string;
@@ -70,9 +46,11 @@ export interface RuntimeInstallerOptions {
   os: string;
   arch: string;
   systemVersion: string;
-  policy(): Promise<RuntimePolicy | null>;
   busy(): boolean;
-  discover?(): Promise<ComponentRelease | undefined>;
+  /** Find the newest published release for this host. */
+  discover(): Promise<RuntimeDiscovery | undefined>;
+  /** The release signing key. Only tests replace it. */
+  key?: KeyObject;
   probe(executable: string, version: string): Promise<void>;
   beforeActivate?(): Promise<void>;
   changed?(): void;
@@ -86,7 +64,10 @@ const terminal = new Set<UpdatePhase>([
   'rolled-back',
   'rollback-failed',
 ]);
-/** Installs only a reviewed artifact. The journal is authoritative on its execution host. */
+/**
+ * Installs the newest release that the Verdictan release key signs, and updates to newer signed
+ * releases automatically. The journal is authoritative on its execution host.
+ */
 export class RuntimeInstaller {
   private state: InstallationState = { schema: 1, history: [] };
   private view: ComponentUpdateStatus;
@@ -96,6 +77,7 @@ export class RuntimeInstaller {
   // install returns is then already free of it.
   private installRunning = false;
   private abort?: AbortController;
+  private latest?: SignedRuntimeRelease;
   private assertOwned?: () => void;
   private now: () => number;
   constructor(private options: RuntimeInstallerOptions) {
@@ -147,6 +129,13 @@ export class RuntimeInstaller {
         }
         if (state.checkpoint && !validCheckpoint(state.checkpoint))
           throw new Error('Invalid runtime release checkpoint.');
+        if (
+          state.revoked !== undefined &&
+          (!Array.isArray(state.revoked) ||
+            state.revoked.length > 100 ||
+            !state.revoked.every((value) => typeof value === 'string' && value.length <= 32))
+        )
+          throw new Error('Invalid runtime revocation list.');
         if (state.operation)
           state.operation = publicOperation(state.operation, this.options.hostId);
         state.history = state.history.map((operation) =>
@@ -171,14 +160,14 @@ export class RuntimeInstaller {
     const busy = this.installRunning || result.discovery === 'checking';
     // The journal can still show an earlier operation. This flag tells the UI to read again.
     if (this.installRunning) result.installing = true;
-    const current = !!result.approved && result.installed?.sha256 === result.approved.sha256;
-    result.canInstallApproved = !!result.approved && !current && !busy;
-    result.reason = result.canInstallApproved
+    const current = !!result.latest && result.installed?.sha256 === result.latest.sha256;
+    result.canInstall = !!result.latest && !current && !busy;
+    result.reason = result.canInstall
       ? undefined
-      : !result.approved
-        ? result.error || 'No approved version is known yet. Check for updates.'
+      : !result.latest
+        ? result.error || 'No Verdictan release is known yet. Check for updates.'
         : current
-          ? `Version ${result.approved.version} is installed.`
+          ? `Version ${result.latest.version} is installed.`
           : 'An install or check is in progress. Wait for it to finish.';
     if (
       !this.installRunning &&
@@ -212,35 +201,46 @@ export class RuntimeInstaller {
     operation.error = error;
     await this.persist();
   }
-  private async approved(): Promise<{ policy: RuntimePolicy; release: VerifiedRuntimeRelease }> {
-    const configured = await this.options.policy();
-    if (!configured)
-      throw new Error('No reviewed Verdictan release is included with this Kalkidan build.');
-    const policy = runtimePolicyForHost(configured, this.options.os, this.options.arch);
-    if (
-      typeof policy.manifest !== 'string' ||
-      !Array.isArray(policy.downloadOrigins) ||
-      !policy.downloadOrigins.length ||
-      policy.downloadOrigins.length > 10 ||
-      policy.downloadOrigins.some((origin) => {
-        try {
-          const url = new URL(origin);
-          return url.protocol !== 'https:' || url.origin !== origin;
-        } catch {
-          return true;
-        }
-      })
-    )
-      throw new Error('Invalid approved runtime download origins.');
-    const release = verifyRuntimeRelease(Buffer.from(policy.manifest), policy.pin, {
+  /** Discover the newest release, and verify its signed metadata. This needs the network. */
+  private async resolve(): Promise<SignedRuntimeRelease> {
+    const discovered = await this.options.discover();
+    if (!discovered) throw new Error('No runtime release supports this execution host.');
+    return fetchRuntimeRelease(discovered, {
       now: Math.floor(this.now() / 1000),
       desktopVersion: this.options.desktopVersion,
       os: this.options.os,
       arch: this.options.arch,
       systemVersion: this.options.systemVersion,
       checkpoint: this.state.checkpoint || this.state.active?.checkpoint,
+      key: this.options.key,
+      request: this.options.request,
     });
-    return { policy, release };
+  }
+  private revoked() {
+    return [...(this.state.revoked || []), ...(this.latest?.revoked || [])];
+  }
+  /**
+   * Start an automatic update when a newer signed release is known and a version is installed.
+   * The first install starts from setup. An automatic attempt that failed, or that the user
+   * canceled, does not start again for the same release. Install in Settings starts it again.
+   */
+  private autoUpdate() {
+    if (this.installPending) return;
+    const operation = this.state.operation;
+    if (operation?.phase === 'waiting-for-idle') {
+      if (!this.options.busy()) void this.install().catch(() => {});
+      return;
+    }
+    const latest = this.view.latest;
+    if (!latest || !this.state.active || this.state.active.release.sha256 === latest.sha256) return;
+    if (
+      operation &&
+      operation.target.sha256 === latest.sha256 &&
+      terminal.has(operation.phase) &&
+      operation.phase !== 'completed'
+    )
+      return;
+    void this.install().catch(() => {});
   }
   check(force = false) {
     if (this.checkPending) return this.checkPending;
@@ -248,8 +248,11 @@ export class RuntimeInstaller {
       !force &&
       this.view.lastSuccessAt !== undefined &&
       this.now() - this.view.lastSuccessAt < 6 * 3600000
-    )
+    ) {
+      // A staged update activates when the managed runs stop. Status reads check for this.
+      this.autoUpdate();
       return Promise.resolve(this.status());
+    }
     const task = (async () => {
       this.view.discovery = 'checking';
       this.view.lastAttemptAt = this.now();
@@ -257,28 +260,24 @@ export class RuntimeInstaller {
       try {
         await this.prepare();
         if (!this.installPending) await this.readState();
-        const { release } = await this.approved();
-        const target = releaseIdentity(release);
-        this.view.approved = target;
         discovering = true;
-        const discovered = this.options.discover ? await this.options.discover() : target;
-        this.view.discovered = discovered;
+        const release = await this.resolve();
+        const target = releaseIdentity(release);
+        this.latest = release;
+        this.view.latest = target;
         this.view.discovery =
           this.state.active?.release.sha256 === target.sha256 ? 'current' : 'available';
-        // A newer release that is not approved is information. The approved one stays installable.
-        this.view.notice =
-          discovered && discovered.sha256 !== target.sha256
-            ? `Version ${discovered.version} is available. It is not approved for this version of Kalkidan yet.`
-            : undefined;
         this.view.lastSuccessAt = this.now();
         this.view.stale = false;
         this.view.error = undefined;
       } catch (error) {
-        this.view.discovery = discovering ? 'failed' : 'blocked';
+        // A network failure is 'failed'. A signature, digest, or rollback failure is 'blocked'.
+        this.view.discovery = discovering && !verificationError(error) ? 'failed' : 'blocked';
         this.view.stale = true;
         this.view.error = safeInstallError(error);
       }
       this.options.changed?.();
+      this.autoUpdate();
       return this.status();
     })();
     this.checkPending = task;
@@ -309,9 +308,11 @@ export class RuntimeInstaller {
       await withDirectoryLock(this.options.root, async (assertOwned) => {
         this.assertOwned = assertOwned;
         await this.readState(true);
-        const { policy, release } = await this.approved();
+        const release = await this.resolve();
+        this.latest = release;
         const target = releaseIdentity(release);
         this.state.checkpoint = release.checkpoint;
+        this.state.revoked = release.revoked;
         if (this.state.active?.release.sha256 === target.sha256) {
           try {
             const executable = await this.verifyReceipt(this.state.active);
@@ -319,15 +320,15 @@ export class RuntimeInstaller {
             if (this.state.operation && !terminal.has(this.state.operation.phase)) {
               this.state.staged = undefined;
               await this.phase('completed');
-            }
+            } else await this.persist();
           } catch (error) {
             if (!this.state.operation || terminal.has(this.state.operation.phase)) throw error;
-            await this.rollback(policy);
+            await this.rollback();
           }
           return;
         }
         if (this.state.operation?.phase === 'rolling-back') {
-          await this.rollback(policy);
+          await this.rollback();
           return;
         }
         const resume =
@@ -375,7 +376,7 @@ export class RuntimeInstaller {
             await downloadRuntime(
               release.artifact,
               archive,
-              policy.downloadOrigins,
+              releaseDownloadOrigins,
               abort.signal,
               (bytes) => {
                 this.state.operation!.receivedBytes = bytes;
@@ -387,6 +388,11 @@ export class RuntimeInstaller {
               this.options.request,
             );
             await this.phase('verifying');
+            await verifySignedFile(
+              archive,
+              release.archiveSignature,
+              this.options.key ?? releasePublicKey(),
+            );
             const executable = await extractRuntime(archive, payload, release.artifact);
             abort.signal.throwIfAborted();
             await this.options.probe(executable, release.version);
@@ -418,9 +424,6 @@ export class RuntimeInstaller {
             await this.phase('waiting-for-idle');
             return;
           }
-          const approved = await this.approved();
-          if (releaseIdentity(approved.release).releaseId !== target.releaseId)
-            throw new Error('Release approval changed. Check for updates and retry.');
           await this.options.beforeActivate?.();
           const staged = this.state.staged!;
           await this.verifyReceipt(staged);
@@ -436,7 +439,7 @@ export class RuntimeInstaller {
             this.state.staged = undefined;
             await this.phase('completed');
           } catch {
-            await this.rollback(policy);
+            await this.rollback();
           }
         } catch (error) {
           await this.phase(
@@ -463,14 +466,14 @@ export class RuntimeInstaller {
     await this.check(true);
     return this.status();
   }
-  private async rollback(policy: RuntimePolicy) {
+  private async rollback() {
     await this.phase('rolling-back');
     this.state.active = undefined;
     await this.persist();
     try {
       const old = this.state.previous;
       if (!old) throw new Error('No previous runtime is available for recovery.');
-      assertNotRevoked(old, policy);
+      assertNotRevoked(old, this.revoked());
       await this.options.probe(await this.verifyReceipt(old), old.release.version);
       this.assertOwned?.();
       this.state.active = old;
@@ -516,24 +519,29 @@ export class RuntimeInstaller {
       throw new Error('The runtime directory is not a regular directory.');
     const file = join(directory, receipt.executable);
     if ((await fileDigest(file)) !== receipt.binaryDigest)
-      throw new Error('The installed runtime checksum failed. Reinstall the approved release.');
+      throw new Error('The installed runtime checksum failed. Install the runtime again.');
     return file;
   }
   async executable() {
     await this.prepare();
     if (!this.installPending) await this.readState();
     if (!this.state.active) return null;
-    const { policy } = await this.approved();
-    assertNotRevoked(this.state.active, policy);
+    // This check uses no network. The revoked versions come from the newest verified manifest.
+    assertNotRevoked(this.state.active, this.revoked());
     return this.verifyReceipt(this.state.active);
   }
 }
-function assertNotRevoked(receipt: Receipt, policy: RuntimePolicy) {
-  const manifest = JSON.parse(policy.manifest);
-  if (
-    [...policy.pin.revoked_versions, ...manifest.revoked_versions].includes(receipt.release.version)
-  )
-    throw new Error('The installed runtime has been revoked. Install an approved release.');
+function assertNotRevoked(receipt: Receipt, revoked: string[]) {
+  if (revoked.includes(receipt.release.version))
+    throw new Error('The installed runtime has been revoked. Install the newest release.');
+}
+function verificationError(error: unknown) {
+  return (
+    error instanceof Error &&
+    /^(?:Release |Runtime artifact |This |Invalid |Update |Cannot |The release is )/.test(
+      error.message,
+    )
+  );
 }
 function releaseIdentity(release: VerifiedRuntimeRelease): ComponentRelease {
   return {
@@ -642,24 +650,8 @@ async function fileDigest(path: string) {
 function safeInstallError(error: unknown) {
   if (
     error instanceof Error &&
-    /^(?:The |Runtime |Release |Invalid |No |Update |Storage )/.test(error.message)
+    /^(?:The |This |Runtime |Release |Invalid |No |Update |Storage |Cannot )/.test(error.message)
   )
     return error.message.slice(0, 300);
   return 'Runtime installation failed. Check available storage and retry.';
-}
-export async function readRuntimePolicy(path: string): Promise<RuntimePolicy | null> {
-  try {
-    const file = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW);
-    try {
-      const stat = await file.stat();
-      if (!stat.isFile() || stat.size > 512 * 1024)
-        throw new Error('Release configuration exceeds its size limit.');
-      return JSON.parse(await file.readFile('utf8'));
-    } finally {
-      await file.close();
-    }
-  } catch (error: any) {
-    if (error.code === 'ENOENT') return null;
-    throw error;
-  }
 }

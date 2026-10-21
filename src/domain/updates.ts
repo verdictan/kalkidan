@@ -40,22 +40,17 @@ export interface ComponentUpdateStatus {
   discovery: 'unknown' | 'checking' | 'current' | 'available' | 'blocked' | 'failed';
   installed?: ComponentRelease;
   running?: ComponentRelease;
-  approved?: ComponentRelease;
-  discovered?: ComponentRelease;
+  /** The newest published release that has a valid Verdictan release signature. */
+  latest?: ComponentRelease;
   lastAttemptAt?: number;
   lastSuccessAt?: number;
   stale: boolean;
   operation?: UpdateOperation;
   history: UpdateOperation[];
   error?: string;
-  /**
-   * Information only: a newer release exists, but this desktop policy does not approve it yet.
-   * It never blocks the install of the approved release.
-   */
-  notice?: string;
-  /** True when the approved release is not installed and Kalkidan can install it now. */
-  canInstallApproved?: boolean;
-  /** Plain words for why the approved release cannot be installed now. */
+  /** True when the latest release is not installed and Kalkidan can install it now. */
+  canInstall?: boolean;
+  /** Plain words for why the latest release cannot be installed now. */
   reason?: string;
   /**
    * True while an install runs on the host, also before its first journal entry. Read the status
