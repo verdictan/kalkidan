@@ -4,6 +4,7 @@ import { PublishOperations, publishEffects } from './operations/publish';
 import { RemoteAccountClient } from './verdictan/remote-broker';
 import { listDirectory } from './storage/directory-list';
 import { createVerdictanServices } from './verdictan/service';
+import { isVerdictanRegion } from './verdictan/region';
 import type { RuntimePolicy } from './verdictan/install';
 import { desktopVersion } from './verdictan/release';
 import {
@@ -120,13 +121,14 @@ async function dispatch(method: string, args: any[]): Promise<any> {
       if (
         !['status', 'check', 'install', 'cancel'].includes(a) ||
         !desktopVersion(c) ||
-        (e !== undefined && e !== 'global' && e !== 'eu') ||
+        (e != null && !isVerdictanRegion(e)) ||
         typeof d !== 'string' ||
         !/^[A-Za-z0-9_-]{1,128}$/.test(d)
       )
         throw new Error('Invalid runtime update request.');
       if (verdictanOwner && verdictanOwner !== d) throw new Error('Runtime host identity changed.');
-      const region = e || 'global';
+      // No region means that the desktop has no selected account region yet.
+      const region = e ?? undefined;
       if (verdictanRuntime && verdictanRuntime.region !== region)
         throw new Error('Reconnect this host before changing the Verdictan region.');
       verdictanPolicy = b;
