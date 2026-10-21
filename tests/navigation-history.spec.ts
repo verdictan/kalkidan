@@ -3,7 +3,7 @@ import { test, expect } from '@playwright/test';
 test('titlebar history traverses boards, repositories and chats, preserves drafts and branches', async ({
   page,
 }) => {
-  await page.goto('http://127.0.0.1:5173');
+  await page.goto('/');
   const header = page.locator('.topbar');
   const back = header.getByRole('button', { name: 'Go back', exact: true });
   const forward = header.getByRole('button', { name: 'Go forward', exact: true });

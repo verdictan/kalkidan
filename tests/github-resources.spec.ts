@@ -96,7 +96,7 @@ test('saved views render configured fields and explicit report publishing uses t
       },
     };
   });
-  await page.goto('http://127.0.0.1:5173');
+  await page.goto('/');
   await page
     .locator('.project-tree')
     .getByRole('button', { name: 'Platform', exact: true })

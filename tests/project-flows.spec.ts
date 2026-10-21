@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-const url = 'http://127.0.0.1:5173';
+const url = '/';
 test('single view ignores old split preferences and preserves conversation drafts while navigating', async ({
   page,
 }) => {

@@ -80,7 +80,7 @@ test('conversation tools preview evidence, attach it to the draft, and send it o
       },
     };
   });
-  await page.goto('http://127.0.0.1:5173');
+  await page.goto('/');
   await page.locator('.repo-select').click();
   await page.getByRole('button', { name: 'New Codex session', exact: true }).click();
   await page.setViewportSize({ width: 961, height: 988 });
@@ -127,7 +127,7 @@ test('conversation tools preview evidence, attach it to the draft, and send it o
 test('browser preview explains native requirements instead of simulating command output', async ({
   page,
 }) => {
-  await page.goto('http://127.0.0.1:5173');
+  await page.goto('/');
   await page.locator('.repo-select').first().click();
   await page.getByRole('button', { name: 'New Codex session', exact: true }).click();
   await openTool(page, 'Terminal');

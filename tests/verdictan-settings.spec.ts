@@ -72,7 +72,7 @@ test('Settings separates account sign-in from execution readiness and shows upda
         }),
     };
   });
-  await page.goto('http://127.0.0.1:5173');
+  await page.goto('/');
   await page.getByRole('button', { name: 'Settings', exact: true }).click();
   const settings = page.getByRole('dialog', { name: 'Settings' });
   await settings.getByRole('tab', { name: 'Accounts', exact: true }).click();
@@ -123,7 +123,7 @@ test('Settings requires an explicit EU or US region before sign-in', async ({ pa
       },
     };
   });
-  await page.goto('http://127.0.0.1:5173');
+  await page.goto('/');
   await page.getByRole('button', { name: 'Settings', exact: true }).click();
   const settings = page.getByRole('dialog', { name: 'Settings' });
   await settings.getByRole('tab', { name: 'Accounts', exact: true }).click();

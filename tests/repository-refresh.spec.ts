@@ -42,7 +42,7 @@ test('overview refreshes only its repository and keeps cached content while reva
       },
     };
   });
-  await page.goto('http://127.0.0.1:5173');
+  await page.goto('/');
   await page.getByRole('button', { name: 'Test repo', exact: true }).click();
   await expect(page.locator('.worktree')).toContainText('main');
   const before = await page.evaluate(() => ({ ...(window as any).ioCalls }));
@@ -94,7 +94,7 @@ test('switching projects reuses details and keeps cached content after a failed 
       },
     };
   });
-  await page.goto('http://127.0.0.1:5173');
+  await page.goto('/');
   await page.getByRole('button', { name: 'Alpha', exact: true }).click();
   await expect(page.locator('.worktree')).toContainText('Alpha');
   await page.getByRole('button', { name: 'Beta', exact: true }).click();

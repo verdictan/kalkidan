@@ -21,7 +21,7 @@ test('reopening an uncertain project creation resumes its original request', asy
       },
     };
   });
-  await page.goto('http://127.0.0.1:5173');
+  await page.goto('/');
   await page.getByRole('button', { name: 'New project', exact: true }).first().click();
   const dialog = page.getByRole('dialog', { name: 'New project', exact: true });
   await dialog

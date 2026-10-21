@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 test('sidebar resizes, clamps, persists, and restores after collapse', async ({ page }) => {
   await page.setViewportSize({ width: 1100, height: 988 });
-  await page.goto('http://127.0.0.1:5173');
+  await page.goto('/');
   const divider = page.getByRole('separator', { name: 'Resize sidebar' });
   const panel = page.locator('.library-panel');
   await expect(divider).toHaveAttribute('aria-valuenow', '260');

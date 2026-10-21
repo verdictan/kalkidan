@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test';
 test('project navigation, search, editing, worktrees, and sessions', async ({ page }) => {
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(e.message));
-  await page.goto('http://127.0.0.1:5173');
+  await page.goto('/');
   await page.locator('.repo-select').first().click();
   await expect(page.getByRole('heading', { name: 'atlas-web', exact: true })).toBeVisible();
 
@@ -41,7 +41,7 @@ test('project navigation, search, editing, worktrees, and sessions', async ({ pa
 });
 
 test('organize sessions and continue inside the conversation UI', async ({ page }) => {
-  await page.goto('http://127.0.0.1:5173');
+  await page.goto('/');
   await page.locator('.repo-select').first().click();
   const list = page.locator('.session-list');
 
@@ -169,7 +169,7 @@ test('conversation streams responses, keeps multiple turns, and stops without le
       },
     };
   });
-  await page.goto('http://127.0.0.1:5173');
+  await page.goto('/');
   await page.locator('.repo-select').first().click();
 
   await page
@@ -261,7 +261,7 @@ test('a session ownership conflict restores the unsent draft and permits an expl
             },
     };
   });
-  await page.goto('http://127.0.0.1:5173');
+  await page.goto('/');
   await page.locator('.repo-select').first().click();
 
   await page
@@ -280,7 +280,7 @@ test('a session ownership conflict restores the unsent draft and permits an expl
 });
 
 test('integrated conversations keep drafts and project navigation visible', async ({ page }) => {
-  await page.goto('http://127.0.0.1:5173');
+  await page.goto('/');
   await page.locator('.repo-select').first().click();
 
   await page
@@ -404,7 +404,7 @@ for (const agent of ['codex', 'claude'] as const) {
         }),
       };
     });
-    await page.goto('http://127.0.0.1:5173');
+    await page.goto('/');
     await page.locator('.repo-select').first().click();
     // The split button starts Codex by default. Other agents are in its menu.
     if (agent === 'codex')
@@ -486,7 +486,7 @@ for (const agent of ['codex', 'claude'] as const) {
       },
       { agent },
     );
-    await page.goto('http://127.0.0.1:5173');
+    await page.goto('/');
     await page.locator('.repo-select').first().click();
 
     await page.getByRole('button', { name: 'Resume Saved conversation', exact: true }).click();
@@ -503,7 +503,7 @@ for (const agent of ['codex', 'claude'] as const) {
 test('projects group multiple repositories and each repository opens its own sessions', async ({
   page,
 }) => {
-  await page.goto('http://127.0.0.1:5173');
+  await page.goto('/');
   const tree = page.getByRole('navigation', { name: 'Projects and repositories' });
   await expect(tree.getByText('Atlas', { exact: true })).toBeVisible();
   await expect(tree.getByRole('button', { name: 'atlas-web', exact: true })).toBeVisible();
@@ -613,7 +613,7 @@ test('GitHub task status, repository choice, and composer model carry through to
       updateSession: async () => {},
     };
   });
-  await page.goto('http://127.0.0.1:5173');
+  await page.goto('/');
   // The project row opens the overview. The Tasks row opens the board.
   await page.locator('.project-tree').getByRole('button', { name: 'Tasks', exact: true }).click();
   await page.getByRole('button', { name: 'Move task: Fix login' }).click();
@@ -652,7 +652,7 @@ test('GitHub task status, repository choice, and composer model carry through to
 test('a project can connect, create a GitHub draft, and change its connection in preview', async ({
   page,
 }) => {
-  await page.goto('http://127.0.0.1:5173');
+  await page.goto('/');
   await page.locator('.project-tree').getByRole('button', { name: 'Atlas', exact: true }).click();
   await page.getByRole('button', { name: 'Connect a GitHub Projects board', exact: true }).click();
   await page.getByRole('button', { name: 'Use URL', exact: true }).click();
@@ -714,7 +714,7 @@ test('GitHub connection waits for browser approval and supports cancel and retry
       githubBoard: async () => ({ project, items: [] }),
     };
   });
-  await page.goto('http://127.0.0.1:5173');
+  await page.goto('/');
   await page
     .locator('.project-tree')
     .getByRole('button', { name: 'Platform', exact: true })
@@ -734,7 +734,7 @@ test('GitHub connection waits for browser approval and supports cancel and retry
 });
 
 test('choose an existing GitHub project or create one without entering a URL', async ({ page }) => {
-  await page.goto('http://127.0.0.1:5173');
+  await page.goto('/');
   await page.locator('.project-tree').getByRole('button', { name: 'Atlas', exact: true }).click();
   await page.getByRole('button', { name: 'Connect a GitHub Projects board', exact: true }).click();
   await page.getByLabel('Search GitHub projects').fill('roadmap');
@@ -757,7 +757,7 @@ test('choose an existing GitHub project or create one without entering a URL', a
 test('add repositories can create a project, pick a GitHub repo, and clone into it', async ({
   page,
 }) => {
-  await page.goto('http://127.0.0.1:5173');
+  await page.goto('/');
   await page
     .getByRole('button', { name: 'Add code folders to Atlas', exact: true })
     .first()
@@ -810,7 +810,7 @@ test('local folder selection keeps the chosen project and clone cancellation kee
       },
     };
   });
-  await page.goto('http://127.0.0.1:5173');
+  await page.goto('/');
   await page.getByRole('button', { name: 'Add code folders to Platform', exact: true }).click();
   const dialog = page.getByRole('dialog');
   await dialog.getByRole('button', { name: 'Clone from GitHub', exact: true }).click();
@@ -824,7 +824,7 @@ test('local folder selection keeps the chosen project and clone cancellation kee
 });
 
 test('tracker board groups tasks, syncs status moves, and filters', async ({ page }) => {
-  await page.goto('http://127.0.0.1:5173');
+  await page.goto('/');
   await page.locator('.project-tree').getByRole('button', { name: 'Atlas', exact: true }).click();
   await page.getByRole('button', { name: 'Connect a GitHub Projects board', exact: true }).click();
   await page.getByRole('button', { name: 'Atlas roadmap #1', exact: true }).click();
@@ -892,7 +892,7 @@ test('repository authorization explicitly requests browser login and shows appro
       githubAuthCancel: async () => (state = { status: 'idle' }),
     };
   });
-  await page.goto('http://127.0.0.1:5173');
+  await page.goto('/');
   await page
     .getByRole('button', { name: 'Add code folders to Platform', exact: true })
     .first()
@@ -919,7 +919,7 @@ test('repository authorization explicitly requests browser login and shows appro
 });
 
 test('project navigation replaces the main sidebar and global history page', async ({ page }) => {
-  await page.goto('http://127.0.0.1:5173');
+  await page.goto('/');
   await expect(page.locator('.sidebar')).toHaveCount(0);
   await expect(page.getByRole('button', { name: /Session history/ })).toHaveCount(0);
   await expect(page.getByText('UNGROUPED REPOSITORIES', { exact: true })).toHaveCount(0);
@@ -934,7 +934,7 @@ test('project navigation replaces the main sidebar and global history page', asy
 test('simplified controls remain accessible and selection follows project and conversation', async ({
   page,
 }) => {
-  await page.goto('http://127.0.0.1:5173');
+  await page.goto('/');
   await page.locator('.repo-select').first().click();
   await expect(page.getByRole('button', { name: /^Add code folders to / })).toHaveCount(1);
   await expect(page.getByRole('button', { name: 'Discover', exact: true })).toHaveCount(0);

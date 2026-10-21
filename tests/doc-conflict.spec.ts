@@ -38,7 +38,7 @@ test.beforeEach(async ({ page }) => {
 test('a conflicting Docs draft can be saved as a new page without replacing disk content', async ({
   page,
 }) => {
-  await page.goto('http://127.0.0.1:5173');
+  await page.goto('/');
   await page.getByRole('button', { name: 'Docs', exact: true }).click();
   await expect(page.getByLabel('Page title', { exact: true })).toHaveValue('Guide');
   await page.getByRole('button', { name: 'Document actions' }).click();
@@ -78,7 +78,7 @@ test('legacy draft recovery retains the old revision and does not overwrite the 
       }),
     );
   });
-  await page.goto('http://127.0.0.1:5173');
+  await page.goto('/');
   await page.getByRole('button', { name: 'Docs', exact: true }).click();
   await page.getByRole('button', { name: 'Restore draft', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Save as new page' })).toBeVisible();

@@ -7,7 +7,7 @@ const saveState = (page: Page) =>
 test('project Board and Docs pages support live Markdown, subpages and persistence', async ({
   page,
 }) => {
-  await page.goto('http://127.0.0.1:5173');
+  await page.goto('/');
   await page.getByRole('button', { name: 'Docs', exact: true }).click();
   await expect(page.getByRole('complementary', { name: 'Document pages' })).toBeVisible();
   await page.getByRole('button', { name: 'New page', exact: true }).click();
@@ -75,7 +75,7 @@ test('project Board and Docs pages support live Markdown, subpages and persisten
 test('rich editor formats in place, supports slash blocks, and saves Markdown', async ({
   page,
 }) => {
-  await page.goto('http://127.0.0.1:5173');
+  await page.goto('/');
   await page.getByRole('button', { name: 'Docs', exact: true }).click();
   await page.getByRole('button', { name: 'New page', exact: true }).click();
   await page.getByLabel('New page title').fill('Project guide');
@@ -139,7 +139,7 @@ test('rich editor preserves tables, links, code, and formatting through save and
       }),
     ),
   );
-  await page.goto('http://127.0.0.1:5173');
+  await page.goto('/');
   await page.getByRole('button', { name: 'Docs', exact: true }).click();
   const editor = page.getByRole('textbox', { name: 'Document content' });
   await expect(editor.locator('table')).toContainText('Build');
@@ -178,7 +178,7 @@ test('rich editor preserves tables, links, code, and formatting through save and
 test('document context menu preserves selection and supports keyboard block editing', async ({
   page,
 }) => {
-  await page.goto('http://127.0.0.1:5173');
+  await page.goto('/');
   await page.getByRole('button', { name: 'Docs', exact: true }).click();
   await page.getByRole('button', { name: 'New page', exact: true }).click();
   await page.getByLabel('New page title').fill('Editing menu');
@@ -212,7 +212,7 @@ test('document context menu preserves selection and supports keyboard block edit
 });
 
 test('sidebar organizes nested pages and reveals a newly created child', async ({ page }) => {
-  await page.goto('http://127.0.0.1:5173');
+  await page.goto('/');
   await page.getByRole('button', { name: 'Docs', exact: true }).click();
   await page.getByRole('button', { name: 'New page', exact: true }).click();
   await page.getByLabel('New page title').fill('Handbook');
@@ -243,7 +243,7 @@ test('sidebar organizes nested pages and reveals a newly created child', async (
 });
 
 test('link dialog links to another doc page, and the link opens that page', async ({ page }) => {
-  await page.goto('http://127.0.0.1:5173');
+  await page.goto('/');
   await page.getByRole('button', { name: 'Docs', exact: true }).click();
   await page.getByRole('button', { name: 'New page', exact: true }).click();
   await page.getByLabel('New page title').fill('Release checklist');
