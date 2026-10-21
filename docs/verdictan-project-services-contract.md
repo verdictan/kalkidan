@@ -57,7 +57,7 @@ Deletion must remove content from retrieval and invalidate caches. Return `pendi
 
 ## Default Kalkidan configuration
 
-Verdictan removed the administrator template operations. The broker rejects them with `desktop.operation_unsupported`. One default Kalkidan configuration replaces them. `setup.ensure_default` makes it once for each organization. `resources.provision` without both policy IDs uses it.
+Verdictan removed the administrator template operations. The broker rejects them with `desktop.operation_unsupported`. One default Kalkidan configuration replaces them. `setup.bootstrap` makes it and the Kalkidan agent once for each organization. Older runtimes use `setup.ensure_default`. `resources.provision` without policy IDs and without `agent_id` uses it. `resources.provision` with `agent_id` attaches the host to that agent.
 
 ## Recovery and errors
 
