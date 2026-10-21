@@ -239,6 +239,42 @@ Node.js 26.11.1, not 24.21.0. The script used an owner-only temporary directory.
 It installed 0.6.3 from the public release. Clean install, restart, and the
 capability probe passed. The operator then removed the temporary directory.
 
+## Runtime 0.6.4 approval on 2026-10-21
+
+The owner approved Verdictan 0.6.4 for macOS ARM64 and Linux x64. The 0.6.4
+pins replace the 0.6.3 pins. The operator used the same method as for 0.6.3.
+
+This approval is urgent. A 0.6.3 gateway does not load the default Kalkidan
+configuration that Verdictan makes. Verdictan 0.6.4 corrects this problem. It
+also adds the wildcard provider target.
+
+The evidence is the public `v0.6.4` release of `verdictan/packages` (tag
+`cli/v0.6.4`, source `0fcac43d0c2e7cfa56e48fd9e46724a1da3d8619`). The operator
+downloaded the assets with `gh release download` into an empty directory. The
+downloaded manifest and archives, their `.sha256` assets, and the `sha256.sum`
+entries agree. The extracted executables have the digests below.
+
+Offline checks passed for the macOS ARM64 executable. It reports version 0.6.4
+and both subscription capabilities. It passed the six gateway startup cases.
+
+### macOS ARM64 pin
+
+The operator approved the published manifest with `scripts/approve-runtime.ts`
+for `darwin arm64 26.7.1`. The approval uses these values:
+
+- Manifest `desktop-release-manifest.v1.json`, SHA-256
+  `f8d59d194c7b4248fdb5ce44e8c3ded80fa6b9b4a3571ebd5d0d7ed8fba59374`,
+  sequence `1792593509537`.
+- Archive `verdictan-aarch64-apple-darwin.tar.gz`, size 89314460 bytes,
+  SHA-256 `06b9a57829b1bafaa65d2ab039d9a3ae0f10145c7c50b007e27f699c1454d76a`.
+- Executable SHA-256
+  `8c304dea2d503ecc7a1f8d1331db488ee77d995550fd845980802f5a9740d5b6`.
+- Manifest expiry: `1793198309` (2026-10-28 14:38:29 UTC). Renew the approval
+  before this time.
+
+`tests/acceptance/runtime-install.ts` installed 0.6.4 from the public release in
+a disposable root. Clean install, restart, and the capability probe passed.
+
 ## Claude subscription adapter on 2026-10-21
 
 Verdictan CLI 0.6.1 advertises `provider_access.claude_subscription`. The Kalkidan

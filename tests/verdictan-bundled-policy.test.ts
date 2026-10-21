@@ -18,7 +18,7 @@ test('bundled runtime pins select the execution host, including SSH Linux', () =
     });
     assert.equal(release.artifact.target, artifact.target);
     assert.equal(release.artifact.sha256, selected.pin.artifact_sha256);
-    assert.equal(release.version, '0.6.3');
+    assert.equal(release.version, artifact.os === 'darwin' ? '0.6.4' : '0.6.3');
     // Each host policy approves only its own target. Do not copy a pin to another target.
     assert.deepEqual(
       JSON.parse(selected.manifest).artifacts.map((entry: { target: string }) => entry.target),
@@ -29,7 +29,7 @@ test('bundled runtime pins select the execution host, including SSH Linux', () =
   const mac = JSON.parse(runtimePolicyForHost(policy, 'darwin', 'arm64').manifest).artifacts[0];
   assert.equal(
     mac.executable_sha256,
-    '1a929f482c26fdcf3ebf725928cd34ffed1e1c9c1e1a877d53840608c76cef5e',
+    '8c304dea2d503ecc7a1f8d1331db488ee77d995550fd845980802f5a9740d5b6',
   );
   const linuxManifest = JSON.parse(runtimePolicyForHost(policy, 'linux', 'x64').manifest);
   // The reviewed Linux manifest must have a higher sequence than the 0.6.1 reviewed manifest.
