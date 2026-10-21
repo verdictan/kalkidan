@@ -69,3 +69,16 @@ test('runtime admission requires trusted host OS version and authenticated minim
     assert.throws(() => verify('26.7.1'), /artifact/);
   }
 });
+
+test('runtime admission validates the optional executable digest format', () => {
+  const f = releaseFixture();
+  const verify = () =>
+    verifyRuntimeRelease(Buffer.from(JSON.stringify(f.manifest)), f.pin(), f.options);
+  const artifact = f.manifest.artifacts[0] as any;
+  artifact.executable_sha256 = 'a'.repeat(64);
+  assert.equal(verify().artifact.executable_sha256, 'a'.repeat(64));
+  for (const value of ['', 'A'.repeat(64), 'a'.repeat(63), null, 1]) {
+    artifact.executable_sha256 = value;
+    assert.throws(verify, /Invalid runtime artifact/);
+  }
+});

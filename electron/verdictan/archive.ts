@@ -1,4 +1,5 @@
-import { createWriteStream } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { createReadStream, createWriteStream } from 'node:fs';
 import { chmod, lstat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { pipeline } from 'node:stream/promises';
@@ -87,5 +88,12 @@ export async function extractRuntime(
       throw new Error('The extracted runtime contains a non-file entry.');
     await chmod(join(destination, name), name.endsWith('.md') ? 0o600 : 0o700);
   }
-  return join(destination, executable);
+  const path = join(destination, executable);
+  if (artifact.executable_sha256 !== undefined) {
+    const hash = createHash('sha256');
+    for await (const bytes of createReadStream(path)) hash.update(bytes);
+    if (hash.digest('hex') !== artifact.executable_sha256)
+      throw new Error('The runtime executable checksum failed.');
+  }
+  return path;
 }
