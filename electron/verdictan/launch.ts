@@ -4,7 +4,6 @@ import { inferenceGuard, guardedRoute } from './inference-guard';
 import { realpath } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import type { ManagedLaunch, ManagedLaunchRequest } from '../agents/managed-launch';
-import { parseCapabilities } from './account';
 import { BindingStore, assertCompatible, identityKey, type ConversationBinding } from './bindings';
 import { VerdictanSetupService } from './setup';
 import { ManagedRuntimes } from './runtime';
@@ -17,7 +16,13 @@ import {
   type NativeClaudeAccess,
 } from './claude-subscription-auth';
 import {
-  claudeSubscriptionNativeVersion,
+  agentVersionErrorCode,
+  checkAgentVersion,
+  type NativeAgentKind,
+} from '../../src/domain/agent-version';
+import { installedAgentVersion, type InstalledAgentVersion } from '../agents/installed-version';
+import type { NativeAgent } from './gateway';
+import {
   claudeSubscriptionRecovery,
   usesDefaultPolicy,
   type ProviderAccessMode,
@@ -94,6 +99,7 @@ export class VerdictanLaunchService {
     },
     private claudeAccess: () => Promise<NativeClaudeAccess> = () => readNativeClaudeAccess(),
     private now = Date.now,
+    private installedVersion: InstalledAgentVersion = installedAgentVersion,
   ) {}
   async prepare(request: ManagedLaunchRequest): Promise<ManagedLaunch> {
     const context: { mode?: ProviderAccessMode } = {};
@@ -124,13 +130,17 @@ export class VerdictanLaunchService {
     );
     context.mode = selection.providerAccessMode;
     const claudeSubscription = selection.providerAccessMode === 'claude_subscription';
-    const registry = parseCapabilities((await client.request('capabilities')).data).testedAgents;
-    const kind = request.session.agent === 'codex' ? 'codex' : 'claude_code';
-    const agent = registry.find((a) => a.kind === kind);
-    if (!agent) throw new DesktopProtocolError('desktop.agent_version_unsupported');
-    // Only the qualified native version can use subscription access.
-    if (claudeSubscription && agent.version !== claudeSubscriptionNativeVersion)
-      throw new DesktopProtocolError('desktop.agent_version_unsupported');
+    const kind: NativeAgentKind = request.session.agent === 'codex' ? 'codex' : 'claude_code';
+    // Kalkidan's minimum applies to each managed launch: new, resumed, forked, local, SSH, and
+    // background. Verdictan does not pin agent versions, so `tested_agents` is not a gate.
+    const check = checkAgentVersion(
+      kind,
+      await this.installedVersion(kind, request.executable, request.signal),
+    );
+    const refused = agentVersionErrorCode(check);
+    if (refused) throw new DesktopProtocolError(refused);
+    request.signal.throwIfAborted();
+    const agent: NativeAgent = { kind, version: check.version! };
     const identity = await (this.identities
       ? this.identities()
       : this.store.identities(this.hostKey));

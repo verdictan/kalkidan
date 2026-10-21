@@ -1,4 +1,4 @@
-import { parseCapabilities } from './account';
+import { agentVersionErrorCode, checkAgentVersion } from '../../src/domain/agent-version';
 import { DesktopClient, DesktopProtocolError, type RuntimeProvision } from './protocol';
 import { ManagedGateway, type GatewayOptions, type NativeAgent } from './gateway';
 import { uuid, type RuntimeCredentials } from './credentials';
@@ -70,11 +70,11 @@ export class ManagedRuntimes {
       if (this.records.size >= 128) throw new DesktopProtocolError('desktop.runtime_limit');
       if (this.records.has(binding.session_id))
         throw new DesktopProtocolError('desktop.runtime_already_owned');
+      // Kalkidan's minimum, not Verdictan's `tested_agents`, decides which agent can start.
+      const refused = agentVersionErrorCode(checkAgentVersion(agent.kind, agent.version));
+      if (refused) throw new DesktopProtocolError(refused);
       const generation = this.generation;
       const client = await this.options.client();
-      const supported = parseCapabilities((await client.request('capabilities')).data).testedAgents;
-      if (!supported.some((v) => v.kind === agent.kind && v.version === agent.version))
-        throw new DesktopProtocolError('desktop.agent_version_unsupported');
       if (generation !== this.generation || this.closing)
         throw new DesktopProtocolError('desktop.runtime_stopped');
       const item: OwnedRuntime = {

@@ -6,6 +6,7 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import type { ManagedLaunchRequest } from '../agents/managed-launch';
 import { DesktopProtocolError } from './protocol';
+import { nativeAgentKind, parseAgentVersion } from '../../src/domain/agent-version';
 
 const exec = promisify(execFile);
 const pathWithin = (root: string, path: string) => path === root || path.startsWith(root + '/');
@@ -111,16 +112,14 @@ export async function prepareIsolation(
       maxBuffer: 8192,
       signal: request.signal,
     });
-    const match =
-      /^(?:codex(?:-cli)?\s+)?(\d+\.\d+\.\d+(?:-[A-Za-z0-9.-]+)?)(?:\s+\(Claude Code\))?\s*$/.exec(
-        stdout.trim(),
-      );
-    if (!match) throw new DesktopProtocolError('desktop.agent_version_unsupported');
+    // The isolated agent must print the same version that the launch check accepted.
+    const version = parseAgentVersion(stdout, nativeAgentKind(request.session.agent));
+    if (!version) throw new DesktopProtocolError('desktop.agent_version_unsupported');
     return {
       executable: launcher,
       prefix,
       env,
-      version: match[1],
+      version,
       close: async () => {
         await release?.();
         await rm(temporary, { recursive: true, force: true });

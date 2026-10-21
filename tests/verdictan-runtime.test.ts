@@ -129,13 +129,8 @@ test('runtime owns provisioning, readiness, rotation and revocation in order', a
   await f.start();
   assert.equal(f.owner.status()[0].phase, 'ready');
   assert.equal(f.owner.busy(), true);
-  assert.deepEqual(f.calls, [
-    'capabilities',
-    'runtime.provision',
-    'export',
-    'start-gateway',
-    'readiness',
-  ]);
+  // No capabilities request: Verdictan's tested versions do not gate a start.
+  assert.deepEqual(f.calls, ['runtime.provision', 'export', 'start-gateway', 'readiness']);
   await f.owner.route(id, {
     projectId: 'project',
     taskId: 'task',
@@ -158,7 +153,7 @@ test('runtime owns provisioning, readiness, rotation and revocation in order', a
     /unavailable/,
   );
 });
-test('unknown exact versions cannot provision; wrong protected bindings cannot start a gateway', async () => {
+test('versions below the minimum cannot provision; wrong protected bindings cannot start a gateway', async () => {
   const f = fixture();
   await assert.rejects(
     f.owner.start(binding, { ...agent, version: '0.1.0' }, async () => {}),
@@ -305,4 +300,20 @@ test('application shutdown cannot make a revoked runtime renewable', async () =>
   await f.owner.stopAll();
   assert.equal(f.owner.status()[0].phase, 'revoked');
   await assert.rejects(f.owner.renew(id), /reconciliation_required/);
+});
+
+test('runtime start refuses an agent below the Kalkidan minimum before any provision', async () => {
+  for (const [kind, version, code] of [
+    ['codex', '0.159.9', 'desktop.codex_version_unsupported'],
+    ['claude_code', '2.1.299', 'desktop.claude_code_version_unsupported'],
+    ['claude_code', 'latest', 'desktop.claude_code_version_unknown'],
+  ] as const) {
+    const f = fixture();
+    await assert.rejects(
+      f.owner.start(binding, { kind, version }, async () => {}),
+      (error: any) => error.code === code,
+    );
+    assert.deepEqual(f.calls, []);
+    assert.deepEqual(f.owner.status(), []);
+  }
 });

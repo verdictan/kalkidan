@@ -4,10 +4,8 @@ import type { Writable } from 'node:stream';
 import { StringDecoder } from 'node:string_decoder';
 import { parseRuntimeCredentials, uuid, type RuntimeCredentials } from './credentials';
 import { DesktopProtocolError } from './protocol';
-import {
-  claudeSubscriptionNativeVersion,
-  claudeSubscriptionRecovery,
-} from '../../src/domain/verdictan';
+import { claudeSubscriptionRecovery } from '../../src/domain/verdictan';
+import { agentVersionErrorCode, checkAgentVersion } from '../../src/domain/agent-version';
 
 class ReadinessError extends Error {
   constructor(public readonly code?: string) {
@@ -291,9 +289,10 @@ export class ManagedGateway {
       (mode === 'claude_subscription' && agent.kind !== 'claude_code')
     )
       throw new DesktopProtocolError('desktop.subscription_agent_required');
+    // The same minimum as the launch check. No exact version is pinned.
+    const refused = agentVersionErrorCode(checkAgentVersion(agent.kind, agent.version));
+    if (refused) throw new DesktopProtocolError(refused);
     if (mode === 'claude_subscription') {
-      if (agent.version !== claudeSubscriptionNativeVersion)
-        throw new DesktopProtocolError('desktop.agent_version_unsupported');
       // The gateway key is a separate header. Native subscription authentication stays intact,
       // so no API key, auth token, or key helper is set. The value stays in the child env only.
       return {

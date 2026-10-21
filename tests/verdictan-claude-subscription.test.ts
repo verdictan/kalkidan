@@ -2,7 +2,17 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 import { PassThrough } from 'node:stream';
-import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import {
+  chmod,
+  link,
+  mkdir,
+  mkdtemp,
+  readFile,
+  rename,
+  rm,
+  symlink,
+  writeFile,
+} from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { VerdictanSetupService } from '../electron/verdictan/setup';
@@ -452,9 +462,16 @@ test('Claude subscription route uses native login plus a separate gateway key he
     assert.deepEqual(route.args, ['--setting-sources', '', '--strict-mcp-config']);
     assert.equal(route.args.includes('--bare'), false);
     assert.equal(JSON.stringify(route.args).includes('vdt_'), false);
+    // No exact pin: each Claude Code version at or above 2.1.300 builds the route.
+    for (const version of ['2.1.300', '2.1.305', '2.1.306', '2.2.0'])
+      assert.ok((await owned.nativeRoute({ ...claude, version }, correlation)).env);
     await assert.rejects(
-      owned.nativeRoute({ ...claude, version: '2.1.305' }, correlation),
-      /agent_version_unsupported/,
+      owned.nativeRoute({ ...claude, version: '2.1.299' }, correlation),
+      /claude_code_version_unsupported/,
+    );
+    await assert.rejects(
+      owned.nativeRoute({ ...claude, version: 'latest' }, correlation),
+      /claude_code_version_unknown/,
     );
     await assert.rejects(
       owned.nativeRoute({ kind: 'codex', version: '0.163.0-alpha.10.2' }, correlation),
@@ -593,7 +610,7 @@ test('host-local Claude login gives only a short-lived access token and fails cl
     ],
     [
       { ...mac, readMacSecret: async () => store({ accessToken: 'bad token' }) },
-      'claude_subscription_login_required',
+      'claude_subscription_credential_format_unsupported',
     ],
     [
       { ...mac, readMacSecret: async () => Promise.reject(Error('locked')) },
@@ -601,6 +618,74 @@ test('host-local Claude login gives only a short-lived access token and fails cl
     ],
   ] as const)
     await assert.rejects(readNativeClaudeAccess(options as any), new RegExp(`desktop\\.${code}`));
+});
+
+test('Claude credential layouts are recognized by structure, not by Claude Code version', async () => {
+  const mac = {
+    platform: 'darwin',
+    arch: 'arm64',
+    environment: {},
+    account: 'user',
+    home: '/Users/user',
+  };
+  const read = (value: Buffer | Promise<Buffer>) =>
+    readNativeClaudeAccess({ ...mac, readMacSecret: async () => value });
+  const json = (value: unknown) => Buffer.from(JSON.stringify(value));
+  const expires = Date.now() + 3600000;
+  // The layout that Claude Code 2.1.300 and later write: more fields, and other top-level keys.
+  const current = {
+    claudeAiOauth: {
+      accessToken: token,
+      refreshToken: 'refresh-must-not-leave',
+      expiresAt: expires,
+      refreshTokenExpiresAt: expires + 86400000,
+      scopes: ['user:inference', 'user:profile', 'user:sessions:claude_code'],
+      subscriptionType: 'max',
+      subscriptionTypeSource: 'sign_in',
+      rateLimitTier: 'default_claude_max_20x',
+    },
+    mcpOAuth: { server: { accessToken: 'other' } },
+  };
+  assert.deepEqual(await read(json(current)), { token, expiresAt: expires });
+  // `security -w` prints hexadecimal when the data is not plain text.
+  const hex = Buffer.from(json(current).toString('hex') + '\n');
+  assert.equal((await read(hex)).token, token);
+  assert.ok(hex.every((byte) => byte === 0));
+  const login = /desktop\.claude_subscription_login_required/;
+  const format = /desktop\.claude_subscription_credential_format_unsupported/;
+  const oauth = current.claudeAiOauth;
+  for (const [value, expected] of [
+    // Signed out, or a token that Claude Code cleared after the server refused it.
+    [{}, login],
+    [{ mcpOAuth: {} }, login],
+    [{ claudeAiOauth: null }, login],
+    [{ claudeAiOauth: { ...oauth, accessToken: '', refreshToken: '', expiresAt: 0 } }, login],
+    [{ claudeAiOauth: { ...oauth, expiresAt: Date.now() - 1 } }, login],
+    [{ claudeAiOauth: { ...oauth, expiresAt: Date.now() + 2 * 86400000 } }, login],
+    [{ claudeAiOauth: { ...oauth, scopes: ['user:profile'] } }, login],
+    // Layouts with unknown types or units fail closed.
+    [[], format],
+    [{ claudeAiOauth: [] }, format],
+    [{ claudeAiOauth: 'token' }, format],
+    [{ claudeAiOauth: { ...oauth, accessToken: 7 } }, format],
+    [{ claudeAiOauth: { ...oauth, expiresAt: String(expires) } }, format],
+    [{ claudeAiOauth: { ...oauth, expiresAt: Math.floor(expires / 1000) } }, format],
+    [{ claudeAiOauth: { ...oauth, scopes: 'user:inference user:profile' } }, format],
+    [{ claudeAiOauth: { ...oauth, scopes: [1] } }, format],
+    [{ claudeAiOauth: { ...oauth, accessToken: 'has spaces in it' } }, format],
+  ] as const)
+    await assert.rejects(read(json(value)), expected, JSON.stringify(value));
+  await assert.rejects(read(Buffer.from('not json')), format);
+  await assert.rejects(read(Buffer.alloc(65537, 32)), format);
+  // A locked keychain keeps its own code. A missing item needs a sign-in.
+  await assert.rejects(
+    read(Promise.reject(new DesktopProtocolError('desktop.secure_storage_unavailable'))),
+    /desktop\.secure_storage_unavailable/,
+  );
+  await assert.rejects(
+    read(Promise.reject(new DesktopProtocolError('desktop.claude_subscription_login_required'))),
+    login,
+  );
 });
 
 test('Linux host-local login requires a private, owner-only native credential file', async () => {
@@ -611,17 +696,33 @@ test('Linux host-local login requires a private, owner-only native credential fi
     const file = join(home, '.claude', '.credentials.json');
     await writeFile(file, store(), { mode: 0o600 });
     assert.equal((await readNativeClaudeAccess(linux)).token, token);
+    // An insecure layout fails closed with the unsupported format code.
+    const format = /credential_format_unsupported/;
     await chmod(file, 0o644);
-    await assert.rejects(readNativeClaudeAccess(linux), /login_required/);
+    await assert.rejects(readNativeClaudeAccess(linux), format);
     await chmod(file, 0o600);
     await chmod(join(home, '.claude'), 0o777);
+    await assert.rejects(readNativeClaudeAccess(linux), format);
+    await chmod(join(home, '.claude'), 0o700);
+    await link(file, join(home, 'second-link'));
+    await assert.rejects(readNativeClaudeAccess(linux), format);
+    await rm(join(home, 'second-link'));
+    await rename(file, join(home, 'real.json'));
+    await symlink(join(home, 'real.json'), file);
+    await assert.rejects(readNativeClaudeAccess(linux), format);
+    // No file, or no directory, means that Claude Code has no sign-in.
+    await rm(file);
+    await assert.rejects(readNativeClaudeAccess(linux), /login_required/);
+    await rm(join(home, '.claude'), { recursive: true });
     await assert.rejects(readNativeClaudeAccess(linux), /login_required/);
   } finally {
     await rm(home, { recursive: true, force: true });
   }
 });
 
-async function launchFixture(options: { previous?: 'byok'; access?: () => Promise<any> } = {}) {
+async function launchFixture(
+  options: { previous?: 'byok'; access?: () => Promise<any>; installed?: string } = {},
+) {
   const root = await mkdtemp(join(tmpdir(), 'claude-launch-'));
   const calls: { operation: string; parameters?: any }[] = [];
   const store = new BindingStore(root);
@@ -681,12 +782,13 @@ async function launchFixture(options: { previous?: 'byok'; access?: () => Promis
         executable: '/sandbox',
         prefix: ['/claude'],
         env: { HOME: '/private', CLAUDE_CONFIG_DIR: '/private' },
-        version: claude.version,
+        version: options.installed ?? claude.version,
         close: async () => {},
       }),
     },
     options.access || (async () => ({ token, expiresAt: now + 30000 + 80 })),
     () => now,
+    async () => options.installed ?? claude.version,
   );
   if (options.previous)
     await store.save('claude_code', 'old', {
@@ -880,4 +982,31 @@ test('subscription usage keeps null costs and never shows a zero provider charge
   assert.equal(historyCostLabel({ actual_cost: 0, currency: null }), 'Unknown');
   assert.equal(historyCostLabel({ usage: { measured_cost: '0.12', currency: 'USD' } }), '0.12 USD');
   assert.equal(historyCostLabel({ actual_cost: 1.5, currency: 'EUR' }), '1.5 EUR');
+});
+
+test('Claude subscription launches accept each Claude Code version at or above 2.1.300', async () => {
+  for (const installed of ['2.1.300', '2.1.304', '2.1.306']) {
+    const f = await launchFixture({ installed });
+    try {
+      const launch = await f.service.prepare(f.request);
+      assert.equal((await f.store.read('claude_code', 'new'))!.agent_version, installed);
+      await launch.finish();
+    } finally {
+      await f.cleanup();
+    }
+  }
+  const old = await launchFixture({ installed: '2.1.296' });
+  try {
+    await assert.rejects(old.service.prepare(old.request), (error: any) => {
+      assert.equal(error.code, 'desktop.claude_code_version_unsupported');
+      assert.match(error.message, /Kalkidan needs Claude Code 2\.1\.300 or later/);
+      return true;
+    });
+    assert.equal(
+      old.calls.some((c) => c.operation === 'resources.provision' || c.operation === 'start'),
+      false,
+    );
+  } finally {
+    await old.cleanup();
+  }
 });
