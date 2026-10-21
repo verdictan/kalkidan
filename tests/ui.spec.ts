@@ -763,7 +763,7 @@ test('choose an existing GitHub project or create one without entering a URL', a
   ).toBeVisible();
 });
 
-test('add repositories can create a project, pick a GitHub repo, and clone into it', async ({
+test('add repositories can create a project, then clone a GitHub repo into it', async ({
   page,
 }) => {
   await page.goto('/');
@@ -779,6 +779,14 @@ test('add repositories can create a project, pick a GitHub repo, and clone into 
   await create.getByRole('button', { name: 'Connect now', exact: true }).click();
   await create.getByRole('button', { name: 'Atlas roadmap #1', exact: true }).click();
   await create.getByRole('button', { name: 'Create project', exact: true }).click();
+  // Creating the project ends the flow. The new project opens, and the dialog stays closed.
+  await expect(create).not.toBeVisible();
+  await expect(dialog).not.toBeVisible();
+  await page
+    .locator('.project-group')
+    .filter({ has: page.getByRole('button', { name: 'Mobile', exact: true }) })
+    .getByRole('button', { name: 'Add code folders to Mobile', exact: true })
+    .click();
   await expect(dialog.getByRole('combobox', { name: 'Add to project' })).toContainText('Mobile');
   await dialog.getByRole('button', { name: 'Clone from GitHub', exact: true }).click();
   await dialog.getByLabel('Search GitHub repositories').fill('mobile');
