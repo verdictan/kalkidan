@@ -1,7 +1,7 @@
 import { createReadStream } from 'node:fs';
 import { createInterface } from 'node:readline';
 import { codexIndex } from './codex-store';
-import { contentText } from './transcript';
+import { contentText, visibleUserText } from './transcript';
 import { readdir, stat, realpath } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { Session } from '../src/types';
@@ -107,7 +107,7 @@ async function scanHistory(codexRoot: string, claudeRoot: string, sources?: Map<
                           row.payload.role === 'user'
                         ? row.payload.content
                         : null;
-                const text = contentText(content).trim();
+                const text = visibleUserText(contentText(content));
                 if (!title && text && !injectedContext(text))
                   title = text.replace(/\s+/g, ' ').slice(0, 120);
                 if (cwd && id && title) break;
