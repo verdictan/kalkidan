@@ -1,11 +1,12 @@
 import { test, expect } from '@playwright/test';
 import { openTool } from './helpers/tools';
+import { openCodeFolder } from './helpers/navigation';
 test('tool pane resizes, keeps the composer visible, and preserves independent tabs', async ({
   page,
 }) => {
   await page.goto('/');
   await page.setViewportSize({ width: 1440, height: 1000 });
-  await page.locator('.repo-select').first().click();
+  await openCodeFolder(page);
   await page.getByRole('button', { name: 'New Codex chat', exact: true }).click();
   await page.getByLabel('Message agent').fill('Keep this draft');
   // The title bar shows the session tools with their names.
@@ -95,7 +96,7 @@ test('browser menu exposes working find, device, history, settings, and data con
     };
   });
   await page.goto('/');
-  await page.locator('.repo-select').click();
+  await openCodeFolder(page);
   await page.getByRole('button', { name: 'New Codex chat' }).click();
   await openTool(page, 'Browser');
   await page.getByRole('button', { name: 'Open preview' }).click();

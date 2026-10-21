@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { openCodeFolder } from './helpers/navigation';
 
 test('agent questions accept keyboard answers without granting permissions', async ({ page }) => {
   await page.addInitScript(() => {
@@ -76,7 +77,7 @@ test('agent questions accept keyboard answers without granting permissions', asy
     };
   });
   await page.goto('/');
-  await page.locator('.repo-select').click();
+  await openCodeFolder(page);
   await page.getByRole('button', { name: 'Resume Plan work', exact: true }).click();
   await page.getByLabel('Message agent').fill('Plan the implementation');
   await page.getByRole('button', { name: 'Send', exact: true }).click();

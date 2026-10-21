@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { openTool } from './helpers/tools';
+import { openCodeFolder } from './helpers/navigation';
 test('dark desktop workflow preserves drafts across resizable tool panes and the launcher', async ({
   page,
 }) => {
@@ -21,7 +22,7 @@ test('dark desktop workflow preserves drafts across resizable tool panes and the
   await page.keyboard.press('Escape');
   await page.locator('.project-tree').getByRole('button', { name: 'Atlas', exact: true }).click();
   await page.screenshot({ animations: 'disabled', path: 'test-results/reference-board.png' });
-  await page.locator('.repo-select').first().click();
+  await openCodeFolder(page);
   await page.getByRole('button', { name: 'New Codex chat', exact: true }).click();
   await page.getByLabel('Message agent').fill('Keep this plan while I inspect the app.');
   await page.screenshot({

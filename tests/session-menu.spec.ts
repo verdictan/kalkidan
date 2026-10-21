@@ -1,8 +1,9 @@
 import { test, expect } from '@playwright/test';
+import { openCodeFolder } from './helpers/navigation';
 async function openSession(page: any) {
   await page.goto('/');
   await page.locator('.project-tree').getByRole('button', { name: 'Atlas', exact: true }).click();
-  await page.locator('.repo-select').first().click();
+  await openCodeFolder(page);
   await page
     .getByRole('button', { name: /^Resume / })
     .first()
@@ -116,7 +117,7 @@ test('usage history loads on open and shows duration and subscription cost', asy
     };
   });
   await page.goto('/');
-  await page.locator('.repo-select').click();
+  await openCodeFolder(page);
   await page.getByRole('button', { name: 'Resume Review', exact: true }).click();
   await page.getByRole('button', { name: 'Chat actions', exact: true }).click();
   await page.getByRole('menuitem', { name: 'Usage history…' }).click();

@@ -1,4 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
+import { openCodeFolder } from './helpers/navigation';
 
 /** The actions of the open menu, in order, with "---" for a separator. */
 async function menuActions(page: Page) {
@@ -38,7 +39,7 @@ const rowActions = [
 
 test('chat rows, the sidebar and the chat header show one action list', async ({ page }) => {
   await page.goto('/');
-  await page.locator('.repo-select').first().click();
+  await openCodeFolder(page);
   const list = page.locator('.session-list');
 
   // The All chats row menu.
@@ -81,7 +82,7 @@ test('chat rows, the sidebar and the chat header show one action list', async ({
 
 test('Notes from a chat row show in the chat header', async ({ page }) => {
   await page.goto('/');
-  await page.locator('.repo-select').first().click();
+  await openCodeFolder(page);
   const list = page.locator('.session-list');
   await list.getByRole('button', { name: `${title} actions`, exact: true }).click();
   await page.getByRole('menuitem', { name: 'Notes…', exact: true }).click();

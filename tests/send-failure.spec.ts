@@ -1,4 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
+import { openCodeFolder } from './helpers/navigation';
 
 /**
  * A refused send keeps the message in the transcript only. The composer is empty, and
@@ -85,7 +86,7 @@ async function installWorkspace(page: Page, options: { remote: boolean; slow?: b
 
 async function newChat(page: Page, agent: 'codex' | 'claude') {
   await page.goto('/');
-  await page.locator('.repo-select').first().click();
+  await openCodeFolder(page);
   if (agent === 'codex')
     await page.getByRole('button', { name: 'New Codex chat', exact: true }).click();
   else {

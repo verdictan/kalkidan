@@ -1,5 +1,6 @@
 import { test, expect, type Page } from '@playwright/test';
 import { openTool } from './helpers/tools';
+import { openCodeFolder } from './helpers/navigation';
 
 async function openChat(page: Page, staged: string) {
   await page.addInitScript((stagedDiff) => {
@@ -43,7 +44,7 @@ async function openChat(page: Page, staged: string) {
     };
   }, staged);
   await page.goto('/');
-  await page.locator('.repo-select').click();
+  await openCodeFolder(page);
   await page.getByRole('button', { name: 'Resume Implement feature', exact: true }).click();
 }
 

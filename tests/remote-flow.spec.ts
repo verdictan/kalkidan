@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { openCodeFolder, openAddCodeFolders } from './helpers/navigation';
 
 test('remote project flow checks and installs the host, picks remote folders, and routes sessions remotely', async ({
   page,
@@ -106,9 +107,7 @@ test('remote project flow checks and installs the host, picks remote folders, an
     .fill('https://github.com/orgs/example/projects/1');
   await page.screenshot({ path: 'test-results/remote-project-setup.png', fullPage: true });
   await dialog.getByRole('button', { name: 'Create project', exact: true }).click();
-  await page
-    .getByRole('button', { name: 'Add code folders to Remote platform', exact: true })
-    .click();
+  await openAddCodeFolders(page, 'Remote platform');
   const add = page.getByRole('dialog', { name: 'Add code folders', exact: true });
   await add.getByRole('combobox', { name: 'Add to project' }).click();
   await page.getByRole('option', { name: 'Remote platform', exact: true }).click();
@@ -125,7 +124,7 @@ test('remote project flow checks and installs the host, picks remote folders, an
   await add.getByRole('button', { name: 'web', exact: true }).click();
   await expect(add.getByLabel('Remote folder path')).toHaveValue('/home/dev/web');
   await add.getByRole('button', { name: 'Add remote folder', exact: true }).click();
-  await page.locator('.repo-select').click();
+  await openCodeFolder(page);
   await expect(page.getByText(/^SSH · Development · connected/)).toBeVisible();
   await page.getByRole('button', { name: 'New Codex chat', exact: true }).click();
   await page.getByLabel('Message agent').fill('Inspect this repository');

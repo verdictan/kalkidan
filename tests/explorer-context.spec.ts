@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { openCodeFolder } from './helpers/navigation';
 
 test('explorer context menus rename the clicked item and confirm non-destructive removal', async ({
   page,
@@ -11,23 +12,27 @@ test('explorer context menus rename the clicked item and confirm non-destructive
   await page.getByRole('textbox', { name: 'Project name', exact: true }).fill('Renamed project');
   await page.getByRole('button', { name: 'Save project' }).click();
   await expect(tree.getByRole('button', { name: 'Renamed project', exact: true })).toBeVisible();
-  const repo = tree.getByRole('button', { name: 'design-system', exact: true });
-  await repo.focus();
-  await repo.press('Shift+F10');
+  // Code folders open from the project overview. Their page has the code folder actions.
+  await openCodeFolder(page, 'design-system');
+  await page.getByRole('button', { name: 'Repository actions', exact: true }).click();
   await page.getByRole('menuitem', { name: 'Edit code folder…' }).click();
   await page.getByRole('textbox', { name: 'Repository name', exact: true }).fill('Components');
   await page.getByRole('button', { name: 'Save changes' }).click();
-  await expect(tree.getByRole('button', { name: 'Components', exact: true })).toBeVisible();
-  await expect(tree.getByRole('button', { name: 'atlas-web', exact: true })).toBeVisible();
-  await tree.getByRole('button', { name: 'Components', exact: true }).click({ button: 'right' });
-  await page.getByRole('menuitem', { name: 'Remove from Kalkidan…' }).click();
+  await expect(page.getByRole('heading', { name: 'Components', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Repository actions', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Edit code folder…' }).click();
+  await page.getByRole('button', { name: 'Remove from Kalkidan…', exact: true }).click();
   await expect(page.getByRole('dialog')).toContainText('stay on disk');
   await page.getByRole('button', { name: 'Cancel', exact: true }).click();
-  await expect(tree.getByRole('button', { name: 'Components', exact: true })).toBeVisible();
-  await tree.getByRole('button', { name: 'Components', exact: true }).click({ button: 'right' });
-  await page.getByRole('menuitem', { name: 'Remove from Kalkidan…' }).click();
+  await expect(page.getByRole('heading', { name: 'Components', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Repository actions', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Edit code folder…' }).click();
+  await page.getByRole('button', { name: 'Remove from Kalkidan…', exact: true }).click();
   await page.getByRole('button', { name: 'Remove from Kalkidan', exact: true }).click();
-  await expect(tree.getByRole('button', { name: 'Components', exact: true })).toHaveCount(0);
+  await tree.getByRole('button', { name: 'Renamed project', exact: true }).click();
+  const folders = page.getByRole('region', { name: 'Code folders' });
+  await expect(folders.getByText('atlas-web', { exact: true })).toBeVisible();
+  await expect(folders.getByText('Components', { exact: true })).toHaveCount(0);
 });
 
 test('session right-click actions rename, pin and archive without opening a conversation', async ({
@@ -35,7 +40,7 @@ test('session right-click actions rename, pin and archive without opening a conv
 }) => {
   await page.goto('/');
   const tree = page.getByRole('navigation', { name: 'Projects and repositories' });
-  // Each code folder shows its recent chats. The pin button on the row pins a chat.
+  // Each project shows its recent chats. The pin button on the row pins a chat.
   await tree
     .getByRole('button', { name: 'Chat: Refine project and repository navigation', exact: true })
     .hover();

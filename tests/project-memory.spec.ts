@@ -1,14 +1,19 @@
 import { test, expect } from '@playwright/test';
+import { openProjectTab } from './helpers/navigation';
 
-test('Memory is beneath Docs and opens a read-only project page', async ({ page }) => {
+test('Memory follows Docs in the project tabs and opens a read-only project page', async ({
+  page,
+}) => {
   await page.goto('/');
-  const tree = page.getByRole('navigation', { name: 'Projects and repositories' });
-  const docs = tree.getByRole('button', { name: 'Docs', exact: true });
-  const memory = tree.getByRole('button', { name: 'Memory', exact: true });
+  await page.locator('.project-tree').getByRole('button', { name: 'Atlas', exact: true }).click();
+  const tabs = page.getByRole('navigation', { name: 'Project page' });
+  const docs = tabs.getByRole('button', { name: 'Docs', exact: true });
+  const memory = tabs.getByRole('button', { name: 'Memory', exact: true });
   const docsBox = await docs.boundingBox();
   const memoryBox = await memory.boundingBox();
-  expect(memoryBox!.y).toBeGreaterThan(docsBox!.y);
+  expect(memoryBox!.x).toBeGreaterThan(docsBox!.x);
   await memory.click();
+  await expect(memory).toHaveAttribute('aria-current', 'page');
   const panel = page.getByRole('region', { name: 'Project memory', exact: true });
   await expect(panel.getByRole('heading', { name: 'Memory', exact: true })).toBeVisible();
   await expect(panel.locator('header').first()).toContainText('Atlas');
@@ -62,15 +67,18 @@ test('Memory renders agent files and refreshes changes without editing controls'
     };
   });
   await page.goto('/');
-  await page.getByRole('button', { name: 'Memory', exact: true }).click();
+  await openProjectTab(page, 'Memory');
   const panel = page.getByRole('region', { name: 'Project memory', exact: true });
   await expect(panel.getByRole('heading', { name: 'Test conventions' })).toBeVisible();
   await expect(panel).toContainText('Run npm test.');
+  // The project overview can read memory too. Count the reads from here.
+  const reads = await page.evaluate(() => (window as any).memoryReads);
+  const revisions = await page.evaluate(() => (window as any).memoryRevisionReads);
   await page.evaluate(() => window.dispatchEvent(new Event('focus')));
   await expect
     .poll(() => page.evaluate(() => (window as any).memoryRevisionReads))
-    .toBeGreaterThan(1);
-  await expect.poll(() => page.evaluate(() => (window as any).memoryReads)).toBe(1);
+    .toBeGreaterThan(revisions);
+  await expect.poll(() => page.evaluate(() => (window as any).memoryReads)).toBe(reads);
   await page.evaluate(() => {
     (window as any).memoryBody = 'Run npm test and lint.';
   });
@@ -105,11 +113,11 @@ test('late Memory reads cannot display content in another project', async ({ pag
     };
   });
   await page.goto('/');
-  await page.getByRole('button', { name: 'Memory', exact: true }).first().click();
+  await openProjectTab(page, 'Memory');
   await expect
     .poll(() => page.evaluate(() => typeof (window as any).resolveAlpha))
     .toBe('function');
-  await page.getByRole('button', { name: 'Memory', exact: true }).nth(1).click();
+  await openProjectTab(page, 'Memory', 'Beta');
   const panel = page.getByRole('region', { name: 'Project memory', exact: true });
   await expect(panel.getByRole('heading', { name: 'Memory', exact: true })).toBeVisible();
   await expect(panel.locator('header').first()).toContainText('Beta');
@@ -148,7 +156,7 @@ for (const ready of [true, false])
       };
     }, ready);
     await page.goto('/');
-    await page.getByRole('button', { name: 'Memory', exact: true }).click();
+    await openProjectTab(page, 'Memory');
     const panel = page.getByRole('region', { name: 'Project memory', exact: true });
     await expect(panel).toContainText('No memory yet');
     const start = panel.getByRole('button', { name: 'Start a chat', exact: true });

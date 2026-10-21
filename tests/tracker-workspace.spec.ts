@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { openProjectTab } from './helpers/navigation';
 
 test('board quick creation, issue inspector and status changes share the tracker state', async ({
   page,
@@ -108,7 +109,7 @@ test('failed initial status leaves one created item available for a status retry
   });
   await page.goto('/');
   // The project row opens the overview. The Tasks row opens the board.
-  await page.locator('.project-tree').getByRole('button', { name: 'Tasks', exact: true }).click();
+  await openProjectTab(page, 'Tasks');
   await page.getByRole('button', { name: 'New task in Building', exact: true }).click();
   await page.getByLabel('Task title').fill('Only create once');
   await page.getByRole('button', { name: 'Add to GitHub', exact: true }).click();

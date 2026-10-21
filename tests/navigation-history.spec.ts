@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { openCodeFolder } from './helpers/navigation';
 
 test('titlebar history traverses boards, repositories and chats, preserves drafts and branches', async ({
   page,
@@ -13,7 +14,7 @@ test('titlebar history traverses boards, repositories and chats, preserves draft
   await expect(forward).toBeDisabled();
   await page.locator('.project-tree').getByRole('button', { name: 'Atlas', exact: true }).click();
   await expect(page.getByRole('region', { name: 'Project tracker', exact: true })).toBeVisible();
-  await page.locator('.repo-select').first().click();
+  await openCodeFolder(page);
   await page
     .getByRole('button', { name: 'Resume Refine project and repository navigation', exact: true })
     .click();
@@ -31,10 +32,7 @@ test('titlebar history traverses boards, repositories and chats, preserves draft
   await expect(page.getByLabel('Message agent')).toHaveValue('Keep this draft while navigating');
   await expect(forward).toBeDisabled();
   await back.click();
-  await page
-    .locator('.project-tree')
-    .getByRole('button', { name: 'design-system', exact: true })
-    .click();
+  await openCodeFolder(page, 'design-system');
   await expect(forward).toBeDisabled();
   await page.setViewportSize({ width: 773, height: 988 });
   await expect(back).toBeInViewport();

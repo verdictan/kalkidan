@@ -1,4 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
+import { openCodeFolder, openAddCodeFolders } from './helpers/navigation';
 
 /** Below 1100px wide, the sidebar starts closed. Opens it. */
 async function openSidebar(page: Page) {
@@ -40,12 +41,10 @@ test('repository dialog contains long names, scrolls results, and keeps actions 
   });
   await page.goto('/');
   await openSidebar(page);
-  await page
-    .getByRole('button', {
-      name: 'Add code folders to Customer platform and shared infrastructure across multiple repositories',
-      exact: true,
-    })
-    .click();
+  await openAddCodeFolders(
+    page,
+    'Customer platform and shared infrastructure across multiple repositories',
+  );
   const dialog = page.getByRole('dialog');
   await dialog.getByRole('combobox', { name: 'Add to project' }).click();
   await page
@@ -82,7 +81,7 @@ test('notifications and a long draft do not push the composer outside the window
   await page.setViewportSize({ width: 980, height: 680 });
   await page.goto('/');
   await openSidebar(page);
-  await page.locator('.repo-select').first().click();
+  await openCodeFolder(page);
   await page.getByRole('button', { name: 'Repository actions', exact: true }).click();
   await page.getByRole('menuitem', { name: 'Edit code folder…', exact: true }).click();
   await page.getByRole('button', { name: 'Save changes', exact: true }).click();
@@ -129,7 +128,7 @@ test('the title bar keeps one row at the minimum window width with tools open', 
   await page.setViewportSize({ width: 980, height: 680 });
   await page.goto('/');
   await openSidebar(page);
-  await page.locator('.repo-select').first().click();
+  await openCodeFolder(page);
   await page.getByRole('button', { name: 'New Codex chat', exact: true }).click();
   await page.getByLabel('Message agent').blur();
   await page.keyboard.press('ControlOrMeta+t');

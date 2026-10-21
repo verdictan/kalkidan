@@ -312,29 +312,13 @@
   background: var(--border);
   pointer-events: none;
 }
-.project-group-actions {
-  display: flex;
-  align-items: center;
-  flex-shrink: 0;
-  gap: 0;
-}
-/* Second level: Tasks, Docs, host, code folders, empty and clone rows. */
-.project-subpage-row,
-.repo-row,
-.tree-host,
+/* Second level: the recent chats of a project, and the empty and clone rows. */
+.tree-session-row,
 .tree-empty,
 .tree-cloning {
   padding-left: calc(var(--space-2) + 16px);
 }
-/* Third level: branch copies and the recent chats of a code folder. */
-.repo-row.worktree-row,
-.tree-session-row {
-  padding-left: calc(var(--space-2) + 32px);
-}
-.tree-session-row.tree-session-deep {
-  padding-left: calc(var(--space-2) + 48px);
-}
-/* Chats under a code folder are lighter and shorter than the folder rows. */
+/* Chats under a project are lighter and shorter than the project rows. */
 .tree-session-row {
   height: var(--control-sm);
   color: var(--muted-foreground);
@@ -342,6 +326,22 @@
 .tree-session-row:hover,
 .tree-session-row.selected {
   color: var(--foreground);
+}
+/* Secondary text after a row label, such as the code folder of a chat. */
+.tree-row .tree-label:has(+ .tree-secondary) {
+  flex: 1 1 auto;
+}
+/* The secondary text gets smaller first, so the label keeps most of the row. */
+.tree-row .tree-secondary {
+  flex: 0 4 auto;
+  min-width: 4ch;
+  max-width: 45%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted-foreground);
+  font-size: var(--text-xs);
+  line-height: 16px;
 }
 .tree-empty,
 .tree-cloning {
@@ -357,21 +357,10 @@
   font-size: var(--text-xs);
   line-height: 16px;
 }
-/* The remote host of an SSH project, below the Docs row. */
-.tree-host {
-  gap: var(--space-2);
-  height: var(--control-sm);
-  font-size: var(--text-xs);
-  line-height: 16px;
-  color: var(--muted-foreground);
-}
-.tree-host small {
+/* The SSH badge of a project row. Its dot shows the connection state of the host. */
+.project-host-badge {
   flex-shrink: 0;
-  font-size: var(--text-2xs);
-  line-height: 16px;
-}
-.tree-host-action {
-  flex-shrink: 0;
+  gap: 4px;
 }
 .tree-host-dot {
   width: 6px;
@@ -1808,12 +1797,6 @@ thead .tracker-task-select {
   color: var(--muted-foreground);
 }
 
-.project-tree .project-subpage {
-  color: var(--muted-foreground);
-}
-.project-subpage[aria-current='page'] {
-  color: var(--foreground);
-}
 .management-pane:has(.project-docs) {
   padding: 0;
   overflow: hidden;
@@ -2895,9 +2878,6 @@ thead .tracker-task-select {
   content: '';
   position: absolute;
   inset: -4px;
-}
-.tree-open-chats {
-  margin-top: var(--space-2);
 }
 .sidebar-update-dot {
   width: 6px;

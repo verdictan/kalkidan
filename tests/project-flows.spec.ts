@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { openCodeFolder, openAddCodeFolders, openProjectTab } from './helpers/navigation';
 const url = '/';
 test('single view ignores old split preferences and preserves conversation drafts while navigating', async ({
   page,
@@ -6,7 +7,7 @@ test('single view ignores old split preferences and preserves conversation draft
   await page.addInitScript(() => localStorage.setItem('kalkidan.layout', 'split'));
   await page.goto(url);
   await expect(page.getByRole('region', { name: 'Project overview', exact: true })).toBeVisible();
-  await page.locator('.repo-select').filter({ hasText: 'atlas-web' }).click();
+  await openCodeFolder(page, 'atlas-web');
   await page.getByRole('button', { name: 'New Codex chat', exact: true }).click();
   await page.getByLabel('Message agent').fill('Preserve this draft');
   await expect(page.getByRole('combobox', { name: 'Content layout' })).toHaveCount(0);
@@ -31,7 +32,7 @@ test('single view ignores old split preferences and preserves conversation draft
 
 test('adding a repository requires choosing a project', async ({ page }) => {
   await page.goto(url);
-  await page.getByRole('button', { name: 'Add code folders to Atlas', exact: true }).click();
+  await openAddCodeFolders(page, 'Atlas');
   const dialog = page.getByRole('dialog');
   await dialog.getByRole('button', { name: 'Local folder', exact: true }).click();
   await dialog.getByRole('combobox', { name: 'Add to project' }).click();
@@ -80,7 +81,7 @@ test('dragging a task syncs its status and a failed write keeps the original col
   });
   await page.goto(url);
   // The project row opens the overview. The Tasks row opens the board.
-  await page.locator('.project-tree').getByRole('button', { name: 'Tasks', exact: true }).click();
+  await openProjectTab(page, 'Tasks');
   const card = page.locator('[draggable="true"]');
   await card.dragTo(page.getByRole('region', { name: 'In progress column', exact: true }), {
     sourcePosition: { x: 4, y: 4 },
@@ -169,7 +170,7 @@ for (const outcome of ['completed', 'failed', 'stopped']) {
       { outcome },
     );
     await page.goto(url);
-    await page.locator('.repo-select').click();
+    await openCodeFolder(page);
     await page.getByRole('button', { name: 'Resume Linked conversation', exact: true }).click();
     await page.getByLabel('Message agent').fill('Implement the feature');
     await page.getByRole('button', { name: 'Send', exact: true }).click();
@@ -195,7 +196,7 @@ test('navigation collapse preserves the conversation and command K restores sear
   page,
 }) => {
   await page.goto(url);
-  await page.locator('.repo-select').filter({ hasText: 'atlas-web' }).click();
+  await openCodeFolder(page, 'atlas-web');
   await page.getByRole('button', { name: 'New Codex chat', exact: true }).click();
   await expect(page.getByText('What are we working on?', { exact: true })).toBeVisible();
   await page.getByLabel('Message agent').fill('Keep this draft while I focus');

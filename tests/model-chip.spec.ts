@@ -1,4 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
+import { openCodeFolder } from './helpers/navigation';
 
 /** Opens a Claude Code chat. `allowed` is the model list of the organization, if any. */
 async function openChat(page: Page, setup: { model?: string; allowed?: string[] }) {
@@ -70,7 +71,7 @@ async function openChat(page: Page, setup: { model?: string; allowed?: string[] 
     };
   }, setup);
   await page.goto('/');
-  await page.locator('.repo-select').click();
+  await openCodeFolder(page);
   await page.getByRole('button', { name: 'Resume Review', exact: true }).click();
 }
 

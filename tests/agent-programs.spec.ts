@@ -1,4 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
+import { openCodeFolder } from './helpers/navigation';
 
 const oldClaude = '/home/linuxbrew/.linuxbrew/bin/claude';
 const newClaude = '/home/u/.local/bin/claude';
@@ -218,7 +219,7 @@ test('a version refusal opens Settings › Agents at the program of that agent',
     };
   });
   await page.goto('/');
-  await page.locator('.repo-select').first().click();
+  await openCodeFolder(page);
   await page.getByRole('button', { name: 'Choose an agent', exact: true }).click();
   await page.getByRole('menuitem', { name: 'New Claude Code chat', exact: true }).click();
   const composer = page.getByLabel('Message agent');
