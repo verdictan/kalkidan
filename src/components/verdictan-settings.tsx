@@ -2,7 +2,7 @@ import { ComponentUpdates } from './component-updates';
 import { VerdictanSetupForm } from './verdictan-setup';
 import { useEffect, useRef, useState } from 'react';
 import type { API } from '../api/contracts';
-import type { VerdictanStatus } from '../domain/verdictan';
+import { accountLabel, serviceName, type VerdictanStatus } from '../domain/verdictan';
 import type { ComponentUpdateStatus } from '../domain/updates';
 import { Button } from './ui/button';
 import { Choice } from './choice';
@@ -57,7 +57,12 @@ export function VerdictanSettings({ api, open }: { api: API; open: boolean }) {
   // A status without a region needs an explicit EU or US choice before sign-in.
   const regionRequired = !!status && !status.region;
   return (
-    <section className="mt-5 grid gap-3 border-t pt-5" aria-label="Verdictan account">
+    <section
+      id="verdictan-account"
+      tabIndex={-1}
+      className="mt-5 grid gap-3 border-t pt-5 outline-none"
+      aria-label="Verdictan account"
+    >
       <div className="flex items-center justify-between gap-3">
         <h3 className="text-sm font-medium">Verdictan</h3>
         <span className="text-xs text-muted-foreground" role="status">
@@ -67,6 +72,7 @@ export function VerdictanSettings({ api, open }: { api: API; open: boolean }) {
       <label className="form-label">
         Account region
         <select
+          id="verdictan-region"
           aria-label="Verdictan region"
           className="h-9 rounded-md border bg-background px-3"
           disabled={busy || status?.phase === 'authorizing'}
@@ -114,11 +120,15 @@ export function VerdictanSettings({ api, open }: { api: API; open: boolean }) {
         </div>
       )}
       {account?.organizationId && (
-        <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-xs">
-          <dt>Organization</dt>
-          <dd className="break-all">{account.organizationId}</dd>
+        <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-xs" aria-label="Account">
           <dt>Account</dt>
-          <dd className="break-all">{account.userId}</dd>
+          <dd className="break-all">{accountLabel(account)}</dd>
+          {serviceName(account.userName) && (
+            <>
+              <dt>Signed in as</dt>
+              <dd className="break-all">{serviceName(account.userName)}</dd>
+            </>
+          )}
           <dt>API</dt>
           <dd className="break-all">{account.apiUrl}</dd>
           {account.expiresAt && (
@@ -321,7 +331,11 @@ export function RuntimeUpdates({ api, open }: { api: API; open: boolean }) {
     <section className="grid gap-4" aria-label="Runtime updates">
       {typeof api.componentUpdates === 'function' && <ComponentUpdates api={api} />}
       <Choice label="Execution host" value={host} onChange={setHost} options={hosts} />
-      <div className="flex items-center justify-between gap-2">
+      <div
+        id="verdictan-runtime"
+        tabIndex={-1}
+        className="flex items-center justify-between gap-2 outline-none"
+      >
         <h3 className="text-sm font-medium">Verdictan runtime</h3>
         <span role="status" className="text-xs text-muted-foreground">
           {status?.discovery || 'Checking…'}

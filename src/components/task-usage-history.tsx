@@ -59,12 +59,11 @@ export function TaskUsageHistoryPanel({
             Saved observations from this desktop. Up to 20 revisions per run and 100 recent runs.
             Missing usage is unknown. This view is not a complete billing ledger.
           </p>
-          {history?.map((run) => (
+          {history?.map((run, runIndex) => (
             <article key={run.runId} className="grid gap-2 border-t py-3">
               <strong>
-                {run.phase} · {run.hostId || 'This machine'}
+                Run {runIndex + 1} · {run.phase} · {run.hostId ? 'SSH host' : 'This machine'}
               </strong>
-              <p>Run {run.runId}</p>
               {!run.evidence.length && <p>No governance evidence was captured.</p>}
               {run.evidence.map((snapshot, index) => (
                 <details key={index} open={index === run.evidence.length - 1}>
@@ -72,9 +71,9 @@ export function TaskUsageHistoryPanel({
                     {new Date(snapshot.observedAt).toLocaleString()} · {snapshot.value.status}
                     {snapshot.value.finalized ? ' · Finalized' : ''}
                   </summary>
-                  {snapshot.value.requests.map((request) => (
+                  {snapshot.value.requests.map((request, requestIndex) => (
                     <div key={request.id} className="py-2">
-                      <p>Request {request.id}</p>
+                      <p>Request {requestIndex + 1}</p>
                       <p>
                         Policy: {request.policy ?? 'Unknown'} · usage: {request.usage ?? 'Unknown'}
                       </p>

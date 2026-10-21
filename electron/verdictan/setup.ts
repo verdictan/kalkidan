@@ -1,6 +1,7 @@
 import {
   isSubscriptionMode,
   providerAccessModes,
+  serviceName,
   subscriptionAgent,
   type ProviderAccessMode,
   type VerdictanSelection,
@@ -55,7 +56,9 @@ export class VerdictanSetupService {
       status: typeof data.status === 'string' ? data.status : 'unavailable',
       teams: data.teams.map((t) => {
         if (!uuid(t.team_id)) throw new DesktopProtocolError('desktop.setup_invalid');
-        return { team_id: t.team_id };
+        // Names are optional. A missing or unsafe name keeps a generic label in the UI.
+        const name = serviceName(t.name, t.display_name, t.team_name);
+        return { team_id: t.team_id, ...(name ? { name } : {}) };
       }),
       policies: data.policies.map((p) => {
         if (
@@ -63,15 +66,24 @@ export class VerdictanSetupService {
           !policyId(p.configuration_version_id, 'version')
         )
           throw new DesktopProtocolError('desktop.setup_invalid');
+        const name = serviceName(p.name, p.display_name, p.configuration_name);
+        const version = serviceName(p.version_name, p.version_label, p.configuration_version_name);
         return {
           configuration_id: p.configuration_id,
           configuration_version_id: p.configuration_version_id,
+          ...(name ? { name } : {}),
+          ...(version ? { version_name: version } : {}),
         };
       }),
       providerConnections: data.provider_connections.map((p) => {
         if (!uuid(p.provider_connection_id) || typeof p.provider !== 'string')
           throw new DesktopProtocolError('desktop.setup_invalid');
-        return { provider_connection_id: p.provider_connection_id, provider: p.provider };
+        const name = serviceName(p.name, p.display_name);
+        return {
+          provider_connection_id: p.provider_connection_id,
+          provider: p.provider,
+          ...(name ? { name } : {}),
+        };
       }),
       selections: this.selectionSource
         ? await this.selectionSource()

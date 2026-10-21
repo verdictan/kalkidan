@@ -1,7 +1,10 @@
 import { useState } from 'react';
 import type { API } from '../api/contracts';
 import {
+  connectionLabels,
   isSubscriptionMode,
+  policyLabels,
+  teamLabels,
   type ProviderAccessMode,
   type VerdictanSetup,
   type VerdictanSelection,
@@ -51,8 +54,19 @@ export function VerdictanSetupForm({ api }: { api: API }) {
     agent === 'codex' ? 'codex_subscription' : 'claude_subscription';
   const subscriptionOffered = !!setup?.providerAccessModes?.includes(subscriptionMode);
   const subscriptionSelected = isSubscriptionMode(selection.providerAccessMode);
+  // Visible labels. IDs stay in option values and never show as text.
+  const labels = setup && {
+    teams: teamLabels(setup.teams),
+    policies: policyLabels(setup.policies),
+    connections: connectionLabels(setup.providerConnections),
+  };
   return (
-    <section className="grid gap-3 border-t pt-4" aria-label="Managed agent setup">
+    <section
+      id="managed-agent-setup"
+      tabIndex={-1}
+      className="grid gap-3 border-t pt-4 outline-none"
+      aria-label="Managed agent setup"
+    >
       <div className="flex items-center justify-between">
         <h4 className="text-sm font-medium">Managed agent setup</h4>
         <Button variant="outline" disabled={busy} onClick={() => void load()}>
@@ -94,9 +108,9 @@ export function VerdictanSetupForm({ api }: { api: API }) {
               onChange={(e) => setSelection({ ...selection, teamId: e.target.value })}
             >
               <option value="">Choose an authorized team</option>
-              {setup.teams.map((t) => (
+              {setup.teams.map((t, index) => (
                 <option key={t.team_id} value={t.team_id}>
-                  {t.team_id}
+                  {labels!.teams[index]}
                 </option>
               ))}
             </select>
@@ -119,9 +133,9 @@ export function VerdictanSetupForm({ api }: { api: API }) {
               }}
             >
               <option value="">Choose an authorized policy</option>
-              {setup.policies.map((p) => (
+              {setup.policies.map((p, index) => (
                 <option key={p.configuration_version_id} value={p.configuration_version_id}>
-                  {p.configuration_id} · {p.configuration_version_id}
+                  {labels!.policies[index]}
                 </option>
               ))}
             </select>
@@ -168,13 +182,13 @@ export function VerdictanSetupForm({ api }: { api: API }) {
                 }
               >
                 <option value="">Choose an authorized connection</option>
-                {setup.providerConnections
-                  .filter((p) => p.provider === (agent === 'codex' ? 'openai' : 'anthropic'))
-                  .map((p) => (
+                {setup.providerConnections.map((p, index) =>
+                  p.provider === (agent === 'codex' ? 'openai' : 'anthropic') ? (
                     <option key={p.provider_connection_id} value={p.provider_connection_id}>
-                      {p.provider} · {p.provider_connection_id}
+                      {labels!.connections[index]}
                     </option>
-                  ))}
+                  ) : null,
+                )}
               </select>
             </label>
           )}

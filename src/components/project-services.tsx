@@ -8,7 +8,7 @@ import {
 } from '../domain/project-services';
 import { Button } from './ui/button';
 import { errorMessage } from '../lib/errors';
-import { historyCostLabel } from '../domain/verdictan';
+import { historyCostLabel, isOpaqueId, serviceName } from '../domain/verdictan';
 
 const rows = (result?: ProjectServiceResult) =>
   Array.isArray(result?.items)
@@ -18,6 +18,28 @@ const rows = (result?: ProjectServiceResult) =>
       )
     : [];
 const text = (value: unknown) => (typeof value === 'string' ? value : '');
+/** Service text for display. Internal IDs show as an empty value. */
+const visible = (value: unknown) => {
+  const result = text(value);
+  return result && !isOpaqueId(result) ? result : '';
+};
+/** A copy for review text without IDs, revisions, or ID-like values. */
+function withoutIds(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(withoutIds);
+  if (value && typeof value === 'object')
+    return Object.fromEntries(
+      Object.entries(value)
+        .filter(([key, item]) => !/(^id$|_id$|revision$)/.test(key) && withoutIds(item) !== '')
+        .map(([key, item]) => [key, withoutIds(item)]),
+    );
+  return typeof value === 'string' && isOpaqueId(value) ? '' : value;
+}
+const genericRecord = {
+  history: 'Usage record',
+  reviews: 'Review request',
+  context: 'Knowledge entry',
+  templates: 'Template',
+} as const;
 export function ProjectServicesPanel({
   api,
   groupId,
@@ -122,9 +144,7 @@ export function ProjectServicesPanel({
             <>
               {status.pendingOperations?.map((operation) => (
                 <div key={operation.id} className="grid gap-2 border p-3">
-                  <p>
-                    Unresolved {operation.operation} · {operation.id}
-                  </p>
+                  <p>Unresolved {operation.operation}</p>
                   <Button
                     disabled={busy || !allowed('operation.inspect')}
                     onClick={() =>
@@ -381,21 +401,21 @@ export function ProjectServicesPanel({
                   Observed {result.observed_at} · revision {result.revision}
                 </p>
               )}
-              {rows(result).map((row, index) => (
+              {rows(result).map((row, index, all) => (
                 <article key={text(row.id) || index} className="grid gap-2 border-t py-3">
                   <strong>
-                    {text(row.title) ||
-                      text(row.label) ||
-                      text(row.escalation_id) ||
-                      text(row.request_id) ||
-                      text(row.knowledge_id) ||
-                      'Record'}
+                    {serviceName(row.title, row.label, row.name) ||
+                      (all.length > 1
+                        ? `${genericRecord[kind]} ${index + 1}`
+                        : genericRecord[kind])}
                   </strong>
                   {kind === 'history' && (
                     <>
                       <p>
-                        Policy: {text(row.decision_outcome) || text(row.decision) || 'Unavailable'}{' '}
-                        · {text(row.reason_code)} · {text(row.policy_revision)}
+                        Policy:{' '}
+                        {visible(row.decision_outcome) || visible(row.decision) || 'Unavailable'}
+                        {visible(row.reason_code) && ` · ${visible(row.reason_code)}`}
+                        {serviceName(row.policy_name) && ` · ${serviceName(row.policy_name)}`}
                       </p>
                       <p>
                         Cost: {historyCostLabel(row)} · tokens:{' '}
@@ -408,7 +428,7 @@ export function ProjectServicesPanel({
                             : 'Unknown'}{' '}
                         · {text((row.usage as any)?.settlement_state) || text(row.settlement_state)}
                       </p>
-                      <p>Audit: {text(row.audit_id) || 'Unavailable'}</p>
+                      <p>Audit: {text(row.audit_id) ? 'Recorded' : 'Unavailable'}</p>
                     </>
                   )}
                   {kind === 'reviews' && (
@@ -442,8 +462,12 @@ export function ProjectServicesPanel({
                     <>
                       <p className="whitespace-pre-wrap">{text(row.content)}</p>
                       <p>
-                        Source: {text(row.source_id)} · revision {text(row.source_revision)} ·
-                        author {text(row.author_id)} · {text(row.deletion_state)}
+                        Source:{' '}
+                        {documents.find((doc) => doc.id === text(row.source_id))?.title ||
+                          serviceName(row.source_title) ||
+                          'Project document'}{' '}
+                        · author {serviceName(row.author_name) || 'Project member'}
+                        {visible(row.deletion_state) && ` · ${visible(row.deletion_state)}`}
                       </p>
                       <Button
                         variant="outline"
@@ -484,16 +508,18 @@ export function ProjectServicesPanel({
               {result && rows(result).length === 0 && (
                 <p>
                   {result.receipt_id
-                    ? `Operation ${String(result.state)} · receipt ${String(result.receipt_id)}`
+                    ? `Operation ${visible(result.state) || 'recorded'}. Verdictan recorded a receipt.`
                     : 'No records were returned.'}
                 </p>
               )}
               {result &&
                 Array.isArray(result.installations) &&
-                result.installations.map((installation: any) => (
+                result.installations.map((installation: any, index: number, all: unknown[]) => (
                   <p key={installation.installation_id}>
-                    Installation {installation.installation_id}: {installation.status} · runtime
-                    acknowledgment: {installation.runtime_acknowledgment || 'unknown'}
+                    {serviceName(installation.name, installation.host_name) ||
+                      (all.length > 1 ? `Installation ${index + 1}` : 'Installation')}
+                    : {visible(installation.status) || 'unknown'} · runtime acknowledgment:{' '}
+                    {visible(installation.runtime_acknowledgment) || 'unknown'}
                   </p>
                 ))}
               {result && typeof result.cursor === 'string' && (
@@ -531,12 +557,20 @@ export function ProjectServicesPanel({
                   <strong>Confirm {pending.operation}</strong>
                   <dl>
                     {Object.entries(pending.fields)
-                      .filter(([key]) => !['operation_id', 'expected_revision'].includes(key))
+                      // IDs and revisions stay in the request. They are not shown.
+                      .filter(
+                        ([key, value]) =>
+                          !['operation_id', 'expected_revision'].includes(key) &&
+                          !key.endsWith('_id') &&
+                          !(typeof value === 'string' && isOpaqueId(value)),
+                      )
                       .map(([key, value]) => (
                         <div key={key}>
                           <dt>{key.replaceAll('_', ' ')}</dt>
                           <dd className="max-h-48 overflow-auto whitespace-pre-wrap">
-                            {typeof value === 'string' ? value : JSON.stringify(value, null, 2)}
+                            {typeof value === 'string'
+                              ? value
+                              : JSON.stringify(withoutIds(value), null, 2)}
                           </dd>
                         </div>
                       ))}
@@ -545,8 +579,6 @@ export function ProjectServicesPanel({
                     This action uses your current project permissions. A review decision does not
                     restart an agent or replay a request.
                   </p>
-                  <p>Operation: {String(pending.fields.operation_id)}</p>
-                  <p>Revision: {String(pending.fields.expected_revision)}</p>
                   <div className="flex gap-2">
                     <Button
                       disabled={busy}
