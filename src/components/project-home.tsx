@@ -13,7 +13,7 @@ import {
 import { agentCatalog, agentLabel } from '../config/agents';
 import { sessionRepo } from '../lib/session-repository';
 import { NeedsYouList, relativeTime, useNeedsYou } from './project-overview';
-import { ActivityDot, activityKey, useActivityState } from './activity-dot';
+import { ActivityDot, ChatStatusDot, activityKey, useActivityState } from './activity-dot';
 import { agentInstalled, agentMenuLabel } from '../lib/agent-preference';
 import { progressStatus } from '../hooks/use-project-boards';
 import { StatusIcon, trackerColumns } from './tracker-list';
@@ -454,7 +454,7 @@ export function ProjectHome({
                           </span>
                         </span>
                       </span>
-                      <ActivityDot state={stateOf(session)} />
+                      <ChatStatusDot session={session} live={stateOf(session)} />
                       <TimeLabel value={session.updatedAt} />
                     </button>
                   </li>

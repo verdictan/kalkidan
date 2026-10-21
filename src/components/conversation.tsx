@@ -84,7 +84,8 @@ import {
 import { cn } from '../lib/utils';
 import { plural } from '../lib/platform';
 import type { WorkingStatus } from '../api/contracts';
-import type { SessionActivityState } from './activity-dot';
+import { markDraftOutcome, type SessionActivityState } from './activity-dot';
+import { chatOutcomeOf } from '../domain/chat-outcome';
 import { Button } from './ui/button';
 import { Textarea } from './ui/textarea';
 import type {
@@ -583,6 +584,14 @@ export function Conversation({
         submitted.current?.prompt.trim().slice(0, 100) || session.title,
       );
     }
+    // A draft that did not save keeps its outcome in memory only, for its status dot. A refused
+    // launch is never saved as a chat.
+    if (session.id.startsWith('draft-'))
+      markDraftOutcome(
+        session.agent,
+        session.id,
+        providerSession.current ? undefined : chatOutcomeOf(next),
+      );
     const sent = submitted.current?.runId === next.id ? submitted.current : null;
     // The agent did not answer: show the error under the message. The message stays in the
     // transcript, and "Try again" sends it again, so the composer does not get the text back.

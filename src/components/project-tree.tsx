@@ -4,7 +4,7 @@ import {
   activityKey,
   strongestActivity,
   useActivityState,
-  type ChatStatus,
+  useChatStatus,
   type SessionActivityState,
 } from './activity-dot';
 import { TreeContextMenu, type TreeAction } from './tree-context-menu';
@@ -186,7 +186,8 @@ export function ProjectTree({
   useEffect(() => {
     if (addFolderRequest) setAddFolder(addFolderRequest);
   }, [addFolderRequest]);
-  const { finished } = useActivityState();
+  const chatStatus = useChatStatus();
+  const { drafts: draftOutcomes } = useActivityState();
   async function togglePin(session: Session) {
     const pinned = !session.organization?.pinned;
     await run(async () => {
@@ -197,12 +198,11 @@ export function ProjectTree({
   const running = (session: Session) =>
     openChats.find((chat) => sameSession(chat.session, session))?.state ||
     sessionActivity[activityKey(session.agent, session.id)];
-  /** Work in progress or a wait for the user, else a finished run that the user did not see. */
-  const statusOf = (session: Session): ChatStatus | undefined =>
-    running(session) ||
-    (finished.some((item) => item.agent === session.agent && item.id === session.id)
-      ? 'done'
-      : undefined);
+  /**
+   * Work in progress or a wait for the user, then a failed or refused latest run, then a
+   * finished run that the user did not see.
+   */
+  const statusOf = (session: Session) => chatStatus(session, running(session));
   const chatMenus = useChatListActions({
     api,
     onResume,
@@ -314,7 +314,7 @@ export function ProjectTree({
                 #{task.number}
               </span>
             )}
-            <ActivityDot state={statusOf(session)} />
+            <ActivityDot {...statusOf(session)} />
           </Button>
           {!draft && (
             <Hint label={pinned ? 'Unpin' : 'Pin to keep this chat at the top'}>
@@ -346,10 +346,21 @@ export function ProjectTree({
     const members = allRepos.filter((repo) => group.repoIds.includes(repo.id));
     const all = projectSessions(sessions, group, allRepos);
     const recent = all.filter((s) => !s.organization?.pinned).slice(0, recentLimit);
+    // A draft whose launch was refused or failed is not saved. It shows first, with its dot,
+    // while the app runs. It does not count as a chat of the project.
+    const unsaved = sessions.filter((s) => {
+      const outcome = draftOutcomes[activityKey(s.agent, s.id)]?.outcome;
+      return (
+        s.id.startsWith('draft-') &&
+        (outcome === 'refused' || outcome === 'failed') &&
+        group.repoIds.includes(sessionRepo(s, allRepos)?.id || '')
+      );
+    });
     // The code folder shows only when the project has more than one.
     const folderOf = (session: Session) =>
       members.length > 1 ? sessionRepo(session, allRepos)?.name : undefined;
     return [
+      ...unsaved.map((session) => sessionRow(session, 'recent', folderOf(session))),
       ...recent.map((session) => sessionRow(session, 'recent', folderOf(session))),
       ...(all.length > recent.length
         ? [
