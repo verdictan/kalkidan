@@ -24,13 +24,15 @@ test('project navigation, search, editing, worktrees, and sessions', async ({ pa
   await page.getByLabel('Repository name', { exact: true }).fill('atlas-renamed');
   await page.getByRole('button', { name: 'Save changes' }).click();
   await expect(page.getByRole('heading', { name: 'atlas-renamed' })).toBeVisible();
+  await page.getByRole('button', { name: 'Search or run', exact: true }).click();
   await page.getByLabel('Search projects and chats').fill('not-a-project');
   await expect(page.getByText('No matches found.')).toBeVisible();
-  await page.getByLabel('Search projects and chats').fill('');
+  await page.keyboard.press('Escape');
 
   await page.screenshot({ path: 'test-results/desktop-preview.png', fullPage: true });
   await page.keyboard.press('ControlOrMeta+k');
   await expect(page.getByLabel('Search projects and chats')).toBeFocused();
+  await page.keyboard.press('Escape');
   await page.setViewportSize({ width: 980, height: 680 });
   await expect(page.getByRole('button', { name: 'New Codex chat' })).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(
@@ -347,6 +349,12 @@ test('integrated conversations keep drafts and project navigation visible', asyn
   );
   await page.keyboard.press('ControlOrMeta+k');
   await expect(page.getByLabel('Search projects and chats')).toBeFocused();
+  await page.keyboard.press('Escape');
+  // The narrow window hides the sidebar. The palette does not change the sidebar.
+  await expect(
+    page.getByRole('navigation', { name: 'Projects and repositories' }),
+  ).not.toBeVisible();
+  await page.getByRole('button', { name: 'Toggle sidebar', exact: true }).click();
   await expect(page.getByRole('navigation', { name: 'Projects and repositories' })).toBeVisible();
   await page.getByRole('button', { name: /^Back to / }).click();
   await page.locator('.project-tree').getByRole('button', { name: 'Atlas', exact: true }).click();

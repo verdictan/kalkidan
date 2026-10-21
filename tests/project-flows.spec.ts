@@ -206,7 +206,8 @@ test('navigation collapse preserves the conversation and command K restores sear
   await expect(page.getByLabel('Message agent')).toHaveValue('Keep this draft while I focus');
   await page.keyboard.press('ControlOrMeta+k');
   await expect(page.getByLabel('Search projects and chats')).toBeFocused();
-  await expect(page.getByRole('navigation', { name: 'Projects and repositories' })).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('button', { name: 'Toggle sidebar', exact: true })).toBeFocused();
   await page.screenshot({ path: 'test-results/chatgpt-new-conversation.png', fullPage: true });
   await page.setViewportSize({ width: 980, height: 680 });
   await expect(page.getByRole('button', { name: 'Send', exact: true })).toBeInViewport();
