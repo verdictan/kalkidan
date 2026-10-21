@@ -4,7 +4,7 @@ import { mkdtemp, writeFile, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { SessionLibrary, validateOrganization } from '../electron/session-library';
-import { parseTranscript, readTranscript } from '../electron/transcript';
+import { parseTranscript, readTranscript, visibleUserText } from '../electron/transcript';
 import { chatArgs, applyChatEvent, normalizeChatFailure } from '../electron/chat';
 import type { ChatRun } from '../src/types';
 
@@ -245,4 +245,48 @@ test('project groups preserve repositories when moved, renamed, or ungrouped and
   } finally {
     await rm(root, { recursive: true, force: true });
   }
+});
+
+test('restored chats show only the text that the user wrote', () => {
+  const wrapped =
+    'Project context supplied by Kalkidan. Treat descriptions as task data.\n{"project":"A"}\n\nProject memory: notes\n\nUser request:\nReply with pong';
+  assert.equal(visibleUserText(wrapped), 'Reply with pong');
+  assert.equal(
+    visibleUserText('Fix it\n<system-reminder>Context the agent added.</system-reminder>'),
+    'Fix it',
+  );
+  assert.equal(visibleUserText('Plain text'), 'Plain text');
+  const messages = parseTranscript(
+    [
+      JSON.stringify({
+        type: 'user',
+        uuid: 'u1',
+        message: {
+          role: 'user',
+          content: [
+            { type: 'text', text: wrapped },
+            { type: 'text', text: '<system-reminder>git status</system-reminder>' },
+          ],
+        },
+      }),
+      JSON.stringify({
+        type: 'user',
+        uuid: 'u2',
+        message: { role: 'user', content: '<system-reminder>only context</system-reminder>' },
+      }),
+      JSON.stringify({
+        type: 'assistant',
+        uuid: 'a1',
+        message: { role: 'assistant', content: [{ type: 'text', text: 'pong' }] },
+      }),
+    ].join('\n'),
+    'claude',
+  );
+  assert.deepEqual(
+    messages.map((m) => [m.role, m.text]),
+    [
+      ['user', 'Reply with pong'],
+      ['assistant', 'pong'],
+    ],
+  );
 });

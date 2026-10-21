@@ -13,6 +13,21 @@ export function contentText(content: unknown): string {
     .map((block) => block.text)
     .join('\n');
 }
+const kalkidanContext = 'Project context supplied by Kalkidan.';
+const userRequest = '\n\nUser request:\n';
+/**
+ * The part of a user message that the user wrote. Kalkidan wraps project prompts in project
+ * context (electron/projects/prompt.ts), and Claude Code adds system-reminder blocks to the
+ * stored message. Neither is the user's text.
+ */
+export function visibleUserText(text: string) {
+  let visible = text;
+  if (visible.startsWith(kalkidanContext)) {
+    const at = visible.lastIndexOf(userRequest);
+    if (at >= 0) visible = visible.slice(at + userRequest.length);
+  }
+  return visible.replace(/<system-reminder>[\s\S]*?<\/system-reminder>/g, '').trim();
+}
 export function parseTranscript(text: string, agent: Agent): ChatMessage[] {
   const messages: ChatMessage[] = [];
   const fallback: ChatMessage[] = [];
@@ -25,7 +40,8 @@ export function parseTranscript(text: string, agent: Agent): ChatMessage[] {
         agent === 'codex' ? (row.type === 'response_item' ? row.payload : null) : row.message;
       const role = payload?.role || (agent === 'claude' ? row.type : null);
       if (payload && (role === 'user' || role === 'assistant')) {
-        const body = contentText(payload.content);
+        const raw = contentText(payload.content);
+        const body = role === 'user' ? visibleUserText(raw) : raw;
         const id = row.uuid || `message-${index}`;
         if (body && !seen.has(id)) {
           seen.add(id);
@@ -41,7 +57,10 @@ export function parseTranscript(text: string, agent: Agent): ChatMessage[] {
         fallback.push({
           id: `event-${index}`,
           role: row.payload.type === 'user_message' ? 'user' : 'assistant',
-          text: row.payload.message,
+          text:
+            row.payload.type === 'user_message'
+              ? visibleUserText(row.payload.message)
+              : row.payload.message,
         });
       }
     } catch {
