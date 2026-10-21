@@ -1,6 +1,7 @@
 import {
   isSubscriptionMode,
   providerAccessModes,
+  serviceName,
   subscriptionAgent,
   type ProviderAccessMode,
   type VerdictanSelection,
@@ -12,12 +13,13 @@ import { BindingStore, identityKey } from './bindings';
 import { uuid } from './credentials';
 import { policyId } from './policy-id';
 
-/** A display name from the service. Missing or invalid names stay missing. */
-function displayName(value: Record<string, unknown>) {
-  const name = [value.name, value.display_name].find(
-    (item): item is string => typeof item === 'string' && !!item.trim() && item.length <= 200,
-  );
-  return name ? { name: name.trim() } : {};
+/**
+ * A display name from the service. A missing, unsafe, or ID-only name stays missing, so the UI
+ * shows a generic label. `extra` names other fields that can hold the name.
+ */
+function displayName(value: Record<string, unknown>, ...extra: string[]) {
+  const name = serviceName(value.name, value.display_name, ...extra.map((key) => value[key]));
+  return name ? { name } : {};
 }
 const modelList = (value: unknown) =>
   Array.isArray(value) && value.length <= 200
@@ -81,7 +83,7 @@ export class VerdictanSetupService {
       status: typeof data.status === 'string' ? data.status : 'unavailable',
       teams: data.teams.map((t) => {
         if (!uuid(t.team_id)) throw new DesktopProtocolError('desktop.setup_invalid');
-        return { team_id: t.team_id, ...displayName(t) };
+        return { team_id: t.team_id, ...displayName(t, 'team_name') };
       }),
       policies: data.policies.map((p) => {
         if (
@@ -90,10 +92,16 @@ export class VerdictanSetupService {
         )
           throw new DesktopProtocolError('desktop.setup_invalid');
         const version = p.version_number ?? p.version;
+        const versionName = serviceName(
+          p.version_name,
+          p.version_label,
+          p.configuration_version_name,
+        );
         return {
           configuration_id: p.configuration_id,
           configuration_version_id: p.configuration_version_id,
-          ...displayName(p),
+          ...displayName(p, 'configuration_name'),
+          ...(versionName ? { version_name: versionName } : {}),
           ...((typeof version === 'number' && Number.isSafeInteger(version)) ||
           (typeof version === 'string' && !!version.trim() && version.length <= 40)
             ? { version }

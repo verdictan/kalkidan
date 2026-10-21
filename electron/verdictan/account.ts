@@ -4,6 +4,7 @@ import type {
   VerdictanStatus,
 } from '../../src/domain/verdictan';
 import { projectServicePermissions } from '../../src/domain/project-services';
+import { serviceName } from '../../src/domain/verdictan';
 import { DesktopClient, DesktopProtocolError } from './protocol';
 
 export interface DesktopAccountOptions {
@@ -146,6 +147,8 @@ export class VerdictanAccountService {
   private async refresh(client: DesktopClient, generation: number) {
     const account = parseAccount((await client.request('status')).data, this.options.apiOrigin);
     const capabilities = parseCapabilities((await client.request('capabilities')).data);
+    if (account.state === 'authenticated' && capabilities.capabilities.includes('account.inspect'))
+      Object.assign(account, await accountNames(client, account));
     if (generation === this.generation)
       this.set({
         phase: account.state,
@@ -212,6 +215,25 @@ export class VerdictanAccountService {
     this.set({ phase: 'missing', executionReady: false });
   }
 }
+/**
+ * Reads optional organization and user names. Names are display data only. A failed read, or
+ * a response for another account, keeps the generic labels and never blocks the account.
+ */
+export async function accountNames(client: DesktopClient, account: VerdictanAccount) {
+  try {
+    const data = (await client.request('account.inspect')).data;
+    if (data.organization_id !== account.organizationId || data.user_id !== account.userId)
+      return {};
+    const organizationName = serviceName(data.organization_name, data.org_name);
+    const userName = serviceName(data.user_name, data.user_display_name, data.display_name);
+    return {
+      ...(organizationName ? { organizationName } : {}),
+      ...(userName ? { userName } : {}),
+    };
+  } catch {
+    return {};
+  }
+}
 function text(value: unknown): value is string {
   return typeof value === 'string' && value.length > 0 && value.length <= 256;
 }
@@ -243,7 +265,10 @@ export function parseAccount(data: Record<string, unknown>, apiOrigin: string): 
     organizationId: (data.organization_id as string | undefined) || undefined,
     apiUrl: apiOrigin,
     expiresAt: (data.expires_at as string | undefined) || undefined,
-    ...(text(data.organization_name) ? { organizationName: data.organization_name } : {}),
+    // A name that is only an ID stays missing. The UI then shows a generic label.
+    ...(serviceName(data.organization_name)
+      ? { organizationName: serviceName(data.organization_name) }
+      : {}),
     ...(text(data.user_email) ? { userEmail: data.user_email } : {}),
   };
 }

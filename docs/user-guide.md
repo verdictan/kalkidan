@@ -57,6 +57,19 @@ managed runtime, account authorization, and launch checks. It does not use a
 native CLI login as a fallback. Managed native execution is available on accepted
 macOS and Linux hosts. Windows managed execution stays blocked.
 
+Kalkidan runs agents only through managed Verdictan agents. This rule applies to
+new sessions, resumed and forked conversations, automatic dispatch, SSH hosts,
+subscription access, organization provider connections, and Memory extraction.
+The browser preview does not start agents. When a check stops a launch, the
+message names the cause and gives a button that opens the related step in
+Settings: the region, the sign-in, the managed agent setup, or the managed
+runtime. The Terminal opens a shell only; it does not start an agent.
+
+Managed agent setup shows the team, policy, provider connection, and account
+names that Verdictan sends. When Verdictan does not send a name, Settings shows
+a generic label, for example "Default team", "Policy 1", or "Your account". IDs
+stay internal.
+
 ### Run the source code
 
 Run these commands in sequence:
@@ -487,6 +500,17 @@ Push to `main` or `master` to validate and publish Kalkidan. No release tag or m
 4. Packaged desktop tests check launch, IPC, repository discovery, commands, and the terminal.
 5. The publisher uploads all eight files and SHA-256 checksums to [GitHub releases](https://github.com/verdictan/packages/releases?q=kalkidan). It updates the [Homebrew cask](https://github.com/verdictan/homebrew-tap/blob/main/Casks/kalkidan.rb), [kalkidan.json](https://github.com/verdictan/packages/blob/main/kalkidan.json), and the GitHub latest-release pointer.
 
+The in-app desktop update reads the GitHub release, the per-asset `digest`, and
+`SHA256SUMS.txt`. Keep these release rules: publish the macOS ZIP files, the
+Windows NSIS installer, the Linux AppImage, and `SHA256SUMS.txt` in each release;
+keep the asset names `Kalkidan-VERSION-OS-ARCH.EXT`; and do not mark Kalkidan
+releases as drafts or prereleases. The release does not need `latest*.yml` or
+`.blockmap` files. To move to `electron-updater` later, the
+`verdictan/jenkins-library` `kalkidan-release` job must publish
+`latest-mac.yml`, `latest.yml`, `latest-linux.yml`, and the `.blockmap` files
+(build with `--publish never` and upload them), and macOS releases must be
+signed, because Squirrel.Mac rejects unsigned updates.
+
 Each release uses `VERSION-build.TIMESTAMP.COMMIT`. Downloads include macOS Apple Silicon and Intel DMG/ZIP files, Windows x64 NSIS/ZIP files, and Linux x64 AppImage/DEB files. The installers are unsigned. macOS installers are not notarized. DEB files are standalone downloads, not an APT repository.
 
 A failed release fails its main build. It does not cause an endless timer retry or block the next main push. To retry a failed release, rebuild its main/master job. To republish a successful build, run the controller job with that build's SHA, branch, and build number. Retrying an older build does not replace a newer release in Homebrew or the latest-release pointer.
@@ -571,9 +595,39 @@ it does not automatically move the issue to Done.
 
 ## Updates and recovery
 
-Settings shows the running desktop build, available downloads, the managed
-runtime, and SSH helper versions. Install a desktop download and restart the app
-to use it. Download availability does not replace the running application.
+Settings shows the running desktop build, the available release, the managed
+runtime, and SSH helper versions.
+
+To update the desktop app:
+
+1. Open **Settings > Updates**.
+2. On the **Kalkidan** card, select **Download VERSION**. Kalkidan downloads the release file for
+   this computer and shows the progress.
+3. Kalkidan compares the file with the published `SHA256SUMS.txt` file and the
+   GitHub asset digest. A file that does not match is deleted.
+4. Select **Restart to update**. If agents run on this computer, Kalkidan asks
+   before it stops them. Kalkidan never restarts without this step.
+
+These install kinds update in the app:
+
+| Install kind                                      | Update method                                                    |
+| ------------------------------------------------- | ---------------------------------------------------------------- |
+| macOS app in a folder that your account can write | Kalkidan replaces the app bundle with the verified ZIP contents. |
+| Windows installer (per-user)                      | Kalkidan runs the verified installer silently.                   |
+| Linux AppImage in a folder that you can write     | Kalkidan replaces the AppImage file.                             |
+
+These install kinds show the reason and a link to the release page:
+
+- A macOS app that runs from the disk image or from a translocated location.
+  Move Kalkidan to the Applications folder and open it again.
+- A Windows ZIP copy or an installation for all users.
+- A Linux DEB package. Install the new DEB file with your package manager.
+
+The macOS and Windows releases are unsigned. The in-app update does not need a
+signature: it checks the SHA-256 checksum and the bundle identifier and version.
+If macOS does not let Kalkidan replace the app, the previous version starts
+again and Settings shows the release page. A Homebrew cask installation can
+update in the app; `brew upgrade` also continues to work.
 
 Managed runtime installation validates the approved version and archive digest.
 It records progress and supports cancellation and rollback. Finish active work

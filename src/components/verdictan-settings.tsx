@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { Check, Info, RefreshCw } from 'lucide-react';
 import type { API } from '../api/contracts';
-import { isSubscriptionMode, withoutManagedCode } from '../domain/verdictan';
+import { accountLabel, isSubscriptionMode, withoutManagedCode } from '../domain/verdictan';
 import type { VerdictanSetup, VerdictanStatus } from '../domain/verdictan';
 import type { ComponentUpdateStatus } from '../domain/updates';
 import { VerdictanSetupForm } from './verdictan-setup';
@@ -291,6 +291,7 @@ export function ManagedAgentsSettings({ api, open }: { api: API; open: boolean }
           account={account}
         />
         <Step
+          id="managed-agent-setup"
           number={3}
           done={steps.codex || steps.claude}
           title="Choose setup"
@@ -342,6 +343,7 @@ function ReadyChip({
 
 /** One numbered step. The number changes to a check mark when the step is done. */
 function Step({
+  id,
   number,
   done,
   title,
@@ -349,6 +351,8 @@ function Step({
   disabled,
   children,
 }: {
+  /** The anchor that a setup step link moves the focus to. */
+  id?: string;
   number: number;
   done: boolean;
   title: string;
@@ -357,7 +361,12 @@ function Step({
   children: ReactNode;
 }) {
   return (
-    <li className="managed-step" data-disabled={disabled || undefined}>
+    <li
+      id={id}
+      tabIndex={id ? -1 : undefined}
+      className="managed-step outline-none"
+      data-disabled={disabled || undefined}
+    >
       <span className="managed-step-number" data-done={done || undefined}>
         {done ? <Check className="size-3.5" aria-label="Done" /> : number}
       </span>
@@ -395,6 +404,7 @@ function RuntimeStep({
   const statusError = status?.error ? withoutManagedCode(status.error) : '';
   return (
     <Step
+      id="verdictan-runtime"
       number={1}
       done={!!status?.installed && !runtimeOutdated(status)}
       title="Install runtime"
@@ -557,6 +567,7 @@ function AccountStep({
   const authorizing = status?.phase === 'authorizing';
   return (
     <Step
+      id="verdictan-account"
       number={2}
       done={signedIn}
       title="Sign in"
@@ -647,8 +658,14 @@ function AccountStep({
       {runtimeMissing && <p className="form-help">Install the runtime in step 1 first.</p>}
       {details?.organizationId && (
         <dl className="meta-list">
-          <dt>Organization</dt>
-          <dd>{names.organization || 'Your organization'}</dd>
+          <dt>Account</dt>
+          <dd>{accountLabel(details)}</dd>
+          {names.user && (
+            <>
+              <dt>Signed in as</dt>
+              <dd>{names.user}</dd>
+            </>
+          )}
           {names.email && (
             <>
               <dt>Email</dt>
@@ -679,7 +696,11 @@ function AccountStep({
             else setPendingRegion(region);
           }}
         >
-          <SelectTrigger aria-labelledby="managed-region-label" className="w-56">
+          <SelectTrigger
+            id="verdictan-region"
+            aria-labelledby="managed-region-label"
+            className="w-56"
+          >
             <SelectValue placeholder="Select a region" />
           </SelectTrigger>
           <SelectContent>
@@ -731,18 +752,6 @@ function AccountStep({
       {details?.organizationId && (
         <SettingsDisclosure title="Details">
           <dl className="meta-list">
-            <dt>Organization ID</dt>
-            <dd>
-              <CopyValue value={details.organizationId} name="Organization ID" />
-            </dd>
-            {details.userId && (
-              <>
-                <dt>User ID</dt>
-                <dd>
-                  <CopyValue value={details.userId} name="User ID" />
-                </dd>
-              </>
-            )}
             <dt>Service</dt>
             <dd>
               <CopyValue value={details.apiUrl} name="Service address" />

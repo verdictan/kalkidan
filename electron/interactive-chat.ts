@@ -10,6 +10,8 @@ import { extractMemory } from './storage/memory-extraction';
 import type { MemoryScope } from './storage/managed-memory';
 import { startMemoryTools, type ManagedProjectContext } from './agents/memory-tools';
 import { parseQuestions, validateAnswers } from './agents/questions';
+import { DesktopProtocolError } from './verdictan/protocol';
+import { managedLaunchBlock } from '../src/domain/verdictan';
 
 const bounded = (value: unknown, limit = 32000) => {
   const text = typeof value === 'string' ? value : JSON.stringify(value, null, 2) || '';
@@ -118,7 +120,14 @@ export class InteractiveChatRunner {
     // Start asynchronously so the UI can show startup progress and Stop immediately.
     void this.launch(active, prompt, allowEdits, create, model, forkFrom, memory).catch((error) => {
       if (!active.stopped && !active.finishing) {
-        state.error = active.managed?.redact(error.message) ?? error.message;
+        if (!active.process) {
+          // Nothing started. Every launch goes through managed agents, so explain the block and
+          // name the setup step. There is no direct CLI launch to try instead.
+          const block = managedLaunchBlock(error);
+          state.error = active.managed?.redact(block.message) ?? block.message;
+          state.errorCode = 'managed_launch_blocked';
+          state.managedSetup = block.step;
+        } else state.error = active.managed?.redact(error.message) ?? error.message;
         normalizeChatFailure(state, active.stderr);
         this.finish(active, 'failed');
       }
@@ -180,7 +189,11 @@ export class InteractiveChatRunner {
         await new Promise<void>((resolve) => previous.process!.once('close', () => resolve()));
       }
     }
-    const resolved = await this.resolveExecutable(run.session.agent);
+    // Fail closed: a runner without the managed launch step never starts an agent process.
+    if (!this.prepareManaged) throw new DesktopProtocolError('desktop.managed_launch_unavailable');
+    const resolved = await this.resolveExecutable(run.session.agent).catch(() => {
+      throw new DesktopProtocolError('desktop.agent_not_found');
+    });
     if (run.stopped) return;
     const codex = run.session.agent === 'codex';
     const args = chatArgs(run.session.agent, run.session.id, allowEdits, create, model);
@@ -216,7 +229,7 @@ export class InteractiveChatRunner {
           }),
         );
     }
-    if (this.prepareManaged) {
+    {
       run.managed = await this.prepareManaged({
         session: run.session,
         runId: run.state.id,
@@ -240,21 +253,19 @@ export class InteractiveChatRunner {
         return;
       }
       run.managed.observe?.(run.state);
-      model = run.managed.model;
+      model = run.managed.model || model;
       run.model = model;
       // The selected model applies to both providers, including resumed native threads.
       const index = args.indexOf('--model');
-      if (index >= 0) args[index + 1] = model;
-      else if (!codex) args.push('--model', model);
+      if (model && index >= 0) args[index + 1] = model;
+      else if (model && !codex) args.push('--model', model);
     }
     const child = spawn(
-      run.managed?.executable || resolved.path,
-      run.managed
-        ? [...run.managed.prefix, ...args, ...run.managed.args]
-        : [...(resolved.args || []), ...args],
+      run.managed.executable,
+      [...run.managed.prefix, ...args, ...run.managed.args],
       {
         cwd: run.session.cwd,
-        env: run.managed?.env || resolved.env,
+        env: run.managed.env,
         detached: process.platform !== 'win32',
         stdio: 'pipe',
       },

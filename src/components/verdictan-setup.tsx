@@ -3,7 +3,10 @@ import { Check, RefreshCw } from 'lucide-react';
 import type { API } from '../api/contracts';
 import type { ModelOption } from '../domain/conversation';
 import {
+  connectionLabels,
   isSubscriptionMode,
+  policyLabels,
+  teamLabels,
   type ProviderAccessMode,
   type VerdictanSetup,
   type VerdictanSelection,
@@ -15,13 +18,7 @@ import { SegmentedControl } from './ui/segmented-control';
 import { showToast } from './ui/toast';
 import { Choice } from './choice';
 import { Hint } from './hint';
-import {
-  allowedModels,
-  connectionLabel,
-  policyLabel,
-  providerName,
-  teamLabel,
-} from '../lib/verdictan-labels';
+import { allowedModels, providerName } from '../lib/verdictan-labels';
 
 type ManagedAgent = 'codex' | 'claude';
 
@@ -131,6 +128,12 @@ export function VerdictanSetupForm({
     agent === 'codex' ? 'codex_subscription' : 'claude_subscription';
   const subscriptionOffered = !!setup?.providerAccessModes?.includes(subscriptionMode);
   const subscription = isSubscriptionMode(selection.providerAccessMode);
+  // Visible labels. IDs stay in option values and never show as text.
+  const labels = setup && {
+    teams: teamLabels(setup.teams),
+    policies: policyLabels(setup.policies),
+    connections: connectionLabels(connections),
+  };
   const allowed = allowedModels(setup, agent);
   const modelOptions = (
     allowed
@@ -204,7 +207,7 @@ export function VerdictanSetupForm({
                   { value: '', label: 'Choose a team' },
                   ...setup.teams.map((team, index) => ({
                     value: team.team_id,
-                    label: teamLabel(team, index),
+                    label: labels!.teams[index],
                   })),
                 ]}
               />
@@ -228,7 +231,7 @@ export function VerdictanSetupForm({
                   { value: '', label: 'Choose a policy' },
                   ...setup.policies.map((policy, index) => ({
                     value: policy.configuration_version_id,
-                    label: policyLabel(policy, index),
+                    label: labels!.policies[index],
                   })),
                 ]}
               />
@@ -283,7 +286,7 @@ export function VerdictanSetupForm({
                     },
                     ...connections.map((connection, index) => ({
                       value: connection.provider_connection_id,
-                      label: connectionLabel(connection, index, connections.length),
+                      label: labels!.connections[index],
                     })),
                   ]}
                 />

@@ -85,10 +85,11 @@ export function TaskUsageHistoryPanel({
       )}
       {!!history?.length && (
         <div className="review-list">
-          {history.map((run) => (
+          {history.map((run, runIndex) => (
             <ReviewRow
               key={run.runId}
-              title={`Run on ${run.hostId || 'this computer'}`}
+              // Run and host IDs are internal. Show the run number and the kind of host.
+              title={`Run ${runIndex + 1} on ${run.hostId ? 'an SSH host' : 'this computer'}`}
               meta={`Updated ${fullTime(new Date(run.updatedAt).toISOString())}`}
               status={runPhaseLabel(run.phase)}
             >

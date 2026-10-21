@@ -2,6 +2,7 @@ import { WorktreeCreation } from './operations/worktree';
 import { AgentStarts } from './operations/agent-start';
 import { PublishOperations, publishEffects } from './operations/publish';
 import { RemoteAccountClient } from './verdictan/remote-broker';
+import { DesktopProtocolError } from './verdictan/protocol';
 import { listDirectory } from './storage/directory-list';
 import { createVerdictanServices } from './verdictan/service';
 import { isVerdictanRegion } from './verdictan/region';
@@ -36,7 +37,6 @@ const history = (codex: string, claude: string, sources?: Map<string, string>) =
 import { readTranscript } from './transcript';
 import { codexTranscript } from './codex-store';
 import { createAgentRuntimes } from './agents/runtime';
-import { DesktopProtocolError } from './verdictan/protocol';
 import { CommandTerminal, repositoryDiff } from './conversation-tools';
 import { modelOptions } from './models';
 import { executable } from './chat';

@@ -358,6 +358,9 @@ test('project reviews require an explicit reason and confirmation before the bro
   await expect(
     page.getByRole('status').filter({ hasText: 'Approve or deny a review' }),
   ).toBeVisible();
+  // The receipt ID stays internal.
+  await expect(page.getByText('Verdictan recorded a receipt.')).toBeVisible();
+  await expect(page.getByText('receipt-1')).toHaveCount(0);
   const mutation = await page.evaluate(
     () =>
       (window as any).planningWrites.find((call: any) => call[1]?.operation === 'review.decide')[1],

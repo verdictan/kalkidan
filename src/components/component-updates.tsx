@@ -1,7 +1,7 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { ExternalLink, RefreshCw } from 'lucide-react';
 import type { API } from '../types';
-import type { ComponentInventory } from '../domain/updates';
+import type { ComponentInventory, DesktopUpdateStatus } from '../domain/updates';
 import { Button } from './ui/button';
 import { errorMessage } from '../lib/errors';
 import { notifyUpdatesChanged } from '../hooks/use-update-status';
@@ -13,6 +13,176 @@ import {
 } from '../lib/verdictan-labels';
 import { RuntimeUpdateCard, StepError, UpdateCard } from './verdictan-settings';
 import { CopyValue, SettingsDisclosure } from './settings-disclosure';
+import { Progress } from './ui/progress';
+import type { StatusLabel } from '../lib/verdictan-labels';
+
+const activePhases = ['downloading', 'verifying', 'staging'];
+const phaseText: Record<string, string> = {
+  downloading: 'Downloading',
+  verifying: 'Checking the SHA-256 checksum',
+  staging: 'Preparing the update',
+  staged: 'Ready to install',
+  restarting: 'Restarting',
+  failed: 'Update failed',
+  canceled: 'Download canceled',
+};
+const megabytes = (bytes: number) => `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+
+/** The status badge of the desktop app. A running or staged update replaces the check result. */
+function desktopUpdateLabel(desktop: DesktopUpdateStatus): StatusLabel {
+  const phase = desktop.update?.phase;
+  if (phase && activePhases.includes(phase)) return { label: phaseText[phase], tone: 'secondary' };
+  if (phase === 'staged') return { label: 'Restart to update', tone: 'warning' };
+  if (phase === 'restarting') return { label: 'Restarting', tone: 'secondary' };
+  return desktopStatusLabel(desktop);
+}
+
+/**
+ * The Kalkidan card in Settings › Updates. Each step needs a user action: download, verify,
+ * then "Restart to update". A copy that cannot update itself links to the release page.
+ */
+function DesktopUpdateCard({
+  api,
+  desktop,
+  onStatus,
+}: {
+  api: API;
+  desktop: DesktopUpdateStatus;
+  onStatus(status: DesktopUpdateStatus): void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [failure, setFailure] = useState('');
+  const update = desktop.update;
+  const active = !!update && activePhases.includes(update.phase);
+  const report = useRef(onStatus);
+  report.current = onStatus;
+  // Read the progress while a download runs.
+  useEffect(() => {
+    if (!active) return;
+    let live = true;
+    const timer = setInterval(() => {
+      void api.componentUpdates(false).then(
+        (value) => live && report.current(value.desktop),
+        () => {},
+      );
+    }, 500);
+    return () => {
+      live = false;
+      clearInterval(timer);
+    };
+  }, [api, active]);
+  async function run(action: () => Promise<DesktopUpdateStatus>) {
+    if (busy) return;
+    setBusy(true);
+    setFailure('');
+    try {
+      onStatus(await action());
+    } catch (reason) {
+      setFailure(errorMessage(reason));
+    } finally {
+      setBusy(false);
+    }
+  }
+  const release = desktop.discovery === 'available' ? desktop.release : undefined;
+  const selfUpdate = desktop.install.selfUpdate;
+  const releaseLink = release && (
+    <Button asChild size="sm" variant={selfUpdate ? 'outline' : 'default'}>
+      <a href={release.url} target="_blank" rel="noreferrer">
+        {selfUpdate ? 'Open release page' : `Download ${displayVersion(release.version)}`}
+        <ExternalLink aria-hidden="true" />
+      </a>
+    </Button>
+  );
+  let action: ReactNode = null;
+  if (!selfUpdate) action = releaseLink;
+  else if (update?.phase === 'staged')
+    action = (
+      <Button size="sm" disabled={busy} onClick={() => void run(() => api.desktopUpdateRestart())}>
+        Restart to update
+      </Button>
+    );
+  else if (active)
+    action = (
+      <Button
+        size="sm"
+        variant="outline"
+        disabled={busy}
+        onClick={() => void run(() => api.desktopUpdateCancel())}
+      >
+        Cancel download
+      </Button>
+    );
+  else if (release && (!update || ['failed', 'canceled'].includes(update.phase)))
+    action = (
+      <Button size="sm" disabled={busy} onClick={() => void run(() => api.desktopUpdateDownload())}>
+        Download {displayVersion(release.version)}
+      </Button>
+    );
+  const percent =
+    update?.phase === 'downloading' && update.totalBytes > 0
+      ? (update.receivedBytes / update.totalBytes) * 100
+      : undefined;
+  return (
+    <UpdateCard
+      name="Kalkidan"
+      version={displayVersion(desktop.runningVersion)}
+      status={desktopUpdateLabel(desktop)}
+      action={action}
+    >
+      {update && update.phase !== 'staged' && (
+        <p role="status" aria-live="polite">
+          {phaseText[update.phase]} · Kalkidan {displayVersion(update.version)}
+          {update.phase === 'downloading' &&
+            update.totalBytes > 0 &&
+            ` · ${megabytes(update.receivedBytes)} of ${megabytes(update.totalBytes)}`}
+        </p>
+      )}
+      {active && <Progress label="Desktop update download" value={percent} />}
+      {update?.phase === 'staged' && (
+        <p role="status" aria-live="polite">
+          Kalkidan {displayVersion(update.version)} is verified and ready. Restart to install it.
+          The agents on this computer stop before the restart. Their chats stay on disk.
+        </p>
+      )}
+      {release && !selfUpdate && (
+        <p>Install the download, then restart Kalkidan. The download does not replace the app.</p>
+      )}
+      {release && !selfUpdate && desktop.install.reason && <p>{desktop.install.reason}</p>}
+      {(failure || update?.error) && <StepError>{failure || update?.error}</StepError>}
+      {update?.phase === 'failed' && selfUpdate && releaseLink}
+      {desktop.stale && desktop.lastSuccessAt && <p>The last check may be out of date.</p>}
+      {desktop.error && <p>{desktop.error}</p>}
+      <SettingsDisclosure title="Verify download">
+        <dl className="meta-list">
+          <dt>Running build</dt>
+          <dd>
+            <CopyValue value={desktop.runningBuild} name="Running build" />
+          </dd>
+          {release && (
+            <>
+              <dt>New version</dt>
+              <dd>
+                <CopyValue value={release.version} name="Version" />
+              </dd>
+              <dt>SHA-256</dt>
+              <dd>
+                <CopyValue value={release.sha256} name="SHA-256" />
+              </dd>
+              <dt>Published</dt>
+              <dd>{new Date(release.publishedAt).toLocaleString()}</dd>
+            </>
+          )}
+          {desktop.lastSuccessAt && (
+            <>
+              <dt>Last checked</dt>
+              <dd>{new Date(desktop.lastSuccessAt).toLocaleString()}</dd>
+            </>
+          )}
+        </dl>
+      </SettingsDisclosure>
+    </UpdateCard>
+  );
+}
 
 /** Settings › Updates: one card for each component that Kalkidan updates. */
 export function ComponentUpdates({
@@ -63,12 +233,12 @@ export function ComponentUpdates({
     };
   }, [api, open, revision]);
   const desktop = inventory?.desktop;
-  const release = desktop?.discovery === 'available' ? desktop.release : undefined;
   return (
     <section aria-label="Updates" className="grid gap-3">
       <div className="flex items-center justify-between gap-4">
         <p className="form-help">
-          Kalkidan checks for new versions. It does not install the app for you.
+          Kalkidan checks for new versions. It installs a desktop update only after you select
+          Restart to update.
         </p>
         <Button
           variant="outline"
@@ -83,57 +253,11 @@ export function ComponentUpdates({
       {error && <StepError>{error}</StepError>}
       <ul className="grid gap-2" aria-label="Components">
         {desktop && (
-          <UpdateCard
-            name="Kalkidan"
-            version={displayVersion(desktop.runningVersion)}
-            status={desktopStatusLabel(desktop)}
-            action={
-              release && (
-                <Button asChild size="sm">
-                  <a href={release.url} target="_blank" rel="noreferrer">
-                    Download {displayVersion(release.version)}
-                    <ExternalLink aria-hidden="true" />
-                  </a>
-                </Button>
-              )
-            }
-          >
-            {release && (
-              <p>
-                Install the download, then restart Kalkidan. The download does not replace the app.
-              </p>
-            )}
-            {desktop.stale && desktop.lastSuccessAt && <p>The last check may be out of date.</p>}
-            {desktop.error && <p>{desktop.error}</p>}
-            <SettingsDisclosure title="Verify download">
-              <dl className="meta-list">
-                <dt>Running build</dt>
-                <dd>
-                  <CopyValue value={desktop.runningBuild} name="Running build" />
-                </dd>
-                {release && (
-                  <>
-                    <dt>New version</dt>
-                    <dd>
-                      <CopyValue value={release.version} name="Version" />
-                    </dd>
-                    <dt>SHA-256</dt>
-                    <dd>
-                      <CopyValue value={release.sha256} name="SHA-256" />
-                    </dd>
-                    <dt>Published</dt>
-                    <dd>{new Date(release.publishedAt).toLocaleString()}</dd>
-                  </>
-                )}
-                {desktop.lastSuccessAt && (
-                  <>
-                    <dt>Last checked</dt>
-                    <dd>{new Date(desktop.lastSuccessAt).toLocaleString()}</dd>
-                  </>
-                )}
-              </dl>
-            </SettingsDisclosure>
-          </UpdateCard>
+          <DesktopUpdateCard
+            api={api}
+            desktop={desktop}
+            onStatus={(next) => setInventory((value) => value && { ...value, desktop: next })}
+          />
         )}
         <RuntimeUpdateCard api={api} open={open} onManage={() => onNavigate('managed-agents')} />
         {inventory?.helpers.map((helper) => (

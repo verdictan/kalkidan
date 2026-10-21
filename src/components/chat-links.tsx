@@ -50,8 +50,12 @@ import { DocPagePicker } from './doc-page-picker';
 export function dispatchApp(name: string, detail: Record<string, unknown>) {
   window.dispatchEvent(new CustomEvent(name, { detail }));
 }
-export const openSettings = (section?: string) =>
-  dispatchApp('kalkidan-open-settings', section ? { section } : {});
+/** Opens Settings. `anchor` is the element that gets focus, for example one setup step. */
+export const openSettings = (section?: string, anchor?: string) =>
+  dispatchApp('kalkidan-open-settings', {
+    ...(section ? { section } : {}),
+    ...(anchor ? { anchor } : {}),
+  });
 export const openTask = (groupId: string, itemId: string) =>
   dispatchApp('kalkidan-open-task', { groupId, itemId });
 export const openProjectPage = (
@@ -174,7 +178,7 @@ export function AgentErrorActions({
   const buttons: ReactNode[] = [];
   if (action && (action.kind === 'settings' || action.kind === 'install'))
     buttons.push(
-      <Button key="settings" size="sm" onClick={() => openSettings(action.section)}>
+      <Button key="settings" size="sm" onClick={() => openSettings(action.section, action.anchor)}>
         <Settings aria-hidden="true" />
         {action.label}
       </Button>,

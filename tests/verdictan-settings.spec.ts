@@ -39,8 +39,8 @@ test('Settings separates account sign-in from execution readiness and shows upda
           executionReady: false,
           account: {
             state: 'authenticated',
-            userId: 'user',
-            organizationId: 'org',
+            userId: '22222222-2222-4222-8222-222222222222',
+            organizationId: '11111111-1111-4111-8111-111111111111',
             apiUrl: 'https://api.eu.verdictan.com',
             expiresAt: '2026-11-01T00:00:00Z',
           },
@@ -84,6 +84,10 @@ test('Settings separates account sign-in from execution readiness and shows upda
   await account.getByRole('button', { name: 'Check status' }).click();
   await account.getByRole('button', { name: 'Sign in', exact: true }).click();
   await expect(account).toContainText('Signed in');
+  // Without a service name the account has a generic label. IDs never show.
+  await expect(account).toContainText('Your account');
+  await expect(account).not.toContainText('11111111-1111');
+  await expect(account).not.toContainText('22222222-2222');
   // Sign-in alone does not make the agents ready. The setup step is still open.
   const readiness = managed.getByRole('list', { name: 'Agent readiness' });
   await expect(readiness).toContainText('Codex not set up');

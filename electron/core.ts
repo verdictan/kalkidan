@@ -4,18 +4,13 @@ export const exec = promisify(execFile);
 export function shellQuote(value: string) {
   return "'" + value.replace(/'/g, "'\\''") + "'";
 }
-export function launchCommand(
-  path: string,
-  agent: 'codex' | 'claude' | 'terminal',
-  sessionId?: string,
-) {
-  if (!['codex', 'claude', 'terminal'].includes(agent)) throw new Error('Unknown agent');
-  if (sessionId && !/^[a-zA-Z0-9_-]{1,160}$/.test(sessionId)) throw new Error('Invalid session ID');
-  const command =
-    agent === 'terminal'
-      ? ''
-      : ` && ${agent}${sessionId ? (agent === 'codex' ? ' resume ' : ' --resume ') + shellQuote(sessionId) : ''}`;
-  return `cd -- ${shellQuote(path)}${command}`;
+/**
+ * Opens a plain shell in a project folder. Agents never start here: Kalkidan runs agents only
+ * through managed Verdictan agents, so there is no command that starts a local agent CLI.
+ */
+export function launchCommand(path: string, agent: 'terminal') {
+  if (agent !== 'terminal') throw new Error('Agent sessions must be opened inside Kalkidan.');
+  return `cd -- ${shellQuote(path)}`;
 }
 export function parseWorktrees(output: string) {
   return output

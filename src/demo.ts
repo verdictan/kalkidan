@@ -4,6 +4,7 @@ import type { DispatchPlan } from './domain/parallel-dispatch';
 import type { GitHubContentSnapshot } from './domain/github-content';
 import { canRevertMutation, type GitHubMutationHistory } from './domain/project-batch';
 import { githubDescriptor } from './domain/tracker';
+import { managedOnlyNotice } from './domain/verdictan';
 import type { API, Project, Session, ProjectGroup } from './types';
 const now = new Date().toISOString();
 let projects: Project[] = [
@@ -104,6 +105,8 @@ function previewBranch(branch: string) {
     throw new Error(`"${branch}" is not a valid branch name.`);
   return branch;
 }
+/** The browser preview never starts an agent. Agents run only as managed Verdictan agents. */
+const previewAgentBlock = `${managedOnlyNotice} The browser preview cannot start managed agents. Open the desktop app and complete managed agent setup.`;
 const nativeOnly = async () => {
   throw new Error('Open the desktop app to use native folder and Terminal actions.');
 };
@@ -305,6 +308,11 @@ export const demo: API = {
       runningBuild: 'preview',
       discovery: 'unsupported',
       stale: false,
+      install: {
+        kind: 'development',
+        selfUpdate: false,
+        reason: 'The browser preview cannot install updates. Open the desktop app.',
+      },
     },
     helpers: [],
   }),
@@ -323,6 +331,13 @@ export const demo: API = {
     throw new Error('Runtime installation requires the desktop application.');
   },
   runtimeUpdateCancel: async (hostId) => demo.runtimeUpdateStatus(hostId),
+  desktopUpdateDownload: async () => {
+    throw new Error('Desktop updates require the desktop application.');
+  },
+  desktopUpdateCancel: async () => (await demo.componentUpdates()).desktop,
+  desktopUpdateRestart: async () => {
+    throw new Error('Desktop updates require the desktop application.');
+  },
   memoryList: async () => ({
     pages: demoMemory.map((entry) => ({
       topic: entry.topic,
@@ -736,7 +751,7 @@ export const demo: API = {
     }));
   },
   chatCreate: async () => {
-    throw new Error('Open the desktop app to send messages to your installed agent.');
+    throw new Error(previewAgentBlock);
   },
   transcript: async (agent, id) => ({
     messages: [
@@ -755,7 +770,7 @@ export const demo: API = {
     truncated: false,
   }),
   chatStart: async () => {
-    throw new Error('Open the desktop app to send messages to your installed agent.');
+    throw new Error(previewAgentBlock);
   },
   chatStatus: async () => {
     throw new Error('No active conversation in preview mode.');

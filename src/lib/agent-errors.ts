@@ -1,6 +1,12 @@
 // Plain words for errors from agents and from managed agents. The UI never shows a code alone.
 import { errorMessage } from './errors';
-import { managedErrorCode, managedErrorInfo } from '../domain/verdictan';
+import {
+  managedErrorCode,
+  managedErrorInfo,
+  managedOnlyNotice,
+  managedSetupTargets,
+  type ManagedSetupStep,
+} from '../domain/verdictan';
 
 export type AgentErrorActionKind = 'settings' | 'retry' | 'change-agent' | 'install';
 
@@ -8,6 +14,8 @@ export interface AgentErrorAction {
   label: string;
   /** The Settings section to open, for `settings` and `install`. */
   section?: string;
+  /** The element in the section that gets focus, for example one managed setup step. */
+  anchor?: string;
   kind: AgentErrorActionKind;
 }
 
@@ -63,6 +71,23 @@ function managedError(code: string): AgentError {
   return { message: info.message, action, code };
 }
 
+/**
+ * Plain words and the setup step link for a blocked managed launch. The message already starts
+ * with the managed-only notice and contains no code.
+ */
+export function managedLaunchError(message: string, step: ManagedSetupStep = 'status'): AgentError {
+  const target = managedSetupTargets[step] || managedSetupTargets.status;
+  return {
+    message,
+    action: {
+      label: target.label,
+      section: target.section,
+      anchor: target.anchor,
+      kind: 'settings',
+    },
+  };
+}
+
 const agentNames: Record<string, string> = { codex: 'Codex', claude: 'Claude Code' };
 
 /**
@@ -72,6 +97,9 @@ const agentNames: Record<string, string> = { codex: 'Codex', claude: 'Claude Cod
 export function agentErrorMessage(error: unknown, agent?: string): AgentError {
   const text = errorMessage(error).trim();
   const name = (agent && agentNames[agent]) || 'The agent';
+  // A blocked managed launch already has plain words. Keep them and link to the setup.
+  if (text.startsWith(managedOnlyNotice))
+    return managedLaunchError(text.replace(/\s*managed_launch_blocked\s*$/, ''));
   const code = managedErrorCode(text);
   if (code) return managedError(code);
   if (/verdictan is not ready|managed agents? (are|is) not (ready|set up)/i.test(text))

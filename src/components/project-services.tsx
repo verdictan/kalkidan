@@ -17,7 +17,7 @@ import { SectionHeader } from './ui/page-header';
 import { showToast } from './ui/toast';
 import { ActionRow, ErrorAlert, ReviewRow, ToolSection, FormSelect } from './planning-kit';
 import { errorMessage } from '../lib/errors';
-import { historyCostLabel } from '../domain/verdictan';
+import { historyCostLabel, isOpaqueId, serviceName } from '../domain/verdictan';
 
 /** Plain words for each project service action. */
 const operationLabels: Record<ProjectServiceOperation, string> = {
@@ -55,19 +55,30 @@ const rows = (result?: ProjectServiceResult) =>
       )
     : [];
 const text = (value: unknown) => (typeof value === 'string' ? value : '');
+/** Service text for display. Internal IDs show as an empty value. */
+const visible = (value: unknown) => {
+  const result = text(value);
+  return result && !isOpaqueId(result) ? result : '';
+};
+/** A copy for review text without IDs, revisions, or ID-like values. */
+function withoutIds(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(withoutIds);
+  if (value && typeof value === 'object')
+    return Object.fromEntries(
+      Object.entries(value)
+        .filter(([key, item]) => !/(^id$|_id$|revision$)/.test(key) && withoutIds(item) !== '')
+        .map(([key, item]) => [key, withoutIds(item)]),
+    );
+  return typeof value === 'string' && isOpaqueId(value) ? '' : value;
+}
+const genericRecord = {
+  history: 'Usage record',
+  reviews: 'Review request',
+  context: 'Knowledge entry',
+  templates: 'Template',
+} as const;
 const record = (value: unknown) =>
   value && typeof value === 'object' ? (value as Record<string, unknown>) : {};
-
-/** A long ID as 7 monospace characters. The full value is in the tooltip. */
-function ShortId({ value }: { value: unknown }) {
-  const id = typeof value === 'string' || typeof value === 'number' ? String(value) : '';
-  if (!id) return <>Unknown</>;
-  return (
-    <code className="font-mono" title={id}>
-      {id.slice(0, 7)}
-    </code>
-  );
-}
 
 function tokens(row: Record<string, unknown>) {
   const usage = record(row.usage);
@@ -191,11 +202,7 @@ export function ProjectServicesPanel({
                 <ReviewRow
                   key={operation.id}
                   title={operationLabel(operation.operation)}
-                  meta={
-                    <>
-                      Result not known · Action <ShortId value={operation.id} />
-                    </>
-                  }
+                  meta="Result not known"
                   status={{ label: 'Check needed', tone: 'warning' }}
                 >
                   <div className="review-row-actions">
@@ -456,26 +463,17 @@ export function ProjectServicesPanel({
             </ToolSection>
           )}
           {result && (
-            <p className="form-help">
-              Loaded {fullTime(text(result.observed_at)) || 'now'} · Version{' '}
-              <ShortId value={result.revision} />
-            </p>
+            <p className="form-help">Loaded {fullTime(text(result.observed_at)) || 'now'}</p>
           )}
           {rows(result).length > 0 && (
             <div className="review-list">
-              {rows(result).map((row, index) => (
+              {rows(result).map((row, index, all) => (
                 <ReviewRow
                   key={text(row.id) || index}
+                  // Service names only. A record without a name gets a numbered generic label.
                   title={
-                    text(row.title) ||
-                    text(row.label) ||
-                    (kind === 'reviews'
-                      ? 'Review'
-                      : kind === 'history'
-                        ? 'Request'
-                        : kind === 'context'
-                          ? 'Knowledge passage'
-                          : 'Template')
+                    serviceName(row.title, row.label, row.name) ||
+                    (all.length > 1 ? `${genericRecord[kind]} ${index + 1}` : genericRecord[kind])
                   }
                   status={
                     kind === 'reviews' && text(row.status)
@@ -490,8 +488,10 @@ export function ProjectServicesPanel({
                   meta={
                     kind === 'history' ? (
                       <>
-                        Policy: {words(text(row.decision_outcome) || text(row.decision))}
-                        {text(row.reason_code) ? ` · ${words(row.reason_code)}` : ''} · Cost:{' '}
+                        Policy: {words(visible(row.decision_outcome) || visible(row.decision))}
+                        {visible(row.reason_code) ? ` · ${words(row.reason_code)}` : ''}
+                        {serviceName(row.policy_name) ? ` · ${serviceName(row.policy_name)}` : ''} ·
+                        Cost:
                         {historyCostLabel(row)} · Tokens: {tokens(row)}
                         {text(record(row.usage).settlement_state) || text(row.settlement_state)
                           ? ` · ${words(text(record(row.usage).settlement_state) || text(row.settlement_state))}`
@@ -503,9 +503,12 @@ export function ProjectServicesPanel({
                       ) : undefined
                     ) : kind === 'context' ? (
                       <>
-                        Source <ShortId value={row.source_id} /> · Version{' '}
-                        <ShortId value={row.source_revision} />
-                        {text(row.deletion_state) ? ` · ${words(row.deletion_state)}` : ''}
+                        Source:{' '}
+                        {documents.find((doc) => doc.id === text(row.source_id))?.title ||
+                          serviceName(row.source_title) ||
+                          'Project document'}{' '}
+                        · Author: {serviceName(row.author_name) || 'Project member'}
+                        {visible(row.deletion_state) ? ` · ${words(row.deletion_state)}` : ''}
                       </>
                     ) : (
                       `Version ${String(row.version || '')}${text(row.description) ? ` · ${text(row.description)}` : ''}`
@@ -514,7 +517,7 @@ export function ProjectServicesPanel({
                 >
                   {kind === 'history' && (
                     <p className="text-xs leading-4 text-muted-foreground">
-                      Audit record <ShortId value={row.audit_id} />
+                      Audit record: {text(row.audit_id) ? 'Recorded' : 'Unavailable'}
                     </p>
                   )}
                   {kind === 'context' && (
@@ -585,26 +588,21 @@ export function ProjectServicesPanel({
           )}
           {result && rows(result).length === 0 && (
             <EmptyState compact>
-              {result.receipt_id ? (
-                <>
-                  Action {words(result.state)} · Receipt <ShortId value={result.receipt_id} />
-                </>
-              ) : (
-                'No records.'
-              )}
+              {result.receipt_id
+                ? `Action ${visible(result.state) ? words(result.state) : 'recorded'}. Verdictan recorded a receipt.`
+                : 'No records.'}
             </EmptyState>
           )}
           {result &&
             Array.isArray(result.installations) &&
-            result.installations.map((value) => {
+            result.installations.map((value, index, all) => {
               const installation = record(value);
               return (
                 <ReviewRow
-                  key={text(installation.installation_id)}
+                  key={text(installation.installation_id) || index}
                   title={
-                    <>
-                      Installation <ShortId value={installation.installation_id} />
-                    </>
+                    serviceName(installation.name, installation.host_name) ||
+                    (all.length > 1 ? `Installation ${index + 1}` : 'Installation')
                   }
                   meta={`Runtime: ${words(installation.runtime_acknowledgment)}`}
                   status={{ label: words(installation.status), tone: 'muted' }}
@@ -641,7 +639,13 @@ export function ProjectServicesPanel({
               <SectionHeader size="sm" as="h4" title={operationLabel(pending.operation)} />
               <dl className="meta-list">
                 {Object.entries(pending.fields)
-                  .filter(([key]) => !['operation_id', 'expected_revision'].includes(key))
+                  // IDs and revisions stay in the request. They are not shown.
+                  .filter(
+                    ([key, value]) =>
+                      !['operation_id', 'expected_revision'].includes(key) &&
+                      !key.endsWith('_id') &&
+                      !(typeof value === 'string' && isOpaqueId(value)),
+                  )
                   .map(([key, value]) => (
                     <div key={key} className="contents">
                       <dt>{words(key)}</dt>
@@ -657,19 +661,13 @@ export function ProjectServicesPanel({
                             <span className="whitespace-pre-wrap">{value}</span>
                           )
                         ) : (
-                          <pre className="planning-pre">{JSON.stringify(value, null, 2)}</pre>
+                          <pre className="planning-pre">
+                            {JSON.stringify(withoutIds(value), null, 2)}
+                          </pre>
                         )}
                       </dd>
                     </div>
                   ))}
-                <dt>Action</dt>
-                <dd>
-                  <ShortId value={pending.fields.operation_id} />
-                </dd>
-                <dt>Version</dt>
-                <dd>
-                  <ShortId value={pending.fields.expected_revision} />
-                </dd>
               </dl>
               <p className="form-help">
                 This action uses your current project permissions. A review decision does not start

@@ -1,5 +1,6 @@
 import { interfaceConfig } from '../config/interface';
 import { trackerConnection } from '../domain/tracker';
+import { managedOnlyNotice } from '../domain/verdictan';
 import { trackerClient } from '../lib/tracker-client';
 import {
   ConversationTools,
@@ -39,7 +40,7 @@ import remarkGfm from 'remark-gfm';
 import { Alert, AlertDescription } from './ui/alert';
 import { showToast } from './ui/toast';
 import { errorMessage } from '../lib/errors';
-import { agentErrorMessage, type AgentError } from '../lib/agent-errors';
+import { agentErrorMessage, managedLaunchError, type AgentError } from '../lib/agent-errors';
 import { takePendingDraft } from '../lib/pending-draft';
 import { moveTaskToReview, pullRequestLabel, type SessionPullRequest } from '../lib/pull-request';
 import type { DocPassage } from '../domain/docs';
@@ -538,7 +539,10 @@ export function Conversation({
         messageId: sent.messageId,
         text: sent.text,
         prompt: sent.prompt,
-        error: agentErrorMessage(`${next.error || ''} ${next.errorCode || ''}`, session.agent),
+        error:
+          next.errorCode === 'managed_launch_blocked' && next.error
+            ? managedLaunchError(next.error, next.managedSetup)
+            : agentErrorMessage(`${next.error || ''} ${next.errorCode || ''}`, session.agent),
       });
       setPrompt((current) => current || sent.prompt);
       if (!providerSession.current && !messagesBefore.current)
@@ -839,9 +843,12 @@ export function Conversation({
     /host|ssh|disconnect|not connected|connection|ECONNRESET|EPIPE|timed out/i.test(error);
   // Desktop codes and agent errors show as plain words with an action.
   const errorInfo: AgentError | null = error
-    ? /\bdesktop\.[a-z_]+|verdictan is not ready/i.test(error)
-      ? agentErrorMessage(error, session.agent)
-      : { message: errorMessage(error) }
+    ? run?.errorCode === 'managed_launch_blocked' && run.error === error
+      ? managedLaunchError(error, run.managedSetup)
+      : /\bdesktop\.[a-z_]+|verdictan is not ready/i.test(error) ||
+          error.startsWith(managedOnlyNotice)
+        ? agentErrorMessage(error, session.agent)
+        : { message: errorMessage(error) }
     : null;
   async function reconnect() {
     if (!session.hostId) return;

@@ -4,6 +4,7 @@ import { mkdtemp, writeFile, chmod, rm, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { InteractiveChatRunner } from '../electron/interactive-chat';
+import { acceptedManagedLaunch } from './helpers/managed-launch';
 import { ProjectGroups } from '../electron/project-groups';
 import type { Session } from '../src/types';
 
@@ -68,7 +69,12 @@ for (const agent of ['codex', 'claude'] as const)
     const path = join(root, 'agent');
     await writeFile(path, fixture);
     await chmod(path, 0o755);
-    const runner = new InteractiveChatRunner(async () => ({ path, env: process.env }));
+    const runner = new InteractiveChatRunner(
+      async () => ({ path, env: process.env }),
+      undefined,
+      false,
+      acceptedManagedLaunch,
+    );
     const session: Session = { id: 'session', cwd: root, agent, title: 'Fixture', updatedAt: '' };
     try {
       for (const allow of [true, false]) {
@@ -172,7 +178,12 @@ for (const agent of ['codex', 'claude'] as const)
     const path = join(root, 'agent');
     await writeFile(path, fixture);
     await chmod(path, 0o755);
-    const runner = new InteractiveChatRunner(async () => ({ path, env: process.env }));
+    const runner = new InteractiveChatRunner(
+      async () => ({ path, env: process.env }),
+      undefined,
+      false,
+      acceptedManagedLaunch,
+    );
     try {
       const run = await runner.start(
         { id: 'new-session', agent, cwd: root, title: 'Fork', updatedAt: '' },

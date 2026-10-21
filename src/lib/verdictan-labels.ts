@@ -1,5 +1,5 @@
 // Plain words for managed-agent and update states. The UI never shows the raw API values.
-import { managedErrorInfo, managedErrors } from '../domain/verdictan';
+import { managedErrorInfo, managedErrors, serviceName } from '../domain/verdictan';
 import type { VerdictanSetup, VerdictanStatus } from '../domain/verdictan';
 import type {
   ComponentUpdateStatus,
@@ -153,7 +153,7 @@ export function displayVersion(version: string) {
   return version.replace(/[-+]build[.-].*$/i, '');
 }
 
-/** A 7-character digest or ID for display. Show the full value only in a Details section. */
+/** A 7-character build digest for display. Do not use it for service IDs. */
 export function shortId(value: string) {
   return value.replace(/^(cfgv?|pc|team)_/, '').slice(0, 7);
 }
@@ -168,39 +168,8 @@ export function providerName(provider: string) {
   return providerNames[provider] || provider.charAt(0).toUpperCase() + provider.slice(1);
 }
 
-/**
- * Optional display fields. Newer runtimes can send names. Older runtimes send IDs only, so each
- * label has a fallback that does not show the raw ID.
- */
-type Named = { name?: unknown; display_name?: unknown };
-type Versioned = Named & { version?: unknown; version_number?: unknown };
-
 function text(value: unknown) {
   return typeof value === 'string' && value.trim() ? value.trim() : undefined;
-}
-
-export function teamLabel(team: VerdictanSetup['teams'][number], index: number) {
-  const named = team as typeof team & Named;
-  return text(named.display_name) || text(named.name) || `Team ${index + 1}`;
-}
-
-export function policyLabel(policy: VerdictanSetup['policies'][number], index: number) {
-  const named = policy as typeof policy & Versioned;
-  const name = text(named.display_name) || text(named.name) || `Policy ${index + 1}`;
-  const version = named.version_number ?? named.version;
-  return typeof version === 'number' || text(version) ? `${name} · version ${version}` : name;
-}
-
-export function connectionLabel(
-  connection: VerdictanSetup['providerConnections'][number],
-  index: number,
-  count: number,
-) {
-  const named = connection as typeof connection & Named;
-  const name = text(named.display_name) || text(named.name);
-  if (name) return `${providerName(connection.provider)} · ${name}`;
-  const label = `${providerName(connection.provider)} (organization)`;
-  return count > 1 ? `${label} ${index + 1}` : label;
 }
 
 /** Models that the organization allows, when the runtime sends them. */
@@ -215,18 +184,17 @@ export function allowedModels(setup: VerdictanSetup | undefined, agent: 'codex' 
   return undefined;
 }
 
-/** The organization and user of the signed-in account, by name when the runtime sends it. */
+/**
+ * The organization, user name and email of the signed-in account, when the runtime sends them.
+ * A value that is only an internal ID is never returned. Use `accountLabel` for the fallback.
+ */
 export function accountNames(status: VerdictanStatus | undefined) {
   const account = status?.account as
-    | (NonNullable<VerdictanStatus['account']> & {
-        organizationName?: unknown;
-        userEmail?: unknown;
-        email?: unknown;
-      })
-    | undefined;
+    (NonNullable<VerdictanStatus['account']> & { email?: unknown }) | undefined;
   return {
-    organization: text(account?.organizationName),
-    email: text(account?.userEmail) || text(account?.email),
+    organization: serviceName(account?.organizationName),
+    user: serviceName(account?.userName),
+    email: serviceName(account?.userEmail, account?.email),
   };
 }
 
