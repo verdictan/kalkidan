@@ -4,8 +4,10 @@ import {
   managedErrorCode,
   managedErrorInfo,
   managedOnlyNotice,
+  managedRefusal,
   managedSetupTargets,
   type ManagedSetupStep,
+  type RefusalContext,
 } from '../domain/verdictan';
 
 export type AgentErrorActionKind = 'settings' | 'retry' | 'change-agent' | 'install';
@@ -24,6 +26,10 @@ export interface AgentError {
   action?: AgentErrorAction;
   /** The code from the desktop or the runtime, for the details. Never show it alone. */
   code?: string;
+  /** A short secondary text, for example why Kalkidan does not start a local agent CLI. */
+  note?: string;
+  /** True when "Try again" is the first fix. It shows before a Settings action. */
+  retryFirst?: boolean;
 }
 
 const setUp: AgentErrorAction = {
@@ -54,9 +60,22 @@ const setUpCodes = new Set([
   'desktop.region_required',
 ]);
 
+// Codes of a check, a gateway or a lock that did not become ready. They are not setup steps.
+const refusalCodes =
+  /^desktop\.(readiness_\w+|evidence_unavailable|event_authority_unavailable|operation_in_progress|secure_storage_unavailable)$/;
+
 /** Plain words and one action for a managed agent code. Uses the backend's code list. */
 function managedError(code: string): AgentError {
   const info = managedErrorInfo(code);
+  // A launch refusal code has its own words and step. Only a step that can help shows.
+  const refusal = refusalCodes.test(code) ? managedRefusal(code) : undefined;
+  if (refusal)
+    return {
+      message: refusal.message,
+      action: refusal.step ? stepAction(refusal.step) : refusal.retry ? retry : undefined,
+      retryFirst: refusal.retry,
+      code,
+    };
   const action = changeAgentCodes.has(code)
     ? changeAgent
     : setUpCodes.has(code)
@@ -71,20 +90,49 @@ function managedError(code: string): AgentError {
   return { message: info.message, action, code };
 }
 
-/**
- * Plain words and the setup step link for a blocked managed launch. The message already starts
- * with the managed-only notice and contains no code.
- */
-export function managedLaunchError(message: string, step: ManagedSetupStep = 'status'): AgentError {
+/** The Settings action for a setup step. */
+function stepAction(step: ManagedSetupStep): AgentErrorAction {
   const target = managedSetupTargets[step] || managedSetupTargets.status;
+  return { label: target.label, section: target.section, anchor: target.anchor, kind: 'settings' };
+}
+
+/** A blocked managed launch, as the desktop reports it in a chat run. */
+export interface ManagedLaunchFailure {
+  /** The text from the desktop. It starts with the managed-only notice. */
+  message: string;
+  step?: ManagedSetupStep;
+  /** The safe code that stopped the launch. Older desktop apps do not send it. */
+  code?: string;
+  /** The agent version that the launch found. */
+  version?: string;
+}
+
+/**
+ * Plain words and one action for a blocked managed launch. The managed-only notice is a note,
+ * not the first words. With the code, the words name the computer and the exact cause, and only
+ * a step that can help shows. Without the code, the step from the desktop shows.
+ */
+export function managedLaunchError(
+  failure: ManagedLaunchFailure,
+  context: Omit<RefusalContext, 'version'> = {},
+): AgentError {
+  if (failure.code && /^desktop\.[a-z_]{1,100}$/.test(failure.code)) {
+    const refusal = managedRefusal(failure.code, { ...context, version: failure.version });
+    return {
+      message: refusal.message,
+      note: managedOnlyNotice,
+      action: refusal.step ? stepAction(refusal.step) : undefined,
+      retryFirst: refusal.retry,
+    };
+  }
+  const text = failure.message.replace(/\s*managed_launch_blocked\s*$/, '').trim();
+  const message = text.startsWith(managedOnlyNotice)
+    ? text.slice(managedOnlyNotice.length).trim()
+    : text;
   return {
-    message,
-    action: {
-      label: target.label,
-      section: target.section,
-      anchor: target.anchor,
-      kind: 'settings',
-    },
+    message: message || 'The managed launch checks did not pass.',
+    note: managedOnlyNotice,
+    action: stepAction(failure.step || 'status'),
   };
 }
 
@@ -98,8 +146,7 @@ export function agentErrorMessage(error: unknown, agent?: string): AgentError {
   const text = errorMessage(error).trim();
   const name = (agent && agentNames[agent]) || 'The agent';
   // A blocked managed launch already has plain words. Keep them and link to the setup.
-  if (text.startsWith(managedOnlyNotice))
-    return managedLaunchError(text.replace(/\s*managed_launch_blocked\s*$/, ''));
+  if (text.startsWith(managedOnlyNotice)) return managedLaunchError({ message: text });
   const code = managedErrorCode(text);
   if (code) return managedError(code);
   if (/verdictan is not ready|managed agents? (are|is) not (ready|set up)/i.test(text))

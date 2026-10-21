@@ -108,6 +108,10 @@ export interface ChatRun {
   errorCode?: 'session_busy' | 'transport_lost' | 'managed_launch_blocked' | `desktop.${string}`;
   /** With `managed_launch_blocked`: the setup step that can remove the block. */
   managedSetup?: ManagedSetupStep;
+  /** With `managed_launch_blocked`: the safe code that stopped the launch. */
+  managedCode?: `desktop.${string}`;
+  /** With a version refusal: the agent version that the launch found. */
+  agentVersion?: string;
   sessionReady?: boolean;
 }
 export interface AgentQuestion {

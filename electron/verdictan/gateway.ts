@@ -12,6 +12,28 @@ class ReadinessError extends Error {
     super('readiness');
   }
 }
+/**
+ * Readiness codes from the gateway that Kalkidan relays, so that the UI shows the exact cause.
+ * Other codes become `desktop.readiness_failed`. The gateway's message text is never relayed.
+ */
+const relayedReadinessCodes = new Set([
+  'desktop.readiness_blocked',
+  'desktop.readiness_required',
+  'desktop.event_authority_unavailable',
+  'desktop.evidence_unavailable',
+  'desktop.operation_in_progress',
+  'desktop.secure_storage_unavailable',
+  'desktop.codex_version_unsupported',
+  'desktop.claude_code_version_unsupported',
+  'desktop.agent_version_unsupported',
+]);
+/** The `error.code` of a gateway reply, or nothing when it is not a short safe code. */
+function replyCode(reply: unknown) {
+  const error =
+    reply && typeof reply === 'object' ? (reply as { error?: unknown }).error : undefined;
+  const code = error && typeof error === 'object' ? (error as { code?: unknown }).code : undefined;
+  return typeof code === 'string' && /^desktop\.[a-z_]{1,100}$/.test(code) ? code : undefined;
+}
 export type NativeAgent = { kind: 'codex' | 'claude_code'; version: string };
 export interface GatewayOptions {
   executable: string;
@@ -163,7 +185,7 @@ export class ManagedGateway {
       agent_version: agent.version,
     }).toString();
     try {
-      const result = await this.readJSON(url);
+      const result = await this.readJSON(url, undefined, true);
       if (
         this.closed ||
         this.stopping ||
@@ -181,14 +203,17 @@ export class ManagedGateway {
         result.control_plane?.session_id !== this.credentials.session_id ||
         !this.billingMatches(result.control_plane?.billing)
       )
-        throw new ReadinessError(result?.error?.code);
+        throw new ReadinessError(replyCode(result));
     } catch (error) {
-      // Relay only known safe Claude subscription codes so that the user gets a recovery action.
+      // Fail closed. Relay only known safe codes, so that the user gets the exact cause and a
+      // recovery action. Claude subscription codes apply only to a Claude subscription runtime.
       const code = error instanceof ReadinessError ? error.code : undefined;
       throw new DesktopProtocolError(
-        this.credentials.provider_access_mode === 'claude_subscription' &&
-          claudeSubscriptionRecovery(code)
-          ? code!
+        code &&
+          (relayedReadinessCodes.has(code) ||
+            (this.credentials.provider_access_mode === 'claude_subscription' &&
+              claudeSubscriptionRecovery(code)))
+          ? code
           : 'desktop.readiness_failed',
       );
     }
@@ -206,7 +231,11 @@ export class ManagedGateway {
         billing.provider_access_mode === 'claude_subscription')
     );
   }
-  private async readJSON(url: URL, signal?: AbortSignal): Promise<any> {
+  /**
+   * Reads a JSON reply. With `errorCode`, a reply that is not OK throws a ReadinessError with
+   * the safe `error.code` of its body. The body is read with the same size limit.
+   */
+  private async readJSON(url: URL, signal?: AbortSignal, errorCode = false): Promise<any> {
     if (this.closed || this.stopping) throw new DesktopProtocolError('desktop.gateway_unavailable');
     const response = await (this.options.request || fetch)(url, {
       redirect: 'error',
@@ -217,9 +246,16 @@ export class ManagedGateway {
         ...(signal ? [signal] : []),
       ]),
     });
+    if (!response.ok && errorCode && response.body) {
+      const reply = await this.readBody(response.body).catch(() => undefined);
+      throw new ReadinessError(replyCode(reply));
+    }
     if (!response.ok || !response.body)
       throw new DesktopProtocolError('desktop.evidence_unavailable');
-    const reader = response.body.getReader();
+    return this.readBody(response.body);
+  }
+  private async readBody(body: ReadableStream<Uint8Array>): Promise<any> {
+    const reader = body.getReader();
     const chunks: Uint8Array[] = [];
     let length = 0;
     try {
@@ -291,7 +327,7 @@ export class ManagedGateway {
       throw new DesktopProtocolError('desktop.subscription_agent_required');
     // The same minimum as the launch check. No exact version is pinned.
     const refused = agentVersionErrorCode(checkAgentVersion(agent.kind, agent.version));
-    if (refused) throw new DesktopProtocolError(refused);
+    if (refused) throw new DesktopProtocolError(refused, { version: agent.version });
     if (mode === 'claude_subscription') {
       // The gateway key is a separate header. Native subscription authentication stays intact,
       // so no API key, auth token, or key helper is set. The value stays in the child env only.

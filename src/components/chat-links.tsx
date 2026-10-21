@@ -176,14 +176,29 @@ export function AgentErrorActions({
 }) {
   const action = error.action;
   const buttons: ReactNode[] = [];
-  if (action && (action.kind === 'settings' || action.kind === 'install'))
+  const settings = action && (action.kind === 'settings' || action.kind === 'install');
+  // A retryable error shows "Try again" first. Settings is then the second choice.
+  const retryFirst = !!error.retryFirst && !!onRetry;
+  if (onRetry && retryFirst)
     buttons.push(
-      <Button key="settings" size="sm" onClick={() => openSettings(action.section, action.anchor)}>
+      <Button key="retry" size="sm" disabled={busy} onClick={onRetry}>
+        <RefreshCw aria-hidden="true" />
+        {busy ? 'Sending…' : 'Try again'}
+      </Button>,
+    );
+  if (settings)
+    buttons.push(
+      <Button
+        key="settings"
+        size="sm"
+        variant={buttons.length ? 'outline' : 'default'}
+        onClick={() => openSettings(action.section, action.anchor)}
+      >
         <Settings aria-hidden="true" />
         {action.label}
       </Button>,
     );
-  if (onRetry)
+  if (onRetry && !retryFirst)
     buttons.push(
       <Button
         key="retry"
@@ -207,6 +222,16 @@ export function AgentErrorActions({
   return <div className="flex flex-wrap gap-2">{buttons}</div>;
 }
 
+/** A secondary note under a chat error. "Why?" shows it. */
+export function AgentErrorNote({ note }: { note: string }) {
+  return (
+    <details className="text-muted-foreground">
+      <summary className="w-fit cursor-pointer select-none">Why?</summary>
+      <span>{note}</span>
+    </details>
+  );
+}
+
 /** The error under a message that was not sent, with its actions. */
 export function SendFailure({
   error,
@@ -226,6 +251,7 @@ export function SendFailure({
     <Alert variant="destructive" size="sm" className="chat-send-failure" role="alert">
       <AlertDescription className="grid gap-2 text-xs">
         <span>{error.message}</span>
+        {error.note && <AgentErrorNote note={error.note} />}
         {error.code && (
           <span className="text-muted-foreground">
             Details: <code className="font-mono">{error.code}</code>

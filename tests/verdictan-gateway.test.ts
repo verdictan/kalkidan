@@ -56,6 +56,7 @@ function fixture() {
   child.stdin.on('finish', close);
   const launches: any[] = [],
     requests: any[] = [];
+  let status = 200;
   let payload: any = {
     schema_version: 1,
     ready: true,
@@ -77,7 +78,7 @@ function fixture() {
     }) as any,
     request: (async (url: URL, options: any) => {
       requests.push({ url, options });
-      return Response.json(payload);
+      return Response.json(payload, { status });
     }) as any,
     lost: () => lost++,
   });
@@ -116,8 +117,9 @@ function fixture() {
     emit,
     killed: () => killed,
     lost: () => lost,
-    change: (value: any) => {
+    change: (value: any, code = 200) => {
       payload = value;
+      status = code;
     },
     payload,
   };
@@ -194,6 +196,55 @@ test('listening never implies readiness: reject unsupported, stale or foreign re
     await assert.rejects(f.gateway.nativeRoute(agent, correlation), /readiness_failed/);
     await f.gateway.stop();
   }
+});
+test('readiness relays only known safe gateway codes and never the gateway text', async () => {
+  for (const [body, code, expected] of [
+    [
+      { error: { code: 'desktop.readiness_blocked', message: 'db down at 10.0.0.1' } },
+      503,
+      'desktop.readiness_blocked',
+    ],
+    [
+      { error: { code: 'desktop.event_authority_unavailable' } },
+      504,
+      'desktop.event_authority_unavailable',
+    ],
+    [
+      { ready: false, error: { code: 'desktop.evidence_unavailable' } },
+      200,
+      'desktop.evidence_unavailable',
+    ],
+    [
+      { error: { code: 'desktop.secure_storage_unavailable' } },
+      503,
+      'desktop.secure_storage_unavailable',
+    ],
+    [{ error: { code: 'desktop.unknown_gateway_code' } }, 503, 'desktop.readiness_failed'],
+    [{ error: { code: 'not a code' } }, 500, 'desktop.readiness_failed'],
+    [{ error: 'raw text' }, 500, 'desktop.readiness_failed'],
+    // A Claude subscription code needs a Claude subscription runtime.
+    [
+      { error: { code: 'desktop.claude_subscription_login_required' } },
+      503,
+      'desktop.readiness_failed',
+    ],
+  ] as const) {
+    const f = fixture();
+    f.listen();
+    f.change(body, code);
+    await assert.rejects(f.gateway.readiness(agent), (error: any) => {
+      assert.equal(error.code, expected);
+      assert.doesNotMatch(error.message, /10\.0\.0\.1|db down|raw text/);
+      return true;
+    });
+    await f.gateway.stop();
+  }
+  // A reply that is not JSON fails closed.
+  const f = fixture();
+  f.listen();
+  f.change('not json', 503);
+  await assert.rejects(f.gateway.readiness(agent), /readiness_failed/);
+  await f.gateway.stop();
 });
 test('stale supervisor generations and non-loopback addresses terminate ownership', async () => {
   for (const mode of ['generation', 'address', 'sequence']) {

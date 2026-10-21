@@ -2583,6 +2583,7 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
                   api={api}
                   projects={data.projects}
                   projectGroups={data.groups}
+                  hosts={data.hosts}
                   sessions={data.sessions}
                   initialTabs={restoredChats}
                   selected={chatSession}
