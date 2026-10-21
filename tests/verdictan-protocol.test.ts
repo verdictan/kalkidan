@@ -183,6 +183,31 @@ test('profile owner coalesces checks, retains unready capabilities and opens onl
   assert.equal((await logout).remoteRevocationPending, true);
   assert.equal(account.status().account, undefined);
 });
+test('a launch waits for a running status check and refuses during sign-in', async (t) => {
+  const f = fixture();
+  const account = new VerdictanAccountService({
+    apiOrigin: 'https://api.verdictan.com',
+    consoleOrigin: 'https://console.verdictan.com',
+    connect: async () => f.client,
+    openBrowser: async () => {},
+  });
+  t.after(() => account.dispose());
+  const checked = account.check();
+  let launched = false;
+  const client = account.runtimeClient().then((value) => {
+    launched = true;
+    return value;
+  });
+  await drain();
+  assert.equal(launched, false);
+  f.reply('account.status', signedOut);
+  await drain();
+  f.reply('capabilities', capabilities);
+  await checked;
+  assert.equal(await client, f.client);
+  void account.authorize('login').catch(() => undefined);
+  await assert.rejects(account.runtimeClient(), /operation_in_progress/);
+});
 test('account checks reject wrong identity origins and authorization rejects off-origin links', async (t) => {
   assert.throws(() =>
     parseAccount({ ...signedOut, api_url: 'https://other.test' }, signedOut.api_url),
