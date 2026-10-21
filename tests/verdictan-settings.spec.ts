@@ -39,8 +39,8 @@ test('Settings separates account sign-in from execution readiness and shows upda
           executionReady: false,
           account: {
             state: 'authenticated',
-            userId: 'user',
-            organizationId: 'org',
+            userId: '22222222-2222-4222-8222-222222222222',
+            organizationId: '11111111-1111-4111-8111-111111111111',
             apiUrl: 'https://api.eu.verdictan.com',
             expiresAt: '2026-11-01T00:00:00Z',
           },
@@ -83,7 +83,10 @@ test('Settings separates account sign-in from execution readiness and shows upda
   await expect(account).toContainText(
     'Gateway setup and agent compatibility still need verification',
   );
-  await expect(account).toContainText('org');
+  // Without a service name the account has a generic label. IDs never show.
+  await expect(account).toContainText('Your account');
+  await expect(account).not.toContainText('11111111-1111');
+  await expect(account).not.toContainText('22222222-2222');
   await account.getByRole('button', { name: 'Sign out', exact: true }).click();
   await expect(account).toContainText('Remote access revocation could not be confirmed');
   await settings.getByRole('tab', { name: 'Updates', exact: true }).click();
