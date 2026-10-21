@@ -97,16 +97,21 @@ test('runtime approval finds the bundled policy and package from its own locatio
   assert.equal(JSON.parse(await readFile(packagePath, 'utf8')).name, 'kalkidan');
 });
 
-test('the bundled macOS ARM64 approval can be approved again without change', () => {
+test('the bundled host approvals can be approved again without change', () => {
   const policy = bundled as RuntimePolicy;
-  const selected = policy.hostPolicies!['darwin-arm64'];
-  const manifest = JSON.parse(selected.manifest);
-  const { policy: again } = approveRuntime(
-    policy,
-    Buffer.from(selected.manifest),
-    selected.pin,
-    { os: 'darwin', arch: 'arm64', systemVersion: '26.7.1' },
-    { now: manifest.issued_at + 1, desktopVersion: '0.1.0' },
-  );
-  assert.deepEqual(again, policy);
+  for (const [os, arch, systemVersion] of [
+    ['darwin', 'arm64', '26.7.1'],
+    ['linux', 'x64', '6.12.0'],
+  ]) {
+    const selected = policy.hostPolicies![`${os}-${arch}`];
+    const manifest = JSON.parse(selected.manifest);
+    const { policy: again } = approveRuntime(
+      policy,
+      Buffer.from(selected.manifest),
+      selected.pin,
+      { os, arch, systemVersion },
+      { now: manifest.issued_at + 1, desktopVersion: '0.1.0' },
+    );
+    assert.deepEqual(again, policy);
+  }
 });

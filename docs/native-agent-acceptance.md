@@ -140,10 +140,35 @@ The operator approved Verdictan 0.6.1 for macOS ARM64 with
 `tests/acceptance/runtime-install.ts` installed 0.6.1 from the public release in
 a disposable root. Clean install, restart, and the capability probe passed.
 
-Linux x64 keeps the reviewed v0.3.0 approval. The 0.6.1 manifest has no Linux
-entry. The installer accepts only an artifact that its reviewed manifest lists,
-so a Linux archive alone cannot get approval. Verdictan 0.3.0 does not advertise
-`provider_access.claude_subscription`. This blocks Claude subscription launches on an SSH
-Linux host. A published manifest with an `x86_64-unknown-linux-gnu`
-entry for 0.6.1 or later removes this block. The v0.3.0 manifest expires at
-`1793135183` (2026-10-27 21:06:23 UTC).
+The installer now also compares the extracted executable with the manifest
+`executable_sha256` value, when the manifest has one.
+
+### Kalkidan-reviewed Linux x64 pin
+
+Linux x64 uses a Kalkidan-reviewed manifest for 0.6.1. Verdictan did not publish
+it. The Verdictan desktop manifest lists only macOS ARM64. Verdictan does not
+yet list Linux as a qualified managed desktop target. The earlier v0.3.0
+Linux pin used the same method.
+
+The operator made the manifest from the public archive and its checksum data.
+The operator approved it with `scripts/approve-runtime.ts` for `linux x64 6.12.0`.
+The approval uses these values:
+
+- Archive `verdictan-x86_64-unknown-linux-gnu.tar.gz`, size 98317795 bytes,
+  SHA-256 `436f5b8f426404fab204dfd7b976cb2d811e6a17403da8c0cd7fa43e9c40d144`.
+  The downloaded archive, its `.sha256` asset, and the `sha256.sum` entry agree.
+- Executable SHA-256
+  `f4784283f864f9f433e2632d023e5b84db0111b8114c32bee38d75187ddb88a5`.
+- Reviewed manifest SHA-256
+  `8403328eee5e36173af79bc33380687148ec7fdd2f63cadc4cf2297cfccbc5bf`,
+  sequence `1792582749000`.
+- Minimum Linux kernel 6.12.0. Dependencies: glibc (validated on Enterprise
+  Linux 10.2), bubblewrap 0.10.0 or later, and Python 3.
+- Manifest expiry: `1793187549` (2026-10-28 11:39:09 UTC). Renew the approval
+  before this time.
+
+The production installer completed an offline linux-x64 installation of this
+archive on macOS. It checked the archive digest, the archive contents, and the
+executable digest. The Linux executable cannot run on macOS, so this check did
+not run the capability probe. Run `tests/acceptance/runtime-install.ts` on a
+Linux x64 host before you report Linux runtime acceptance.
