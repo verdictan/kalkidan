@@ -253,7 +253,10 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
       : route.kind === 'conversation'
         ? route.repositoryId || lastRepository
         : lastRepository;
-  const [query, setQuery] = useState('');
+  // True when the command palette ("Search or run") shows.
+  const [searchOpen, setSearchOpen] = useState(false);
+  const searchOpenRef = useRef(false);
+  searchOpenRef.current = searchOpen;
   // True while a user action that changes data runs. A refresh does not set it.
   const [busy, setBusy] = useState(false);
   // Page errors show as error toasts. Dialogs show their own errors.
@@ -319,7 +322,6 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
     navigate(valid);
     if (valid.kind === 'conversation') setChatSession(valid.session);
   });
-  const searchRef = useRef<HTMLInputElement>(null);
   const sidebarRef = useRef<HTMLElement>(null);
   const sidebarToggleRef = useRef<HTMLButtonElement>(null);
   // Window listeners read the latest history through this ref.
@@ -327,9 +329,8 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
   navigationRef.current = navigation;
   // Navigation must not change the selection under an open dialog.
   const dialogOpen = () => !!document.querySelector('[role="dialog"], [role="alertdialog"]');
-  function focusSearch() {
-    setNavigationOpen(true);
-    requestAnimationFrame(() => searchRef.current?.focus());
+  function openSearch() {
+    setSearchOpen(true);
   }
   // When the sidebar closes with the focus in it, move the focus to the sidebar button.
   function toggleSidebar() {
@@ -409,7 +410,9 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
         )
           return;
         event.preventDefault();
-        if (!dialogOpen()) focusSearch();
+        // Mod+K closes the open palette, or opens it when no other dialog is open.
+        if (searchOpenRef.current) setSearchOpen(false);
+        else if (!dialogOpen()) openSearch();
       } else if (preview && (key === 'w' || key === 'b')) {
         // The browser preview has no native menu. The desktop menu sends these commands.
         event.preventDefault();
@@ -457,7 +460,7 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
       rememberTrigger();
       setCreateOpen(true);
     } else if (command === 'settings') openSettings();
-    else if (command === 'search') focusSearch();
+    else if (command === 'search') openSearch();
     else if (command === 'toggle-sidebar') toggleSidebar();
     else if (command === 'close-tab') closeTab();
     else if (command === 'shortcuts') {
@@ -743,13 +746,9 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
   // A connected board whose sign-in stopped working. The button opens Settings › Accounts.
   const signInLost =
     !!connectionKey && verifiedConnection.key === connectionKey && !verifiedConnection.ready;
-  const projects = data.projects
-    .filter((p) =>
-      `${p.name} ${p.path} ${(data.groups || []).find((g) => g.repoIds.includes(p.id))?.name || ''}`
-        .toLowerCase()
-        .includes(query.toLowerCase()),
-    )
-    .sort((a, b) => Number(b.favorite) - Number(a.favorite) || a.name.localeCompare(b.name));
+  const projects = [...data.projects].sort(
+    (a, b) => Number(b.favorite) - Number(a.favorite) || a.name.localeCompare(b.name),
+  );
   // Status dots for open chats that work, wait for approval or wait for an answer.
   const sessionActivity: Record<string, SessionActivityState> = {};
   const repoActivity: Record<string, SessionActivityState> = {};
@@ -901,7 +900,6 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
       return;
     }
     setNavigationOpen(true);
-    setQuery('');
     // Wait for the sidebar to show the project row, then open its dialog.
     const open = (tries: number) =>
       requestAnimationFrame(() => {
@@ -1933,9 +1931,8 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
       >
         <WorkspaceSearch
           api={api}
-          inputRef={searchRef}
-          query={query}
-          onQueryChange={setQuery}
+          open={searchOpen}
+          onOpenChange={setSearchOpen}
           projects={data.projects}
           groups={data.groups || []}
           sessions={data.sessions}
@@ -1954,79 +1951,77 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
           }}
           onRepository={openProject}
           onSession={openConversation}
-        >
-          <ProjectTree
-            activity={repoActivity}
-            sessionActivity={sessionActivity}
-            projectPage={projectPage}
-            query={query}
-            onDocs={(group) => openGroup(group, 'docs')}
-            onTasks={(group) => openGroup(group, 'tasks')}
-            onMemory={(group) => openGroup(group, 'memory')}
-            onInsights={(group) => openGroup(group, 'insights')}
-            onNewTask={(group) => {
-              openGroup(group, 'tasks');
-              setTimeout(
-                () =>
-                  window.dispatchEvent(
-                    new CustomEvent('kalkidan-new-task', { detail: { forwarded: true } }),
-                  ),
-                60,
-              );
-            }}
-            onProjectSettings={(group) =>
-              openPageThen(group, 'board', 'kalkidan-open-project-settings', {
-                groupId: group.id,
-              })
-            }
-            taskOf={(session) => sessionTask(session, boards)}
-            onOpenTask={(groupId, itemId) => routeEvents.current.openTask({ groupId, itemId })}
-            onSessionCommand={(command, session) => sessionCommand(command, session)}
-            pinnedViews={pinnedViews}
-            onOpenView={openView}
-            onUnpinView={(group, view) => pinView(group.id, view, false)}
-            mergedCopies={mergedCopies}
-            onOverview={openOverview}
-            overviewCurrent={home}
-            onAllSessions={openAllSessions}
-            allSessionsCurrent={sessionsPage && !chatOpen}
-            onEditRepository={editRepository}
-            onDeleteBranchCopy={deleteBranchCopy}
-            onNewSession={(agent, repo) => startSession(agent, repo)}
-            preferredAgent={preferredAgent}
-            onConnect={(group) => connectTracker(group)}
-            openChats={openChats}
-            onCloseChat={(session) =>
-              window.dispatchEvent(
-                new CustomEvent('kalkidan-close-chat', {
-                  detail: { agent: session.agent, id: session.id },
-                }),
-              )
-            }
-            cloning={cloning}
-            hosts={data.hosts}
-            api={api}
-            repos={projects}
-            allRepos={data.projects}
-            groups={data.groups || []}
-            sessions={[
-              ...drafts.filter(
-                (d) => !data.sessions.some((s) => s.agent === d.agent && s.id === d.id),
-              ),
-              ...data.sessions,
-            ]}
-            selected={home || sessionsPage ? '' : selected}
-            activeGroup={home || sessionsPage ? null : boardGroup}
-            activeSession={chatOpen ? chatSession : null}
-            busy={busy}
-            onSelect={openProject}
-            onProject={(group) => openGroup(group)}
-            onResume={openConversation}
-            onNotice={notify}
-            onRefresh={reload}
-            run={run}
-          />
-        </WorkspaceSearch>
+        />
+        <ProjectTree
+          activity={repoActivity}
+          sessionActivity={sessionActivity}
+          projectPage={projectPage}
+          onDocs={(group) => openGroup(group, 'docs')}
+          onTasks={(group) => openGroup(group, 'tasks')}
+          onMemory={(group) => openGroup(group, 'memory')}
+          onInsights={(group) => openGroup(group, 'insights')}
+          onNewTask={(group) => {
+            openGroup(group, 'tasks');
+            setTimeout(
+              () =>
+                window.dispatchEvent(
+                  new CustomEvent('kalkidan-new-task', { detail: { forwarded: true } }),
+                ),
+              60,
+            );
+          }}
+          onProjectSettings={(group) =>
+            openPageThen(group, 'board', 'kalkidan-open-project-settings', {
+              groupId: group.id,
+            })
+          }
+          taskOf={(session) => sessionTask(session, boards)}
+          onOpenTask={(groupId, itemId) => routeEvents.current.openTask({ groupId, itemId })}
+          onSessionCommand={(command, session) => sessionCommand(command, session)}
+          pinnedViews={pinnedViews}
+          onOpenView={openView}
+          onUnpinView={(group, view) => pinView(group.id, view, false)}
+          mergedCopies={mergedCopies}
+          onOverview={openOverview}
+          overviewCurrent={home}
+          onAllSessions={openAllSessions}
+          allSessionsCurrent={sessionsPage && !chatOpen}
+          onEditRepository={editRepository}
+          onDeleteBranchCopy={deleteBranchCopy}
+          onNewSession={(agent, repo) => startSession(agent, repo)}
+          preferredAgent={preferredAgent}
+          onConnect={(group) => connectTracker(group)}
+          openChats={openChats}
+          onCloseChat={(session) =>
+            window.dispatchEvent(
+              new CustomEvent('kalkidan-close-chat', {
+                detail: { agent: session.agent, id: session.id },
+              }),
+            )
+          }
+          cloning={cloning}
+          hosts={data.hosts}
+          api={api}
+          repos={projects}
+          allRepos={data.projects}
+          groups={data.groups || []}
+          sessions={[
+            ...drafts.filter(
+              (d) => !data.sessions.some((s) => s.agent === d.agent && s.id === d.id),
+            ),
+            ...data.sessions,
+          ]}
+          selected={home || sessionsPage ? '' : selected}
+          activeGroup={home || sessionsPage ? null : boardGroup}
+          activeSession={chatOpen ? chatSession : null}
+          busy={busy}
+          onSelect={openProject}
+          onProject={(group) => openGroup(group)}
+          onResume={openConversation}
+          onNotice={notify}
+          onRefresh={reload}
+          run={run}
+        />
         <div className="sidebar-github">
           {signInLost && connectionGroup && (
             <Button

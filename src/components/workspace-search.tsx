@@ -1,18 +1,38 @@
-import { useEffect, useId, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react';
-import { Clock, FileText, Folder, FolderGit2, LayoutGrid, MessagesSquare, X } from 'lucide-react';
+import {
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+  type RefObject,
+} from 'react';
+import {
+  Clock,
+  FileText,
+  Folder,
+  FolderGit2,
+  LayoutGrid,
+  ListTodo,
+  MessagesSquare,
+  Search,
+  X,
+  Zap,
+} from 'lucide-react';
 import { agentLabel } from '../config/agents';
 import { trackerConnection, type TrackerItem } from '../domain/tracker';
 import type { DocPassage, ProjectDocMetadata } from '../domain/docs';
 import { sessionAPI } from '../lib/remote-api';
 import { sessionRepo } from '../lib/session-repository';
 import { trackerClient } from '../lib/tracker-client';
-import { plural, shortcutLabel } from '../lib/platform';
+import { isMac, plural, shortcutLabel } from '../lib/platform';
 import type { API, Project, ProjectGroup, Session } from '../types';
 import { relativeTime } from '../lib/relative-time';
 import { ActivityDot, activityKey, type SessionActivityState } from './activity-dot';
 import { AgentIcon } from './ui/agent-icon';
 import { Button } from './ui/button';
-import { SearchInput } from './ui/search-input';
+import { Dialog, DialogContent, DialogTitle } from './ui/dialog';
 
 type Transcript = { messages: { text: string }[]; truncated: boolean };
 
@@ -61,16 +81,42 @@ function Highlight({ text, term }: { text: string; term: string }) {
   return <>{parts}</>;
 }
 
+/** The icon of a recent place. */
+function RecentIcon({ place }: { place: RecentPlace }) {
+  if (place.kind === 'conversation' && place.agent)
+    return <AgentIcon agent={place.agent} className="size-3.5" />;
+  if (place.kind === 'repository') return <FolderGit2 />;
+  if (place.kind === 'sessions') return <MessagesSquare />;
+  if (place.kind === 'project' && place.label === 'Docs') return <FileText />;
+  if (place.kind === 'project') return <Folder />;
+  if (place.kind === 'home') return <LayoutGrid />;
+  return <Clock />;
+}
+
+/** The content of one result row. Each part stays on one line. */
+interface RowContent {
+  icon: ReactNode;
+  title: ReactNode;
+  /** The place or the excerpt, such as "Atlas › atlas-web". */
+  detail?: ReactNode;
+  /** The kind or the shortcut, at the right side. */
+  meta?: ReactNode;
+  /** The full text, for the tooltip. */
+  tooltip?: string;
+  className?: string;
+}
+
 /**
- * The sidebar search field and its results. Without a query, it shows `children`
- * (the project tree). The field is a combobox: arrow keys move the highlighted
- * result, Enter opens it, and Escape clears the query.
+ * The "Search or run…" trigger in the sidebar and the command palette that it opens.
+ * The palette is a modal dialog in the center of the window. Its field is a combobox:
+ * the arrow keys move the highlighted result, Enter opens it, and Escape closes the
+ * palette and moves the focus back to the element that had it before.
  */
 export function WorkspaceSearch({
   api,
-  inputRef,
-  query,
-  onQueryChange,
+  open,
+  onOpenChange,
+  triggerRef,
   projects,
   groups,
   sessions,
@@ -83,8 +129,12 @@ export function WorkspaceSearch({
   suggested = [],
   recent = [],
   activity = {},
-  children,
 }: {
+  /** True when the palette shows. */
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  /** The sidebar button that opens the palette. */
+  triggerRef?: RefObject<HTMLButtonElement | null>;
   /** Commands that show in the results when they match the query. */
   actions?: SearchAction[];
   /** Commands that show with an empty query, under "Suggested". */
@@ -98,19 +148,17 @@ export function WorkspaceSearch({
   /** Opens a task on the project board. */
   onTask?: (group: ProjectGroup, task: TrackerItem) => void;
   api: API;
-  inputRef?: RefObject<HTMLInputElement | null>;
-  query: string;
-  onQueryChange: (query: string) => void;
   projects: Project[];
   groups: ProjectGroup[];
   sessions: Session[];
   onProject: (group: ProjectGroup) => void;
   onRepository: (repo: Project) => void;
   onSession: (session: Session) => void;
-  children?: ReactNode;
 }) {
   const id = useId();
   const listId = `${id}-results`;
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [query, setQuery] = useState('');
   const term = query.trim().toLocaleLowerCase();
   const matches = (text: string) => text.toLocaleLowerCase().includes(term);
   const [history, setHistory] = useState<{ session: Session; excerpt: string }[]>([]);
@@ -118,9 +166,24 @@ export function WorkspaceSearch({
   const [partial, setPartial] = useState(0);
   const [active, setActive] = useState(-1);
   useEffect(() => setActive(-1), [term]);
-  // With the focus in an empty field, the panel shows Recent and Suggested.
-  const [focused, setFocused] = useState(false);
-  const showStart = focused && !term && (recent.length > 0 || suggested.length > 0);
+  // Each time the palette opens, it starts with an empty query.
+  useEffect(() => {
+    if (!open) setQuery('');
+  }, [open]);
+  // The element that had the focus before the palette opened.
+  const previousFocus = useRef<HTMLElement | null>(null);
+  // True after the user opens a result. The result then controls the focus.
+  const chose = useRef(false);
+  // A layout effect runs before the dialog moves the focus into the palette.
+  useLayoutEffect(() => {
+    if (!open) return;
+    chose.current = false;
+    const current = document.activeElement;
+    previousFocus.current =
+      current instanceof HTMLElement && current !== document.body ? current : null;
+  }, [open]);
+  // With an empty query, the palette shows Recent and Suggested.
+  const showStart = open && !term && (recent.length > 0 || suggested.length > 0);
   // Full-text doc results, with the heading of the passage as a snippet.
   const [passages, setPassages] = useState<{ group: ProjectGroup; passage: DocPassage }[]>([]);
   useEffect(() => {
@@ -339,7 +402,7 @@ export function WorkspaceSearch({
     : [];
   const title = (s: Session) => s.organization?.title || s.title;
   const sessionKey = (s: Session) => s.hostId + ':' + s.agent + ':' + s.id;
-  // One row for each session. A message match adds an excerpt under the session row.
+  // One row for each session. A message match shows its excerpt in the session row.
   const excerpts = new Map(history.map((hit) => [sessionKey(hit.session), hit.excerpt]));
   const sessionResults = [
     ...sessionMatches,
@@ -350,26 +413,11 @@ export function WorkspaceSearch({
   const projectOf = (repo?: Project) =>
     repo ? groups.find((g) => g.repoIds.includes(repo.id))?.name : undefined;
   const context = (...parts: (string | undefined)[]) => parts.filter(Boolean).join(' › ');
-  const startOptions: SearchOption[] = showStart
-    ? [
-        ...recent.map((place) => ({
-          key: 'recent:' + place.key,
-          open: () => {
-            place.open();
-            inputRef?.current?.blur();
-          },
-        })),
-        ...suggested.map((action) => ({
-          key: 'suggested:' + action.key,
-          open: () => {
-            action.run();
-            inputRef?.current?.blur();
-          },
-        })),
-      ]
-    : [];
   const options: SearchOption[] = showStart
-    ? startOptions
+    ? [
+        ...recent.map((place) => ({ key: 'recent:' + place.key, open: place.open })),
+        ...suggested.map((action) => ({ key: 'suggested:' + action.key, open: action.run })),
+      ]
     : [
         ...projectMatches.map((g) => ({ key: 'project:' + g.id, open: () => onProject(g) })),
         ...repoMatches.map((p) => ({ key: 'repo:' + p.id, open: () => onRepository(p) })),
@@ -386,314 +434,331 @@ export function WorkspaceSearch({
           open: () => onTask?.(group, task),
         })),
         // Commands come last, so Enter on a name opens the item, not a command.
-        ...actionMatches.map((action) => ({
-          key: 'action:' + action.key,
-          open: () => {
-            onQueryChange('');
-            action.run();
-          },
-        })),
+        ...actionMatches.map((action) => ({ key: 'action:' + action.key, open: action.run })),
       ];
+  /** Closes the palette, then opens the result. */
+  function choose(option: SearchOption) {
+    chose.current = true;
+    onOpenChange(false);
+    option.open();
+  }
   const optionId = (key: string) => `${id}-${key.replace(/[^\w-]/g, '_')}`;
   const activeOption = options[active];
   useEffect(() => {
     if (activeOption)
       document.getElementById(optionId(activeOption.key))?.scrollIntoView({ block: 'nearest' });
   }, [activeOption?.key]);
-  function option(key: string, content: ReactNode, props: { className?: string; title?: string }) {
+  function row(key: string, content: RowContent) {
     const index = options.findIndex((item) => item.key === key);
+    const rowId = optionId(key);
     return (
       <div
         key={key}
-        id={optionId(key)}
+        id={rowId}
         role="option"
         aria-selected={index === active}
+        aria-labelledby={`${rowId}-title`}
+        aria-describedby={content.detail ? `${rowId}-detail` : undefined}
         tabIndex={-1}
-        className={'search-option' + (props.className ? ' ' + props.className : '')}
-        title={props.title}
+        className={'search-option' + (content.className ? ' ' + content.className : '')}
+        title={content.tooltip}
         onMouseDown={(event) => event.preventDefault()}
         onMouseMove={() => setActive(index)}
-        onClick={() => options[index]?.open()}
+        onClick={() => options[index] && choose(options[index])}
       >
-        {content}
+        <span className="search-option-icon" aria-hidden="true">
+          {content.icon}
+        </span>
+        <span id={`${rowId}-title`} className="search-option-title">
+          {content.title}
+        </span>
+        {content.detail && (
+          <span id={`${rowId}-detail`} className="search-option-detail">
+            {content.detail}
+          </span>
+        )}
+        {content.meta && <span className="search-option-meta">{content.meta}</span>}
       </div>
     );
   }
+  function group(name: string, label: string, rows: ReactNode) {
+    return (
+      <div role="group" aria-labelledby={`${id}-${name}`}>
+        <h3 id={`${id}-${name}`} className="sidebar-label">
+          {label}
+        </h3>
+        {rows}
+      </div>
+    );
+  }
+  const kbd = (keys?: string) => keys && <kbd className="kbd">{keys}</kbd>;
   const total = options.length;
   const shortTerm = term.length < 2;
+  const expanded = !!term || showStart;
+  const shortcut = shortcutLabel(['mod'], 'K');
   return (
     <>
-      <div className="search">
-        <SearchInput
-          ref={inputRef}
-          variant="filled"
-          style={{ paddingRight: query ? 32 : 44 }}
-          role="combobox"
-          aria-label="Search projects and chats"
-          aria-expanded={!!term || showStart}
-          aria-controls={term || showStart ? listId : undefined}
-          aria-autocomplete="list"
-          aria-activedescendant={activeOption ? optionId(activeOption.key) : undefined}
-          placeholder="Search or run…"
-          value={query}
-          onFocus={() => setFocused(true)}
-          onBlur={() => setFocused(false)}
-          onChange={(e) => onQueryChange(e.target.value)}
-          onKeyDown={(event) => {
-            if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
-              if (!total) return;
-              event.preventDefault();
-              const step = event.key === 'ArrowDown' ? 1 : -1;
-              setActive((current) =>
-                current < 0 && step < 0 ? total - 1 : (current + step + total) % total,
-              );
-            } else if (event.key === 'Enter') {
-              const target = activeOption || options[0];
-              if (!target) return;
-              event.preventDefault();
-              target.open();
-            } else if (event.key === 'Escape') {
-              event.preventDefault();
-              if (query) onQueryChange('');
-              else event.currentTarget.blur();
-            } else if (event.key === 'Tab' && showStart) setFocused(false);
+      <button
+        ref={triggerRef}
+        type="button"
+        className="search-trigger"
+        aria-label="Search or run"
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        aria-keyshortcuts={isMac ? 'Meta+K' : 'Control+K'}
+        onClick={() => onOpenChange(true)}
+      >
+        <Search className="search-trigger-icon" aria-hidden="true" />
+        <span className="search-trigger-label">Search or run…</span>
+        <kbd className="kbd search-kbd" aria-hidden="true">
+          {shortcut}
+        </kbd>
+      </button>
+      <Dialog open={open} onOpenChange={onOpenChange}>
+        <DialogContent
+          showCloseButton={false}
+          layout="scroll"
+          aria-modal="true"
+          aria-describedby={undefined}
+          className="command-palette top-[15vh] max-h-[60vh] translate-y-0 sm:max-w-[640px]"
+          onOpenAutoFocus={(event) => {
+            event.preventDefault();
+            inputRef.current?.focus();
           }}
-        />
-        {query ? (
-          <Button
-            variant="ghost"
-            size="icon-xs"
-            className="search-clear"
-            aria-label="Clear search"
-            onClick={() => {
-              onQueryChange('');
-              inputRef?.current?.focus();
-            }}
-          >
-            <X />
-          </Button>
-        ) : (
-          <kbd className="kbd search-kbd">{shortcutLabel(['mod'], 'K')}</kbd>
-        )}
-      </div>
-      {showStart ? (
-        <section className="workspace-search-results" aria-label="Recent and suggested">
-          <div id={listId} role="listbox" aria-label="Recent and suggested">
-            {!!recent.length && (
-              <div role="group" aria-labelledby={`${id}-recent`}>
-                <h3 id={`${id}-recent`} className="sidebar-label">
-                  Recent
-                </h3>
-                {recent.map((place) =>
-                  option(
-                    'recent:' + place.key,
-                    <span className="search-option-action">
-                      <span className="search-option-icon" aria-hidden="true">
-                        {place.kind === 'conversation' && place.agent ? (
-                          <AgentIcon agent={place.agent} className="size-3.5" />
-                        ) : place.kind === 'repository' ? (
-                          <FolderGit2 />
-                        ) : place.kind === 'sessions' ? (
-                          <MessagesSquare />
-                        ) : place.kind === 'project' && place.label === 'Docs' ? (
-                          <FileText />
-                        ) : place.kind === 'project' ? (
-                          <Folder />
-                        ) : place.kind === 'home' ? (
-                          <LayoutGrid />
-                        ) : (
-                          <Clock />
-                        )}
-                      </span>
-                      <span className="search-option-title">{place.label}</span>
-                      {place.context && (
-                        <span className="search-option-context">{place.context}</span>
-                      )}
-                    </span>,
-                    { title: [place.label, place.context].filter(Boolean).join(' · ') },
-                  ),
-                )}
-              </div>
-            )}
-            {!!suggested.length && (
-              <div role="group" aria-labelledby={`${id}-suggested`}>
-                <h3 id={`${id}-suggested`} className="sidebar-label">
-                  Suggested
-                </h3>
-                {suggested.map((action) =>
-                  option(
-                    'suggested:' + action.key,
-                    <span className="search-option-action">
-                      <span className="search-option-title">{action.label}</span>
-                      {action.shortcut && <kbd className="kbd">{action.shortcut}</kbd>}
-                    </span>,
-                    { title: action.label },
-                  ),
-                )}
-              </div>
-            )}
-          </div>
-          <p className="search-status">Type to search projects, chats, docs, tasks and actions.</p>
-        </section>
-      ) : term ? (
-        <section className="workspace-search-results" aria-label="Search results">
-          <p role="status" className="search-status">
-            {shortTerm && !total
-              ? 'Type at least two characters to search message text.'
-              : busy && !total
-                ? 'Searching chat messages…'
-                : plural(total, 'match', 'matches') + (busy ? ' · Searching chat messages…' : '')}
-          </p>
-          <div id={listId} role="listbox" aria-label="Results">
-            {!!projectMatches.length && (
-              <div role="group" aria-labelledby={`${id}-projects`}>
-                <h3 id={`${id}-projects`} className="sidebar-label">
-                  Projects
-                </h3>
-                {projectMatches.map((g) =>
-                  option('project:' + g.id, <Highlight text={g.name} term={term} />, {
-                    title: g.name,
-                  }),
-                )}
-              </div>
-            )}
-            {!!repoMatches.length && (
-              <div role="group" aria-labelledby={`${id}-repositories`}>
-                <h3 id={`${id}-repositories`} className="sidebar-label">
-                  Code folders
-                </h3>
-                {repoMatches.map((p) =>
-                  option(
-                    'repo:' + p.id,
-                    <>
-                      <span className="search-option-title">
-                        <Highlight text={p.name} term={term} />
-                      </span>
-                      {projectOf(p) && (
-                        <span className="search-option-context">{projectOf(p)}</span>
-                      )}
-                    </>,
-                    { title: p.path },
-                  ),
-                )}
-              </div>
-            )}
-            {!!sessionResults.length && (
-              <div role="group" aria-labelledby={`${id}-sessions`}>
-                <h3 id={`${id}-sessions`} className="sidebar-label">
-                  Chats
-                </h3>
-                {sessionResults.map((s) => {
-                  const repo = sessionRepo(s, projects);
-                  const found = excerpts.get(sessionKey(s));
-                  // Skip an excerpt that only repeats the title.
-                  const excerpt = found?.replace(/^…|…$/g, '') === title(s) ? undefined : found;
-                  const where = context(projectOf(repo), repo?.name);
-                  const when = relativeTime(s.updatedAt);
-                  return option(
-                    'session:' + sessionKey(s),
-                    <>
-                      <span className="search-option-title">
-                        <Highlight text={title(s)} term={term} />
-                        {s.organization?.archived ? ' · Archived' : ''}
-                        <ActivityDot state={activity[activityKey(s.agent, s.id)]} />
-                      </span>
-                      <span className="search-option-context search-option-agent">
-                        <AgentIcon agent={s.agent} className="size-3" />
-                        {[agentLabel(s.agent), when, where].filter(Boolean).join(' · ')}
-                      </span>
-                      {excerpt && (
-                        <span className="search-option-excerpt">
-                          <Highlight text={excerpt} term={term} />
-                        </span>
-                      )}
-                    </>,
-                    { className: excerpt ? 'history-search-hit' : undefined, title: title(s) },
+          onCloseAutoFocus={(event) => {
+            event.preventDefault();
+            // A result that moved the focus, for example to a dialog, keeps it.
+            const current = document.activeElement;
+            if (chose.current && current && current !== document.body) return;
+            const target = previousFocus.current;
+            if (target?.isConnected) target.focus();
+          }}
+        >
+          <DialogTitle className="sr-only">Search or run</DialogTitle>
+          <div className="command-palette-field">
+            <Search className="command-palette-search-icon" aria-hidden="true" />
+            <input
+              ref={inputRef}
+              type="text"
+              className="command-palette-input"
+              role="combobox"
+              aria-label="Search projects and chats"
+              aria-expanded={expanded}
+              aria-controls={expanded ? listId : undefined}
+              aria-autocomplete="list"
+              aria-activedescendant={activeOption ? optionId(activeOption.key) : undefined}
+              placeholder="Search projects, chats, docs, tasks and actions…"
+              autoComplete="off"
+              spellCheck={false}
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+                  if (!total) return;
+                  event.preventDefault();
+                  const step = event.key === 'ArrowDown' ? 1 : -1;
+                  setActive((current) =>
+                    current < 0 && step < 0 ? total - 1 : (current + step + total) % total,
                   );
-                })}
-              </div>
-            )}
-            {!!docMatches.length && (
-              <div role="group" aria-labelledby={`${id}-docs`}>
-                <h3 id={`${id}-docs`} className="sidebar-label">
-                  Docs
-                </h3>
-                {docMatches.map(({ group, doc, snippet }) =>
-                  option(
-                    `doc:${group.id}:${doc.id}`,
-                    <>
-                      <span className="search-option-title">
-                        <Highlight text={doc.title || 'Untitled'} term={term} />
-                      </span>
-                      <span className="search-option-context">{group.name}</span>
-                      {snippet && snippet !== doc.title && (
-                        <span className="search-option-excerpt">
-                          <Highlight text={snippet} term={term} />
-                        </span>
-                      )}
-                    </>,
-                    { title: doc.title },
-                  ),
-                )}
-              </div>
-            )}
-            {!!taskMatches.length && (
-              <div role="group" aria-labelledby={`${id}-tasks`}>
-                <h3 id={`${id}-tasks`} className="sidebar-label">
-                  Tasks
-                </h3>
-                {taskMatches.map(({ group, task }) =>
-                  option(
-                    `task:${group.id}:${task.id}`,
-                    <>
-                      <span className="search-option-title">
-                        <Highlight text={task.title} term={term} />
-                      </span>
-                      <span className="search-option-context">
-                        {context(group.name, task.number ? '#' + task.number : undefined)}
-                      </span>
-                    </>,
-                    { title: task.title },
-                  ),
-                )}
-              </div>
-            )}
-            {!!actionMatches.length && (
-              <div role="group" aria-labelledby={`${id}-actions`}>
-                <h3 id={`${id}-actions`} className="sidebar-label">
-                  Actions
-                </h3>
-                {actionMatches.map((action) =>
-                  option(
-                    'action:' + action.key,
-                    <span className="search-option-action">
-                      <span className="search-option-title">
-                        <Highlight text={action.label} term={term} />
-                      </span>
-                      {action.shortcut && <kbd className="kbd">{action.shortcut}</kbd>}
-                    </span>,
-                    { title: action.label },
-                  ),
-                )}
-              </div>
+                } else if (event.key === 'Enter') {
+                  const target = activeOption || options[0];
+                  if (!target) return;
+                  event.preventDefault();
+                  choose(target);
+                }
+              }}
+            />
+            {query && (
+              <Button
+                variant="ghost"
+                size="icon-xs"
+                className="search-clear"
+                aria-label="Clear search"
+                onClick={() => {
+                  setQuery('');
+                  inputRef.current?.focus();
+                }}
+              >
+                <X />
+              </Button>
             )}
           </div>
-          {!shortTerm && !busy && !total && <p className="search-status">No matches found.</p>}
-          {!!failed && (
-            <p role="alert" className="field-error search-error">
-              {plural(failed, 'chat')} could not be searched. Check the host connection and try
-              again.
+          {showStart ? (
+            <section className="workspace-search-results" aria-label="Recent and suggested">
+              <div id={listId} role="listbox" aria-label="Recent and suggested">
+                {!!recent.length &&
+                  group(
+                    'recent',
+                    'Recent',
+                    recent.map((place) =>
+                      row('recent:' + place.key, {
+                        icon: <RecentIcon place={place} />,
+                        title: place.label,
+                        detail: place.context,
+                        tooltip: [place.label, place.context].filter(Boolean).join(' · '),
+                      }),
+                    ),
+                  )}
+                {!!suggested.length &&
+                  group(
+                    'suggested',
+                    'Suggested',
+                    suggested.map((action) =>
+                      row('suggested:' + action.key, {
+                        icon: <Zap />,
+                        title: action.label,
+                        meta: kbd(action.shortcut),
+                        tooltip: action.label,
+                      }),
+                    ),
+                  )}
+              </div>
+            </section>
+          ) : term ? (
+            <section className="workspace-search-results" aria-label="Search results">
+              <p role="status" className="search-status">
+                {shortTerm && !total
+                  ? 'Type at least two characters to search message text.'
+                  : busy && !total
+                    ? 'Searching chat messages…'
+                    : plural(total, 'match', 'matches') +
+                      (busy ? ' · Searching chat messages…' : '')}
+              </p>
+              <div id={listId} role="listbox" aria-label="Results">
+                {!!projectMatches.length &&
+                  group(
+                    'projects',
+                    'Projects',
+                    projectMatches.map((g) =>
+                      row('project:' + g.id, {
+                        icon: <Folder />,
+                        title: <Highlight text={g.name} term={term} />,
+                        detail: plural(g.repoIds.length, 'code folder'),
+                        meta: 'Project',
+                        tooltip: g.name,
+                      }),
+                    ),
+                  )}
+                {!!repoMatches.length &&
+                  group(
+                    'repositories',
+                    'Code folders',
+                    repoMatches.map((p) =>
+                      row('repo:' + p.id, {
+                        icon: <FolderGit2 />,
+                        title: <Highlight text={p.name} term={term} />,
+                        detail: projectOf(p),
+                        meta: 'Code folder',
+                        tooltip: p.path,
+                      }),
+                    ),
+                  )}
+                {!!sessionResults.length &&
+                  group(
+                    'sessions',
+                    'Chats',
+                    sessionResults.map((s) => {
+                      const repo = sessionRepo(s, projects);
+                      const found = excerpts.get(sessionKey(s));
+                      // Skip an excerpt that only repeats the title.
+                      const excerpt = found?.replace(/^…|…$/g, '') === title(s) ? undefined : found;
+                      const where = context(projectOf(repo), repo?.name);
+                      const when = relativeTime(s.updatedAt);
+                      return row('session:' + sessionKey(s), {
+                        icon: <AgentIcon agent={s.agent} className="size-3.5" />,
+                        title: (
+                          <>
+                            <Highlight text={title(s)} term={term} />
+                            {s.organization?.archived ? ' · Archived' : ''}
+                            <ActivityDot state={activity[activityKey(s.agent, s.id)]} />
+                          </>
+                        ),
+                        detail: excerpt ? <Highlight text={excerpt} term={term} /> : where,
+                        meta: [agentLabel(s.agent), when].filter(Boolean).join(' · '),
+                        className: excerpt ? 'history-search-hit' : undefined,
+                        tooltip: [title(s), where, excerpt].filter(Boolean).join('\n'),
+                      });
+                    }),
+                  )}
+                {!!docMatches.length &&
+                  group(
+                    'docs',
+                    'Docs',
+                    docMatches.map(({ group: owner, doc, snippet }) =>
+                      row(`doc:${owner.id}:${doc.id}`, {
+                        icon: <FileText />,
+                        title: <Highlight text={doc.title || 'Untitled'} term={term} />,
+                        detail:
+                          snippet && snippet !== doc.title ? (
+                            <Highlight text={snippet} term={term} />
+                          ) : (
+                            owner.name
+                          ),
+                        meta: 'Doc',
+                        tooltip: [doc.title, owner.name].filter(Boolean).join(' · '),
+                      }),
+                    ),
+                  )}
+                {!!taskMatches.length &&
+                  group(
+                    'tasks',
+                    'Tasks',
+                    taskMatches.map(({ group: owner, task }) =>
+                      row(`task:${owner.id}:${task.id}`, {
+                        icon: <ListTodo />,
+                        title: <Highlight text={task.title} term={term} />,
+                        detail: context(owner.name, task.number ? '#' + task.number : undefined),
+                        meta: 'Task',
+                        tooltip: task.title,
+                      }),
+                    ),
+                  )}
+                {!!actionMatches.length &&
+                  group(
+                    'actions',
+                    'Actions',
+                    actionMatches.map((action) =>
+                      row('action:' + action.key, {
+                        icon: <Zap />,
+                        title: <Highlight text={action.label} term={term} />,
+                        meta: kbd(action.shortcut) || 'Action',
+                        tooltip: action.label,
+                      }),
+                    ),
+                  )}
+              </div>
+              {!shortTerm && !busy && !total && <p className="search-status">No matches found.</p>}
+              {!!failed && (
+                <p role="alert" className="field-error search-error">
+                  {plural(failed, 'chat')} could not be searched. Check the host connection and try
+                  again.
+                </p>
+              )}
+              {!!partial && (
+                <p role="status" className="search-status">
+                  For {plural(partial, 'long chat')}, the search used only the most recent messages.
+                </p>
+              )}
+            </section>
+          ) : (
+            <p className="workspace-search-results search-status">
+              Type to search projects, chats, docs, tasks and actions.
             </p>
           )}
-          {!!partial && (
-            <p role="status" className="search-status">
-              For {plural(partial, 'long chat')}, the search used only the most recent messages.
-            </p>
-          )}
-        </section>
-      ) : (
-        children
-      )}
+          <div className="command-palette-footer" aria-hidden="true">
+            <span>
+              <kbd className="kbd">↑</kbd>
+              <kbd className="kbd">↓</kbd> Move
+            </span>
+            <span>
+              <kbd className="kbd">Enter</kbd> Open
+            </span>
+            <span>
+              <kbd className="kbd">Esc</kbd> Close
+            </span>
+          </div>
+        </DialogContent>
+      </Dialog>
     </>
   );
 }

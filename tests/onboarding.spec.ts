@@ -2,6 +2,7 @@ import { test, expect, type Page } from '@playwright/test';
 
 // The sidebar hides Get started after setup is complete. The search actions keep it.
 async function openSetup(page: Page) {
+  await page.getByRole('button', { name: 'Search or run', exact: true }).click();
   await page.getByLabel('Search projects and chats').fill('Get started');
   await page
     .getByRole('region', { name: 'Search results' })

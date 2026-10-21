@@ -146,20 +146,47 @@
 .library-panel[hidden] {
   display: none;
 }
-.search {
-  position: relative;
+.search-trigger {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  height: 32px;
   margin: 0 0 var(--space-3);
+  padding: 0 var(--space-1) 0 var(--space-2);
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--secondary) 60%, transparent);
+  color: var(--muted-foreground);
+  font-size: 13px;
+  text-align: left;
+  cursor: default;
 }
-.search input::-webkit-search-cancel-button {
-  display: none;
+.search-trigger:hover {
+  background: var(--secondary);
+  color: var(--foreground);
 }
-.search .search-kbd {
-  position: absolute;
-  right: var(--space-2);
-  top: 50%;
-  transform: translateY(-50%);
+.search-trigger:focus-visible {
+  border-color: var(--ring);
+  box-shadow: var(--focus-ring);
+  outline: none;
+}
+.search-trigger-icon {
+  flex-shrink: 0;
+  width: 14px;
+  height: 14px;
+}
+.search-trigger-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.search-trigger .search-kbd {
+  flex-shrink: 0;
   font-family: inherit;
-  pointer-events: none;
 }
 .navigation-collapsed {
   --navigation-width: 0px;
@@ -1580,13 +1607,61 @@ thead .tracker-task-select {
   pointer-events: none;
 }
 
+/* The command palette ("Search or run"). Each result row has one line: icon, title,
+   detail and, at the right side, the kind or the shortcut. */
+.command-palette-field {
+  position: relative;
+  display: flex;
+  align-items: center;
+  border-bottom: 1px solid var(--border);
+}
+.command-palette-search-icon {
+  position: absolute;
+  left: var(--space-4);
+  width: 16px;
+  height: 16px;
+  color: var(--muted-foreground);
+  pointer-events: none;
+}
+.command-palette-input {
+  width: 100%;
+  height: 48px;
+  padding: 0 44px 0 calc(var(--space-4) + 24px);
+  border: 0;
+  background: transparent;
+  color: var(--foreground);
+  font-size: 15px;
+  outline: none;
+}
+.command-palette-input::placeholder {
+  color: var(--muted-foreground);
+}
+.command-palette-field .search-clear {
+  position: absolute;
+  right: var(--space-3);
+  color: var(--muted-foreground);
+}
+.command-palette-footer {
+  display: flex;
+  gap: var(--space-4);
+  padding: var(--space-2) var(--space-4);
+  border-top: 1px solid var(--border);
+  color: var(--muted-foreground);
+  font-size: var(--text-xs);
+  line-height: 20px;
+}
+.command-palette-footer .kbd {
+  margin-right: 2px;
+  font-family: inherit;
+}
 .workspace-search-results {
-  flex: 1;
   min-height: 0;
+  margin: 0;
   overflow-y: auto;
+  padding: var(--space-2);
 }
 .workspace-search-results h3 {
-  margin-top: var(--space-2);
+  margin-top: var(--space-1);
   padding-inline: var(--space-2);
 }
 .workspace-search-results .search-status {
@@ -1595,78 +1670,64 @@ thead .tracker-task-select {
   line-height: 16px;
   color: var(--muted-foreground);
 }
-.workspace-search-results .search-option {
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  gap: 2px;
-  width: 100%;
-  min-height: var(--row-height);
-  text-align: left;
-  white-space: normal;
-  overflow-wrap: anywhere;
-  padding: 6px var(--space-2);
-  border-radius: var(--radius-md);
-  font-size: 13px;
-  line-height: 20px;
-  cursor: default;
+.workspace-search-results.search-status {
+  padding: var(--space-4);
 }
-.search-option-action {
+.workspace-search-results .search-option {
   display: flex;
   align-items: center;
   gap: var(--space-2);
+  width: 100%;
+  min-height: 32px;
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-md);
+  font-size: 13px;
+  line-height: 20px;
+  white-space: nowrap;
+  cursor: default;
 }
-.search-option-action .search-option-title {
-  flex: 1;
+.workspace-search-results .search-option:hover {
+  background: var(--surface-hover);
+}
+.workspace-search-results .search-option[aria-selected='true'] {
+  background: var(--surface-selected);
+  box-shadow: inset 2px 0 0 var(--ring);
+}
+.search-option-title {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .search-option-title .activity-dot {
   display: inline-block;
   margin-left: 6px;
   vertical-align: 1px;
 }
-.workspace-search-results .search-option:hover {
-  background: var(--surface-hover);
-}
-.search-option-title {
+.search-option-detail {
+  flex: 1 1 0;
   min-width: 0;
-}
-.search-option-agent {
-  display: flex;
-  align-items: center;
-  gap: var(--space-1);
-}
-.search-option-agent > svg {
-  flex-shrink: 0;
-}
-.search-option-context,
-.search-option-excerpt {
+  overflow: hidden;
+  text-overflow: ellipsis;
   font-size: var(--text-xs);
-  line-height: 16px;
   color: var(--muted-foreground);
 }
-.search-option-excerpt {
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-  overflow: hidden;
+.search-option-meta {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  margin-left: auto;
+  padding-left: var(--space-2);
+  font-size: var(--text-xs);
+  color: var(--muted-foreground);
 }
 .workspace-search-results mark {
   border-radius: var(--radius-xs);
   background: color-mix(in srgb, var(--warning) 25%, transparent);
   color: inherit;
 }
-.workspace-search-results .search-option[aria-selected='true'] {
-  background: var(--surface-selected);
-}
 .workspace-search-results .search-error {
   padding: var(--space-1) var(--space-2);
-}
-.search .search-clear {
-  position: absolute;
-  right: var(--space-1);
-  top: 50%;
-  transform: translateY(-50%);
-  color: var(--muted-foreground);
 }
 
 /* Recent sessions on the overview page. The rows match the project table rows: the same
