@@ -4,6 +4,7 @@ import { ContextMenu } from 'radix-ui';
 import { Check, ChevronRight } from 'lucide-react';
 import { cn } from '../lib/utils';
 import {
+  menuCollisionPadding,
   menuContentClass,
   menuDestructiveClass,
   menuItemClass,
@@ -74,6 +75,7 @@ export function WikiContextMenu({
       </ContextMenu.Trigger>
       <ContextMenu.Portal>
         <ContextMenu.Content
+          collisionPadding={menuCollisionPadding}
           className={menuClass}
           aria-label="Document editing"
           onCloseAutoFocus={(event) => event.preventDefault()}
@@ -126,7 +128,11 @@ export function WikiContextMenu({
               <ChevronRight className="ml-auto" aria-hidden="true" />
             </ContextMenu.SubTrigger>
             <ContextMenu.Portal>
-              <ContextMenu.SubContent className={menuClass} sideOffset={4}>
+              <ContextMenu.SubContent
+                className={menuClass}
+                sideOffset={4}
+                collisionPadding={menuCollisionPadding}
+              >
                 {item('Paragraph', () => editor.chain().focus().clearNodes().setParagraph().run())}
                 {commands.map((command) => item(command.label, () => command.run(editor)))}
               </ContextMenu.SubContent>

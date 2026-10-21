@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { cn } from '@/lib/utils';
-import { menuContentClass, menuItemClass } from './menu-styles';
+import { menuCollisionPadding, menuContentClass, menuItemClass } from './menu-styles';
 import { CheckIcon, ChevronDownIcon, ChevronUpIcon } from 'lucide-react';
 import { Select as SelectPrimitive } from 'radix-ui';
 
@@ -51,6 +51,7 @@ function SelectContent({
   children,
   position = 'popper',
   align = 'center',
+  collisionPadding = menuCollisionPadding,
   ...props
 }: React.ComponentProps<typeof SelectPrimitive.Content>) {
   return (
@@ -66,6 +67,7 @@ function SelectContent({
         )}
         position={position}
         align={align}
+        collisionPadding={collisionPadding}
         {...props}
       >
         <SelectScrollUpButton />

@@ -4,6 +4,7 @@ import { Fragment, type ReactElement } from 'react';
 import { ContextMenu } from 'radix-ui';
 import { cn } from '../lib/utils';
 import {
+  menuCollisionPadding,
   menuContentClass,
   menuDestructiveClass,
   menuItemClass,
@@ -67,7 +68,11 @@ export function TreeContextMenu({
       </ContextMenu.Trigger>
       <ContextMenu.Portal>
         <ContextMenu.Content
-          className={cn(menuContentClass, 'origin-(--radix-context-menu-content-transform-origin)')}
+          collisionPadding={menuCollisionPadding}
+          className={cn(
+            menuContentClass,
+            'max-h-(--radix-context-menu-content-available-height) origin-(--radix-context-menu-content-transform-origin)',
+          )}
           aria-label={label}
         >
           {folderColor && (

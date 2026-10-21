@@ -1,6 +1,12 @@
 import * as React from 'react';
 import { cn } from '@/lib/utils';
-import { menuContentClass, menuItemClass, menuLabelClass, menuShortcutClass } from './menu-styles';
+import {
+  menuCollisionPadding,
+  menuContentClass,
+  menuItemClass,
+  menuLabelClass,
+  menuShortcutClass,
+} from './menu-styles';
 import { CheckIcon, ChevronRightIcon, CircleIcon } from 'lucide-react';
 import { DropdownMenu as DropdownMenuPrimitive } from 'radix-ui';
 
@@ -23,6 +29,7 @@ function DropdownMenuTrigger({
 function DropdownMenuContent({
   className,
   sideOffset = 6,
+  collisionPadding = menuCollisionPadding,
   ...props
 }: React.ComponentProps<typeof DropdownMenuPrimitive.Content>) {
   return (
@@ -30,6 +37,7 @@ function DropdownMenuContent({
       <DropdownMenuPrimitive.Content
         data-slot="dropdown-menu-content"
         sideOffset={sideOffset}
+        collisionPadding={collisionPadding}
         className={cn(
           menuContentClass,
           'max-h-(--radix-dropdown-menu-content-available-height) origin-(--radix-dropdown-menu-content-transform-origin)',
@@ -186,14 +194,16 @@ function DropdownMenuSubTrigger({
 
 function DropdownMenuSubContent({
   className,
+  collisionPadding = menuCollisionPadding,
   ...props
 }: React.ComponentProps<typeof DropdownMenuPrimitive.SubContent>) {
   return (
     <DropdownMenuPrimitive.SubContent
       data-slot="dropdown-menu-sub-content"
+      collisionPadding={collisionPadding}
       className={cn(
         menuContentClass,
-        'origin-(--radix-dropdown-menu-content-transform-origin) ',
+        'max-h-(--radix-dropdown-menu-content-available-height) origin-(--radix-dropdown-menu-content-transform-origin)',
         className,
       )}
       {...props}
