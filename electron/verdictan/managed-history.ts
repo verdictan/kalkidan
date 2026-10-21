@@ -3,7 +3,6 @@ import {
   type ManagedHistoryPage,
   type ManagedHistoryTarget,
 } from '../../src/domain/managed-history';
-import type { ProjectServiceResult } from '../../src/domain/project-services';
 import { parseCapabilities } from './account';
 import { DesktopProtocolError, type DesktopClient, type HistoryScope } from './protocol';
 
@@ -39,41 +38,19 @@ function validateTarget(target: ManagedHistoryTarget) {
 }
 
 /**
- * Reads the Verdictan history of a task or a chat with `history.list`. When the runtime does not
- * advertise `history.list`, a task uses the earlier `task.history` for one release. A chat then
- * has no history. Each read uses the current ledger: load again without a cursor to see late
- * settlement corrections.
+ * Reads the Verdictan history of a task or a chat with `history.list`. A runtime that does not
+ * advertise `history.list` has no history. Each read uses the current ledger: load again without
+ * a cursor to see late settlement corrections.
  */
 export class ManagedHistory {
-  constructor(
-    private resolve: (target: ManagedHistoryTarget) => Promise<HistorySource>,
-    private legacy?: (
-      groupId: string,
-      fields: { task_id: string; cursor?: string },
-    ) => Promise<ProjectServiceResult>,
-  ) {}
+  constructor(private resolve: (target: ManagedHistoryTarget) => Promise<HistorySource>) {}
   async list(target: ManagedHistoryTarget): Promise<ManagedHistoryPage> {
     validateTarget(target);
     const source = await this.resolve(target);
     const { capabilities } = parseCapabilities((await source.client.request('capabilities')).data);
-    if (capabilities.includes('history.list')) return this.read(target, source);
-    if (target.kind === 'task' && this.legacy && capabilities.includes('task.history')) {
-      const result = await this.legacy(target.groupId, {
-        task_id: target.taskId,
-        ...(target.cursor ? { cursor: target.cursor } : {}),
-      });
-      const cursor = result.next_cursor ?? result.cursor;
-      if (!Array.isArray(result.items) || result.items.length > 100)
-        throw new DesktopProtocolError('desktop.history_invalid');
-      return {
-        entries: historyEntries(result.items),
-        cursor: validCursor(cursor) ? cursor : null,
-        asOf: null,
-        observedAt: result.observed_at,
-        source: 'task-history',
-      };
-    }
-    throw new DesktopProtocolError('desktop.operation_unsupported');
+    if (!capabilities.includes('history.list'))
+      throw new DesktopProtocolError('desktop.operation_unsupported');
+    return this.read(target, source);
   }
   private async read(target: ManagedHistoryTarget, source: HistorySource) {
     const scope: HistoryScope = { organization_id: source.organizationId };
@@ -130,7 +107,6 @@ export class ManagedHistory {
       cursor: (data.next_cursor as string | null) ?? null,
       asOf: (data.as_of as string | null | undefined) ?? null,
       observedAt: data.observed_at as string,
-      source: 'history',
     } satisfies ManagedHistoryPage;
   }
 }

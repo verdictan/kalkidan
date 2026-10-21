@@ -38,10 +38,10 @@ correlation keys of the chat (`conversation_id`) or of the task (`project_id`
 and `task_id`). The backend reads the keys from the chat binding or the project
 board. The renderer sends only the chat or the task and never sees an ID.
 
-When the runtime does not advertise `history.list`, the task history uses
-`task.history` for one release. A chat then has no history. Each row shows the
-policy decision, reason, model, token counts, timings, measured cost and
-settlement. A late settlement that completes a released authorization shows
+Verdictan 0.6.5 removed `task.history`. Kalkidan uses only `history.list`. When
+the runtime does not advertise `history.list`, tasks and chats have no history.
+Each row shows the policy decision, reason, model, token counts, timings,
+measured cost and settlement. A late settlement that completes a released authorization shows
 "Corrected after release". Unknown values stay unknown. **Load again** starts
 without a cursor, so it shows corrections and later requests.
 

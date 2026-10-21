@@ -267,7 +267,6 @@ export const demo: API = {
     cursor: null,
     asOf: null,
     observedAt: new Date().toISOString(),
-    source: 'history',
   }),
   projectPublishDoc: async () => {
     throw new Error('Knowledge publication requires the desktop app.');

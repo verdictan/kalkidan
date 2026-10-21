@@ -83,7 +83,6 @@ export interface DesktopEvent {
 }
 const terminalEvents: Record<DesktopOperation, string[]> = {
   'project.permissions': ['project.permissions_result'],
-  'task.history': ['task.history_result'],
   'review.list': ['review.list_result'],
   'review.decide': ['review.decide_result'],
   'context.settings': ['context.settings_result'],

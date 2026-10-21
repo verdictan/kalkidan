@@ -455,7 +455,7 @@ test('project operations use top-level fields and cannot override the protocol e
   const f = fixture();
   t.after(() => f.client.close());
   const scope = { organization_id: 'org', project_id: 'project' };
-  const pending = f.client.request('task.history', {
+  const pending = f.client.request('review.list', {
     project_scope: scope,
     fields: { task_id: 'task', cursor: 'page-2' },
   });
@@ -463,7 +463,7 @@ test('project operations use top-level fields and cannot override the protocol e
   assert.equal(f.requests[0].cursor, 'page-2');
   assert.equal(f.requests[0].fields, undefined);
   assert.deepEqual(f.requests[0].project_scope, scope);
-  f.reply('task.history_result', { items: [], next_cursor: null });
+  f.reply('review.list_result', { items: [], next_cursor: null });
   await pending;
   for (const key of [
     'schema_version',
@@ -475,14 +475,14 @@ test('project operations use top-level fields and cannot override the protocol e
     'fields',
   ]) {
     await assert.rejects(
-      f.client.request('task.history', { project_scope: scope, fields: { [key]: 'override' } }),
+      f.client.request('review.list', { project_scope: scope, fields: { [key]: 'override' } }),
     );
   }
   await assert.rejects(f.client.request('status', { fields: { task_id: 'task' } }));
   assert.equal(f.requests.length, 1);
 });
 
-test('the history request has no project scope, and removed template operations stay closed', async (t) => {
+test('the history request has no project scope, and removed operations stay closed', async (t) => {
   const f = fixture();
   t.after(() => f.client.close());
   const pending = f.client.request('history.list', {
@@ -500,7 +500,12 @@ test('the history request has no project scope, and removed template operations 
   assert.equal(f.requests[0].cursor, 'next');
   f.reply('history.list_result', { items: [], next_cursor: null });
   assert.equal((await pending).event, 'history.list_result');
-  for (const operation of ['admin.templates', 'admin.template.save', 'admin.template.apply'])
+  for (const operation of [
+    'admin.templates',
+    'admin.template.save',
+    'admin.template.apply',
+    'task.history',
+  ])
     await assert.rejects(f.client.request(operation as any), /operation_unsupported/);
   assert.equal(f.requests.length, 1);
 });

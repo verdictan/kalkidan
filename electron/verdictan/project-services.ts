@@ -20,7 +20,6 @@ type Scope = {
   actorId: string;
 };
 const fields: Record<ProjectServiceRequest['operation'], string[]> = {
-  'task.history': ['task_id', 'cursor'],
   'review.list': ['task_id', 'cursor'],
   'review.decide': ['escalation_id', 'decision', 'reason'],
   'context.settings': [],
@@ -65,7 +64,6 @@ function validate(request: ProjectServiceRequest) {
   )
     throw Error('A reviewed revision and operation ID are required.');
   const required = fields[request.operation].filter((key) => !['cursor', 'task_id'].includes(key));
-  if (request.operation === 'task.history') required.push('task_id');
   if (required.some((key) => value[key] === undefined))
     throw Error('Required project service fields are missing.');
   if (

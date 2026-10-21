@@ -22,7 +22,6 @@ import { ManagedHistoryView } from './managed-history';
 
 /** Plain words for each project service action. */
 const operationLabels: Record<ProjectServiceOperation, string> = {
-  'task.history': 'Read the task history',
   'review.list': 'Read the reviews',
   'review.decide': 'Approve or deny a review',
   'context.settings': 'Read the knowledge settings',
@@ -37,12 +36,20 @@ const operationLabel = (value: unknown) =>
   operationLabels[value as ProjectServiceOperation] || words(value, 'Action');
 
 type View = 'history' | 'reviews' | 'context';
-const views: { value: View; label: string; operation: ProjectServiceOperation }[] = [
-  { value: 'history', label: 'Task usage and policy history', operation: 'task.history' },
-  { value: 'reviews', label: 'Reviews and approvals', operation: 'review.list' },
-  { value: 'context', label: 'Shared knowledge (Context Fabric)', operation: 'context.list' },
+const views: { value: View; label: string }[] = [
+  { value: 'history', label: 'Task usage and policy history' },
+  { value: 'reviews', label: 'Reviews and approvals' },
+  { value: 'context', label: 'Shared knowledge (Context Fabric)' },
 ];
-const listOperation = (kind: View) => views.find((view) => view.value === kind)!.operation;
+/** History uses `history.list` through the managed history view, not a project operation. */
+const listOperations: Record<Exclude<View, 'history'>, ProjectServiceOperation> = {
+  reviews: 'review.list',
+  context: 'context.list',
+};
+const listOperation = (kind: View) => {
+  if (kind === 'history') throw Error('Open the history view to read the history.');
+  return listOperations[kind];
+};
 
 const rows = (result?: ProjectServiceResult) =>
   Array.isArray(result?.items)
@@ -102,8 +109,8 @@ export function ProjectServicesPanel({
   const allowed = (operation: ProjectServiceOperation) =>
     status?.operations.includes(operation) &&
     status.permissions.includes(projectServicePermissions[operation]);
-  // `history.list` needs no project permission check. `task.history` is the earlier operation.
-  const historyAvailable = !!status?.historyList || !!allowed('task.history');
+  // `history.list` needs no project permission check.
+  const historyAvailable = !!status?.historyList;
   async function run(action: () => Promise<void>) {
     if (busy) return;
     setBusy(true);
@@ -493,9 +500,7 @@ export function ProjectServicesPanel({
                         operation: listOperation(kind),
                         fields: {
                           cursor: result.cursor,
-                          ...(task && ['history', 'reviews'].includes(kind)
-                            ? { task_id: task }
-                            : {}),
+                          ...(task && kind === 'reviews' ? { task_id: task } : {}),
                         },
                       }),
                     ),

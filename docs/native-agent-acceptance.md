@@ -308,6 +308,75 @@ Node.js 26.11.1, not 24.21.0. The script used an owner-only temporary directory.
 It installed 0.6.4 from the public release. Clean install, restart, and the
 capability probe passed. The operator then removed the temporary directory.
 
+## Runtime 0.6.5 approval on 2026-10-21
+
+The owner approved Verdictan 0.6.5 for macOS ARM64 and Linux x64. The 0.6.5
+pins replace the 0.6.4 pins. The operator used the same method as for 0.6.4.
+
+Verdictan 0.6.5 removes the `task.history` alias of `history.list`. The broker
+rejects `task.history` with `desktop.operation_unsupported`. Kalkidan now sends
+only `history.list`.
+
+The evidence is the public `v0.6.5` release of `verdictan/packages` (source
+`ec37fe50ff96ff64a55db405e20375eecd9370d8`). The operator downloaded the assets
+with `gh release download` into an empty directory. The downloaded manifest and
+archives, their `.sha256` assets, and the `sha256.sum` entries agree. The
+extracted executables have the digests below.
+
+Offline checks passed for the macOS ARM64 executable. It reports version 0.6.5
+and both subscription capabilities. It passed the six gateway startup cases.
+
+### macOS ARM64 pin
+
+The operator approved the published manifest with `scripts/approve-runtime.ts`
+for `darwin arm64 26.7.1`. The approval uses these values:
+
+- Manifest `desktop-release-manifest.v1.json`, SHA-256
+  `4a4eabfab6add809da23ddabbb43d7e1240941e4660b1c35b031ba744bd64b69`,
+  sequence `1792597610562`.
+- Archive `verdictan-aarch64-apple-darwin.tar.gz`, size 89319343 bytes,
+  SHA-256 `6999827b66991f2535e71a6a3be3b408b296592ddb671d75c09aa6272b660866`.
+- Executable SHA-256
+  `87f46753a86dd5cb0e98b41e5f4852000f6fc1d095af077abc548988212612e4`.
+- Manifest expiry: `1793202410` (2026-10-28 15:46:50 UTC). Renew the approval
+  before this time.
+
+`tests/acceptance/runtime-install.ts` installed 0.6.5 from the public release in
+a disposable root. Clean install, restart, and the capability probe passed.
+
+### Kalkidan-reviewed Linux x64 pin
+
+Linux x64 uses a Kalkidan-reviewed manifest for 0.6.5. Verdictan did not publish
+it. The Verdictan desktop manifest lists only macOS ARM64. The 0.6.4 Linux pin
+used the same method.
+
+The operator made the manifest from the public archive and its checksum data.
+The manifest keeps the 0.6.4 Linux values for the protocol range (1 to 1), the
+minimum desktop version (0.1.0), the revoked versions (`0.4.0`), the
+redistribution notice, and `node_included`. The operator approved it with
+`scripts/approve-runtime.ts` for `linux x64 6.12.0`. The approval uses these
+values:
+
+- Archive `verdictan-x86_64-unknown-linux-gnu.tar.gz`, size 98334178 bytes,
+  SHA-256 `2a776f2ff25c0adad84ffaff8fee91815259965fb00f4efa09ed01b69de3b94e`.
+- Executable SHA-256
+  `06e481b28d675d6265b8c8c8b3bcbbbd263888edadcf79107dfdc47f444c84b2`.
+- Reviewed manifest SHA-256
+  `6c19d11ce22f35b92a11cf9984b2d9cc5581732bdfa862f0bea0977fc2566aa6`,
+  sequence `1792598597000`. This sequence is higher than the 0.6.4 reviewed
+  sequence `1792594580000`.
+- Minimum Linux kernel 6.12.0. Dependencies: glibc (validated on Enterprise
+  Linux 10.2), bubblewrap 0.10.0 or later, and Python 3.
+- Manifest expiry: `1793203397` (2026-10-28 16:03:17 UTC). Renew the approval
+  before this time.
+
+`tests/acceptance/runtime-install.ts` ran on a Linux x64 host: Red Hat
+Enterprise Linux 10.2, kernel 6.12.0, glibc 2.39, bubblewrap 0.10.0, and
+Python 3.15. The operator bundled the script with esbuild and ran it with
+Node.js 26.11.1, not 24.21.0. The script used an owner-only temporary directory.
+It installed 0.6.5 from the public release. Clean install, restart, and the
+capability probe passed. The operator then removed the temporary directory.
+
 ## Claude subscription adapter on 2026-10-21
 
 Verdictan CLI 0.6.1 advertises `provider_access.claude_subscription`. The Kalkidan

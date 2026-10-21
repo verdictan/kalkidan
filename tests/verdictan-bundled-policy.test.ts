@@ -18,7 +18,7 @@ test('bundled runtime pins select the execution host, including SSH Linux', () =
     });
     assert.equal(release.artifact.target, artifact.target);
     assert.equal(release.artifact.sha256, selected.pin.artifact_sha256);
-    assert.equal(release.version, '0.6.4');
+    assert.equal(release.version, '0.6.5');
     // Each host policy approves only its own target. Do not copy a pin to another target.
     assert.deepEqual(
       JSON.parse(selected.manifest).artifacts.map((entry: { target: string }) => entry.target),
@@ -29,11 +29,11 @@ test('bundled runtime pins select the execution host, including SSH Linux', () =
   const mac = JSON.parse(runtimePolicyForHost(policy, 'darwin', 'arm64').manifest).artifacts[0];
   assert.equal(
     mac.executable_sha256,
-    '8c304dea2d503ecc7a1f8d1331db488ee77d995550fd845980802f5a9740d5b6',
+    '87f46753a86dd5cb0e98b41e5f4852000f6fc1d095af077abc548988212612e4',
   );
   const linuxManifest = JSON.parse(runtimePolicyForHost(policy, 'linux', 'x64').manifest);
-  // The reviewed Linux manifest must have a higher sequence than the 0.6.3 reviewed manifest.
-  assert.ok(linuxManifest.sequence > 1792590862000);
+  // The reviewed Linux manifest must have a higher sequence than the 0.6.4 reviewed manifest.
+  assert.ok(linuxManifest.sequence > 1792594580000);
   assert.equal(linuxManifest.minimum_desktop_version, '0.1.0');
   assert.deepEqual(linuxManifest.protocol, { min: 1, max: 1 });
   assert.deepEqual(linuxManifest.revoked_versions, ['0.4.0']);
@@ -42,7 +42,7 @@ test('bundled runtime pins select the execution host, including SSH Linux', () =
   assert.equal(linux.redistribution_notice, 'KALKIDAN_REDISTRIBUTION.md');
   assert.equal(
     linux.executable_sha256,
-    'cfca795479a55095e0f29f291e3057719ba92aa3a0b7c5ebbead8ce4d5500cc1',
+    '06e481b28d675d6265b8c8c8b3bcbbbd263888edadcf79107dfdc47f444c84b2',
   );
   assert.equal(linux.minimum_os_version, '6.12.0');
   assert.deepEqual(linux.required_runtime_dependencies, [

@@ -125,7 +125,6 @@ test.beforeEach(async ({ page }) => {
           cursor: target.cursor ? null : 'page-2',
           asOf: '2026-10-21T10:00:00Z',
           observedAt: '2026-10-21T10:00:00Z',
-          source: 'history',
         };
       },
       projectServicesRequest: async (_group: string, request: any) => {

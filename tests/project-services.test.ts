@@ -226,22 +226,30 @@ test('published broker receipts preserve reviewer identity, usage, pagination, a
   };
   const history = normalizeProjectResult(
     { ...scope, items: [row], next_cursor: 'next' },
-    { operation: 'task.history', fields: { task_id: 'task' } },
+    { operation: 'review.list', fields: { task_id: 'task' } },
   );
   assert.equal(history.cursor, 'next');
   assert.deepEqual(history.items, [row]);
 });
-test('removed template operations stay unavailable in services and the protocol', async () => {
+test('removed template and history operations stay unavailable in services', async () => {
   const services = new ProjectServices('/unused', async () => {
     throw Error('A removed operation must not resolve a project.');
   });
-  for (const operation of ['admin.templates', 'admin.template.save', 'admin.template.apply'])
+  // Verdictan 0.6.5 removed `task.history`. History uses `history.list` only.
+  for (const operation of [
+    'admin.templates',
+    'admin.template.save',
+    'admin.template.apply',
+    'task.history',
+  ])
     await assert.rejects(
       services.request('group', { operation: operation as any, fields: {} }),
       /Invalid project service request/,
     );
   assert.equal(
-    Object.keys(projectServicePermissions).some((key) => key.startsWith('admin.')),
+    Object.keys(projectServicePermissions).some(
+      (key) => key.startsWith('admin.') || key === 'task.history',
+    ),
     false,
   );
 });
