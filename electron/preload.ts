@@ -132,8 +132,8 @@ const api: API = {
   githubDraft: (id, title, body) => ipcRenderer.invoke('github-draft', id, title, body),
   githubAddIssue: (id, url) => ipcRenderer.invoke('github-add-issue', id, url),
 
-  createGroup: (name, url, hostId, provider, rootPath) =>
-    ipcRenderer.invoke('group-create', name, url, hostId, provider, rootPath),
+  createGroup: (name, url, hostId, provider, rootPath, operationId, paths) =>
+    ipcRenderer.invoke('group-create', name, url, hostId, provider, rootPath, operationId, paths),
   setGroupColor: (id, color) => ipcRenderer.invoke('group-color', id, color),
   updateGroup: (id, name) => ipcRenderer.invoke('group-update', id, name),
   removeGroup: (id, withRepositories) => ipcRenderer.invoke('group-remove', id, withRepositories),

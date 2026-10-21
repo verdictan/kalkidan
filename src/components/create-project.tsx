@@ -8,7 +8,13 @@ import { ChevronRight, FolderOpen, X } from 'lucide-react';
 import type { API, TrackerAuthState, ProjectGroup } from '../types';
 import { trackerAuthPending } from '../domain/tracker';
 import { TrackerProjectPicker, boardLabel } from './tracker-project-picker';
-import { codeFolders, folderName, useFolderImport, type FolderImport } from './repository-import';
+import {
+  codeFolders,
+  folderName,
+  showFolderImportResult,
+  useFolderImport,
+  type FolderImport,
+} from './repository-import';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { SectionHeader } from './ui/page-header';
@@ -194,7 +200,9 @@ export function CreateProject({
       const snapshot = await api.snapshot();
       const group = snapshot.groups?.find((g) => g.id === id);
       if (!group) throw new Error('Project created. Refresh the project list to open it.');
+      const requested = creation.current.args[6];
       await onCreated(group);
+      if (requested?.length) showFolderImportResult(group.name, group.repoIds.length);
       localStorage.removeItem('kalkidan-create-project');
       creation.current = null;
       setRecovering(false);
