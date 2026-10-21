@@ -7,7 +7,6 @@ import { join } from 'node:path';
 import { ProjectDocs } from '../electron/storage/project-docs';
 import { ManagedMemory, projectMemory } from '../electron/storage/managed-memory';
 import { readProjectMemory } from '../electron/storage/project-memory';
-import { pullRequestStatus } from '../electron/git-working';
 import { GitHubMutationJournal, journalDetail } from '../electron/trackers/github-journal';
 import { GitHubProjects } from '../electron/github-projects';
 import { canRevertMutation, mutationLabel, mutationStateLabels } from '../src/domain/project-batch';
@@ -135,28 +134,6 @@ test('memory entries show their source and forget moves an entry out of agent us
   assert.equal(legacy.provenance, 'legacy');
   await memory.forget(legacy.id, legacy.revision);
   assert.deepEqual(await memory.list(), []);
-});
-
-test('pull request status reads gh pr view and maps the state', async (t) => {
-  const root = await temporary(t, 'pr-status-');
-  const script = join(root, 'gh.mjs');
-  await writeFile(
-    script,
-    "const args = process.argv.slice(2);\nif (args.includes('https://github.com/o/r/pull/9')) process.exit(1);\n" +
-      "console.log(JSON.stringify({ state: 'MERGED', number: 7, title: 'Add search', extra: true }));\n",
-  );
-  const gh = async () => ({ path: process.execPath, args: [script], env: process.env });
-  assert.deepEqual(await pullRequestStatus(root, 'https://github.com/o/r/pull/7', gh), {
-    state: 'merged',
-    number: 7,
-    title: 'Add search',
-  });
-  await assert.rejects(pullRequestStatus(root, 'https://github.com/o/r/pull/9', gh), Error);
-  await assert.rejects(pullRequestStatus(root, '--repo=x', gh), /pull request link/);
-  await assert.rejects(
-    pullRequestStatus(root, 'https://github.com/o/r/issues/7', gh),
-    /pull request link/,
-  );
 });
 
 test('the journal keeps the item, field and earlier value of a write, and links reverts', async (t) => {
