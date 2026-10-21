@@ -88,7 +88,17 @@ export interface TrackerAPI
 }
 export interface AgentAPI {
   githubCliCheck(): Promise<GitHubCliStatus>;
-  agentInstallations(): Promise<AgentInstallation[]>;
+  /** Checks the agent programs. No host ID means this computer. */
+  agentInstallations(hostId?: string): Promise<AgentInstallation[]>;
+  /**
+   * Keeps the program that launches use for an agent on one computer, then checks again.
+   * `null` returns to automatic detection. Rejects a file that does not report a version.
+   */
+  chooseAgentExecutable?(
+    agent: Agent,
+    path: string | null,
+    hostId?: string,
+  ): Promise<AgentInstallation[]>;
   sessionAction(
     session: Session,
     action:

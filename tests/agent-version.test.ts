@@ -188,14 +188,24 @@ test('the installed version comes from `--version` of the agent executable', asy
     await assert.rejects(installedAgentVersion('codex', codex, controller.signal), /abort/i);
     // Settings › Agents gets the path and the version of each installed agent.
     const list = await agentInstallations(async (agent) => {
-      if (agent === 'codex') return codex;
+      if (agent === 'codex') return { selected: codex, source: 'automatic', candidates: [codex] };
       throw new Error('missing');
     });
     assert.deepEqual(list, [
-      { agent: 'codex', status: 'installed', path: codex.path, version: '0.163.0-alpha.10.2' },
+      {
+        agent: 'codex',
+        status: 'installed',
+        path: codex.path,
+        version: '0.163.0-alpha.10.2',
+        source: 'automatic',
+      },
       { agent: 'claude', status: 'missing' },
     ]);
-    const unreadable = await agentInstallations(async () => strange);
+    const unreadable = await agentInstallations(async () => ({
+      selected: strange,
+      source: 'automatic',
+      candidates: [strange],
+    }));
     assert.deepEqual(
       unreadable.map((item) => [item.status, item.version]),
       [

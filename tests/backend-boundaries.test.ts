@@ -13,6 +13,11 @@ test('CLI checks cover installation, invocation and authentication without leaki
         if (phase === 'missing' || name === 'claude') throw Error('missing');
         return { path: '/fixture/' + name, env: {} };
       },
+      agentPrograms: async (name: string) => {
+        if (name === 'claude') throw Error('missing');
+        const program = { path: '/fixture/' + name, env: {} };
+        return { selected: program, source: 'automatic', candidates: [program] };
+      },
     },
     [source('core')]: {
       exec: async (...args: unknown[]) => {

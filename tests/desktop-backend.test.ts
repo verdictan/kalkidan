@@ -108,6 +108,7 @@ test('desktop routes project, docs, agent, terminal and remote handlers to the e
     'github-repositories': [],
     'github-cli-check': [],
     'agent-installations': [],
+    'agent-executable-choose': ['claude', '/bin/claude'],
     'history-preview': [],
     'history-import': [{}],
     'chat-status': ['chat'],
@@ -117,6 +118,14 @@ test('desktop routes project, docs, agent, terminal and remote handlers to the e
   await assert.rejects(call('chat-approve', 'unowned', 'approval', true), /another window or host/);
   await assert.rejects(call('chat-respond', 'unowned', 'question', {}), /another window or host/);
   await call('directory-list', '/', 'host');
+  // A host ID sends the agent check and the chosen program to that SSH host.
+  await call('agent-installations', 'host');
+  await call('agent-executable-choose', 'claude', null, 'host');
+  assert.ok(f.calls.some((c) => c[0] === 'remoteAgentInstallations' && c[1] === 'host'));
+  assert.ok(
+    f.calls.some((c) => c[0] === 'remoteAgentChoice' && c[1] === 'host' && c[2] === 'claude'),
+  );
+  assert.ok(f.calls.some((c) => c[0] === 'agentChoice' && c[1] === 'claude'));
   await call('github-link', 'g', 'url');
   await assert.rejects(call('pty-open', null), /Choose a repository/);
   await assert.rejects(call('pty-open', '/outside'), /Add this session folder/);

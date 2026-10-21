@@ -119,6 +119,10 @@ test('remote RPC validates envelopes, dispatches supported operations, reports f
       [source('conversation-tools')]: { CommandTerminal: Terminal, repositoryDiff: record('diff') },
       [source('models')]: { modelOptions: record('models') },
       [source('chat')]: { executable: record('executable') },
+      [source('agent-installations')]: {
+        agentInstallations: async () => [{ agent: 'claude', status: 'installed' }],
+        chooseAgentExecutable: record('chooseAgentExecutable'),
+      },
       [source('git-working')]: {
         worktreeFolder: (root: string, repo: string, branch: string) =>
           `${root}/worktrees/${repo}-${branch}`,
@@ -197,6 +201,12 @@ test('remote RPC validates envelopes, dispatches supported operations, reports f
   assert.equal(outputs.length, 0);
   assert.equal((await request('hello')).result.protocol, 5);
   assert.match((await request('unsupported')).error, /Unsupported/);
+  // The agent check and the chosen program run on the host, with the files of the host.
+  assert.deepEqual((await request('agent-installations')).result, [
+    { agent: 'claude', status: 'installed' },
+  ]);
+  await request('agent-executable-choose', ['claude', '/home/u/.local/bin/claude']);
+  assert.deepEqual(calls.at(-1), ['chooseAgentExecutable', 'claude', '/home/u/.local/bin/claude']);
   assert.match((await request('validate', [null])).error, /Choose/);
   directory = false;
   assert.match((await request('validate', ['/file'])).error, /Not a directory/);

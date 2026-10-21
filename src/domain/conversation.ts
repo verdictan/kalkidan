@@ -138,6 +138,20 @@ export interface AgentInstallation {
   path?: string;
   /** The version from `--version`. Missing when Kalkidan cannot read it. */
   version?: string;
+  /**
+   * How Kalkidan selected the program: automatic detection, the program that the user chose in
+   * Settings › Agents, or the KALKIDAN_<AGENT>_PATH environment variable.
+   */
+  source?: 'automatic' | 'chosen' | 'environment';
+  /** The chosen or configured path, also when that program is not available. */
+  chosenPath?: string;
+  /** The other programs that automatic detection found, with their versions. */
+  candidates?: AgentCandidate[];
+}
+/** One program that Kalkidan found for an agent. */
+export interface AgentCandidate {
+  path: string;
+  version?: string;
 }
 
 export interface GitHubCliStatus {

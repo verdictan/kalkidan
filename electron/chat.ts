@@ -1,6 +1,7 @@
 import { executableCandidates } from './platform';
 import { runtimeConfig } from './config/runtime';
-import { access, readdir, readFile } from 'node:fs/promises';
+import { readChosenExecutables } from './agents/executable-choice';
+import { access, readdir, readFile, realpath } from 'node:fs/promises';
 import { constants } from 'node:fs';
 import { join, isAbsolute } from 'node:path';
 import { homedir } from 'node:os';
@@ -120,59 +121,85 @@ export function applyChatEvent(run: ChatRun, row: any) {
   }
 }
 
-export async function executable(
-  agent: Agent | 'gh',
-): Promise<{ path: string; env: NodeJS.ProcessEnv; args?: string[] }> {
-  const config = runtimeConfig();
-  let env = { ...process.env };
-  const configured = agent === 'gh' ? undefined : config.agentExecutable[agent];
-  if (configured) {
-    await access(configured, constants.X_OK);
-    delete env.ELECTRON_RUN_AS_NODE;
-    delete env.CLAUDECODE;
-    return { path: configured, env };
-  }
+const toolNames: Record<string, string> = { codex: 'Codex', claude: 'Claude Code', gh: 'GitHub' };
+
+// OSC strings (ESC ] ... BEL or ESC \), for example iTerm shell integration marks, and the
+// DCS, SOS, PM and APC strings. A string without its end stops at the end of the line.
+const terminalStrings = new RegExp(
+  '(?:\\u001b\\]|\\u009d)[^\\u0007\\u001b\\u009c\\n]*(?:\\u0007|\\u001b\\\\|\\u009c)?|' +
+    '(?:\\u001b[P^_X]|[\\u0090\\u0098\\u009e\\u009f])[^\\u001b\\u009c\\n]*(?:\\u001b\\\\|\\u009c)?',
+  'g',
+);
+// oxlint-disable-next-line no-control-regex
+const controlCharacters = new RegExp('[\\u0000-\\u0008\\u000b-\\u001f\\u007f-\\u009f]', 'g');
+
+/**
+ * Removes terminal escape sequences and control characters from shell output. A login shell can
+ * print shell integration marks before the output of `command -v`.
+ */
+export function stripTerminalSequences(text: string) {
+  return stripVTControlCharacters(text.replace(terminalStrings, '')).replace(controlCharacters, '');
+}
+
+/** The environment for an agent process, without the variables of this Electron process. */
+function agentEnvironment(): NodeJS.ProcessEnv {
+  const env = { ...process.env };
   delete env.ELECTRON_RUN_AS_NODE;
   delete env.CLAUDECODE;
-  const candidates = executableCandidates(agent, env);
+  return env;
+}
+
+/**
+ * Asks the login shell for its PATH and for `command -v <name>`. Sets the PATH in `env` and
+ * returns the paths that the shell found. Returns no paths when the shell cannot run.
+ */
+async function shellLookup(name: string, env: NodeJS.ProcessEnv): Promise<string[]> {
+  if (process.platform === 'win32') return [];
   try {
-    if (process.platform === 'win32') throw new Error('Use Windows PATH');
     const { stdout } = await exec(
       process.env.SHELL || '/bin/sh',
-      ['-ilc', `printf '__CG_PATH__%s\\n' "$PATH"; command -v ${agent}`],
+      ['-ilc', `printf '__CG_PATH__%s\\n' "$PATH"; command -v ${name}`],
       { timeout: 10000 },
     );
-    const lines = stdout.trim().split('\n');
-    const pathLine = lines.find((line) => line.startsWith('__CG_PATH__'));
-    if (pathLine) env.PATH = pathLine.slice('__CG_PATH__'.length);
-    candidates.unshift(
-      ...lines.filter((line) => isAbsolute(line.trim())).map((line) => line.trim()),
-    );
+    const lines = String(stdout)
+      .split('\n')
+      .map((line) => stripTerminalSequences(line).trim());
+    const marker = '__CG_PATH__';
+    const pathLine = lines.find((line) => line.includes(marker));
+    if (pathLine) env.PATH = pathLine.slice(pathLine.indexOf(marker) + marker.length);
+    return lines.filter((line) => !line.includes(marker) && isAbsolute(line));
   } catch {
-    /* Fall back to standard install locations. */
+    return [];
   }
-  candidates.push(
-    join(homedir(), '.local/bin', agent),
-    '/opt/homebrew/bin/' + agent,
-    '/usr/local/bin/' + agent,
-  );
+}
+
+/** All the places where Kalkidan looks for a program, in order of preference. */
+async function candidatePaths(name: string, env: NodeJS.ProcessEnv, found: string[]) {
+  const candidates = [
+    ...found,
+    ...executableCandidates(name, env),
+    ...executableCandidates(name, process.env),
+    join(homedir(), '.local/bin', name),
+    '/opt/homebrew/bin/' + name,
+    '/usr/local/bin/' + name,
+  ];
   if (process.platform === 'win32') {
-    candidates.push(join(homedir(), '.local', 'bin', agent + '.exe'));
-    if (env.APPDATA) candidates.push(join(env.APPDATA, 'npm', agent + '.cmd'));
+    candidates.push(join(homedir(), '.local', 'bin', name + '.exe'));
+    if (env.APPDATA) candidates.push(join(env.APPDATA, 'npm', name + '.cmd'));
   }
-  if (agent === 'codex' && process.platform === 'darwin') {
+  if (name === 'codex' && process.platform === 'darwin') {
     candidates.push('/Applications/Codex.app/Contents/Resources/codex');
     const extensions = join(homedir(), '.vscode/extensions');
     try {
       const installed = (await readdir(extensions))
-        .filter((name) => name.startsWith('openai.chatgpt-'))
+        .filter((entry) => entry.startsWith('openai.chatgpt-'))
         .sort()
         .reverse();
-      for (const name of installed)
+      for (const entry of installed)
         candidates.push(
           join(
             extensions,
-            name,
+            entry,
             'bin',
             process.arch === 'arm64' ? 'macos-aarch64' : 'macos-x86_64',
             'codex',
@@ -182,26 +209,123 @@ export async function executable(
       /* VS Code extension is optional. */
     }
   }
-  for (const path of candidates) {
-    try {
-      await access(path, constants.X_OK);
-      if (process.platform === 'win32' && path.toLowerCase().endsWith('.cmd')) {
-        // Run the npm JavaScript entry point directly. Do not interpolate agent arguments into cmd.exe.
-        const shim = await readFile(path, 'utf8');
-        const entry = shim.match(/%dp0%[\\/]([^"\r\n]+\.(?:m?js|cjs))/i)?.[1];
-        if (!entry) continue;
-        const script = join(path, '..', entry);
-        await access(script);
-        return {
-          path: process.execPath,
-          args: [script],
-          env: { ...env, ELECTRON_RUN_AS_NODE: '1' },
-        };
-      }
-      return { path, env };
-    } catch {}
+  return [...new Set(candidates)];
+}
+
+export interface AgentExecutable {
+  path: string;
+  env: NodeJS.ProcessEnv;
+  args?: string[];
+}
+
+/** The launch data for one program path, or undefined when the path cannot run. */
+async function launchable(
+  path: string,
+  env: NodeJS.ProcessEnv,
+): Promise<AgentExecutable | undefined> {
+  try {
+    await access(path, constants.X_OK);
+    if (process.platform === 'win32' && path.toLowerCase().endsWith('.cmd')) {
+      // Run the npm JavaScript entry point directly. Do not interpolate agent arguments into cmd.exe.
+      const shim = await readFile(path, 'utf8');
+      const entry = shim.match(/%dp0%[\\/]([^"\r\n]+\.(?:m?js|cjs))/i)?.[1];
+      if (!entry) return undefined;
+      const script = join(path, '..', entry);
+      await access(script);
+      return {
+        path: process.execPath,
+        args: [script],
+        env: { ...env, ELECTRON_RUN_AS_NODE: '1' },
+      };
+    }
+    return { path, env };
+  } catch {
+    return undefined;
   }
-  throw new Error(
-    `${agent === 'codex' ? 'Codex' : agent === 'gh' ? 'GitHub' : 'Claude Code'} CLI was not found. Install it and sign in, then try again.`,
-  );
+}
+
+/** How Kalkidan selected the program of an agent. */
+export type ExecutableSource = 'automatic' | 'chosen' | 'environment';
+export interface AgentPrograms {
+  /** The program that launches use. Missing when no program is available. */
+  selected?: AgentExecutable;
+  source: ExecutableSource;
+  /** The chosen or configured path, also when it is not available. */
+  chosenPath?: string;
+  /** Each program that automatic detection found, in order of preference. One per file. */
+  candidates: AgentExecutable[];
+}
+
+/** At most this many programs show for one agent. */
+const candidateLimit = 8;
+
+/**
+ * Finds the programs of an agent. The order is: the path from KALKIDAN_<AGENT>_PATH, the
+ * program that the user chose in Settings › Agents, then automatic detection.
+ */
+export async function agentPrograms(agent: Agent | 'gh'): Promise<AgentPrograms> {
+  const env = agentEnvironment();
+  const configured = agent === 'gh' ? undefined : runtimeConfig().agentExecutable[agent];
+  if (configured) {
+    const ready = await access(configured, constants.X_OK).then(
+      () => true,
+      () => false,
+    );
+    return {
+      selected: ready ? { path: configured, env } : undefined,
+      source: 'environment',
+      chosenPath: configured,
+      candidates: [],
+    };
+  }
+  const found = await shellLookup(agent, env);
+  const chosen = agent === 'gh' ? undefined : (await readChosenExecutables())[agent];
+  const candidates: AgentExecutable[] = [];
+  const files = new Set<string>();
+  for (const path of await candidatePaths(agent, env, found)) {
+    if (candidates.length >= candidateLimit) break;
+    const program = await launchable(path, env);
+    if (!program) continue;
+    // Two links to one file are one program. Keep the first path, as the shell finds it.
+    let file = path;
+    try {
+      file = await realpath(path);
+    } catch {
+      /* Keep the path as it is. */
+    }
+    if (files.has(file)) continue;
+    files.add(file);
+    candidates.push(program);
+  }
+  if (chosen)
+    return {
+      selected: await launchable(chosen, env),
+      source: 'chosen',
+      chosenPath: chosen,
+      candidates,
+    };
+  return { selected: candidates[0], source: 'automatic', candidates };
+}
+
+/** The environment for a program that the user chooses, with the PATH of the login shell. */
+export async function chosenProgramEnvironment(agent: Agent) {
+  const env = agentEnvironment();
+  await shellLookup(agent, env);
+  return env;
+}
+
+/** The program that launches and version checks use for an agent or for the GitHub CLI. */
+export async function executable(agent: Agent | 'gh'): Promise<AgentExecutable> {
+  const programs = await agentPrograms(agent);
+  if (programs.selected) return programs.selected;
+  const name = toolNames[agent];
+  if (programs.source === 'chosen')
+    throw new Error(
+      `The chosen ${name} program at ${programs.chosenPath} is not available. Choose a different program in Settings › Agents, or use automatic detection.`,
+    );
+  if (programs.source === 'environment')
+    throw new Error(
+      `The ${name} program in KALKIDAN_${agent.toUpperCase()}_PATH is not available. Correct the path, then try again.`,
+    );
+  throw new Error(`${name} CLI was not found. Install it and sign in, then try again.`);
 }

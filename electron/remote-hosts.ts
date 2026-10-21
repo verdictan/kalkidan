@@ -8,7 +8,8 @@ import { readFile } from 'node:fs/promises';
 import { createHash, randomUUID } from 'node:crypto';
 import { createInterface } from 'node:readline';
 import { exec, shellQuote } from './core';
-import type { RemoteHost, ChatRun } from '../src/types';
+import type { RemoteHost, ChatRun, AgentInstallation } from '../src/types';
+import { sanitizeAgentInstallations } from '../src/domain/agent-programs';
 export function sshTarget(value: string) {
   if (
     typeof value !== 'string' ||
@@ -143,7 +144,14 @@ export class RemoteHosts {
                   : {}),
               }
             : undefined;
-        return { ...saved, setup, status: 'disconnected' };
+        const agentCheck =
+          saved.agentCheck && Number.isFinite(saved.agentCheck.checkedAt)
+            ? {
+                checkedAt: saved.agentCheck.checkedAt,
+                agents: sanitizeAgentInstallations(saved.agentCheck.agents),
+              }
+            : undefined;
+        return { ...saved, agentCheck, setup, status: 'disconnected' };
       });
     } catch (e: any) {
       if (e.code !== 'ENOENT') throw e;
@@ -702,6 +710,37 @@ export class RemoteHosts {
       delete host.attempt;
     }
     this.changed();
+  }
+  /**
+   * Checks the agent programs on a connected host and keeps the result, so Settings › Agents can
+   * show it when the host is not connected. A helper without the check asks for an update.
+   */
+  async agentInstallations(id: string): Promise<AgentInstallation[]> {
+    return this.recordAgentCheck(id, () => this.call(id, 'agent-installations', []));
+  }
+  /** Keeps the chosen program of an agent on the host. `null` returns to automatic detection. */
+  async chooseAgentExecutable(id: string, agent: string, path: string | null) {
+    return this.recordAgentCheck(id, () => this.call(id, 'agent-executable-choose', [agent, path]));
+  }
+  private async recordAgentCheck(id: string, request: () => Promise<unknown>) {
+    const host = this.host(id);
+    let result: unknown;
+    try {
+      result = await request();
+    } catch (error) {
+      if (error instanceof Error && /Unsupported remote operation/.test(error.message))
+        throw new Error(
+          'The Kalkidan helper on this host is too old to check agents. Update the helper in Settings › Remote hosts.',
+        );
+      throw error;
+    }
+    const agents = sanitizeAgentInstallations(result);
+    if (this.hosts.includes(host)) {
+      host.agentCheck = { checkedAt: Date.now(), agents };
+      await this.save();
+      this.changed();
+    }
+    return structuredClone(agents);
   }
   /** Disconnects a host and removes it from the saved list. */
   async remove(id: string) {
