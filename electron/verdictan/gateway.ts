@@ -4,7 +4,16 @@ import type { Writable } from 'node:stream';
 import { StringDecoder } from 'node:string_decoder';
 import { parseRuntimeCredentials, uuid, type RuntimeCredentials } from './credentials';
 import { DesktopProtocolError } from './protocol';
+import {
+  claudeSubscriptionNativeVersion,
+  claudeSubscriptionRecovery,
+} from '../../src/domain/verdictan';
 
+class ReadinessError extends Error {
+  constructor(public readonly code?: string) {
+    super('readiness');
+  }
+}
 export type NativeAgent = { kind: 'codex' | 'claude_code'; version: string };
 export interface GatewayOptions {
   executable: string;
@@ -171,12 +180,33 @@ export class ManagedGateway {
         result.control_plane?.ready !== true ||
         result.control_plane?.generation !== this.credentials.generation ||
         result.control_plane?.runtime_id !== this.credentials.runtime_id ||
-        result.control_plane?.session_id !== this.credentials.session_id
+        result.control_plane?.session_id !== this.credentials.session_id ||
+        !this.billingMatches(result.control_plane?.billing)
       )
-        throw new Error();
-    } catch {
-      throw new DesktopProtocolError('desktop.readiness_failed');
+        throw new ReadinessError(result?.error?.code);
+    } catch (error) {
+      // Relay only known safe Claude subscription codes so that the user gets a recovery action.
+      const code = error instanceof ReadinessError ? error.code : undefined;
+      throw new DesktopProtocolError(
+        this.credentials.provider_access_mode === 'claude_subscription' &&
+          claudeSubscriptionRecovery(code)
+          ? code!
+          : 'desktop.readiness_failed',
+      );
     }
+  }
+  /** Claude subscription readiness must not report an organization payer or a currency. */
+  private billingMatches(billing: any) {
+    if (this.credentials.provider_access_mode !== 'claude_subscription') return true;
+    if (billing === undefined) return true;
+    return (
+      !!billing &&
+      billing.payer === 'user_claude_subscription' &&
+      billing.provider_connection_id == null &&
+      billing.currency == null &&
+      (billing.provider_access_mode === undefined ||
+        billing.provider_access_mode === 'claude_subscription')
+    );
   }
   private async readJSON(url: URL, signal?: AbortSignal): Promise<any> {
     if (this.closed || this.stopping) throw new DesktopProtocolError('desktop.gateway_unavailable');
@@ -251,6 +281,34 @@ export class ManagedGateway {
         value,
       ]),
     );
+    const mode = this.credentials.provider_access_mode || 'byok';
+    // A subscription runtime never falls back to another agent's route or to API billing.
+    if (
+      (mode === 'codex_subscription' && agent.kind !== 'codex') ||
+      (mode === 'claude_subscription' && agent.kind !== 'claude_code')
+    )
+      throw new DesktopProtocolError('desktop.subscription_agent_required');
+    if (mode === 'claude_subscription') {
+      if (agent.version !== claudeSubscriptionNativeVersion)
+        throw new DesktopProtocolError('desktop.agent_version_unsupported');
+      // The gateway key is a separate header. Native subscription authentication stays intact,
+      // so no API key, auth token, or key helper is set. The value stays in the child env only.
+      return {
+        address: this.address!,
+        args: ['--setting-sources', '', '--strict-mcp-config'],
+        env: {
+          ANTHROPIC_BASE_URL: this.address!,
+          ANTHROPIC_CUSTOM_HEADERS: [
+            `X-Gateway-Key: ${this.credentials.inference_credential}`,
+            ...Object.entries(headers).map(([key, value]) => `${key}: ${value}`),
+          ].join('\n'),
+          DISABLE_AUTOUPDATER: '1',
+          CLAUDE_CODE_MAX_RETRIES: '0',
+          CLAUDE_CODE_DISABLE_NONSTREAMING_FALLBACK: '1',
+          CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1',
+        } as NodeJS.ProcessEnv,
+      };
+    }
     if (agent.kind === 'claude_code')
       return {
         address: this.address!,
@@ -271,9 +329,7 @@ export class ManagedGateway {
         .map(([key, value]) => `${JSON.stringify(key)}=${JSON.stringify(value)}`)
         .join(',') +
       '}';
-    if (this.credentials.provider_access_mode === 'codex_subscription') {
-      if (agent.kind !== 'codex')
-        throw new DesktopProtocolError('desktop.subscription_agent_required');
+    if (mode === 'codex_subscription') {
       return {
         address: this.address!,
         args: [

@@ -75,7 +75,7 @@ test('agent questions accept keyboard answers without granting permissions', asy
       },
     };
   });
-  await page.goto('http://127.0.0.1:5173');
+  await page.goto('/');
   await page.locator('.repo-select').click();
   await page.getByRole('button', { name: 'Resume Plan work', exact: true }).click();
   await page.getByLabel('Message agent').fill('Plan the implementation');

@@ -277,7 +277,7 @@ export async function desktopFixture(platform = 'linux', failure = '') {
     'node:fs': { existsSync: () => true },
     'node:fs/promises': {
       readFile: async (path: string) => {
-        if (path.endsWith('verdictan-region.json')) return JSON.stringify({ region: 'global' });
+        if (path.endsWith('verdictan-region.json')) return JSON.stringify({ region: 'eu' });
         if (path.endsWith('projects.json')) {
           if (failure === 'projects') return 'bad';
           if (failure === 'invalidProjects') return '{}';

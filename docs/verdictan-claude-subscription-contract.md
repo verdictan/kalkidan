@@ -2,9 +2,9 @@
 
 Contract revision: 1. Drafted: 2026-10-21.
 
-Status: proposed implementation contract. The checked Verdictan source and
-released runtime 0.4.1 do not support this mode. The wire names below are requested
-additions. They must be implemented and qualified before Kalkidan enables them.
+Status: Verdictan CLI 0.6.1 publishes this mode. Kalkidan implements the adapter
+side with deterministic tests. Live acceptance (C11–C13) is still open. See
+`native-agent-acceptance.md` for the current state.
 
 ## 1. Purpose and ownership
 

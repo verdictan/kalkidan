@@ -84,6 +84,9 @@ export class RemoteAccountBroker {
         const agent =
           p?.provider === 'openai' ? 'codex' : p?.provider === 'anthropic' ? 'claude' : null;
         const selection = agent ? setup.selections[agent] : undefined;
+        const subscription =
+          p?.provider_access_mode === 'codex_subscription' ||
+          p?.provider_access_mode === 'claude_subscription';
         if (
           !p ||
           !selection ||
@@ -93,6 +96,8 @@ export class RemoteAccountBroker {
           p.model !== selection.model ||
           (p.provider_access_mode || 'byok') !== (selection.providerAccessMode || 'byok') ||
           (p.provider_connection_id || '') !== selection.providerConnectionId ||
+          // A subscription provision never carries a provider connection.
+          (subscription && p.provider_connection_id != null) ||
           !this.resources
             .get(scope)
             ?.has(JSON.stringify([p.agent_id, p.gateway_id, p.project_id || null])) ||
@@ -110,7 +115,7 @@ export class RemoteAccountBroker {
             provider: p.provider,
             ...(p.project_id ? { project_id: p.project_id } : {}),
             model: p.model,
-            ...(p.provider_access_mode === 'codex_subscription'
+            ...(subscription
               ? { provider_access_mode: p.provider_access_mode }
               : { provider_connection_id: p.provider_connection_id }),
           },

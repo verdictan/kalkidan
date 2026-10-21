@@ -20,7 +20,7 @@ test('Settings checks GitHub CLI and retries without hiding agent status', async
       githubAuthStatus: async () => ({ status: 'idle' }),
     };
   });
-  await page.goto('http://127.0.0.1:5173');
+  await page.goto('/');
   await page.getByRole('button', { name: 'Settings', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: 'Settings' });
   await dialog.getByRole('tab', { name: 'Agents', exact: true }).click();
@@ -75,7 +75,7 @@ test('closing Settings detaches from shared approval; explicit cancel identifies
       },
     };
   });
-  await page.goto('http://127.0.0.1:5173');
+  await page.goto('/');
   const open = async () => {
     await page.getByRole('button', { name: 'Settings', exact: true }).click();
     await page.getByRole('tab', { name: 'Accounts', exact: true }).click();

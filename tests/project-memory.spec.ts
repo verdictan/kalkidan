@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 
 test('Memory is beneath Docs and opens a read-only project page', async ({ page }) => {
-  await page.goto('http://127.0.0.1:5173');
+  await page.goto('/');
   const docs = page.getByRole('button', { name: 'Docs', exact: true });
   const memory = page.getByRole('button', { name: 'Memory', exact: true });
   const docsBox = await docs.boundingBox();
@@ -54,7 +54,7 @@ test('Memory renders agent files and refreshes changes without editing controls'
       },
     };
   });
-  await page.goto('http://127.0.0.1:5173');
+  await page.goto('/');
   await page.getByRole('button', { name: 'Memory', exact: true }).click();
   const panel = page.getByRole('region', { name: 'Project memory', exact: true });
   await expect(panel.getByRole('heading', { name: 'Test conventions' })).toBeVisible();
@@ -97,7 +97,7 @@ test('late Memory reads cannot display content in another project', async ({ pag
       },
     };
   });
-  await page.goto('http://127.0.0.1:5173');
+  await page.goto('/');
   await page.getByRole('button', { name: 'Memory', exact: true }).first().click();
   await expect
     .poll(() => page.evaluate(() => typeof (window as any).resolveAlpha))

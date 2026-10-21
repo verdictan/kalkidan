@@ -71,14 +71,36 @@ script checks manifest validity, expiry, target, digest, and downgrade sequence.
 Use the operator-reviewed download origins. Renew approval before its manifest
 expires. Do not relax hash, target, or expiry checks to use an unapproved release.
 
-## EU account configuration
+## Account region
 
-Set `KALKIDAN_VERDICTAN_REGION=eu` before starting Kalkidan. Restart the app after
-changing the region. The default is `global`. Other values are rejected.
-The EU region uses only `api.eu.verdictan.com` and `console.eu.verdictan.com`.
-Its secure broker profile is `kalkidan-eu`; the global profile remains `kalkidan`.
-The renderer cannot supply arbitrary endpoints. Region changes do not transfer
-credentials or selections between accounts.
+Open **Settings**, then **Accounts**. Select **European Union** or **United States**
+in **Account region**. Then sign in. Kalkidan saves the region in
+`verdictan-region.json` in the app data folder. An operator can preselect a region:
+set `KALKIDAN_VERDICTAN_REGION=eu` or `KALKIDAN_VERDICTAN_REGION=us` before the
+first start. A saved region has priority. Other values leave the region unselected.
+
+Each region uses only its own fixed origins and secure broker profile:
+
+| Region | API                    | Console                    | Profile       |
+| ------ | ---------------------- | -------------------------- | ------------- |
+| EU     | `api.eu.verdictan.com` | `console.eu.verdictan.com` | `kalkidan-eu` |
+| US     | `api.us.verdictan.com` | `console.us.verdictan.com` | `kalkidan-us` |
+
+The renderer cannot supply arbitrary endpoints. A region change stops active work,
+disconnects SSH hosts, and starts a new account owner. Region changes do not
+transfer credentials or selections between accounts.
+
+Kalkidan does not use the Global region (`api.verdictan.com`). That host redirects
+each request to a regional host. An authenticated request must not follow a
+redirect to another host, so sign-in and account requests fail there. If your
+saved region is `global`, Kalkidan keeps the region unselected and asks you to
+select EU or US. It does not select a region for you. Kalkidan does not use the
+earlier `kalkidan` profile. To remove that local session, run
+`verdictan auth logout --profile kalkidan`.
+
+Project-service operations come from the signed-in account profile. Kalkidan
+reads them again after sign-in, sign-out, session renewal, and a region change.
+The signed-out compatibility probe checks only the runtime version.
 
 The EU account login and setup inspection passed on 2026-10-21. No provider
 connections were available. Codex subscription authentication remains an adapter

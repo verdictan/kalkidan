@@ -1,5 +1,6 @@
 import type { GovernanceEvidence } from '../../src/domain/conversation';
 import { DesktopProtocolError } from './protocol';
+import { isSubscriptionBilling } from '../../src/domain/verdictan';
 const safe = (v: unknown): v is string =>
   typeof v === 'string' && /^[A-Za-z0-9][A-Za-z0-9._:/-]{0,255}$/.test(v);
 const measurement = (v: unknown) =>
@@ -106,9 +107,13 @@ export class RuntimeEvidence {
           if (item.usage.provider_charge !== 'not_reported')
             throw new DesktopProtocolError('desktop.snapshot_invalid');
           row.usage = safe(item.usage.state) ? item.usage.state : null;
-          row.actualCost = measurement(item.usage.actual_cost);
-          row.currency = safe(item.usage.currency) ? item.usage.currency : null;
+          // Subscription usage has no provider price. An internal zero debit is not a charge.
+          const subscription = isSubscriptionBilling(item.usage);
+          row.currency = !subscription && safe(item.usage.currency) ? item.usage.currency : null;
+          // A cost without a currency is not an authoritative monetary charge.
+          row.actualCost = row.currency ? measurement(item.usage.actual_cost) : null;
           row.tokens = measurement(item.usage.total_tokens);
+          if (subscription) row.billing = 'subscription';
         }
       }
       if (!data.has_more) return;

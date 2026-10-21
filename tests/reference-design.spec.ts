@@ -3,7 +3,7 @@ import { openTool } from './helpers/tools';
 test('dark desktop workflow preserves drafts across resizable tool panes and the launcher', async ({
   page,
 }) => {
-  await page.goto('http://127.0.0.1:5173');
+  await page.goto('/');
   await page.setViewportSize({ width: 1440, height: 1000 });
   await expect(page.getByRole('heading', { name: 'Projects', level: 1 })).toBeVisible();
   await expect(page.locator('html')).toHaveClass('dark');

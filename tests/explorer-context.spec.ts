@@ -3,7 +3,7 @@ import { test, expect } from '@playwright/test';
 test('explorer context menus rename the clicked item and confirm non-destructive removal', async ({
   page,
 }) => {
-  await page.goto('http://127.0.0.1:5173');
+  await page.goto('/');
   const tree = page.getByRole('navigation', { name: 'Projects and repositories' });
   await tree.getByRole('button', { name: 'Atlas', exact: true }).click({ button: 'right' });
   await expect(page.getByRole('menuitem', { name: 'Remove project from Kalkidan…' })).toBeEnabled();
@@ -33,7 +33,7 @@ test('explorer context menus rename the clicked item and confirm non-destructive
 test('session right-click actions rename, pin and archive without opening a conversation', async ({
   page,
 }) => {
-  await page.goto('http://127.0.0.1:5173');
+  await page.goto('/');
   const tree = page.getByRole('navigation', { name: 'Projects and repositories' });
   // Each code folder shows its recent chats. The pin button on the row pins a chat.
   await tree

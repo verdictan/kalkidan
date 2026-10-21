@@ -68,6 +68,8 @@ export interface GovernanceEvidence {
     actualCost: string | null;
     currency: string | null;
     tokens: string | null;
+    /** Set when the user's own subscription pays. Provider charges are then not known. */
+    billing?: 'subscription';
   }[];
 }
 export interface TaskUsageHistory {

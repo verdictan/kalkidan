@@ -10,6 +10,8 @@ export interface RuntimeArtifact {
   minimum_os_version: string;
   node_included: true;
   required_runtime_dependencies: string[];
+  /** Optional in older manifests. When present, the extracted executable must match it. */
+  executable_sha256?: string;
 }
 export interface RuntimePin {
   schema_version: 1;
@@ -139,6 +141,7 @@ export function verifyRuntimeRelease(
       targets[artifact.target][1] !== artifact.arch ||
       seen.has(artifact.target) ||
       !digest(artifact.sha256) ||
+      (artifact.executable_sha256 !== undefined && !digest(artifact.executable_sha256)) ||
       !Number.isSafeInteger(artifact.size) ||
       artifact.size < 1 ||
       artifact.size > 512 * 1024 * 1024 ||

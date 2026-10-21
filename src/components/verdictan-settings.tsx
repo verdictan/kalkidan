@@ -9,7 +9,7 @@ import { Choice } from './choice';
 
 export function VerdictanSettings({ api, open }: { api: API; open: boolean }) {
   const [status, setStatus] = useState<VerdictanStatus>();
-  const [pendingRegion, setPendingRegion] = useState<'global' | 'eu'>();
+  const [pendingRegion, setPendingRegion] = useState<'eu' | 'us'>();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const active = useRef(false);
@@ -54,6 +54,8 @@ export function VerdictanSettings({ api, open }: { api: API; open: boolean }) {
     }
   }
   const account = status?.account;
+  // A status without a region needs an explicit EU or US choice before sign-in.
+  const regionRequired = !!status && !status.region;
   return (
     <section className="mt-5 grid gap-3 border-t pt-5" aria-label="Verdictan account">
       <div className="flex items-center justify-between gap-3">
@@ -68,14 +70,25 @@ export function VerdictanSettings({ api, open }: { api: API; open: boolean }) {
           aria-label="Verdictan region"
           className="h-9 rounded-md border bg-background px-3"
           disabled={busy || status?.phase === 'authorizing'}
-          value={pendingRegion || status?.region || 'global'}
-          onChange={(event) => setPendingRegion(event.target.value as 'global' | 'eu')}
+          value={pendingRegion || status?.region || ''}
+          onChange={(event) => setPendingRegion(event.target.value as 'eu' | 'us')}
         >
-          <option value="global">Global</option>
+          {!status?.region && (
+            <option value="" disabled>
+              Select a region
+            </option>
+          )}
           <option value="eu">European Union</option>
+          <option value="us">United States</option>
         </select>
       </label>
-      {pendingRegion && pendingRegion !== (status?.region || 'global') && (
+      {regionRequired && !pendingRegion && (
+        <p className="help-text" role="note">
+          Select the region of your Verdictan organization before you sign in. The Global region is
+          not available. If you used it before, sign in again after you select a region.
+        </p>
+      )}
+      {pendingRegion && pendingRegion !== status?.region && (
         <div className="grid gap-2" role="group" aria-label="Confirm region change">
           <p className="help-text">
             Switching regions stops active agents and disconnects SSH hosts. Each region keeps a
@@ -116,7 +129,7 @@ export function VerdictanSettings({ api, open }: { api: API; open: boolean }) {
           )}
         </dl>
       )}
-      {status?.phase === 'missing' && (
+      {status?.phase === 'missing' && !regionRequired && (
         <p className="text-xs text-muted-foreground">
           Install the approved Verdictan runtime in Updates, then check your account.
         </p>
@@ -137,7 +150,7 @@ export function VerdictanSettings({ api, open }: { api: API; open: boolean }) {
           Local sign-out finished. Remote access revocation could not be confirmed.
         </p>
       )}
-      {(error || status?.error) && (
+      {(error || (status?.error && !regionRequired)) && (
         <p role="alert" className="field-error">
           {error || accountError(status!.error!)}
         </p>
@@ -170,14 +183,14 @@ export function VerdictanSettings({ api, open }: { api: API; open: boolean }) {
         ) : (
           <>
             <Button
-              disabled={busy || status?.phase === 'missing'}
+              disabled={busy || regionRequired || status?.phase === 'missing'}
               onClick={() => void run(() => api.verdictanAuthorize('login'))}
             >
               Sign in
             </Button>
             <Button
               variant="outline"
-              disabled={busy || status?.phase === 'missing'}
+              disabled={busy || regionRequired || status?.phase === 'missing'}
               onClick={() => void run(() => api.verdictanAuthorize('register'))}
             >
               Create account
@@ -204,10 +217,13 @@ function accountError(code: string) {
   const messages: Record<string, string> = {
     'desktop.secure_storage_unavailable': 'Unlock your system keyring, then retry.',
     'desktop.browser_failed': 'The browser could not open. Retry Sign in.',
+    'desktop.region_required': 'Select the EU or US region, then sign in.',
     'desktop.region_mismatch':
       'The saved account belongs to another region. Sign out before changing regions.',
     'desktop.identity_mismatch':
       'The browser account differs from the saved account. Use the same account or sign out.',
+    'desktop.session_rejected':
+      'Verdictan rejected the session for this region. Check the region, then sign in again.',
     'desktop.auth_expired': 'Your session expired. Sign in again.',
     'desktop.request_timeout': 'Verdictan did not respond in time. Check status before retrying.',
     'desktop.operation_in_progress': 'Another account operation is in progress.',

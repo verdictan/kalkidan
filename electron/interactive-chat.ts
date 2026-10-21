@@ -259,6 +259,7 @@ export class InteractiveChatRunner {
         stdio: 'pipe',
       },
     );
+    run.managed?.launched?.();
     run.process = child;
     let pending = '';
     const parse = (line: string) => {

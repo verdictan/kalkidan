@@ -1,5 +1,5 @@
 import { discoverRuntime } from '../updates/runtime-feed';
-import { verdictanRegion } from './region';
+import { verdictanRegion, type VerdictanRegion } from './region';
 import bundledPolicy from './runtime-policy.json';
 import { RemoteAccountBroker } from './remote-broker';
 import type { VerdictanSetup } from '../../src/domain/verdictan';
@@ -10,7 +10,7 @@ import { VerdictanLaunchService } from './launch';
 import { join } from 'node:path';
 import { hostSystemVersion } from './system-version';
 import { ManagedRuntimes } from './runtime';
-import { DesktopProtocol } from './protocol';
+import { DesktopProtocol, DesktopProtocolError } from './protocol';
 import { desktopVersion } from './release';
 import { VerdictanAccountService, parseCapabilities } from './account';
 import { RuntimeInstaller, readRuntimePolicy, type RuntimePolicy } from './install';
@@ -28,8 +28,12 @@ export function createVerdictanServices(options: {
   selections?: () => Promise<VerdictanSetup['selections']>;
   identities?: () => Promise<{ installationId: string; hostId: string }>;
 }) {
-  const { apiOrigin, consoleOrigin, profile } = verdictanRegion(options.region);
-  const region = profile === 'kalkidan-eu' ? 'eu' : 'global';
+  const selected = options.region === undefined ? undefined : verdictanRegion(options.region);
+  const region = selected ? (options.region as VerdictanRegion) : undefined;
+  // Without a selected region, no account client starts. The EU origins then only configure
+  // the signed-out version probe, which makes no account request.
+  const { apiOrigin, consoleOrigin } = selected ?? verdictanRegion('eu');
+  const profile = selected?.profile ?? 'kalkidan';
   // The CLI compatibility contract accepts the core version, without build metadata.
   if (!desktopVersion(options.desktopVersion)) throw new Error('Invalid desktop version.');
   const compatibilityVersion = options.desktopVersion.split('-')[0];
@@ -59,6 +63,8 @@ export function createVerdictanServices(options: {
     changed: options.changed,
     probe: async (executable, version) => {
       // A separate secure profile prevents a compatibility probe from owning account state.
+      // This profile is always signed out, so the probe checks only the version. Session
+      // capabilities, such as project services, come from the account profile.
       const client = new DesktopProtocol(executable, [...args.slice(0, -1), `${profile}-probe`]);
       try {
         const capabilities = parseCapabilities((await client.request('capabilities')).data);
@@ -75,6 +81,7 @@ export function createVerdictanServices(options: {
     openBrowser: options.openBrowser,
     changed: options.changed,
     connect: async () => {
+      if (!selected) throw new DesktopProtocolError('desktop.region_required');
       if (options.client) return options.client();
       const executable = await installer.executable();
       return executable ? new DesktopProtocol(executable, args) : null;
