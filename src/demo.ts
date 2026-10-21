@@ -167,6 +167,11 @@ export const demo: API = {
       runningBuild: 'preview',
       discovery: 'unsupported',
       stale: false,
+      install: {
+        kind: 'development',
+        selfUpdate: false,
+        reason: 'The browser preview cannot install updates. Open the desktop app.',
+      },
     },
     helpers: [],
   }),
@@ -183,6 +188,13 @@ export const demo: API = {
     throw new Error('Runtime installation requires the desktop application.');
   },
   runtimeUpdateCancel: async (hostId) => demo.runtimeUpdateStatus(hostId),
+  desktopUpdateDownload: async () => {
+    throw new Error('Desktop updates require the desktop application.');
+  },
+  desktopUpdateCancel: async () => (await demo.componentUpdates()).desktop,
+  desktopUpdateRestart: async () => {
+    throw new Error('Desktop updates require the desktop application.');
+  },
   memoryList: async () => ({ pages: [], limited: false }),
   docsMetadata: async (group) =>
     (demoDocs[group] || []).map(({ id, title, parentId, order }) => ({

@@ -3,6 +3,138 @@ import type { API } from '../types';
 import type { ComponentInventory } from '../domain/updates';
 import { Button } from './ui/button';
 import { errorMessage } from '../lib/errors';
+import type { DesktopUpdateStatus } from '../domain/updates';
+
+const activePhases = ['downloading', 'verifying', 'staging'];
+const phaseText: Record<string, string> = {
+  downloading: 'Downloading',
+  verifying: 'Checking the SHA-256 checksum',
+  staging: 'Preparing the update',
+  staged: 'Ready to install',
+  restarting: 'Restarting',
+  failed: 'Update failed',
+  canceled: 'Download canceled',
+};
+const megabytes = (bytes: number) => `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+
+/**
+ * Download, verify, and restart controls for the desktop app. Each step needs a user action.
+ * The release page shows only when this copy cannot update itself.
+ */
+function DesktopUpdate({
+  api,
+  status,
+  onStatus,
+}: {
+  api: API;
+  status: DesktopUpdateStatus;
+  onStatus(status: DesktopUpdateStatus): void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const update = status.update;
+  const active = !!update && activePhases.includes(update.phase);
+  const report = useRef(onStatus);
+  report.current = onStatus;
+  // Read progress while a download runs.
+  useEffect(() => {
+    if (!active) return;
+    let live = true;
+    const timer = setInterval(() => {
+      void api.componentUpdates(false).then(
+        (value) => live && report.current(value.desktop),
+        () => {},
+      );
+    }, 500);
+    return () => {
+      live = false;
+      clearInterval(timer);
+    };
+  }, [api, active]);
+  async function run(action: () => Promise<DesktopUpdateStatus>) {
+    if (busy) return;
+    setBusy(true);
+    setError('');
+    try {
+      onStatus(await action());
+    } catch (failure) {
+      setError(errorMessage(failure));
+    } finally {
+      setBusy(false);
+    }
+  }
+  const release = status.release;
+  const newer = status.discovery === 'available' && !!release;
+  if (!newer && !update && !error) return null;
+  if (!status.install.selfUpdate)
+    return (
+      <div className="grid gap-1" role="group" aria-label="Desktop update">
+        {release && newer && (
+          <a href={release.url} target="_blank" rel="noreferrer">
+            Open the Kalkidan {release.version} release page
+          </a>
+        )}
+        {status.install.reason && <p className="help-text">{status.install.reason}</p>}
+        {release && newer && <code className="break-all text-xs">SHA-256: {release.sha256}</code>}
+      </div>
+    );
+  return (
+    <div className="grid gap-2" role="group" aria-label="Desktop update">
+      {update && (
+        <p role="status" aria-live="polite">
+          {phaseText[update.phase]} · Kalkidan {update.version}
+          {update.phase === 'downloading' &&
+            ` · ${megabytes(update.receivedBytes)} of ${megabytes(update.totalBytes)}`}
+        </p>
+      )}
+      {update?.phase === 'downloading' && (
+        <progress
+          aria-label="Desktop update download"
+          className="w-full"
+          value={update.receivedBytes}
+          max={update.totalBytes || 1}
+        />
+      )}
+      {update?.phase === 'staged' && (
+        <p className="help-text">
+          Kalkidan verified the download. Restart to install it. The agents on this computer stop
+          before the restart. Their sessions stay on disk.
+        </p>
+      )}
+      {(update?.error || error) && (
+        <p role="alert" className="field-error">
+          {error || update?.error}
+        </p>
+      )}
+      {update?.phase === 'failed' && update.error?.includes('release page') && release && (
+        <a href={release.url} target="_blank" rel="noreferrer">
+          Open the Kalkidan {release.version} release page
+        </a>
+      )}
+      <div className="flex flex-wrap gap-2">
+        {newer && (!update || ['failed', 'canceled'].includes(update.phase)) && (
+          <Button disabled={busy} onClick={() => void run(() => api.desktopUpdateDownload())}>
+            Download Kalkidan {release!.version}
+          </Button>
+        )}
+        {active && (
+          <Button
+            variant="outline"
+            disabled={busy}
+            onClick={() => void run(() => api.desktopUpdateCancel())}
+          >
+            Cancel download
+          </Button>
+        )}
+        {update?.phase === 'staged' && (
+          <Button disabled={busy} onClick={() => void run(() => api.desktopUpdateRestart())}>
+            Restart to update
+          </Button>
+        )}
+      </div>
+    </div>
+  );
+}
 export function ComponentUpdates({ api }: { api: API }) {
   const [inventory, setInventory] = useState<ComponentInventory>();
   const [busy, setBusy] = useState(false);
@@ -60,18 +192,11 @@ export function ComponentUpdates({ api }: { api: API }) {
             </p>
           )}
           {inventory.desktop.error && <p role="status">{inventory.desktop.error}</p>}
-          {inventory.desktop.release && (
-            <div className="grid gap-1">
-              <a href={inventory.desktop.release.url} target="_blank" rel="noreferrer">
-                Open Kalkidan {inventory.desktop.release.version} downloads
-              </a>
-              <p className="help-text">
-                Install the desktop download, then restart Kalkidan. Downloads do not replace the
-                running app.
-              </p>
-              <code className="break-all text-xs">SHA-256: {inventory.desktop.release.sha256}</code>
-            </div>
-          )}
+          <DesktopUpdate
+            api={api}
+            status={inventory.desktop}
+            onStatus={(desktop) => setInventory((value) => value && { ...value, desktop })}
+          />
           {inventory.helpers.map((helper) => (
             <div key={helper.hostId} className="grid gap-1 border-t pt-2">
               <h4>
@@ -88,8 +213,8 @@ export function ComponentUpdates({ api }: { api: API }) {
             </div>
           ))}
           <p className="help-text">
-            Codex and Claude Code are externally managed. Check their installed versions in Local
-            agents.
+            Managed Verdictan agents use the Codex and Claude Code versions installed on each
+            machine. Their installer or package manager updates them.
           </p>
         </>
       )}

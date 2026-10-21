@@ -14,7 +14,8 @@ import { WorktreeCreation } from './operations/worktree';
 import { AgentStarts } from './operations/agent-start';
 import { ProjectCreation } from './operations/create-project';
 import { PublishOperations, publishEffects } from './operations/publish';
-import { DesktopUpdates } from './updates/desktop';
+import { DesktopUpdates, releaseOrigin } from './updates/desktop';
+import { detectInstallation } from './updates/desktop-install';
 import { createHash } from 'node:crypto';
 import { RemoteSnapshotCache } from './remote-snapshot-cache';
 import { createVerdictanServices, runtimePolicyReader } from './verdictan/service';
@@ -165,16 +166,19 @@ let verdictan: ReturnType<typeof createVerdictanServices> | undefined;
 // The user confirmed that running agents can stop. Do not ask again while the app quits.
 let stopAgentsConfirmed = false;
 /** Asks before an action stops running agents. Returns true when the action can continue. */
-function confirmStopAgents(parent?: BrowserWindow) {
+function confirmStopAgents(parent?: BrowserWindow, action: 'close' | 'restart' = 'close') {
   const count = chatRunner.runningCount();
   if (!count || stopAgentsConfirmed) return true;
   const options = {
     type: 'warning' as const,
-    buttons: ['Stop agents and close', 'Cancel'],
+    buttons: [action === 'restart' ? 'Stop agents and restart' : 'Stop agents and close', 'Cancel'],
     defaultId: 1,
     cancelId: 1,
     message: count === 1 ? 'An agent is still working' : `${count} agents are still working`,
-    detail: 'If you close Kalkidan now, the agents stop. Their sessions stay on disk.',
+    detail:
+      action === 'restart'
+        ? 'Kalkidan must restart to install the update. The agents on this computer stop. Their sessions stay on disk.'
+        : 'If you close Kalkidan now, the agents stop. Their sessions stay on disk.',
   };
   const choice = parent
     ? dialog.showMessageBoxSync(parent, options)
@@ -399,6 +403,17 @@ app.whenReady().then(async () => {
     journal: join(dataRoot, 'updates', 'desktop-discovery.json'),
     platform: process.platform,
     arch: process.arch,
+    origin: releaseOrigin(),
+    installation: () =>
+      detectInstallation({
+        platform: process.platform,
+        arch: process.arch,
+        execPath: process.execPath,
+        packaged: app.isPackaged,
+        env: process.env,
+      }),
+    quit: () => app.quit(),
+    relaunch: (execPath) => app.relaunch({ execPath, args: process.argv.slice(1) }),
   });
   const approvedHelper = readFile(join(__dirname, 'remote-agent.cjs')).then((bytes) =>
     createHash('sha256').update(bytes).digest('hex'),
@@ -429,6 +444,33 @@ app.whenReady().then(async () => {
               : 'unknown',
       })),
     };
+  });
+  handle('desktop-update-download', () => desktopUpdates.download());
+  handle('desktop-update-cancel', () => desktopUpdates.cancel());
+  handle('desktop-update-restart', async () => {
+    const status = await desktopUpdates.status();
+    if (status.update?.phase !== 'staged')
+      throw new Error('Download and verify the update before you restart.');
+    const runtime = verdictan?.installer.status().operation?.phase;
+    if (
+      runtime &&
+      [
+        'requested',
+        'downloading',
+        'verifying',
+        'activating',
+        'validating',
+        'rolling-back',
+      ].includes(runtime)
+    )
+      throw new Error('A managed runtime update is in progress. Restart after it finishes.');
+    // The same guard as Quit: running agents stop only after the user confirms.
+    const parent = BrowserWindow.getFocusedWindow() || undefined;
+    if (!confirmStopAgents(parent, 'restart')) return status;
+    stopAgentsConfirmed = true;
+    const result = await desktopUpdates.restart();
+    if (result.update?.phase !== 'restarting') stopAgentsConfirmed = false;
+    return result;
   });
   handle('verdictan-setup', () => verdictan!.setup.status());
   handle('verdictan-select', (agent, selection) => verdictan!.setup.select(agent, selection));
