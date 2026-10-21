@@ -69,13 +69,13 @@ test('managed agent setup shows names or numbered generic labels, never IDs', as
     };`,
   );
   await page.getByRole('button', { name: 'Settings', exact: true }).click();
-  const settings = page.getByRole('dialog', { name: 'Settings' });
-  await settings.getByRole('tab', { name: 'Managed agents', exact: true }).click();
-  const managed = settings.getByRole('region', { name: 'Managed agents' });
-  await expect(managed.getByRole('region', { name: 'Sign in', exact: true })).toContainText(
+  const settings = page.getByRole('region', { name: 'Settings', exact: true });
+  await settings.getByRole('tab', { name: 'Accounts', exact: true }).click();
+  await expect(settings.getByRole('region', { name: 'Verdictan account' })).toContainText(
     'Acme Corp',
   );
-  const setup = managed.getByRole('region', { name: 'Choose setup' });
+  await settings.getByRole('tab', { name: 'Agents', exact: true }).click();
+  const setup = settings.getByRole('region', { name: 'Managed setup' });
   /** The visible option labels of one choice. IDs stay in the option values. */
   async function options(name: string) {
     await setup.getByRole('combobox', { name }).click();
@@ -107,11 +107,9 @@ const signedIn = `verdictanStatus: async () => ({
 }),`;
 async function openSetup(page: Page) {
   await page.getByRole('button', { name: 'Settings', exact: true }).click();
-  const settings = page.getByRole('dialog', { name: 'Settings' });
-  await settings.getByRole('tab', { name: 'Managed agents', exact: true }).click();
-  return settings
-    .getByRole('region', { name: 'Managed agents' })
-    .getByRole('region', { name: 'Choose setup' });
+  const settings = page.getByRole('region', { name: 'Settings', exact: true });
+  await settings.getByRole('tab', { name: 'Agents', exact: true }).click();
+  return settings.getByRole('region', { name: 'Managed setup' });
 }
 
 test('the Kalkidan default policy is preselected and saves without policy IDs', async ({
@@ -151,8 +149,10 @@ test('the Kalkidan default policy is preselected and saves without policy IDs', 
   const labels = (await page.getByRole('option').allInnerTexts()).map((label) => label.trim());
   expect(labels).toEqual(['Kalkidan default', 'Strict']);
   await page.keyboard.press('Escape');
+  // A complete selection saves when the model name is entered.
   await setup.getByRole('textbox').fill('gpt-5');
-  await setup.getByRole('button', { name: 'Save Codex setup' }).click();
+  await setup.getByRole('textbox').press('Enter');
+  await expect.poll(() => page.evaluate(() => (window as any).savedSelections.length)).toBe(1);
   const [[agent, selection]] = await page.evaluate(() => (window as any).savedSelections);
   expect(agent).toBe('codex');
   expect(selection).toMatchObject({ configurationId: '', configurationVersionId: '' });
@@ -181,7 +181,8 @@ test('a member without the default gets the administrator recovery in setup', as
     'Ask an organization administrator to connect Kalkidan once.',
   );
   await expect(setup.getByRole('combobox', { name: 'Policy' })).toContainText('Choose a policy');
-  await expect(setup.getByRole('button', { name: 'Save Codex setup' })).toBeDisabled();
+  await expect(setup.getByRole('button', { name: 'Use this setup' })).toHaveCount(0);
+  await expect(setup).toContainText('Make all the choices.');
 });
 
 test('a launch block link opens Settings at the exact managed setup step', async ({ page }) => {
@@ -208,16 +209,17 @@ test('a launch block link opens Settings at the exact managed setup step', async
       }),
     ),
   );
-  const settings = page.getByRole('dialog', { name: 'Settings' });
-  await expect(settings.getByRole('tab', { name: 'Managed agents', exact: true })).toHaveAttribute(
+  const settings = page.getByRole('region', { name: 'Settings', exact: true });
+  await expect(settings.getByRole('tab', { name: 'Agents', exact: true })).toHaveAttribute(
     'aria-selected',
     'true',
   );
-  // The setup step gets the focus.
+  // The setup section gets the focus.
   await expect(settings.locator('#managed-agent-setup')).toBeFocused();
-  await expect(settings.locator('#managed-agent-setup')).toContainText('Choose setup');
+  await expect(settings.locator('#managed-agent-setup')).toContainText('Managed setup');
   // Without a service name the account has a generic label. IDs never show.
-  const account = settings.getByRole('region', { name: 'Sign in', exact: true });
+  await settings.getByRole('tab', { name: 'Accounts', exact: true }).click();
+  const account = settings.getByRole('region', { name: 'Verdictan account' });
   await expect(account).toContainText('Your account');
   await expect(account).not.toContainText('11111111-1111');
 });
@@ -269,7 +271,7 @@ test('the desktop app downloads, verifies, and offers Restart to update', async 
     };`,
   );
   await page.getByRole('button', { name: 'Settings', exact: true }).click();
-  const settings = page.getByRole('dialog', { name: 'Settings' });
+  const settings = page.getByRole('region', { name: 'Settings', exact: true });
   await settings.getByRole('tab', { name: 'Updates', exact: true }).click();
   const update = settings.getByRole('group', { name: 'Kalkidan', exact: true });
   // Nothing downloads or restarts without a user action.
@@ -309,7 +311,7 @@ test('a copy that cannot update itself explains why and links to the release pag
     };`,
   );
   await page.getByRole('button', { name: 'Settings', exact: true }).click();
-  const settings = page.getByRole('dialog', { name: 'Settings' });
+  const settings = page.getByRole('region', { name: 'Settings', exact: true });
   await settings.getByRole('tab', { name: 'Updates', exact: true }).click();
   const update = settings.getByRole('group', { name: 'Kalkidan', exact: true });
   await expect(update).toContainText('installed from a DEB package');

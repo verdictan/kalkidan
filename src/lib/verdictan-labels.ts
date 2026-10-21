@@ -16,7 +16,7 @@ export interface StatusLabel {
   tone: StatusTone;
 }
 
-/** The account state in Settings › Managed agents › Sign in. */
+/** The account state in Settings › Accounts › Verdictan. */
 export const accountPhaseLabels: Record<VerdictanStatus['phase'], StatusLabel> = {
   missing: { label: 'Runtime not installed', tone: 'muted' },
   checking: { label: 'Checking…', tone: 'secondary' },
@@ -99,7 +99,7 @@ export function runtimeOutdated(status: ComponentUpdateStatus | undefined) {
   return !!status?.latest && status.installed?.sha256 !== status.latest.sha256;
 }
 
-/** The runtime state in Settings › Managed agents › Install runtime and in Updates. */
+/** The runtime state of a computer in Settings › Computers and in Updates. */
 export function runtimeStatusLabel(status: ComponentUpdateStatus | undefined): StatusLabel {
   if (!status || status.discovery === 'checking') return { label: 'Checking…', tone: 'secondary' };
   if (updateRunning(status))

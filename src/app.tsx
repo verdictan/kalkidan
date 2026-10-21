@@ -41,7 +41,8 @@ import {
   sessionActionState,
 } from './domain/chat-actions';
 import { useTracker } from './hooks/use-tracker';
-import { SettingsDialog, type SettingsSectionId } from './components/settings-dialog';
+import { SettingsPage, type SettingsFocus } from './components/settings-page';
+import { settingsTabLabel, settingsTarget, type SettingsTab } from './domain/settings-route';
 import { ProjectOverview } from './components/project-overview';
 import { ActionMenu } from './components/action-menu';
 import { Hint } from './components/hint';
@@ -199,8 +200,6 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
   // Below 1100 px the sidebar starts closed. The user's choice is kept for each window size.
   const { open: navigationOpen, setOpen: setNavigationOpen } = useSidebarOpen();
   const [connectRequest, setConnectRequest] = useState<string | null>(null);
-  const [settingsOpen, setSettingsOpen] = useState(false);
-  const [settingsSection, setSettingsSection] = useState('general');
   // The element that opened a dialog. Focus goes back to it when the dialog closes.
   const lastFocus = useRef<HTMLElement | null>(null);
   const dialogTrigger = useRef<HTMLElement | null>(null);
@@ -237,12 +236,15 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
     }
   };
   // The element that gets focus when Settings opens, for example one managed setup step.
-  const [settingsAnchor, setSettingsAnchor] = useState<{ id: string; request: number }>();
+  const [settingsFocus, setSettingsFocus] = useState<SettingsFocus>();
+  /** Opens the Settings page. Older section names, such as 'remote', open their new tab. */
   function openSettings(section = 'general', anchor?: string) {
-    rememberTrigger();
-    setSettingsSection(section);
-    setSettingsAnchor(anchor ? { id: anchor, request: Date.now() } : undefined);
-    setSettingsOpen(true);
+    const target = settingsTarget(section, anchor);
+    // Settings is a page below the dialogs. Close the dialog that links to it.
+    if (dialogOpen())
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    navigate({ kind: 'settings', tab: target.tab });
+    setSettingsFocus({ id: target.anchor || '', request: Date.now() });
   }
   // The project page that the Projects overview shows: the projects, or "My work".
   const [overviewTab, setOverviewTab] = useState<'projects' | 'my-work'>('projects');
@@ -647,8 +649,9 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
   }, [revision]);
   // Save the page and the open chats, so the next launch opens them again.
   useEffect(() => {
-    if (!routed.current) return;
-    writeStored(routeStorageKey, saveableRoute(route));
+    // Settings returns null and keeps the last saved page.
+    const saved = saveableRoute(route);
+    if (routed.current && saved) writeStored(routeStorageKey, saved);
   }, [routeKey(route)]);
   useEffect(() => {
     if (!routed.current) return;
@@ -1083,7 +1086,7 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
     insights: 'Insights',
   };
   type Crumb = { label: string; name: string; open?: () => void; optional?: boolean };
-  const viewTrail: Crumb[] = home
+  const pageTrail: Crumb[] = home
     ? []
     : sessionsPage
       ? [
@@ -1131,6 +1134,19 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
               { label: project.name, name: project.name },
             ]
           : [];
+  // Settings: "Settings › Computers". The Settings crumb opens General.
+  const viewTrail: Crumb[] =
+    route.kind === 'settings'
+      ? [
+          {
+            label: 'Settings',
+            name: 'General settings',
+            open: route.tab !== 'general' ? () => openSettings('general') : undefined,
+            optional: true,
+          },
+          { label: settingsTabLabel(route.tab), name: `Settings ${settingsTabLabel(route.tab)}` },
+        ]
+      : pageTrail;
   openRef.current = (session: Session) => openConversation(session);
   function openConversation(session: Session, parentPage?: WorkspacePage) {
     const repo = sessionRepo(session, data.projects);
@@ -1677,6 +1693,7 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
   }, [routeKey(route)]);
   function placeLabel(place: WorkspaceRoute): { label: string; context?: string } | null {
     if (place.kind === 'sessions') return { label: 'All chats' };
+    if (place.kind === 'settings') return null;
     if (place.kind === 'home') return { label: 'Projects' };
     if (place.kind === 'project') {
       const group = data.groups?.find((g) => g.id === place.groupId);
@@ -1697,6 +1714,8 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
   const recentPlaces = recentRoutes
     .filter((place) => routeKey(place) !== routeKey(route))
     .flatMap((place) => {
+      // Settings is not a recent place. Search has its own Settings action.
+      if (place.kind === 'settings') return [];
       const label = placeLabel(place);
       return label
         ? [
@@ -1732,6 +1751,7 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
       variant="ghost"
       className={sidebarAction + ' min-w-0 flex-1 font-normal'}
       aria-description={updates.available ? 'Update available' : undefined}
+      aria-current={route.kind === 'settings' ? 'page' : undefined}
       onClick={() => openSettings(updates.available ? 'updates' : 'general')}
     >
       <Settings2 />
@@ -2093,7 +2113,16 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
           <div className="workspace-grid">
             <div className="project-content">
               <div className="management-pane" hidden={chatOpen}>
-                {home ? (
+                {route.kind === 'settings' ? (
+                  <SettingsPage
+                    api={api}
+                    tab={route.tab}
+                    focus={settingsFocus}
+                    onTab={(tab: SettingsTab) => navigate({ kind: 'settings', tab })}
+                    onNavigate={openSettings}
+                    onRefresh={refresh}
+                  />
+                ) : home ? (
                   <ProjectOverview
                     api={api}
                     groups={data.groups || []}
@@ -2654,17 +2683,6 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
           await refresh();
           openGroup(group);
         }}
-      />
-      <SettingsDialog
-        open={settingsOpen}
-        onOpenChange={(open) => {
-          setSettingsOpen(open);
-          if (!open) returnFocus();
-        }}
-        section={settingsSection as SettingsSectionId}
-        anchor={settingsAnchor}
-        api={api}
-        onRefresh={refresh}
       />
       {/* Work started here continues after the dialog closes and reports through a toast. */}
       <Dialog open={modal !== null} onOpenChange={(open) => !open && setModal(null)}>

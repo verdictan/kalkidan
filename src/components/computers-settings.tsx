@@ -1,0 +1,225 @@
+import { useEffect, useRef, useState } from 'react';
+import { Laptop, Plus, Server } from 'lucide-react';
+import type { API, RemoteHost } from '../types';
+import { agentComputerAnchor } from '../domain/agent-programs';
+import { computerAnchor } from '../domain/settings-route';
+import { shortId } from '../lib/verdictan-labels';
+import { errorMessage } from '../lib/errors';
+import { AddHostForm, HostSetup, useRemoteHosts } from './remote-host-picker';
+import { ManagedRuntime, type SettingsNavigate } from './verdictan-settings';
+import { SettingsGroup } from './settings-disclosure';
+import { Badge } from './ui/badge';
+import { Button } from './ui/button';
+
+const hostStatus: Record<
+  RemoteHost['status'],
+  { label: string; tone: 'success' | 'secondary' | 'warning' | 'destructive' | 'muted' }
+> = {
+  connected: { label: 'Connected', tone: 'success' },
+  connecting: { label: 'Connecting…', tone: 'secondary' },
+  queued: { label: 'Waiting to connect', tone: 'secondary' },
+  'retry-wait': { label: 'Connection lost', tone: 'warning' },
+  error: { label: 'Connection failed', tone: 'destructive' },
+  checked: { label: 'Not connected', tone: 'muted' },
+  disconnected: { label: 'Disconnected', tone: 'muted' },
+};
+
+/**
+ * Settings › Computers: one card for this computer and one for each SSH host. Each card shows
+ * the connection, the managed agents runtime, the helper, and a link to its agent programs.
+ */
+export function ComputersSettings({
+  api,
+  open,
+  onNavigate,
+  onRefresh,
+}: {
+  api: API;
+  open: boolean;
+  onNavigate: SettingsNavigate;
+  /** Reads the projects again after a host connects. */
+  onRefresh: () => Promise<void>;
+}) {
+  const { hosts, setHosts, error } = useRemoteHosts(api, open);
+  const [adding, setAdding] = useState(false);
+  // The host that was just added. Its setup starts at once.
+  const [added, setAdded] = useState('');
+  const [refreshError, setRefreshError] = useState('');
+  // Read the projects again only when a host becomes connected, not on each render.
+  const connected = useRef<Set<string>>(undefined);
+  useEffect(() => {
+    const now = new Set(hosts.filter((h) => h.status === 'connected').map((h) => h.id));
+    const before = connected.current;
+    connected.current = now;
+    if (!before || ![...now].some((id) => !before.has(id))) return;
+    setRefreshError('');
+    void onRefresh().catch((failure) =>
+      setRefreshError(`Could not refresh projects: ${errorMessage(failure)}`),
+    );
+  }, [hosts]);
+  function store(host: RemoteHost) {
+    setHosts((previous) =>
+      previous.some((h) => h.id === host.id)
+        ? previous.map((h) => (h.id === host.id ? host : h))
+        : [...previous, host],
+    );
+  }
+  return (
+    <div className="grid min-w-0 gap-4">
+      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+        <p className="min-w-0 flex-1 text-xs text-muted-foreground">
+          This computer and the SSH hosts that run your projects. Kalkidan installs a small helper
+          on each host.
+        </p>
+        {!adding && (
+          <Button variant="outline" size="sm" onClick={() => setAdding(true)}>
+            <Plus />
+            Add host
+          </Button>
+        )}
+      </div>
+      {adding && (
+        <SettingsGroup title="Add host" className="computer-card">
+          <AddHostForm
+            api={api}
+            onCancel={() => setAdding(false)}
+            onAdded={(host) => {
+              store(host);
+              setAdded(host.id);
+              setAdding(false);
+            }}
+          />
+        </SettingsGroup>
+      )}
+      <ul className="grid min-w-0 gap-3" aria-label="Computers">
+        <ComputerCard api={api} open={open} onNavigate={onNavigate} />
+        {hosts.map((host) => (
+          <ComputerCard
+            key={host.id}
+            api={api}
+            open={open}
+            host={host}
+            autoStart={added === host.id}
+            onHost={store}
+            onRemoved={(id) => setHosts((previous) => previous.filter((h) => h.id !== id))}
+            onNavigate={onNavigate}
+          />
+        ))}
+      </ul>
+      {!hosts.length && !adding && (
+        <p className="text-xs text-muted-foreground">
+          No SSH hosts. Select Add host to run projects on a computer that you can reach with SSH.
+        </p>
+      )}
+      {(error || refreshError) && (
+        <p role="alert" className="field-error whitespace-pre-wrap break-words">
+          {refreshError || error}
+        </p>
+      )}
+    </div>
+  );
+}
+
+/** One computer: this computer when `host` is not set, else one SSH host. */
+function ComputerCard({
+  api,
+  open,
+  host,
+  autoStart = false,
+  onHost,
+  onRemoved,
+  onNavigate,
+}: {
+  api: API;
+  open: boolean;
+  host?: RemoteHost;
+  autoStart?: boolean;
+  onHost?: (host: RemoteHost) => void;
+  onRemoved?: (hostId: string) => void;
+  onNavigate: SettingsNavigate;
+}) {
+  const name = host ? host.name : 'This computer';
+  const ready = !host || host.status === 'connected';
+  const status = host ? hostStatus[host.status] : undefined;
+  const digest = host?.installedDigest || host?.runningDigest;
+  return (
+    <li
+      id={computerAnchor(host?.id)}
+      tabIndex={-1}
+      role="group"
+      aria-label={name}
+      className="computer-card outline-none"
+    >
+      <header className="flex min-w-0 flex-wrap items-center gap-2">
+        {host ? (
+          <Server className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+        ) : (
+          <Laptop className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+        )}
+        <h3 className="min-w-0 truncate text-sm font-semibold">{name}</h3>
+        {host && (
+          <span className="min-w-0 truncate text-xs text-muted-foreground">{host.target}</span>
+        )}
+        <span className="ml-auto flex shrink-0 items-center gap-2">
+          {status && (
+            <Badge variant={status.tone} size="sm">
+              {status.label}
+            </Badge>
+          )}
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => onNavigate('agents', agentComputerAnchor(host?.id))}
+          >
+            Agent programs
+          </Button>
+        </span>
+      </header>
+      {host && onHost && onRemoved && (
+        <section aria-label="Connection" className="computer-card-section">
+          <h4 className="text-[13px] leading-5 font-semibold">Connection</h4>
+          <HostSetup
+            api={api}
+            host={host}
+            autoStart={autoStart}
+            onHost={onHost}
+            onRemoved={onRemoved}
+          />
+        </section>
+      )}
+      <div className="computer-card-section">
+        {ready ? (
+          <ManagedRuntime api={api} open={open} hostId={host?.id || 'local'} />
+        ) : (
+          <section aria-label="Managed agents runtime" className="grid gap-1">
+            <h4 className="text-[13px] leading-5 font-semibold">Managed agents runtime</h4>
+            <p className="text-xs text-muted-foreground">
+              Connect the host to see and install its runtime.
+            </p>
+          </section>
+        )}
+      </div>
+      {host && (
+        <section aria-label="Kalkidan helper" className="computer-card-section grid gap-1">
+          <h4 className="text-[13px] leading-5 font-semibold">Kalkidan helper</h4>
+          <dl className="meta-list">
+            <dt>Version</dt>
+            <dd>{host.version || 'Not installed'}</dd>
+            {digest && (
+              <>
+                <dt>Build</dt>
+                <dd>{shortId(digest)}</dd>
+              </>
+            )}
+            {host.node && (
+              <>
+                <dt>Node.js</dt>
+                <dd>{host.node}</dd>
+              </>
+            )}
+          </dl>
+        </section>
+      )}
+    </li>
+  );
+}

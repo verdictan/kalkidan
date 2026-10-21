@@ -5,6 +5,7 @@ import {
   type NativeAgentKind,
 } from './agent-version';
 import { safeProgramPath } from './agent-programs';
+import { runtimeAnchor, settingsAnchors, type SettingsTab } from './settings-route';
 
 /** Safe desktop state. Account and runtime credentials never cross renderer IPC. */
 export interface VerdictanAccount {
@@ -559,19 +560,19 @@ export const managedErrors: Record<string, ManagedErrorInfo> = {
   },
   'desktop.readiness_required': {
     message:
-      'The managed agents check on the machine where work runs did not pass. Check the status in Settings › Managed agents, then try again.',
+      'The managed agents check on the machine where work runs did not pass. Check the status in Settings › Accounts, then try again.',
     section: setUp,
     retry: true,
   },
   'desktop.readiness_failed': {
     message:
-      'The managed agents check on the machine where work runs did not pass. Check the status in Settings › Managed agents, then try again.',
+      'The managed agents check on the machine where work runs did not pass. Check the status in Settings › Accounts, then try again.',
     section: setUp,
     retry: true,
   },
   'desktop.readiness_blocked': {
     message:
-      'The managed gateway on the machine where work runs is not ready. Try again in a moment. If it continues, check Settings › Managed agents.',
+      'The managed gateway on the machine where work runs is not ready. Try again in a moment. If it continues, check Settings › Accounts.',
     section: setUp,
     retry: true,
   },
@@ -581,7 +582,7 @@ export const managedErrors: Record<string, ManagedErrorInfo> = {
   },
   'desktop.evidence_unavailable': {
     message:
-      'The managed gateway on the machine where work runs did not send its status. Try again in a moment. If it continues, check Settings › Managed agents.',
+      'The managed gateway on the machine where work runs did not send its status. Try again in a moment. If it continues, check Settings › Accounts.',
     section: setUp,
     retry: true,
   },
@@ -771,30 +772,30 @@ export function historyCostLabel(row: Record<string, unknown>) {
 /** The setup step that can remove a launch block. Each step has one place in Settings. */
 export type ManagedSetupStep =
   'region' | 'sign-in' | 'status' | 'agent-setup' | 'runtime' | 'agents';
-/** Where each step is in Settings: the section, the element that gets focus, and a label. */
+/** Where each step is in Settings: the tab, the element that gets focus, and a label. */
 export const managedSetupTargets: Record<
   ManagedSetupStep,
-  { section: 'managed-agents' | 'agents'; anchor: string; label: string }
+  { section: SettingsTab; anchor: string; label: string }
 > = {
-  region: { section: 'managed-agents', anchor: 'verdictan-region', label: 'Select the region' },
+  region: { section: 'accounts', anchor: settingsAnchors.region, label: 'Select the region' },
   'sign-in': {
-    section: 'managed-agents',
-    anchor: 'verdictan-account',
+    section: 'accounts',
+    anchor: settingsAnchors.account,
     label: 'Sign in to managed agents',
   },
   status: {
-    section: 'managed-agents',
-    anchor: 'verdictan-account',
+    section: 'accounts',
+    anchor: settingsAnchors.account,
     label: 'Check managed agent status',
   },
   'agent-setup': {
-    section: 'managed-agents',
-    anchor: 'managed-agent-setup',
+    section: 'agents',
+    anchor: settingsAnchors.managedSetup,
     label: 'Open managed agent setup',
   },
   runtime: {
-    section: 'managed-agents',
-    anchor: 'verdictan-runtime',
+    section: 'computers',
+    anchor: runtimeAnchor(),
     label: 'Install managed runtime',
   },
   agents: { section: 'agents', anchor: 'settings-agents', label: 'Open agent settings' },
@@ -1005,12 +1006,12 @@ function refusalWords(
     case 'desktop.agent_version_unsupported':
       return `Kalkidan cannot confirm the agent version on ${where}. ${supportedAgent}`;
     case 'desktop.readiness_blocked':
-      return `The managed gateway on ${where} is not ready. Try again in a moment. If it continues, check Settings › Managed agents.`;
+      return `The managed gateway on ${where} is not ready. Try again in a moment. If it continues, check Settings › Accounts.`;
     case 'desktop.evidence_unavailable':
-      return `The managed gateway on ${where} did not send its status. Try again in a moment. If it continues, check Settings › Managed agents.`;
+      return `The managed gateway on ${where} did not send its status. Try again in a moment. If it continues, check Settings › Accounts.`;
     case 'desktop.readiness_failed':
     case 'desktop.readiness_required':
-      return `The managed agents check on ${where} did not pass. Check the status in Settings › Managed agents, then try again.`;
+      return `The managed agents check on ${where} did not pass. Check the status in Settings › Accounts, then try again.`;
     case 'desktop.secure_storage_unavailable':
       return `The system keychain on ${where} is locked or waits for your approval. Unlock it or allow access, then try again.`;
     case 'desktop.event_authority_unavailable':

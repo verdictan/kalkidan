@@ -89,18 +89,18 @@ function initialSelection(setup: VerdictanSetup, agent: ManagedAgent): Verdictan
   };
 }
 
-/** Settings › Managed agents › Choose setup. The choices load when the step shows. */
+/**
+ * Settings › Agents › Managed setup. The choices load when the section shows. A complete
+ * selection saves at once, with Undo in the toast.
+ */
 export function VerdictanSetupForm({
   api,
   open = true,
-  primary = true,
   onSetup,
 }: {
   api: API;
   /** False while Settings is closed. The choices load again when it opens. */
   open?: boolean;
-  /** True when Save is the main action of the page. */
-  primary?: boolean;
   onSetup?: (setup: VerdictanSetup) => void;
 }) {
   const [setup, setSetup] = useState<VerdictanSetup>();
@@ -144,19 +144,42 @@ export function VerdictanSetupForm({
       live = false;
     };
   }, [api, agent]);
-  async function save() {
+  /**
+   * Saves a complete selection of the agent that shows. A save after a change offers Undo,
+   * which saves the selection that was there before.
+   */
+  async function save(next: VerdictanSelection, undo = false) {
+    const target = agent;
+    const before = setup?.selections[target];
     setSaving(true);
     setError('');
     try {
       // The agent ID goes only with the agent choice. The team and policy choice omits it.
-      const { agentId, ...rest } = selection;
-      const next = await api.verdictanSelect(
-        agent,
+      const { agentId, ...rest } = next;
+      const result = await api.verdictanSelect(
+        target,
         agentChoice && agentId ? { ...rest, agentId } : rest,
       );
-      setSetup(next);
-      onSetup?.(next);
-      showToast(`Saved the ${agentNames[agent]} setup`);
+      setSetup(result);
+      onSetup?.(result);
+      if (undo) {
+        showToast(`Restored the earlier ${agentNames[target]} setup`);
+        return;
+      }
+      showToast({
+        message: `Saved the ${agentNames[target]} setup`,
+        actions: before
+          ? [
+              {
+                label: 'Undo',
+                onClick: () => {
+                  if (agentRef.current === target) setSelection(before);
+                  void save(before, true);
+                },
+              },
+            ]
+          : undefined,
+      });
     } catch {
       setError('Could not save the setup. Select Refresh choices, then try again.');
     } finally {
@@ -202,29 +225,37 @@ export function VerdictanSetupForm({
   const recovery = requiresAdmin ? undefined : policyRecovery(setup?.policyReadiness);
   const otherAgents = agents.filter((a) => !a.default);
   const allowed = allowedModels(setup, agent);
-  const modelOptions = (
-    allowed
-      ? allowed.map((id) => ({ value: id, label: models.find((m) => m.id === id)?.name || id }))
-      : models.map((m) => ({ value: m.id, label: m.name }))
-  ).concat(
-    selection.model && !(allowed || models.map((m) => m.id)).includes(selection.model)
+  const listed = allowed
+    ? allowed.map((id) => ({ value: id, label: models.find((m) => m.id === id)?.name || id }))
+    : models.map((m) => ({ value: m.id, label: m.name }));
+  // A saved model that is not in the list stays a choice. Without a list, the model is a text
+  // field, also while the user types a name.
+  const modelOptions = listed.concat(
+    listed.length && selection.model && !listed.some((m) => m.value === selection.model)
       ? [{ value: selection.model, label: selection.model }]
       : [],
   );
   const saved = setup?.selections[agent];
   const savedIssue = setup && saved ? selectionIssue(setup, saved) : undefined;
-  const changed =
+  const changedFrom = (value: VerdictanSelection) =>
     !saved ||
-    (Object.keys({ ...saved, ...selection }) as (keyof VerdictanSelection)[]).some(
-      (key) => (saved[key] || '') !== (selection[key] || ''),
+    (Object.keys({ ...saved, ...value }) as (keyof VerdictanSelection)[]).some(
+      (key) => (saved[key] || '') !== (value[key] || ''),
     );
-  const complete =
-    !!selection.teamId &&
+  const completeSelection = (value: VerdictanSelection) =>
+    !!value.teamId &&
     (agentChoice
-      ? !!chosenAgent
-      : !!selection.configurationVersionId || (!!defaultPolicy && usesDefaultPolicy(selection))) &&
-    (subscription || !!selection.providerConnectionId) &&
-    !!selection.model;
+      ? agents.some((a) => a.agent_id === value.agentId)
+      : !!value.configurationVersionId || (!!defaultPolicy && usesDefaultPolicy(value))) &&
+    (isSubscriptionMode(value.providerAccessMode) || !!value.providerConnectionId) &&
+    !!value.model;
+  const changed = changedFrom(selection);
+  const complete = completeSelection(selection);
+  /** Shows a choice of the user, and saves it at once when the selection is complete. */
+  function commit(next: VerdictanSelection) {
+    setSelection(next);
+    if (!busy && completeSelection(next) && changedFrom(next)) void save(next);
+  }
   return (
     <div className="grid gap-4" aria-busy={loading}>
       <div className="flex flex-wrap items-center gap-2">
@@ -276,7 +307,7 @@ export function VerdictanSetupForm({
                   onChange={(value) => {
                     // The agent sets the team. Its deployed policy applies, so no policy IDs.
                     const next = agents.find((a) => a.agent_id === value);
-                    setSelection({
+                    commit({
                       ...selection,
                       agentId: next?.agent_id || '',
                       teamId: next?.team_id || '',
@@ -303,7 +334,7 @@ export function VerdictanSetupForm({
                     label="Team"
                     value={selection.teamId}
                     disabled={busy}
-                    onChange={(teamId) => setSelection({ ...selection, teamId })}
+                    onChange={(teamId) => commit({ ...selection, teamId })}
                     options={[
                       { value: '', label: 'Choose a team' },
                       ...setup.teams.map((team, index) => ({
@@ -323,7 +354,7 @@ export function VerdictanSetupForm({
                     onChange={(value) => {
                       // The default sends no policy IDs. Verdictan then uses its newest version.
                       const policy = policies.find((p) => p.configuration_version_id === value);
-                      setSelection({
+                      commit({
                         ...selection,
                         configurationId: policy?.configuration_id || '',
                         configurationVersionId: policy?.configuration_version_id || '',
@@ -351,7 +382,7 @@ export function VerdictanSetupForm({
                   disabled={busy}
                   value={selection.providerAccessMode || 'byok'}
                   onChange={(value) =>
-                    setSelection({
+                    commit({
                       ...selection,
                       providerAccessMode: value as ProviderAccessMode,
                       providerConnectionId:
@@ -381,7 +412,7 @@ export function VerdictanSetupForm({
                   value={selection.providerConnectionId}
                   disabled={busy || !connections.length}
                   onChange={(providerConnectionId) =>
-                    setSelection({ ...selection, providerConnectionId })
+                    commit({ ...selection, providerConnectionId })
                   }
                   options={[
                     {
@@ -406,7 +437,7 @@ export function VerdictanSetupForm({
                   label="Model"
                   value={selection.model}
                   disabled={busy}
-                  onChange={(model) => setSelection({ ...selection, model })}
+                  onChange={(model) => commit({ ...selection, model })}
                   options={[{ value: '', label: 'Choose a model' }, ...modelOptions]}
                 />
               ) : (
@@ -415,6 +446,11 @@ export function VerdictanSetupForm({
                   disabled={busy}
                   placeholder="Model name, for example gpt-5"
                   onChange={(e) => setSelection({ ...selection, model: e.target.value.trim() })}
+                  // A typed name saves when the field loses focus or on Enter.
+                  onBlur={() => commit(selection)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') commit(selection);
+                  }}
                 />
               )}
             </label>
@@ -493,24 +529,26 @@ export function VerdictanSetupForm({
               Claude Code sign-in, update the managed agents runtime.
             </p>
           )}
-          <p className="form-help">
-            Before each run, the service checks your access, the policy, and the model. Chats that
-            started before a change keep their first setup.
-          </p>
-          <div className="flex items-center justify-end gap-2">
-            {saved && !changed && !savedIssue && (
+          <div className="flex min-h-8 flex-wrap items-center justify-end gap-2">
+            {saving ? (
+              <span role="status" className="text-xs leading-4 text-muted-foreground">
+                Saving…
+              </span>
+            ) : saved && !changed && !savedIssue ? (
               <span className="flex items-center gap-1 text-xs leading-4 text-success">
                 <Check className="size-3.5" aria-hidden="true" />
                 Ready for {agentNames[agent]}
               </span>
+            ) : complete && changed ? (
+              // A selection that Kalkidan chose, or a save that failed. The user confirms it.
+              <Button variant="outline" disabled={busy} onClick={() => void save(selection)}>
+                Use this setup
+              </Button>
+            ) : (
+              <span className="text-xs leading-4 text-muted-foreground">
+                Make all the choices. Kalkidan then saves the {agentNames[agent]} setup.
+              </span>
             )}
-            <Button
-              variant={primary ? 'default' : 'outline'}
-              disabled={busy || !complete || !changed}
-              onClick={() => void save()}
-            >
-              {saving ? 'Saving…' : `Save ${agentNames[agent]} setup`}
-            </Button>
           </div>
         </>
       )}

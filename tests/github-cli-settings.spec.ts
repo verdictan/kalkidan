@@ -22,7 +22,7 @@ test('Settings checks GitHub CLI and retries without hiding agent status', async
   });
   await page.goto('/');
   await page.getByRole('button', { name: 'Settings', exact: true }).click();
-  const dialog = page.getByRole('dialog', { name: 'Settings' });
+  const dialog = page.getByRole('region', { name: 'Settings', exact: true });
   await dialog.getByRole('tab', { name: 'Agents', exact: true }).click();
   await expect(dialog).toContainText('Meets the minimum');
   // A missing agent shows how to install it.
@@ -83,8 +83,10 @@ test('closing Settings detaches from shared approval; explicit cancel identifies
   await open();
   await page.getByRole('button', { name: 'Allow access', exact: true }).click();
   await expect(page.getByLabel('GitHub device code')).toHaveValue('ABCD-1234');
-  await page.keyboard.press('Escape');
-  await expect(page.getByRole('dialog', { name: 'Settings' })).not.toBeVisible();
+  // Go back leaves the Settings page.
+  await page.getByRole('button', { name: 'Go back', exact: true }).click();
+  await page.getByRole('button', { name: 'Go back', exact: true }).click();
+  await expect(page.getByRole('region', { name: 'Settings', exact: true })).not.toBeVisible();
   expect(await page.evaluate(() => (window as any).cancels)).toEqual([]);
   await open();
   await expect(page.getByLabel('GitHub device code')).toHaveValue('ABCD-1234');
