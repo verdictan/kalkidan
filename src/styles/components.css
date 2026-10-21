@@ -343,6 +343,16 @@
   background: var(--warning);
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--warning) 25%, transparent);
 }
+/* The latest run failed: a red dot. A refused launch: an amber diamond, so the shape differs
+   from the amber approval dot too. */
+.activity-dot[data-state='failed'] {
+  background: var(--destructive);
+}
+.activity-dot[data-state='refused'] {
+  border-radius: 1px;
+  background: var(--warning);
+  transform: rotate(45deg) scale(0.85);
+}
 @media (prefers-reduced-motion: no-preference) {
   .activity-dot[data-state='running'] {
     animation: activity-pulse 1.6s ease-in-out infinite;

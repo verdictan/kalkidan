@@ -2,6 +2,7 @@ import {
   ActivityDot,
   activityKey,
   useActivityState,
+  useChatStatus,
   waitsForUser,
   type SessionActivityState,
 } from './activity-dot';
@@ -118,6 +119,9 @@ export function SessionBrowser({
     return filterBy === 'folder' ? place?.folder : place?.project;
   };
   const { finished } = useActivityState();
+  const chatStatus = useChatStatus();
+  const statusOf = (session: Session) =>
+    chatStatus(session, activity[activityKey(session.agent, session.id)]);
   /** True when the chat waits for an approval or an answer, or finished and is not seen. */
   const waiting = (session: Session) =>
     waitsForUser(activity[activityKey(session.agent, session.id)]) ||
@@ -154,6 +158,11 @@ export function SessionBrowser({
   const setTask = (value: string) => setView((previous) => ({ ...previous, task: value }));
   const linkedCount = taskOf ? sessions.filter((s) => !!taskOf(s)).length : 0;
   const waitingCount = sessions.filter((s) => !s.organization?.archived && waiting(s)).length;
+  // Chats whose latest run failed or was refused. A running chat shows its live state instead.
+  const outcomeCount = (kind: 'failed' | 'refused') =>
+    sessions.filter((s) => !s.organization?.archived && statusOf(s)?.state === kind).length;
+  const failedCount = outcomeCount('failed');
+  const refusedCount = outcomeCount('refused');
   const { menuFor, dialogs } = useChatListActions({
     api,
     onResume,
@@ -195,6 +204,8 @@ export function SessionBrowser({
       projects.length > 1 ||
       linkedCount > 0 ||
       waitingCount > 0 ||
+      failedCount > 0 ||
+      refusedCount > 0 ||
       scope !== 'active' ||
       agent !== 'all' ||
       project !== 'all' ||
@@ -210,7 +221,9 @@ export function SessionBrowser({
               ? org.archived
               : !org.archived &&
                 (scope !== 'pinned' || org.pinned) &&
-                (scope !== 'waiting' || waiting(session))) &&
+                (scope !== 'waiting' || waiting(session)) &&
+                (scope !== 'failed' || statusOf(session)?.state === 'failed') &&
+                (scope !== 'refused' || statusOf(session)?.state === 'refused')) &&
             (project === 'all' || placeName(session) === project) &&
             (task === 'all' || (task === 'linked') === !!taskOf?.(session))) &&
         `${org.title || session.title} ${session.title} ${session.cwd} ${session.agent} ${org.notes || ''} ${taskOf?.(session)?.number ? '#' + taskOf(session)!.number : ''} ${taskOf?.(session)?.title || ''}`
@@ -238,6 +251,18 @@ export function SessionBrowser({
                 value: 'waiting',
                 label: waitingCount ? `Waiting for you (${waitingCount})` : 'Waiting for you',
               },
+              // Failed and Refused show only when a chat has that outcome, or when selected.
+              ...(failedCount || scope === 'failed'
+                ? [{ value: 'failed', label: failedCount ? `Failed (${failedCount})` : 'Failed' }]
+                : []),
+              ...(refusedCount || scope === 'refused'
+                ? [
+                    {
+                      value: 'refused',
+                      label: refusedCount ? `Refused (${refusedCount})` : 'Refused',
+                    },
+                  ]
+                : []),
               { value: 'pinned', label: 'Pinned' },
               { value: 'archived', label: 'Archived' },
             ]}
@@ -330,7 +355,7 @@ export function SessionBrowser({
                           #{linked.number}
                         </span>
                       )}
-                      <ActivityDot state={activity[activityKey(session.agent, session.id)]} />
+                      <ActivityDot {...statusOf(session)} />
                     </Button>
                     <div className="session-meta">
                       {agentLabel(session.agent)} ·{' '}
@@ -386,18 +411,24 @@ export function SessionBrowser({
                 ? 'No pinned chats'
                 : scope === 'waiting' && !compact
                   ? 'Nothing waits for you'
-                  : sessions.length
-                    ? 'No chats found'
-                    : 'No chats yet'
+                  : scope === 'failed' && !compact
+                    ? 'No failed chats'
+                    : scope === 'refused' && !compact
+                      ? 'No refused chats'
+                      : sessions.length
+                        ? 'No chats found'
+                        : 'No chats yet'
           }
         >
           {scope === 'waiting' && !compact
             ? 'Chats that ask for an approval or an answer, and finished runs, show here.'
-            : sessions.length
-              ? 'Try a different search or filter. Use ⋯ on a chat to pin it, add notes, or archive it.'
-              : placeOf
-                ? 'No agent chats yet. Open a code folder, then start a chat.'
-                : `No agent chats in this folder yet. Select ${newSessionLabel} above.`}
+            : (scope === 'failed' || scope === 'refused') && !compact
+              ? 'Chats whose last run failed or did not start show here.'
+              : sessions.length
+                ? 'Try a different search or filter. Use ⋯ on a chat to pin it, add notes, or archive it.'
+                : placeOf
+                  ? 'No agent chats yet. Open a code folder, then start a chat.'
+                  : `No agent chats in this folder yet. Select ${newSessionLabel} above.`}
         </EmptyState>
       )}
       {!showFilters && !compact && archivedCount > 0 && (

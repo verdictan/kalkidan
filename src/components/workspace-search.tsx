@@ -29,7 +29,7 @@ import { trackerClient } from '../lib/tracker-client';
 import { isMac, plural, shortcutLabel } from '../lib/platform';
 import type { API, Project, ProjectGroup, Session } from '../types';
 import { relativeTime } from '../lib/relative-time';
-import { ActivityDot, activityKey, type SessionActivityState } from './activity-dot';
+import { ChatStatusDot, activityKey, type SessionActivityState } from './activity-dot';
 import { AgentIcon } from './ui/agent-icon';
 import { Button } from './ui/button';
 import { Dialog, DialogContent, DialogTitle } from './ui/dialog';
@@ -670,7 +670,10 @@ export function WorkspaceSearch({
                           <>
                             <Highlight text={title(s)} term={term} />
                             {s.organization?.archived ? ' · Archived' : ''}
-                            <ActivityDot state={activity[activityKey(s.agent, s.id)]} />
+                            <ChatStatusDot
+                              session={s}
+                              live={activity[activityKey(s.agent, s.id)]}
+                            />
                           </>
                         ),
                         detail: excerpt ? <Highlight text={excerpt} term={term} /> : where,

@@ -20,6 +20,7 @@ import { doneStatus, itemStatus } from '../hooks/use-project-boards';
 import { ProjectPortfolio } from './planning-tools';
 import {
   ActivityDot,
+  ChatStatusDot,
   activityKey,
   activityLabels,
   useActivityState,
@@ -353,7 +354,10 @@ export function ProjectOverview({
                         <span className="project-recent-text">
                           <span className="project-recent-title">
                             <span className="truncate">{title}</span>
-                            <ActivityDot state={activity[activityKey(session.agent, session.id)]} />
+                            <ChatStatusDot
+                              session={session}
+                              live={activity[activityKey(session.agent, session.id)]}
+                            />
                           </span>
                           <span className="project-recent-meta">
                             {agentLabel(session.agent)} · {repo!.name}

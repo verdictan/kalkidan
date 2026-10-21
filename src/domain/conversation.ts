@@ -1,6 +1,7 @@
 import type { BuiltinAgent } from '../config/agents';
 import type { TrackerItem } from './tracker';
 import type { ManagedSetupStep } from './verdictan';
+import type { ChatOutcome } from './chat-outcome';
 export interface ChatOptions {
   operationId?: string;
   forkFrom?: string;
@@ -33,6 +34,8 @@ export interface Session {
   updatedAt: string;
   title: string;
   organization?: SessionOrganization;
+  /** How the latest run of this chat ended. The main process keeps it. */
+  outcome?: ChatOutcome;
   projectId?: string;
   task?: TrackerItem;
   initialPrompt?: string;

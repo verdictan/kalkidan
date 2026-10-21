@@ -3,7 +3,7 @@ import { pathContains } from '../platform';
 import type { ManagedProjectContext } from './memory-tools';
 import type { Agent, ChatRun, Session } from '../../src/domain/conversation';
 import { agentCatalog } from '../../src/config/agents';
-import { InteractiveChatRunner } from '../interactive-chat';
+import { InteractiveChatRunner, type RunEnded } from '../interactive-chat';
 
 /** Native protocol implementations own processes, approvals, and session locks. */
 export interface AgentRuntime {
@@ -116,11 +116,14 @@ export class AgentRuntimes implements AgentRuntime {
 }
 
 /** One composition point used by both the desktop process and the SSH agent. */
-export function createAgentRuntimes(prepareManaged: PrepareManagedLaunch) {
+export function createAgentRuntimes(
+  prepareManaged: PrepareManagedLaunch,
+  onEnded?: (run: RunEnded) => void,
+) {
   return new AgentRuntimes(
     agentCatalog.map(({ id }) => ({
       id,
-      runtime: new InteractiveChatRunner(undefined, undefined, false, prepareManaged),
+      runtime: new InteractiveChatRunner(undefined, undefined, false, prepareManaged, onEnded),
     })),
   );
 }

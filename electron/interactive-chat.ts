@@ -13,6 +13,15 @@ import { parseQuestions, validateAnswers } from './agents/questions';
 import { DesktopProtocolError } from './verdictan/protocol';
 import { managedLaunchBlock } from '../src/domain/verdictan';
 
+/** A run that ended, for the chat outcome store. */
+export interface RunEnded {
+  state: ChatRun;
+  /** The session ID that the run started with. */
+  sessionId: string;
+  /** True when the run started a new chat. */
+  create: boolean;
+}
+
 const bounded = (value: unknown, limit = 32000) => {
   const text = typeof value === 'string' ? value : JSON.stringify(value, null, 2) || '';
   return text.length > limit ? '[Earlier output omitted]\n' + text.slice(-limit) : text;
@@ -22,6 +31,7 @@ interface Active {
   controller: AbortController;
   managed?: ManagedLaunch;
   session: Session;
+  create: boolean;
   process?: ChildProcessWithoutNullStreams;
   pending: Map<
     string,
@@ -55,6 +65,7 @@ export class InteractiveChatRunner {
     private config = runtimeConfig(),
     private internal = false,
     private prepareManaged?: PrepareManagedLaunch,
+    private onEnded?: (run: RunEnded) => void,
   ) {}
   async start(
     session: Session,
@@ -103,6 +114,7 @@ export class InteractiveChatRunner {
       state,
       controller: new AbortController(),
       session,
+      create,
       done: [],
       model,
       pending: new Map(),
@@ -795,6 +807,13 @@ export class InteractiveChatRunner {
           ? 'Stopped'
           : 'Response failed';
     this.clearPending(run);
+    if (!this.internal && this.onEnded) {
+      try {
+        this.onEnded({ state: run.state, sessionId: run.session.id, create: run.create });
+      } catch {
+        // The outcome is status data only. It must not change the turn.
+      }
+    }
     for (const done of run.done.splice(0)) done();
     if (status === 'completed' && run.memoryScope) this.extract(run);
     run.process?.stdin.end();
