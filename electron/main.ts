@@ -1481,7 +1481,7 @@ app.whenReady().then(async () => {
     return true;
   });
   handle('github-cli-check', githubCliCheck);
-  handle('agent-installations', agentInstallations);
+  handle('agent-installations', () => agentInstallations());
   const historyImporter = new HistoryImport({
     scan: () => history(codexRoot, claudeRoot),
     sources: { codex: codexRoot, claude: claudeRoot },

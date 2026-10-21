@@ -132,6 +132,8 @@ export interface AgentInstallation {
   agent: Agent;
   status: 'installed' | 'missing' | 'unavailable';
   path?: string;
+  /** The version from `--version`. Missing when Kalkidan cannot read it. */
+  version?: string;
 }
 
 export interface GitHubCliStatus {

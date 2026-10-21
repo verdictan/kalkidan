@@ -1,3 +1,5 @@
+import { agentMinimumVersions, agentVersionRequirement } from './agent-version';
+
 /** Safe desktop state. Account and runtime credentials never cross renderer IPC. */
 export interface VerdictanAccount {
   state: 'signed-out' | 'authorizing' | 'authenticated' | 'expired';
@@ -356,8 +358,6 @@ export function accountLabel(account?: Pick<VerdictanAccount, 'organizationName'
  * so the policy and the inference guard always apply. When managed agents are not set up, the chat
  * does not start, and the error tells the user to set them up.
  */
-/** The only native Claude Code version qualified for subscription access. */
-export const claudeSubscriptionNativeVersion = '2.1.304';
 export interface ManagedErrorInfo {
   message: string;
   section?: 'managed-agents' | 'agents' | 'updates';
@@ -457,7 +457,24 @@ export const managedErrors: Record<string, ManagedErrorInfo> = {
     section: setUp,
   },
   'desktop.agent_version_unsupported': {
-    message: `Managed agents do not support the installed agent version. Claude subscription access needs Claude Code ${claudeSubscriptionNativeVersion}.`,
+    message:
+      'Kalkidan cannot confirm the version of the installed agent. Check the agent in Settings, then try again.',
+    section: 'agents',
+  },
+  'desktop.codex_version_unsupported': {
+    message: agentVersionRequirement('codex'),
+    section: 'agents',
+  },
+  'desktop.claude_code_version_unsupported': {
+    message: agentVersionRequirement('claude_code'),
+    section: 'agents',
+  },
+  'desktop.codex_version_unknown': {
+    message: `Kalkidan cannot read the installed Codex version. ${agentVersionRequirement('codex')}`,
+    section: 'agents',
+  },
+  'desktop.claude_code_version_unknown': {
+    message: `Kalkidan cannot read the installed Claude Code version. ${agentVersionRequirement('claude_code')}`,
     section: 'agents',
   },
   'desktop.subscription_agent_required': {
@@ -557,6 +574,11 @@ export const managedErrors: Record<string, ManagedErrorInfo> = {
       'This computer uses a custom Claude Code profile. Use the default Claude Code sign-in on this computer. Then send the message again.',
     section: setUp,
   },
+  'desktop.claude_subscription_credential_format_unsupported': {
+    message:
+      'Kalkidan cannot read the Claude Code sign-in on the machine where work runs. The format is not supported, or the file is not private. Update Claude Code and run /login. Then send the message again.',
+    section: 'agents',
+  },
   'desktop.claude_subscription_login_expiring': {
     message:
       'Your Claude Code sign-in expires soon. Run /login in Claude Code on the machine where work runs. Then send the message again.',
@@ -638,6 +660,7 @@ const recoveries: Record<string, SubscriptionRecoveryAction> = {
   'desktop.claude_subscription_native_profile_unsupported':
     'sign_in_native_claude_on_execution_host',
   'desktop.claude_subscription_login_expiring': 'sign_in_native_claude_on_execution_host',
+  'desktop.claude_subscription_credential_format_unsupported': 'check_native_compatibility',
   'desktop.claude_subscription_identity_unavailable': 'inspect_runtime',
   'desktop.claude_subscription_route_unsupported': 'check_native_compatibility',
   'desktop.subscription_account_mismatch': 'reauthorize_new_session',
@@ -697,11 +720,12 @@ export function historyCostLabel(row: Record<string, unknown>) {
 }
 
 /** The setup step that can remove a launch block. Each step has one place in Settings. */
-export type ManagedSetupStep = 'region' | 'sign-in' | 'status' | 'agent-setup' | 'runtime';
+export type ManagedSetupStep =
+  'region' | 'sign-in' | 'status' | 'agent-setup' | 'runtime' | 'agents';
 /** Where each step is in Settings: the section, the element that gets focus, and a label. */
 export const managedSetupTargets: Record<
   ManagedSetupStep,
-  { section: 'managed-agents'; anchor: string; label: string }
+  { section: 'managed-agents' | 'agents'; anchor: string; label: string }
 > = {
   region: { section: 'managed-agents', anchor: 'verdictan-region', label: 'Select the region' },
   'sign-in': {
@@ -724,6 +748,7 @@ export const managedSetupTargets: Record<
     anchor: 'verdictan-runtime',
     label: 'Install managed runtime',
   },
+  agents: { section: 'agents', anchor: 'settings-agents', label: 'Open agent settings' },
 };
 /** The first sentence of each message that stops a managed launch. */
 export const managedOnlyNotice =
@@ -738,8 +763,7 @@ const setupChoice =
 const signInAgain = 'Sign in to Verdictan again. Then send your message again.';
 const runtimeRepair =
   'Install or update the approved Verdictan runtime on the machine where work runs.';
-const supportedAgent =
-  'Install the agent version that Verdictan supports on the machine where work runs.';
+const supportedAgent = `Install Codex ${agentMinimumVersions.codex} or later, or Claude Code ${agentMinimumVersions.claude_code} or later, on the machine where work runs.`;
 const isolation =
   'This machine cannot isolate managed agents. Use a supported macOS or Linux machine.';
 const gateway = 'The managed gateway did not start. Check Verdictan status. Then try again.';
@@ -810,7 +834,11 @@ const launchBlocks: Record<string, [ManagedSetupStep, string]> = {
   ],
   'desktop.subscription_agent_required': ['agent-setup', setupChoice],
   'desktop.resource_binding_mismatch': ['agent-setup', setupChoice],
-  'desktop.agent_version_unsupported': ['agent-setup', supportedAgent],
+  'desktop.agent_version_unsupported': ['agents', supportedAgent],
+  'desktop.codex_version_unsupported': ['agents', agentVersionRequirement('codex')],
+  'desktop.claude_code_version_unsupported': ['agents', agentVersionRequirement('claude_code')],
+  'desktop.codex_version_unknown': ['agents', agentVersionRequirement('codex')],
+  'desktop.claude_code_version_unknown': ['agents', agentVersionRequirement('claude_code')],
   'desktop.agent_not_found': ['agent-setup', supportedAgent],
   'desktop.executable_invalid': ['agent-setup', supportedAgent],
   'desktop.agent_home_invalid': ['agent-setup', supportedAgent],
@@ -832,7 +860,7 @@ const recoverySteps: Record<SubscriptionRecoveryAction, ManagedSetupStep> = {
   update_runtime: 'runtime',
   sign_in_native_claude_on_execution_host: 'agent-setup',
   inspect_runtime: 'runtime',
-  check_native_compatibility: 'agent-setup',
+  check_native_compatibility: 'agents',
   reauthorize_new_session: 'agent-setup',
   verify_native_account: 'agent-setup',
   repair_managed_launch: 'agent-setup',

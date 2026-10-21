@@ -6,8 +6,8 @@ properties([
     buildDiscarder(logRotator(numToKeepStr: '20')),
     parameters([
         choice(name: 'WORKER', choices: ['macos', 'ubuntu-vm', 'windows-vm'], description: 'Native test worker'),
-        string(name: 'CODEX_PATH', defaultValue: '', description: 'Absolute path to Codex 0.163.0-alpha.10.2'),
-        string(name: 'CLAUDE_PATH', defaultValue: '', description: 'Absolute path to Claude Code 2.1.304')
+        string(name: 'CODEX_PATH', defaultValue: '', description: 'Absolute path to Codex 0.160.0 or later'),
+        string(name: 'CLAUDE_PATH', defaultValue: '', description: 'Absolute path to Claude Code 2.1.300 or later')
     ])
 ])
 timeout(time: 30, unit: 'MINUTES') {

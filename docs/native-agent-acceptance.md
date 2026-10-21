@@ -15,7 +15,7 @@ clean-install/restart probes are recorded separately below.
 ## Run
 
 Use the Node version in `.node-version`. Install dependencies with `npm ci`.
-Set absolute paths to the pinned native agents:
+Set absolute paths to the native agents:
 
 ```sh
 KALKIDAN_CODEX_PATH=/absolute/path/to/codex \
@@ -23,7 +23,12 @@ KALKIDAN_CLAUDE_PATH=/absolute/path/to/claude \
 node scripts/native-acceptance.mjs
 ```
 
-The harness requires Codex `0.163.0-alpha.10.2` and Claude Code `2.1.304`.
+The harness requires Codex `0.160.0` or later and Claude Code `2.1.300` or later.
+This is the same minimum that Kalkidan applies to each managed launch
+(`src/domain/agent-version.ts`). A prerelease counts by its numeric core, so Codex
+`0.163.0-alpha.10.2` meets the minimum. Verdictan does not pin native agent
+versions. Kalkidan reads its `tested_agents` list as information only. The
+evidence records the version that each binary printed.
 It writes results and executable SHA-256 values to
 `ci-results/native-<platform>-<architecture>/evidence.json`.
 Any failed case makes the command fail. Process output is not archived.
@@ -384,12 +389,23 @@ adapter now supports this mode. Kalkidan offers the mode only when the runtime
 capability and `setup.inspect.provider_access_modes` both include it. Otherwise
 the mode stays unavailable. Kalkidan does not select BYOK as a replacement.
 
-The managed launch uses Claude Code `2.1.304` only. It sends no provider
+The managed launch accepts Claude Code `2.1.300` or later. It sends no provider
 connection and expects `runtime.provisioned`. The conversation binding keeps the
 access mode. A resume cannot change it. The launcher reads the existing native
 login on the execution host. On SSH, the remote helper reads the remote login.
 The short-lived access token goes only into the owned child environment. The
 launcher stops the child before the token expires.
+
+The launcher recognizes the credential layout by its structure, not by the
+Claude Code version. Claude Code 2.1.300 and later write the same JSON object to
+the macOS Keychain item `Claude Code-credentials` and to the Linux file
+`~/.claude/.credentials.json`. The launcher needs `claudeAiOauth.accessToken`, an
+`expiresAt` value in milliseconds, and the `user:inference` and `user:profile`
+scopes. Other fields are ignored. A missing item, a signed-out layout, or an
+expired token needs a new sign-in. Unknown types, an expiry in seconds, or an
+unsafe Linux file (wrong owner, group or other access, symbolic link, or hard
+link) stop the launch with
+`desktop.claude_subscription_credential_format_unsupported`.
 
 Deterministic tests are in `tests/verdictan-claude-subscription.test.ts`. They
 use copies of the published fixtures in `tests/fixtures/verdictan/`. Local and

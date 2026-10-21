@@ -147,7 +147,13 @@ async function fixture(
   const calls: string[] = [];
   const provisions: any[] = [];
   const routes: any[] = [];
-  const options = { version: agent.version, failRoute: false, failBind: false };
+  const options = {
+    version: agent.version,
+    installed: agent.version as string | undefined,
+    failRoute: false,
+    failBind: false,
+  };
+  const versionReads: { kind: string; path: string }[] = [];
   const store = new BindingStore(root);
   const client: any = {
     request: async (operation: string, params: any) => {
@@ -160,7 +166,8 @@ async function fixture(
             protocol_max: 1,
             capabilities: [],
             managed_execution_ready: false,
-            tested_agents: [agent],
+            // Information only. Kalkidan does not gate on Verdictan's tested versions.
+            tested_agents: [{ kind: 'codex', version: '0.150.0' }],
           },
         };
       provisions.push(params.parameters);
@@ -181,7 +188,10 @@ async function fixture(
       client,
       account: { organizationId: id, userId: id },
       setup: {
-        selections: { codex: overrides.selection ?? selection },
+        selections: {
+          codex: overrides.selection ?? selection,
+          claude: overrides.selection ?? selection,
+        },
         defaultPolicy: overrides.defaultPolicy,
       },
     }),
@@ -205,18 +215,32 @@ async function fixture(
     },
     status: () => [{ sessionId, runtimeId: id }],
   };
-  const service = new VerdictanLaunchService(store, setup, runtime, 'local', undefined, {
-    assertPlatform: () => {},
-    prepare: async () => ({
-      executable: '/sandbox',
-      prefix: ['/agent'],
-      env: { HOME: '/private' },
-      version: options.version,
-      close: async () => {
-        calls.push('close');
-      },
-    }),
-  });
+  const service = new VerdictanLaunchService(
+    store,
+    setup,
+    runtime,
+    'local',
+    undefined,
+    {
+      assertPlatform: () => {},
+      prepare: async () => ({
+        executable: '/sandbox',
+        prefix: ['/agent'],
+        env: { HOME: '/private' },
+        version: options.version,
+        close: async () => {
+          calls.push('close');
+        },
+      }),
+    },
+    undefined,
+    Date.now,
+    async (kind, executable) => {
+      calls.push('version');
+      versionReads.push({ kind, path: executable.path });
+      return options.installed;
+    },
+  );
   const request: any = {
     session: { id: 'new', cwd: root, agent: 'codex' },
     runId: 'turn',
@@ -232,6 +256,7 @@ async function fixture(
     provisions,
     routes,
     options,
+    versionReads,
     store,
     service,
     request,
@@ -250,7 +275,7 @@ test('managed launch freezes native bindings, forces routed credentials and rele
     assert.ok(await f.store.read('codex', 'native-id'));
     await Promise.all([launch.finish(), launch.finish()]);
     assert.deepEqual(f.calls, [
-      'capabilities',
+      'version',
       'resources.provision',
       'start',
       'route',
@@ -465,5 +490,106 @@ test('a launch with a chosen agent provisions with agent_id and binds its deploy
     assert.equal(host.calls.includes('start'), false);
   } finally {
     await host.cleanup();
+  }
+});
+
+test('each managed launch path checks the installed agent version against the minimum', async () => {
+  const f = await fixture();
+  try {
+    // A new chat, then resume, then fork. Each one reads the installed version first.
+    const first = await f.service.prepare(f.request);
+    await first.bindNativeSession('native-id');
+    await first.finish();
+    const resumed = await f.service.prepare({
+      ...f.request,
+      create: false,
+      session: { ...f.request.session, id: 'native-id' },
+    });
+    await resumed.finish();
+    const forked = await f.service.prepare({
+      ...f.request,
+      forkFrom: 'native-id',
+      session: { ...f.request.session, id: 'fork' },
+    });
+    await forked.finish();
+    assert.equal(f.versionReads.length, 3);
+    assert.ok(f.versionReads.every((read) => read.kind === 'codex' && read.path === '/agent'));
+    // Kalkidan binds the installed version, not a version from Verdictan's tested list.
+    assert.equal((await f.store.read('codex', 'native-id'))!.agent_version, agent.version);
+    for (const [installed, code] of [
+      ['0.159.9', 'desktop.codex_version_unsupported'],
+      ['0.150.0', 'desktop.codex_version_unsupported'],
+      ['0.159.0-alpha.99', 'desktop.codex_version_unsupported'],
+      [undefined, 'desktop.codex_version_unknown'],
+    ] as const) {
+      f.options.installed = installed;
+      const before = f.calls.length;
+      for (const request of [
+        f.request,
+        { ...f.request, create: false, session: { ...f.request.session, id: 'native-id' } },
+        { ...f.request, forkFrom: 'native-id', session: { ...f.request.session, id: 'fork-2' } },
+      ])
+        await assert.rejects(f.service.prepare(request), (error: any) => {
+          assert.equal(error.code, code);
+          assert.match(error.message, /Kalkidan needs Codex 0\.160\.0 or later\. Update Codex/);
+          return true;
+        });
+      // Refused before any provision or runtime start.
+      assert.deepEqual(new Set(f.calls.slice(before)), new Set(['version']));
+    }
+    // The minimum itself, a prerelease of the minimum, and newer versions pass.
+    for (const installed of ['0.160.0', '0.160.0-alpha.1', '0.163.0-alpha.10.2', '1.0.0']) {
+      f.options.installed = installed;
+      f.options.version = installed;
+      const launch = await f.service.prepare({
+        ...f.request,
+        session: { ...f.request.session, id: 'new-' + installed },
+      });
+      await launch.finish();
+    }
+  } finally {
+    await f.cleanup();
+  }
+});
+
+test('Claude Code launches need Claude Code 2.1.300 or later', async () => {
+  const f = await fixture();
+  const claude = { ...f.request, session: { ...f.request.session, agent: 'claude' } };
+  try {
+    f.options.installed = '2.1.296';
+    await assert.rejects(f.service.prepare(claude), (error: any) => {
+      assert.equal(error.code, 'desktop.claude_code_version_unsupported');
+      assert.match(
+        error.message,
+        /^Kalkidan needs Claude Code 2\.1\.300 or later\. Update Claude Code, then try again\./,
+      );
+      return true;
+    });
+    assert.equal(f.versionReads.at(-1)!.kind, 'claude_code');
+    f.options.installed = undefined;
+    await assert.rejects(f.service.prepare(claude), /claude_code_version_unknown/);
+    assert.equal(f.provisions.length, 0);
+    for (const installed of ['2.1.300', '2.1.304', '2.1.306', '2.2.0']) {
+      f.options.installed = installed;
+      f.options.version = installed;
+      const launch = await f.service.prepare({
+        ...claude,
+        session: { ...claude.session, id: 'claude-' + installed },
+      });
+      await launch.finish();
+      assert.equal(
+        (await f.store.read('claude_code', 'claude-' + installed))!.agent_version,
+        installed,
+      );
+    }
+    // The isolated agent must print the version that the check accepted.
+    f.options.installed = '2.1.306';
+    f.options.version = '2.1.296';
+    await assert.rejects(
+      f.service.prepare({ ...claude, session: { ...claude.session, id: 'changed' } }),
+      /agent_version_unsupported/,
+    );
+  } finally {
+    await f.cleanup();
   }
 });

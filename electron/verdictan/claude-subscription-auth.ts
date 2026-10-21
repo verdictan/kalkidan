@@ -38,23 +38,41 @@ function macSecret(account: string) {
       (error, stdout) => {
         if (error) {
           stdout?.fill(0);
-          reject(new DesktopProtocolError('desktop.secure_storage_unavailable'));
+          // 44 is errSecItemNotFound: Claude Code has no sign-in on this Mac.
+          reject(
+            new DesktopProtocolError(
+              (error as { code?: unknown }).code === 44
+                ? 'desktop.claude_subscription_login_required'
+                : 'desktop.secure_storage_unavailable',
+            ),
+          );
         } else resolve(stdout);
       },
     );
   });
 }
 
-/** Pinned Claude Code 2.1.304 file layout. Unsafe ownership or permissions fail closed. */
+const unsupported = 'desktop.claude_subscription_credential_format_unsupported';
+const loginRequired = 'desktop.claude_subscription_login_required';
+const missing = (error: unknown) => (error as { code?: unknown })?.code === 'ENOENT';
+
+/**
+ * The Linux file layout of Claude Code 2.1.300 and later: `~/.claude/.credentials.json`. A
+ * missing file means no sign-in. Unsafe ownership, permissions, or links fail closed.
+ */
 async function linuxSecret(home: string, uid: number | undefined) {
   const directory = join(home, '.claude');
-  const info = await lstat(directory);
+  const info = await lstat(directory).catch((error) => {
+    throw new DesktopProtocolError(missing(error) ? loginRequired : unsupported);
+  });
   if (!info.isDirectory() || info.isSymbolicLink() || info.uid !== uid || info.mode & 0o022)
-    throw new DesktopProtocolError('desktop.secure_storage_unavailable');
+    throw new DesktopProtocolError(unsupported);
   const file = await open(
     join(directory, '.credentials.json'),
     constants.O_RDONLY | constants.O_NOFOLLOW,
-  );
+  ).catch((error) => {
+    throw new DesktopProtocolError(missing(error) ? loginRequired : unsupported);
+  });
   try {
     const stat = await file.stat();
     if (
@@ -64,12 +82,12 @@ async function linuxSecret(home: string, uid: number | undefined) {
       stat.size > limit ||
       stat.nlink !== 1
     )
-      throw new DesktopProtocolError('desktop.secure_storage_unavailable');
+      throw new DesktopProtocolError(unsupported);
     const buffer = Buffer.alloc(limit + 1);
     const { bytesRead } = await file.read(buffer, 0, buffer.length, 0);
     if (bytesRead > limit) {
       buffer.fill(0);
-      throw new DesktopProtocolError('desktop.secure_storage_unavailable');
+      throw new DesktopProtocolError(unsupported);
     }
     return buffer.subarray(0, bytesRead);
   } finally {
@@ -104,28 +122,84 @@ export async function readNativeClaudeAccess(
       platform === 'darwin'
         ? await (options.readMacSecret ?? macSecret)(account)
         : await (options.readLinuxSecret ?? linuxSecret)(home, options.uid ?? process.getuid?.());
-    if (!Buffer.isBuffer(bytes) || bytes.length > limit) throw new Error('invalid');
-    const parsed = JSON.parse(bytes.toString('utf8'));
-    const oauth = parsed?.claudeAiOauth;
-    const remaining = Number.isSafeInteger(oauth?.expiresAt) ? oauth.expiresAt - now() : NaN;
+    return recognizeCredentials(bytes, now());
+  } catch (error) {
+    // Pass on only the known safe codes. Any other failure means no usable sign-in.
     if (
-      !oauth ||
+      error instanceof DesktopProtocolError &&
+      [unsupported, loginRequired, 'desktop.secure_storage_unavailable'].includes(error.code)
+    )
+      throw new DesktopProtocolError(error.code);
+    throw new DesktopProtocolError(loginRequired);
+  } finally {
+    if (Buffer.isBuffer(bytes)) bytes.fill(0);
+  }
+}
+
+/** Thrown for a credential layout that Kalkidan does not know. */
+const format = () => new DesktopProtocolError(unsupported);
+
+/**
+ * Recognizes the Claude Code credential layout by its structure, not by the Claude Code version.
+ * Claude Code 2.1.300 and later store the same JSON in the macOS Keychain item
+ * `Claude Code-credentials` and in the Linux file:
+ * `{"claudeAiOauth":{"accessToken","refreshToken","expiresAt","scopes",...},...}`.
+ * `expiresAt` is in milliseconds. `security -w` prints hexadecimal for data that is not plain
+ * text, so hexadecimal JSON is also accepted. A signed-out layout needs a new sign-in. A layout
+ * with unknown types fails closed with the unsupported format code.
+ */
+function recognizeCredentials(bytes: unknown, now: number): NativeClaudeAccess {
+  if (!Buffer.isBuffer(bytes) || bytes.length > limit) throw format();
+  let text = bytes.toString('utf8').trim();
+  let decoded: Buffer | undefined;
+  if (/^(?:[0-9a-fA-F]{2})+$/.test(text)) {
+    decoded = Buffer.from(text, 'hex');
+    text = decoded.toString('utf8').trim();
+  }
+  let parsed: any;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    throw format();
+  } finally {
+    decoded?.fill(0);
+  }
+  try {
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw format();
+    const oauth = parsed.claudeAiOauth;
+    // No Claude.ai sign-in. The file can still hold other data, for example MCP sign-ins.
+    if (oauth === undefined || oauth === null) throw new DesktopProtocolError(loginRequired);
+    if (
+      typeof oauth !== 'object' ||
+      Array.isArray(oauth) ||
       typeof oauth.accessToken !== 'string' ||
-      !/^[A-Za-z0-9._~+/=-]{12,16384}$/.test(oauth.accessToken) ||
-      !(remaining >= 60000 && remaining <= 86400000) ||
+      !Number.isSafeInteger(oauth.expiresAt) ||
+      oauth.expiresAt < 0 ||
       !Array.isArray(oauth.scopes) ||
+      !oauth.scopes.every((scope: unknown) => typeof scope === 'string')
+    )
+      throw format();
+    // Claude Code clears a token that its server refused: empty token, expiry zero.
+    if (oauth.accessToken === '' || oauth.expiresAt === 0)
+      throw new DesktopProtocolError(loginRequired);
+    // An expiry in seconds is not the known layout.
+    if (oauth.expiresAt < 1e11 || !/^[A-Za-z0-9._~+/=-]{12,16384}$/.test(oauth.accessToken))
+      throw format();
+    const remaining = oauth.expiresAt - now;
+    if (
+      !(remaining >= 60000 && remaining <= 86400000) ||
       !oauth.scopes.includes('user:inference') ||
       !oauth.scopes.includes('user:profile')
     )
-      throw new Error('invalid');
-    const access = { token: oauth.accessToken as string, expiresAt: oauth.expiresAt as number };
-    // Do not keep the parsed object, refresh token, settings, or account metadata.
-    for (const key of Object.keys(oauth)) delete oauth[key];
-    for (const key of Object.keys(parsed)) delete parsed[key];
-    return access;
-  } catch {
-    throw new DesktopProtocolError('desktop.claude_subscription_login_required');
+      throw new DesktopProtocolError(loginRequired);
+    return { token: oauth.accessToken as string, expiresAt: oauth.expiresAt as number };
   } finally {
-    bytes?.fill(0);
+    // Do not keep the parsed object, refresh token, settings, or account metadata.
+    if (parsed && typeof parsed === 'object') {
+      const oauth = parsed.claudeAiOauth;
+      if (oauth && typeof oauth === 'object')
+        for (const key of Object.keys(oauth)) delete oauth[key];
+      for (const key of Object.keys(parsed)) delete parsed[key];
+    }
   }
 }

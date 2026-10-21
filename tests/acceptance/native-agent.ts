@@ -9,11 +9,11 @@ import { InteractiveChatRunner } from '../../electron/interactive-chat';
 import { prepareIsolation } from '../../electron/verdictan/isolation';
 import { inferenceGuard } from '../../electron/verdictan/inference-guard';
 import type { Session, ChatRun } from '../../src/domain/conversation';
+import { meetsAgentMinimum, nativeAgentKind } from '../../src/domain/agent-version';
 // The fixture speaks the native provider protocols, not a substitute agent protocol.
 // @ts-expect-error JavaScript fixture shared with native protocol probes.
 import { responseEvents, hasToolResult } from './provider-fixture.mjs';
 
-const versions = { codex: '0.163.0-alpha.10.2', claude: '2.1.304' };
 async function main() {
   const [agent, binary, mode = 'complete'] = process.argv.slice(2);
   assert.ok(agent === 'codex' || agent === 'claude');
@@ -25,6 +25,7 @@ async function main() {
     cwd = join(root, 'project');
   await mkdir(home);
   await mkdir(cwd);
+  let version = '';
   let requests = 0,
     toolResult = false,
     closed = false;
@@ -122,7 +123,9 @@ async function main() {
         await guard.close();
         throw error;
       }
-      assert.equal(isolation.version, versions[agent]);
+      // Kalkidan's minimum, not an exact pin: Codex 0.160.0 and Claude Code 2.1.300 or later.
+      assert.ok(meetsAgentMinimum(nativeAgentKind(agent)!, isolation.version), isolation.version);
+      version = isolation.version;
       let release: Promise<void> | undefined;
       return {
         ...isolation,
@@ -217,7 +220,7 @@ async function main() {
         platform: process.platform,
         arch: process.arch,
         agent,
-        version: versions[agent],
+        version,
         mode,
         requests,
         status: 'passed',

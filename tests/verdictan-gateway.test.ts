@@ -165,6 +165,17 @@ test('gateway uses only fd3 for credentials and checks live authority for every 
   );
   assert.equal(claude.env.CLAUDE_CODE_MAX_RETRIES, '0');
   assert.equal(claude.env.CLAUDE_CODE_DISABLE_NONSTREAMING_FALLBACK, '1');
+  // The API-key routes use the same minimum. No exact version is pinned.
+  await f.gateway.nativeRoute({ kind: 'claude_code', version: '2.1.300' }, correlation);
+  await f.gateway.nativeRoute({ kind: 'codex', version: '0.160.0' }, correlation);
+  await assert.rejects(
+    f.gateway.nativeRoute({ kind: 'codex', version: '0.159.0' }, correlation),
+    /codex_version_unsupported/,
+  );
+  await assert.rejects(
+    f.gateway.nativeRoute({ kind: 'claude_code', version: '2.1.299' }, correlation),
+    /claude_code_version_unsupported/,
+  );
   await f.gateway.stop();
   await assert.rejects(f.gateway.readiness(agent), /unavailable/);
 });
