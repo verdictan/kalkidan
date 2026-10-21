@@ -14,25 +14,13 @@ import {
   SlidersHorizontal,
   UserRound,
 } from 'lucide-react';
-import type { API, Agent, AgentInstallation } from '../types';
-import { Badge } from './ui/badge';
-import { Button } from './ui/button';
-import { Hint } from './hint';
+import type { API, Agent } from '../types';
 import { Choice } from './choice';
-import { AgentIcon } from './ui/agent-icon';
-import { EntityIcon } from './ui/entity-icon';
-import { CommandHelp, GitHubAccount, HelpLink } from './github-account';
+import { AgentProgramsSettings } from './agent-programs';
+import { GitHubAccount } from './github-account';
 import { SegmentedControl } from './ui/segmented-control';
 import { Dialog, DialogBody, DialogContent, DialogHeader, DialogTitle } from './ui/dialog';
 import { errorMessage } from '../lib/errors';
-import {
-  agentMinimumVersions,
-  agentVersionLabel,
-  agentVersionRequirement,
-  checkAgentVersion,
-  nativeAgentKind,
-  type AgentVersionCheck,
-} from '../domain/agent-version';
 import {
   applyAppearance,
   readAppearance,
@@ -43,7 +31,6 @@ import {
   onPreferredAgentChange,
   readPreferredAgent,
   savePreferredAgent,
-  setAgentInstallations,
 } from '../lib/agent-preference';
 
 /** The agent that the user prefers for new sessions. Use readPreferredAgent in new code. */
@@ -62,58 +49,7 @@ const sections: { value: SettingsSectionId; label: string; icon: ReactNode }[] =
   { value: 'about', label: 'About', icon: <Info /> },
 ];
 
-/** How to install each agent CLI. */
-const agentInstall: Record<string, { command: string; href: string }> = {
-  codex: { command: 'npm i -g @openai/codex', href: 'https://github.com/openai/codex' },
-  claude: {
-    command: 'npm i -g @anthropic-ai/claude-code',
-    href: 'https://docs.anthropic.com/en/docs/claude-code/setup',
-  },
-};
-
-/** Install help for an agent that Kalkidan cannot find: the command, Copy, and a link. */
-export function AgentInstallHelp({ agent }: { agent: string }) {
-  const name = agentCatalog.find((item) => item.id === agent)?.name || agent;
-  const install = agentInstall[agent];
-  if (!install)
-    return (
-      <p className="mt-1 text-xs text-muted-foreground">
-        {name} is not installed. Install it, then select Check again.
-      </p>
-    );
-  return (
-    <div>
-      <CommandHelp command={install.command}>
-        {name} is not installed. Run <code>{install.command}</code>, then select Check again.
-      </CommandHelp>
-      <HelpLink href={install.href}>How to install</HelpLink>
-    </div>
-  );
-}
-
-/** The installed version, the minimum check, and update help for an old or unknown version. */
-function AgentVersionLine({ agent, check }: { agent: string; check: AgentVersionCheck }) {
-  const install = agentInstall[agent];
-  return (
-    <div data-testid={`agent-version-${agent}`}>
-      <p className="text-xs text-muted-foreground">
-        {check.version ? `Version ${check.version}` : 'Kalkidan cannot read the version'}
-        {' · '}
-        {agentVersionLabel(check)}
-      </p>
-      {check.status !== 'supported' && (
-        <>
-          <p className="text-xs text-muted-foreground">{agentVersionRequirement(check.kind)}</p>
-          {install && (
-            <CommandHelp command={install.command}>
-              To update, run <code>{install.command}</code>, then select Check again.
-            </CommandHelp>
-          )}
-        </>
-      )}
-    </div>
-  );
-}
+export { AgentInstallHelp } from './agent-programs';
 
 function sectionId(value: string | undefined): SettingsSectionId {
   return sections.some((item) => item.value === value) ? (value as SettingsSectionId) : 'general';
@@ -145,10 +81,12 @@ export function SettingsDialog({
     // Sections load their data after they open. Wait for the step to show, then move to it.
     let tries = 0;
     const timer = setInterval(() => {
-      // A step that is not available yet falls back to the account status.
+      // A step that is not available yet falls back to the account status. An agent program
+      // that does not show falls back to the agents of this computer.
+      const fallback = anchor.id.startsWith('agent-') ? 'settings-agents' : 'verdictan-account';
       const target =
         document.getElementById(anchor.id) ||
-        (tries > 20 ? document.getElementById('verdictan-account') : null);
+        (tries > 20 ? document.getElementById(fallback) : null);
       if (target || ++tries > 40) clearInterval(timer);
       if (!target) return;
       target.scrollIntoView({ block: 'start' });
@@ -156,36 +94,6 @@ export function SettingsDialog({
     }, 50);
     return () => clearInterval(timer);
   }, [open, anchor]);
-  const [installations, setInstallations] = useState<AgentInstallation[]>([]);
-  const [checkRevision, setCheckRevision] = useState(0);
-  const [checking, setChecking] = useState(false);
-  const [checkError, setCheckError] = useState('');
-  useEffect(() => {
-    if (!open) return;
-    let live = true;
-    setChecking(true);
-    setCheckError('');
-    Promise.resolve()
-      .then(() => api.agentInstallations())
-      .then((value) => {
-        if (!live) return;
-        setInstallations(value);
-        // The default agent changes at once when the preferred agent is not installed.
-        setAgentInstallations(value);
-      })
-      .catch(() => {
-        if (live) {
-          setInstallations([]);
-          setCheckError('Could not check agents. Try again.');
-        }
-      })
-      .finally(() => {
-        if (live) setChecking(false);
-      });
-    return () => {
-      live = false;
-    };
-  }, [open, api, checkRevision]);
   const [remoteId, setRemoteId] = useState('');
   const [refreshError, setRefreshError] = useState('');
   const [appearance, setAppearance] = useState<Appearance>(readAppearance);
@@ -195,21 +103,6 @@ export function SettingsDialog({
   // Refresh projects only when the selected host becomes ready, not on each render or mount.
   const remoteReady = useRef(false);
   const heading = useRef<HTMLHeadingElement>(null);
-  function versionCheck(agent: string) {
-    const item = installations.find((entry) => entry.agent === agent);
-    const kind = nativeAgentKind(agent);
-    return item?.status === 'installed' && kind ? checkAgentVersion(kind, item.version) : undefined;
-  }
-  function agentStatus(agent: string) {
-    if (checking) return 'Checking…';
-    const status = installations.find((item) => item.agent === agent)?.status;
-    const version = versionCheck(agent);
-    if (version && version.status !== 'supported') return agentVersionLabel(version);
-    if (status === 'installed') return 'Installed';
-    if (status === 'missing') return 'Not found';
-    if (status === 'unavailable') return 'Desktop only';
-    return 'Check failed';
-  }
   // Remote host work continues on the host after this dialog closes.
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -303,63 +196,7 @@ export function SettingsDialog({
                 </div>
               </SettingsSection>
               <SettingsSection value="agents">
-                <section
-                  id="settings-agents"
-                  tabIndex={-1}
-                  aria-label="Agents on this computer"
-                  className="grid min-w-0 grid-cols-1 gap-3 outline-none"
-                >
-                  <div className="flex items-center justify-between gap-4">
-                    <p className="min-w-0 flex-1 text-xs text-muted-foreground">
-                      Managed Verdictan agents use these agent tools on this computer. Kalkidan does
-                      not start them directly. Kalkidan needs Codex {agentMinimumVersions.codex} or
-                      later and Claude Code {agentMinimumVersions.claude_code} or later.
-                    </p>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      disabled={checking}
-                      onClick={() => setCheckRevision((n) => n + 1)}
-                    >
-                      <RefreshCw className={checking ? 'animate-spin' : ''} />
-                      Check again
-                    </Button>
-                  </div>
-                  <ul className="divide-y rounded-lg border">
-                    {agentCatalog.map(({ id, name, vendor }) => (
-                      <ToolRow
-                        key={id}
-                        icon={<AgentIcon agent={id} />}
-                        name={name}
-                        vendor={vendor}
-                        path={installations.find((item) => item.agent === id)?.path}
-                        status={agentStatus(id)}
-                        ready={agentStatus(id) === 'Installed'}
-                      >
-                        {!checking &&
-                          installations.find((item) => item.agent === id)?.status === 'missing' && (
-                            <AgentInstallHelp agent={id} />
-                          )}
-                        {!checking && versionCheck(id) && (
-                          <AgentVersionLine agent={id} check={versionCheck(id)!} />
-                        )}
-                      </ToolRow>
-                    ))}
-                  </ul>
-                  {/* One live region announces the result of all checks together. */}
-                  <p role="status" className="sr-only">
-                    {checking
-                      ? 'Checking agents…'
-                      : agentCatalog
-                          .map(({ id, name }) => `${name}: ${agentStatus(id)}.`)
-                          .join(' ')}
-                  </p>
-                  {checkError && (
-                    <p role="alert" className="field-error">
-                      {checkError}
-                    </p>
-                  )}
-                </section>
+                <AgentProgramsSettings api={api} open={open} onNavigate={setTab} />
               </SettingsSection>
               <SettingsSection value="managed-agents">
                 <ManagedAgentsSettings api={api} open={open && tab === 'managed-agents'} />
@@ -449,81 +286,6 @@ function SettingsSection({ value, children }: { value: string; children: ReactNo
     >
       {children}
     </TabsPrimitive.Content>
-  );
-}
-
-/** One agent or tool: icon, name, vendor, installed path, and status. */
-function ToolRow({
-  label,
-  icon,
-  name,
-  vendor,
-  path,
-  status,
-  ready,
-  children,
-}: {
-  label?: string;
-  icon: ReactNode;
-  name: string;
-  vendor: string;
-  path?: string;
-  status: string;
-  ready: boolean;
-  children?: ReactNode;
-}) {
-  return (
-    <li
-      className="flex min-h-[var(--row-height-2line)] items-center gap-3 px-3 py-2"
-      role={label ? 'group' : undefined}
-      aria-label={label}
-    >
-      <EntityIcon>{icon}</EntityIcon>
-      <div className="min-w-0 flex-1">
-        <p className="text-sm font-medium break-words">{name}</p>
-        <p className="text-xs break-words text-muted-foreground">{vendor}</p>
-        <InstalledPath path={path} />
-        {children}
-      </div>
-      <Badge variant={ready ? 'success' : 'muted'} size="sm" className="shrink-0">
-        {status}
-      </Badge>
-    </li>
-  );
-}
-
-/**
- * Splits a path for a middle cut. The end keeps the program name and, when it is short, its
- * folder. The start gets the ellipsis.
- */
-function splitPathForMiddleCut(path: string): [string, string] {
-  const parts = path.split('/');
-  let tail = parts.pop() || '';
-  const folder = parts.at(-1);
-  if (folder && folder.length + tail.length < 32) tail = `${folder}/${tail}`;
-  const head = path.slice(0, path.length - tail.length);
-  return [head, tail];
-}
-
-/** The installed binary path, cut in the middle, with the full path in a tooltip. */
-function InstalledPath({ path }: { path?: string }) {
-  if (!path) return null;
-  const [head, tail] = splitPathForMiddleCut(path);
-  return (
-    <Hint label={path}>
-      <p
-        tabIndex={0}
-        aria-label={path}
-        className="mt-0.5 flex min-w-0 font-mono text-2xs text-muted-foreground"
-      >
-        <span className="min-w-0 truncate" aria-hidden="true">
-          {head}
-        </span>
-        <span className="shrink-0 whitespace-pre" aria-hidden="true">
-          {tail}
-        </span>
-      </p>
-    </Hint>
   );
 }
 

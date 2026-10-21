@@ -24,7 +24,7 @@ test('Settings checks GitHub CLI and retries without hiding agent status', async
   await page.getByRole('button', { name: 'Settings', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: 'Settings' });
   await dialog.getByRole('tab', { name: 'Agents', exact: true }).click();
-  await expect(dialog).toContainText('Installed');
+  await expect(dialog).toContainText('Meets the minimum');
   // A missing agent shows how to install it.
   await expect(dialog).toContainText('npm i -g @anthropic-ai/claude-code');
   await expect(dialog.getByRole('link', { name: 'How to install' })).toBeVisible();
