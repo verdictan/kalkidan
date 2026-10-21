@@ -83,7 +83,9 @@ test('Mod+K opens the palette, Escape closes it and returns the focus', async ({
   await expect(trigger).toBeFocused();
   // A click outside the palette closes it.
   await openPalette(page);
-  await page.mouse.click(10, page.viewportSize()!.height - 10);
+  // Click an empty area. The sidebar Settings button sits at the bottom left.
+  const { width, height } = page.viewportSize()!;
+  await page.mouse.click(width - 10, height - 10);
   await expect(palette(page)).toHaveCount(0);
   await expect(trigger).toBeFocused();
 });
