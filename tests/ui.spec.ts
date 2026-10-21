@@ -82,7 +82,11 @@ test('organize sessions and continue inside the conversation UI', async ({ page 
   });
   await page.getByRole('button', { name: 'Send', exact: true }).click();
   await expect(page.getByRole('alert')).toContainText('Open the desktop app');
-  await expect(page.getByLabel('Message agent')).toHaveValue('Continue with keyboard navigation');
+  // The refused message shows in the transcript with "Try again". It leaves the composer.
+  await expect(
+    page.locator('.chat-message.user').filter({ hasText: 'Continue with keyboard navigation' }),
+  ).toHaveCount(1);
+  await expect(page.getByLabel('Message agent')).toHaveValue('');
   await page.getByRole('button', { name: /^Back to / }).click();
   await list.getByRole('button', { name: 'Navigation follow-up actions' }).click();
   await page.getByRole('menuitem', { name: 'Archive', exact: true }).click();
@@ -203,7 +207,7 @@ test('conversation streams responses, keeps multiple turns, and stops without le
   await expect(page.getByText('Response stopped. Send another message to continue.')).toBeVisible();
 });
 
-test('a session ownership conflict restores the unsent draft and permits an explicit retry', async ({
+test('a session ownership conflict shows the unsent message and permits an explicit retry', async ({
   page,
 }) => {
   await page.addInitScript(() => {
@@ -272,11 +276,13 @@ test('a session ownership conflict restores the unsent draft and permits an expl
   await page.getByLabel('Message agent').fill('Keep my follow-up');
   await page.getByRole('button', { name: 'Send', exact: true }).click();
   await expect(page.getByRole('alert')).toContainText('another window');
-  await expect(page.getByLabel('Message agent')).toHaveValue('Keep my follow-up');
-  // The failed message shows once, with its error under it. Sending again replaces it.
+  // The failed message shows once, with its error under it. It is not in the composer too.
   await expect(page.locator('.chat-message.user')).toHaveCount(1);
+  await expect(page.locator('.chat-message.user')).toContainText('Keep my follow-up');
   await expect(page.locator('.chat-message.user').getByRole('alert')).toBeVisible();
-  await page.getByRole('button', { name: 'Send', exact: true }).click();
+  await expect(page.getByLabel('Message agent')).toHaveValue('');
+  // "Try again" sends the same message again and replaces the failed one.
+  await page.getByRole('button', { name: 'Try again', exact: true }).click();
   await expect(page.getByRole('alert')).toHaveCount(0);
   await expect(page.getByText('Resumed successfully', { exact: true })).toBeVisible();
   await expect(page.locator('.chat-message.user')).toHaveCount(1);
@@ -763,7 +769,7 @@ test('choose an existing GitHub project or create one without entering a URL', a
   ).toBeVisible();
 });
 
-test('add repositories can create a project, pick a GitHub repo, and clone into it', async ({
+test('add repositories can create a project, then clone a GitHub repo into it', async ({
   page,
 }) => {
   await page.goto('/');
@@ -779,6 +785,14 @@ test('add repositories can create a project, pick a GitHub repo, and clone into 
   await create.getByRole('button', { name: 'Connect now', exact: true }).click();
   await create.getByRole('button', { name: 'Atlas roadmap #1', exact: true }).click();
   await create.getByRole('button', { name: 'Create project', exact: true }).click();
+  // Creating the project ends the flow. The new project opens, and the dialog stays closed.
+  await expect(create).not.toBeVisible();
+  await expect(dialog).not.toBeVisible();
+  await page
+    .locator('.project-group')
+    .filter({ has: page.getByRole('button', { name: 'Mobile', exact: true }) })
+    .getByRole('button', { name: 'Add code folders to Mobile', exact: true })
+    .click();
   await expect(dialog.getByRole('combobox', { name: 'Add to project' })).toContainText('Mobile');
   await dialog.getByRole('button', { name: 'Clone from GitHub', exact: true }).click();
   await dialog.getByLabel('Search GitHub repositories').fill('mobile');

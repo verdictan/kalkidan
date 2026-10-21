@@ -334,6 +334,11 @@ export function Onboarding({
                         groupId={group.id}
                         variant="ghost"
                         onRefresh={refreshAfterAdd}
+                        onProjectCreated={(created) => {
+                          // Setup continues with the new project.
+                          setGroupId(created.id);
+                          setRepoId('');
+                        }}
                       >
                         Add code folder
                       </AddRepository>

@@ -9,7 +9,7 @@ import {
   type ReactNode,
 } from 'react';
 import { Plus, RefreshCw } from 'lucide-react';
-import type { API, GitHubRepository, Snapshot } from '../types';
+import type { API, GitHubRepository, ProjectGroup, Snapshot } from '../types';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { SearchInput } from './ui/search-input';
@@ -44,9 +44,15 @@ export function AddRepository({
   variant = 'ghost',
   size,
   onNotice,
+  onProjectCreated = openCreatedProject,
 }: {
   /** Reports the result of work that continues after the dialog closes. */
   onNotice?: (message: string, error?: boolean) => void;
+  /**
+   * Shows a project that the user created from this dialog. The dialog closes first. By default,
+   * the app opens the project page.
+   */
+  onProjectCreated?: (group: ProjectGroup) => void;
   api: API;
   groupId?: string;
   onRefresh: () => Promise<unknown>;
@@ -444,12 +450,21 @@ export function AddRepository({
         open={creatingProject}
         onOpenChange={setCreatingProject}
         onCreated={async (group) => {
-          setSnapshot(await api.snapshot());
-          setTarget(group.id);
+          // Creating a project ends this flow. The dialog does not open again for the new
+          // project, and it does not change the project that the user chose before.
           await onRefresh();
+          setOpen(false);
+          onProjectCreated(group);
         }}
       />
     </>
+  );
+}
+
+/** Opens the page of a new project. The app shell changes the route. */
+function openCreatedProject(group: ProjectGroup) {
+  window.dispatchEvent(
+    new CustomEvent('kalkidan-open-project-page', { detail: { groupId: group.id, page: 'board' } }),
   );
 }
 

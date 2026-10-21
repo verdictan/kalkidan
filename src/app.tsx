@@ -989,7 +989,8 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
       openGroup(group, 'tasks');
     },
     openPage: (detail) => {
-      const group = data.groups?.find((g) => g.id === detail.groupId);
+      // A project that was just created is in the latest snapshot before the next render.
+      const group = (dataRef.current.groups || data.groups)?.find((g) => g.id === detail.groupId);
       const pages: ProjectPage[] = ['board', 'tasks', 'docs', 'memory', 'insights'];
       const page = pages.find((value) => value === detail.page) || 'board';
       if (!group) return;

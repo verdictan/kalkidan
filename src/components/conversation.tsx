@@ -42,6 +42,7 @@ import { showToast } from './ui/toast';
 import { errorMessage } from '../lib/errors';
 import { agentErrorMessage, managedLaunchError, type AgentError } from '../lib/agent-errors';
 import { takePendingDraft } from '../lib/pending-draft';
+import { composerAfterSubmit, contextsAfterSubmit } from '../lib/composer-draft';
 import { moveTaskToReview, pullRequestLabel, type SessionPullRequest } from '../lib/pull-request';
 import type { DocPassage } from '../domain/docs';
 import {
@@ -528,7 +529,8 @@ export function Conversation({
       );
     }
     const sent = submitted.current?.runId === next.id ? submitted.current : null;
-    // The agent did not answer: show the error under the message and put the text back.
+    // The agent did not answer: show the error under the message. The message stays in the
+    // transcript, and "Try again" sends it again, so the composer does not get the text back.
     if (
       sent &&
       (next.error || next.errorCode) &&
@@ -544,7 +546,6 @@ export function Conversation({
             ? managedLaunchError(next.error, next.managedSetup)
             : agentErrorMessage(`${next.error || ''} ${next.errorCode || ''}`, session.agent),
       });
-      setPrompt((current) => current || sent.prompt);
       if (!providerSession.current && !messagesBefore.current)
         onTitleChange?.(sent.prompt.trim().split('\n', 1)[0].slice(0, 100));
     } else if (next.error) setError(next.error);
@@ -667,7 +668,15 @@ export function Conversation({
       return;
     }
     const sentPrompt = again?.prompt ?? prompt;
-    // A new message replaces a failed one. Its text is in the composer.
+    const sentContexts = again ? [] : contexts;
+    /** The transcript has the message now, so it leaves the composer. */
+    const clearComposer = () => {
+      // "Allow edits and retry" sends the last message again. The composer can have a new draft.
+      if (again && !retry?.resend) return;
+      setPrompt((current) => composerAfterSubmit(current, sentPrompt));
+      if (!again) setContexts((current) => contextsAfterSubmit(current, sentContexts));
+    };
+    // A new message replaces a failed one. "Try again" sends the failed message again.
     if (sendFailure) {
       const failed = sendFailure.messageId;
       setMessages((existing) => existing.filter((message) => message.id !== failed));
@@ -731,10 +740,7 @@ export function Conversation({
       submitted.current = { runId: next.id, messageId, text, prompt: sentPrompt };
       setMessages((existing) => [...existing, ...moved, { id: messageId, role: 'user', text }]);
       syncStartedTask(next);
-      if (!again || (retry?.resend && prompt.trim() === sentPrompt.trim())) {
-        setPrompt('');
-        setContexts([]);
-      }
+      clearComposer();
       // Show the doc passages that "@docs" gives to the agent. The search is the same.
       const query = docsQuery(text);
       if (query && projectGroup && api.docsSearch)
@@ -752,8 +758,8 @@ export function Conversation({
       if (next.status !== 'running') finishRun(next);
     } catch (e) {
       if (!mounted.current) return;
-      // The message did not reach the agent. Show it with the error under it, and keep the
-      // text in the composer, so the user can send it again or change the agent.
+      // The message did not reach the agent. Show it with the error under it. "Try again" sends
+      // it again and "Change agent" starts a chat with it, so it leaves the composer.
       const moved = previousMessages();
       runRef.current = null;
       setRun(null);
@@ -765,7 +771,7 @@ export function Conversation({
         prompt: sentPrompt,
         error: agentErrorMessage(e, session.agent),
       });
-      if (again) setPrompt((current) => current || sentPrompt);
+      clearComposer();
       follow.current = true;
       if (session.projectId && !providerSession.current && !messagesBefore.current)
         onTitleChange?.(sentPrompt.trim().split('\n', 1)[0].slice(0, 100));
