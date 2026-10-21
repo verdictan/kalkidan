@@ -4,6 +4,7 @@ import {
   nativeAgentNames,
   type NativeAgentKind,
 } from './agent-version';
+import { safeProgramPath } from './agent-programs';
 
 /** Safe desktop state. Account and runtime credentials never cross renderer IPC. */
 export interface VerdictanAccount {
@@ -807,6 +808,8 @@ export interface ManagedLaunchBlock {
   message: string;
   /** The agent version that the launch found, for a version refusal. */
   version?: string;
+  /** The path of the agent program that the launch checked, for a version refusal. */
+  path?: string;
 }
 const setupChoice =
   'Choose an authorized agent or policy, provider access, and model for this agent in managed agent setup.';
@@ -954,6 +957,8 @@ export interface RefusalContext {
   computer?: string;
   /** The agent version that the launch found, when the code is about the version. */
   version?: string;
+  /** The path of the agent program that the launch checked, when the code is about the version. */
+  path?: string;
 }
 export interface ManagedRefusal {
   code: string;
@@ -966,7 +971,7 @@ export interface ManagedRefusal {
 }
 const capital = (text: string) => text[0].toUpperCase() + text.slice(1);
 /** The agent of a version code, for example `desktop.codex_version_unsupported`. */
-function versionAgent(code: string): NativeAgentKind | undefined {
+export function versionAgent(code: string): NativeAgentKind | undefined {
   const kind = /^desktop\.(codex|claude_code)_version_/.exec(code)?.[1];
   return kind as NativeAgentKind | undefined;
 }
@@ -975,16 +980,26 @@ export function safeVersion(value: unknown) {
   return typeof value === 'string' && /^[0-9][0-9A-Za-z.+-]{0,39}$/.test(value) ? value : undefined;
 }
 /** The specific words for a refusal code. Nothing for codes without specific words. */
-function refusalWords(code: string, where: string, version?: string): string | undefined {
+function refusalWords(
+  code: string,
+  where: string,
+  version?: string,
+  path?: string,
+): string | undefined {
   const kind = versionAgent(code);
   if (kind) {
     const name = nativeAgentNames[kind];
     const minimum = `Kalkidan needs ${name} ${agentMinimumVersions[kind]} or later.`;
+    const at = path ? ` at ${path}` : '';
+    // With a path, the fix can also be a different program that is already installed.
+    const fix = path
+      ? `Update ${name} on ${where}, or choose a different ${name} program. Then try again.`
+      : `Update ${name} on ${where}, then try again.`;
     if (code.endsWith('_unknown'))
-      return `Kalkidan cannot read the ${name} version on ${where}. ${minimum} Update ${name} on ${where}, then try again.`;
+      return `Kalkidan cannot read the version of ${name}${at} on ${where}. ${minimum} ${fix}`;
     return version
-      ? `${capital(where)} has ${name} ${version}. ${minimum} Update ${name} on ${where}, then try again.`
-      : `${name} on ${where} is too old. ${minimum} Update ${name} on ${where}, then try again.`;
+      ? `${capital(where)} has ${name} ${version}${at}. ${minimum} ${fix}`
+      : `${name}${at} on ${where} is too old. ${minimum} ${fix}`;
   }
   switch (code) {
     case 'desktop.agent_version_unsupported':
@@ -1024,7 +1039,7 @@ export function managedRefusal(code: string, context: RefusalContext = {}): Mana
   const where = context.computer?.trim() || 'the machine where work runs';
   const version = safeVersion(context.version);
   const message =
-    refusalWords(code, where, version) ||
+    refusalWords(code, where, version, safeProgramPath(context.path)) ||
     managedErrors[code]?.message ||
     launchBlocks[code]?.[1] ||
     'The managed launch checks did not pass. Check the managed agent status in Settings.';
@@ -1064,10 +1079,12 @@ export function managedLaunchBlock(error: unknown): ManagedLaunchBlock {
     own ||
     'The managed launch checks did not pass. Check the managed agent status in Settings.';
   const version = safeVersion(record.version);
+  const path = safeProgramPath(record.path);
   return {
     code,
     step,
     message: detail.startsWith(managedOnlyNotice) ? detail : `${managedOnlyNotice} ${detail}`,
     ...(version ? { version } : {}),
+    ...(path ? { path } : {}),
   };
 }

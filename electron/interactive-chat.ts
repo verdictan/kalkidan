@@ -130,6 +130,7 @@ export class InteractiveChatRunner {
           // The code and the found version let the UI name the computer and the exact fix.
           state.managedCode = block.code as `desktop.${string}`;
           if (block.version) state.agentVersion = block.version;
+          if (block.path) state.agentPath = block.path;
         } else state.error = active.managed?.redact(error.message) ?? error.message;
         normalizeChatFailure(state, active.stderr);
         this.finish(active, 'failed');

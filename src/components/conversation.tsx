@@ -173,6 +173,7 @@ function launchFailure(run: ChatRun) {
     step: run.managedSetup,
     code: run.managedCode,
     version: run.agentVersion,
+    path: run.agentPath,
   };
 }
 
@@ -568,7 +569,7 @@ export function Conversation({
         prompt: sent.prompt,
         error:
           next.errorCode === 'managed_launch_blocked' && next.error
-            ? managedLaunchError(launchFailure(next), { computer })
+            ? managedLaunchError(launchFailure(next), { computer, hostId: session.hostId })
             : agentErrorMessage(`${next.error || ''} ${next.errorCode || ''}`, session.agent),
       });
       if (!providerSession.current && !messagesBefore.current)
@@ -875,7 +876,7 @@ export function Conversation({
   // Desktop codes and agent errors show as plain words with an action.
   const errorInfo: AgentError | null = error
     ? run?.errorCode === 'managed_launch_blocked' && run.error === error
-      ? managedLaunchError(launchFailure(run), { computer })
+      ? managedLaunchError(launchFailure(run), { computer, hostId: session.hostId })
       : /\bdesktop\.[a-z_]+|verdictan is not ready/i.test(error) ||
           error.startsWith(managedOnlyNotice)
         ? agentErrorMessage(error, session.agent)

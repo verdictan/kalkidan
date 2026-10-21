@@ -112,6 +112,8 @@ export interface ChatRun {
   managedCode?: `desktop.${string}`;
   /** With a version refusal: the agent version that the launch found. */
   agentVersion?: string;
+  /** With a version refusal: the path of the agent program that the launch checked. */
+  agentPath?: string;
   sessionReady?: boolean;
 }
 export interface AgentQuestion {

@@ -6,9 +6,11 @@ import {
   managedOnlyNotice,
   managedRefusal,
   managedSetupTargets,
+  versionAgent,
   type ManagedSetupStep,
   type RefusalContext,
 } from '../domain/verdictan';
+import { agentProgramAnchor, chooseProgramLabel } from '../domain/agent-programs';
 
 export type AgentErrorActionKind = 'settings' | 'retry' | 'change-agent' | 'install';
 
@@ -105,6 +107,8 @@ export interface ManagedLaunchFailure {
   code?: string;
   /** The agent version that the launch found. */
   version?: string;
+  /** The path of the agent program that the launch checked. */
+  path?: string;
 }
 
 /**
@@ -114,14 +118,31 @@ export interface ManagedLaunchFailure {
  */
 export function managedLaunchError(
   failure: ManagedLaunchFailure,
-  context: Omit<RefusalContext, 'version'> = {},
+  context: Omit<RefusalContext, 'version' | 'path'> & { hostId?: string } = {},
 ): AgentError {
   if (failure.code && /^desktop\.[a-z_]{1,100}$/.test(failure.code)) {
-    const refusal = managedRefusal(failure.code, { ...context, version: failure.version });
+    const { hostId, ...words } = context;
+    const refusal = managedRefusal(failure.code, {
+      ...words,
+      version: failure.version,
+      path: failure.path,
+    });
+    // A version refusal opens Settings › Agents at the program of that agent on that computer.
+    const kind = versionAgent(failure.code);
+    const agent = kind === 'claude_code' ? 'claude' : kind;
     return {
       message: refusal.message,
       note: managedOnlyNotice,
-      action: refusal.step ? stepAction(refusal.step) : undefined,
+      action: agent
+        ? {
+            label: chooseProgramLabel(agent),
+            section: 'agents',
+            anchor: agentProgramAnchor(agent, hostId),
+            kind: 'settings',
+          }
+        : refusal.step
+          ? stepAction(refusal.step)
+          : undefined,
       retryFirst: refusal.retry,
     };
   }
