@@ -7,8 +7,7 @@ import { AddRepository } from './add-repository';
 import { Choice } from './choice';
 import { AgentInstallHelp } from './settings-dialog';
 import { boardLabel } from './tracker-project-picker';
-import { codeFolders, folderName, useFolderImport } from './repository-import';
-import { showToast } from './ui/toast';
+import { folderName, showFolderImportResult, useFolderImport } from './repository-import';
 import { Hint } from './hint';
 import { hasPrimaryModifier, shortcutLabel } from '../lib/platform';
 import { Button } from './ui/button';
@@ -139,12 +138,13 @@ export function Onboarding({
         operationId,
         result.paths,
       );
-      const added = result.paths.length;
+      const snapshot = await api.snapshot();
+      const added = snapshot.groups?.find((g) => g.id === id)?.repoIds.length ?? 0;
       setGroupId(id);
       setRepoId('');
       await onRefresh();
       localStorage.removeItem(key);
-      showToast(`Created ${name} with ${codeFolders(added)}.`);
+      showFolderImportResult(name, added);
     } catch (error) {
       setSetupError(errorMessage(error));
     } finally {

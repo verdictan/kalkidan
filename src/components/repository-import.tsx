@@ -12,6 +12,7 @@ import {
   DialogTitle,
 } from './ui/dialog';
 import { cn } from '../lib/utils';
+import { showToast } from './ui/toast';
 
 /** The one checkbox style in dialogs. There is no Checkbox primitive. */
 export const checkboxClass =
@@ -30,6 +31,19 @@ export function folderName(path: string) {
 /** "1 code folder" or "3 code folders". */
 export function codeFolders(count: number) {
   return `${count} code folder${count === 1 ? '' : 's'}`;
+}
+
+/**
+ * Tells the user how many code folders a new project got. `added` is the count in the snapshot,
+ * not the count that the user selected.
+ */
+export function showFolderImportResult(name: string, added: number) {
+  if (added > 0) showToast(`Created ${name} with ${codeFolders(added)}.`);
+  else
+    showToast({
+      message: 'Kalkidan could not add the code folders. Select Add code folder to try again.',
+      tone: 'error',
+    });
 }
 
 /**
