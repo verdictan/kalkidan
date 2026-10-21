@@ -45,14 +45,33 @@ export async function inferenceGuard(
   )
     throw new DesktopProtocolError('desktop.loopback_required');
   let blocked = false,
-    closing = false;
+    closing = false,
+    // The reason for the first refusal in this turn. Later requests repeat it, so the user sees
+    // why the turn stopped and not only that it stopped.
+    refusal = '';
+  const recordRefusal = (response: NodeJS.ReadableStream) => {
+    let text = '';
+    response.on('data', (chunk: Buffer) => {
+      if (text.length < 4096) text += chunk.toString('utf8');
+    });
+    response.on('end', () => {
+      refusal ||= refusalReason(text);
+    });
+  };
   const pending = new Set<ClientRequest>(),
     sockets = new Set<Socket>();
   const server = createServer((incoming, outgoing) => {
     if (closing || blocked) {
       outgoing.writeHead(409);
       outgoing.end(
-        '{"error":{"message":"This turn requires a new evaluation.","type":"invalid_request_error"}}',
+        JSON.stringify({
+          error: {
+            message: refusal
+              ? `This turn stopped after an earlier refusal: ${refusal}`
+              : 'This turn requires a new evaluation.',
+            type: 'invalid_request_error',
+          },
+        }),
       );
       return;
     }
@@ -80,7 +99,10 @@ export async function inferenceGuard(
       new URL(incoming.url!, upstream),
       { method: incoming.method, headers },
       (response) => {
-        if ((response.statusCode || 502) >= 400) blocked = true;
+        if ((response.statusCode || 502) >= 400) {
+          blocked = true;
+          if (!refusal) recordRefusal(response);
+        }
         outgoing.writeHead(response.statusCode || 502, response.headers);
         response.on('aborted', () => {
           blocked = true;
@@ -148,6 +170,21 @@ export async function inferenceGuard(
         server.close(() => resolve());
       })),
   };
+}
+
+/** The error message and code of a refused response, as short plain text. */
+export function refusalReason(body: string) {
+  let error: { message?: unknown; code?: unknown } | undefined;
+  try {
+    error = JSON.parse(body)?.error;
+  } catch {
+    return '';
+  }
+  const clean = (value: unknown) =>
+    typeof value === 'string' ? value.replace(/[^\x20-\x7e]/g, ' ').trim() : '';
+  const message = clean(error?.message).slice(0, 300);
+  const code = clean(error?.code).slice(0, 80);
+  return message && code ? `${message} (${code})` : message || code;
 }
 
 export function guardedRoute<T extends { args: string[]; env: NodeJS.ProcessEnv }>(
