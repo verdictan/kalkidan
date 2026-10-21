@@ -10,6 +10,7 @@ import {
   removeWorktree,
   workingStatus,
   gitSwitchNewBranch,
+  pullRequestStatus,
   workingFiles,
   worktreeFolder,
   worktreePreview,
@@ -251,4 +252,28 @@ test('worktree preview shows the base branch and the folder that it creates', as
   } finally {
     await rm(root, { recursive: true, force: true });
   }
+});
+
+// The fake gh is a child process, so this test runs with the native tests, not the offline suite.
+test('pull request status reads gh pr view and maps the state', async (t) => {
+  const root = await mkdtemp(join(tmpdir(), 'pr-status-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const script = join(root, 'gh.mjs');
+  await writeFile(
+    script,
+    "const args = process.argv.slice(2);\nif (args.includes('https://github.com/o/r/pull/9')) process.exit(1);\n" +
+      "console.log(JSON.stringify({ state: 'MERGED', number: 7, title: 'Add search', extra: true }));\n",
+  );
+  const gh = async () => ({ path: process.execPath, args: [script], env: process.env });
+  assert.deepEqual(await pullRequestStatus(root, 'https://github.com/o/r/pull/7', gh), {
+    state: 'merged',
+    number: 7,
+    title: 'Add search',
+  });
+  await assert.rejects(pullRequestStatus(root, 'https://github.com/o/r/pull/9', gh), Error);
+  await assert.rejects(pullRequestStatus(root, '--repo=x', gh), /pull request link/);
+  await assert.rejects(
+    pullRequestStatus(root, 'https://github.com/o/r/issues/7', gh),
+    /pull request link/,
+  );
 });
