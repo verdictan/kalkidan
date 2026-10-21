@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { Check, Info, RefreshCw } from 'lucide-react';
 import type { API } from '../api/contracts';
-import { withoutManagedCode } from '../domain/verdictan';
+import { isSubscriptionMode, withoutManagedCode } from '../domain/verdictan';
 import type { VerdictanSetup, VerdictanStatus } from '../domain/verdictan';
 import type { ComponentUpdateStatus } from '../domain/updates';
 import { VerdictanSetupForm } from './verdictan-setup';
@@ -13,6 +13,7 @@ import { Badge } from './ui/badge';
 import { Button } from './ui/button';
 import { SectionHeader } from './ui/page-header';
 import { Progress } from './ui/progress';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { showToast } from './ui/toast';
 import { notifyUpdatesChanged } from '../hooks/use-update-status';
 import {
@@ -254,8 +255,16 @@ export function ManagedAgentsSettings({ api, open }: { api: API; open: boolean }
           policy and the model access. Do these 3 steps once on each computer.
         </p>
         <ul className="flex flex-wrap gap-2" aria-label="Agent readiness">
-          <ReadyChip name="Codex" ready={steps.codex} />
-          <ReadyChip name="Claude Code" ready={steps.claude} />
+          <ReadyChip
+            name="Codex"
+            ready={steps.codex}
+            subscription={isSubscriptionMode(setup?.selections.codex?.providerAccessMode)}
+          />
+          <ReadyChip
+            name="Claude Code"
+            ready={steps.claude}
+            subscription={isSubscriptionMode(setup?.selections.claude?.providerAccessMode)}
+          />
         </ul>
       </div>
       <ol className="managed-steps">
@@ -300,12 +309,23 @@ export function ManagedAgentsSettings({ api, open }: { api: API; open: boolean }
   );
 }
 
-function ReadyChip({ name, ready }: { name: string; ready: boolean }) {
+function ReadyChip({
+  name,
+  ready,
+  subscription,
+}: {
+  name: string;
+  ready: boolean;
+  /** True when the agent uses the user's own subscription. */
+  subscription: boolean;
+}) {
   return (
     <li>
       <Badge variant={ready ? 'success' : 'muted'} size="md">
         {ready ? <Check aria-hidden="true" /> : null}
-        {ready ? `Ready for ${name}` : `${name} not set up`}
+        {ready
+          ? `Ready for ${name}${subscription ? ' · Your subscription' : ''}`
+          : `${name} not set up`}
       </Badge>
     </li>
   );
@@ -502,6 +522,10 @@ function RuntimeStep({
   );
 }
 
+type Region = NonNullable<VerdictanStatus['region']>;
+const regions: Region[] = ['eu', 'us'];
+const regionNames: Record<Region, string> = { eu: 'European Union', us: 'United States' };
+
 function AccountStep({
   api,
   primary,
@@ -514,8 +538,10 @@ function AccountStep({
   account: ReturnType<typeof useAccountStatus>;
 }) {
   const { status, setStatus, busy, error, setError, run } = account;
-  const [pendingRegion, setPendingRegion] = useState<'global' | 'eu'>();
+  const [pendingRegion, setPendingRegion] = useState<Region>();
   const details = status?.account;
+  // A status without a region needs an explicit EU or US choice before sign-in.
+  const regionRequired = !!status && !status.region;
   const names = accountNames(status);
   const signedIn = status?.phase === 'authenticated';
   const canRenew = signedIn || status?.phase === 'expired';
@@ -577,7 +603,7 @@ function AccountStep({
               <Button
                 variant="outline"
                 size="sm"
-                disabled={busy || runtimeMissing}
+                disabled={busy || runtimeMissing || regionRequired}
                 onClick={() => void run(() => api.verdictanAuthorize('register'))}
               >
                 Create account
@@ -585,7 +611,7 @@ function AccountStep({
               <Button
                 variant={primary ? 'default' : 'outline'}
                 size="sm"
-                disabled={busy || runtimeMissing}
+                disabled={busy || runtimeMissing || regionRequired}
                 onClick={() => void run(() => api.verdictanAuthorize('login'))}
               >
                 Sign in
@@ -596,7 +622,13 @@ function AccountStep({
       }
     >
       <div className="flex flex-wrap items-center gap-2">
-        <StatusBadge status={accountPhaseLabel(status?.phase)} />
+        <StatusBadge
+          status={
+            regionRequired
+              ? { label: 'Region not selected', tone: 'warning' }
+              : accountPhaseLabel(status?.phase)
+          }
+        />
         {authorizing && (
           <span className="text-xs leading-4 text-muted-foreground">
             Finish the sign-in in your browser. This page updates after you finish.
@@ -623,21 +655,39 @@ function AccountStep({
         </dl>
       )}
       <div className="form-label">
-        <span>Account region</span>
-        <Choice
-          className="w-56"
-          label="Account region"
+        <span id="managed-region-label">Account region</span>
+        <Select
+          value={pendingRegion || status?.region || ''}
           disabled={busy || authorizing}
-          value={pendingRegion || status?.region || 'global'}
-          onChange={(value) => setPendingRegion(value as 'global' | 'eu')}
-          options={[
-            { value: 'global', label: 'Global' },
-            { value: 'eu', label: 'European Union' },
-          ]}
-        />
-        <span className="form-help">Each region keeps a separate sign-in.</span>
+          onValueChange={(value) => {
+            const region = value as Region;
+            // The first choice changes nothing that runs. Apply it at once.
+            if (regionRequired)
+              void run(
+                () => api.verdictanSetRegion(region),
+                `Region set to ${regionNames[region]}`,
+              );
+            else setPendingRegion(region);
+          }}
+        >
+          <SelectTrigger aria-labelledby="managed-region-label" className="w-56">
+            <SelectValue placeholder="Select a region" />
+          </SelectTrigger>
+          <SelectContent>
+            {regions.map((region) => (
+              <SelectItem key={region} value={region}>
+                {regionNames[region]}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <span className="form-help">
+          {regionRequired
+            ? 'Select the region of your organization before you sign in. Each region keeps a separate sign-in.'
+            : 'Each region keeps a separate sign-in.'}
+        </span>
       </div>
-      {pendingRegion && pendingRegion !== (status?.region || 'global') && (
+      {pendingRegion && status?.region && pendingRegion !== status.region && (
         <Alert size="sm" role="group" aria-label="Confirm region change" className="gap-y-2">
           <AlertDescription className="text-xs leading-4 text-foreground">
             A region change stops the agents that run now and disconnects SSH hosts. The app stays
@@ -697,7 +747,7 @@ function AccountStep({
           the access.
         </StepError>
       )}
-      {(error || status?.error) && (
+      {(error || (status?.error && !regionRequired)) && (
         <StepError>{error || verdictanErrorMessage(status!.error!)}</StepError>
       )}
     </Step>

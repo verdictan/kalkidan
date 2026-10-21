@@ -75,7 +75,7 @@ test('a failed pull request keeps the successful commit and retries only the pul
       },
     };
   });
-  await page.goto('http://127.0.0.1:5173');
+  await page.goto('/');
   await page.locator('.repo-select').click();
   await page.getByRole('button', { name: 'Resume Implement feature', exact: true }).click();
   await page.getByRole('button', { name: 'Chat actions', exact: true }).click();

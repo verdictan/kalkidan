@@ -23,7 +23,7 @@ test('empty workspace starts onboarding once and can resume after dismissal', as
       agentInstallations: async () => [{ agent: 'codex', status: 'missing' }],
     };
   });
-  await page.goto('http://127.0.0.1:5173');
+  await page.goto('/');
   await expect(page.getByRole('heading', { name: 'Set up your first chat' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Choose code folder', exact: true })).toBeEnabled();
   await expect(page.getByRole('button', { name: 'Open first chat' })).toBeDisabled();
@@ -40,7 +40,7 @@ test('existing workspace can prepare an editable first message without sending i
 }) => {
   const errors: string[] = [];
   page.on('pageerror', (error) => errors.push(error.message));
-  await page.goto('http://127.0.0.1:5173');
+  await page.goto('/');
   await expect(page.getByRole('dialog')).toHaveCount(0);
   await openSetup(page);
   await expect(page.getByRole('combobox', { name: 'Setup project' })).toContainText('Atlas');
@@ -84,7 +84,7 @@ test('agent check failure is recoverable and short screens keep setup actions ac
     };
   });
   await page.setViewportSize({ width: 600, height: 650 });
-  await page.goto('http://127.0.0.1:5173');
+  await page.goto('/');
   // Below 1100px wide, the sidebar starts closed.
   await page.getByRole('button', { name: 'Toggle sidebar', exact: true }).click();
   await page.getByRole('button', { name: 'Get started', exact: true }).click();
@@ -101,7 +101,7 @@ test('agent check failure is recoverable and short screens keep setup actions ac
 });
 
 test('project and repository setup return to the checklist', async ({ page }) => {
-  await page.goto('http://127.0.0.1:5173');
+  await page.goto('/');
   await openSetup(page);
   await page.getByRole('button', { name: 'Create project', exact: true }).click();
   await expect(page.getByRole('dialog')).toContainText('Project name');
@@ -131,7 +131,7 @@ test('a missing agent check shows an error, and an empty overview has one New pr
       }),
     };
   });
-  await page.goto('http://127.0.0.1:5173');
+  await page.goto('/');
   const dialog = page.getByRole('dialog');
   await expect(dialog).toContainText('Could not check agents');
   await page.getByRole('button', { name: 'Set up later' }).click();

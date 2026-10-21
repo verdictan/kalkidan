@@ -52,7 +52,7 @@ test('GitHub settings require reload after an uncertain save and preserve permis
       },
     };
   });
-  await page.goto('http://127.0.0.1:5173');
+  await page.goto('/');
   await page
     .locator('.project-tree')
     .getByRole('button', { name: 'Platform', exact: true })

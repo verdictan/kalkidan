@@ -1,5 +1,10 @@
 import { identityKey } from './verdictan/bindings';
-import { savedVerdictanRegion, saveVerdictanRegion, verdictanRegion } from './verdictan/region';
+import {
+  savedVerdictanRegion,
+  saveVerdictanRegion,
+  verdictanRegion,
+  type VerdictanRegion,
+} from './verdictan/region';
 import { ProjectServices } from './verdictan/project-services';
 import { ParallelDispatch } from './operations/parallel-dispatch';
 import { TaskExecutions } from './operations/task-execution';
@@ -375,7 +380,7 @@ app.whenReady().then(async () => {
     void remote?.reconcile().catch(() => {});
   });
   const runtimePolicy = runtimePolicyReader(__dirname);
-  const makeVerdictan = (region: string) =>
+  const makeVerdictan = (region: VerdictanRegion | undefined) =>
     createVerdictanServices({
       region,
       changed: notifyVerdictan,
@@ -432,7 +437,7 @@ app.whenReady().then(async () => {
   handle('verdictan-select', (agent, selection) => verdictan!.setup.select(agent, selection));
   const accountStatus = () => ({ ...verdictan!.account.status(), region: verdictan!.region });
   handle('verdictan-status', accountStatus);
-  handle('verdictan-set-region', async (region: string) => {
+  handle('verdictan-set-region', async (region: VerdictanRegion) => {
     verdictanRegion(region);
     if (verdictan!.region === region) return accountStatus();
     changingAccount = true;

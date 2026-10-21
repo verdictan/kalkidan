@@ -59,7 +59,7 @@ test('a configured non-GitHub provider drives project creation and a read-only b
       },
     };
   });
-  await page.goto('http://127.0.0.1:5173');
+  await page.goto('/');
   await page.getByRole('main').getByRole('button', { name: 'New project', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: 'New project', exact: true });
   await dialog.getByLabel('Project name', { exact: true }).fill('Platform');
@@ -84,7 +84,7 @@ test('a configured non-GitHub provider drives project creation and a read-only b
 });
 
 test('project workflow mappings can be configured and reopened', async ({ page }) => {
-  await page.goto('http://127.0.0.1:5173');
+  await page.goto('/');
   await page.locator('.project-tree').getByRole('button', { name: 'Atlas', exact: true }).click();
   await page.getByRole('button', { name: 'Connect a GitHub Projects board', exact: true }).click();
   const connect = page.getByRole('dialog');
@@ -152,7 +152,7 @@ test('board state is scoped to each project and survives panel remounts', async 
       },
     };
   });
-  await page.goto('http://127.0.0.1:5173');
+  await page.goto('/');
   const tree = page.locator('.project-tree');
   await tree.getByRole('button', { name: 'Alpha', exact: true }).click();
   await page

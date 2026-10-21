@@ -3,7 +3,7 @@ import { openTool } from './helpers/tools';
 test('tool pane resizes, keeps the composer visible, and preserves independent tabs', async ({
   page,
 }) => {
-  await page.goto('http://127.0.0.1:5173');
+  await page.goto('/');
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.locator('.repo-select').first().click();
   await page.getByRole('button', { name: 'New Codex chat', exact: true }).click();
@@ -94,7 +94,7 @@ test('browser menu exposes working find, device, history, settings, and data con
       },
     };
   });
-  await page.goto('http://127.0.0.1:5173');
+  await page.goto('/');
   await page.locator('.repo-select').click();
   await page.getByRole('button', { name: 'New Codex chat' }).click();
   await openTool(page, 'Browser');

@@ -18,7 +18,8 @@ export interface VerdictanCapabilities {
   testedAgents: { kind: 'codex' | 'claude_code'; version: string }[];
 }
 export interface VerdictanStatus {
-  region?: 'global' | 'eu';
+  /** Undefined until the user selects a region. */
+  region?: 'eu' | 'us';
   phase:
     'missing' | 'checking' | 'signed-out' | 'authorizing' | 'authenticated' | 'expired' | 'error';
   account?: VerdictanAccount;
@@ -29,7 +30,7 @@ export interface VerdictanStatus {
   executionReady: boolean;
 }
 export interface VerdictanAPI {
-  verdictanSetRegion(region: 'global' | 'eu'): Promise<VerdictanStatus>;
+  verdictanSetRegion(region: 'eu' | 'us'): Promise<VerdictanStatus>;
   onVerdictanChanged?(listener: () => void): () => void;
   verdictanSetup(): Promise<VerdictanSetup>;
   verdictanSelect(
@@ -44,8 +45,24 @@ export interface VerdictanAPI {
   verdictanLogout(): Promise<VerdictanStatus>;
 }
 
+/** Omitted means organization provider connection (BYOK). Unknown values fail validation. */
+export type ProviderAccessMode = 'byok' | 'codex_subscription' | 'claude_subscription';
+export const providerAccessModes: readonly ProviderAccessMode[] = [
+  'byok',
+  'codex_subscription',
+  'claude_subscription',
+];
+/** Each subscription mode belongs to exactly one native agent. */
+export const subscriptionAgent = {
+  codex_subscription: 'codex',
+  claude_subscription: 'claude',
+} as const;
+export const isSubscriptionMode = (
+  mode: ProviderAccessMode | undefined,
+): mode is keyof typeof subscriptionAgent =>
+  mode === 'codex_subscription' || mode === 'claude_subscription';
 export interface VerdictanSelection {
-  providerAccessMode?: 'byok' | 'codex_subscription';
+  providerAccessMode?: ProviderAccessMode;
   teamId: string;
   configurationId: string;
   configurationVersionId: string;
@@ -53,7 +70,7 @@ export interface VerdictanSelection {
   model: string;
 }
 export interface VerdictanSetup {
-  providerAccessModes?: ('byok' | 'codex_subscription')[];
+  providerAccessModes?: ProviderAccessMode[];
   status: string;
   /** `name`, `version` and `allowedModels` are present only when the service sends them. */
   teams: { team_id: string; name?: string }[];
@@ -82,12 +99,16 @@ export interface VerdictanSetup {
  * so the policy and the inference guard always apply. When managed agents are not set up, the chat
  * does not start, and the error tells the user to set them up.
  */
+/** The only native Claude Code version qualified for subscription access. */
+export const claudeSubscriptionNativeVersion = '2.1.304';
 export interface ManagedErrorInfo {
   message: string;
   section?: 'managed-agents' | 'agents' | 'updates';
   retry?: boolean;
 }
 const setUp = 'managed-agents' as const;
+const signInClaude =
+  'Sign in to Claude Code on the machine where work runs. Then send the message again.';
 export const managedErrors: Record<string, ManagedErrorInfo> = {
   'desktop.runtime_missing': {
     message: 'Managed agents are not set up. Install the runtime in Settings to start a chat.',
@@ -149,7 +170,7 @@ export const managedErrors: Record<string, ManagedErrorInfo> = {
     section: setUp,
   },
   'desktop.agent_version_unsupported': {
-    message: 'Managed agents do not support the installed agent version. Update the agent.',
+    message: `Managed agents do not support the installed agent version. Claude subscription access needs Claude Code ${claudeSubscriptionNativeVersion}.`,
     section: 'agents',
   },
   'desktop.subscription_agent_required': {
@@ -217,6 +238,69 @@ export const managedErrors: Record<string, ManagedErrorInfo> = {
     message: 'The installed managed agents runtime cannot do this. Update the runtime.',
     section: 'updates',
   },
+  'desktop.region_required': {
+    message: 'Select the EU or US region, then sign in to managed agents.',
+    section: setUp,
+  },
+  'desktop.session_rejected': {
+    message: 'The managed agents service did not accept the sign-in. Sign in again.',
+    section: setUp,
+  },
+  'desktop.readiness_required': {
+    message:
+      'The managed agents check did not pass. Check the status, then send the message again.',
+    section: setUp,
+  },
+  'desktop.readiness_failed': {
+    message:
+      'The managed agents check did not pass. Check the status, then send the message again.',
+    section: setUp,
+  },
+  'desktop.claude_subscription_unsupported': {
+    message:
+      'This runtime cannot use your Claude subscription. Your work is safe. Update the runtime.',
+    section: 'updates',
+  },
+  'desktop.claude_subscription_login_required': {
+    message: `${signInClaude} Kalkidan does not send your message again.`,
+    section: setUp,
+  },
+  'desktop.claude_subscription_native_profile_unsupported': {
+    message:
+      'This computer uses a custom Claude Code profile. Use the default Claude Code sign-in on this computer. Then send the message again.',
+    section: setUp,
+  },
+  'desktop.claude_subscription_login_expiring': {
+    message:
+      'Your Claude Code sign-in expires soon. Run /login in Claude Code on the machine where work runs. Then send the message again.',
+    section: setUp,
+  },
+  'desktop.claude_subscription_identity_unavailable': {
+    message:
+      'Managed agents cannot check your Claude account now. Check the status, then try again.',
+    section: setUp,
+  },
+  'desktop.claude_subscription_route_unsupported': {
+    message:
+      'Claude Code sent a request that managed agents do not support. Your work is safe. Check the Claude Code version.',
+    section: 'agents',
+  },
+  'desktop.subscription_account_mismatch': {
+    message: 'The Claude account changed. Stop this chat and start a new chat.',
+  },
+  'desktop.subscription_account_required': {
+    message: 'Sign in to Claude Code on the machine where work runs. Then start this chat again.',
+    section: setUp,
+  },
+  'desktop.subscription_credentials_invalid': {
+    message: 'The managed agents launch settings are not valid. Choose the setup again.',
+    section: setUp,
+  },
+  'desktop.subscription_target_required': {
+    message:
+      'Your policy does not allow the selected model. Choose an allowed model, or ask your administrator.',
+    section: setUp,
+  },
 };
 // Codes for a lost or failed connection. The same action can work a second time.
 const connectionCodes =
@@ -244,4 +328,83 @@ export function managedErrorText(code: string) {
 /** Removes the code in square brackets from a message, for display. */
 export function withoutManagedCode(text: string) {
   return text.replace(/\s*\[desktop\.[a-z_]{1,100}\]\s*$/, '');
+}
+
+export type SubscriptionRecoveryAction =
+  | 'update_runtime'
+  | 'sign_in_native_claude_on_execution_host'
+  | 'inspect_runtime'
+  | 'check_native_compatibility'
+  | 'reauthorize_new_session'
+  | 'verify_native_account'
+  | 'repair_managed_launch'
+  | 'open_authorized_setup';
+export interface SubscriptionRecovery {
+  code: string;
+  action: SubscriptionRecoveryAction;
+  message: string;
+}
+// The recovery action for each Claude subscription code. The words come from `managedErrors`.
+const recoveries: Record<string, SubscriptionRecoveryAction> = {
+  'desktop.claude_subscription_unsupported': 'update_runtime',
+  'desktop.claude_subscription_login_required': 'sign_in_native_claude_on_execution_host',
+  'desktop.claude_subscription_native_profile_unsupported':
+    'sign_in_native_claude_on_execution_host',
+  'desktop.claude_subscription_login_expiring': 'sign_in_native_claude_on_execution_host',
+  'desktop.claude_subscription_identity_unavailable': 'inspect_runtime',
+  'desktop.claude_subscription_route_unsupported': 'check_native_compatibility',
+  'desktop.subscription_account_mismatch': 'reauthorize_new_session',
+  'desktop.subscription_account_required': 'verify_native_account',
+  'desktop.subscription_credentials_invalid': 'repair_managed_launch',
+  'desktop.subscription_target_required': 'open_authorized_setup',
+  'desktop.readiness_required': 'inspect_runtime',
+  'desktop.readiness_failed': 'inspect_runtime',
+  'desktop.resume_incompatible': 'reauthorize_new_session',
+  'desktop.agent_version_unsupported': 'check_native_compatibility',
+};
+/** Maps a safe Claude subscription error code to one user recovery action. */
+export function claudeSubscriptionRecovery(code: unknown): SubscriptionRecovery | null {
+  if (typeof code !== 'string' || !Object.hasOwn(recoveries, code)) return null;
+  return { code, action: recoveries[code], message: managedErrorText(code) };
+}
+
+const subscriptionMarkers = [
+  'claude_subscription',
+  'codex_subscription',
+  'user_claude_subscription',
+  'user_codex_subscription',
+];
+/** True when a usage or billing record says that the user's own subscription pays. */
+export function isSubscriptionBilling(source: unknown) {
+  if (!source || typeof source !== 'object') return false;
+  const record = source as Record<string, unknown>;
+  return (
+    [
+      'payer',
+      'credential_origin',
+      'usage_category',
+      'billing_category',
+      'provider_access_mode',
+    ].some((key) => subscriptionMarkers.includes(record[key] as string)) ||
+    record.pricing === 'subscription'
+  );
+}
+/**
+ * Cost text for one task-history row. Subscription rows and rows without a currency never show
+ * a number: an internal zero debit is not a provider charge.
+ */
+export function historyCostLabel(row: Record<string, unknown>) {
+  const usage =
+    row.usage && typeof row.usage === 'object' ? (row.usage as Record<string, unknown>) : {};
+  if (isSubscriptionBilling(row) || isSubscriptionBilling(usage))
+    return 'Paid by your subscription. Provider charge is not known.';
+  const valid = (cost: unknown, currency: unknown) =>
+    (typeof cost === 'number' || (typeof cost === 'string' && /^-?\d+(?:\.\d+)?$/.test(cost))) &&
+    typeof currency === 'string' &&
+    /^[A-Z]{3}$/.test(currency);
+  if (valid(usage.measured_cost, usage.currency))
+    return `${String(usage.measured_cost)} ${String(usage.currency)}`;
+  if (valid(row.actual_cost, row.currency))
+    return `${String(row.actual_cost)} ${String(row.currency)}`;
+  return 'Unknown';
 }

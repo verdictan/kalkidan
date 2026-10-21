@@ -2,7 +2,12 @@ import { useEffect, useRef, useState } from 'react';
 import { Check, RefreshCw } from 'lucide-react';
 import type { API } from '../api/contracts';
 import type { ModelOption } from '../domain/conversation';
-import type { VerdictanSetup, VerdictanSelection } from '../domain/verdictan';
+import {
+  isSubscriptionMode,
+  type ProviderAccessMode,
+  type VerdictanSetup,
+  type VerdictanSelection,
+} from '../domain/verdictan';
 import { Alert, AlertDescription } from './ui/alert';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
@@ -121,7 +126,11 @@ export function VerdictanSetupForm({
   const busy = loading || saving;
   const connections =
     setup?.providerConnections.filter((p) => p.provider === agentProvider[agent]) || [];
-  const subscription = selection.providerAccessMode === 'codex_subscription';
+  // Each agent can use only its own subscription mode, and only when the runtime offers it.
+  const subscriptionMode: ProviderAccessMode =
+    agent === 'codex' ? 'codex_subscription' : 'claude_subscription';
+  const subscriptionOffered = !!setup?.providerAccessModes?.includes(subscriptionMode);
+  const subscription = isSubscriptionMode(selection.providerAccessMode);
   const allowed = allowedModels(setup, agent);
   const modelOptions = (
     allowed
@@ -224,7 +233,7 @@ export function VerdictanSetupForm({
                 ]}
               />
             </label>
-            {agent === 'codex' && setup.providerAccessModes?.includes('codex_subscription') && (
+            {(subscriptionOffered || subscription) && (
               <label className="form-label">
                 Model access
                 <Choice
@@ -235,9 +244,9 @@ export function VerdictanSetupForm({
                   onChange={(value) =>
                     setSelection({
                       ...selection,
-                      providerAccessMode: value as 'byok' | 'codex_subscription',
+                      providerAccessMode: value as ProviderAccessMode,
                       providerConnectionId:
-                        value === 'codex_subscription'
+                        value === subscriptionMode
                           ? ''
                           : connections.length === 1
                             ? connections[0].provider_connection_id
@@ -246,7 +255,10 @@ export function VerdictanSetupForm({
                   }
                   options={[
                     { value: 'byok', label: 'Organization connection' },
-                    { value: 'codex_subscription', label: 'Codex subscription on the computer' },
+                    {
+                      value: subscriptionMode,
+                      label: `${agentNames[agent]} subscription on the computer`,
+                    },
                   ]}
                 />
               </label>
@@ -300,15 +312,15 @@ export function VerdictanSetupForm({
           </div>
           {subscription && (
             <p className="form-help">
-              Uses the Codex subscription that is signed in on the computer where the work runs.
-              Sign in on each SSH host. Kalkidan does not send sign-in tokens to other hosts. The
-              policy of your organization still applies.
+              Uses the {agentNames[agent]} subscription that is signed in on the computer where the
+              work runs. Sign in on each SSH host. Kalkidan does not send sign-in tokens to other
+              hosts. The policy of your organization still applies.
             </p>
           )}
-          {agent === 'claude' && (
+          {agent === 'claude' && !subscriptionOffered && (
             <p role="note" className="form-help">
-              Claude Code uses an Anthropic connection from your organization. A personal Claude
-              sign-in does not work with managed agents yet.
+              Claude Code uses an Anthropic connection from your organization. To use your own
+              Claude Code sign-in, update the managed agents runtime.
             </p>
           )}
           <p className="form-help">

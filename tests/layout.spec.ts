@@ -38,7 +38,7 @@ test('repository dialog contains long names, scrolls results, and keeps actions 
         })),
     };
   });
-  await page.goto('http://127.0.0.1:5173');
+  await page.goto('/');
   await openSidebar(page);
   await page
     .getByRole('button', {
@@ -80,7 +80,7 @@ test('notifications and a long draft do not push the composer outside the window
   page,
 }) => {
   await page.setViewportSize({ width: 980, height: 680 });
-  await page.goto('http://127.0.0.1:5173');
+  await page.goto('/');
   await openSidebar(page);
   await page.locator('.repo-select').first().click();
   await page.getByRole('button', { name: 'Repository actions', exact: true }).click();
@@ -127,7 +127,7 @@ test('the title bar keeps one row at the minimum window width with tools open', 
   page,
 }) => {
   await page.setViewportSize({ width: 980, height: 680 });
-  await page.goto('http://127.0.0.1:5173');
+  await page.goto('/');
   await openSidebar(page);
   await page.locator('.repo-select').first().click();
   await page.getByRole('button', { name: 'New Codex chat', exact: true }).click();

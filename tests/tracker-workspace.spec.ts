@@ -4,7 +4,7 @@ test('board quick creation, issue inspector and status changes share the tracker
   page,
 }) => {
   await page.setViewportSize({ width: 773, height: 988 });
-  await page.goto('http://127.0.0.1:5173');
+  await page.goto('/');
   // Below 1100px wide, the sidebar starts closed.
   await page.getByRole('button', { name: 'Toggle sidebar', exact: true }).click();
   await page.locator('.project-tree').getByRole('button', { name: 'Atlas', exact: true }).click();
@@ -106,7 +106,7 @@ test('failed initial status leaves one created item available for a status retry
       },
     };
   });
-  await page.goto('http://127.0.0.1:5173');
+  await page.goto('/');
   // The project row opens the overview. The Tasks row opens the board.
   await page.locator('.project-tree').getByRole('button', { name: 'Tasks', exact: true }).click();
   await page.getByRole('button', { name: 'New task in Building', exact: true }).click();

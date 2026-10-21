@@ -117,9 +117,11 @@ export function TaskUsageHistoryPanel({
                       <dd>{unknown(request.usage)}</dd>
                       <dt>Cost</dt>
                       <dd>
-                        {request.actualCost === null
-                          ? 'Unknown'
-                          : `${request.actualCost} ${request.currency ?? ''}`.trim()}
+                        {request.billing === 'subscription'
+                          ? 'Paid by your subscription. Provider charge is not known.'
+                          : request.actualCost === null
+                            ? 'Unknown'
+                            : `${request.actualCost} ${request.currency ?? ''}`.trim()}
                       </dd>
                       <dt>Tokens</dt>
                       <dd>{unknown(request.tokens)}</dd>

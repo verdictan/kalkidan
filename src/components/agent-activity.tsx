@@ -99,10 +99,12 @@ function ManagedRun({
           request.policy && ['Policy', words(request.policy)],
           request.usage && ['Usage', words(request.usage)],
           request.tokens && ['Tokens', Number(request.tokens).toLocaleString()],
-          request.actualCost !== null && [
-            'Recorded cost',
-            `${request.actualCost} ${request.currency || ''}`.trim(),
-          ],
+          request.billing === 'subscription'
+            ? ['Paid by', 'Your Claude subscription. The provider charge is not known.']
+            : request.actualCost !== null && [
+                'Recorded cost',
+                `${request.actualCost} ${request.currency || ''}`.trim(),
+              ],
           request.audit && ['Audit', words(request.audit)],
         ].filter(Boolean) as [string, string][],
     )

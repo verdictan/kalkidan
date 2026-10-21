@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 
 test('project creation is GitHub-backed without client fields or navigation', async ({ page }) => {
-  await page.goto('http://127.0.0.1:5173');
+  await page.goto('/');
   await expect(page.getByRole('combobox', { name: 'Filter projects by client' })).toHaveCount(0);
   await page.getByRole('main').getByRole('button', { name: 'New project', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: 'New project', exact: true });
@@ -97,7 +97,7 @@ for (const allow of [true, false])
         },
       };
     });
-    await page.goto('http://127.0.0.1:5173');
+    await page.goto('/');
     await page.locator('.repo-select').click();
     await page.getByRole('button', { name: 'Resume Review changes', exact: true }).click();
     await page.getByLabel('Message agent').fill('Review and test');
@@ -171,7 +171,7 @@ test('task worktree cancellation keeps the task open and a created worktree beco
       },
     };
   });
-  await page.goto('http://127.0.0.1:5173');
+  await page.goto('/');
   await page.locator('.project-tree').getByRole('button', { name: 'Tasks', exact: true }).click();
   await page.getByRole('button', { name: 'Implement feature', exact: true }).click();
   const dialog = page.getByRole('dialog');
@@ -200,7 +200,7 @@ test('task worktree cancellation keeps the task open and a created worktree beco
 });
 
 test('general conversations can add task context later', async ({ page }) => {
-  await page.goto('http://127.0.0.1:5173');
+  await page.goto('/');
   await page.locator('.project-tree').getByRole('button', { name: 'Atlas', exact: true }).click();
   await page.getByRole('button', { name: 'Connect a GitHub Projects board', exact: true }).click();
   await page.getByRole('button', { name: 'Atlas roadmap #1', exact: true }).click();
@@ -222,7 +222,7 @@ test('project opens its board and filters tasks by repository', async ({ page })
   await page.addInitScript(() =>
     localStorage.setItem('kalkidan-tracker-filters:atlas', JSON.stringify({ sort: 'title' })),
   );
-  await page.goto('http://127.0.0.1:5173');
+  await page.goto('/');
   await page.locator('.project-tree').getByRole('button', { name: 'Atlas', exact: true }).click();
   await page.getByRole('button', { name: 'Connect a GitHub Projects board', exact: true }).click();
   await page.getByRole('button', { name: 'Atlas roadmap #1', exact: true }).click();
@@ -259,7 +259,7 @@ test('project opens its board and filters tasks by repository', async ({ page })
 });
 
 test('project board moves tasks and starts work in the selected repository', async ({ page }) => {
-  await page.goto('http://127.0.0.1:5173');
+  await page.goto('/');
   await page.locator('.project-tree').getByRole('button', { name: 'Atlas', exact: true }).click();
   await page.getByRole('button', { name: 'Connect a GitHub Projects board', exact: true }).click();
   await page.getByRole('button', { name: 'Atlas roadmap #1', exact: true }).click();

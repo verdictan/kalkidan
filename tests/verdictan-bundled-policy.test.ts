@@ -18,8 +18,25 @@ test('bundled runtime pins select the execution host, including SSH Linux', () =
     });
     assert.equal(release.artifact.target, artifact.target);
     assert.equal(release.artifact.sha256, selected.pin.artifact_sha256);
-    assert.equal(release.version, artifact.os === 'darwin' ? '0.4.1' : '0.3.0');
+    assert.equal(release.version, '0.6.1');
+    // Each host policy approves only its own target. Do not copy a pin to another target.
+    assert.deepEqual(
+      JSON.parse(selected.manifest).artifacts.map((entry: { target: string }) => entry.target),
+      [artifact.target],
+    );
+    assert.ok(JSON.parse(selected.manifest).revoked_versions.includes('0.4.0'));
   }
+  const linux = JSON.parse(runtimePolicyForHost(policy, 'linux', 'x64').manifest).artifacts[0];
+  assert.equal(
+    linux.executable_sha256,
+    'f4784283f864f9f433e2632d023e5b84db0111b8114c32bee38d75187ddb88a5',
+  );
+  assert.equal(linux.minimum_os_version, '6.12.0');
+  assert.deepEqual(linux.required_runtime_dependencies, [
+    'glibc (validated on Enterprise Linux 10.2)',
+    'bubblewrap >= 0.10.0',
+    'python3',
+  ]);
   assert.throws(() => runtimePolicyForHost(policy, 'win32', 'x64'), /No reviewed/);
   assert.throws(() => runtimePolicyForHost(policy, 'linux', 'arm64'), /No reviewed/);
   assert.equal(

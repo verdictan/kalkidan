@@ -5,7 +5,7 @@ test('Settings separates account sign-in from execution readiness and shows upda
 }) => {
   await page.addInitScript(() => {
     const state = {
-      account: { phase: 'missing', executionReady: false } as any,
+      account: { region: 'eu', phase: 'missing', executionReady: false } as any,
       update: {
         hostId: 'local',
         component: 'verdictan',
@@ -30,21 +30,24 @@ test('Settings separates account sign-in from execution readiness and shows upda
       githubCliCheck: async () => ({ status: 'missing' }),
       githubAuthStatus: async () => ({ status: 'idle' }),
       verdictanStatus: async () => state.account,
-      verdictanCheck: async () => (state.account = { phase: 'signed-out', executionReady: false }),
+      verdictanCheck: async () =>
+        (state.account = { region: 'eu', phase: 'signed-out', executionReady: false }),
       verdictanAuthorize: async () =>
         (state.account = {
+          region: 'eu',
           phase: 'authenticated',
           executionReady: false,
           account: {
             state: 'authenticated',
             userId: 'user',
             organizationId: 'org',
-            apiUrl: 'https://api.verdictan.com',
+            apiUrl: 'https://api.eu.verdictan.com',
             expiresAt: '2026-11-01T00:00:00Z',
           },
         }),
       verdictanLogout: async () =>
         (state.account = {
+          region: 'eu',
           phase: 'signed-out',
           executionReady: false,
           remoteRevocationPending: true,
@@ -69,7 +72,7 @@ test('Settings separates account sign-in from execution readiness and shows upda
         }),
     };
   });
-  await page.goto('http://127.0.0.1:5173');
+  await page.goto('/');
   await page.getByRole('button', { name: 'Settings', exact: true }).click();
   const settings = page.getByRole('dialog', { name: 'Settings' });
   await settings.getByRole('tab', { name: 'Managed agents', exact: true }).click();
@@ -105,4 +108,61 @@ test('Settings separates account sign-in from execution readiness and shows upda
       .getByRole('button', { name: 'Check for updates' })
       .first(),
   ).toBeVisible();
+});
+
+test('Settings requires an explicit EU or US region before sign-in', async ({ page }) => {
+  await page.addInitScript(() => {
+    const state = {
+      account: { phase: 'error', error: 'desktop.region_required', executionReady: false } as any,
+      regions: [] as string[],
+    };
+    (window as any).regionFixture = state;
+    (window as any).workspace = {
+      snapshot: async () => ({
+        projects: [],
+        groups: [{ id: 'g', name: 'Project', repoIds: [] }],
+        sessions: [],
+        warnings: [],
+        platform: 'darwin',
+      }),
+      trackerProviders: async () => [],
+      remoteHosts: async () => [],
+      agentInstallations: async () => [],
+      githubCliCheck: async () => ({ status: 'missing' }),
+      githubAuthStatus: async () => ({ status: 'idle' }),
+      verdictanStatus: async () => state.account,
+      verdictanSetRegion: async (region: string) => {
+        state.regions.push(region);
+        return (state.account = { region, phase: 'signed-out', executionReady: false });
+      },
+    };
+  });
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Settings', exact: true }).click();
+  const settings = page.getByRole('dialog', { name: 'Settings' });
+  await settings.getByRole('tab', { name: 'Managed agents', exact: true }).click();
+  const account = settings
+    .getByRole('region', { name: 'Managed agents' })
+    .getByRole('region', { name: 'Sign in', exact: true });
+  const region = account.getByRole('combobox', { name: 'Account region' });
+  // No region is selected, and there is no Global choice.
+  await expect(region).toHaveText('Select a region');
+  await expect(account).toContainText('Region not selected');
+  await expect(account).toContainText('Select the region of your organization');
+  await expect(account.getByRole('button', { name: 'Sign in', exact: true })).toBeDisabled();
+  await expect(account.getByRole('button', { name: 'Create account' })).toBeDisabled();
+  await region.click();
+  await expect(page.getByRole('option', { name: 'Global' })).toHaveCount(0);
+  // The first choice applies at once. Nothing runs that a region change can stop.
+  await page.getByRole('option', { name: 'United States' }).click();
+  await expect(region).toHaveText('United States');
+  await expect(account.getByRole('button', { name: 'Sign in', exact: true })).toBeEnabled();
+  await expect(account).not.toContainText('Select the region of your organization');
+  expect(await page.evaluate(() => (window as any).regionFixture.regions)).toEqual(['us']);
+  // A later change asks first, because it stops the agents that run.
+  await region.click();
+  await page.getByRole('option', { name: 'European Union' }).click();
+  await account.getByRole('button', { name: 'Stop work and change region' }).click();
+  await expect(region).toHaveText('European Union');
+  expect(await page.evaluate(() => (window as any).regionFixture.regions)).toEqual(['us', 'eu']);
 });

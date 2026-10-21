@@ -3,7 +3,7 @@ import { test, expect } from '@playwright/test';
 test('repository overview omits tasks while the project Board page retains them', async ({
   page,
 }) => {
-  await page.goto('http://127.0.0.1:5173');
+  await page.goto('/');
   await page.locator('.project-tree').getByRole('button', { name: 'Atlas', exact: true }).click();
   await page
     .getByRole('region', { name: 'Project tracker' })

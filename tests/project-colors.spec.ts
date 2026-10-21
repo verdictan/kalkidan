@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 test('right click sets matching project folder colors and resets them', async ({ page }) => {
   await page.setViewportSize({ width: 1276, height: 988 });
-  await page.goto('http://127.0.0.1:5173');
+  await page.goto('/');
   const project = page.locator('.project-tree').getByRole('button', { name: 'Atlas', exact: true });
   await project.click({ button: 'right' });
   for (const name of ['Red', 'Yellow', 'Blue', 'Green', 'Indigo', 'Violet'])

@@ -3,6 +3,7 @@ import type {
   VerdictanCapabilities,
   VerdictanStatus,
 } from '../../src/domain/verdictan';
+import { projectServicePermissions } from '../../src/domain/project-services';
 import { DesktopClient, DesktopProtocolError } from './protocol';
 
 export interface DesktopAccountOptions {
@@ -105,10 +106,7 @@ export class VerdictanAccountService {
   check() {
     return this.run('check', async (client, generation) => {
       this.set({ ...this.state, phase: 'checking', executionReady: false, error: undefined });
-      const capabilities = parseCapabilities((await client.request('capabilities')).data);
-      const account = parseAccount((await client.request('status')).data, this.options.apiOrigin);
-      if (generation === this.generation)
-        this.set({ phase: account.state, account, capabilities, executionReady: false });
+      await this.refresh(client, generation);
     });
   }
   authorize(intent: 'login' | 'register') {
@@ -137,23 +135,31 @@ export class VerdictanAccountService {
         });
       });
       if (generation !== this.generation) return;
-      const account = parseAccount((await client.request('status')).data, this.options.apiOrigin);
-      if (generation === this.generation)
-        this.set({ ...this.state, phase: account.state, account, executionReady: false });
+      await this.refresh(client, generation);
     });
+  }
+  /**
+   * Reads the account and then its session capabilities from the same account profile. The
+   * broker adds project-service operations only for a signed-in, current account, so read
+   * them again after each account change.
+   */
+  private async refresh(client: DesktopClient, generation: number) {
+    const account = parseAccount((await client.request('status')).data, this.options.apiOrigin);
+    const capabilities = parseCapabilities((await client.request('capabilities')).data);
+    if (generation === this.generation)
+      this.set({
+        phase: account.state,
+        account,
+        capabilities: sessionCapabilities(capabilities, account),
+        executionReady: false,
+      });
   }
   async cancel() {
     if (this.state.phase !== 'authorizing') return this.status();
     ++this.generation;
     try {
       await this.client?.request('authorization.cancel');
-      if (this.client) {
-        const account = parseAccount(
-          (await this.client.request('status')).data,
-          this.options.apiOrigin,
-        );
-        this.set({ ...this.state, phase: account.state, account, executionReady: false });
-      }
+      if (this.client) await this.refresh(this.client, this.generation);
     } catch {
       this.client?.close();
       this.client = undefined;
@@ -164,9 +170,7 @@ export class VerdictanAccountService {
   renew() {
     return this.run('renew', async (client, generation) => {
       await client.request('session.renew');
-      const account = parseAccount((await client.request('status')).data, this.options.apiOrigin);
-      if (generation === this.generation)
-        this.set({ ...this.state, phase: account.state, account, executionReady: false });
+      await this.refresh(client, generation);
     });
   }
   async logout() {
@@ -177,12 +181,20 @@ export class VerdictanAccountService {
       const result = await client.request('session.logout');
       if (typeof result.data.remote_revoked !== 'boolean' || result.data.execution_blocked !== true)
         throw new DesktopProtocolError('desktop.protocol_invalid');
+      // Drop session capabilities at once. A failed read below then leaves none.
       if (generation === this.generation)
         this.set({
           phase: 'signed-out',
           executionReady: false,
           remoteRevocationPending: !result.data.remote_revoked,
         });
+      try {
+        const capabilities = parseCapabilities((await client.request('capabilities')).data);
+        if (generation === this.generation)
+          this.set({ ...this.state, capabilities: sessionCapabilities(capabilities) });
+      } catch {
+        // Sign-out is complete. Keep the signed-out state without capabilities.
+      }
     });
   }
   dispose() {
@@ -233,6 +245,24 @@ export function parseAccount(data: Record<string, unknown>, apiOrigin: string): 
     expiresAt: (data.expires_at as string | undefined) || undefined,
     ...(text(data.organization_name) ? { organizationName: data.organization_name } : {}),
     ...(text(data.user_email) ? { userEmail: data.user_email } : {}),
+  };
+}
+const sessionOperations = new Set([
+  'project.permissions',
+  ...Object.keys(projectServicePermissions),
+]);
+/**
+ * Session-scoped operations count only for an authenticated account. A signed-out, expired,
+ * or authorizing profile never makes them available, whatever the response says.
+ */
+export function sessionCapabilities(
+  value: VerdictanCapabilities,
+  account?: VerdictanAccount,
+): VerdictanCapabilities {
+  if (account?.state === 'authenticated') return value;
+  return {
+    ...value,
+    capabilities: value.capabilities.filter((name) => !sessionOperations.has(name)),
   };
 }
 export function parseCapabilities(data: Record<string, unknown>): VerdictanCapabilities {

@@ -17,6 +17,7 @@ import { SectionHeader } from './ui/page-header';
 import { showToast } from './ui/toast';
 import { ActionRow, ErrorAlert, ReviewRow, ToolSection, FormSelect } from './planning-kit';
 import { errorMessage } from '../lib/errors';
+import { historyCostLabel } from '../domain/verdictan';
 
 /** Plain words for each project service action. */
 const operationLabels: Record<ProjectServiceOperation, string> = {
@@ -68,13 +69,6 @@ function ShortId({ value }: { value: unknown }) {
   );
 }
 
-function cost(row: Record<string, unknown>) {
-  const usage = record(row.usage);
-  if (usage.measured_cost != null)
-    return `${String(usage.measured_cost)} ${text(usage.currency)}`.trim();
-  if (typeof row.actual_cost === 'number') return `${row.actual_cost} ${text(row.currency)}`.trim();
-  return 'Unknown';
-}
 function tokens(row: Record<string, unknown>) {
   const usage = record(row.usage);
   if (usage.total_tokens != null) return String(usage.total_tokens);
@@ -498,7 +492,7 @@ export function ProjectServicesPanel({
                       <>
                         Policy: {words(text(row.decision_outcome) || text(row.decision))}
                         {text(row.reason_code) ? ` · ${words(row.reason_code)}` : ''} · Cost:{' '}
-                        {cost(row)} · Tokens: {tokens(row)}
+                        {historyCostLabel(row)} · Tokens: {tokens(row)}
                         {text(record(row.usage).settlement_state) || text(row.settlement_state)
                           ? ` · ${words(text(record(row.usage).settlement_state) || text(row.settlement_state))}`
                           : ''}

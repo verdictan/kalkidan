@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 async function openSession(page: any) {
-  await page.goto('http://127.0.0.1:5173');
+  await page.goto('/');
   await page.locator('.project-tree').getByRole('button', { name: 'Atlas', exact: true }).click();
   await page.locator('.repo-select').first().click();
   await page

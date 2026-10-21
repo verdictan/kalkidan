@@ -4,6 +4,7 @@ import { mkdtemp, mkdir, writeFile, readFile, rm, stat } from 'node:fs/promises'
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { crc32 } from 'node:zlib';
+import { createHash } from 'node:crypto';
 import { extractRuntime } from '../electron/verdictan/archive';
 import type { RuntimeArtifact } from '../electron/verdictan/release';
 // Stored ZIP records make the security fixtures independent of external archivers.
@@ -81,4 +82,23 @@ test('Windows runtime extraction accepts only complete regular-file archives and
     [{ name: 'unexpected.exe' }],
   ])
     await assert.rejects(extract(entries));
+});
+
+test('runtime extraction enforces the reviewed executable digest when the manifest has one', async (t) => {
+  const root = await mkdtemp(join(tmpdir(), 'runtime-zip-digest-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const entries = ['verdictan.exe', 'verdictan-update.exe', 'THIRD_PARTY_NOTICES.md'].map(
+    (name) => ({ name, body: name === 'verdictan.exe' ? 'reviewed executable' : 'runtime' }),
+  );
+  let index = 0;
+  const extract = async (executable_sha256: string) => {
+    const archive = join(root, String(index++) + '.zip'),
+      out = join(root, String(index++));
+    await mkdir(out);
+    await writeFile(archive, zip(entries));
+    return extractRuntime(archive, out, { os: 'win32', executable_sha256 } as RuntimeArtifact);
+  };
+  const reviewed = createHash('sha256').update('reviewed executable').digest('hex');
+  assert.equal(await readFile(await extract(reviewed), 'utf8'), 'reviewed executable');
+  await assert.rejects(extract('0'.repeat(64)), /executable checksum failed/);
 });

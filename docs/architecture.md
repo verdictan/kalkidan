@@ -48,6 +48,18 @@ Codex and Claude retain their native protocols inside `InteractiveChatRunner`; n
 
 `src/domain/host.ts` defines the permitted session operation names and host-qualified session IDs. `src/lib/remote-api.ts` binds a session API to local or SSH execution using typed arguments and results. The desktop service enforces the same remote-method allowlist. Project and tracker metadata stay on the Mac. A future transport must implement the same operation semantics and lifecycle, not expose arbitrary RPC.
 
+## Conversation resume ownership
+
+Kalkidan owns the resume decision for saved native conversations. Verdictan governs each agent request: authorization, runtime provisioning and revocation, gateway policy, usage, and audit. Verdictan supplies the binding constraints in `desktop-conversation-binding.v1`. A copy of the shared contract is in `tests/fixtures/verdictan/`.
+
+`src/domain/conversation-resume.ts` compares the saved binding with the binding of the new authorized runtime. It gives `compatible`, `incompatible`, or `invalid`, the changed field names, and one guidance value:
+
+- `none`: the conversation continues. Verdictan must still pass gateway readiness and evaluate the current policy.
+- `explicit_context_transfer`: the native agent, agent version, model, context format, configuration, or working directory changed. Start a new conversation. Kalkidan does not transfer context automatically.
+- `new_authorized_session`: the organization, user, region, provider, provider connection, access mode, installation, or host changed, or a binding is not valid. Start a new authorized session.
+
+A compatible result does not permit dispatch. `electron/verdictan/bindings.ts` stops the launch for every other result. Do not move authorization into Kalkidan.
+
 ## Configuration ownership
 
 | Setting                                       | Location                    | Meaning                                                              |

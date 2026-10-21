@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
   BindingStore,
+  ResumeIncompatibleError,
   assertCompatible,
   type ConversationBinding,
 } from '../electron/verdictan/bindings';
@@ -82,6 +83,45 @@ test('bindings persist private identities and reject silent account, host, model
   } finally {
     await rm(root, { recursive: true, force: true });
   }
+});
+test('resume errors carry field names and guidance, never binding values', () => {
+  const b = binding('/work/project');
+  const error = (() => {
+    try {
+      assertCompatible(b, { ...b, agent_version: '0.164.0', cwd: '/secret/other' });
+    } catch (caught) {
+      return caught;
+    }
+  })();
+  assert.ok(error instanceof ResumeIncompatibleError);
+  assert.equal(error.code, 'desktop.resume_incompatible');
+  assert.deepEqual(error.decision.mismatched_fields, ['agent_version', 'cwd']);
+  assert.equal(error.decision.guidance, 'explicit_context_transfer');
+  assert.doesNotMatch(JSON.stringify(error.decision), /secret/);
+  // A saved binding from a newer context format gives the changed field, not a parse error.
+  assert.throws(
+    () => assertCompatible({ ...b, context_format_version: 2 }, b),
+    (caught: any) =>
+      caught.code === 'desktop.resume_incompatible' &&
+      caught.decision.mismatched_fields.join() === 'context_format_version',
+  );
+  // A saved project scope cannot change on resume.
+  assert.throws(
+    () => assertCompatible({ ...b, project_id: 'project-1' }, { ...b, project_id: 'project-2' }),
+    /resume_incompatible/,
+  );
+  // The requested binding must still be a valid current binding.
+  assert.throws(
+    () => assertCompatible(b, { ...b, context_format_version: 2 }),
+    /resume_binding_invalid/,
+  );
+  assert.throws(
+    () => assertCompatible({ ...b, organization_id: 'x' }, b),
+    (caught: any) =>
+      caught.code === 'desktop.resume_binding_invalid' &&
+      caught.decision.guidance === 'new_authorized_session',
+  );
+  assert.equal(assertCompatible(b, { ...b }).status, 'compatible');
 });
 test('managed homes and binding files cannot follow symlinks', async () => {
   const root = await mkdtemp(join(tmpdir(), 'binding-'));

@@ -83,7 +83,7 @@ test('remote project flow checks and installs the host, picks remote folders, an
       },
     };
   });
-  await page.goto('http://127.0.0.1:5173');
+  await page.goto('/');
   await page.getByRole('main').getByRole('button', { name: 'New project', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: 'New project', exact: true });
   await dialog.getByLabel('Project name', { exact: true }).fill('Remote platform');

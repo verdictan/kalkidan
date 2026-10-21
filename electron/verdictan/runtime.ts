@@ -87,10 +87,20 @@ export class ManagedRuntimes {
       this.records.set(binding.session_id, item);
       this.options.changed?.();
       try {
-        const data = (await client.request('runtime.provision', { parameters: binding })).data;
+        const event = await client.request('runtime.provision', { parameters: binding });
+        const data = event.data;
         if (!uuid(data.runtime_id))
           throw new DesktopProtocolError('desktop.invalid_runtime_response');
         item.runtimeId = data.runtime_id;
+        // Keep the issued ID above so that a mismatched runtime can still be revoked.
+        if (
+          binding.provider_access_mode === 'claude_subscription'
+            ? event.event !== 'runtime.provisioned' ||
+              data.provider_access_mode !== 'claude_subscription' ||
+              data.provider_connection_id != null
+            : event.event === 'runtime.provisioned'
+        )
+          throw new DesktopProtocolError('desktop.runtime_binding_mismatch');
         if (data.status !== 'provisioned' || data.credentials_stored !== true) {
           this.set(item, 'reconciliation-required');
           throw new DesktopProtocolError('desktop.runtime_reconciliation_required');

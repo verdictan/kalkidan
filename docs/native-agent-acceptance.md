@@ -120,3 +120,73 @@ Do not replace the selected subscription with API billing.
 The new managed Codex acceptance harness reached runtime provisioning with one
 EU policy. Gateway supervision then reported `desktop.gateway_unavailable`
 before a native model request. Local and SSH live acceptance remain open.
+
+## Runtime 0.6.1 approval on 2026-10-21
+
+The operator approved Verdictan 0.6.1 for macOS ARM64 with
+`scripts/approve-runtime.ts`. The evidence is the public `v0.6.1` release of
+`verdictan/packages` (tag `cli/v0.6.1`, source
+`be47270c251be6892f7ab78a9e6c50e1b98c1032`). The approval uses these values:
+
+- Manifest `desktop-release-manifest.v1.json`, SHA-256
+  `a005e2b5ed185a0cfaf2558461f737a39a7aaf0825ca42ce307070cf952f994c`.
+- Archive `verdictan-aarch64-apple-darwin.tar.gz`, SHA-256
+  `93e580d1c3ea8f030e1b73efb278e929ad3e4429aaa67c15284b3baf9ed84311`.
+- Executable SHA-256
+  `99d6338156cd1c47e0b61f2fd4ed8ce751a99710a3c27bddc80c3d043147c617`.
+- Manifest expiry: `1793184758` (2026-10-28 10:52:38 UTC). Renew the approval
+  before this time.
+
+`tests/acceptance/runtime-install.ts` installed 0.6.1 from the public release in
+a disposable root. Clean install, restart, and the capability probe passed.
+
+The installer now also compares the extracted executable with the manifest
+`executable_sha256` value, when the manifest has one.
+
+### Kalkidan-reviewed Linux x64 pin
+
+Linux x64 uses a Kalkidan-reviewed manifest for 0.6.1. Verdictan did not publish
+it. The Verdictan desktop manifest lists only macOS ARM64. Verdictan does not
+yet list Linux as a qualified managed desktop target. The earlier v0.3.0
+Linux pin used the same method.
+
+The operator made the manifest from the public archive and its checksum data.
+The operator approved it with `scripts/approve-runtime.ts` for `linux x64 6.12.0`.
+The approval uses these values:
+
+- Archive `verdictan-x86_64-unknown-linux-gnu.tar.gz`, size 98317795 bytes,
+  SHA-256 `436f5b8f426404fab204dfd7b976cb2d811e6a17403da8c0cd7fa43e9c40d144`.
+  The downloaded archive, its `.sha256` asset, and the `sha256.sum` entry agree.
+- Executable SHA-256
+  `f4784283f864f9f433e2632d023e5b84db0111b8114c32bee38d75187ddb88a5`.
+- Reviewed manifest SHA-256
+  `8403328eee5e36173af79bc33380687148ec7fdd2f63cadc4cf2297cfccbc5bf`,
+  sequence `1792582749000`.
+- Minimum Linux kernel 6.12.0. Dependencies: glibc (validated on Enterprise
+  Linux 10.2), bubblewrap 0.10.0 or later, and Python 3.
+- Manifest expiry: `1793187549` (2026-10-28 11:39:09 UTC). Renew the approval
+  before this time.
+
+The production installer completed an offline linux-x64 installation of this
+archive on macOS. It checked the archive digest, the archive contents, and the
+executable digest. The Linux executable cannot run on macOS, so this check did
+not run the capability probe. Run `tests/acceptance/runtime-install.ts` on a
+Linux x64 host before you report Linux runtime acceptance.
+
+## Claude subscription adapter on 2026-10-21
+
+Verdictan CLI 0.6.1 advertises `provider_access.claude_subscription`. The Kalkidan
+adapter now supports this mode. Kalkidan offers the mode only when the runtime
+capability and `setup.inspect.provider_access_modes` both include it. Otherwise
+the mode stays unavailable. Kalkidan does not select BYOK as a replacement.
+
+The managed launch uses Claude Code `2.1.304` only. It sends no provider
+connection and expects `runtime.provisioned`. The conversation binding keeps the
+access mode. A resume cannot change it. The launcher reads the existing native
+login on the execution host. On SSH, the remote helper reads the remote login.
+The short-lived access token goes only into the owned child environment. The
+launcher stops the child before the token expires.
+
+Deterministic tests are in `tests/verdictan-claude-subscription.test.ts`. They
+use copies of the published fixtures in `tests/fixtures/verdictan/`. Local and
+SSH live acceptance (C11–C13) is still open.

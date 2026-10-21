@@ -1,0 +1,76 @@
+{
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "organization_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "user_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "region_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "provider_connection_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "installation_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "host_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "conversation_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "provider": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9_-]{0,63}$"
+    },
+    "model": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:/-]{0,255}$"
+    },
+    "agent_kind": {
+      "enum": [
+        "codex",
+        "claude_code"
+      ]
+    },
+    "agent_version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+(?:-[A-Za-z0-9.-]{1,64})?$"
+    },
+    "context_format_version": {
+      "type": "integer",
+      "minimum": 1
+    }
+  },
+  "required": [
+    "schema_version",
+    "organization_id",
+    "user_id",
+    "region_id",
+    "provider_connection_id",
+    "installation_id",
+    "host_id",
+    "conversation_id",
+    "provider",
+    "model",
+    "agent_kind",
+    "agent_version",
+    "context_format_version"
+  ],
+  "additionalProperties": true,
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "desktop-conversation-binding.v1"
+}
