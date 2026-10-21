@@ -1910,9 +1910,17 @@ app.whenReady().then(async () => {
   });
   handle('managed-history', (target) => managedHistory.list(target));
   const projectUsage = new ProjectUsageReader({
-    history: (target) => managedHistory.list(target),
-    binding: async (agent, sessionId) => {
+    // One account check for each read, not one for each chat.
+    account: async () => {
       const { account } = await verdictan!.setup.inspect();
+      return {
+        key: identityKey(account.apiUrl, account.organizationId!, account.userId!),
+        organizationId: account.organizationId!,
+        userId: account.userId!,
+      };
+    },
+    history: (target) => managedHistory.list(target),
+    binding: async (agent, sessionId, account) => {
       const binding = await verdictan!.bindings.read(
         agent === 'codex' ? 'codex' : 'claude_code',
         sessionId,
@@ -1941,10 +1949,10 @@ app.whenReady().then(async () => {
       return false;
     },
   });
-  handle('project-usage', (groupId, chats) => {
+  handle('project-usage', (groupId, chats, options) => {
     if (!projectGroups.groups.some((group) => group.id === groupId))
       throw Error('Project is unavailable.');
-    return projectUsage.read(groupId, chats);
+    return projectUsage.read(groupId, chats, options ?? {});
   });
   handle(
     'project-publish-doc',

@@ -28,6 +28,11 @@ export function runtimeAnchor(hostId?: string) {
   return `runtime-${hostId || 'local'}`;
 }
 
+/** The element ID of the "Update Kalkidan helper" button of one SSH host in Settings › Computers. */
+export function helperUpdateAnchor(hostId: string) {
+  return `helper-update-${hostId}`;
+}
+
 /** The element IDs in Settings that other parts of the app link to. */
 export const settingsAnchors = {
   about: 'settings-about',
@@ -59,7 +64,7 @@ export function settingsTarget(
   const id = anchor === 'verdictan-runtime' ? runtimeAnchor() : anchor || undefined;
   if (id) {
     if (anchorTabs[id]) return { tab: anchorTabs[id], anchor: id };
-    if (id.startsWith('computer-') || id.startsWith('runtime-'))
+    if (id.startsWith('computer-') || id.startsWith('runtime-') || id.startsWith('helper-update-'))
       return { tab: 'computers', anchor: id };
     if (id === 'settings-agents' || id.startsWith('agent-')) return { tab: 'agents', anchor: id };
   }

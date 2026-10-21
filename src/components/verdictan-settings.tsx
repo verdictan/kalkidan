@@ -573,7 +573,7 @@ export function ManagedSetup({
           </button>
         </p>
       )}
-      <SettingsDisclosure title="How this works">
+      <SettingsDisclosure title="How managed setup works">
         <div className="grid gap-2 text-xs leading-4 text-muted-foreground">
           <p>
             Kalkidan runs Codex and Claude Code through managed agents. Your organization controls

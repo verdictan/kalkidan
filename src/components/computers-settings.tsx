@@ -1,11 +1,18 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Laptop, Plus, Server } from 'lucide-react';
 import type { API, RemoteHost } from '../types';
+import type { HelperUpdateStatus } from '../domain/updates';
 import { agentComputerAnchor } from '../domain/agent-programs';
-import { computerAnchor } from '../domain/settings-route';
-import { shortId } from '../lib/verdictan-labels';
+import { computerAnchor, helperUpdateAnchor } from '../domain/settings-route';
+import { helperStatusLabel, shortId } from '../lib/verdictan-labels';
 import { errorMessage } from '../lib/errors';
-import { AddHostForm, HostSetup, useRemoteHosts } from './remote-host-picker';
+import {
+  AddHostForm,
+  HelperUpdateButton,
+  HostSetup,
+  useHostSetup,
+  useRemoteHosts,
+} from './remote-host-picker';
 import { ManagedRuntime, type SettingsNavigate } from './verdictan-settings';
 import { SettingsGroup } from './settings-disclosure';
 import { Badge } from './ui/badge';
@@ -25,6 +32,34 @@ const hostStatus: Record<
 };
 
 /**
+ * The update state of the helper on each SSH host, by host ID. It reads the state again when
+ * a host changes, for example after a helper update. A failed read shows no update state.
+ */
+function useHelperUpdates(api: API, open: boolean, hosts: RemoteHost[]) {
+  const [helpers, setHelpers] = useState<Record<string, HelperUpdateStatus>>({});
+  const key = hosts.map((h) => `${h.id}:${h.status}:${h.installedDigest || ''}`).join(',');
+  useEffect(() => {
+    // Older desktop builds do not report component versions.
+    if (!open || typeof api.componentUpdates !== 'function') return;
+    let live = true;
+    void Promise.resolve()
+      .then(() => api.componentUpdates(false))
+      .then(
+        (value) => {
+          if (live) setHelpers(Object.fromEntries(value.helpers.map((h) => [h.hostId, h])));
+        },
+        () => {
+          if (live) setHelpers({});
+        },
+      );
+    return () => {
+      live = false;
+    };
+  }, [api, open, key]);
+  return helpers;
+}
+
+/**
  * Settings › Computers: one card for this computer and one for each SSH host. Each card shows
  * the connection, the managed agents runtime, the helper, and a link to its agent programs.
  */
@@ -41,6 +76,7 @@ export function ComputersSettings({
   onRefresh: () => Promise<void>;
 }) {
   const { hosts, setHosts, error } = useRemoteHosts(api, open);
+  const helpers = useHelperUpdates(api, open, hosts);
   const [adding, setAdding] = useState(false);
   // The host that was just added. Its setup starts at once.
   const [added, setAdded] = useState('');
@@ -94,11 +130,12 @@ export function ComputersSettings({
       <ul className="grid min-w-0 gap-3" aria-label="Computers">
         <ComputerCard api={api} open={open} onNavigate={onNavigate} />
         {hosts.map((host) => (
-          <ComputerCard
+          <HostCard
             key={host.id}
             api={api}
             open={open}
             host={host}
+            helper={helpers[host.id]}
             autoStart={added === host.id}
             onHost={store}
             onRemoved={(id) => setHosts((previous) => previous.filter((h) => h.id !== id))}
@@ -120,28 +157,119 @@ export function ComputersSettings({
   );
 }
 
-/** One computer: this computer when `host` is not set, else one SSH host. */
-function ComputerCard({
+/** The card of one SSH host: the connection, the runtime, and the helper with its update. */
+function HostCard({
   api,
   open,
   host,
-  autoStart = false,
+  helper,
+  autoStart,
   onHost,
   onRemoved,
   onNavigate,
 }: {
   api: API;
   open: boolean;
+  host: RemoteHost;
+  helper?: HelperUpdateStatus;
+  autoStart: boolean;
+  onHost: (host: RemoteHost) => void;
+  onRemoved: (hostId: string) => void;
+  onNavigate: SettingsNavigate;
+}) {
+  // The connection and the helper update share one state, so one action runs at a time.
+  const setup = useHostSetup(api, { onHost, onRemoved });
+  const digest = host.installedDigest || host.runningDigest;
+  const available = helper?.discovery === 'available';
+  const status =
+    helper && ['available', 'waiting-for-idle'].includes(helper.discovery)
+      ? helperStatusLabel(helper)
+      : undefined;
+  return (
+    <ComputerCard
+      api={api}
+      open={open}
+      host={host}
+      onNavigate={onNavigate}
+      connection={
+        <HostSetup
+          api={api}
+          host={host}
+          setup={setup}
+          autoStart={autoStart}
+          onHost={onHost}
+          onRemoved={onRemoved}
+        />
+      }
+    >
+      <section aria-label="Kalkidan helper" className="computer-card-section grid gap-2">
+        <div className="flex min-w-0 flex-wrap items-center gap-2">
+          <h4 className="text-[13px] leading-5 font-semibold">Kalkidan helper</h4>
+          {status && (
+            <Badge variant={status.tone} size="sm">
+              {status.label}
+            </Badge>
+          )}
+        </div>
+        <dl className="meta-list">
+          <dt>Version</dt>
+          <dd>{host.version || 'Not installed'}</dd>
+          {digest && (
+            <>
+              <dt>Build</dt>
+              <dd>{shortId(digest)}</dd>
+            </>
+          )}
+          {host.node && (
+            <>
+              <dt>Node.js</dt>
+              <dd>{host.node}</dd>
+            </>
+          )}
+        </dl>
+        {available && (
+          <p className="text-xs text-muted-foreground">
+            This app has a new version of the helper. The update stops active work on this host.
+          </p>
+        )}
+        {host.version && (
+          <div>
+            <HelperUpdateButton
+              api={api}
+              host={host}
+              setup={setup}
+              id={helperUpdateAnchor(host.id)}
+              available={available}
+            />
+          </div>
+        )}
+      </section>
+    </ComputerCard>
+  );
+}
+
+/**
+ * One computer: this computer when `host` is not set, else one SSH host. `connection` and
+ * `children` are the sections of an SSH host.
+ */
+function ComputerCard({
+  api,
+  open,
+  host,
+  connection,
+  children,
+  onNavigate,
+}: {
+  api: API;
+  open: boolean;
   host?: RemoteHost;
-  autoStart?: boolean;
-  onHost?: (host: RemoteHost) => void;
-  onRemoved?: (hostId: string) => void;
+  connection?: ReactNode;
+  children?: ReactNode;
   onNavigate: SettingsNavigate;
 }) {
   const name = host ? host.name : 'This computer';
   const ready = !host || host.status === 'connected';
   const status = host ? hostStatus[host.status] : undefined;
-  const digest = host?.installedDigest || host?.runningDigest;
   return (
     <li
       id={computerAnchor(host?.id)}
@@ -175,16 +303,10 @@ function ComputerCard({
           </Button>
         </span>
       </header>
-      {host && onHost && onRemoved && (
+      {connection && (
         <section aria-label="Connection" className="computer-card-section">
           <h4 className="text-[13px] leading-5 font-semibold">Connection</h4>
-          <HostSetup
-            api={api}
-            host={host}
-            autoStart={autoStart}
-            onHost={onHost}
-            onRemoved={onRemoved}
-          />
+          {connection}
         </section>
       )}
       <div className="computer-card-section">
@@ -199,27 +321,7 @@ function ComputerCard({
           </section>
         )}
       </div>
-      {host && (
-        <section aria-label="Kalkidan helper" className="computer-card-section grid gap-1">
-          <h4 className="text-[13px] leading-5 font-semibold">Kalkidan helper</h4>
-          <dl className="meta-list">
-            <dt>Version</dt>
-            <dd>{host.version || 'Not installed'}</dd>
-            {digest && (
-              <>
-                <dt>Build</dt>
-                <dd>{shortId(digest)}</dd>
-              </>
-            )}
-            {host.node && (
-              <>
-                <dt>Node.js</dt>
-                <dd>{host.node}</dd>
-              </>
-            )}
-          </dl>
-        </section>
-      )}
+      {children}
     </li>
   );
 }

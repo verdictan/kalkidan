@@ -9,6 +9,7 @@ import {
   defaultRemoved,
   managedLaunchBlock,
   managedOnlyNotice,
+  sameSelection,
   selectionIssue,
   usesAgentChoice,
   type VerdictanSelection,
@@ -599,6 +600,64 @@ test('provisioning checks the agent source of a chosen agent and of the Kalkidan
       picked,
       fallback,
     ),
+    false,
+  );
+});
+
+test('a saved selection in another shape is the same setup', () => {
+  const subscription: VerdictanSelection = {
+    ...chosen,
+    providerConnectionId: '',
+    providerAccessMode: 'codex_subscription',
+    model: 'gpt-6-astra',
+  };
+  // The same values, also with a missing value for an empty one.
+  assert.equal(sameSelection(base, subscription, { ...subscription }), true);
+  const { providerConnectionId: _, ...missing } = subscription;
+  assert.equal(sameSelection(base, missing as VerdictanSelection, subscription), true);
+  // No mode is the organization connection.
+  assert.equal(sameSelection(base, chosen, { ...chosen, providerAccessMode: 'byok' }), true);
+  // Saved before the agent choice: no agent, the team of the Kalkidan agent, and the default
+  // policy or the configuration of that agent.
+  const older = { ...subscription, agentId: undefined };
+  assert.equal(sameSelection(base, older, subscription), true);
+  assert.equal(
+    sameSelection(
+      base,
+      {
+        ...older,
+        configurationId: fallback.configuration_id,
+        configurationVersionId: fallback.configuration_version_id,
+      },
+      subscription,
+    ),
+    true,
+  );
+  // A real change, or a different setup, is not the same.
+  assert.equal(sameSelection(base, undefined, subscription), false);
+  assert.equal(sameSelection(base, subscription, { ...subscription, model: 'gpt-5' }), false);
+  assert.equal(sameSelection(base, { ...older, teamId: team2 }, { ...subscription }), false);
+  assert.equal(
+    sameSelection(
+      base,
+      {
+        ...older,
+        configurationId: strict.configuration_id,
+        configurationVersionId: strict.configuration_version_id,
+      },
+      subscription,
+    ),
+    false,
+  );
+  assert.equal(
+    sameSelection(base, older, { ...subscription, agentId: otherAgent, teamId: team2 }),
+    false,
+  );
+  // Without the agent choice, an agent in the form is a change.
+  assert.equal(sameSelection({ ...base, agents: undefined }, older, subscription), false);
+  // A removed default is not the same setup.
+  assert.equal(
+    sameSelection({ ...base, policyReadiness: 'default_removed' }, older, subscription),
     false,
   );
 });

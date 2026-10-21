@@ -14,7 +14,7 @@ import {
   shortId,
 } from '../lib/verdictan-labels';
 import type { ComponentUpdateStatus } from '../domain/updates';
-import { computerAnchor, runtimeAnchor } from '../domain/settings-route';
+import { computerAnchor, helperUpdateAnchor, runtimeAnchor } from '../domain/settings-route';
 import { StepError, UpdateCard, type SettingsNavigate } from './verdictan-settings';
 import { CopyValue, SettingsDisclosure } from './settings-disclosure';
 import { Progress } from './ui/progress';
@@ -354,7 +354,15 @@ export function ComponentUpdates({
                 variant={helper.discovery === 'available' ? 'default' : 'outline'}
                 size="sm"
                 aria-label={`Open ${helper.name} in Computers`}
-                onClick={() => onNavigate('computers', computerAnchor(helper.hostId))}
+                onClick={() =>
+                  onNavigate(
+                    'computers',
+                    // Move to the update button when the update waits for the user.
+                    helper.discovery === 'available' || helper.discovery === 'waiting-for-idle'
+                      ? helperUpdateAnchor(helper.hostId)
+                      : computerAnchor(helper.hostId),
+                  )
+                }
               >
                 Open in Computers
               </Button>

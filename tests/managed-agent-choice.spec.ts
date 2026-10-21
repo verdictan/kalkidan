@@ -299,3 +299,77 @@ test('a removed default without another agent tells the user to ask an administr
   );
   await expect(setup.getByRole('button', { name: 'Use this setup' })).toHaveCount(0);
 });
+
+for (const [name, agentId] of [
+  ['with the Kalkidan agent', 'agentId: ids.kalkidan,'],
+  ['saved before the agent choice', ''],
+] as const)
+  test(`a saved Codex subscription setup ${name} shows as saved`, async ({ page }) => {
+    await fixture(
+      page,
+      `return {
+        models: async () => [{ id: 'gpt-6-astra', name: 'GPT-6-Astra' }],
+        verdictanSetup: async () => helpers.setup({
+          status: 'ready',
+          providerAccessModes: ['byok', 'codex_subscription'],
+          bootstrap: helpers.record(),
+          agents: [helpers.agents.kalkidan, helpers.agents.release],
+          selections: {
+            codex: {
+              teamId: ids.team,
+              ${agentId}
+              configurationId: '',
+              configurationVersionId: '',
+              providerConnectionId: '',
+              providerAccessMode: 'codex_subscription',
+              model: 'gpt-6-astra',
+            },
+          },
+        }),
+      };`,
+    );
+    const setup = await openSetup(page);
+    await expect(setup.getByRole('combobox', { name: 'Agent' })).toHaveText('Kalkidan agent');
+    await expect(setup.getByRole('combobox', { name: 'Model access' })).toHaveText(
+      'Codex subscription on the computer',
+    );
+    await expect(setup.getByRole('combobox', { name: 'Model', exact: true })).toHaveText(
+      'GPT-6-Astra',
+    );
+    await expect(setup.getByText('Ready for Codex', { exact: true })).toBeVisible();
+    await expect(setup.getByRole('button', { name: 'Use this setup' })).toHaveCount(0);
+    expect(await page.evaluate(() => (window as any).savedSelections)).toEqual([]);
+  });
+
+test('a complete setup that Kalkidan chose, but did not save, shows Use this setup', async ({
+  page,
+}) => {
+  await fixture(
+    page,
+    `return {
+      models: async () => [{ id: 'gpt-6-astra', name: 'GPT-6-Astra' }],
+      verdictanSetup: async () => helpers.setup({
+        bootstrap: helpers.record(),
+        agents: [helpers.agents.kalkidan],
+        selections: {
+          codex: {
+            teamId: ids.team2,
+            configurationId: '',
+            configurationVersionId: '',
+            providerConnectionId: ids.team,
+            model: 'gpt-6-astra',
+          },
+        },
+      }),
+    };`,
+  );
+  const setup = await openSetup(page);
+  // The saved setup uses another team than the Kalkidan agent. It is a change.
+  await expect(setup.getByRole('combobox', { name: 'Agent' })).toHaveText('Kalkidan agent');
+  await expect(setup.getByRole('button', { name: 'Use this setup' })).toBeVisible();
+  // Only the readiness chip of the saved setup says "Ready". The form does not.
+  await expect(setup.getByText('Ready for Codex', { exact: true })).toHaveCount(1);
+  await expect(
+    setup.getByRole('list', { name: 'Agent readiness' }).getByText('Ready for Codex'),
+  ).toBeVisible();
+});

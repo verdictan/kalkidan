@@ -226,8 +226,13 @@ test('each tab shows its content', async ({ page }) => {
   await expect(managed).toContainText('Ready for Codex');
   await expect(managed.getByRole('button', { name: /^Save/ })).toHaveCount(0);
   await expect(managed.getByText('Before each run, the service checks')).toBeHidden();
-  await managed.getByRole('button', { name: 'How this works' }).click();
+  await managed.getByRole('button', { name: 'How managed setup works' }).click();
   await expect(managed.getByText('Before each run, the service checks')).toBeVisible();
+  // Each disclosure has its own name. No two say "How this works".
+  await expect(settings.getByRole('button', { name: 'How this works' })).toHaveCount(0);
+  const programs = settings.getByRole('region', { name: 'Agent programs' });
+  await programs.getByRole('button', { name: 'How agent programs are chosen' }).click();
+  await expect(programs.getByText('Kalkidan does not start them directly.')).toBeVisible();
   await expect(settings.getByRole('region', { name: 'Agents on this computer' })).toBeVisible();
   await expect(settings.getByRole('region', { name: 'Agents on devbox' })).toBeVisible();
   await page.screenshot({ path: 'test-results/settings-agents.png', fullPage: true });
@@ -311,6 +316,69 @@ test('Updates opens the host in Computers and focuses it', async ({ page }) => {
       .getByRole('group', { name: 'This computer' })
       .getByRole('region', { name: 'Managed agents runtime' }),
   ).toBeFocused();
+});
+
+test('a helper update shows on the host card, and Updates focuses its button', async ({ page }) => {
+  await fixture(
+    page,
+    `const w = window;
+    w.installs = [];
+    return {
+      remoteInstall: async (id) => {
+        w.installs.push(id);
+        return (await w.workspace.remoteHosts()).find((host) => host.id === id);
+      },
+      componentUpdates: async () => ({
+        desktop: {
+          installedVersion: '0.1.0-build.100.aaaaaaaaaaaa',
+          runningVersion: '0.1.0-build.100.aaaaaaaaaaaa',
+          runningBuild: 'c'.repeat(64),
+          discovery: 'current',
+          stale: false,
+          install: { kind: 'mac-app', selfUpdate: true },
+        },
+        helpers: [
+          {
+            hostId: 'h1',
+            name: 'devbox',
+            connected: true,
+            installed: 'a'.repeat(64),
+            running: 'a'.repeat(64),
+            approved: 'd'.repeat(64),
+            discovery: 'available',
+          },
+        ],
+      }),
+    };`,
+  );
+  await page.evaluate(() =>
+    window.dispatchEvent(
+      new CustomEvent('kalkidan-open-settings', { detail: { section: 'updates' } }),
+    ),
+  );
+  const settings = settingsPage(page);
+  const summary = settings.getByRole('group', { name: 'SSH helper on devbox' });
+  await expect(summary).toContainText('Update available');
+  await summary.getByRole('button', { name: 'Open devbox in Computers' }).click();
+  await expectTab(page, 'Computers');
+  const devbox = settings.getByRole('group', { name: 'devbox' });
+  const helper = devbox.getByRole('region', { name: 'Kalkidan helper' });
+  const update = helper.getByRole('button', { name: 'Update Kalkidan helper' });
+  await expect(update).toBeFocused();
+  await expect(helper).toContainText('Update available');
+  // One copy of the button. The manual setup details do not show a second one.
+  await expect(devbox.getByRole('button', { name: 'Update Kalkidan helper' })).toHaveCount(1);
+  await update.click();
+  const confirm = page.getByRole('dialog', { name: 'Update the Kalkidan helper on devbox?' });
+  await expect(confirm).toContainText('The update stops all active work on this host.');
+  await confirm.getByRole('button', { name: 'Update Kalkidan helper' }).click();
+  await expect.poll(() => page.evaluate(() => (window as any).installs)).toEqual(['h1']);
+  // A host without an update shows the button as a secondary action, without the badge.
+  await expect(
+    settings
+      .getByRole('group', { name: 'buildbox' })
+      .getByRole('region', { name: 'Kalkidan helper' }),
+  ).not.toContainText('Update available');
 });
 
 test('a refusal link opens Agents with the program of that computer focused', async ({ page }) => {
