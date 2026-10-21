@@ -70,6 +70,20 @@ names that Verdictan sends. When Verdictan does not send a name, Settings shows
 a generic label, for example "Default team", "Policy 1", or "Your account". IDs
 stay internal.
 
+Verdictan keeps one default policy for Kalkidan in each organization. When an
+administrator opens the managed agent setup for the first time, Kalkidan makes
+this policy. The **Policy** list shows it as **Kalkidan default** and selects it.
+You can select a different policy when Verdictan lists one. If your organization
+has no default policy, or you cannot read it, the setup tells you to ask an
+organization administrator.
+
+Verdictan keeps one usage history for chats and tasks. To see the history of a
+chat, open **Chat actions** (**⋯**) and select **Usage history…**. For a task,
+open the project's **Insights** page, then **Managed agent services**. Each row
+shows the policy decision, the model, the tokens, the time, and the settlement.
+A missing value is unknown. It is not zero. Select **Load again** to see new
+requests and late settlement corrections.
+
 ### Run the source code
 
 Run these commands in sequence:

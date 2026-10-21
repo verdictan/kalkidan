@@ -22,18 +22,54 @@ session before resolving an uncertain outcome.
 
 ## Task evidence
 
-Expand **Task usage and policy history**, select a task, and load its saved
-observations. Evidence is scoped to the project and Verdictan account. The app
+The **Usage** section shows the observations that this computer saved for each
+task run. Select a task to load them. Evidence is scoped to the project and Verdictan account. The app
 keeps up to 20 observations per run and shows up to 100 recent runs. Settlement
 changes are saved even after the native run status stops changing. Missing costs,
 tokens, and audit references stay unknown. This is an observed history, not a
 complete billing ledger. Earlier runs without an account-bound receipt are not
 assigned to the current account.
 
+## Verdictan history
+
+Verdictan owns the history. It is one history for chats and tasks. Kalkidan
+reads it with `history.list` and a `history_scope`: the organization and the
+correlation keys of the chat (`conversation_id`) or of the task (`project_id`
+and `task_id`). The backend reads the keys from the chat binding or the project
+board. The renderer sends only the chat or the task and never sees an ID.
+
+When the runtime does not advertise `history.list`, the task history uses
+`task.history` for one release. A chat then has no history. Each row shows the
+policy decision, reason, model, token counts, timings, measured cost and
+settlement. A late settlement that completes a released authorization shows
+"Corrected after release". Unknown values stay unknown. **Load again** starts
+without a cursor, so it shows corrections and later requests.
+
+Kalkidan sends `x-verdictan-desktop-run-id` with each request. A project-bound
+runtime rejects requests without it.
+
+## Default policy
+
+Kalkidan owns projects. Verdictan is the gateway control plane. One default
+Kalkidan configuration replaces the earlier per-project templates. After
+sign-in, the managed agent setup reads `setup.inspect`. If
+`readiness.policy` is `default_creatable` and the runtime advertises
+`setup.ensure_default`, Kalkidan calls it once. Launches never call it.
+
+The setup shows the default as **Kalkidan default** and selects it. A selection
+of the default has no policy IDs, so `resources.provision` sends neither
+`configuration_id` nor `configuration_version_id`. Kalkidan never sends only one
+of them. It checks `configuration_source` in the response and binds the chat to
+the resolved version. A picked policy keeps the earlier behavior.
+
+For `default_configuration_required` and `default_permission_required`, the
+setup step tells the user to ask an organization administrator. A launch that
+gets one of these errors links to the same step.
+
 ## Broker-dependent services
 
-Expand **Project governance and knowledge** and check project services. The
-runtime must advertise the proposed operations. Kalkidan checks fresh permissions
+Expand **Managed agent services** and check project services. The runtime must
+advertise the operations. Kalkidan checks fresh permissions
 before every request. The broker must enforce the same permissions on its API.
 An older runtime shows an unavailable state.
 
@@ -47,14 +83,12 @@ provenance. Publication reads the reviewed document from project storage again;
 it rejects a changed revision. Delete actions need current permission and a
 reviewed revision. Project consent does not enable automatic Docs retrieval.
 
-Administrators can create policy templates and apply a selected version to an
-installation. Kalkidan blocks application while local agents run or remote hosts
-are connected. The broker must validate the target installation, policy ownership,
-and template compatibility. It must report partial application.
+Verdictan removed the template operations `admin.templates`,
+`admin.template.save`, and `admin.template.apply`. Kalkidan has no template UI,
+IPC, or preload method. Use the default policy instead.
 
 See [the broker contract](verdictan-project-services-contract.md) for the exact
-operations and acceptance cases. The Verdictan owner still needs to implement
-and advertise review mutations, Context Fabric, and administrator operations.
+operations and acceptance cases.
 
 ## Runtime approval maintenance
 
