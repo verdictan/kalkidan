@@ -1,10 +1,8 @@
 /**
- * Project operations of the broker. Each one needs an advertised runtime capability.
- * `task.history` is the earlier name of `history.list`. Use it only when `history.list` is not
- * advertised. Verdictan removed the template operations.
+ * Project operations of the broker. Each one needs an advertised runtime capability. History uses
+ * `history.list`, which is not a project operation. Verdictan removed the template operations.
  */
 export const projectServicePermissions = {
-  'task.history': 'history.read',
   'review.list': 'review.read',
   'review.decide': 'review.decide',
   'context.settings': 'context.read',

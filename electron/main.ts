@@ -1804,40 +1804,37 @@ app.whenReady().then(async () => {
       throw Error('Select a project document to publish verified source content.');
     return projectServices.request(id, request);
   });
-  const managedHistory = new ManagedHistory(
-    async (target) => {
-      const { client, account } = await verdictan!.setup.inspect();
-      const base = {
-        client,
-        accountKey: identityKey(account.apiUrl, account.organizationId!, account.userId!),
-        organizationId: account.organizationId!,
-        actorId: account.userId!,
-      };
-      if (target.kind === 'task') {
-        const group = projectGroups.groups.find((group) => group.id === target.groupId);
-        if (!group) throw Error('Project is unavailable.');
-        const connection = trackerConnection(group);
-        if (!connection) throw Error('Connect this project to GitHub.');
-        const linked = trackers.linked(connection);
-        const board = await linked.provider.board(linked.project);
-        if (!board.items.some((item) => item.id === target.taskId))
-          throw Error('Task is not available in this project.');
-        return { ...base, keys: { project_id: board.project.id, task_id: target.taskId } };
-      }
-      // The chat binding holds the conversation key. The renderer sends only the chat.
-      const kind =
-        target.agent === 'codex' ? 'codex' : target.agent === 'claude' ? 'claude_code' : '';
-      const binding = kind ? await verdictan!.bindings.read(kind, target.sessionId) : null;
-      if (
-        !binding ||
-        binding.organization_id !== account.organizationId ||
-        binding.user_id !== account.userId
-      )
-        throw Error('This chat has no managed agent history for the current account.');
-      return { ...base, keys: { conversation_id: binding.conversation_id } };
-    },
-    (groupId, fields) => projectServices.request(groupId, { operation: 'task.history', fields }),
-  );
+  const managedHistory = new ManagedHistory(async (target) => {
+    const { client, account } = await verdictan!.setup.inspect();
+    const base = {
+      client,
+      accountKey: identityKey(account.apiUrl, account.organizationId!, account.userId!),
+      organizationId: account.organizationId!,
+      actorId: account.userId!,
+    };
+    if (target.kind === 'task') {
+      const group = projectGroups.groups.find((group) => group.id === target.groupId);
+      if (!group) throw Error('Project is unavailable.');
+      const connection = trackerConnection(group);
+      if (!connection) throw Error('Connect this project to GitHub.');
+      const linked = trackers.linked(connection);
+      const board = await linked.provider.board(linked.project);
+      if (!board.items.some((item) => item.id === target.taskId))
+        throw Error('Task is not available in this project.');
+      return { ...base, keys: { project_id: board.project.id, task_id: target.taskId } };
+    }
+    // The chat binding holds the conversation key. The renderer sends only the chat.
+    const kind =
+      target.agent === 'codex' ? 'codex' : target.agent === 'claude' ? 'claude_code' : '';
+    const binding = kind ? await verdictan!.bindings.read(kind, target.sessionId) : null;
+    if (
+      !binding ||
+      binding.organization_id !== account.organizationId ||
+      binding.user_id !== account.userId
+    )
+      throw Error('This chat has no managed agent history for the current account.');
+    return { ...base, keys: { conversation_id: binding.conversation_id } };
+  });
   handle('managed-history', (target) => managedHistory.list(target));
   handle(
     'project-publish-doc',

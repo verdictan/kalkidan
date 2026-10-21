@@ -139,7 +139,6 @@ function fixture(
   } = {},
 ) {
   const requests: { operation: string; parameters: any }[] = [];
-  const legacy: any[] = [];
   let actor = org;
   const client = {
     request: async (operation: string, parameters: any = {}) => {
@@ -150,7 +149,7 @@ function fixture(
             cli_version: '0.6.3',
             protocol_min: 1,
             protocol_max: 1,
-            capabilities: options.capabilities ?? ['history.list', 'task.history'],
+            capabilities: options.capabilities ?? ['history.list'],
             managed_execution_ready: true,
             tested_agents: [],
           },
@@ -172,34 +171,20 @@ function fixture(
       };
     },
   };
-  const history = new ManagedHistory(
-    async (target) => ({
-      client: client as any,
-      accountKey: 'account',
-      organizationId: org,
-      actorId: actor,
-      keys:
-        options.keys ??
-        (target.kind === 'task'
-          ? { project_id: 'PVT_project_fixture', task_id: 'task_fixture' }
-          : { conversation_id: 'conversation_fixture' }),
-    }),
-    async (groupId, fields) => {
-      legacy.push({ groupId, fields });
-      return {
-        project_scope: { organization_id: org, project_id: 'PVT_project_fixture' },
-        actor_id: org,
-        revision: '1',
-        observed_at: '2026-10-21T10:00:00Z',
-        items: [item],
-        next_cursor: null,
-      };
-    },
-  );
+  const history = new ManagedHistory(async (target) => ({
+    client: client as any,
+    accountKey: 'account',
+    organizationId: org,
+    actorId: actor,
+    keys:
+      options.keys ??
+      (target.kind === 'task'
+        ? { project_id: 'PVT_project_fixture', task_id: 'task_fixture' }
+        : { conversation_id: 'conversation_fixture' }),
+  }));
   return {
     history,
     requests,
-    legacy,
     changeActor: () => {
       actor = 'someone-else';
     },
@@ -216,7 +201,6 @@ test('chat history uses history.list with the conversation key and no project sc
     history_scope: { organization_id: org, conversation_id: 'conversation_fixture' },
     limit: 25,
   });
-  assert.equal(page.source, 'history');
   assert.equal(page.cursor, 'page-2');
   assert.equal(page.entries.length, 1);
   // The next page sends the cursor. "Load again" sends no cursor, so corrections show.
@@ -240,21 +224,16 @@ test('task history sends the project and task keys', async () => {
     },
     limit: 25,
   });
-  assert.equal(f.legacy.length, 0);
 });
 
-test('without history.list, a task uses task.history for one release and a chat has none', async () => {
+test('without history.list, a task and a chat have no history', async () => {
+  // Verdictan 0.6.5 removed `task.history`. Kalkidan does not send it, even when advertised.
   const f = fixture({ capabilities: ['task.history'] });
-  const page = await f.history.list({ ...task, cursor: 'older' });
-  assert.deepEqual(f.legacy, [
-    { groupId: 'group', fields: { task_id: 'task_fixture', cursor: 'older' } },
-  ]);
-  assert.equal(page.source, 'task-history');
-  assert.equal(page.entries[0].corrected, true);
+  await assert.rejects(f.history.list({ ...task, cursor: 'older' }), /operation_unsupported/);
   await assert.rejects(f.history.list(chat), /operation_unsupported/);
-  assert.equal(
-    f.requests.some((request) => request.operation === 'history.list'),
-    false,
+  assert.deepEqual(
+    f.requests.map((request) => request.operation),
+    ['capabilities', 'capabilities'],
   );
   const none = fixture({ capabilities: [] });
   await assert.rejects(none.history.list(task), /operation_unsupported/);

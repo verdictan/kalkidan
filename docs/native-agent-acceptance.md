@@ -314,7 +314,8 @@ The owner approved Verdictan 0.6.5 for macOS ARM64 and Linux x64. The 0.6.5
 pins replace the 0.6.4 pins. The operator used the same method as for 0.6.4.
 
 Verdictan 0.6.5 removes the `task.history` alias of `history.list`. The broker
-rejects `task.history` with `desktop.operation_unsupported`.
+rejects `task.history` with `desktop.operation_unsupported`. Kalkidan now sends
+only `history.list`.
 
 The evidence is the public `v0.6.5` release of `verdictan/packages` (source
 `ec37fe50ff96ff64a55db405e20375eecd9370d8`). The operator downloaded the assets

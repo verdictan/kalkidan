@@ -53,12 +53,6 @@ export function ManagedHistoryView({ api, target }: { api: API; target?: Managed
         Verdictan keeps one history for chats and tasks. A missing value is unknown. This is not a
         bill.
       </p>
-      {page?.source === 'task-history' && (
-        <p className="form-help">
-          This runtime uses the earlier history. Update the managed agents runtime to see the
-          history of chats.
-        </p>
-      )}
       <ActionRow>
         <Button variant="outline" size="sm" disabled={busy || !target} onClick={() => void load()}>
           {page ? 'Load again' : 'Load history'}

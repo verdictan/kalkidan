@@ -45,8 +45,6 @@ export interface ManagedHistoryPage {
   /** The first page fixes this time. Load again without a cursor to see later requests. */
   asOf: string | null;
   observedAt: string;
-  /** `task-history` is the earlier operation. It is used only for one release. */
-  source: 'history' | 'task-history';
 }
 
 const record = (value: unknown): Record<string, unknown> =>
