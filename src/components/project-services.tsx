@@ -8,6 +8,7 @@ import {
 } from '../domain/project-services';
 import { Button } from './ui/button';
 import { errorMessage } from '../lib/errors';
+import { historyCostLabel } from '../domain/verdictan';
 
 const rows = (result?: ProjectServiceResult) =>
   Array.isArray(result?.items)
@@ -397,15 +398,7 @@ export function ProjectServicesPanel({
                         · {text(row.reason_code)} · {text(row.policy_revision)}
                       </p>
                       <p>
-                        Cost:{' '}
-                        {row.usage &&
-                        typeof row.usage === 'object' &&
-                        (row.usage as any).measured_cost != null
-                          ? `${String((row.usage as any).measured_cost)} ${text((row.usage as any).currency)}`
-                          : typeof row.actual_cost === 'number'
-                            ? `${row.actual_cost} ${text(row.currency)}`
-                            : 'Unknown'}{' '}
-                        · tokens:{' '}
+                        Cost: {historyCostLabel(row)} · tokens:{' '}
                         {row.usage &&
                         typeof row.usage === 'object' &&
                         (row.usage as any).total_tokens != null

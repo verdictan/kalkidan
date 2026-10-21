@@ -1,6 +1,11 @@
 import { useState } from 'react';
 import type { API } from '../api/contracts';
-import type { VerdictanSetup, VerdictanSelection } from '../domain/verdictan';
+import {
+  isSubscriptionMode,
+  type ProviderAccessMode,
+  type VerdictanSetup,
+  type VerdictanSelection,
+} from '../domain/verdictan';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 
@@ -41,6 +46,11 @@ export function VerdictanSetupForm({ api }: { api: API }) {
     }
   }
   const selectClass = 'h-9 w-full rounded-md border bg-background px-3 text-sm';
+  // Each agent can use only its own subscription mode, and only when the runtime offers it.
+  const subscriptionMode: ProviderAccessMode =
+    agent === 'codex' ? 'codex_subscription' : 'claude_subscription';
+  const subscriptionOffered = !!setup?.providerAccessModes?.includes(subscriptionMode);
+  const subscriptionSelected = isSubscriptionMode(selection.providerAccessMode);
   return (
     <section className="grid gap-3 border-t pt-4" aria-label="Managed agent setup">
       <div className="flex items-center justify-between">
@@ -116,7 +126,7 @@ export function VerdictanSetupForm({ api }: { api: API }) {
               ))}
             </select>
           </label>
-          {agent === 'codex' && setup.providerAccessModes?.includes('codex_subscription') && (
+          {(subscriptionOffered || subscriptionSelected) && (
             <label className="form-label">
               Provider access
               <select
@@ -127,23 +137,24 @@ export function VerdictanSetupForm({ api }: { api: API }) {
                 onChange={(event) =>
                   setSelection({
                     ...selection,
-                    providerAccessMode: event.target.value as 'byok' | 'codex_subscription',
+                    providerAccessMode: event.target.value as ProviderAccessMode,
                     providerConnectionId: '',
                   })
                 }
               >
                 <option value="byok">Organization provider connection</option>
-                <option value="codex_subscription">
-                  Codex subscription on the selected machine
+                <option value={subscriptionMode}>
+                  {agent === 'codex' ? 'Codex' : 'Claude Code'} subscription on the selected machine
                 </option>
               </select>
             </label>
           )}
-          {selection.providerAccessMode === 'codex_subscription' ? (
+          {subscriptionSelected ? (
             <p className="help-text">
-              Uses the Codex subscription already signed in on the machine where work runs. Sign in
-              separately on each SSH host. Refresh tokens are never sent to another host. Verdictan
-              policy still applies.
+              Uses the {agent === 'codex' ? 'Codex' : 'Claude Code'} subscription that is already
+              signed in on the machine where work runs. Sign in separately on each SSH host.
+              Kalkidan does not send sign-in credentials to another host. Verdictan policy still
+              applies.
             </p>
           ) : (
             <label className="form-label">
@@ -167,11 +178,10 @@ export function VerdictanSetupForm({ api }: { api: API }) {
               </select>
             </label>
           )}
-          {agent === 'claude' && (
+          {agent === 'claude' && !subscriptionOffered && (
             <p role="note" className="help-text">
-              Claude Code subscription access is not supported by the current Verdictan runtime. A
-              Claude login does not authorize an organization provider connection. Subscription
-              support must be added to the managed runtime before Kalkidan can use that login.
+              This Verdictan runtime does not offer Claude Code subscription access. Update the
+              managed runtime to use the Claude Code sign-in on the machine where work runs.
             </p>
           )}
           <label className="form-label">
@@ -192,8 +202,7 @@ export function VerdictanSetupForm({ api }: { api: API }) {
               busy ||
               !selection.teamId ||
               !selection.configurationVersionId ||
-              (selection.providerAccessMode !== 'codex_subscription' &&
-                !selection.providerConnectionId) ||
+              (!subscriptionSelected && !selection.providerConnectionId) ||
               !selection.model
             }
             onClick={() => void save()}

@@ -11,6 +11,30 @@ import { ManagedRuntimes } from './runtime';
 import { DesktopProtocolError } from './protocol';
 import { assertIsolationPlatform, prepareIsolation } from './isolation';
 import { uuid } from './credentials';
+import {
+  claudeAccessMargin,
+  readNativeClaudeAccess,
+  type NativeClaudeAccess,
+} from './claude-subscription-auth';
+import {
+  claudeSubscriptionNativeVersion,
+  claudeSubscriptionRecovery,
+  type ProviderAccessMode,
+} from '../../src/domain/verdictan';
+import type { ChatRun } from '../../src/domain/conversation';
+
+/** Keeps the safe code and gives the user one recovery action. Never contains secrets. */
+export class SubscriptionRecoveryError extends DesktopProtocolError {
+  readonly recoveryAction: string;
+  constructor(code: string) {
+    super(code);
+    const recovery = claudeSubscriptionRecovery(code)!;
+    this.message = recovery.message;
+    this.recoveryAction = recovery.action;
+  }
+}
+/** Variables that select API billing instead of the native subscription login. */
+const apiCredentialVariables = ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN'];
 
 /** Mandatory entry point for native launches, including Memory extraction. */
 export class VerdictanLaunchService {
@@ -24,8 +48,28 @@ export class VerdictanLaunchService {
       assertPlatform: assertIsolationPlatform,
       prepare: prepareIsolation,
     },
+    private claudeAccess: () => Promise<NativeClaudeAccess> = () => readNativeClaudeAccess(),
+    private now = Date.now,
   ) {}
   async prepare(request: ManagedLaunchRequest): Promise<ManagedLaunch> {
+    const context: { mode?: ProviderAccessMode } = {};
+    try {
+      return await this.prepareOnce(request, context);
+    } catch (error) {
+      if (
+        context.mode === 'claude_subscription' &&
+        error instanceof DesktopProtocolError &&
+        !(error instanceof SubscriptionRecoveryError) &&
+        claudeSubscriptionRecovery(error.code)
+      )
+        throw new SubscriptionRecoveryError(error.code);
+      throw error;
+    }
+  }
+  private async prepareOnce(
+    request: ManagedLaunchRequest,
+    context: { mode?: ProviderAccessMode },
+  ): Promise<ManagedLaunch> {
     this.isolationPolicy.assertPlatform();
     request.signal.throwIfAborted();
     const { client, account, setup } = await this.setup.inspect();
@@ -34,10 +78,15 @@ export class VerdictanLaunchService {
       request.session.agent,
       setup.selections[request.session.agent]!,
     );
+    context.mode = selection.providerAccessMode;
+    const claudeSubscription = selection.providerAccessMode === 'claude_subscription';
     const registry = parseCapabilities((await client.request('capabilities')).data).testedAgents;
     const kind = request.session.agent === 'codex' ? 'codex' : 'claude_code';
     const agent = registry.find((a) => a.kind === kind);
     if (!agent) throw new DesktopProtocolError('desktop.agent_version_unsupported');
+    // Only the qualified native version can use subscription access.
+    if (claudeSubscription && agent.version !== claudeSubscriptionNativeVersion)
+      throw new DesktopProtocolError('desktop.agent_version_unsupported');
     const identity = await (this.identities
       ? this.identities()
       : this.store.identities(this.hostKey));
@@ -66,6 +115,8 @@ export class VerdictanLaunchService {
     const previous = await this.store.read(kind, request.forkFrom || request.session.id);
     if ((!request.create || request.forkFrom) && !previous)
       throw new DesktopProtocolError('desktop.resume_binding_required');
+    if (previous?.provider_access_mode === 'claude_subscription')
+      context.mode = 'claude_subscription';
     const binding: ConversationBinding = {
       schema_version: 1,
       ...(request.session.governanceScope?.projectId || previous?.project_id
@@ -78,7 +129,7 @@ export class VerdictanLaunchService {
       user_id: account.userId!,
       region_id: resources.region_id,
       provider_connection_id: selection.providerConnectionId,
-      ...(selection.providerAccessMode === 'codex_subscription'
+      ...(selection.providerAccessMode === 'codex_subscription' || claudeSubscription
         ? { provider_access_mode: selection.providerAccessMode }
         : {}),
       installation_id: identity.installationId,
@@ -102,8 +153,16 @@ export class VerdictanLaunchService {
     let guard: Awaited<ReturnType<typeof inferenceGuard>> | undefined;
     let started = false,
       finishTask: Promise<void> | undefined;
+    let expiry: ReturnType<typeof setTimeout> | undefined;
+    let observed: ChatRun | undefined;
+    let env: NodeJS.ProcessEnv | undefined;
+    const scrub = () => {
+      if (env) delete env.CLAUDE_CODE_OAUTH_TOKEN;
+    };
     const finish = () =>
       (finishTask ??= (async () => {
+        clearTimeout(expiry);
+        scrub();
         try {
           await guard?.close();
           await evidence?.stop();
@@ -124,7 +183,9 @@ export class VerdictanLaunchService {
           ...(binding.project_id ? { project_id: binding.project_id } : {}),
           provider: binding.provider,
           model: binding.model,
-          ...(binding.provider_access_mode === 'codex_subscription'
+          // Subscription modes omit the provider connection; the runtime rejects a non-null one.
+          ...(binding.provider_access_mode === 'codex_subscription' ||
+          binding.provider_access_mode === 'claude_subscription'
             ? { provider_access_mode: binding.provider_access_mode }
             : { provider_connection_id: binding.provider_connection_id }),
         },
@@ -134,7 +195,7 @@ export class VerdictanLaunchService {
       started = true;
       request.signal.throwIfAborted();
       const endpoint = this.runtimes.endpoint(sessionId);
-      guard = await inferenceGuard(endpoint, binding.provider_access_mode === 'codex_subscription');
+      guard = await inferenceGuard(endpoint, binding.provider_access_mode || 'byok');
       const home = await this.store.home(binding);
       if (binding.provider_access_mode === 'codex_subscription')
         await prepareSubscriptionAuth(home);
@@ -152,17 +213,48 @@ export class VerdictanLaunchService {
         guard.address,
       );
       request.signal.throwIfAborted();
-      const secrets = Object.values(route.env).filter(
-        (v): v is string => !!v && v.startsWith('vdt_'),
-      );
+      env = { ...isolation.env, ...route.env };
+      const args = [...route.args];
+      let access: NativeClaudeAccess | undefined;
+      if (binding.provider_access_mode === 'claude_subscription') {
+        for (const name of apiCredentialVariables) delete env[name];
+        // Strict and empty unless the owned Memory server is the only configured MCP server.
+        if (!request.memoryURL) args.push('--mcp-config', '{"mcpServers":{}}');
+        // Read the host-local login last, so that the token exists for the shortest time.
+        access = await this.claudeAccess();
+        const lifetime = access.expiresAt - this.now() - claudeAccessMargin;
+        if (lifetime <= 0)
+          throw new DesktopProtocolError('desktop.claude_subscription_login_expiring');
+        request.signal.throwIfAborted();
+        env.CLAUDE_CODE_OAUTH_TOKEN = access.token;
+        // Stop the owned child before the token expires. Never replay the pending prompt.
+        expiry = setTimeout(() => {
+          if (observed)
+            observed.error = claudeSubscriptionRecovery(
+              'desktop.claude_subscription_login_expiring',
+            )!.message;
+          void request.stop().catch(() => {});
+        }, lifetime);
+        expiry.unref?.();
+      }
+      const secrets = [
+        ...new Set(
+          [
+            ...Object.values(route.env).flatMap((v) => v?.match(/vdt_[A-Za-z0-9_-]+/g) || []),
+            access?.token,
+          ].filter((v): v is string => !!v),
+        ),
+      ];
       return {
         executable: isolation.executable,
         prefix: isolation.prefix,
-        args: route.args,
-        env: { ...isolation.env, ...route.env },
+        args,
+        env,
+        launched: scrub,
         model: binding.model,
         bindNativeSession: (id) => this.store.save(kind, id, binding),
         observe: (state) => {
+          observed = state;
           const runtime = this.runtimes.status().find((r) => r.sessionId === sessionId)!;
           evidence = new RuntimeEvidence(
             runtime.runtimeId!,

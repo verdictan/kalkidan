@@ -1,7 +1,8 @@
 import { DesktopProtocolError } from './protocol';
+import { providerAccessModes, type ProviderAccessMode } from '../../src/domain/verdictan';
 
 export interface RuntimeCredentials {
-  provider_access_mode?: 'byok' | 'codex_subscription';
+  provider_access_mode?: ProviderAccessMode;
   schema_version: 1;
   correlation_id: string;
   runtime_id: string;
@@ -44,7 +45,7 @@ export function parseRuntimeCredentials(value: unknown, now = Date.now()): Runti
     Object.keys(v).some((key) => !keys.includes(key)) ||
     v.schema_version !== 1 ||
     (v.provider_access_mode !== undefined &&
-      !['byok', 'codex_subscription'].includes(v.provider_access_mode)) ||
+      !providerAccessModes.includes(v.provider_access_mode)) ||
     ![v.runtime_id, v.runtime_registration_id, v.session_id, v.agent_id].every(uuid) ||
     typeof v.correlation_id !== 'string' ||
     !/^[A-Za-z0-9_-]{1,128}$/.test(v.correlation_id) ||

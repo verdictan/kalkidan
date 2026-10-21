@@ -120,3 +120,21 @@ Do not replace the selected subscription with API billing.
 The new managed Codex acceptance harness reached runtime provisioning with one
 EU policy. Gateway supervision then reported `desktop.gateway_unavailable`
 before a native model request. Local and SSH live acceptance remain open.
+
+## Claude subscription adapter on 2026-10-21
+
+Verdictan CLI 0.6.1 advertises `provider_access.claude_subscription`. The Kalkidan
+adapter now supports this mode. Kalkidan offers the mode only when the runtime
+capability and `setup.inspect.provider_access_modes` both include it. Otherwise
+the mode stays unavailable. Kalkidan does not select BYOK as a replacement.
+
+The managed launch uses Claude Code `2.1.304` only. It sends no provider
+connection and expects `runtime.provisioned`. The conversation binding keeps the
+access mode. A resume cannot change it. The launcher reads the existing native
+login on the execution host. On SSH, the remote helper reads the remote login.
+The short-lived access token goes only into the owned child environment. The
+launcher stops the child before the token expires.
+
+Deterministic tests are in `tests/verdictan-claude-subscription.test.ts`. They
+use copies of the published fixtures in `tests/fixtures/verdictan/`. Local and
+SSH live acceptance (C11–C13) is still open.

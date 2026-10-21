@@ -6,6 +6,7 @@ import { isAbsolute } from 'node:path';
 import { StringDecoder } from 'node:string_decoder';
 import type { Readable } from 'node:stream';
 import { parseRuntimeCredentials, type RuntimeCredentials } from './credentials';
+import type { ProviderAccessMode } from '../../src/domain/verdictan';
 
 export type DesktopOperation =
   | ProjectServiceOperation
@@ -36,7 +37,7 @@ export interface RuntimeProvision {
   provider: string;
   model: string;
   provider_connection_id?: string;
-  provider_access_mode?: 'byok' | 'codex_subscription';
+  provider_access_mode?: ProviderAccessMode;
 }
 export interface DesktopParameters {
   project_scope?: { organization_id: string; project_id: string };
@@ -89,7 +90,8 @@ const terminalEvents: Record<DesktopOperation, string[]> = {
   'setup.inspect': ['setup.inspected'],
   'session.renew': ['session.renewed'],
   'session.logout': ['session.logged_out'],
-  'runtime.provision': ['runtime.provisioning_result'],
+  // Claude subscription returns `runtime.provisioned`; BYOK and Codex keep the older event.
+  'runtime.provision': ['runtime.provisioning_result', 'runtime.provisioned'],
   'runtime.export': ['runtime.exported'],
   'runtime.renew': ['runtime.renewed'],
   'runtime.revoke': ['runtime.revoked'],
@@ -98,6 +100,12 @@ const terminalEvents: Record<DesktopOperation, string[]> = {
   'resources.provision': ['resources.provisioned'],
   'review.inspect': ['review.inspected'],
 };
+/** The exact terminal event for one request. A mode cannot borrow another mode's event. */
+export function terminalEventsFor(operation: DesktopOperation, parameters: DesktopParameters = {}) {
+  if (operation !== 'runtime.provision') return terminalEvents[operation];
+  const mode = (parameters.parameters as RuntimeProvision | undefined)?.provider_access_mode;
+  return mode === 'claude_subscription' ? ['runtime.provisioned'] : ['runtime.provisioning_result'];
+}
 export class DesktopProtocolError extends Error {
   constructor(public readonly code: string) {
     super(code);
@@ -129,6 +137,7 @@ export class DesktopProtocol {
     string,
     {
       operation: DesktopOperation;
+      expected: string[];
       resolve(event: DesktopEvent): void;
       reject(error: Error): void;
       progress?: (event: DesktopEvent) => void;
@@ -203,7 +212,14 @@ export class DesktopProtocol {
         operation === 'authorization.start' ? 310000 : this.timeoutMs,
       );
       timer.unref?.();
-      this.pending.set(id, { operation, resolve, reject, progress, timer });
+      this.pending.set(id, {
+        operation,
+        expected: terminalEventsFor(operation, parameters),
+        resolve,
+        reject,
+        progress,
+        timer,
+      });
       try {
         const request = {
           ...envelope,
@@ -315,8 +331,7 @@ export class DesktopProtocol {
           pending.progress?.(value);
           continue;
         }
-        if (value.event !== 'error' && !terminalEvents[pending.operation].includes(value.event))
-          throw new Error();
+        if (value.event !== 'error' && !pending.expected.includes(value.event)) throw new Error();
         clearTimeout(pending.timer);
         this.pending.delete(value.correlation_id);
         if (value.event === 'error') {

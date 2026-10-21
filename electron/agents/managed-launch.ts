@@ -24,5 +24,7 @@ export interface ManagedLaunch {
   redact(text: string): string;
   finish(): Promise<void>;
   observe?(state: ChatRun): void;
+  /** Called after spawn. It removes short-lived native credentials from the launch data. */
+  launched?(): void;
 }
 export type PrepareManagedLaunch = (request: ManagedLaunchRequest) => Promise<ManagedLaunch>;

@@ -2,7 +2,11 @@ import { mkdir, readFile, lstat, realpath } from 'node:fs/promises';
 import { join } from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import { writeJSON } from '../storage/atomic-json';
-import type { VerdictanSelection } from '../../src/domain/verdictan';
+import {
+  providerAccessModes,
+  type ProviderAccessMode,
+  type VerdictanSelection,
+} from '../../src/domain/verdictan';
 import { uuid } from './credentials';
 import { policyId } from './policy-id';
 import { DesktopProtocolError } from './protocol';
@@ -10,7 +14,7 @@ import { DesktopProtocolError } from './protocol';
 export interface ConversationBinding {
   project_id?: string;
   task_id?: string;
-  provider_access_mode?: 'byok' | 'codex_subscription';
+  provider_access_mode?: ProviderAccessMode;
   schema_version: 1;
   organization_id: string;
   user_id: string;
@@ -45,10 +49,14 @@ export function validateBinding(value: unknown): asserts value is ConversationBi
       (id) => id !== undefined && !/^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/.test(id),
     ) ||
     !ids.every((key) => uuid(v[key])) ||
-    !['byok', 'codex_subscription'].includes(v.provider_access_mode || 'byok') ||
+    !providerAccessModes.includes(v.provider_access_mode || 'byok') ||
     (v.provider_access_mode === 'codex_subscription'
       ? v.provider_connection_id !== '' || v.provider !== 'openai' || v.agent_kind !== 'codex'
-      : !uuid(v.provider_connection_id)) ||
+      : v.provider_access_mode === 'claude_subscription'
+        ? v.provider_connection_id !== '' ||
+          v.provider !== 'anthropic' ||
+          v.agent_kind !== 'claude_code'
+        : !uuid(v.provider_connection_id)) ||
     !policyId(v.configuration_id, 'configuration') ||
     !policyId(v.configuration_version_id, 'version') ||
     !['codex', 'claude_code'].includes(v.agent_kind) ||
@@ -147,7 +155,8 @@ export class BindingStore {
   read(agent: string, nativeSession: string) {
     return this.transaction((v) => v.bindings[identityKey(agent, nativeSession)] || null, false);
   }
-  save(agent: string, nativeSession: string, binding: ConversationBinding) {
+  // Async so that an invalid binding always rejects, also for callers that use `.catch`.
+  async save(agent: string, nativeSession: string, binding: ConversationBinding) {
     validateBinding(binding);
     return this.transaction((v) => {
       const key = identityKey(agent, nativeSession);
@@ -165,7 +174,9 @@ export class BindingStore {
         ? binding.provider_access_mode === 'codex_subscription'
           ? 'codex-subscription'
           : 'codex'
-        : 'claude',
+        : binding.provider_access_mode === 'claude_subscription'
+          ? 'claude-subscription'
+          : 'claude',
     );
     const parent = join(this.root, 'managed-agent-homes');
     for (const path of [

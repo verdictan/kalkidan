@@ -6,9 +6,35 @@ import {
 } from 'node:http';
 import type { Socket } from 'node:net';
 import { DesktopProtocolError } from './protocol';
+import type { ProviderAccessMode } from '../../src/domain/verdictan';
+
+/** Native routes that each access mode may send. Every other route returns 404. */
+export function allowedInference(
+  mode: ProviderAccessMode,
+  method: string | undefined,
+  url: string | undefined,
+) {
+  const [path, query] = (url || '').split(/\?(.*)/s);
+  if (mode === 'codex_subscription')
+    return (
+      (method === 'POST' &&
+        ['/backend-api/codex/responses', '/backend-api/codex/responses/compact'].includes(path)) ||
+      (method === 'GET' && path === '/backend-api/codex/models')
+    );
+  // Only Messages is qualified for Claude subscription. Token counting and discovery are not.
+  if (mode === 'claude_subscription')
+    return method === 'POST' && path === '/v1/messages' && [undefined, 'beta=true'].includes(query);
+  return method === 'POST' && ['/v1/responses', '/v1/messages'].includes(path);
+}
 
 /** A turn cannot retry a failed or uncertain inference through native fallback logic. */
-export async function inferenceGuard(address: string, subscription = false) {
+export async function inferenceGuard(
+  address: string,
+  access: boolean | ProviderAccessMode = false,
+) {
+  // `true` is the original Codex subscription flag.
+  const mode: ProviderAccessMode =
+    access === true ? 'codex_subscription' : access === false ? 'byok' : access;
   const upstream = new URL(address);
   if (
     upstream.protocol !== 'http:' ||
@@ -23,7 +49,6 @@ export async function inferenceGuard(address: string, subscription = false) {
   const pending = new Set<ClientRequest>(),
     sockets = new Set<Socket>();
   const server = createServer((incoming, outgoing) => {
-    const path = incoming.url?.split('?')[0];
     if (closing || blocked) {
       outgoing.writeHead(409);
       outgoing.end(
@@ -31,16 +56,7 @@ export async function inferenceGuard(address: string, subscription = false) {
       );
       return;
     }
-    if (
-      !(subscription
-        ? (incoming.method === 'POST' &&
-            ['/backend-api/codex/responses', '/backend-api/codex/responses/compact'].includes(
-              path || '',
-            )) ||
-          (incoming.method === 'GET' && path === '/backend-api/codex/models')
-        : incoming.method === 'POST' && ['/v1/responses', '/v1/messages'].includes(path || '')) ||
-      incoming.headers.upgrade
-    ) {
+    if (!allowedInference(mode, incoming.method, incoming.url) || incoming.headers.upgrade) {
       outgoing.writeHead(404);
       outgoing.end();
       return;

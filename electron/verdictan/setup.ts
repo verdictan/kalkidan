@@ -1,4 +1,11 @@
-import type { VerdictanSelection, VerdictanSetup } from '../../src/domain/verdictan';
+import {
+  isSubscriptionMode,
+  providerAccessModes,
+  subscriptionAgent,
+  type ProviderAccessMode,
+  type VerdictanSelection,
+  type VerdictanSetup,
+} from '../../src/domain/verdictan';
 import { parseAccount, parseCapabilities } from './account';
 import { DesktopProtocolError, type DesktopClient } from './protocol';
 import { BindingStore, identityKey } from './bindings';
@@ -29,17 +36,21 @@ export class VerdictanSetupService {
     )
       throw new DesktopProtocolError('desktop.setup_invalid');
     const key = identityKey(account.apiUrl, account.organizationId!, account.userId!);
-    const capabilities =
-      Array.isArray(data.provider_access_modes) &&
-      data.provider_access_modes.includes('codex_subscription')
-        ? parseCapabilities((await client.request('capabilities')).data).capabilities
-        : [];
+    // A subscription mode needs both the deployed API and the local runtime to advertise it.
+    const advertised = Array.isArray(data.provider_access_modes)
+      ? data.provider_access_modes.filter((mode): mode is Exclude<ProviderAccessMode, 'byok'> =>
+          isSubscriptionMode(mode as ProviderAccessMode),
+        )
+      : [];
+    const capabilities = advertised.length
+      ? parseCapabilities((await client.request('capabilities')).data).capabilities
+      : [];
     const setup: VerdictanSetup = {
       providerAccessModes: [
         'byok',
-        ...(capabilities.includes('provider_access.codex_subscription')
-          ? ['codex_subscription' as const]
-          : []),
+        ...(['codex_subscription', 'claude_subscription'] as const).filter(
+          (mode) => advertised.includes(mode) && capabilities.includes(`provider_access.${mode}`),
+        ),
       ],
       status: typeof data.status === 'string' ? data.status : 'unavailable',
       teams: data.teams.map((t) => {
@@ -83,11 +94,11 @@ export class VerdictanSetupService {
           p.configuration_id === value.configurationId &&
           p.configuration_version_id === value.configurationVersionId,
       ) ||
-      !['byok', 'codex_subscription'].includes(value.providerAccessMode || 'byok') ||
-      (value.providerAccessMode === 'codex_subscription'
-        ? agent !== 'codex' ||
+      !providerAccessModes.includes(value.providerAccessMode || 'byok') ||
+      (isSubscriptionMode(value.providerAccessMode)
+        ? agent !== subscriptionAgent[value.providerAccessMode] ||
           !!value.providerConnectionId ||
-          !setup.providerAccessModes?.includes('codex_subscription')
+          !setup.providerAccessModes?.includes(value.providerAccessMode)
         : !setup.providerConnections.some(
             (p) =>
               p.provider_connection_id === value.providerConnectionId &&
