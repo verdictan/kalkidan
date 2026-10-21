@@ -9,6 +9,7 @@ import type { GitHubCliStatus } from '../domain/conversation';
 import type { VerdictanAPI } from '../domain/verdictan';
 import type { UpdatesAPI } from '../domain/updates';
 import type { DocsAPI } from '../domain/docs';
+import { chatCommands, type ChatActionState } from '../domain/chat-actions';
 import type {
   HistoryImportPreview,
   HistoryImportRequest,
@@ -350,11 +351,6 @@ export const menuCommands = [
   'session-new',
   'session-terminal',
   'session-changes',
-  'session-rename',
-  'session-pin',
-  'session-side-chat',
-  'session-commit',
-  'session-archive',
   'go-overview',
   'go-tasks',
   'go-docs',
@@ -362,15 +358,19 @@ export const menuCommands = [
   'go-insights',
   'all-sessions',
   'check-updates',
-  'open-linked-task',
-  'link-task',
-  'open-pull-request',
+  // The Chat menu sends the commands of the chat action list.
+  ...chatCommands,
 ] as const;
 export type MenuCommand = (typeof menuCommands)[number];
 export interface MenuAPI {
   onMenuCommand(callback: (command: MenuCommand) => void): () => void;
   /** Shows the application menu. Windows and Linux hide the menu bar with the title bar. */
   showAppMenu?(): Promise<void>;
+  /**
+   * Sets the state of the open chat for the Chat menu of the menu bar. Null: no chat is open.
+   * The focused window sends it.
+   */
+  setChatMenuState?(state: ChatActionState | null): Promise<void>;
   /** Sets the native light or dark appearance. The window title bar and the page follow it. */
   setAppearance?(mode: 'system' | 'light' | 'dark'): Promise<void>;
   /** Reports full screen changes. macOS hides the window buttons in full screen. */

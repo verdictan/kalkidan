@@ -482,3 +482,26 @@
   font-weight: 500;
   color: var(--foreground);
 }
+/* The note of the chat, after the title. Select it to change the note. */
+.conversation-note {
+  display: inline-flex;
+  flex: 0 1 auto;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  max-width: 32ch;
+  padding: 0 6px;
+  border-radius: var(--radius-sm, 4px);
+  font-size: 12px;
+  color: var(--muted-foreground);
+  white-space: nowrap;
+  -webkit-app-region: no-drag;
+}
+.conversation-note:hover {
+  color: var(--foreground);
+  background: var(--surface-hover, transparent);
+}
+.conversation-note:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}

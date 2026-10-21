@@ -54,10 +54,11 @@ test('organize sessions and continue inside the conversation UI', async ({ page 
   await page.getByLabel('Session name', { exact: true }).fill('Navigation follow-up');
   await page.getByRole('button', { name: 'Save name', exact: true }).click();
   await list.getByRole('button', { name: 'Navigation follow-up actions' }).click();
-  await page.getByRole('menuitem', { name: 'Chat details…', exact: true }).click();
-  await page.getByLabel(/^Group/).fill('Website');
-  await page.getByLabel('Notes', { exact: true }).fill('Finish keyboard navigation');
-  await page.getByRole('button', { name: 'Save details', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Notes…', exact: true }).click();
+  await page
+    .getByRole('textbox', { name: 'Notes', exact: true })
+    .fill('Finish keyboard navigation');
+  await page.getByRole('button', { name: 'Save notes', exact: true }).click();
   await expect(page.getByRole('dialog')).not.toBeVisible();
   await list.getByRole('button', { name: 'Navigation follow-up actions' }).click();
   await page.getByRole('menuitem', { name: 'Pin', exact: true }).click();
@@ -68,14 +69,19 @@ test('organize sessions and continue inside the conversation UI', async ({ page 
   await expect(
     list.getByText('Review the authentication flow and add integration tests', { exact: true }),
   ).not.toBeVisible();
-  await page.getByRole('combobox', { name: 'Filter by group' }).click();
-  await page.getByRole('option', { name: 'Website', exact: true }).click();
+  // The row shows the note. The list has no groups.
+  await expect(list.getByText('Finish keyboard navigation', { exact: true })).toBeVisible();
+  await expect(page.getByRole('combobox', { name: 'Filter by group' })).toHaveCount(0);
   await list
     .getByRole('button', { name: /^Resume / })
     .first()
     .click();
   await expect(page.getByRole('region', { name: 'Chats', exact: true })).toBeVisible();
   await expect(page.getByText('This is a sample conversation.', { exact: false })).toBeVisible();
+  // The chat header shows the note of the chat.
+  await expect(
+    page.getByRole('button', { name: 'Notes: Finish keyboard navigation', exact: true }),
+  ).toBeVisible();
   await page.getByLabel('Message agent').fill('Continue with keyboard navigation');
   await page.screenshot({
     path: 'test-results/conversation-preview.png',

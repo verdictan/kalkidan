@@ -1,9 +1,9 @@
 import { createPortal } from 'react-dom';
-import { SessionMenu } from './session-menu';
+import { SessionMenu, sendSessionCommand } from './session-menu';
 import { viewArchivedSessions } from './session-browser';
 import { sessionAPI } from '../lib/remote-api';
 import { useEffect, useRef, useState } from 'react';
-import { ChevronRight, X } from 'lucide-react';
+import { ChevronRight, NotebookPen, X } from 'lucide-react';
 import { pathBasename } from '../lib/platform';
 import { sessionRepo } from '../lib/session-repository';
 import { Conversation, type ConversationDraft } from './conversation';
@@ -247,6 +247,7 @@ export function AgentWorkspace({
             saved={saved}
             running={!!running[selectedKey]}
             repositoryId={repository?.id}
+            inProject={repository ? !!group : undefined}
             update={update}
             branch={branch}
             archive={() => {
@@ -327,6 +328,18 @@ export function AgentWorkspace({
               >
                 {titleOf(live)}
               </span>
+              {live.organization?.notes && (
+                <button
+                  type="button"
+                  className="conversation-note"
+                  title={live.organization.notes}
+                  aria-label={`Notes: ${live.organization.notes}`}
+                  onClick={() => sendSessionCommand('session-notes')}
+                >
+                  <NotebookPen aria-hidden="true" className="size-3 shrink-0" />
+                  <span className="truncate">{live.organization.notes.split('\n')[0]}</span>
+                </button>
+              )}
             </nav>
             <Hint label={`Close chat (${shortcutLabel(['mod'], 'W')})`}>
               <Button
