@@ -72,7 +72,7 @@ export class ManagedRuntimes {
         throw new DesktopProtocolError('desktop.runtime_already_owned');
       // Kalkidan's minimum, not Verdictan's `tested_agents`, decides which agent can start.
       const refused = agentVersionErrorCode(checkAgentVersion(agent.kind, agent.version));
-      if (refused) throw new DesktopProtocolError(refused);
+      if (refused) throw new DesktopProtocolError(refused, { version: agent.version });
       const generation = this.generation;
       const client = await this.options.client();
       if (generation !== this.generation || this.closing)

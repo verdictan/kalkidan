@@ -65,7 +65,8 @@ export function TaskUsageHistoryPanel({
       />
       <p className="form-help">
         The usage and policy records that this computer saved for managed-agent runs. Kalkidan keeps
-        the last 100 runs. A missing value is unknown. This is not a bill.
+        the last 100 runs. “Unknown” shows when there is no record of a value. Your provider sends
+        the bill.
       </p>
       <label className="form-label max-w-[360px]">
         Task
@@ -119,7 +120,7 @@ export function TaskUsageHistoryPanel({
                       <dt>Cost</dt>
                       <dd>
                         {request.billing === 'subscription'
-                          ? 'Paid by your subscription. Provider charge is not known.'
+                          ? 'Included in your subscription'
                           : request.actualCost === null
                             ? 'Unknown'
                             : `${request.actualCost} ${request.currency ?? ''}`.trim()}

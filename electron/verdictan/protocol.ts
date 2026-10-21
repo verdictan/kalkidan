@@ -124,10 +124,18 @@ export function terminalEventsFor(operation: DesktopOperation, parameters: Deskt
   const mode = (parameters.parameters as RuntimeProvision | undefined)?.provider_access_mode;
   return mode === 'claude_subscription' ? ['runtime.provisioned'] : ['runtime.provisioning_result'];
 }
-/** `code` is stable. The message is plain words, then the code in square brackets. */
+/**
+ * `code` is stable. The message is plain words, then the code in square brackets. `version` is
+ * the agent version that a version refusal found. It is not secret, and the UI can show it.
+ */
 export class DesktopProtocolError extends Error {
-  constructor(public readonly code: string) {
+  public readonly version?: string;
+  constructor(
+    public readonly code: string,
+    detail: { version?: string } = {},
+  ) {
     super(managedErrorText(code));
+    if (detail.version) this.version = detail.version;
   }
 }
 /** One process owns the secure CLI profile. Do not log its streams or arguments. */

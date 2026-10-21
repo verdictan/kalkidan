@@ -11,7 +11,7 @@ import { Button } from './ui/button';
 import { Hint } from './hint';
 import { shortcutLabel } from '../lib/platform';
 import type { SessionActivity, SessionActivityState } from './activity-dot';
-import type { API, Session, Project, ProjectGroup } from '../types';
+import type { API, Session, Project, ProjectGroup, RemoteHost } from '../types';
 const keyOf = (session: Session) => session.agent + ':' + session.id;
 // Only the most recently viewed sessions stay mounted. A session that works or waits for
 // approval stays mounted until it finishes.
@@ -22,6 +22,7 @@ export function AgentWorkspace({
   sessions,
   projects = [],
   projectGroups = [],
+  hosts = [],
   initialTabs = [],
   selected,
   visible,
@@ -45,6 +46,8 @@ export function AgentWorkspace({
   initialTabs?: Session[];
   projects?: Project[];
   projectGroups?: ProjectGroup[];
+  /** The SSH hosts. A refusal message names the host of the chat. */
+  hosts?: RemoteHost[];
   selected: Session;
   visible: boolean;
   returnLabel?: string;
@@ -379,6 +382,7 @@ export function AgentWorkspace({
                   )}
                   <Conversation
                     api={forSession(tab)}
+                    hostName={hosts.find((host) => host.id === session.hostId)?.name}
                     projectGroup={projectGroups.find(
                       (g) => tabRepository && g.repoIds.includes(tabRepository.id),
                     )}

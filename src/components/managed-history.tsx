@@ -15,7 +15,7 @@ import { ActionRow, ErrorAlert, ReviewRow } from './planning-kit';
 
 /**
  * The Verdictan history of one task or one chat: one row for each request. Verdictan owns this
- * history. It loads when the target changes. "Load again" starts without a cursor, so late
+ * history. It loads when it opens and when the target changes. "Load again" starts without a cursor, so late
  * settlement corrections show.
  */
 export function ManagedHistoryView({ api, target }: { api: API; target?: ManagedHistoryScope }) {
@@ -25,9 +25,16 @@ export function ManagedHistoryView({ api, target }: { api: API; target?: Managed
   const key = target ? JSON.stringify(target) : '';
   const current = useRef(key);
   current.current = key;
+  // The key of the first-page load that runs now. A second effect run (for example in React
+  // strict mode) does not start the same load again.
+  const loading = useRef('');
   async function load(cursor?: string) {
     if (!target) return;
     const requested = key;
+    if (!cursor) {
+      if (loading.current === requested) return;
+      loading.current = requested;
+    }
     setBusy(true);
     setError('');
     try {
@@ -37,6 +44,7 @@ export function ManagedHistoryView({ api, target }: { api: API; target?: Managed
     } catch (failure) {
       if (current.current === requested) setError(errorMessage(failure));
     } finally {
+      if (!cursor && loading.current === requested) loading.current = '';
       if (current.current === requested) setBusy(false);
     }
   }
@@ -50,12 +58,12 @@ export function ManagedHistoryView({ api, target }: { api: API; target?: Managed
   return (
     <div className="grid gap-3" aria-busy={busy}>
       <p className="form-help">
-        Verdictan keeps one history for chats and tasks. A missing value is unknown. This is not a
-        bill.
+        Verdictan keeps one history for chats and tasks. “Unknown” shows when Verdictan has no
+        record of a value. The costs come from Verdictan. Your provider sends the bill.
       </p>
       <ActionRow>
         <Button variant="outline" size="sm" disabled={busy || !target} onClick={() => void load()}>
-          {page ? 'Load again' : 'Load history'}
+          Load again
         </Button>
       </ActionRow>
       <ErrorAlert>{error}</ErrorAlert>

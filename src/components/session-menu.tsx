@@ -742,6 +742,13 @@ export function CommitDialog({
           </DialogDescription>
         </DialogHeader>
         <DialogBody className="grid gap-4">
+          {status && !changes && !result && (
+            <Alert size="sm" role="status">
+              <AlertDescription className="text-xs">
+                No changes to commit. Change files, then commit again.
+              </AlertDescription>
+            </Alert>
+          )}
           {onDefault && !result?.url && (
             <Alert size="sm">
               <GitBranchPlus aria-hidden="true" />

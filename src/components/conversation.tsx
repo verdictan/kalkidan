@@ -4,6 +4,7 @@ import { managedOnlyNotice } from '../domain/verdictan';
 import { trackerClient } from '../lib/tracker-client';
 import {
   ConversationTools,
+  noChangesToCommit,
   type ConversationContext,
   type ToolRequest,
 } from './conversation-tools';
@@ -47,6 +48,7 @@ import { moveTaskToReview, pullRequestLabel, type SessionPullRequest } from '../
 import type { DocPassage } from '../domain/docs';
 import {
   AgentErrorActions,
+  AgentErrorNote,
   MentionSuggestions,
   PullRequestChip,
   SaveToDocsDialog,
@@ -164,6 +166,16 @@ function refusedWrite(run: ChatRun) {
   return run.messages.some((message) => message.role !== 'user' && writeRefusal.test(message.text));
 }
 
+/** The blocked launch of a chat run, with its safe code and found version. */
+function launchFailure(run: ChatRun) {
+  return {
+    message: run.error || '',
+    step: run.managedSetup,
+    code: run.managedCode,
+    version: run.agentVersion,
+  };
+}
+
 /** A message that did not reach the agent. Its error shows under the message. */
 interface SendFailureState {
   messageId: string;
@@ -211,8 +223,11 @@ export function Conversation({
   onActivityChange,
   onSessionCreated,
   onTitleChange,
+  hostName,
 }: {
   api: API;
+  /** The name of the SSH host of the session. Refusal messages name it. */
+  hostName?: string;
   titlebarVisible?: boolean;
   projectGroup?: ProjectGroup;
   /** The repository entry of the session checkout. */
@@ -227,6 +242,8 @@ export function Conversation({
   /** Gives the chat a title from its first message when the first send fails. */
   onTitleChange?: (title: string) => void;
 }) {
+  // The computer where the agent runs, for refusal messages.
+  const computer = session.hostId ? hostName || 'the SSH host' : 'this computer';
   const [toolOpen, setToolOpen] = useState(false);
   const [toolRequest, setToolRequest] = useState<ToolRequest | null>(null);
   const showTool = (kind: ToolRequest['kind']) =>
@@ -426,6 +443,14 @@ export function Conversation({
   };
   useEffect(() => readWorking.current(), [api, repositoryId]);
   const changedFiles = working ? working.changed + working.untracked : 0;
+  // A known status with no changed files has nothing to commit. An unknown status does not
+  // block the Commit dialog, because the dialog reads the status again.
+  const nothingToCommit = !!working && changedFiles === 0;
+  /** Opens the Commit dialog, or tells the user that there is nothing to commit. */
+  function openCommit() {
+    if (nothingToCommit) showToast({ message: noChangesToCommit });
+    else setCommitOpen(true);
+  }
   // A resumed session has only the task id. Load the board to show the task title.
   useEffect(() => {
     const connection = trackerConnection(projectGroup);
@@ -543,7 +568,7 @@ export function Conversation({
         prompt: sent.prompt,
         error:
           next.errorCode === 'managed_launch_blocked' && next.error
-            ? managedLaunchError(next.error, next.managedSetup)
+            ? managedLaunchError(launchFailure(next), { computer })
             : agentErrorMessage(`${next.error || ''} ${next.errorCode || ''}`, session.agent),
       });
       if (!providerSession.current && !messagesBefore.current)
@@ -850,7 +875,7 @@ export function Conversation({
   // Desktop codes and agent errors show as plain words with an action.
   const errorInfo: AgentError | null = error
     ? run?.errorCode === 'managed_launch_blocked' && run.error === error
-      ? managedLaunchError(error, run.managedSetup)
+      ? managedLaunchError(launchFailure(run), { computer })
       : /\bdesktop\.[a-z_]+|verdictan is not ready/i.test(error) ||
           error.startsWith(managedOnlyNotice)
         ? agentErrorMessage(error, session.agent)
@@ -958,7 +983,7 @@ export function Conversation({
   // The application menu and the chat menu send these commands to the visible chat.
   const commands = useRef<(name: string) => boolean>(() => false);
   commands.current = (name) => {
-    if (name === 'session-commit' && repositoryId) setCommitOpen(true);
+    if (name === 'session-commit' && repositoryId) openCommit();
     else if (name === 'save-to-docs' && projectGroup) setSaveDocsOpen(true);
     else if (name === 'open-linked-task' && taskId && projectGroup) openLinkedTask();
     else if (name === 'link-task' && trackerConnection(projectGroup) && !active)
@@ -1019,7 +1044,7 @@ export function Conversation({
       changeCount={repositoryId ? changedFiles : null}
       runsFinished={runsFinished}
       onChangesRead={() => readWorking.current()}
-      onCommit={repositoryId ? () => setCommitOpen(true) : undefined}
+      onCommit={repositoryId ? openCommit : undefined}
       onToolChange={setToolOpen}
       visible={visible}
       remote={!!session.hostId}
@@ -1311,14 +1336,16 @@ export function Conversation({
                     </Button>
                   )}
                   {repositoryId && (
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      disabled={taskBusy || !!active}
-                      onClick={() => setCommitOpen(true)}
-                    >
-                      Commit changes…
-                    </Button>
+                    <Hint label={nothingToCommit ? noChangesToCommit : 'Commit the changes'}>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={taskBusy || !!active || nothingToCommit}
+                        onClick={() => setCommitOpen(true)}
+                      >
+                        Commit changes…
+                      </Button>
+                    </Hint>
                   )}
                   <Button
                     size="sm"
@@ -1342,6 +1369,7 @@ export function Conversation({
               <Alert variant="destructive" size="sm" className="max-h-32 overflow-auto">
                 <AlertDescription className="grid gap-1 text-xs whitespace-pre-wrap">
                   {errorInfo.message}
+                  {errorInfo.note && <AgentErrorNote note={errorInfo.note} />}
                   {errorInfo.action && <AgentErrorActions error={errorInfo} />}
                   {hostError && (
                     <Button

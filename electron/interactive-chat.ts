@@ -127,6 +127,9 @@ export class InteractiveChatRunner {
           state.error = active.managed?.redact(block.message) ?? block.message;
           state.errorCode = 'managed_launch_blocked';
           state.managedSetup = block.step;
+          // The code and the found version let the UI name the computer and the exact fix.
+          state.managedCode = block.code as `desktop.${string}`;
+          if (block.version) state.agentVersion = block.version;
         } else state.error = active.managed?.redact(error.message) ?? error.message;
         normalizeChatFailure(state, active.stderr);
         this.finish(active, 'failed');

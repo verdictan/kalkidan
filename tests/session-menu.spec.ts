@@ -62,3 +62,71 @@ test('chat actions open the managed agent usage history of the chat', async ({ p
   await dialog.getByRole('button', { name: 'Load again', exact: true }).click();
   await expect(dialog.getByRole('button', { name: 'Next page' })).toHaveCount(0);
 });
+test('usage history loads on open and shows duration and subscription cost', async ({ page }) => {
+  await page.addInitScript(() => {
+    const session = { id: 's', agent: 'claude', title: 'Review', cwd: '/repo', updatedAt: '' };
+    (window as any).historyCalls = 0;
+    (window as any).workspace = {
+      snapshot: async () => ({
+        projects: [
+          { id: 'r', name: 'Repo', path: '/repo', notes: '', addedAt: '', favorite: false },
+        ],
+        groups: [{ id: 'g', name: 'Project', repoIds: ['r'] }],
+        sessions: [session],
+        warnings: [],
+        platform: 'darwin',
+      }),
+      git: async () => null,
+      models: async () => [],
+      transcript: async () => ({ messages: [], truncated: false }),
+      managedHistory: async () => {
+        (window as any).historyCalls++;
+        return {
+          entries: [
+            {
+              time: '2026-10-21T10:37:57.000Z',
+              decision: 'allow',
+              reason: null,
+              review: null,
+              provider: 'anthropic',
+              model: 'claude-sonnet',
+              agent: 'claude_code',
+              inputTokens: '10',
+              outputTokens: '5',
+              cachedInputTokens: null,
+              totalTokens: '15',
+              cost: null,
+              currency: null,
+              settlement: 'completed',
+              corrected: false,
+              releasedAt: null,
+              settledAt: null,
+              startedAt: '2026-10-21T10:37:57.000Z',
+              completedAt: '2026-10-21T10:38:00.000Z',
+              latencyMs: null,
+              audited: true,
+              subscription: 'claude',
+            },
+          ],
+          cursor: null,
+          asOf: '2026-10-21T10:40:00.000Z',
+          observedAt: '2026-10-21T10:40:00.000Z',
+        };
+      },
+    };
+  });
+  await page.goto('/');
+  await page.locator('.repo-select').click();
+  await page.getByRole('button', { name: 'Resume Review', exact: true }).click();
+  await page.getByRole('button', { name: 'Chat actions', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Usage history…' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Usage history' });
+  // The history loads without a button press.
+  await expect(dialog).toContainText('Request 1');
+  await expect(dialog).toContainText('Included in your Claude subscription');
+  await expect(dialog).toContainText('3 s');
+  await expect(dialog).not.toContainText('This is not a bill');
+  expect(await page.evaluate(() => (window as any).historyCalls)).toBe(1);
+  await dialog.getByRole('button', { name: 'Load again', exact: true }).click();
+  await expect.poll(() => page.evaluate(() => (window as any).historyCalls)).toBe(2);
+});

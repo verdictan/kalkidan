@@ -1,4 +1,9 @@
-import { agentMinimumVersions, agentVersionRequirement } from './agent-version';
+import {
+  agentMinimumVersions,
+  agentVersionRequirement,
+  nativeAgentNames,
+  type NativeAgentKind,
+} from './agent-version';
 
 /** Safe desktop state. Account and runtime credentials never cross renderer IPC. */
 export interface VerdictanAccount {
@@ -510,11 +515,12 @@ export const managedErrors: Record<string, ManagedErrorInfo> = {
     section: setUp,
   },
   'desktop.secure_storage_unavailable': {
-    message: 'The system keychain is locked. Unlock it, then try again.',
+    message:
+      'The system keychain is locked or waits for your approval. Unlock it or allow access, then try again.',
     retry: true,
   },
   'desktop.operation_in_progress': {
-    message: 'Another managed agents operation is running. Wait, then try again.',
+    message: 'Another managed agents operation is running. Wait for it to finish, then try again.',
     retry: true,
   },
   'desktop.runtime_limit': {
@@ -552,13 +558,31 @@ export const managedErrors: Record<string, ManagedErrorInfo> = {
   },
   'desktop.readiness_required': {
     message:
-      'The managed agents check did not pass. Check the status, then send the message again.',
+      'The managed agents check on the machine where work runs did not pass. Check the status in Settings › Managed agents, then try again.',
     section: setUp,
+    retry: true,
   },
   'desktop.readiness_failed': {
     message:
-      'The managed agents check did not pass. Check the status, then send the message again.',
+      'The managed agents check on the machine where work runs did not pass. Check the status in Settings › Managed agents, then try again.',
     section: setUp,
+    retry: true,
+  },
+  'desktop.readiness_blocked': {
+    message:
+      'The managed gateway on the machine where work runs is not ready. Try again in a moment. If it continues, check Settings › Managed agents.',
+    section: setUp,
+    retry: true,
+  },
+  'desktop.event_authority_unavailable': {
+    message: 'The Verdictan service did not answer in time. Try again.',
+    retry: true,
+  },
+  'desktop.evidence_unavailable': {
+    message:
+      'The managed gateway on the machine where work runs did not send its status. Try again in a moment. If it continues, check Settings › Managed agents.',
+    section: setUp,
+    retry: true,
   },
   'desktop.claude_subscription_unsupported': {
     message:
@@ -678,25 +702,49 @@ export function claudeSubscriptionRecovery(code: unknown): SubscriptionRecovery 
   return { code, action: recoveries[code], message: managedErrorText(code) };
 }
 
-const subscriptionMarkers = [
-  'claude_subscription',
-  'codex_subscription',
-  'user_claude_subscription',
-  'user_codex_subscription',
+const subscriptionKeys = [
+  'payer',
+  'credential_origin',
+  'usage_category',
+  'billing_category',
+  'provider_access_mode',
 ];
+const subscriptionMarkers: Record<string, 'claude' | 'codex'> = {
+  claude_subscription: 'claude',
+  codex_subscription: 'codex',
+  user_claude_subscription: 'claude',
+  user_codex_subscription: 'codex',
+};
+/**
+ * The user's own subscription that pays, from the payer and access mode fields of usage or
+ * billing records. Null when no record names a subscription.
+ */
+export function subscriptionPayer(...sources: unknown[]): 'claude' | 'codex' | null {
+  for (const source of sources) {
+    if (!source || typeof source !== 'object') continue;
+    const record = source as Record<string, unknown>;
+    for (const key of subscriptionKeys) {
+      const value = record[key];
+      if (typeof value === 'string' && Object.hasOwn(subscriptionMarkers, value))
+        return subscriptionMarkers[value];
+    }
+  }
+  return null;
+}
+/** The cost text of a request that the user's own subscription pays. */
+export function subscriptionCostLabel(payer: 'claude' | 'codex' | null) {
+  return payer === 'claude'
+    ? 'Included in your Claude subscription'
+    : payer === 'codex'
+      ? 'Included in your Codex subscription'
+      : 'Included in your subscription';
+}
 /** True when a usage or billing record says that the user's own subscription pays. */
 export function isSubscriptionBilling(source: unknown) {
   if (!source || typeof source !== 'object') return false;
-  const record = source as Record<string, unknown>;
   return (
-    [
-      'payer',
-      'credential_origin',
-      'usage_category',
-      'billing_category',
-      'provider_access_mode',
-    ].some((key) => subscriptionMarkers.includes(record[key] as string)) ||
-    record.pricing === 'subscription'
+    subscriptionPayer(source) !== null ||
+    (source as Record<string, unknown>).pricing === 'subscription'
   );
 }
 /**
@@ -707,7 +755,7 @@ export function historyCostLabel(row: Record<string, unknown>) {
   const usage =
     row.usage && typeof row.usage === 'object' ? (row.usage as Record<string, unknown>) : {};
   if (isSubscriptionBilling(row) || isSubscriptionBilling(usage))
-    return 'Paid by your subscription. Provider charge is not known.';
+    return subscriptionCostLabel(subscriptionPayer(row, usage));
   const valid = (cost: unknown, currency: unknown) =>
     (typeof cost === 'number' || (typeof cost === 'string' && /^-?\d+(?:\.\d+)?$/.test(cost))) &&
     typeof currency === 'string' &&
@@ -757,6 +805,8 @@ export interface ManagedLaunchBlock {
   code: string;
   step: ManagedSetupStep;
   message: string;
+  /** The agent version that the launch found, for a version refusal. */
+  version?: string;
 }
 const setupChoice =
   'Choose an authorized agent or policy, provider access, and model for this agent in managed agent setup.';
@@ -858,13 +908,133 @@ const launchBlocks: Record<string, [ManagedSetupStep, string]> = {
 const recoverySteps: Record<SubscriptionRecoveryAction, ManagedSetupStep> = {
   update_runtime: 'runtime',
   sign_in_native_claude_on_execution_host: 'agent-setup',
-  inspect_runtime: 'runtime',
+  // Inspect means "check the status". A new install does not repair a failed check.
+  inspect_runtime: 'status',
   check_native_compatibility: 'agents',
   reauthorize_new_session: 'agent-setup',
   verify_native_account: 'agent-setup',
   repair_managed_launch: 'agent-setup',
   open_authorized_setup: 'agent-setup',
 };
+// Codes that a second try can fix. No Settings step helps.
+const transientRefusals = new Set([
+  'desktop.event_authority_unavailable',
+  'desktop.request_timeout',
+  'desktop.operation_in_progress',
+  'desktop.runtime_starting',
+  'desktop.runtime_limit',
+  'desktop.runtime_already_owned',
+  'desktop.connection_limit',
+  'desktop.secure_storage_unavailable',
+  'desktop.transport_closed',
+  'desktop.transport_lost',
+]);
+// Codes of a gateway or check that did not become ready. A second try can fix them. The status
+// in Settings shows more.
+const statusRefusals = new Set([
+  'desktop.readiness_blocked',
+  'desktop.readiness_failed',
+  'desktop.readiness_required',
+  'desktop.evidence_unavailable',
+  'desktop.gateway_unavailable',
+  'desktop.gateway_failed',
+  'desktop.gateway_start_timeout',
+  'desktop.gateway_stopped',
+  'desktop.runtime_stopped',
+]);
+// Codes of a computer that cannot isolate agents. No Settings step and no second try helps.
+const platformRefusals = new Set([
+  'desktop.process_isolation_unavailable',
+  'desktop.isolation_scope_invalid',
+  'desktop.loopback_required',
+  'desktop.protected_pipe_unavailable',
+]);
+/** Where the agent runs, for a launch refusal: "this computer" or the name of an SSH host. */
+export interface RefusalContext {
+  computer?: string;
+  /** The agent version that the launch found, when the code is about the version. */
+  version?: string;
+}
+export interface ManagedRefusal {
+  code: string;
+  /** Plain words without the managed-only notice and without the code. */
+  message: string;
+  /** The setup step that can remove the block, or null when no step helps. */
+  step: ManagedSetupStep | null;
+  /** True when a second try can work. */
+  retry: boolean;
+}
+const capital = (text: string) => text[0].toUpperCase() + text.slice(1);
+/** The agent of a version code, for example `desktop.codex_version_unsupported`. */
+function versionAgent(code: string): NativeAgentKind | undefined {
+  const kind = /^desktop\.(codex|claude_code)_version_/.exec(code)?.[1];
+  return kind as NativeAgentKind | undefined;
+}
+/** A safe version string, or nothing. Versions come from the agent's `--version` output. */
+export function safeVersion(value: unknown) {
+  return typeof value === 'string' && /^[0-9][0-9A-Za-z.+-]{0,39}$/.test(value) ? value : undefined;
+}
+/** The specific words for a refusal code. Nothing for codes without specific words. */
+function refusalWords(code: string, where: string, version?: string): string | undefined {
+  const kind = versionAgent(code);
+  if (kind) {
+    const name = nativeAgentNames[kind];
+    const minimum = `Kalkidan needs ${name} ${agentMinimumVersions[kind]} or later.`;
+    if (code.endsWith('_unknown'))
+      return `Kalkidan cannot read the ${name} version on ${where}. ${minimum} Update ${name} on ${where}, then try again.`;
+    return version
+      ? `${capital(where)} has ${name} ${version}. ${minimum} Update ${name} on ${where}, then try again.`
+      : `${name} on ${where} is too old. ${minimum} Update ${name} on ${where}, then try again.`;
+  }
+  switch (code) {
+    case 'desktop.agent_version_unsupported':
+      return `Kalkidan cannot confirm the agent version on ${where}. ${supportedAgent}`;
+    case 'desktop.readiness_blocked':
+      return `The managed gateway on ${where} is not ready. Try again in a moment. If it continues, check Settings › Managed agents.`;
+    case 'desktop.evidence_unavailable':
+      return `The managed gateway on ${where} did not send its status. Try again in a moment. If it continues, check Settings › Managed agents.`;
+    case 'desktop.readiness_failed':
+    case 'desktop.readiness_required':
+      return `The managed agents check on ${where} did not pass. Check the status in Settings › Managed agents, then try again.`;
+    case 'desktop.secure_storage_unavailable':
+      return `The system keychain on ${where} is locked or waits for your approval. Unlock it or allow access, then try again.`;
+    case 'desktop.event_authority_unavailable':
+    case 'desktop.operation_in_progress':
+      return managedErrors[code].message;
+  }
+  return undefined;
+}
+/** The setup step for a launch refusal code. Null when no Settings step helps. */
+function refusalStep(code: string): ManagedSetupStep | null {
+  if (transientRefusals.has(code) || platformRefusals.has(code)) return null;
+  if (statusRefusals.has(code)) return 'status';
+  const recovery = claudeSubscriptionRecovery(code);
+  if (recovery) return recoverySteps[recovery.action];
+  const section = managedErrors[code]?.section;
+  return (
+    launchBlocks[code]?.[0] ||
+    (section === 'updates' ? 'runtime' : section ? 'agent-setup' : 'status')
+  );
+}
+/**
+ * Plain words, the setup step and the retry rule for a code that stopped a managed launch.
+ * Only codes of a missing or old runtime get the runtime step. The words name the computer.
+ */
+export function managedRefusal(code: string, context: RefusalContext = {}): ManagedRefusal {
+  const where = context.computer?.trim() || 'the machine where work runs';
+  const version = safeVersion(context.version);
+  const message =
+    refusalWords(code, where, version) ||
+    managedErrors[code]?.message ||
+    launchBlocks[code]?.[1] ||
+    'The managed launch checks did not pass. Check the managed agent status in Settings.';
+  return {
+    code,
+    message,
+    step: refusalStep(code),
+    retry: transientRefusals.has(code) || statusRefusals.has(code) || !!managedErrors[code]?.retry,
+  };
+}
 /**
  * The message and setup step for an error that stopped a managed launch. Each message starts
  * with the managed-only notice. An unknown error keeps its own text after the notice.
@@ -881,12 +1051,8 @@ export function managedLaunchBlock(error: unknown): ManagedLaunchBlock {
   const code = /^desktop\.[a-z_]{1,100}$/.test(raw)
     ? raw
     : managedErrorCode(raw) || managedErrorCode(text) || 'desktop.launch_blocked';
-  const recovery = claudeSubscriptionRecovery(code);
-  const section = managedErrors[code]?.section;
-  const step: ManagedSetupStep = recovery
-    ? recoverySteps[recovery.action]
-    : launchBlocks[code]?.[0] ||
-      (section === 'updates' ? 'runtime' : section ? 'agent-setup' : 'status');
+  // A block without a helpful step links to the status. The renderer uses the code instead.
+  const step: ManagedSetupStep = refusalStep(code) || 'status';
   // Backend messages end with the code in square brackets. The code is never shown.
   const plain = withoutManagedCode(text)
     .replace(/\bdesktop\.[a-z_]{1,100}\b/g, '')
@@ -897,9 +1063,11 @@ export function managedLaunchBlock(error: unknown): ManagedLaunchBlock {
     launchBlocks[code]?.[1] ||
     own ||
     'The managed launch checks did not pass. Check the managed agent status in Settings.';
+  const version = safeVersion(record.version);
   return {
     code,
     step,
     message: detail.startsWith(managedOnlyNotice) ? detail : `${managedOnlyNotice} ${detail}`,
+    ...(version ? { version } : {}),
   };
 }

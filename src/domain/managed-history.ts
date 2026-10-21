@@ -1,5 +1,5 @@
 import { words, type PlanningLabel } from './planning-labels';
-import { isOpaqueId, serviceName } from './verdictan';
+import { isOpaqueId, serviceName, subscriptionCostLabel, subscriptionPayer } from './verdictan';
 
 /**
  * The Verdictan history of one task or one chat. Verdictan owns this history. It is one history
@@ -36,6 +36,8 @@ export interface ManagedHistoryEntry {
   latencyMs: string | null;
   /** True when Verdictan recorded an audit record. The record ID is not shown. */
   audited: boolean;
+  /** The user's own subscription that pays for the request, or null for other payers. */
+  subscription: 'claude' | 'codex' | null;
 }
 
 export interface ManagedHistoryPage {
@@ -106,6 +108,7 @@ export function historyEntries(items: unknown): ManagedHistoryEntry[] {
       completedAt: time(timings.completed_at),
       latencyMs: amount(timings.latency_ms),
       audited: typeof item.audit_id === 'string' && item.audit_id.length > 0,
+      subscription: subscriptionPayer(item, usage, item.billing),
     };
   });
 }
@@ -138,12 +141,41 @@ export function historyDecisionLabel(entry: ManagedHistoryEntry): PlanningLabel 
   return { label: words(decision), tone: 'secondary' };
 }
 /**
+ * The duration of a request in milliseconds. It is the latency from Verdictan or, when that is
+ * missing, the time from the start to the end. Null when neither is known.
+ */
+export function historyDurationMs(entry: ManagedHistoryEntry): number | null {
+  if (entry.latencyMs !== null) return Number(entry.latencyMs);
+  if (entry.startedAt === null || entry.completedAt === null) return null;
+  const value = Date.parse(entry.completedAt) - Date.parse(entry.startedAt);
+  return Number.isFinite(value) && value >= 0 ? value : null;
+}
+/** "900 ms", "3 s", "2.5 s" or "1 min 5 s". */
+export function durationLabel(ms: number) {
+  if (ms < 1000) return `${Math.round(ms).toLocaleString('en-US')} ms`;
+  if (ms < 60_000) return `${Number((ms / 1000).toFixed(1))} s`;
+  const minutes = Math.floor(ms / 60_000);
+  const seconds = Math.round((ms % 60_000) / 1000);
+  return seconds ? `${minutes.toLocaleString('en-US')} min ${seconds} s` : `${minutes} min`;
+}
+/**
+ * The cost of one request. A request that the user's own subscription pays has no Verdictan
+ * cost. The provider bills the subscription.
+ */
+export function historyCostText(entry: ManagedHistoryEntry) {
+  if (entry.subscription) return subscriptionCostLabel(entry.subscription);
+  return entry.cost === null || entry.currency === null
+    ? 'Unknown'
+    : `${entry.cost} ${entry.currency}`;
+}
+/**
  * The visible details of one request: plain words and numbers only. A null value shows as
  * "Unknown". The cost is the measured cost from Verdictan. It is not a provider charge.
  */
 export function historyDetails(entry: ManagedHistoryEntry): [string, string][] {
   const time = (value: string | null) =>
     value === null ? 'Unknown' : new Date(Date.parse(value)).toLocaleString();
+  const duration = historyDurationMs(entry);
   return [
     ['Reason', entry.reason ? words(entry.reason) : 'Unknown'],
     ...(entry.review ? ([['Review', words(entry.review)]] as [string, string][]) : []),
@@ -154,12 +186,7 @@ export function historyDetails(entry: ManagedHistoryEntry): [string, string][] {
         entry.outputTokens,
       )} out · ${count(entry.cachedInputTokens)} cached`,
     ],
-    [
-      'Cost',
-      entry.cost === null || entry.currency === null
-        ? 'Unknown'
-        : `${entry.cost} ${entry.currency}`,
-    ],
+    ['Cost', historyCostText(entry)],
     [
       'Settlement',
       (entry.settlement ? words(entry.settlement) : 'Unknown') +
@@ -167,7 +194,7 @@ export function historyDetails(entry: ManagedHistoryEntry): [string, string][] {
     ],
     ['Started', time(entry.startedAt)],
     ['Completed', time(entry.completedAt)],
-    ['Duration', entry.latencyMs === null ? 'Unknown' : `${count(entry.latencyMs)} ms`],
+    ['Duration', duration === null ? 'Unknown' : durationLabel(duration)],
     ['Audit record', entry.audited ? 'Recorded' : 'Unknown'],
   ];
 }

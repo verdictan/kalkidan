@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { ManagedHistory, type HistorySource } from '../electron/verdictan/managed-history';
 import {
   appendHistory,
+  durationLabel,
   historyDecisionLabel,
   historyDetails,
   historyEntries,
@@ -129,6 +130,54 @@ test('unknown history values stay unknown and never become zero', () => {
   // A cost without a currency is not known.
   assert.equal(historyEntries([{ usage: { measured_cost: '1.5', currency: null } }])[0].cost, null);
   assert.deepEqual(historyEntries('not a list'), []);
+});
+
+test('duration comes from the start and end times when Verdictan sends no latency', () => {
+  const [entry] = historyEntries([
+    {
+      timings: {
+        started_at: '2026-10-21T10:37:57.000Z',
+        completed_at: '2026-10-21T10:38:00.000Z',
+      },
+    },
+  ]);
+  assert.equal(entry.latencyMs, null);
+  assert.equal(Object.fromEntries(historyDetails(entry)).Duration, '3 s');
+  // A latency from Verdictan has priority.
+  const [timed] = historyEntries([item]);
+  assert.equal(Object.fromEntries(historyDetails(timed)).Duration, '900 ms');
+  // An end before the start is not a duration.
+  const [reversed] = historyEntries([
+    {
+      timings: {
+        started_at: '2026-10-21T10:38:00.000Z',
+        completed_at: '2026-10-21T10:37:57.000Z',
+      },
+    },
+  ]);
+  assert.equal(Object.fromEntries(historyDetails(reversed)).Duration, 'Unknown');
+  assert.equal(durationLabel(2500), '2.5 s');
+  assert.equal(durationLabel(65_000), '1 min 5 s');
+  assert.equal(durationLabel(120_000), '2 min');
+});
+
+test('subscription requests show that the subscription includes them', () => {
+  const claude = historyEntries([
+    { payer: 'user_claude_subscription', usage: { measured_cost: null, currency: null } },
+  ])[0];
+  assert.equal(claude.subscription, 'claude');
+  assert.equal(
+    Object.fromEntries(historyDetails(claude)).Cost,
+    'Included in your Claude subscription',
+  );
+  const codex = historyEntries([
+    { usage: { provider_access_mode: 'codex_subscription', measured_cost: '0', currency: 'USD' } },
+  ])[0];
+  assert.equal(
+    Object.fromEntries(historyDetails(codex)).Cost,
+    'Included in your Codex subscription',
+  );
+  assert.equal(historyEntries([item])[0].subscription, null);
 });
 
 function fixture(

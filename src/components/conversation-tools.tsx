@@ -72,6 +72,7 @@ const launcherRows = [
     shortcut: shortcuts.diff,
   },
 ] as const;
+export const noChangesToCommit = 'No changes to commit.';
 /** True when the diff scope has a change. Unstaged changes include new, untracked files. */
 function scopeHasChanges(diff: RepositoryDiff, scope: string) {
   return scope === 'staged'
@@ -354,6 +355,9 @@ export function ConversationTools({
     window.addEventListener('kalkidan-session-command', command);
     return () => window.removeEventListener('kalkidan-session-command', command);
   }, [visible, tool, tabs]);
+  // The Commit dialog commits staged and unstaged changes, so both scopes count.
+  const nothingToCommit =
+    !!diff && !scopeHasChanges(diff, 'staged') && !scopeHasChanges(diff, 'unstaged');
   // All changes in the scope. Unstaged changes include new, untracked files.
   const allChanges = diff
     ? [
@@ -702,15 +706,25 @@ export function ConversationTools({
                               </Button>
                             </Hint>
                             {onCommit && (
-                              <Button
-                                size="sm"
-                                className="ml-auto"
-                                disabled={busy || disabled}
-                                onClick={onCommit}
+                              <Hint
+                                label={
+                                  nothingToCommit
+                                    ? noChangesToCommit
+                                    : disabled && disabledReason
+                                      ? disabledReason
+                                      : 'Commit the changes'
+                                }
                               >
-                                <GitCommitHorizontal aria-hidden="true" />
-                                Commit…
-                              </Button>
+                                <Button
+                                  size="sm"
+                                  className="ml-auto"
+                                  disabled={busy || disabled || nothingToCommit}
+                                  onClick={onCommit}
+                                >
+                                  <GitCommitHorizontal aria-hidden="true" />
+                                  Commit…
+                                </Button>
+                              </Hint>
                             )}
                           </div>
                           <div className="diff-panel-body">

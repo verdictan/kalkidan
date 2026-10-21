@@ -13,3 +13,9 @@ export const menuDestructiveClass =
   'text-destructive focus:bg-destructive/10 focus:text-destructive dark:focus:bg-destructive/20 [&_svg]:!text-destructive';
 export const menuSeparatorClass = '-mx-1 my-1 h-px bg-border';
 export const menuShortcutClass = 'ml-auto pl-4 text-xs text-muted-foreground';
+/**
+ * The space that menus, select lists and tooltips keep from the window edges. The top value
+ * is larger: the title bar and the macOS window controls are at the top of the window. Keep it
+ * equal to `--titlebar-height` in theme.css plus a small gap.
+ */
+export const menuCollisionPadding = { top: 52, right: 8, bottom: 8, left: 8 };
