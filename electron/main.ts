@@ -161,9 +161,13 @@ function notifyVerdictan() {
       if (host.status === 'connected') remote.disconnect(host.id);
   }
   stopDispatch();
+  broadcastVerdictanChanged();
+  if (account?.state === 'authenticated') restoreDispatch();
+}
+/** Tells the windows to read the managed agents state again. */
+function broadcastVerdictanChanged() {
   for (const window of windows)
     if (!window.isDestroyed()) window.webContents.send('verdictan-changed');
-  if (account?.state === 'authenticated') restoreDispatch();
 }
 let verdictan: ReturnType<typeof createVerdictanServices> | undefined;
 // The user confirmed that running agents can stop. Do not ask again while the app quits.
@@ -503,6 +507,8 @@ app.whenReady().then(async () => {
     } finally {
       changingAccount = false;
       if (verdictan?.account.status().account?.state === 'authenticated') restoreDispatch();
+      // Reads during the change failed with "Account is changing". Let the windows read again.
+      broadcastVerdictanChanged();
     }
   });
   handle('verdictan-check', () => verdictan!.account.check());
@@ -526,6 +532,7 @@ app.whenReady().then(async () => {
       return await verdictan!.account.logout();
     } finally {
       changingAccount = false;
+      broadcastVerdictanChanged();
     }
   });
   for (const action of ['status', 'check', 'install', 'cancel'] as const) {

@@ -227,4 +227,26 @@ const api: API = {
     };
   },
 };
-contextBridge.exposeInMainWorld('workspace', api);
+// Electron adds "Error invoking remote method 'x': Error: " to each handler error. That text is
+// for developers. Remove it once here, so no view shows it to the user.
+const ipcPrefix = /^Error invoking remote method '[^']*': (?:\w*Error: )?/;
+function plainError(error: unknown) {
+  if (!(error instanceof Error) || !ipcPrefix.test(error.message)) return error;
+  return new Error(error.message.replace(ipcPrefix, ''));
+}
+const exposed = Object.fromEntries(
+  Object.entries(api).map(([name, value]) => [
+    name,
+    typeof value !== 'function' || name.startsWith('on')
+      ? value
+      : (...args: unknown[]) => {
+          const result = (value as (...args: unknown[]) => unknown)(...args);
+          return result instanceof Promise
+            ? result.catch((error: unknown) => {
+                throw plainError(error);
+              })
+            : result;
+        },
+  ]),
+) as unknown as API;
+contextBridge.exposeInMainWorld('workspace', exposed);

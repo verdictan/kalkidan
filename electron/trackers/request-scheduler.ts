@@ -6,7 +6,10 @@ export class GitHubRequestError extends Error {
       | 'signed-out'
       | 'unavailable'
       | 'unknown-outcome'
-      | 'invalid-response',
+      | 'invalid-response'
+      | 'scope'
+      | 'query-limit'
+      | 'query-invalid',
     public readonly retryAt?: number,
   ) {
     super(
@@ -18,6 +21,12 @@ export class GitHubRequestError extends Error {
         'unknown-outcome':
           'GitHub did not confirm the change. Refresh the project before you retry.',
         'invalid-response': 'GitHub returned an incomplete response. Refresh the project.',
+        scope:
+          'Your GitHub sign-in does not have the "project" scope. Run "gh auth refresh -s project", then refresh the project.',
+        'query-limit':
+          'GitHub rejected the request because it asks for too many records at one time. Update Kalkidan, or report this problem.',
+        'query-invalid':
+          'GitHub rejected the request because it does not agree with the GitHub API. Update Kalkidan, or report this problem.',
       }[reason],
     );
   }
@@ -61,6 +70,26 @@ export class GitHubRequestScheduler {
       else this.queue.push({ start, reject });
     });
   }
+}
+
+/** GraphQL errors for a query that asks for too many nodes or is too complex. */
+const queryLimitErrors = new Set([
+  'MAX_NODE_LIMIT_EXCEEDED',
+  'EXCESSIVE_PAGINATION',
+  'TOO_MANY_RESOURCES',
+  'MISSING_PAGINATION_BOUNDARIES',
+]);
+/** GraphQL validation errors: GitHub does not run a query that does not match its schema. */
+function queryInvalid(error: any) {
+  const code = error?.extensions?.code;
+  return (
+    (typeof code === 'string' &&
+      /^(?:undefined|argument|variable|fragment|selection|missing|required)\w*/i.test(code)) ||
+    (typeof error?.message === 'string' &&
+      /^(?:Field '[^']+' doesn't exist|No such type|Parse error|Variable \$|Argument '[^']+')/.test(
+        error.message,
+      ))
+  );
 }
 
 export function githubResponse(
@@ -113,8 +142,17 @@ export function githubResponse(
       scheduler.deferUntil(now + 60000);
       throw new GitHubRequestError('rate-limit', now + 60000);
     }
+    if (payload.errors.some((error: any) => error?.type === 'INSUFFICIENT_SCOPES'))
+      throw new GitHubRequestError('scope');
     if (payload.errors.some((error: any) => ['FORBIDDEN', 'NOT_FOUND'].includes(error?.type)))
       throw new GitHubRequestError('permission');
+    // GitHub checks the query before it runs it. A rejected query changes nothing, so the
+    // outcome of a mutation is known. Data is null or missing in that case.
+    if (payload.data == null) {
+      if (payload.errors.some((error: any) => queryLimitErrors.has(error?.type)))
+        throw new GitHubRequestError('query-limit');
+      if (payload.errors.some(queryInvalid)) throw new GitHubRequestError('query-invalid');
+    }
     throw new GitHubRequestError(mutation ? 'unknown-outcome' : 'unavailable');
   }
   if (rest) return { body: payload, link: headers.get('link') };

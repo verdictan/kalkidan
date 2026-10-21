@@ -27,6 +27,15 @@ export const accountPhaseLabels: Record<VerdictanStatus['phase'], StatusLabel> =
   error: { label: 'Check failed', tone: 'destructive' },
 };
 
+/**
+ * True for the error that the desktop sends while it changes the account or the region. The
+ * change is expected and short. Read the status again after it, and do not show an error.
+ */
+export function accountChanging(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error ?? '');
+  return /Account is changing/.test(message);
+}
+
 export function accountPhaseLabel(phase: VerdictanStatus['phase'] | undefined): StatusLabel {
   return phase ? accountPhaseLabels[phase] : { label: 'Checking…', tone: 'secondary' };
 }
@@ -70,6 +79,14 @@ export function updateRunning(status: ComponentUpdateStatus | undefined) {
   return !!phase && (activeUpdatePhases.includes(phase) || phase === 'waiting-for-idle');
 }
 
+/**
+ * True while an install runs on the host. This includes the start of an install, before the
+ * host writes the new operation to its journal.
+ */
+export function runtimeBusy(status: ComponentUpdateStatus | undefined) {
+  return updateRunning(status) || !!status?.installing;
+}
+
 /** True when the approved runtime release is not installed and Kalkidan can install it now. */
 export function runtimeInstallable(status: ComponentUpdateStatus | undefined) {
   if (!status?.approved) return false;
@@ -102,6 +119,7 @@ export function runtimeStatusLabel(status: ComponentUpdateStatus | undefined): S
   if (!status || status.discovery === 'checking') return { label: 'Checking…', tone: 'secondary' };
   if (updateRunning(status))
     return { label: updatePhaseLabel(status.operation!.phase), tone: 'secondary' };
+  if (status.installing) return { label: 'Installing…', tone: 'secondary' };
   if (!status.installed)
     return status.approved
       ? { label: 'Not installed', tone: 'warning' }

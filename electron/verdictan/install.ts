@@ -92,6 +92,9 @@ export class RuntimeInstaller {
   private view: ComponentUpdateStatus;
   private checkPending?: Promise<ComponentUpdateStatus>;
   private installPending?: Promise<ComponentUpdateStatus>;
+  // True from the install request until the journal has its final state. The status that the
+  // install returns is then already free of it.
+  private installRunning = false;
   private abort?: AbortController;
   private assertOwned?: () => void;
   private now: () => number;
@@ -165,7 +168,9 @@ export class RuntimeInstaller {
       history: this.state.history,
     });
     // An interrupted operation from an earlier process does not block. Install resumes it.
-    const busy = !!this.installPending || result.discovery === 'checking';
+    const busy = this.installRunning || result.discovery === 'checking';
+    // The journal can still show an earlier operation. This flag tells the UI to read again.
+    if (this.installRunning) result.installing = true;
     const current = !!result.approved && result.installed?.sha256 === result.approved.sha256;
     result.canInstallApproved = !!result.approved && !current && !busy;
     result.reason = result.canInstallApproved
@@ -176,7 +181,7 @@ export class RuntimeInstaller {
           ? `Version ${result.approved.version} is installed.`
           : 'An install or check is in progress. Wait for it to finish.';
     if (
-      !this.installPending &&
+      !this.installRunning &&
       result.operation &&
       !terminal.has(result.operation.phase) &&
       !['waiting-for-idle', 'staged'].includes(result.operation.phase)
@@ -284,6 +289,7 @@ export class RuntimeInstaller {
   }
   install() {
     if (this.installPending) return this.installPending;
+    this.installRunning = true;
     const task = this.performInstall();
     this.installPending = task;
     void task.finally(() => {
@@ -452,6 +458,7 @@ export class RuntimeInstaller {
       this.view.stale = true;
     } finally {
       this.assertOwned = undefined;
+      this.installRunning = false;
     }
     await this.check(true);
     return this.status();

@@ -43,6 +43,13 @@ function allowedModels(value: unknown): Pick<VerdictanSetup, 'allowedModels'> {
   }
   return Object.keys(result).length ? { allowedModels: result } : {};
 }
+/** Codes that mean the session ended. Then the setup cannot show anything. */
+const sessionCodes = new Set([
+  'desktop.auth_required',
+  'desktop.auth_expired',
+  'desktop.session_rejected',
+  'desktop.region_required',
+]);
 export class VerdictanSetupService {
   constructor(
     private client: () => Promise<DesktopClient>,
@@ -162,10 +169,10 @@ export class VerdictanSetupService {
   async status(): Promise<VerdictanSetup> {
     const first = await this.inspect();
     if (first.setup.policyReadiness !== 'default_creatable') return first.setup;
-    const { capabilities } = parseCapabilities((await first.client.request('capabilities')).data);
-    if (!capabilities.includes('setup.ensure_default')) return first.setup;
     let ensured: 'created' | 'existing';
     try {
+      const { capabilities } = parseCapabilities((await first.client.request('capabilities')).data);
+      if (!capabilities.includes('setup.ensure_default')) return first.setup;
       const data = (await first.client.request('setup.ensure_default')).data;
       if (
         data.schema_version !== 1 ||
@@ -178,15 +185,30 @@ export class VerdictanSetupService {
         throw new DesktopProtocolError('desktop.setup_invalid');
       ensured = data.status as 'created' | 'existing';
     } catch (error) {
-      // Another administrator can remove the permission between the two calls.
+      // The inspection is still correct. A failure to make the default never hides the
+      // policies that exist. The user can choose one of them, and Refresh tries again.
       const code = error instanceof DesktopProtocolError ? error.code : '';
-      if (code === 'desktop.setup_default_configuration_required')
+      // The session ended between the two calls. Sign-in must come first.
+      if (sessionCodes.has(code)) throw error;
+      // Another administrator can remove the permission between the two calls. The service
+      // can also report a default that it cannot make for this user.
+      if (
+        code === 'desktop.setup_default_configuration_required' ||
+        code === 'desktop.permission_denied'
+      )
         return { ...first.setup, policyReadiness: 'default_configuration_required' };
       if (code === 'desktop.setup_permission_required')
         return { ...first.setup, policyReadiness: 'default_permission_required' };
-      throw error;
+      return { ...first.setup, defaultUnavailable: true };
     }
-    return { ...(await this.inspect()).setup, defaultEnsured: ensured };
+    try {
+      return { ...(await this.inspect()).setup, defaultEnsured: ensured };
+    } catch (error) {
+      const code = error instanceof DesktopProtocolError ? error.code : '';
+      if (sessionCodes.has(code)) throw error;
+      // The default exists now. The next Refresh shows it.
+      return { ...first.setup, defaultEnsured: ensured };
+    }
   }
   validate(setup: VerdictanSetup, agent: 'codex' | 'claude', value: VerdictanSelection) {
     if (

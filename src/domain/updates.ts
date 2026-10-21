@@ -57,6 +57,11 @@ export interface ComponentUpdateStatus {
   canInstallApproved?: boolean;
   /** Plain words for why the approved release cannot be installed now. */
   reason?: string;
+  /**
+   * True while an install runs on the host, also before its first journal entry. Read the status
+   * again until it is false.
+   */
+  installing?: boolean;
 }
 export interface UpdatesAPI {
   componentUpdates(force?: boolean): Promise<ComponentInventory>;

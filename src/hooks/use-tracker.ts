@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import type { API } from '../types';
 import { type TrackerDescriptor } from '../domain/tracker';
 import { trackerClient } from '../lib/tracker-client';
+import { errorMessage } from '../lib/errors';
 export function useTracker(api: API, provider?: string) {
   const [providers, setProviders] = useState<TrackerDescriptor[]>([]);
   const selected = provider || providers[0]?.id || 'github';
@@ -18,7 +19,7 @@ export function useTracker(api: API, provider?: string) {
         }
       })
       .catch((e) => {
-        if (live) setError(String(e.message || e));
+        if (live) setError(errorMessage(e));
       });
     return () => {
       live = false;
