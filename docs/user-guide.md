@@ -181,7 +181,7 @@ If a permission request is not in view, a banner above the message box shows "Th
 
 ### Navigation and session management
 
-Use **⌘K** to search. Collapse the project tree when necessary. Drafts and active responses remain available when you change views. Closing the app window stops active responses. Saved conversation history remains available.
+Use **⌘K** to search. Collapse the project tree when necessary. Drafts and active responses remain available when you change views. Closing the app window stops active responses. Saved conversation history remains available. When you start Kalkidan again, **Open chats** shows the saved chats that were open. A chat is saved when the agent starts. If the agent does not start, the chat is not saved and the error card tells you. When you quit Kalkidan, that chat and its message close. Select **Try again** before you quit.
 
 Use the repository's session list to manage titles, pins, collections, notes, and archives. Select a session title to resume it. Select **Organize** to change its settings. Kalkidan keeps the selected view and filters for each repository. Archiving hides a session in Kalkidan. It does not delete the agent provider's history. Restore a session from the repository's archived sessions.
 

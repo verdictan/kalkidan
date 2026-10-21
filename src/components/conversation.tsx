@@ -1124,6 +1124,7 @@ export function Conversation({
                     busy={!!active}
                     onRetry={retrySend}
                     onChangeAgent={changeAgent}
+                    unsaved={!providerSession.current && session.id.startsWith('draft-')}
                   />
                 )}
               </article>
