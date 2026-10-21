@@ -308,7 +308,9 @@ test('project reviews require an explicit reason and confirmation before the bro
   const calls = await page.evaluate(() => (window as any).planningWrites);
   expect(calls.filter((call: any) => call[1]?.operation === 'review.decide')).toHaveLength(0);
   await page.getByRole('button', { name: 'Confirm action', exact: true }).click();
-  await expect(page.getByText('Operation completed · receipt receipt-1')).toBeVisible();
+  // The receipt ID stays internal.
+  await expect(page.getByText('Operation completed. Verdictan recorded a receipt.')).toBeVisible();
+  await expect(page.getByText('receipt-1')).toHaveCount(0);
   const mutation = await page.evaluate(
     () =>
       (window as any).planningWrites.find((call: any) => call[1]?.operation === 'review.decide')[1],

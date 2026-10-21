@@ -91,7 +91,8 @@ test('agent check failure is recoverable and short screens keep setup actions ac
   // The session opens with a draft only, so a failed check does not block it.
   await expect(page.getByRole('button', { name: 'Open first session' })).toBeEnabled();
   await page.getByRole('button', { name: 'Check again' }).click();
-  await expect(status).toContainText('Codex is ready');
+  await expect(status).toContainText('Codex is installed');
+  await expect(status).toContainText('managed Verdictan agent');
   await page.getByRole('button', { name: 'Set up later' }).click();
   await expect(page.getByRole('dialog')).toHaveCount(0);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
