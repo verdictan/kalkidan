@@ -21,12 +21,12 @@ const userRequest = '\n\nUser request:\n';
  * stored message. Neither is the user's text.
  */
 export function visibleUserText(text: string) {
-  let visible = text;
+  let visible = text.replace(/<system-reminder>[\s\S]*?<\/system-reminder>/g, '').trim();
   if (visible.startsWith(kalkidanContext)) {
     const at = visible.lastIndexOf(userRequest);
-    if (at >= 0) visible = visible.slice(at + userRequest.length);
+    if (at >= 0) visible = visible.slice(at + userRequest.length).trim();
   }
-  return visible.replace(/<system-reminder>[\s\S]*?<\/system-reminder>/g, '').trim();
+  return visible;
 }
 export function parseTranscript(text: string, agent: Agent): ChatMessage[] {
   const messages: ChatMessage[] = [];
@@ -39,7 +39,10 @@ export function parseTranscript(text: string, agent: Agent): ChatMessage[] {
       const payload =
         agent === 'codex' ? (row.type === 'response_item' ? row.payload : null) : row.message;
       const role = payload?.role || (agent === 'claude' ? row.type : null);
-      if (payload && (role === 'user' || role === 'assistant')) {
+      // Newer Claude Code versions also store request copies (for example `api-request-blob`)
+      // with a message role. Only user and assistant records are chat messages.
+      const chatRecord = agent !== 'claude' || row.type === 'user' || row.type === 'assistant';
+      if (payload && chatRecord && (role === 'user' || role === 'assistant')) {
         const raw = contentText(payload.content);
         const body = role === 'user' ? visibleUserText(raw) : raw;
         const id = row.uuid || `message-${index}`;
