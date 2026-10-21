@@ -4,6 +4,7 @@ import { managedOnlyNotice } from '../domain/verdictan';
 import { trackerClient } from '../lib/tracker-client';
 import {
   ConversationTools,
+  noChangesToCommit,
   type ConversationContext,
   type ToolRequest,
 } from './conversation-tools';
@@ -426,6 +427,14 @@ export function Conversation({
   };
   useEffect(() => readWorking.current(), [api, repositoryId]);
   const changedFiles = working ? working.changed + working.untracked : 0;
+  // A known status with no changed files has nothing to commit. An unknown status does not
+  // block the Commit dialog, because the dialog reads the status again.
+  const nothingToCommit = !!working && changedFiles === 0;
+  /** Opens the Commit dialog, or tells the user that there is nothing to commit. */
+  function openCommit() {
+    if (nothingToCommit) showToast({ message: noChangesToCommit });
+    else setCommitOpen(true);
+  }
   // A resumed session has only the task id. Load the board to show the task title.
   useEffect(() => {
     const connection = trackerConnection(projectGroup);
@@ -958,7 +967,7 @@ export function Conversation({
   // The application menu and the chat menu send these commands to the visible chat.
   const commands = useRef<(name: string) => boolean>(() => false);
   commands.current = (name) => {
-    if (name === 'session-commit' && repositoryId) setCommitOpen(true);
+    if (name === 'session-commit' && repositoryId) openCommit();
     else if (name === 'save-to-docs' && projectGroup) setSaveDocsOpen(true);
     else if (name === 'open-linked-task' && taskId && projectGroup) openLinkedTask();
     else if (name === 'link-task' && trackerConnection(projectGroup) && !active)
@@ -1019,7 +1028,7 @@ export function Conversation({
       changeCount={repositoryId ? changedFiles : null}
       runsFinished={runsFinished}
       onChangesRead={() => readWorking.current()}
-      onCommit={repositoryId ? () => setCommitOpen(true) : undefined}
+      onCommit={repositoryId ? openCommit : undefined}
       onToolChange={setToolOpen}
       visible={visible}
       remote={!!session.hostId}
@@ -1311,14 +1320,16 @@ export function Conversation({
                     </Button>
                   )}
                   {repositoryId && (
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      disabled={taskBusy || !!active}
-                      onClick={() => setCommitOpen(true)}
-                    >
-                      Commit changes…
-                    </Button>
+                    <Hint label={nothingToCommit ? noChangesToCommit : 'Commit the changes'}>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={taskBusy || !!active || nothingToCommit}
+                        onClick={() => setCommitOpen(true)}
+                      >
+                        Commit changes…
+                      </Button>
+                    </Hint>
                   )}
                   <Button
                     size="sm"
