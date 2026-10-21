@@ -7,6 +7,7 @@ import { ChevronRight, NotebookPen, X } from 'lucide-react';
 import { pathBasename } from '../lib/platform';
 import { sessionRepo } from '../lib/session-repository';
 import { Conversation, type ConversationDraft } from './conversation';
+import type { MentionChat } from '../lib/mention-sections';
 import { Button } from './ui/button';
 import { Hint } from './hint';
 import { shortcutLabel } from '../lib/platform';
@@ -17,6 +18,32 @@ const keyOf = (session: Session) => session.agent + ':' + session.id;
 // approval stays mounted until it finishes.
 const mountedLimit = 5;
 const titleOf = (session: Session) => session.organization?.title || session.title;
+// The picker offers the most recent chats only.
+const mentionChatLimit = 200;
+/** The other saved chats in the code folders of a project, newest first, for "@" mentions. */
+function projectChats(
+  group: ProjectGroup | undefined,
+  current: Session,
+  sessions: Session[],
+  projects: Project[],
+): MentionChat[] {
+  if (!group) return [];
+  return sessions
+    .filter((session) => {
+      if (session.agent === current.agent && session.id === current.id) return false;
+      if (session.id.startsWith('draft-') || session.organization?.archived) return false;
+      const repository = sessionRepo(session, projects);
+      return !!repository && group.repoIds.includes(repository.id);
+    })
+    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+    .slice(0, mentionChatLimit)
+    .map((session) => ({
+      id: session.id,
+      agent: session.agent,
+      title: titleOf(session),
+      updatedAt: session.updatedAt,
+    }));
+}
 export function AgentWorkspace({
   api,
   sessions,
@@ -364,6 +391,9 @@ export function AgentWorkspace({
               const key = keyOf(tab);
               if (!mounted.has(key)) return null;
               const tabRepository = sessionRepo(tab, projects);
+              const tabGroup = projectGroups.find(
+                (g) => tabRepository && g.repoIds.includes(tabRepository.id),
+              );
               // A session that the agent created before it was unmounted resumes by its id.
               const resumed = evicted.current.has(key) && created[key];
               const session = liveSession(tab);
@@ -396,9 +426,8 @@ export function AgentWorkspace({
                   <Conversation
                     api={forSession(tab)}
                     hostName={hosts.find((host) => host.id === session.hostId)?.name}
-                    projectGroup={projectGroups.find(
-                      (g) => tabRepository && g.repoIds.includes(tabRepository.id),
-                    )}
+                    projectGroup={tabGroup}
+                    mentionChats={projectChats(tabGroup, tab, sessions, projects)}
                     repositoryId={tabRepository?.id}
                     session={
                       resumed
