@@ -82,7 +82,7 @@ test('desktop protocol correlates interleaved requests and never projects upstre
   assert.equal((await second).event, 'capabilities');
   assert.equal((await first).data.state, 'signed_out');
   const failed = f.client.request('session.renew');
-  const rejection = assert.rejects(failed, { message: 'desktop.auth_expired' });
+  const rejection = assert.rejects(failed, { code: 'desktop.auth_expired' });
   f.reply('error', { code: 'desktop.auth_expired', message: 'private upstream diagnostic' });
   await rejection;
 });

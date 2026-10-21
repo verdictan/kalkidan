@@ -22,6 +22,7 @@ export function TrackerProjectPicker({
   value,
   onChange,
   onBusy,
+  autoFocus = true,
 }: {
   api: API;
   provider?: string;
@@ -29,6 +30,8 @@ export function TrackerProjectPicker({
   value: string;
   onChange: (url: string) => void;
   onBusy: (busy: boolean) => void;
+  /** Puts the focus in the search field when the picker shows, so the user can type at once. */
+  autoFocus?: boolean;
 }) {
   const { client, name: providerName, descriptor } = useTracker(api, provider);
   const board = boardLabel(providerName);
@@ -115,9 +118,10 @@ export function TrackerProjectPicker({
     }
   }
   return (
-    <div className="space-y-3">
+    <div className="grid gap-3">
       <SegmentedControl
         size="sm"
+        className="justify-self-start"
         label="Board connection method"
         value={mode}
         onChange={(next) => {
@@ -151,7 +155,7 @@ export function TrackerProjectPicker({
         />
       )}
       {error && (
-        <Alert variant="destructive">
+        <Alert variant="destructive" size="sm">
           <AlertDescription>
             {error}
             <Button
@@ -167,6 +171,7 @@ export function TrackerProjectPicker({
       )}
       {mode === 'url' ? (
         <Input
+          autoFocus
           aria-label={`${board} URL`}
           placeholder="Board URL"
           value={value}
@@ -175,6 +180,7 @@ export function TrackerProjectPicker({
       ) : mode === 'create' ? (
         <>
           <Input
+            autoFocus
             aria-label={`New ${board} name`}
             maxLength={256}
             value={title}
@@ -185,11 +191,13 @@ export function TrackerProjectPicker({
             }}
             placeholder="Board name"
           />
-          <p className="text-xs text-muted-foreground">
+          <p className="form-help m-0">
             Creates a {board} owned by {owner?.login || 'the selected account'}. The permissions of
             an organization can prevent this.
           </p>
           <Button
+            variant="outline"
+            className="justify-self-end"
             disabled={!owner || loading || creating || !title.trim()}
             onClick={() => void create()}
           >
@@ -199,6 +207,7 @@ export function TrackerProjectPicker({
       ) : (
         <>
           <SearchInput
+            autoFocus={autoFocus}
             aria-label={`Search ${board}s`}
             placeholder={`Search ${board}s…`}
             value={query}

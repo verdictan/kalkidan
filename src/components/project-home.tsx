@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
 import {
+  Brain,
   ChevronDown,
+  ChevronRight,
   FileText,
   FolderGit2,
   FolderPlus,
@@ -10,7 +12,10 @@ import {
 } from 'lucide-react';
 import { agentCatalog, agentLabel } from '../config/agents';
 import { sessionRepo } from '../lib/session-repository';
-import { relativeTime } from './project-overview';
+import { NeedsYouList, relativeTime, useNeedsYou } from './project-overview';
+import { ActivityDot, activityKey, useActivityState } from './activity-dot';
+import { agentInstalled, agentMenuLabel } from '../lib/agent-preference';
+import { progressStatus } from '../hooks/use-project-boards';
 import { StatusIcon, trackerColumns } from './tracker-list';
 import { Hint } from './hint';
 import { AgentIcon } from './ui/agent-icon';
@@ -30,6 +35,22 @@ import {
 } from './ui/dropdown-menu';
 import type { ProjectDocMetadata } from '../domain/docs';
 import type { API, Agent, Project, ProjectGroup, Session, TrackerBoard } from '../types';
+
+/** Opens a page of the project. The shell changes the route. */
+function openPage(groupId: string, page: 'tasks' | 'memory', status?: string) {
+  window.dispatchEvent(
+    new CustomEvent('kalkidan-open-project-page', { detail: { groupId, page } }),
+  );
+  // The board applies the status filter after the Tasks page opens.
+  if (status !== undefined)
+    setTimeout(
+      () =>
+        window.dispatchEvent(
+          new CustomEvent('kalkidan-board-filter', { detail: { groupId, status } }),
+        ),
+      60,
+    );
+}
 
 const recentLimit = 5;
 const docLimit = 3;
@@ -83,7 +104,7 @@ function TimeLabel({ value }: { value?: string }) {
 }
 
 /**
- * "New {agent} session" with a menu to choose the code folder and the agent. The main
+ * "New {agent} chat" with a menu to choose the code folder and the agent. The main
  * part starts in the last used code folder.
  */
 export function NewSessionSplit({
@@ -104,11 +125,11 @@ export function NewSessionSplit({
   const target = lastUsedRepo(repos, sessions, preferredRepoId);
   if (!target) return null;
   return (
-    <div className="split-button" role="group" aria-label="Start a session">
+    <div className="split-button" role="group" aria-label="Start a chat">
       <Hint label={`Start in ${target.name}`}>
         <Button className="rounded-r-none" onClick={() => onStart(target, agent)}>
           <AgentIcon agent={agent} />
-          New {agentLabel(agent)} session
+          New {agentLabel(agent)} chat
         </Button>
       </Hint>
       <DropdownMenu>
@@ -133,9 +154,17 @@ export function NewSessionSplit({
           <DropdownMenuLabel>Agent</DropdownMenuLabel>
           <DropdownMenuRadioGroup value={agent} onValueChange={(value) => onAgent(value as Agent)}>
             {agentCatalog.map(({ id }) => (
-              <DropdownMenuRadioItem key={id} value={id} onSelect={(e) => e.preventDefault()}>
+              <DropdownMenuRadioItem
+                key={id}
+                value={id}
+                disabled={!agentInstalled(id)}
+                title={
+                  agentInstalled(id) ? undefined : `Install ${agentLabel(id)} in Settings › Agents`
+                }
+                onSelect={(e) => e.preventDefault()}
+              >
                 <AgentIcon agent={id} />
-                {agentLabel(id)}
+                {agentMenuLabel(id, agentLabel(id))}
               </DropdownMenuRadioItem>
             ))}
           </DropdownMenuRadioGroup>
@@ -145,7 +174,7 @@ export function NewSessionSplit({
   );
 }
 
-/** The overview of one project: code folders, recent sessions, docs and tasks. */
+/** The overview of one project: what needs you, code folders, recent chats, tasks, docs and memory. */
 export function ProjectHome({
   api,
   group,
@@ -235,6 +264,43 @@ export function ProjectHome({
       setDocBusy(false);
     }
   }
+  // Memory card: the number of entries and the latest change.
+  const [memory, setMemory] = useState<{ count: number; updatedAt?: string } | null>(null);
+  useEffect(() => {
+    let live = true;
+    Promise.resolve()
+      .then(async () => {
+        if (typeof api.memoryEntries === 'function') {
+          const entries = await api.memoryEntries(group.id);
+          return {
+            count: entries.length,
+            updatedAt: entries
+              .map((entry) => entry.updatedAt)
+              .sort()
+              .at(-1),
+          };
+        }
+        const value = await api.memoryList(group.id);
+        return {
+          count: value.pages.length,
+          updatedAt: value.pages
+            .map((page) => page.updatedAt)
+            .sort()
+            .at(-1),
+        };
+      })
+      .then((value) => live && setMemory(value))
+      .catch(() => live && setMemory({ count: 0 }));
+    return () => {
+      live = false;
+    };
+  }, [api, group.id]);
+  const needsYou = useNeedsYou(sessions, repos);
+  const { activity } = useActivityState();
+  const stateOf = (session: Session) =>
+    activity.find(
+      (item) => activityKey(item.agent, item.id) === activityKey(session.agent, session.id),
+    )?.state;
   const recent = openSessions(sessions, repos);
   const lastSession = (repo: Project) => recent.find((item) => item.repo.id === repo.id)?.session;
   // The metadata has no change time. The first pages in wiki order come first.
@@ -252,9 +318,31 @@ export function ProjectHome({
     board?.items.filter(
       (item) => (options.some((o) => o.id === item.statusId) ? item.statusId : '') === id,
     ).length || 0;
+  // Tasks in progress, each with the chats that work on it.
+  const progressIds = new Set(options.filter((o) => progressStatus(o.name)).map((o) => o.id));
+  const inProgress = (board?.items || [])
+    .filter((item) => item.statusId && progressIds.has(item.statusId))
+    .map((item) => ({
+      item,
+      chats: recent
+        .filter(({ session }) => (session.organization?.taskId || session.task?.id) === item.id)
+        .map(({ session }) => session),
+    }))
+    .slice(0, 5);
   return (
     <div className="project-home">
       <div className="project-home-main">
+        {!!needsYou.length && onOpenSession && (
+          <section className="project-home-section" aria-label="Needs you">
+            <SectionHeader title="Needs you" count={needsYou.length} />
+            <NeedsYouList
+              items={needsYou}
+              groups={[group]}
+              showProject={false}
+              onOpen={onOpenSession}
+            />
+          </section>
+        )}
         {repos.length ? (
           <section className="project-home-section" aria-label="Code folders">
             <SectionHeader
@@ -292,9 +380,7 @@ export function ProjectHome({
                           )}
                           {branches[repo.id] && <span aria-hidden="true">·</span>}
                           <span className="truncate">
-                            {last
-                              ? `Last session ${relativeTime(last.updatedAt)}`
-                              : 'No sessions yet'}
+                            {last ? `Last chat ${relativeTime(last.updatedAt)}` : 'No chats yet'}
                           </span>
                         </span>
                       </span>
@@ -302,11 +388,11 @@ export function ProjectHome({
                     <Button
                       variant="outline"
                       size="sm"
-                      aria-label={`New ${agentLabel(agent)} session in ${repo.name}`}
+                      aria-label={`New ${agentLabel(agent)} chat in ${repo.name}`}
                       onClick={() => onNewSession(repo, agent)}
                     >
                       <AgentIcon agent={agent} />
-                      New {agentLabel(agent)} session
+                      New {agentLabel(agent)} chat
                     </Button>
                   </li>
                 );
@@ -335,13 +421,13 @@ export function ProjectHome({
           </EmptyState>
         )}
         {!!recent.length && onOpenSession && (
-          <section className="project-home-section" aria-label="Recent sessions">
+          <section className="project-home-section" aria-label="Recent chats">
             <SectionHeader
-              title="Recent sessions"
+              title="Recent chats"
               actions={
                 onAllSessions && (
                   <Button variant="ghost" size="sm" onClick={onAllSessions}>
-                    See all sessions
+                    See all chats
                   </Button>
                 )
               }
@@ -368,6 +454,7 @@ export function ProjectHome({
                           </span>
                         </span>
                       </span>
+                      <ActivityDot state={stateOf(session)} />
                       <TimeLabel value={session.updatedAt} />
                     </button>
                   </li>
@@ -400,15 +487,65 @@ export function ProjectHome({
               }
             />
             {board ? (
-              <ul className="project-home-status-list">
-                {columns.map((column) => (
-                  <li key={column.id}>
-                    <StatusIcon name={column.name} />
-                    <span className="min-w-0 flex-1 truncate">{column.name}</span>
-                    <span className="text-subtle tabular-nums">{count(column.id)}</span>
-                  </li>
-                ))}
-              </ul>
+              <>
+                <ul className="project-home-status-list">
+                  {columns.map((column) => (
+                    <li key={column.id}>
+                      <button
+                        type="button"
+                        className="project-home-status row-hover"
+                        aria-label={`${column.name}: ${count(column.id)} tasks. Show them.`}
+                        onClick={() => openPage(group.id, 'tasks', column.id)}
+                      >
+                        <StatusIcon name={column.name} />
+                        <span className="min-w-0 flex-1 truncate">{column.name}</span>
+                        <span className="text-subtle tabular-nums">{count(column.id)}</span>
+                        <ChevronRight className="project-home-status-chevron" aria-hidden="true" />
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+                {!!inProgress.length && (
+                  <div className="project-home-progress" aria-label="In progress">
+                    <SectionHeader size="sm" title="In progress" />
+                    <ul className="project-home-doc-list">
+                      {inProgress.map(({ item, chats }) => (
+                        <li key={item.id}>
+                          <button
+                            type="button"
+                            className="project-home-doc row-hover"
+                            title={item.title}
+                            onClick={() =>
+                              chats[0] && onOpenSession
+                                ? onOpenSession(chats[0])
+                                : window.dispatchEvent(
+                                    new CustomEvent('kalkidan-open-task', {
+                                      detail: { groupId: group.id, itemId: item.id },
+                                    }),
+                                  )
+                            }
+                          >
+                            {chats[0] ? (
+                              <AgentIcon agent={chats[0].agent} className="size-3.5" />
+                            ) : (
+                              <StatusIcon name="In progress" />
+                            )}
+                            <span className="truncate">
+                              {item.number ? `#${item.number} ` : ''}
+                              {item.title}
+                            </span>
+                            {chats[0] ? (
+                              <ActivityDot state={stateOf(chats[0])} />
+                            ) : (
+                              <span className="text-subtle ml-auto shrink-0">No chat</span>
+                            )}
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </>
             ) : (
               <p className="project-home-card-text">Loading tasks…</p>
             )}
@@ -422,7 +559,7 @@ export function ProjectHome({
             <section className="project-home-card" aria-label={`Connect a ${boardName}`}>
               <SectionHeader size="sm" title="Tasks" />
               <p className="project-home-card-text">
-                Optional. Connect a {boardName} to see its tasks here and start sessions from them.
+                Optional. Connect a {boardName} to see its tasks here and start chats from them.
               </p>
               <Button variant="secondary" size="sm" className="self-start" onClick={onConnectBoard}>
                 <SquareKanban />
@@ -476,6 +613,31 @@ export function ProjectHome({
             </Button>
           </section>
         )}
+        <section className="project-home-card" aria-label="Memory">
+          <SectionHeader
+            size="sm"
+            title="Memory"
+            count={memory?.count || undefined}
+            actions={
+              <Button variant="ghost" size="sm" onClick={() => openPage(group.id, 'memory')}>
+                Open memory
+              </Button>
+            }
+          />
+          <p className="project-home-card-text">
+            {memory === null ? (
+              'Loading memory…'
+            ) : memory.count ? (
+              <>
+                <Brain className="project-home-inline-icon" aria-hidden="true" />
+                {memory.count === 1 ? '1 entry' : `${memory.count} entries`}
+                {memory.updatedAt && ` · Last change ${relativeTime(memory.updatedAt)}`}
+              </>
+            ) : (
+              'No entries yet. Agents save facts about this project here as they work.'
+            )}
+          </p>
+        </section>
       </aside>
     </div>
   );

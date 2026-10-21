@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { TrackerRegistry, type TrackerProvider } from '../electron/trackers/registry';
 import { registerTrackerHandlers } from '../electron/trackers/ipc';
 import { ProjectGroups } from '../electron/project-groups';
+import { trackerConnection } from '../src/domain/tracker';
 import { changeTaskStatus } from '../src/lib/task-status';
 import type { API } from '../src/types';
 function fixture() {
@@ -83,6 +84,27 @@ test('a non-GitHub adapter supports storage, board, mutations and configured lif
       [project, 'task', 'qa'],
       [project, 'task', 'released'],
     ]);
+    // "In review" is a mapped phase too. Unknown phases stay invalid.
+    await call('tracker-configure', id, { progress: 'building', review: 'qa', done: 'released' });
+    assert.deepEqual(groups.groups[0].tracker?.statusMapping, {
+      progress: 'building',
+      review: 'qa',
+      done: 'released',
+    });
+    await assert.rejects(call('tracker-configure', id, { blocked: 'qa' }), /Invalid task status/);
+    await assert.rejects(call('tracker-configure', id, { review: 'made-up' }), /Select a status/);
+    const restoredBefore = new ProjectGroups(join(root, 'groups.json'));
+    await restoredBefore.load();
+    assert.ok(restoredBefore.groups[0].tracker);
+    // Disconnect keeps the project and clears the board and its status mapping.
+    await call('tracker-unlink', id);
+    assert.equal(groups.groups[0].tracker, undefined);
+    assert.equal(groups.groups[0].github, undefined);
+    assert.equal(groups.groups[0].name, 'Platform');
+    assert.throws(() => call('tracker-board', id));
+    await assert.rejects(call('tracker-unlink', 'missing'), /Project not found/);
+    await call('tracker-link', id, 'example', 'team-board');
+    assert.equal(trackerConnection(groups.groups[0])?.statusMapping, undefined);
     const restored = new ProjectGroups(join(root, 'groups.json'));
     await restored.load();
     assert.deepEqual(restored.groups, groups.groups);

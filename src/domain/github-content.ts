@@ -26,13 +26,28 @@ export interface GitHubContentSnapshot {
   canSetType?: boolean;
   viewerDidAuthor?: boolean;
   assignees: { id: string; login: string }[];
-  labels: { id: string; name: string }[];
-  comments: { id: string; body: string; url: string; author?: { login: string } }[];
+  /** `color` is a hex color without "#", as GitHub sends it. */
+  labels: { id: string; name: string; color?: string }[];
+  comments: {
+    id: string;
+    body: string;
+    url: string;
+    /** ISO 8601 time. */
+    createdAt?: string;
+    author?: { login: string };
+  }[];
   milestone?: { id: string; title: string } | null;
   issueType?: { id: string; name: string } | null;
   mergeable?: string;
   reviewDecision?: string;
-  reviews?: { id: string; state: string; body: string; author?: { login: string } }[];
+  reviews?: {
+    id: string;
+    state: string;
+    body: string;
+    /** ISO 8601 time. Null for a pending review. */
+    submittedAt?: string | null;
+    author?: { login: string };
+  }[];
 }
 export interface GitHubCheckEvidence {
   name: string;
@@ -62,4 +77,26 @@ export interface GitHubContentAPI {
     revision: string,
     action: GitHubContentAction,
   ): Promise<GitHubContentSnapshot>;
+}
+
+const escapeRegExp = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+/**
+ * True when `body` has a GitHub closing keyword for the issue, for example "Closes owner/repo#12",
+ * "Fixes #12" or "Resolves https://github.com/owner/repo/issues/12".
+ */
+export function closesIssue(
+  body: string,
+  issue: { owner?: string; repository?: string; number?: number },
+) {
+  if (typeof body !== 'string' || !Number.isSafeInteger(issue.number)) return false;
+  const number = String(issue.number);
+  const targets = ['#' + number];
+  if (issue.owner && issue.repository) {
+    const name = escapeRegExp(issue.owner + '/' + issue.repository);
+    targets.push(name + '#' + number, 'https://github\\.com/' + name + '/issues/' + number);
+  }
+  return new RegExp(
+    `\\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\\s*:?\\s+(?:${targets.join('|')})(?![\\w/])`,
+    'i',
+  ).test(body);
 }

@@ -1,5 +1,6 @@
 import { agentCatalog } from '../config/agents';
-import { VerdictanSettings, RuntimeUpdates } from './verdictan-settings';
+import { ManagedAgentsSettings } from './verdictan-settings';
+import { ComponentUpdates } from './component-updates';
 import { RemoteHostPicker } from './remote-host-picker';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Tabs as TabsPrimitive } from 'radix-ui';
@@ -9,10 +10,12 @@ import {
   Info,
   RefreshCw,
   Server,
+  ShieldCheck,
   SlidersHorizontal,
   UserRound,
 } from 'lucide-react';
 import type { API, Agent, AgentInstallation } from '../types';
+import { Badge } from './ui/badge';
 import { Button } from './ui/button';
 import { Hint } from './hint';
 import { Choice } from './choice';
@@ -32,17 +35,19 @@ import {
   onPreferredAgentChange,
   readPreferredAgent,
   savePreferredAgent,
+  setAgentInstallations,
 } from '../lib/agent-preference';
-import { cn } from '../lib/utils';
 
 /** The agent that the user prefers for new sessions. Use readPreferredAgent in new code. */
 export const readDefaultAgent = readPreferredAgent;
 
-export type SettingsSectionId = 'general' | 'agents' | 'accounts' | 'remote' | 'updates' | 'about';
+export type SettingsSectionId =
+  'general' | 'agents' | 'managed-agents' | 'accounts' | 'remote' | 'updates' | 'about';
 
 const sections: { value: SettingsSectionId; label: string; icon: ReactNode }[] = [
   { value: 'general', label: 'General', icon: <SlidersHorizontal /> },
   { value: 'agents', label: 'Agents', icon: <Bot /> },
+  { value: 'managed-agents', label: 'Managed agents', icon: <ShieldCheck /> },
   { value: 'accounts', label: 'Accounts', icon: <UserRound /> },
   { value: 'remote', label: 'Remote hosts', icon: <Server /> },
   { value: 'updates', label: 'Updates', icon: <RefreshCw /> },
@@ -112,7 +117,10 @@ export function SettingsDialog({
     Promise.resolve()
       .then(() => api.agentInstallations())
       .then((value) => {
-        if (live) setInstallations(value);
+        if (!live) return;
+        setInstallations(value);
+        // The default agent changes at once when the preferred agent is not installed.
+        setAgentInstallations(value);
       })
       .catch(() => {
         if (live) {
@@ -147,9 +155,11 @@ export function SettingsDialog({
   // Remote host work continues on the host after this dialog closes.
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
+      {/* A fixed height: the dialog does not move when the section changes. */}
       <DialogContent
         size="lg"
         layout="scroll"
+        className="h-[min(720px,calc(100dvh-48px))]"
         aria-describedby={undefined}
         onOpenAutoFocus={(event) => {
           event.preventDefault();
@@ -161,16 +171,18 @@ export function SettingsDialog({
             Settings
           </DialogTitle>
         </DialogHeader>
-        <DialogBody className="flex p-0">
+        <DialogBody className="flex overflow-hidden p-0">
           <TabsPrimitive.Root
             value={tab}
             onValueChange={(value) => setTab(value as SettingsSectionId)}
             orientation="vertical"
-            className="flex min-h-[min(420px,calc(100dvh-10rem))] min-w-0 flex-1"
+            className="flex min-h-0 min-w-0 flex-1"
           >
+            {/* Only the content pane scrolls. The section list stays in place. */}
             <TabsPrimitive.List
               aria-label="Settings sections"
-              className="flex w-44 shrink-0 flex-col gap-0.5 border-r px-3 py-4"
+              loop
+              className="flex w-44 shrink-0 flex-col gap-0.5 overflow-y-auto border-r px-3 py-4"
             >
               {sections.map((item) => (
                 <TabsPrimitive.Trigger
@@ -183,7 +195,7 @@ export function SettingsDialog({
                 </TabsPrimitive.Trigger>
               ))}
             </TabsPrimitive.List>
-            <div className="min-w-0 flex-1 px-6 py-4">
+            <div className="settings-scroll min-h-0 min-w-0 flex-1 overflow-y-auto px-6 py-4">
               {/* Keep each section mounted so that checks and forms keep their state. Each
                   panel takes its name from its tab, so the panels do not repeat it. */}
               <SettingsSection value="general">
@@ -226,8 +238,8 @@ export function SettingsDialog({
                       }))}
                     />
                     <span className="form-help">
-                      The agent for new sessions. When you choose an agent for a new session,
-                      Kalkidan remembers it here.
+                      The agent for new chats. When you choose an agent for a new chat, Kalkidan
+                      remembers it here.
                     </span>
                   </label>
                 </div>
@@ -282,12 +294,25 @@ export function SettingsDialog({
                   )}
                 </section>
               </SettingsSection>
+              <SettingsSection value="managed-agents">
+                <ManagedAgentsSettings api={api} open={open && tab === 'managed-agents'} />
+              </SettingsSection>
               <SettingsSection value="accounts">
                 <GitHubAccount api={api} open={open} />
-                <VerdictanSettings api={api} open={open && tab === 'accounts'} />
+                <p className="form-help mt-4">
+                  The sign-in for managed agents is in{' '}
+                  <button
+                    type="button"
+                    className="text-link"
+                    onClick={() => setTab('managed-agents')}
+                  >
+                    Managed agents
+                  </button>
+                  .
+                </p>
               </SettingsSection>
               <SettingsSection value="updates">
-                <RuntimeUpdates api={api} open={open && tab === 'updates'} />
+                <ComponentUpdates api={api} open={open && tab === 'updates'} onNavigate={setTab} />
               </SettingsSection>
               <SettingsSection value="remote">
                 <RemoteHostPicker
@@ -323,7 +348,7 @@ export function SettingsDialog({
                   <div>
                     <p className="text-sm font-medium">Kalkidan</p>
                     <p className="text-xs text-muted-foreground">
-                      Projects, repositories, and agent sessions in one workspace.
+                      Projects, code folders, and agent chats in one workspace.
                     </p>
                   </div>
                 </div>
@@ -393,9 +418,9 @@ function ToolRow({
         <InstalledPath path={path} />
         {children}
       </div>
-      <span className={cn('shrink-0 text-xs', ready ? 'text-success' : 'text-muted-foreground')}>
+      <Badge variant={ready ? 'success' : 'muted'} size="sm" className="shrink-0">
         {status}
-      </span>
+      </Badge>
     </li>
   );
 }

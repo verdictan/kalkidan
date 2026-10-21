@@ -100,6 +100,7 @@ export function ConversationTools({
   api,
   cwd,
   reviewRequest = 0,
+  reviewPath,
   disabled,
   disabledReason = '',
   onAttach,
@@ -113,7 +114,10 @@ export function ConversationTools({
   onCommit,
 }: {
   children: ReactNode;
+  /** Opens the Changes tool when the number changes. */
   reviewRequest?: number;
+  /** The file that the Changes tool shows first for the review request. */
+  reviewPath?: string;
   /** Opens a tool when `n` changes. */
   toolRequest?: ToolRequest | null;
   /** The number of changed files in the checkout. The Changes button shows it. */
@@ -339,9 +343,13 @@ export function ConversationTools({
   useEffect(() => {
     if (!visible) return;
     const command = (event: Event) => {
-      const name = (event as CustomEvent<{ command?: string }>).detail?.command;
+      const detail = (event as CustomEvent<{ command?: string; handled?: boolean }>).detail;
+      const name = detail?.command;
       if (name === 'session-terminal') open('terminal');
       else if (name === 'session-changes') open('diff');
+      else return;
+      // A command that no visible chat handles waits for the next chat view.
+      detail.handled = true;
     };
     window.addEventListener('kalkidan-session-command', command);
     return () => window.removeEventListener('kalkidan-session-command', command);
@@ -720,6 +728,8 @@ export function ConversationTools({
                                 scope={diffTab}
                                 disabled={disabled}
                                 disabledReason={disabledReason}
+                                focusPath={reviewPath}
+                                focusRequest={reviewRequest}
                                 onAttach={(path, patch) =>
                                   attach(
                                     path,

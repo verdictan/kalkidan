@@ -32,6 +32,7 @@ export interface TrackerProvider {
   portfolio?(projects: TrackerProject[]): Promise<{ board?: TrackerBoard; error?: string }[]>;
   docsPlan?(project: TrackerProject, plan: DocsIssuePlan): Promise<DocsIssuePlanResult>;
   mutationHistory?(project: TrackerProject, reviewedId?: string): Promise<GitHubMutationHistory>;
+  revertMutation?(project: TrackerProject, mutationId: string): Promise<string>;
   batch?(project: TrackerProject, request: ProjectBatchRequest): Promise<ProjectBatchResult>;
   savedView?(project: TrackerProject, viewId: string): Promise<SavedProjectView>;
   content?(project: TrackerProject, item: string): Promise<GitHubContentSnapshot>;

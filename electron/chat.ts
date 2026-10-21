@@ -8,6 +8,7 @@ import { stripVTControlCharacters } from 'node:util';
 import { exec } from './core';
 import { contentText } from './transcript';
 import type { Agent, ChatRun } from '../src/types';
+import { managedErrorCode, managedErrorText } from '../src/domain/verdictan';
 
 export function chatArgs(
   agent: Agent,
@@ -48,6 +49,12 @@ export function normalizeChatFailure(run: ChatRun, stderr = '') {
       'This Codex session is already open in another client. Finish or stop its current task, then close the session in VS Code, the Codex app, or the other CLI. If the lock remains, quit the owning client. Return here and send your message again. Kalkidan cannot take over a session while another client owns it.';
   } else if (run.error) run.error = stripVTControlCharacters(run.error);
   else if (detail) run.error = detail;
+  // A managed agent code alone becomes plain words. The code stays for the renderer.
+  const code = run.errorCode ? undefined : managedErrorCode(run.error);
+  if (code) {
+    run.errorCode = code as `desktop.${string}`;
+    if (!run.error!.includes('[' + code + ']')) run.error = managedErrorText(code);
+  }
 }
 
 export function applyChatEvent(run: ChatRun, row: any) {

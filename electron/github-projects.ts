@@ -1,15 +1,20 @@
 import { GitHubDocsPlan } from './trackers/github-docs-plan';
 import type { DocsIssuePlan } from '../src/domain/docs-plan';
 import { GitHubProjectBatch } from './trackers/github-batch';
-import { GitHubMutationJournal } from './trackers/github-journal';
-import type { ProjectBatchRequest } from '../src/domain/project-batch';
+import { GitHubMutationJournal, journalDetail } from './trackers/github-journal';
+import {
+  canRevertMutation,
+  projectFieldValue,
+  type ProjectBatchRequest,
+} from '../src/domain/project-batch';
+import type { ProjectFieldValue } from '../src/domain/github-mutations';
 import { join } from 'node:path';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { GitHubSavedViews } from './trackers/github-views';
 import { GitHubProjectContent } from './trackers/github-content';
 import { GitHubIssueRelations } from './trackers/github-relations';
 import { GitHubProjectResources } from './trackers/github-resources';
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { GitHubProjectSettings } from './trackers/github-settings';
 import { GitHubProjectMutations } from './trackers/github-mutations';
 import { ResourceCache } from './resource-cache';
@@ -290,6 +295,62 @@ export class GitHubProjects {
       createHash('sha256').update(`github.com:${project.id}`).digest('hex'),
     );
   }
+  /** Writes one field. History keeps the earlier value, so the write can be reverted. */
+  async writeField(
+    project: GitHubProject,
+    itemId: string,
+    fieldId: string,
+    value: ProjectFieldValue,
+  ) {
+    return this.withWrite(project, async () => {
+      let before: ProjectFieldValue | undefined;
+      try {
+        const item = (await this.batchItem(project, itemId)).items[0];
+        if (item) before = projectFieldValue(item, fieldId);
+      } catch {
+        // The write reads access again and reports the error. Without the value, no revert.
+      }
+      return journalDetail.run(before === undefined ? {} : { before }, () =>
+        this.mutations.field(project, itemId, fieldId, value),
+      );
+    });
+  }
+  /**
+   * Writes the value from before a confirmed field write as a new batch. Rejects when the write
+   * cannot be reverted or when the field changed after the write. Returns the new write's ID.
+   */
+  async revertMutation(project: GitHubProject, mutationId: string) {
+    if (typeof mutationId !== 'string' || !/^[a-f0-9-]{36}$/i.test(mutationId))
+      throw new Error('Invalid operation ID.');
+    const row = await this.withWrite(project, () => githubJournal.getStore()!.find(mutationId));
+    if (!row) throw new Error('This write is no longer in the history.');
+    if (row.revertedBy) throw new Error('This change is already reverted.');
+    if (!canRevertMutation(row))
+      throw new Error('Only confirmed field changes with a known earlier value can be reverted.');
+    const { itemId, fieldId, before, value } = row.detail!;
+    const result = await journalDetail.run({ revertOf: mutationId, before: value }, () =>
+      this.batch(project, {
+        id: randomUUID(),
+        changes: [{ itemId: itemId!, fieldId: fieldId!, before: value!, value: before! }],
+      }),
+    );
+    const outcome = result.rows[0];
+    if (outcome?.state !== 'confirmed')
+      throw new Error(
+        outcome?.state === 'conflict'
+          ? 'The field changed after this write. Change it on GitHub.'
+          : outcome?.message || 'GitHub did not confirm the revert. Check the field on GitHub.',
+      );
+    return this.withWrite(project, async () => {
+      const journal = githubJournal.getStore()!;
+      const latest = (await journal.list())
+        .reverse()
+        .find((entry) => entry.detail?.revertOf === mutationId);
+      const id = latest?.id || result.id;
+      await journal.markReverted(mutationId, id);
+      return id;
+    });
+  }
   async mutationHistory(project: GitHubProject, reviewedId?: string) {
     if (!this.writeRoot) throw new Error('Mutation history is not configured.');
     return this.withWrite(project, async () => {
@@ -512,10 +573,20 @@ export class GitHubProjects {
       !board.statusField?.options.some((option) => option.id === optionId)
     )
       throw new Error('Item or status no longer exists. Refresh the project.');
+    const item = board.items.find((item) => item.id === itemId)!;
+    const statusField = board.statusField!;
+    const detail = {
+      itemId,
+      fieldId: statusField.id,
+      before: projectFieldValue(item, statusField.id),
+      value: { singleSelectOptionId: optionId },
+    };
     try {
-      await this.query(
-        'mutation($project:ID!,$item:ID!,$field:ID!,$option:String!){updateProjectV2ItemFieldValue(input:{projectId:$project,itemId:$item,fieldId:$field,value:{singleSelectOptionId:$option}}){projectV2Item{id}}}',
-        { project: project.id, item: itemId, field: board.statusField.id, option: optionId },
+      await journalDetail.run(detail, () =>
+        this.query(
+          'mutation($project:ID!,$item:ID!,$field:ID!,$option:String!){updateProjectV2ItemFieldValue(input:{projectId:$project,itemId:$item,fieldId:$field,value:{singleSelectOptionId:$option}}){projectV2Item{id}}}',
+          { project: project.id, item: itemId, field: statusField.id, option: optionId },
+        ),
       );
     } finally {
       this.invalidateBoards();

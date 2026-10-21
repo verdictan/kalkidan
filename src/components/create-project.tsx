@@ -221,7 +221,7 @@ export function CreateProject({
         <DialogHeader>
           <DialogTitle>New project</DialogTitle>
           <DialogDescription>
-            A project keeps your code folders, docs, and agent sessions together.
+            A project keeps your code folders, docs, and agent chats together.
           </DialogDescription>
         </DialogHeader>
         <DialogBody className="grid content-start gap-4">
@@ -351,7 +351,7 @@ export function CreateProject({
                     ]}
                   />
                   <span className="form-help">
-                    Code folders and agent sessions stay on the machine that you select.
+                    Code folders and agent chats stay on the machine that you select.
                   </span>
                 </div>
                 {location === 'remote' && (

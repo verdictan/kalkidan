@@ -35,6 +35,11 @@ export function registerTrackerHandlers(
     if (!provider.mutationHistory) throw new Error('Mutation history is not available.');
     return provider.mutationHistory(project, reviewedId);
   });
+  handle('tracker-mutation-revert', (id, mutationId) => {
+    const { provider, project } = linked(id);
+    if (!provider.revertMutation) throw new Error('Revert is not available for this board.');
+    return provider.revertMutation(project, mutationId);
+  });
   handle('tracker-batch', (id, request) => {
     const { provider, project } = linked(id);
     if (!provider.batch) throw new Error('Batch editing is not available.');
@@ -117,6 +122,10 @@ export function registerTrackerHandlers(
     const project = await registry.get(id).resolve(reference);
     await groups.connect(groupId, { provider: id, project });
   });
+  handle('tracker-unlink', async (groupId) => {
+    if (!groups.groups.some((g) => g.id === groupId)) throw new Error('Project not found');
+    await groups.disconnect(groupId);
+  });
   handle('tracker-board', (id, force) => {
     const { provider, project } = linked(id);
     return provider.board(project, force === true);
@@ -140,7 +149,7 @@ export function registerTrackerHandlers(
     if (
       !mapping ||
       typeof mapping !== 'object' ||
-      Object.keys(mapping).some((key) => !['progress', 'done'].includes(key))
+      Object.keys(mapping).some((key) => !['progress', 'review', 'done'].includes(key))
     )
       throw new Error('Invalid task status mapping');
     if (

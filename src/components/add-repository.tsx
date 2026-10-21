@@ -18,6 +18,7 @@ import { EmptyState } from './ui/empty-state';
 import { SegmentedControl } from './ui/segmented-control';
 import { Choice } from './choice';
 import { Hint } from './hint';
+import { showToast } from './ui/toast';
 import { cn } from '../lib/utils';
 import { openAccountSettings } from './github-account';
 import { codeFolders, useFolderImport } from './repository-import';
@@ -76,6 +77,11 @@ export function AddRepository({
   const [error, setError] = useState('');
   const folderImport = useFolderImport(api, `${open}:${target}:${mode}`);
   const remoteGroup = snapshot?.groups?.find((g) => g.id === target && g.hostId);
+  /** Finished adds give a toast. A caller with onNotice shows its own. */
+  function report(message: string, failed = false) {
+    if (onNotice) onNotice(message, failed);
+    else showToast(failed ? { message, tone: 'error' } : message);
+  }
   async function loadRepos() {
     setLoading(true);
     setReposLoaded(true);
@@ -122,11 +128,11 @@ export function AddRepository({
     setError('');
     try {
       const done = await fn();
-      if (done) onNotice?.(done);
+      if (done) report(done);
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
       setError(message);
-      if (!openRef.current) onNotice?.(message, true);
+      if (!openRef.current) report(message, true);
     } finally {
       setBusy(false);
     }
@@ -138,8 +144,13 @@ export function AddRepository({
         throw new Error('Choose or create a project first.');
       if (mode === 'local') {
         // Older desktop builds have only the native multi-select dialog.
-        if (!folderImport.supported) await api.add(target);
-        else {
+        if (!folderImport.supported) {
+          // This dialog does not say if the user canceled it, so it gives no toast.
+          await api.add(target);
+          await onRefresh();
+          setOpen(false);
+          return;
+        } else {
           const result = await folderImport.choose('Choose a code folder', 'Choose');
           if (!result) return;
           const { added } = await api.addRepositories(target, result.paths);
@@ -147,10 +158,13 @@ export function AddRepository({
           setOpen(false);
           return `Added ${codeFolders(added)} to ${projectName}.`;
         }
-      } else if (mode === 'library') await api.moveRepo(selected, target);
-      else return clone(manual.trim() || selected);
-      await onRefresh();
-      setOpen(false);
+      } else if (mode === 'library') {
+        const name = snapshot.projects.find((p) => p.id === selected)?.name || 'The code folder';
+        await api.moveRepo(selected, target);
+        await onRefresh();
+        setOpen(false);
+        return `Moved ${name} to ${projectName}.`;
+      } else return clone(manual.trim() || selected);
     });
   }
   /** Clones in the background. The sidebar shows the progress after the dialog closes. */
@@ -239,7 +253,7 @@ export function AddRepository({
                 onBusy={setBusy}
                 onAdded={async () => {
                   await onRefresh();
-                  if (!openRef.current) onNotice?.('Remote repository added to the project.');
+                  report(`Added a code folder to ${projectName}.`);
                   setOpen(false);
                 }}
               />

@@ -101,7 +101,8 @@ export interface ChatRun {
   messages: ChatMessage[];
   activity: string;
   error?: string;
-  errorCode?: 'session_busy' | 'transport_lost';
+  /** `desktop.*` codes are managed agent errors. See managedErrors in verdictan.ts. */
+  errorCode?: 'session_busy' | 'transport_lost' | `desktop.${string}`;
   sessionReady?: boolean;
 }
 export interface AgentQuestion {

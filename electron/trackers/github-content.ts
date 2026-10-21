@@ -1,10 +1,20 @@
 import { createHash } from 'node:crypto';
 import type { GraphQL } from '../github-projects';
 import type { GitHubProject } from '../../src/domain/github';
-import type { GitHubContentSnapshot, GitHubContentAction } from '../../src/domain/github-content';
+import {
+  closesIssue,
+  type GitHubContentSnapshot,
+  type GitHubContentAction,
+} from '../../src/domain/github-content';
 import { completeConnection } from './github-fields';
 import { validateProjectMutation } from './github-schema';
 import { GitHubRequestError } from './request-scheduler';
+const pullRequestSelection =
+  'id title url state merged headRefOid reviewDecision statusCheckRollup{state}';
+const connectionArguments: Record<string, string> = {
+  closedByPullRequestsReferences: ',includeClosedPrs:true',
+  timelineItems: ',itemTypes:[CROSS_REFERENCED_EVENT,CONNECTED_EVENT]',
+};
 const common =
   'id title body state updatedAt viewerCanUpdate viewerCanClose viewerCanReopen viewerCanAssign viewerCanLabel repository{id owner{login} name} milestone{id title}';
 export class GitHubProjectContent {
@@ -15,7 +25,7 @@ export class GitHubProjectContent {
   ) {}
   private async node(project: GitHubProject, item: string) {
     const data = await this.query(
-      `query($item:ID!){node(id:$item){... on ProjectV2Item{project{id} content{__typename ... on Issue{${common} viewerCanSetMilestone viewerCanType issueType{id name}} ... on PullRequest{${common} mergeable reviewDecision headRefOid viewerDidAuthor commits(last:1){nodes{commit{statusCheckRollup{state}}}}}}}}`,
+      `query($item:ID!){node(id:$item){... on ProjectV2Item{project{id} content{__typename ... on Issue{${common} number viewerCanSetMilestone viewerCanType issueType{id name}} ... on PullRequest{${common} mergeable reviewDecision headRefOid viewerDidAuthor commits(last:1){nodes{commit{statusCheckRollup{state}}}}}}}}`,
       { item },
     );
     const node = data.node?.content;
@@ -31,20 +41,24 @@ export class GitHubProjectContent {
     const values: Record<string, any[]> = {};
     const selections: Record<string, string> = {
       assignees: 'id login',
-      labels: 'id name',
-      comments: 'id body url author{login}',
-      ...(node.__typename === 'PullRequest' ? { reviews: 'id state body author{login}' } : {}),
+      labels: 'id name color',
+      comments: 'id body url createdAt author{login}',
+      ...(node.__typename === 'PullRequest'
+        ? { reviews: 'id state body submittedAt author{login}' }
+        : {}),
       ...(node.__typename === 'Issue'
         ? {
-            closedByPullRequestsReferences:
-              'id title url state merged headRefOid reviewDecision statusCheckRollup{state}',
+            closedByPullRequestsReferences: pullRequestSelection,
+            // GitHub links a closing pull request only after some events. The timeline also
+            // finds a pull request that names this issue with a closing keyword in its body.
+            timelineItems: `__typename ... on CrossReferencedEvent{willCloseTarget source{__typename ... on PullRequest{${pullRequestSelection} body}}} ... on ConnectedEvent{source{__typename ... on PullRequest{${pullRequestSelection} body}} subject{__typename ... on PullRequest{${pullRequestSelection} body}}}`,
           }
         : {}),
     };
     for (const [key, selection] of Object.entries(selections)) {
       const page = async (cursor?: string) => {
         const result = await this.query(
-          `query($id:ID!,$cursor:String){node(id:$id){... on ${node.__typename}{id ${key}(first:100,after:$cursor${key === 'closedByPullRequestsReferences' ? ',includeClosedPrs:true' : ''}){nodes{${selection}} pageInfo{hasNextPage endCursor}}}}}`,
+          `query($id:ID!,$cursor:String){node(id:$id){... on ${node.__typename}{id ${key}(first:100,after:$cursor${connectionArguments[key] || ''}){nodes{${selection}} pageInfo{hasNextPage endCursor}}}}}`,
           { id: node.id, cursor },
         );
         if (result.node?.id !== node.id) throw new Error('Content access changed.');
@@ -55,7 +69,31 @@ export class GitHubProjectContent {
     const checkEvidence =
       node.__typename === 'PullRequest' ? await this.checks(node.id, node.headRefOid) : undefined;
     const linkedPullRequests = [];
-    for (const pr of values.closedByPullRequestsReferences || [])
+    const closing = new Map<string, any>();
+    for (const pr of values.closedByPullRequestsReferences || []) closing.set(pr.id, pr);
+    const issue = {
+      owner: node.repository?.owner?.login,
+      repository: node.repository?.name,
+      number: node.number,
+    };
+    for (const event of values.timelineItems || []) {
+      // A connected event names the issue and the pull request. Either end can be the source.
+      const pr =
+        event?.__typename === 'ConnectedEvent' && event.subject?.__typename === 'PullRequest'
+          ? event.subject
+          : event?.source;
+      if (pr?.__typename !== 'PullRequest' || typeof pr.id !== 'string' || closing.has(pr.id))
+        continue;
+      if (
+        event.__typename === 'ConnectedEvent' ||
+        event.willCloseTarget === true ||
+        closesIssue(pr.body, issue)
+      ) {
+        const { body: _body, __typename: _type, ...rest } = pr;
+        closing.set(pr.id, rest);
+      }
+    }
+    for (const pr of closing.values())
       linkedPullRequests.push({
         ...pr,
         checks: pr.statusCheckRollup?.state,

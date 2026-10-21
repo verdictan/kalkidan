@@ -1,212 +1,342 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { Check, RefreshCw } from 'lucide-react';
 import type { API } from '../api/contracts';
+import type { ModelOption } from '../domain/conversation';
 import type { VerdictanSetup, VerdictanSelection } from '../domain/verdictan';
+import { Alert, AlertDescription } from './ui/alert';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
+import { SegmentedControl } from './ui/segmented-control';
+import { showToast } from './ui/toast';
+import { Choice } from './choice';
+import { Hint } from './hint';
+import {
+  allowedModels,
+  connectionLabel,
+  policyLabel,
+  providerName,
+  teamLabel,
+} from '../lib/verdictan-labels';
 
-export function VerdictanSetupForm({ api }: { api: API }) {
+type ManagedAgent = 'codex' | 'claude';
+
+const agentNames: Record<ManagedAgent, string> = { codex: 'Codex', claude: 'Claude Code' };
+const agentProvider: Record<ManagedAgent, string> = { codex: 'openai', claude: 'anthropic' };
+
+const emptySelection: VerdictanSelection = {
+  teamId: '',
+  configurationId: '',
+  configurationVersionId: '',
+  providerConnectionId: '',
+  model: '',
+};
+
+/**
+ * A selection for an agent: the saved one, or the only choice of each list. The user must
+ * still choose when a list has more than one item.
+ */
+function initialSelection(setup: VerdictanSetup, agent: ManagedAgent): VerdictanSelection {
+  const saved = setup.selections[agent];
+  if (saved) return saved;
+  const connections = setup.providerConnections.filter((p) => p.provider === agentProvider[agent]);
+  const [policy] = setup.policies.length === 1 ? setup.policies : [];
+  return {
+    ...emptySelection,
+    teamId: setup.teams.length === 1 ? setup.teams[0].team_id : '',
+    configurationId: policy?.configuration_id || '',
+    configurationVersionId: policy?.configuration_version_id || '',
+    providerConnectionId: connections.length === 1 ? connections[0].provider_connection_id : '',
+  };
+}
+
+/** Settings › Managed agents › Choose setup. The choices load when the step shows. */
+export function VerdictanSetupForm({
+  api,
+  open = true,
+  primary = true,
+  onSetup,
+}: {
+  api: API;
+  /** False while Settings is closed. The choices load again when it opens. */
+  open?: boolean;
+  /** True when Save is the main action of the page. */
+  primary?: boolean;
+  onSetup?: (setup: VerdictanSetup) => void;
+}) {
   const [setup, setSetup] = useState<VerdictanSetup>();
-  const [agent, setAgent] = useState<'codex' | 'claude'>('codex');
-  const [selection, setSelection] = useState<VerdictanSelection>({
-    teamId: '',
-    configurationId: '',
-    configurationVersionId: '',
-    providerConnectionId: '',
-    model: '',
-  });
-  const [busy, setBusy] = useState(false);
+  const [agent, setAgent] = useState<ManagedAgent>('codex');
+  const [selection, setSelection] = useState<VerdictanSelection>(emptySelection);
+  const [models, setModels] = useState<ModelOption[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const agentRef = useRef(agent);
+  agentRef.current = agent;
+  const onSetupRef = useRef(onSetup);
+  onSetupRef.current = onSetup;
   async function load() {
-    setBusy(true);
+    setLoading(true);
     setError('');
     try {
       const next = await api.verdictanSetup();
       setSetup(next);
-      if (next.selections[agent]) setSelection(next.selections[agent]!);
+      setSelection(initialSelection(next, agentRef.current));
+      onSetupRef.current?.(next);
     } catch {
-      setError('Could not load authorized setup. Check your account and organization permissions.');
+      setError(
+        'Could not load the setup choices. Check your account and your organization access.',
+      );
     } finally {
-      setBusy(false);
+      setLoading(false);
     }
   }
+  useEffect(() => {
+    if (open) void load();
+  }, [api, open]);
+  useEffect(() => {
+    let live = true;
+    setModels([]);
+    void Promise.resolve()
+      .then(() => api.models?.(agent))
+      .then((list) => live && setModels(list || []))
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
+  }, [api, agent]);
   async function save() {
-    setBusy(true);
+    setSaving(true);
     setError('');
     try {
-      setSetup(await api.verdictanSelect(agent, selection));
+      const next = await api.verdictanSelect(agent, selection);
+      setSetup(next);
+      onSetup?.(next);
+      showToast(`Saved the ${agentNames[agent]} setup`);
     } catch {
-      setError('Could not save setup. Refresh the authorized choices and try again.');
+      setError('Could not save the setup. Select Refresh choices, then try again.');
     } finally {
-      setBusy(false);
+      setSaving(false);
     }
   }
-  const selectClass = 'h-9 w-full rounded-md border bg-background px-3 text-sm';
+  const busy = loading || saving;
+  const connections =
+    setup?.providerConnections.filter((p) => p.provider === agentProvider[agent]) || [];
+  const subscription = selection.providerAccessMode === 'codex_subscription';
+  const allowed = allowedModels(setup, agent);
+  const modelOptions = (
+    allowed
+      ? allowed.map((id) => ({ value: id, label: models.find((m) => m.id === id)?.name || id }))
+      : models.map((m) => ({ value: m.id, label: m.name }))
+  ).concat(
+    selection.model && !(allowed || models.map((m) => m.id)).includes(selection.model)
+      ? [{ value: selection.model, label: selection.model }]
+      : [],
+  );
+  const saved = setup?.selections[agent];
+  const changed =
+    !saved ||
+    (Object.keys({ ...saved, ...selection }) as (keyof VerdictanSelection)[]).some(
+      (key) => (saved[key] || '') !== (selection[key] || ''),
+    );
+  const complete =
+    !!selection.teamId &&
+    !!selection.configurationVersionId &&
+    (subscription || !!selection.providerConnectionId) &&
+    !!selection.model;
   return (
-    <section className="grid gap-3 border-t pt-4" aria-label="Managed agent setup">
-      <div className="flex items-center justify-between">
-        <h4 className="text-sm font-medium">Managed agent setup</h4>
-        <Button variant="outline" disabled={busy} onClick={() => void load()}>
-          Load authorized choices
-        </Button>
+    <div className="grid gap-4" aria-busy={loading}>
+      <div className="flex flex-wrap items-center gap-2">
+        <SegmentedControl
+          label="Agent"
+          value={agent}
+          onChange={(next) => {
+            setAgent(next);
+            if (setup) setSelection(initialSelection(setup, next));
+          }}
+          options={(['codex', 'claude'] as const).map((value) => ({
+            value,
+            disabled: busy,
+            label: agentNames[value],
+            icon: setup?.selections[value] ? (
+              <Check className="size-3.5 text-success" aria-label="Set up" />
+            ) : undefined,
+          }))}
+        />
+        <Hint label="Refresh choices">
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            className="ml-auto"
+            aria-label="Refresh choices"
+            disabled={busy}
+            onClick={() => void load()}
+          >
+            <RefreshCw className={loading ? 'animate-spin' : ''} />
+          </Button>
+        </Hint>
       </div>
+      {!setup && loading && (
+        <p role="status" className="form-help">
+          Loading the choices of your organization…
+        </p>
+      )}
       {setup && (
         <>
-          <label className="form-label">
-            Agent
-            <select
-              className={selectClass}
-              value={agent}
-              disabled={busy}
-              onChange={(e) => {
-                const next = e.target.value as 'codex' | 'claude';
-                setAgent(next);
-                setSelection(
-                  setup.selections[next] || {
-                    teamId: '',
-                    configurationId: '',
-                    configurationVersionId: '',
-                    providerConnectionId: '',
-                    model: '',
-                  },
-                );
-              }}
-            >
-              <option value="codex">Codex</option>
-              <option value="claude">Claude Code</option>
-            </select>
-          </label>
-          <label className="form-label">
-            Team
-            <select
-              className={selectClass}
-              value={selection.teamId}
-              disabled={busy}
-              onChange={(e) => setSelection({ ...selection, teamId: e.target.value })}
-            >
-              <option value="">Choose an authorized team</option>
-              {setup.teams.map((t) => (
-                <option key={t.team_id} value={t.team_id}>
-                  {t.team_id}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="form-label">
-            Policy
-            <select
-              className={selectClass}
-              value={selection.configurationVersionId}
-              disabled={busy}
-              onChange={(e) => {
-                const policy = setup.policies.find(
-                  (p) => p.configuration_version_id === e.target.value,
-                );
-                setSelection({
-                  ...selection,
-                  configurationId: policy?.configuration_id || '',
-                  configurationVersionId: policy?.configuration_version_id || '',
-                });
-              }}
-            >
-              <option value="">Choose an authorized policy</option>
-              {setup.policies.map((p) => (
-                <option key={p.configuration_version_id} value={p.configuration_version_id}>
-                  {p.configuration_id} · {p.configuration_version_id}
-                </option>
-              ))}
-            </select>
-          </label>
-          {agent === 'codex' && setup.providerAccessModes?.includes('codex_subscription') && (
+          <div className="managed-setup-grid">
             <label className="form-label">
-              Provider access
-              <select
-                aria-label="Provider access"
-                className={selectClass}
+              Team
+              <Choice
+                className="w-full"
+                label="Team"
+                value={selection.teamId}
                 disabled={busy}
-                value={selection.providerAccessMode || 'byok'}
-                onChange={(event) =>
+                onChange={(teamId) => setSelection({ ...selection, teamId })}
+                options={[
+                  { value: '', label: 'Choose a team' },
+                  ...setup.teams.map((team, index) => ({
+                    value: team.team_id,
+                    label: teamLabel(team, index),
+                  })),
+                ]}
+              />
+            </label>
+            <label className="form-label">
+              Policy
+              <Choice
+                className="w-full"
+                label="Policy"
+                value={selection.configurationVersionId}
+                disabled={busy}
+                onChange={(value) => {
+                  const policy = setup.policies.find((p) => p.configuration_version_id === value);
                   setSelection({
                     ...selection,
-                    providerAccessMode: event.target.value as 'byok' | 'codex_subscription',
-                    providerConnectionId: '',
-                  })
-                }
-              >
-                <option value="byok">Organization provider connection</option>
-                <option value="codex_subscription">
-                  Codex subscription on the selected machine
-                </option>
-              </select>
+                    configurationId: policy?.configuration_id || '',
+                    configurationVersionId: policy?.configuration_version_id || '',
+                  });
+                }}
+                options={[
+                  { value: '', label: 'Choose a policy' },
+                  ...setup.policies.map((policy, index) => ({
+                    value: policy.configuration_version_id,
+                    label: policyLabel(policy, index),
+                  })),
+                ]}
+              />
             </label>
-          )}
-          {selection.providerAccessMode === 'codex_subscription' ? (
-            <p className="help-text">
-              Uses the Codex subscription already signed in on the machine where work runs. Sign in
-              separately on each SSH host. Refresh tokens are never sent to another host. Verdictan
-              policy still applies.
-            </p>
-          ) : (
+            {agent === 'codex' && setup.providerAccessModes?.includes('codex_subscription') && (
+              <label className="form-label">
+                Model access
+                <Choice
+                  className="w-full"
+                  label="Model access"
+                  disabled={busy}
+                  value={selection.providerAccessMode || 'byok'}
+                  onChange={(value) =>
+                    setSelection({
+                      ...selection,
+                      providerAccessMode: value as 'byok' | 'codex_subscription',
+                      providerConnectionId:
+                        value === 'codex_subscription'
+                          ? ''
+                          : connections.length === 1
+                            ? connections[0].provider_connection_id
+                            : '',
+                    })
+                  }
+                  options={[
+                    { value: 'byok', label: 'Organization connection' },
+                    { value: 'codex_subscription', label: 'Codex subscription on the computer' },
+                  ]}
+                />
+              </label>
+            )}
+            {!subscription && (
+              <label className="form-label">
+                Connection
+                <Choice
+                  className="w-full"
+                  label="Connection"
+                  value={selection.providerConnectionId}
+                  disabled={busy || !connections.length}
+                  onChange={(providerConnectionId) =>
+                    setSelection({ ...selection, providerConnectionId })
+                  }
+                  options={[
+                    {
+                      value: '',
+                      label: connections.length
+                        ? 'Choose a connection'
+                        : `No ${providerName(agentProvider[agent])} connection`,
+                    },
+                    ...connections.map((connection, index) => ({
+                      value: connection.provider_connection_id,
+                      label: connectionLabel(connection, index, connections.length),
+                    })),
+                  ]}
+                />
+              </label>
+            )}
             <label className="form-label">
-              Provider connection
-              <select
-                className={selectClass}
-                value={selection.providerConnectionId}
-                disabled={busy}
-                onChange={(e) =>
-                  setSelection({ ...selection, providerConnectionId: e.target.value })
-                }
-              >
-                <option value="">Choose an authorized connection</option>
-                {setup.providerConnections
-                  .filter((p) => p.provider === (agent === 'codex' ? 'openai' : 'anthropic'))
-                  .map((p) => (
-                    <option key={p.provider_connection_id} value={p.provider_connection_id}>
-                      {p.provider} · {p.provider_connection_id}
-                    </option>
-                  ))}
-              </select>
+              Model
+              {modelOptions.length ? (
+                <Choice
+                  className="w-full"
+                  label="Model"
+                  value={selection.model}
+                  disabled={busy}
+                  onChange={(model) => setSelection({ ...selection, model })}
+                  options={[{ value: '', label: 'Choose a model' }, ...modelOptions]}
+                />
+              ) : (
+                <Input
+                  value={selection.model}
+                  disabled={busy}
+                  placeholder="Model name, for example gpt-5"
+                  onChange={(e) => setSelection({ ...selection, model: e.target.value.trim() })}
+                />
+              )}
             </label>
+          </div>
+          {subscription && (
+            <p className="form-help">
+              Uses the Codex subscription that is signed in on the computer where the work runs.
+              Sign in on each SSH host. Kalkidan does not send sign-in tokens to other hosts. The
+              policy of your organization still applies.
+            </p>
           )}
           {agent === 'claude' && (
-            <p role="note" className="help-text">
-              Claude Code subscription access is not supported by the current Verdictan runtime. A
-              Claude login does not authorize an organization provider connection. Subscription
-              support must be added to the managed runtime before Kalkidan can use that login.
+            <p role="note" className="form-help">
+              Claude Code uses an Anthropic connection from your organization. A personal Claude
+              sign-in does not work with managed agents yet.
             </p>
           )}
-          <label className="form-label">
-            Model
-            <Input
-              value={selection.model}
-              disabled={busy}
-              placeholder="Model ID"
-              onChange={(e) => setSelection({ ...selection, model: e.target.value })}
-            />
-          </label>
-          <p className="text-xs text-muted-foreground">
-            Verdictan checks access, policy, and model availability before each run. Existing
-            conversations keep their original account and model binding.
+          <p className="form-help">
+            Before each run, the service checks your access, the policy, and the model. Chats that
+            started before a change keep their first setup.
           </p>
-          <Button
-            disabled={
-              busy ||
-              !selection.teamId ||
-              !selection.configurationVersionId ||
-              (selection.providerAccessMode !== 'codex_subscription' &&
-                !selection.providerConnectionId) ||
-              !selection.model
-            }
-            onClick={() => void save()}
-          >
-            Save agent setup
-          </Button>
+          <div className="flex items-center justify-end gap-2">
+            {saved && !changed && (
+              <span className="flex items-center gap-1 text-xs leading-4 text-success">
+                <Check className="size-3.5" aria-hidden="true" />
+                Ready for {agentNames[agent]}
+              </span>
+            )}
+            <Button
+              variant={primary ? 'default' : 'outline'}
+              disabled={busy || !complete || !changed}
+              onClick={() => void save()}
+            >
+              {saving ? 'Saving…' : `Save ${agentNames[agent]} setup`}
+            </Button>
+          </div>
         </>
       )}
       {error && (
-        <p role="alert" className="field-error">
-          {error}
-        </p>
+        <Alert size="sm" variant="destructive">
+          <AlertDescription className="text-xs leading-4">{error}</AlertDescription>
+        </Alert>
       )}
-    </section>
+    </div>
   );
 }

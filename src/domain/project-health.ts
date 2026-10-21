@@ -24,3 +24,52 @@ export function projectHealthReport(board: TrackerBoard, now: number): string {
     'This is a current snapshot. It does not measure throughput or cycle time. Restricted item content is excluded.',
   ].join('\n');
 }
+
+/** The status values of a GitHub project status update, with plain words and a color. */
+export const healthStatuses = [
+  { value: 'ON_TRACK', label: 'On track', color: 'var(--success)' },
+  { value: 'AT_RISK', label: 'At risk', color: 'var(--warning)' },
+  { value: 'OFF_TRACK', label: 'Off track', color: 'var(--destructive)' },
+  { value: 'INACTIVE', label: 'Inactive', color: 'var(--muted-foreground)' },
+  { value: 'COMPLETE', label: 'Complete', color: 'var(--link)' },
+] as const;
+export type HealthStatus = (typeof healthStatuses)[number]['value'];
+
+/** One count in the health summary. `filter` uses the values of the Tasks filter bar. */
+export interface HealthCount {
+  label: string;
+  count: number;
+  filter: { status?: string; repository?: string };
+}
+
+/** Task counts for each status, then the tasks with no status and no repository. */
+export function projectHealthCounts(board: TrackerBoard): HealthCount[] {
+  const options = board.statusField?.options || [];
+  const rows: HealthCount[] = options.map((option) => ({
+    label: option.name,
+    count: board.items.filter((item) => item.statusId === option.id).length,
+    filter: { status: option.id },
+  }));
+  const known = new Set(options.map((option) => option.id));
+  // Statuses that the status field does not list, for example on an old snapshot.
+  for (const item of board.items)
+    if (item.statusId && !known.has(item.statusId)) {
+      known.add(item.statusId);
+      rows.push({
+        label: item.status || 'Other status',
+        count: board.items.filter((value) => value.statusId === item.statusId).length,
+        filter: { status: item.statusId },
+      });
+    }
+  rows.push({
+    label: 'No status',
+    count: board.items.filter((item) => !item.statusId).length,
+    filter: { status: 'none' },
+  });
+  rows.push({
+    label: 'No repository',
+    count: board.items.filter((item) => !item.repository).length,
+    filter: { repository: 'draft' },
+  });
+  return rows;
+}

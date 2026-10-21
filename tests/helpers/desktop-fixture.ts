@@ -142,6 +142,8 @@ export async function desktopFixture(platform = 'linux', failure = '') {
     trash = asyncRecord('trash');
     restore = asyncRecord('restore');
     search = asyncRecord('search', []);
+    taskLinks = asyncRecord('taskLinks', {});
+    setTaskLinks = asyncRecord('setTaskLinks');
     list = async () => {
       if (state.docsError) throw Error('docs failed');
       return [];
@@ -224,6 +226,9 @@ export async function desktopFixture(platform = 'linux', failure = '') {
     withAccount = (action: () => Promise<unknown>) => action();
     invalidateBoards = record('invalidateBoards');
     mutations = { field: asyncRecord('field'), item: asyncRecord('itemAction') };
+    writeField = (project: unknown, ...args: unknown[]) =>
+      (this.mutations.field as Function)(project, ...args);
+    revertMutation = asyncRecord('revertMutation', 'revert-id');
     owners = asyncRecord('owners');
     list = asyncRecord('githubList');
     resolve = asyncRecord('resolve', { id: 'P', owner: 'test', number: 1 });
@@ -447,10 +452,9 @@ export async function desktopFixture(platform = 'linux', failure = '') {
     worktreeFolder: (root: string, repo: string, branch: string) =>
       `${root}/worktrees/${repo}-${branch}`,
     ...Object.fromEntries(
-      ['gitCommit', 'gitPullRequest', 'removeWorktree', 'workingStatus'].map((n) => [
-        n,
-        asyncRecord(n),
-      ]),
+      ['gitCommit', 'gitPullRequest', 'pullRequestStatus', 'removeWorktree', 'workingStatus'].map(
+        (n) => [n, asyncRecord(n)],
+      ),
     ),
   });
   stub('repositories', {

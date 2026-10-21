@@ -21,6 +21,23 @@ export function docSearchTerms(query: string) {
   ].slice(0, 24);
 }
 
+const SNIPPET_SIZE = 240;
+/** Returns a short excerpt that starts near the first matching term. */
+function snippet(text: string, terms: string[]) {
+  const flat = text.replace(/\s+/g, ' ').trim();
+  if (flat.length <= SNIPPET_SIZE) return flat;
+  const lower = flat.toLowerCase();
+  const hit = Math.min(...terms.map((term) => lower.indexOf(term)).filter((at) => at >= 0));
+  const start = Number.isFinite(hit)
+    ? Math.max(0, Math.min(hit - 60, flat.length - SNIPPET_SIZE))
+    : 0;
+  return (
+    (start ? '…' : '') +
+    flat.slice(start, start + SNIPPET_SIZE).trim() +
+    (start + SNIPPET_SIZE < flat.length ? '…' : '')
+  );
+}
+
 /** A disposable, project-local index. Markdown files remain the source of truth. */
 export class DocsRetrievalIndex {
   private db = new DatabaseSync(':memory:');
@@ -75,17 +92,24 @@ export class DocsRetrievalIndex {
       throw error;
     }
   }
-  search(query: string): DocPassage[] {
+  /**
+   * Without `limit`, returns up to 3 passages that fit the agent context budget. With `limit`
+   * (1 to 50), returns up to that many passages with short excerpts for a search list.
+   */
+  search(query: string, limit?: number): DocPassage[] {
     const terms = docSearchTerms(query);
     if (!terms.length) return [];
+    const listing = limit !== undefined;
+    if (listing && (!Number.isSafeInteger(limit) || limit < 1 || limit > 50))
+      throw new Error('Choose a search limit from 1 to 50.');
     // Quote every term; user input must not become an FTS expression.
     const match = terms.map((term) => '"' + term.replaceAll('"', '""') + '"').join(' OR ');
     const rows = this.db
       .prepare(
         `SELECT title, heading, text, page, revision, startLine, endLine
-      FROM passages WHERE passages MATCH ? ORDER BY bm25(passages, 4, 2, 1), page, startLine LIMIT 12`,
+      FROM passages WHERE passages MATCH ? ORDER BY bm25(passages, 4, 2, 1), page, startLine LIMIT ?`,
       )
-      .all(match);
+      .all(match, listing ? limit! : 12);
     const results: DocPassage[] = [];
     for (const row of rows) {
       const result: DocPassage = {
@@ -94,8 +118,12 @@ export class DocsRetrievalIndex {
         heading: String(row.heading),
         revision: String(row.revision),
         source: `docs/${row.page}.md:L${row.startLine}-L${row.endLine}`,
-        excerpt: String(row.text),
+        excerpt: listing ? snippet(String(row.text), terms) : String(row.text),
       };
+      if (listing) {
+        results.push(result);
+        continue;
+      }
       if (JSON.stringify([...results, result]).length > DOC_CONTEXT_LIMIT) continue;
       results.push(result);
       if (results.length === 3) break;

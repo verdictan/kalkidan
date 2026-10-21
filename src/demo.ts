@@ -1,4 +1,8 @@
-import type { ProjectDoc } from './domain/docs';
+import type { DocPassage, ProjectDoc } from './domain/docs';
+import type { MemoryEntry } from './domain/memory';
+import type { DispatchPlan } from './domain/parallel-dispatch';
+import type { GitHubContentSnapshot } from './domain/github-content';
+import { canRevertMutation, type GitHubMutationHistory } from './domain/project-batch';
 import { githubDescriptor } from './domain/tracker';
 import type { API, Project, Session, ProjectGroup } from './types';
 const now = new Date().toISOString();
@@ -116,6 +120,143 @@ const demoTrash: Record<string, { doc: ProjectDoc; deletedAt: number }[]> = {};
 function persistDocs() {
   localStorage.setItem('kalkidan-demo-docs', JSON.stringify(demoDocs));
 }
+const demoTaskLinks: Record<string, Record<string, string[]>> = (() => {
+  try {
+    return JSON.parse(localStorage.getItem('kalkidan-demo-task-links') || '{}');
+  } catch {
+    return {};
+  }
+})();
+const minutesAgo = (minutes: number) => new Date(Date.now() - minutes * 60000).toISOString();
+const demoMemoryId = (n: number) => String(n).padStart(64, 'a');
+let demoMemory: MemoryEntry[] = [
+  {
+    version: 1,
+    id: demoMemoryId(1),
+    topic: 'Testing',
+    content: 'Run npm test and npm run test:ui before you open a pull request.',
+    revision: demoMemoryId(11),
+    provenance: 'verified',
+    source: { sessionId: 'demo-session', turnId: 'turn-3', references: [] },
+    createdAt: minutesAgo(2880),
+    updatedAt: minutesAgo(2880),
+    supersedes: [],
+  },
+  {
+    version: 1,
+    id: demoMemoryId(2),
+    topic: 'Authentication',
+    content: 'The API service signs sessions with a 15-minute access token and a refresh token.',
+    revision: demoMemoryId(12),
+    provenance: 'verified',
+    source: { sessionId: 'demo-claude', turnId: 'turn-7', references: [] },
+    createdAt: minutesAgo(720),
+    updatedAt: minutesAgo(720),
+    supersedes: [],
+  },
+  {
+    version: 1,
+    id: demoMemoryId(3),
+    topic: 'Design tokens',
+    content: 'Colors come from design-system tokens. Do not add raw hex values in atlas-web.',
+    revision: demoMemoryId(13),
+    provenance: 'legacy',
+    source: { sessionId: '', turnId: '', references: [] },
+    createdAt: minutesAgo(10080),
+    updatedAt: minutesAgo(10080),
+    supersedes: [],
+  },
+];
+let demoWrites: GitHubMutationHistory = [
+  {
+    id: '00000000-0000-4000-8000-000000000001',
+    operation: 'updateStatus',
+    state: 'confirmed',
+    updatedAt: Date.now() - 3 * 3600000,
+    detail: {
+      itemId: 'task-1',
+      fieldId: 'status',
+      before: { singleSelectOptionId: 'todo' },
+      value: { singleSelectOptionId: 'progress' },
+    },
+  },
+  {
+    id: '00000000-0000-4000-8000-000000000002',
+    operation: 'addComment',
+    state: 'unknown-outcome',
+    updatedAt: Date.now() - 40 * 60000,
+    detail: { itemId: 'task-2' },
+  },
+];
+function demoStatusWrite(item: string, before: string, value: string, revertOf?: string) {
+  const id = crypto.randomUUID();
+  demoWrites = [
+    ...demoWrites,
+    {
+      id,
+      operation: 'updateStatus',
+      state: 'confirmed',
+      updatedAt: Date.now(),
+      detail: {
+        itemId: item,
+        fieldId: 'status',
+        before: { singleSelectOptionId: before },
+        value: { singleSelectOptionId: value },
+        ...(revertOf ? { revertOf } : {}),
+      },
+    },
+  ];
+  return id;
+}
+const demoDispatches = new Map<string, { plan: DispatchPlan; startedAt: number }>();
+function demoDispatch(id: string) {
+  const entry = demoDispatches.get(id);
+  if (!entry) throw new Error('This parallel run is no longer available. Prepare it again.');
+  return entry;
+}
+const demoContent = new Map<string, GitHubContentSnapshot>();
+function demoContentFor(item: string): GitHubContentSnapshot {
+  const task = board.items.find((value) => value.id === item);
+  if (!task) throw new Error('This issue or pull request is no longer accessible in the project.');
+  let content = demoContent.get(item);
+  if (!content) {
+    content = {
+      id: 'content-' + item,
+      kind: 'Issue',
+      title: task.title,
+      body: task.body,
+      state: 'OPEN',
+      revision: crypto.randomUUID(),
+      permissions: { edit: true, close: true, reopen: true, assign: true, label: true },
+      canSetMilestone: true,
+      canSetType: true,
+      milestones: [{ id: 'milestone-1', title: 'Launch' }],
+      issueTypes: [
+        { id: 'type-task', name: 'Task' },
+        { id: 'type-bug', name: 'Bug' },
+      ],
+      milestone: { id: 'milestone-1', title: 'Launch' },
+      issueType: { id: 'type-task', name: 'Task' },
+      assignees: [{ id: 'user-you', login: 'you' }],
+      labels: [
+        { id: 'label-frontend', name: 'frontend', color: '1d76db' },
+        { id: 'label-priority', name: 'priority', color: 'd93f0b' },
+      ],
+      comments: [
+        {
+          id: 'comment-1',
+          body: 'The overview should show the open chats for each code folder.',
+          url: 'https://github.com/example/atlas-web/issues/12#issuecomment-1',
+          createdAt: minutesAgo(1440),
+          author: { login: 'maria' },
+        },
+      ],
+      linkedPullRequests: [],
+    };
+    demoContent.set(item, content);
+  }
+  return content;
+}
 export const demo: API = {
   taskUsageHistory: async () => [],
   projectPublishDoc: async () => {
@@ -173,14 +314,84 @@ export const demo: API = {
     discovery: 'unknown',
     stale: true,
     history: [],
-    error: 'Runtime installation requires the desktop application.',
+    approved: { version: '0.3.0', releaseId: 'preview', sha256: '0'.repeat(64) },
+    canInstallApproved: false,
+    reason: 'Open the desktop app to install managed agents.',
   }),
   runtimeUpdateCheck: async (hostId) => demo.runtimeUpdateStatus(hostId),
   runtimeUpdateInstall: async () => {
     throw new Error('Runtime installation requires the desktop application.');
   },
   runtimeUpdateCancel: async (hostId) => demo.runtimeUpdateStatus(hostId),
-  memoryList: async () => ({ pages: [], limited: false }),
+  memoryList: async () => ({
+    pages: demoMemory.map((entry) => ({
+      topic: entry.topic,
+      provenance: entry.provenance,
+      name: entry.id + '.md',
+      content: entry.content,
+      updatedAt: entry.updatedAt,
+      truncated: false,
+    })),
+    limited: false,
+  }),
+  memoryEntries: async () => structuredClone(demoMemory),
+  memoryForget: async (_group, id, revision) => {
+    const entry = demoMemory.find((value) => value.id === id);
+    if (!entry) throw new Error('Memory entry not found. Reload memory.');
+    if (entry.revision !== revision)
+      throw new Error('This memory entry changed. Reload memory and try again.');
+    demoMemory = demoMemory.filter((value) => value.id !== id);
+  },
+  docsSearch: async (group, query, limit = 8) => {
+    const terms = query.toLowerCase().match(/[\p{L}\p{N}_-]{2,}/gu) || [];
+    if (!terms.length) return [];
+    const results: (DocPassage & { score: number })[] = [];
+    for (const doc of demoDocs[group] || []) {
+      let heading = '';
+      for (const section of doc.markdown.split(/\n(?=#{1,6}\s)/)) {
+        heading = section.match(/^#{1,6}\s+(.+)/)?.[1] || heading;
+        const text = (doc.title + ' ' + section).toLowerCase();
+        const score = terms.filter((term) => text.includes(term)).length;
+        if (!score) continue;
+        const flat = section
+          .replace(/^#{1,6}\s+.+/, '')
+          .replace(/\s+/g, ' ')
+          .trim();
+        results.push({
+          id: doc.id,
+          title: doc.title,
+          heading,
+          revision: doc.revision,
+          source: `docs/${doc.id}.md`,
+          excerpt: flat.length > 240 ? flat.slice(0, 240) + '…' : flat,
+          score,
+        });
+      }
+    }
+    return results
+      .sort((a, b) => b.score - a.score)
+      .slice(0, limit)
+      .map(({ score: _score, ...passage }) => passage);
+  },
+  taskDocLinks: async (group) => {
+    const pages = new Set((demoDocs[group] || []).map((doc) => doc.id));
+    return Object.fromEntries(
+      Object.entries(demoTaskLinks[group] || {})
+        .map(([item, ids]) => [item, ids.filter((id) => pages.has(id))] as const)
+        .filter(([, ids]) => ids.length),
+    );
+  },
+  setTaskDocLinks: async (group, itemId, docIds) => {
+    const links = (demoTaskLinks[group] ||= {});
+    if (docIds.length) links[itemId] = [...new Set(docIds)];
+    else delete links[itemId];
+    localStorage.setItem('kalkidan-demo-task-links', JSON.stringify(demoTaskLinks));
+  },
+  pullRequestStatus: async (_id, url) => {
+    const number = Number(/\/pull\/(\d+)/.exec(url)?.[1]);
+    if (!number) throw new Error('Enter a pull request link.');
+    return { state: 'open', number, title: 'Build the project overview' };
+  },
   docsMetadata: async (group) =>
     (demoDocs[group] || []).map(({ id, title, parentId, order }) => ({
       id,
@@ -262,15 +473,35 @@ export const demo: API = {
       demo.githubCreateProject(owner as import('./types').GitHubOwner, title),
     ),
   trackerLink: (id, provider, url) => previewProvider(provider, () => demo.githubLink(id, url)),
+  trackerUnlink: async (id) => {
+    if (!groups.some((g) => g.id === id)) throw new Error('Project not found');
+    groups = groups.map((g) => {
+      if (g.id !== id) return g;
+      const { tracker: _tracker, github: _github, ...rest } = g;
+      return rest;
+    });
+  },
   trackerBoard: (id) => demo.githubBoard(id),
   trackerProjectAction: async () => {
     throw new Error('Open the desktop app to manage GitHub projects.');
   },
-  trackerContent: async () => {
-    throw new Error('Issue editing requires the desktop app.');
-  },
-  trackerContentChange: async () => {
-    throw new Error('Issue editing requires the desktop app.');
+  trackerContent: async (_group, item) => structuredClone(demoContentFor(item)),
+  trackerContentChange: async (_group, item, revision, action) => {
+    const content = demoContentFor(item);
+    if (content.revision !== revision)
+      throw new Error('The content changed. Reload before saving.');
+    if (action.kind !== 'comment')
+      throw new Error('Open the desktop app to make this change on GitHub.');
+    if (!action.body.trim()) throw new Error('Enter a comment.');
+    content.comments.push({
+      id: crypto.randomUUID(),
+      body: action.body,
+      url: 'https://github.com/example/atlas-web/issues/12#issuecomment-preview',
+      createdAt: new Date().toISOString(),
+      author: { login: 'you' },
+    });
+    content.revision = crypto.randomUUID();
+    return structuredClone(content);
   },
   trackerRelations: async () => {
     throw new Error('Issue relationships require the desktop app.');
@@ -299,7 +530,35 @@ export const demo: API = {
   trackerDocsPlan: async () => {
     throw new Error('Issue publication requires the desktop app.');
   },
-  trackerMutationHistory: async () => [],
+  trackerMutationHistory: async (_group, reviewedId) => {
+    if (reviewedId) {
+      const row = demoWrites.find((value) => value.id === reviewedId);
+      if (!row || row.state !== 'unknown-outcome')
+        throw new Error('This operation does not need reconciliation.');
+      row.state = 'reviewed';
+      row.updatedAt = Date.now();
+    }
+    return structuredClone(demoWrites);
+  },
+  trackerMutationRevert: async (_group, mutationId) => {
+    const row = demoWrites.find((value) => value.id === mutationId);
+    if (!row) throw new Error('This write is no longer in the history.');
+    if (!canRevertMutation(row))
+      throw new Error('Only confirmed field changes with a known earlier value can be reverted.');
+    const { itemId, before, value } = row.detail!;
+    const task = board.items.find((item) => item.id === itemId);
+    const target = (before as { singleSelectOptionId: string }).singleSelectOptionId;
+    const written = (value as { singleSelectOptionId: string }).singleSelectOptionId;
+    if (task && task.statusId !== written)
+      throw new Error('The field changed after this write. Change it on GitHub.');
+    if (task) {
+      task.statusId = target;
+      task.status = board.statusField.options.find((option) => option.id === target)!.name;
+    }
+    const id = demoStatusWrite(itemId!, written, target, mutationId);
+    row.revertedBy = id;
+    return id;
+  },
   trackerBatch: async () => {
     throw new Error('Batch editing requires the desktop app.');
   },
@@ -425,6 +684,7 @@ export const demo: API = {
   githubStatus: async (_id, item, option) => {
     const task = board.items.find((i) => i.id === item);
     if (task) {
+      if (task.statusId !== option) demoStatusWrite(item, task.statusId, option);
       task.statusId = option;
       task.status = board.statusField.options.find((o) => o.id === option)!.name;
     }
@@ -506,17 +766,74 @@ export const demo: API = {
   dispatchReconcile: async () => {
     throw Error('Dispatch recovery requires the desktop app.');
   },
-  dispatchPrepare: async () => {
-    throw new Error('Automatic dispatch requires the desktop app.');
+  dispatchPrepare: async (request) => {
+    if (!request.tasks.length) throw new Error('Choose at least one task.');
+    const plan: DispatchPlan = {
+      ...structuredClone(request),
+      state: 'review',
+      rows: request.tasks.map(({ taskId, repositoryId }) => {
+        const task = board.items.find((item) => item.id === taskId);
+        const title = task?.title || 'Task';
+        const slug = title
+          .toLowerCase()
+          .replace(/[^a-z0-9]+/g, '-')
+          .replace(/^-|-$/g, '')
+          .slice(0, 40);
+        return {
+          taskId,
+          repositoryId,
+          title,
+          prompt:
+            `Work on the task "${title}".\n\n${task?.body || ''}\n\n` +
+            'Make the change in this branch copy, run the tests, and summarize what you changed.',
+          revision: crypto.randomUUID(),
+          operationId: crypto.randomUUID(),
+          branch: `kalkidan/${slug || 'task'}`,
+          state: 'queued' as const,
+        };
+      }),
+    };
+    demoDispatches.set(plan.id, { plan, startedAt: 0 });
+    return structuredClone(plan);
   },
-  dispatchStart: async () => {
-    throw new Error('Automatic dispatch requires the desktop app.');
+  dispatchStart: async (id) => {
+    const entry = demoDispatch(id);
+    if (entry.plan.state !== 'review') return structuredClone(entry.plan);
+    entry.startedAt = Date.now();
+    entry.plan.state = 'running';
+    for (const row of entry.plan.rows) {
+      row.state = 'running';
+      row.checkoutId = 'demo-' + row.operationId.slice(0, 8);
+      row.runId = 'demo-run-' + row.operationId.slice(0, 8);
+    }
+    return structuredClone(entry.plan);
   },
-  dispatchStatus: async () => {
-    throw new Error('Automatic dispatch requires the desktop app.');
+  dispatchStatus: async (id) => {
+    const entry = demoDispatch(id);
+    // Each task finishes a few seconds after the one before it.
+    if (entry.plan.state === 'running') {
+      const elapsed = Date.now() - entry.startedAt;
+      entry.plan.rows.forEach((row, index) => {
+        if (row.state === 'running' && elapsed > 4000 + index * 2500) {
+          row.state = 'completed';
+          row.message = 'The agent finished. Review the changes in the branch copy.';
+        }
+      });
+      if (entry.plan.rows.every((row) => row.state !== 'running')) entry.plan.state = 'completed';
+    }
+    return structuredClone(entry.plan);
   },
-  dispatchCancel: async () => {
-    throw new Error('Automatic dispatch requires the desktop app.');
+  dispatchCancel: async (id) => {
+    const entry = demoDispatch(id);
+    if (entry.plan.state !== 'completed') {
+      entry.plan.state = 'canceled';
+      for (const row of entry.plan.rows)
+        if (['queued', 'preparing', 'dispatching', 'running'].includes(row.state)) {
+          row.state = 'canceled';
+          row.message = 'Stopped.';
+        }
+    }
+    return structuredClone(entry.plan);
   },
   taskWorktree: async () => {
     await nativeOnly();

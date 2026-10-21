@@ -1,53 +1,73 @@
 import { useEffect, useRef, useState } from 'react';
-import type { API, TrackerBoard, Session } from '../types';
 import { planIteration, type IterationPlan } from '../domain/iteration-plan';
 import type { IssueRelations } from '../domain/github-relations';
 import type { ProjectBatchRequest, ProjectBatchResult } from '../domain/project-batch';
+import { batchStateLabel, plural } from '../domain/planning-labels';
 import { Button } from './ui/button';
+import { Checkbox } from './ui/checkbox';
+import { DialogBody, DialogFooter } from './ui/dialog';
 import { Input } from './ui/input';
+import { SectionHeader } from './ui/page-header';
+import { showToast } from './ui/toast';
+import {
+  ErrorAlert,
+  notifyGitHubWrites,
+  ReviewRow,
+  SelectedTasks,
+  TaskTitle,
+  type PlanningToolProps,
+  FormSelect,
+} from './planning-kit';
 import { errorMessage } from '../lib/errors';
-export function IterationPlanner({
+
+export const iterationLimit = 50;
+
+function readRequest(key: string): ProjectBatchRequest | undefined {
+  try {
+    const value = JSON.parse(localStorage.getItem(key) || 'null');
+    return value &&
+      typeof value.id === 'string' &&
+      Array.isArray(value.changes) &&
+      value.changes.length <= iterationLimit
+      ? value
+      : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** Plan an iteration: propose which selected tasks fit the capacity, then assign them. */
+export function IterationTool({
   api,
-  groupId,
+  group,
   board,
-  sessions,
+  items,
+  onRemove,
+  onOpenTask,
+  onClose,
   onSaved,
-  onOpen,
-}: {
-  api: API;
-  groupId: string;
-  board: TrackerBoard;
-  sessions: Session[];
-  onSaved: () => Promise<void>;
-  onOpen: (id: string) => void;
-}) {
-  const key = `kalkidan-iteration-plan:${groupId}:${board.project.id}`;
-  const [open, setOpen] = useState(false),
-    [estimate, setEstimate] = useState(''),
-    [priority, setPriority] = useState(''),
-    [iterationField, setIterationField] = useState(''),
+  sessions,
+}: PlanningToolProps) {
+  const key = `kalkidan-iteration-plan:${group.id}:${board.project.id}`;
+  const fields = board.fields || [];
+  const only = (type: string) => fields.filter((field) => field.dataType === type);
+  // A board with one field of a type does not ask for it.
+  const [estimate, setEstimate] = useState(() =>
+    only('NUMBER').length === 1 ? only('NUMBER')[0].id : '',
+  );
+  const [priority, setPriority] = useState(''),
+    [iterationField, setIterationField] = useState(() =>
+      only('ITERATION').length === 1 ? only('ITERATION')[0].id : '',
+    ),
     [iteration, setIteration] = useState(''),
     [capacity, setCapacity] = useState(''),
     [repository, setRepository] = useState('');
-  const [selected, setSelected] = useState<string[]>([]),
-    [plan, setPlan] = useState<IterationPlan>(),
+  const [plan, setPlan] = useState<IterationPlan>(),
     [accepted, setAccepted] = useState<string[]>([]),
     [error, setError] = useState(''),
     [busy, setBusy] = useState(false),
     [result, setResult] = useState<ProjectBatchResult>();
-  const [request, setRequest] = useState<ProjectBatchRequest | undefined>(() => {
-    try {
-      const value = JSON.parse(localStorage.getItem(key) || 'null');
-      return value &&
-        typeof value.id === 'string' &&
-        Array.isArray(value.changes) &&
-        value.changes.length <= 50
-        ? value
-        : undefined;
-    } catch {
-      return undefined;
-    }
-  });
+  const [request, setRequest] = useState(() => readRequest(key));
   const epoch = useRef(0),
     pending = useRef(false);
   useEffect(
@@ -56,21 +76,33 @@ export function IterationPlanner({
     },
     [],
   );
-  const fields = board.fields || [],
-    iterations = fields.find((field) => field.id === iterationField)?.iterations || [];
+  const iterations = fields.find((field) => field.id === iterationField)?.iterations || [];
+  const iterationTitle =
+    iterations.find((value) => value.id === iteration)?.title ||
+    iterations.find((value) =>
+      request?.changes.some(
+        (change) =>
+          change.value && 'iterationId' in change.value && change.value.iterationId === value.id,
+      ),
+    )?.title ||
+    'the iteration';
   const repos = [
     ...new Set(board.items.flatMap((item) => (item.repository ? [item.repository] : []))),
   ];
-  async function prepare() {
-    if (pending.current) return;
+  const tooMany = items.length > iterationLimit;
+  const title = (id: string) => board.items.find((item) => item.id === id)?.title || 'Removed task';
+
+  async function propose() {
+    if (pending.current || tooMany) return;
     pending.current = true;
     setBusy(true);
     setError('');
     setPlan(undefined);
     setAccepted([]);
     const token = ++epoch.current;
+    const selected = items.map((item) => item.id);
     try {
-      const fresh = await api.trackerBoard(groupId, true);
+      const fresh = await api.trackerBoard(group.id, true);
       const relations: Record<string, IssueRelations | { error: string }> = {};
       const queue = [...selected];
       await Promise.all(
@@ -79,7 +111,7 @@ export function IterationPlanner({
             const id = queue.shift()!;
             if (fresh.items.find((item) => item.id === id)?.kind !== 'Issue') continue;
             try {
-              relations[id] = await api.trackerRelations(groupId, id);
+              relations[id] = await api.trackerRelations(group.id, id);
             } catch (failure) {
               relations[id] = { error: errorMessage(failure) };
             }
@@ -130,8 +162,13 @@ export function IterationPlanner({
     try {
       localStorage.setItem(key, JSON.stringify(next));
       setRequest(next);
-      setResult(await api.trackerBatch(groupId, next));
-      await onSaved();
+      const value = await api.trackerBatch(group.id, next);
+      setResult(value);
+      onSaved();
+      const saved = value.rows.filter((row) => row.state === 'confirmed').length;
+      const unknown = value.rows.filter((row) => row.state === 'unknown-outcome').length;
+      if (saved) showToast(`Added ${plural(saved, 'task')} to ${iterationTitle}.`);
+      if (unknown) notifyGitHubWrites(group.id, unknown);
     } catch (failure) {
       setError(errorMessage(failure));
     } finally {
@@ -139,130 +176,118 @@ export function IterationPlanner({
       setBusy(false);
     }
   }
-  const select = (
+  function restart() {
+    try {
+      localStorage.removeItem(key);
+    } catch {
+      // Storage can be unavailable. The record then stays until the next start.
+    }
+    setRequest(undefined);
+    setPlan(undefined);
+    setResult(undefined);
+    setError('');
+  }
+  const field = (
     label: string,
     value: string,
     set: (value: string) => void,
     options: { id: string; name: string }[],
+    optional = false,
   ) => (
     <label className="form-label">
       {label}
-      <select
-        aria-label={label}
+      <FormSelect
+        label={label}
         value={value}
         disabled={busy}
-        onChange={(event) => set(event.target.value)}
-      >
-        <option value="">Choose…</option>
-        {options.map((option) => (
-          <option key={option.id} value={option.id}>
-            {option.name}
-          </option>
-        ))}
-      </select>
+        onChange={set}
+        options={[
+          ...(optional ? [{ value: '', label: 'None' }] : []),
+          ...options.map((option) => ({ value: option.id, label: option.name })),
+        ]}
+      />
     </label>
   );
+  const finished = !!result?.rows.every((row) => row.state === 'confirmed');
+  const rowState = (itemId: string) => result?.rows.find((row) => row.itemId === itemId)?.state;
+  const form = !request && !plan;
   return (
-    <details className="border-t py-3" onToggle={(event) => setOpen(event.currentTarget.open)}>
-      <summary>Plan an iteration</summary>
-      {open && (
-        <div className="grid gap-3 py-3">
-          <p className="help-text">
-            Select up to 50 issues. The proposal uses fresh dependency data, positive estimates, and
-            your priority option order. It never assigns missing estimates as zero or treats a saved
-            session as an exclusive lock.
-          </p>
-          {!request && (
-            <fieldset disabled={busy || !!plan} className="grid gap-3">
-              {select(
-                'Estimate field',
-                estimate,
-                setEstimate,
-                fields.filter((field) => field.dataType === 'NUMBER'),
-              )}
-              {select(
-                'Priority field (optional)',
-                priority,
-                setPriority,
-                fields.filter((field) => field.dataType === 'SINGLE_SELECT'),
-              )}
-              {select(
+    <>
+      <DialogBody className="grid content-start gap-4">
+        {form && (
+          <>
+            <SelectedTasks items={items} onRemove={onRemove} limit={iterationLimit} />
+            <div className="planning-form-grid">
+              {field(
                 'Iteration field',
                 iterationField,
                 (value) => {
                   setIterationField(value);
                   setIteration('');
                 },
-                fields.filter((field) => field.dataType === 'ITERATION'),
+                only('ITERATION'),
               )}
-              {select(
+              {field(
                 'Target iteration',
                 iteration,
                 setIteration,
                 iterations.map((value) => ({
                   id: value.id,
-                  name: `${value.title} · ${value.startDate}`,
+                  name: `${value.title} · starts ${value.startDate}`,
                 })),
               )}
-              {select(
-                'Repository (optional)',
-                repository,
-                setRepository,
-                repos.map((repo) => ({ id: repo, name: repo })),
-              )}
+              {field('Estimate field', estimate, setEstimate, only('NUMBER'))}
               <label className="form-label">
                 Remaining capacity
                 <Input
                   aria-label="Remaining capacity"
+                  className="w-[120px]"
                   type="number"
                   min="0"
                   value={capacity}
+                  disabled={busy}
                   onChange={(event) => setCapacity(event.target.value)}
                 />
               </label>
-              <div className="grid max-h-64 gap-2 overflow-auto">
-                {board.items.map((item) => (
-                  <label key={item.id}>
-                    <input
-                      type="checkbox"
-                      checked={selected.includes(item.id)}
-                      disabled={!selected.includes(item.id) && selected.length >= 50}
-                      onChange={(event) =>
-                        setSelected(
-                          event.target.checked
-                            ? [...selected, item.id]
-                            : selected.filter((id) => id !== item.id),
-                        )
-                      }
-                    />
-                    {item.title}
-                  </label>
-                ))}
-              </div>
-              <Button
-                disabled={
-                  !board.writable || !selected.length || !estimate || !iteration || !capacity
-                }
-                onClick={() => void prepare()}
-              >
-                Prepare allocation
-              </Button>
-            </fieldset>
-          )}
-          {plan && (
-            <>
-              <p>
-                Proposed capacity: {plan.used} of {plan.capacity}. Uncheck tasks to apply a smaller
-                batch.
-              </p>
+              {field('Priority field', priority, setPriority, only('SINGLE_SELECT'), true)}
+              {field(
+                'Repository',
+                repository,
+                setRepository,
+                repos.map((repo) => ({ id: repo, name: repo })),
+                true,
+              )}
+            </div>
+            <p className="form-help">
+              Kalkidan adds tasks in priority order until the capacity is full. A task must have an
+              estimate. Kalkidan does not add tasks that other issues block or that have a chat.
+            </p>
+            {!only('ITERATION').length && (
+              <ErrorAlert>
+                This board has no iteration field. Add one in Project settings, then try again.
+              </ErrorAlert>
+            )}
+          </>
+        )}
+        {plan && !request && (
+          <section className="grid gap-1" aria-label="Proposed plan">
+            <SectionHeader
+              size="sm"
+              as="h4"
+              title={`Proposal: ${plan.used} of ${plan.capacity} used`}
+              count={accepted.length}
+            />
+            <p className="form-help mb-1">Clear a check box to leave a task out.</p>
+            <div className="review-list">
               {plan.rows.map((row) => (
-                <div key={row.itemId} className="grid gap-1 border-b pb-2">
-                  {row.change && (
-                    <label>
-                      <input
-                        type="checkbox"
+                <ReviewRow
+                  key={row.itemId}
+                  leading={
+                    row.change ? (
+                      <Checkbox
+                        aria-label={`Add ${row.title}`}
                         checked={accepted.includes(row.itemId)}
-                        disabled={busy || !!request}
+                        disabled={busy}
                         onChange={(event) =>
                           setAccepted(
                             event.target.checked
@@ -270,66 +295,96 @@ export function IterationPlanner({
                               : accepted.filter((id) => id !== row.itemId),
                           )
                         }
-                      />{' '}
-                      Assign {row.title}
-                    </label>
-                  )}
-                  <Button
-                    variant="bare"
-                    className="justify-start"
-                    onClick={() => onOpen(row.itemId)}
-                  >
-                    {row.title}
-                  </Button>
-                  <p className="help-text">
-                    {row.estimate === undefined ? 'No estimate' : `Estimate: ${row.estimate}`} ·{' '}
-                    {row.reason}
-                  </p>
-                </div>
+                      />
+                    ) : undefined
+                  }
+                  title={<TaskTitle title={row.title} onOpen={() => onOpenTask(row.itemId)} />}
+                  meta={`${row.estimate === undefined ? 'No estimate' : `Estimate ${row.estimate}`} · ${row.reason}`}
+                  status={
+                    row.change
+                      ? { label: 'Fits', tone: 'success' }
+                      : { label: 'Left out', tone: 'muted' }
+                  }
+                />
               ))}
-            </>
-          )}
-          {(plan || request) && (
-            <>
+            </div>
+          </section>
+        )}
+        {request && (
+          <section className="grid gap-1" aria-label="Assignments">
+            <SectionHeader
+              size="sm"
+              as="h4"
+              title={result ? 'Results' : 'Assignments not applied yet'}
+              count={request.changes.length}
+            />
+            <div className="review-list">
+              {request.changes.map((change) => {
+                const state = rowState(change.itemId);
+                return (
+                  <ReviewRow
+                    key={change.itemId}
+                    title={
+                      <TaskTitle
+                        title={title(change.itemId)}
+                        onOpen={() => onOpenTask(change.itemId)}
+                      />
+                    }
+                    meta={`Add to ${iterationTitle}`}
+                    status={state ? batchStateLabel(state) : undefined}
+                  />
+                );
+              })}
+            </div>
+          </section>
+        )}
+        <ErrorAlert>{error}</ErrorAlert>
+      </DialogBody>
+      <DialogFooter>
+        {form ? (
+          <>
+            <Button variant="outline" onClick={onClose}>
+              Cancel
+            </Button>
+            <Button
+              disabled={
+                busy ||
+                tooMany ||
+                !board.writable ||
+                !items.length ||
+                !estimate ||
+                !iteration ||
+                !capacity
+              }
+              onClick={() => void propose()}
+            >
+              {busy ? 'Checking tasks…' : 'Propose a plan'}
+            </Button>
+          </>
+        ) : (
+          <>
+            <Button variant="outline" disabled={busy} onClick={restart}>
+              {request ? 'Start again' : 'Change settings'}
+            </Button>
+            {finished ? (
+              <Button onClick={onClose}>Done</Button>
+            ) : (
               <Button
-                disabled={
-                  busy ||
-                  !board.writable ||
-                  (!request && !accepted.length) ||
-                  result?.rows.every((row) => row.state === 'confirmed')
-                }
+                disabled={busy || !board.writable || (!request && !accepted.length)}
                 onClick={() => void apply()}
               >
-                {request ? 'Resume allocation' : 'Apply selected allocation'}
+                {busy
+                  ? 'Assigning…'
+                  : request
+                    ? result
+                      ? 'Try again'
+                      : `Assign ${plural(request.changes.length, 'task')}`
+                    : `Add ${plural(accepted.length, 'task')} to ${iterationTitle}`}
               </Button>
-              <Button
-                disabled={busy}
-                variant="outline"
-                onClick={() => {
-                  localStorage.removeItem(key);
-                  setRequest(undefined);
-                  setPlan(undefined);
-                  setResult(undefined);
-                }}
-              >
-                Start a new proposal
-              </Button>
-            </>
-          )}
-          {request && !plan && (
-            <p>
-              {request.changes.length} previously reviewed field changes are ready for recovery.
-            </p>
-          )}
-          {result?.rows.map((row) => (
-            <p key={`${row.itemId}:${row.fieldId}`} role="status">
-              {board.items.find((item) => item.id === row.itemId)?.title || row.itemId}: {row.state}{' '}
-              {row.message}
-            </p>
-          ))}
-          {error && <p role="alert">{error}</p>}
-        </div>
-      )}
-    </details>
+            )}
+          </>
+        )}
+      </DialogFooter>
+    </>
   );
 }

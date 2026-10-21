@@ -295,3 +295,45 @@ export async function gitPullRequest(
     throw failure(error, 'GitHub could not open the pull request.');
   }
 }
+
+export interface PullRequestState {
+  state: 'open' | 'merged' | 'closed';
+  number: number;
+  title?: string;
+}
+
+/** Reads the state of a pull request with `gh pr view`. `url` must be a pull request link. */
+export async function pullRequestStatus(
+  cwd: string,
+  url: string,
+  github: GitHubCli,
+): Promise<PullRequestState> {
+  if (typeof url !== 'string' || !/^https:\/\/[^/\s]+\/[\w.-]+\/[\w.-]+\/pull\/\d+\/?$/.test(url))
+    throw new Error('Enter a pull request link.');
+  const gh = await github();
+  let stdout: string;
+  try {
+    ({ stdout } = await exec(
+      gh.path,
+      [...(gh.args || []), 'pr', 'view', url, '--json', 'state,number,title'],
+      { cwd, env: { ...gh.env, GIT_TERMINAL_PROMPT: '0' }, timeout: 30000, maxBuffer: 256 * 1024 },
+    ));
+  } catch (error: any) {
+    if (error.code === 'ENOENT') throw new Error('Install GitHub CLI and sign in, then try again.');
+    throw failure(error, 'GitHub could not read the pull request.');
+  }
+  let value: any;
+  try {
+    value = JSON.parse(stdout);
+  } catch {
+    throw new Error('GitHub returned a pull request that Kalkidan cannot read.');
+  }
+  const state = String(value?.state || '').toLowerCase();
+  if (!['open', 'merged', 'closed'].includes(state) || !Number.isSafeInteger(value?.number))
+    throw new Error('GitHub returned a pull request that Kalkidan cannot read.');
+  return {
+    state: state as PullRequestState['state'],
+    number: value.number,
+    ...(typeof value.title === 'string' ? { title: value.title.slice(0, 300) } : {}),
+  };
+}

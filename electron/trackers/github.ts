@@ -3,6 +3,7 @@ import { githubDescriptor, type TrackerProject, type TrackerOwner } from '../../
 import type { TrackerProvider } from './registry';
 import type { GitHubProjects } from '../github-projects';
 import type { GitHubAuth } from '../github-auth';
+import { journalDetail } from './github-journal';
 function project(value: TrackerProject): GitHubProject {
   if (!value.owner || !Number.isInteger(value.number))
     throw new Error('Invalid GitHub project reference');
@@ -30,13 +31,17 @@ export function githubTracker(
       projects.withAccount(() => projects.content.read(project(value), item)),
     contentChange: (value, item, revision, action) =>
       projects.withWrite(project(value), () =>
-        projects.content.change(project(value), item, revision, action),
+        journalDetail.run({ itemId: item }, () =>
+          projects.content.change(project(value), item, revision, action),
+        ),
       ),
     relations: (value, item) =>
       projects.withAccount(() => projects.relations.read(project(value), item)),
     relationChange: (value, item, revision, action) =>
       projects.withWrite(project(value), () =>
-        projects.relations.change(project(value), item, revision, action),
+        journalDetail.run({ itemId: item }, () =>
+          projects.relations.change(project(value), item, revision, action),
+        ),
       ),
     resources: (value, kind) =>
       projects.withAccount(() => projects.resources.read(project(value), kind)),
@@ -53,13 +58,13 @@ export function githubTracker(
       projects.withWrite(project(value), () =>
         projects.settings.update(project(value), revision, action),
       ),
-    field: (value, item, field, input) =>
-      projects.withWrite(project(value), () =>
-        projects.mutations.field(project(value), item, field, input),
-      ),
+    field: (value, item, field, input) => projects.writeField(project(value), item, field, input),
+    revertMutation: (value, mutationId) => projects.revertMutation(project(value), mutationId),
     itemAction: (value, item, action) =>
       projects.withWrite(project(value), () =>
-        projects.mutations.item(project(value), item, action),
+        journalDetail.run({ itemId: item }, () =>
+          projects.mutations.item(project(value), item, action),
+        ),
       ),
     authorize: (force) => {
       projects.invalidateBoards();

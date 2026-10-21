@@ -396,8 +396,9 @@
   line-height: 16px;
   font-variant-numeric: tabular-nums;
 }
-/* Next to open tool tabs, or in a narrow window, the buttons show only their icons. */
-.tool-tabbar[data-expanded='true'] .tool-launch-label {
+/* Next to open tool tabs, or in a narrow window, the buttons show only their icons. The
+   button of the open tool keeps its label. The others show their name in a tooltip. */
+.tool-tabbar[data-expanded='true'] .tool-launch-button:not([data-selected]) .tool-launch-label {
   position: absolute;
   width: 1px;
   height: 1px;
@@ -423,16 +424,17 @@
   display: none;
 }
 
+/* The breadcrumb gets the space that the tools do not use, so it shortens first. */
 #conversation-titlebar-heading {
-  flex: 1;
-  min-width: 0;
+  flex: 1 1 0;
+  min-width: 96px;
 }
 #conversation-titlebar-tabs:empty,
 #conversation-titlebar-heading:empty {
   display: none;
 }
 #conversation-titlebar-tabs {
-  flex: 1;
+  flex: 0 1 auto;
   min-width: 0;
   align-self: stretch;
   display: flex;
@@ -446,16 +448,10 @@
 /* Narrow windows keep one title bar row. The breadcrumb and the tool tabs share the
    width, the breadcrumb truncates, and the tab strip scrolls. */
 @media (max-width: 1100px) {
-  #conversation-titlebar-heading {
-    flex: 1 1 40%;
-  }
-  #conversation-titlebar-tabs {
-    flex: 1 1 60%;
-  }
   .tool-tab {
     min-width: 88px;
   }
-  .tool-launch-label {
+  .tool-launch-button:not([data-selected]) .tool-launch-label {
     position: absolute;
     width: 1px;
     height: 1px;

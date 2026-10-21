@@ -1,4 +1,4 @@
-import { trackerConnection } from '../domain/tracker';
+import { trackerConnection, type TaskPhase } from '../domain/tracker';
 import { trackerClient } from './tracker-client';
 import type { API, ProjectGroup } from '../types';
 
@@ -7,7 +7,7 @@ export async function changeTaskStatus(
   api: API,
   group: ProjectGroup | undefined,
   taskId: string,
-  phase: 'progress' | 'done',
+  phase: TaskPhase,
 ) {
   const connection = trackerConnection(group);
   if (!group || !connection)
@@ -19,7 +19,7 @@ export async function changeTaskStatus(
   const board = await client.board(group.id, true);
   const item = board.items.find((item) => item.id === taskId);
   if (!item) throw new Error('The linked task was removed or archived. Refresh the board.');
-  const name = descriptor.statusNames[phase];
+  const name = descriptor.statusNames[phase] || 'In review';
   const configured = connection.statusMapping?.[phase];
   const option = board.statusField?.options.find((option) =>
     configured ? option.id === configured : option.name.trim().toLowerCase() === name.toLowerCase(),
