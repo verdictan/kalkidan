@@ -97,14 +97,19 @@ function SelectLabel({ className, ...props }: React.ComponentProps<typeof Select
 function SelectItem({
   className,
   children,
+  description,
   ...props
-}: React.ComponentProps<typeof SelectPrimitive.Item>) {
+}: React.ComponentProps<typeof SelectPrimitive.Item> & {
+  /** Secondary text under the label. It is not part of the selected value text. */
+  description?: string;
+}) {
   return (
     <SelectPrimitive.Item
       data-slot="select-item"
       className={cn(
         menuItemClass,
         'w-full pr-8 *:[span]:last:flex *:[span]:last:items-center *:[span]:last:gap-2',
+        description && 'h-auto min-h-7 py-1',
         className,
       )}
       {...props}
@@ -117,7 +122,14 @@ function SelectItem({
           <CheckIcon className="size-3.5" />
         </SelectPrimitive.ItemIndicator>
       </span>
-      <SelectPrimitive.ItemText>{children}</SelectPrimitive.ItemText>
+      {description ? (
+        <div className="grid min-w-0 gap-0.5">
+          <SelectPrimitive.ItemText>{children}</SelectPrimitive.ItemText>
+          <span className="text-xs leading-4 text-muted-foreground">{description}</span>
+        </div>
+      ) : (
+        <SelectPrimitive.ItemText>{children}</SelectPrimitive.ItemText>
+      )}
     </SelectPrimitive.Item>
   );
 }

@@ -381,7 +381,7 @@ export function ManagedAgentsSettings({ api, open }: { api: API; open: boolean }
             />
           ) : (
             <p className="form-help">
-              Sign in first. Then choose the team, policy, and model for each agent.
+              Sign in first. Then choose the setup and the model for each agent.
             </p>
           )}
         </Step>

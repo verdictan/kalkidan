@@ -47,22 +47,31 @@ export class RemoteAccountBroker {
         return client.request(operation);
       if (operation === 'resources.provision') {
         const p = input.parameters as any;
-        // Both policy IDs or neither. Neither selects the default Kalkidan configuration.
-        const fallback = p && p.configuration_id === undefined;
+        // An agent, both policy IDs, or neither. Neither selects the default Kalkidan setup.
+        const agentId = p?.agent_id;
+        const fallback = p && agentId === undefined && p.configuration_id === undefined;
         if (
           !p ||
           p.host_id !== identity.hostId ||
           p.installation_id !== identity.installationId ||
-          fallback !== (p.configuration_version_id === undefined) ||
+          (agentId !== undefined &&
+            (p.configuration_id !== undefined ||
+              p.configuration_version_id !== undefined ||
+              !setup.agents?.some((a) => a.agent_id === agentId && a.team_id === p.team_id))) ||
+          (agentId === undefined &&
+            (p.configuration_id === undefined) !== (p.configuration_version_id === undefined)) ||
           (fallback && !setup.defaultPolicy) ||
           !Object.values(setup.selections).some(
             (s) =>
               s &&
               s.teamId === p.team_id &&
-              (fallback
-                ? usesDefaultPolicy(s)
-                : s.configurationId === p.configuration_id &&
-                  s.configurationVersionId === p.configuration_version_id),
+              (agentId !== undefined
+                ? s.agentId === agentId
+                : fallback
+                  ? usesDefaultPolicy(s)
+                  : !s.agentId &&
+                    s.configurationId === p.configuration_id &&
+                    s.configurationVersionId === p.configuration_version_id),
           )
         )
           throw new DesktopProtocolError('desktop.broker_scope_mismatch');
@@ -72,12 +81,14 @@ export class RemoteAccountBroker {
             host_id: identity.hostId,
             team_id: p.team_id,
             ...(p.project_id ? { project_id: p.project_id } : {}),
-            ...(fallback
-              ? {}
-              : {
-                  configuration_id: p.configuration_id,
-                  configuration_version_id: p.configuration_version_id,
-                }),
+            ...(agentId !== undefined
+              ? { agent_id: agentId }
+              : fallback
+                ? {}
+                : {
+                    configuration_id: p.configuration_id,
+                    configuration_version_id: p.configuration_version_id,
+                  }),
           },
         });
         if (epoch !== this.epoch) throw new DesktopProtocolError('desktop.transport_closed');

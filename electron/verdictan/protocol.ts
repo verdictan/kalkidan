@@ -19,6 +19,7 @@ export type DesktopOperation =
   | 'account.inspect'
   | 'setup.inspect'
   | 'setup.ensure_default'
+  | 'setup.bootstrap'
   | 'history.list'
   | 'session.renew'
   | 'session.logout'
@@ -63,7 +64,11 @@ export interface DesktopParameters {
         /** Both or neither. Without them, Verdictan uses the default Kalkidan configuration. */
         configuration_id?: string;
         configuration_version_id?: string;
-      };
+        /** An agent from `setup.inspect`. Never with the policy IDs. */
+        agent_id?: string;
+      }
+    /** `setup.bootstrap` only: the team of the Kalkidan agent. */
+    | { team_id: string };
   /** `history.list` only. The organization and at least one correlation key. */
   history_scope?: HistoryScope;
   limit?: number;
@@ -99,6 +104,7 @@ const terminalEvents: Record<DesktopOperation, string[]> = {
   'account.inspect': ['account.inspected'],
   'setup.inspect': ['setup.inspected'],
   'setup.ensure_default': ['setup.default_ensured'],
+  'setup.bootstrap': ['setup.bootstrapped'],
   'history.list': ['history.list_result'],
   'session.renew': ['session.renewed'],
   'session.logout': ['session.logged_out'],

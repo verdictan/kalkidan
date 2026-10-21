@@ -172,3 +172,53 @@ test('SSH broker provisions the default without policy IDs and never with one ID
     /scope_mismatch/,
   );
 });
+
+test('SSH broker provisions a chosen agent with agent_id and no policy IDs', async () => {
+  const agentId = '33333333-3333-4333-8333-333333333333';
+  const calls: any[] = [];
+  const selection = {
+    teamId: id,
+    agentId,
+    configurationId: '',
+    configurationVersionId: '',
+    providerConnectionId: id,
+    model: 'model',
+  };
+  const client = {
+    request: async (operation: string, parameters: any) => {
+      calls.push({ operation, parameters });
+      return { data: { agent_id: agentId, gateway_id: 'gateway' } };
+    },
+  };
+  const setup: any = {
+    inspect: async () => ({
+      client,
+      key: 'account',
+      account: { state: 'authenticated' },
+      setup: {
+        selections: { codex: selection },
+        agents: [{ agent_id: agentId, team_id: id }],
+      },
+    }),
+    validate: () => {},
+  };
+  const bindings: any = { identities: async () => ({ installationId: id, hostId: id }) };
+  const broker = new RemoteAccountBroker(setup, bindings);
+  const base = { installation_id: id, host_id: id, team_id: id };
+  await broker.request('host', 'resources.provision', {
+    parameters: { ...base, agent_id: agentId } as any,
+  });
+  assert.deepEqual(calls[0].parameters.parameters, { ...base, agent_id: agentId });
+  for (const parameters of [
+    // Another agent, another team, policy IDs next to the agent, or the default.
+    { ...base, agent_id: other },
+    { ...base, team_id: other, agent_id: agentId },
+    { ...base, agent_id: agentId, configuration_id: id, configuration_version_id: id },
+    base,
+  ])
+    await assert.rejects(
+      broker.request('host', 'resources.provision', { parameters: parameters as any }),
+      /scope_mismatch/,
+    );
+  assert.equal(calls.length, 1);
+});
