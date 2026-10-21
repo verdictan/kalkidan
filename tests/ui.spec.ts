@@ -649,11 +649,11 @@ test('GitHub task status, repository choice, and composer model carry through to
   await page.getByRole('button', { name: 'Choose an agent', exact: true }).click();
   await page.getByRole('menuitem', { name: 'New Claude Code chat', exact: true }).click();
   await expect(page.getByLabel('Message agent')).toHaveValue(/Fix login/);
-  // The model is a submenu of the composer's More options menu.
-  await page.getByRole('button', { name: 'More options', exact: true }).click();
-  await page.getByRole('menuitem', { name: /^Model/ }).press('ArrowRight');
-  await page.getByRole('menuitemradio', { name: 'Opus', exact: true }).click();
-  await expect(page.getByRole('menu')).toHaveCount(0);
+  // The model chip is next to the mode chip. The composer has no More options menu.
+  await expect(page.getByRole('button', { name: 'More options', exact: true })).toHaveCount(0);
+  await page.getByRole('combobox', { name: 'Model', exact: true }).click();
+  await page.getByRole('option', { name: 'Opus', exact: true }).click();
+  await expect(page.getByRole('combobox', { name: 'Model', exact: true })).toHaveText('Opus');
   await page.getByLabel('Message agent').fill('Plan the fix');
   await page.screenshot({
     path: 'test-results/composer-model.png',
