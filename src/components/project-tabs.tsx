@@ -1,10 +1,11 @@
 import { useRef, type KeyboardEvent } from 'react';
 import type { ProjectPage } from '../domain/workspace-route';
 
-/** The pages of a project, in the same order as the rows under the project in the sidebar. */
+/** The pages of a project, in the order of the tab bar. */
 export const projectTabs: { page: ProjectPage; label: string }[] = [
   { page: 'board', label: 'Overview' },
   { page: 'tasks', label: 'Tasks' },
+  { page: 'chats', label: 'Chats' },
   { page: 'docs', label: 'Docs' },
   { page: 'memory', label: 'Memory' },
   { page: 'insights', label: 'Insights' },
@@ -22,8 +23,8 @@ export function openProjectPage(
 }
 
 /**
- * One tab bar for the pages of a project: Overview, Tasks, Docs, Memory and Insights. Each
- * tab is a link to a page, so the bar is a navigation landmark. The current page has
+ * One tab bar for the pages of a project: Overview, Tasks, Chats, Docs, Memory and Insights.
+ * Each tab is a link to a page, so the bar is a navigation landmark. The current page has
  * aria-current. The arrow keys, Home and End move the focus between the tabs.
  */
 export function ProjectTabs({

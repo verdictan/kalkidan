@@ -102,6 +102,19 @@ test('the sidebar, All chats and the overview count the same chats', async ({ pa
   await expect(
     page.getByRole('region', { name: 'All chats' }).getByRole('button', { name: /^Resume / }),
   ).toHaveCount(7);
+  // "Show all" opens the Chats tab of the project, with the same count.
+  await group.getByRole('button', { name: 'Show all 7 chats', exact: true }).click();
+  await expect(
+    page.getByRole('navigation', { name: 'Project page' }).getByRole('button', { name: 'Chats' }),
+  ).toHaveAttribute('aria-current', 'page');
+  await expect(page.locator('.project-header')).toContainText('7 chats');
+  const chats = page.getByRole('region', { name: 'Project chats' });
+  await expect(chats.getByRole('button', { name: /^Resume / })).toHaveCount(7);
+  await page.getByLabel('Filter chats').fill('Chat 3');
+  await expect(chats.getByRole('button', { name: /^Resume / })).toHaveCount(1);
+  await chats.getByRole('button', { name: 'Archived', exact: true }).click();
+  await page.getByLabel('Filter chats').fill('');
+  await expect(chats.getByRole('button', { name: /^Resume / })).toHaveCount(1);
 });
 
 test('keyboard moves between project and chat rows, and expands and collapses projects', async ({

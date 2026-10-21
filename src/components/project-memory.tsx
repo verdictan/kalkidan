@@ -5,15 +5,13 @@ import { Brain, FileText, RefreshCw } from 'lucide-react';
 import { Button } from './ui/button';
 import { Alert, AlertDescription } from './ui/alert';
 import { EmptyState } from './ui/empty-state';
-import { EntityIcon } from './ui/entity-icon';
-import { PageHeader } from './ui/page-header';
 import { showToast } from './ui/toast';
 import { Hint } from './hint';
 import { ConfirmDialog } from './confirm-dialog';
+import { ProjectHeaderActions } from './project-header';
 import type { API, ProjectGroup, Session } from '../types';
 import type { MemoryEntry, MemoryExtraction, ProjectMemory } from '../domain/memory';
 import { useProjectResource } from '../hooks/use-project-resource';
-import { projectColors } from '../domain/project-colors';
 import { errorMessage } from '../lib/errors';
 import { plural } from '../lib/platform';
 import { fullTime, relativeTime } from '../lib/relative-time';
@@ -290,29 +288,20 @@ export function ProjectMemoryPanel({
 
   return (
     <section className="page project-memory" aria-label="Project memory">
-      <PageHeader
-        icon={
-          <EntityIcon size="lg" color={group.color ? projectColors[group.color] : undefined}>
-            <Brain />
-          </EntityIcon>
-        }
-        eyebrow={group.name}
-        title="Memory"
-        subtitle={subtitle}
-        actions={
-          <Hint label="Refresh memory">
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              aria-label="Refresh memory"
-              disabled={loading}
-              onClick={() => void refresh()}
-            >
-              <RefreshCw size={16} />
-            </Button>
-          </Hint>
-        }
-      />
+      <ProjectHeaderActions>
+        <Hint label="Refresh memory">
+          <Button
+            variant="ghost"
+            size="icon"
+            aria-label="Refresh memory"
+            disabled={loading}
+            onClick={() => void refresh()}
+          >
+            <RefreshCw size={16} />
+          </Button>
+        </Hint>
+      </ProjectHeaderActions>
+      <div className="project-page-summary">{subtitle}</div>
       {extraction?.status === 'failed' && extraction.error && (
         <Alert variant="destructive" size="sm" className="mb-4">
           <AlertDescription>{extraction.error}</AlertDescription>

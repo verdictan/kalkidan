@@ -34,7 +34,7 @@ import {
   trackerColumns,
   type TaskSelection,
 } from './tracker-list';
-import { ProjectTabs } from './project-tabs';
+import { ProjectHeaderActions, ProjectHeaderMeta, boardNoun } from './project-header';
 import {
   DocsToIssuesDialog,
   PlanningToolDialog,
@@ -50,7 +50,6 @@ import {
   useActivityState,
   type SessionActivityState,
 } from './activity-dot';
-import type { ProjectPage as RoutePage } from '../domain/workspace-route';
 import { projectColors } from '../domain/project-colors';
 import { EmptyState } from './ui/empty-state';
 import { EntityIcon } from './ui/entity-icon';
@@ -143,10 +142,7 @@ const authErrorPattern =
 // The filter button shows when the board has more tasks than this. Search always shows.
 const filterThreshold = 10;
 
-/** The name of the tracker side: "GitHub Projects board", never just "project". */
-export function boardNoun(providerName: string) {
-  return providerName === 'GitHub' ? 'GitHub Projects board' : `${providerName} board`;
-}
+export { boardNoun };
 
 /** Opens Settings at a section. The shell listens for this event. */
 function openSettings(section: string) {
@@ -208,7 +204,6 @@ function readPage(groupId: string): ProjectPage | null {
     return null;
   }
 }
-const toRoutePage = (page: ProjectPage): RoutePage => (page === 'overview' ? 'board' : page);
 
 /** Suggests a branch name for a task: "12-fix-login" or "fix-login" for a draft. */
 export function taskBranchName(item: Pick<TrackerItem, 'number' | 'title'>) {
@@ -1350,101 +1345,102 @@ export function ProjectTrackerPanel({
     </div>
   );
   const restricted = board?.restrictedItems || 0;
+  const headerMeta = (
+    <>
+      {showTasks && board && <span className="tracker-subtitle-count">· {countText}</span>}
+      {showTasks && restricted > 0 && (
+        <Hint label="You cannot see these tasks. Ask for access on GitHub.">
+          <span className="tracker-subtitle-count" tabIndex={0}>
+            · {restricted} restricted
+          </span>
+        </Hint>
+      )}
+    </>
+  );
+  const headerActions = showOverview ? (
+    <>
+      <NewSessionSplit
+        repos={repos}
+        sessions={sessions}
+        agent={preferredAgent}
+        preferredRepoId={preferredRepoId}
+        onAgent={chooseAgent}
+        onStart={startSession}
+      />
+      {!!repos.length && (
+        <Button variant="outline" onClick={addFolder}>
+          <FolderPlus />
+          Add a code folder
+        </Button>
+      )}
+      {trackerMenu}
+    </>
+  ) : linkedProject ? (
+    <>
+      <span role="status" className="tracker-sync-status">
+        {syncStatus}
+      </span>
+      <Hint label="Refresh board">
+        <Button
+          variant="ghost"
+          size="icon"
+          aria-label="Refresh board"
+          disabled={busy}
+          onClick={() => void action(refreshBoard, false)}
+        >
+          <RefreshCw size={16} className={busy ? 'animate-spin' : ''} />
+        </Button>
+      </Hint>
+      {showTasks && newTaskButton}
+      {trackerMenu}
+    </>
+  ) : null;
   return (
     <section
       className={embedded ? 'project-tracker embedded-tracker' : 'project-tracker'}
       data-page={shownPage}
       aria-label={embedded ? 'Repository project tasks' : 'Project tracker'}
     >
-      <PageHeader
-        className="tracker-project-heading"
-        icon={
-          <EntityIcon size="lg" color={group.color ? projectColors[group.color] : undefined}>
-            <Folder />
-          </EntityIcon>
-        }
-        title={embedded ? 'Project tasks' : group.name}
-        subtitle={
-          <>
-            {connection?.provider === 'github' || !connection ? (
-              <span
-                className="tracker-provider-mark"
-                style={{ maskImage: 'url(./icons/github.svg)' }}
-                aria-hidden="true"
-              />
-            ) : (
-              <Layers2 size={12} aria-hidden="true" />
-            )}
-            <span className="truncate">
-              {linkedProject ? (
-                <>
-                  {boardName} · <span>{linkedProject.title}</span>
-                  {linkedProject.number ? ` #${linkedProject.number}` : ''}
-                </>
+      {embedded ? (
+        <PageHeader
+          className="tracker-project-heading"
+          icon={
+            <EntityIcon size="lg" color={group.color ? projectColors[group.color] : undefined}>
+              <Folder />
+            </EntityIcon>
+          }
+          title="Project tasks"
+          subtitle={
+            <>
+              {connection?.provider === 'github' || !connection ? (
+                <span
+                  className="tracker-provider-mark"
+                  style={{ maskImage: 'url(./icons/github.svg)' }}
+                  aria-hidden="true"
+                />
               ) : (
-                `No ${boardName}`
+                <Layers2 size={12} aria-hidden="true" />
               )}
-            </span>
-            {showTasks && board && <span className="tracker-subtitle-count">· {countText}</span>}
-            {showTasks && restricted > 0 && (
-              <Hint label="You cannot see these tasks. Ask for access on GitHub.">
-                <span className="tracker-subtitle-count" tabIndex={0}>
-                  · {restricted} restricted
-                </span>
-              </Hint>
-            )}
-          </>
-        }
-        actions={
-          showOverview ? (
-            <>
-              <NewSessionSplit
-                repos={repos}
-                sessions={sessions}
-                agent={preferredAgent}
-                preferredRepoId={preferredRepoId}
-                onAgent={chooseAgent}
-                onStart={startSession}
-              />
-              {!!repos.length && (
-                <Button variant="outline" onClick={addFolder}>
-                  <FolderPlus />
-                  Add a code folder
-                </Button>
-              )}
-              {trackerMenu}
-            </>
-          ) : linkedProject ? (
-            <>
-              <span role="status" className="tracker-sync-status">
-                {syncStatus}
+              <span className="truncate">
+                {linkedProject ? (
+                  <>
+                    {boardName} · <span>{linkedProject.title}</span>
+                    {linkedProject.number ? ` #${linkedProject.number}` : ''}
+                  </>
+                ) : (
+                  `No ${boardName}`
+                )}
               </span>
-              <Hint label="Refresh board">
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  aria-label="Refresh board"
-                  disabled={busy}
-                  onClick={() => void action(refreshBoard, false)}
-                >
-                  <RefreshCw size={16} className={busy ? 'animate-spin' : ''} />
-                </Button>
-              </Hint>
-              {showTasks && newTaskButton}
-              {trackerMenu}
+              {headerMeta}
             </>
-          ) : null
-        }
-      />
-      {!embedded && (
-        <ProjectTabs
-          groupId={group.id}
-          page={toRoutePage(shownPage)}
-          onSelect={(next) => {
-            if (next === 'board') rememberPage('overview');
-            else if (next === 'tasks' || next === 'insights') rememberPage(next);
-          }}
+          }
+          actions={headerActions}
         />
+      ) : (
+        <>
+          <ProjectHeaderMeta>{headerMeta}</ProjectHeaderMeta>
+          <ProjectHeaderActions>{headerActions}</ProjectHeaderActions>
+        </>
       )}
       <ProjectSettingsDialog
         api={api}

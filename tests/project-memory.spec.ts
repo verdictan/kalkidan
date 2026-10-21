@@ -15,14 +15,15 @@ test('Memory follows Docs in the project tabs and opens a read-only project page
   await memory.click();
   await expect(memory).toHaveAttribute('aria-current', 'page');
   const panel = page.getByRole('region', { name: 'Project memory', exact: true });
-  await expect(panel.getByRole('heading', { name: 'Memory', exact: true })).toBeVisible();
-  await expect(panel.locator('header').first()).toContainText('Atlas');
+  // One project header shows the project name above the tabs. Memory has no header of its own.
+  await expect(page.locator('.project-header')).toContainText('Atlas');
+  await expect(panel.locator('header')).toHaveCount(0);
   // The demo has saved entries. The page shows them by topic and has no text fields.
   const topics = panel.getByRole('navigation', { name: 'Memory topics' });
   await expect(topics.getByRole('button', { name: 'Testing', exact: true })).toBeVisible();
   await expect(panel.getByRole('article', { name: 'Testing' })).toContainText('npm run test:ui');
   await expect(panel.getByRole('textbox')).toHaveCount(0);
-  await panel.getByRole('button', { name: 'Refresh memory' }).click();
+  await page.getByRole('button', { name: 'Refresh memory' }).click();
   await topics.getByRole('button', { name: 'Authentication', exact: true }).click();
   await expect(panel.getByRole('article', { name: 'Authentication' })).toBeVisible();
   await expect(panel.getByRole('textbox')).toHaveCount(0);
@@ -82,7 +83,7 @@ test('Memory renders agent files and refreshes changes without editing controls'
   await page.evaluate(() => {
     (window as any).memoryBody = 'Run npm test and lint.';
   });
-  await panel.getByRole('button', { name: 'Refresh memory' }).click();
+  await page.getByRole('button', { name: 'Refresh memory' }).click();
   await expect(panel).toContainText('Run npm test and lint.');
   await expect(panel.locator('textarea, input, [contenteditable="true"]')).toHaveCount(0);
   await page.setViewportSize({ width: 757, height: 988 });
@@ -118,9 +119,8 @@ test('late Memory reads cannot display content in another project', async ({ pag
     .poll(() => page.evaluate(() => typeof (window as any).resolveAlpha))
     .toBe('function');
   await openProjectTab(page, 'Memory', 'Beta');
-  const panel = page.getByRole('region', { name: 'Project memory', exact: true });
-  await expect(panel.getByRole('heading', { name: 'Memory', exact: true })).toBeVisible();
-  await expect(panel.locator('header').first()).toContainText('Beta');
+  await expect(page.getByRole('region', { name: 'Project memory', exact: true })).toBeVisible();
+  await expect(page.locator('.project-header')).toContainText('Beta');
   await expect(page.getByRole('alert')).toContainText('Beta is offline');
   await page.evaluate(() =>
     (window as any).resolveAlpha({

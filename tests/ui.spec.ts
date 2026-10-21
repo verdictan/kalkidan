@@ -773,8 +773,9 @@ test('choose an existing GitHub project or create one without entering a URL', a
     page.getByRole('status').filter({ hasText: 'Created “Next release”' }),
   ).toBeVisible();
   await page.getByRole('button', { name: 'Connect board', exact: true }).click();
+  // The project header shows the connected board.
   await expect(
-    page.getByLabel('Project tracker').getByText('Next release', { exact: true }),
+    page.locator('.project-header').getByText('Next release', { exact: true }),
   ).toBeVisible();
 });
 

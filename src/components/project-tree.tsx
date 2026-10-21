@@ -328,7 +328,7 @@ export function ProjectTree({
             <span className="tree-icon">
               <AgentIcon agent={session.agent} className="size-3.5" />
             </span>
-            <span className="tree-label">{title}</span>
+            <span className={folder ? 'tree-label has-secondary' : 'tree-label'}>{title}</span>
             {folder && <span className="tree-secondary">{folder}</span>}
             {task?.number && (
               <span className="tree-task-number" title={`Task #${task.number}: ${task.title}`}>
@@ -604,7 +604,7 @@ export function ProjectTree({
                   <span className="tree-icon">
                     <Eye className="size-3.5" />
                   </span>
-                  <span className="tree-label">{view.name}</span>
+                  <span className="tree-label has-secondary">{view.name}</span>
                   <span className="tree-secondary">{group.name}</span>
                 </Button>
               </div>
@@ -762,17 +762,16 @@ export function ProjectTree({
           <EmptyState compact>No matching projects or code folders.</EmptyState>
         )
       )}
-      {addFolder && (
-        <AddRepository
-          key={addFolder.groupId}
-          api={api}
-          groupId={addFolder.groupId}
-          trigger={false}
-          openRequest={addFolder.at}
-          onRefresh={onRefresh}
-          onNotice={onNotice}
-        />
-      )}
+      {/* The dialog stays mounted, as it did when each project row had its own button. */}
+      <AddRepository
+        key={addFolder?.groupId}
+        api={api}
+        groupId={addFolder?.groupId}
+        trigger={false}
+        openRequest={addFolder?.at}
+        onRefresh={onRefresh}
+        onNotice={onNotice}
+      />
       {chatMenus.dialogs}
       <Dialog open={!!removing} onOpenChange={(open) => !open && setRemoving(null)}>
         <DialogContent size="sm">

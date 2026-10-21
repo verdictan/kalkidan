@@ -21,7 +21,8 @@ import { useProjectBoards, sessionTask } from './hooks/use-project-boards';
 import { useUpdateStatus } from './hooks/use-update-status';
 import { setPendingDraft } from './lib/pending-draft';
 import { applyAppearance, saveAppearance, type Appearance } from './lib/appearance';
-import { ProjectTabs } from './components/project-tabs';
+import { ProjectFrame } from './components/project-header';
+import { ProjectChats } from './components/project-chats';
 import { SidebarResizer } from './components/sidebar-resizer';
 import { useNavigationHistory } from './hooks/use-navigation-history';
 import { agentCatalog, agentLabel } from './config/agents';
@@ -985,7 +986,7 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
     openPage: (detail) => {
       // A project that was just created is in the latest snapshot before the next render.
       const group = (dataRef.current.groups || data.groups)?.find((g) => g.id === detail.groupId);
-      const pages: ProjectPage[] = ['board', 'tasks', 'docs', 'memory', 'insights'];
+      const pages: ProjectPage[] = ['board', 'tasks', 'chats', 'docs', 'memory', 'insights'];
       const page = pages.find((value) => value === detail.page) || 'board';
       if (!group) return;
       // The event is the source of truth for the route. Its targets go to the panels.
@@ -1073,6 +1074,7 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
   const pageNames: Record<ProjectPage, string> = {
     board: 'Overview',
     tasks: 'Tasks',
+    chats: 'Chats',
     docs: 'Docs',
     memory: 'Memory',
     insights: 'Insights',
@@ -1453,7 +1455,7 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
       ]
     : [];
   const projectPageActions: SearchAction[] = (data.groups || []).flatMap((group) =>
-    (['board', 'tasks', 'docs', 'memory', 'insights'] as ProjectPage[]).map((page) => ({
+    (['board', 'tasks', 'chats', 'docs', 'memory', 'insights'] as ProjectPage[]).map((page) => ({
       key: `go-${page}-${group.id}`,
       label: `Go to ${pageNames[page]} of ${group.name}`,
       keywords: `open ${page === 'board' ? 'home project' : page} ${page === 'memory' ? 'open memory' : ''}`,
@@ -2015,6 +2017,7 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
           busy={busy}
           onSelect={openProject}
           onProject={(group) => openGroup(group)}
+          onProjectChats={(group) => openGroup(group, 'chats')}
           onResume={openConversation}
           onNotice={notify}
           onRefresh={reload}
@@ -2146,62 +2149,81 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
                     />
                   </section>
                 ) : boardGroup && currentGroup ? (
-                  projectPage === 'memory' || projectPage === 'docs' ? (
-                    <>
-                      <ProjectTabs
-                        groupId={currentGroup.id}
-                        page={projectPage}
-                        className="project-page-tabs"
+                  <ProjectFrame
+                    api={api}
+                    group={currentGroup}
+                    host={data.hosts?.find((h) => h.id === currentGroup.hostId)}
+                    page={projectPage}
+                    onRefresh={refresh}
+                    onSettings={() =>
+                      openPageThen(currentGroup, 'board', 'kalkidan-open-project-settings', {
+                        groupId: currentGroup.id,
+                      })
+                    }
+                  >
+                    {projectPage === 'memory' ? (
+                      <ProjectMemoryPanel
+                        key={boardGroup}
+                        api={api}
+                        group={currentGroup}
+                        sessions={data.sessions}
+                        initialTopic={searchTarget.topic}
                       />
-                      {projectPage === 'memory' ? (
-                        <ProjectMemoryPanel
-                          key={boardGroup}
-                          api={api}
-                          group={currentGroup}
-                          sessions={data.sessions}
-                          initialTopic={searchTarget.topic}
-                        />
-                      ) : (
-                        <ProjectDocsPanel
-                          key={boardGroup}
-                          initialPageId={searchTarget.page}
-                          initialHeading={searchTarget.heading}
-                          api={api}
-                          group={currentGroup}
-                        />
-                      )}
-                    </>
-                  ) : (
-                    <ProjectTrackerPanel
-                      initialTaskId={searchTarget.task}
-                      connectRequested={connectRequest === boardGroup}
-                      onConnectHandled={() => setConnectRequest(null)}
-                      key={boardGroup}
-                      // The project row opens the overview. The Tasks row opens the tasks, also
-                      // without a board: the page then offers to connect one.
-                      page={projectPage as ComponentProps<typeof ProjectTrackerPanel>['page']}
-                      onPageChange={(page) =>
-                        setProjectPage(page === 'overview' ? 'board' : (page as ProjectPage))
-                      }
-                      revision={revision}
-                      api={api}
-                      sessions={data.sessions}
-                      onResume={openConversation}
-                      group={currentGroup}
-                      repos={data.projects.filter((p) => currentGroup.repoIds.includes(p.id))}
-                      onRefresh={refresh}
-                      onRepo={openProject}
-                      onTask={(repo, agent, task) => newSession(agent, repo, task)}
-                      onAddFolder={() => addCodeFolder(boardGroup)}
-                      onNewSession={(repo, agent) => startSession(agent, repo)}
-                      onOpenSession={openConversation}
-                      onOpenDocs={(pageId) => {
-                        setSearchTarget({ page: pageId });
-                        openGroup(currentGroup, 'docs');
-                      }}
-                      onAllSessions={openAllSessions}
-                    />
-                  )
+                    ) : projectPage === 'docs' ? (
+                      <ProjectDocsPanel
+                        key={boardGroup}
+                        initialPageId={searchTarget.page}
+                        initialHeading={searchTarget.heading}
+                        api={api}
+                        group={currentGroup}
+                      />
+                    ) : projectPage === 'chats' ? (
+                      <ProjectChats
+                        key={boardGroup}
+                        api={api}
+                        group={currentGroup}
+                        repos={data.projects}
+                        sessions={data.sessions}
+                        activity={sessionActivity}
+                        busy={sessionBusy}
+                        onChanged={() => void reload()}
+                        taskOf={(session) => sessionTask(session, boards)}
+                        onOpenTask={openSessionTask}
+                        onResume={openConversation}
+                        onUpdate={updateSession}
+                      />
+                    ) : (
+                      <ProjectTrackerPanel
+                        initialTaskId={searchTarget.task}
+                        connectRequested={connectRequest === boardGroup}
+                        onConnectHandled={() => setConnectRequest(null)}
+                        key={boardGroup}
+                        // The project row opens the overview. The Tasks tab opens the tasks, also
+                        // without a board: the page then offers to connect one.
+                        page={projectPage as ComponentProps<typeof ProjectTrackerPanel>['page']}
+                        onPageChange={(page) =>
+                          setProjectPage(page === 'overview' ? 'board' : (page as ProjectPage))
+                        }
+                        revision={revision}
+                        api={api}
+                        sessions={data.sessions}
+                        onResume={openConversation}
+                        group={currentGroup}
+                        repos={data.projects.filter((p) => currentGroup.repoIds.includes(p.id))}
+                        onRefresh={refresh}
+                        onRepo={openProject}
+                        onTask={(repo, agent, task) => newSession(agent, repo, task)}
+                        onAddFolder={() => addCodeFolder(boardGroup)}
+                        onNewSession={(repo, agent) => startSession(agent, repo)}
+                        onOpenSession={openConversation}
+                        onOpenDocs={(pageId) => {
+                          setSearchTarget({ page: pageId });
+                          openGroup(currentGroup, 'docs');
+                        }}
+                        onAllSessions={() => openGroup(currentGroup, 'chats')}
+                      />
+                    )}
+                  </ProjectFrame>
                 ) : project ? (
                   <section className="page">
                     <PageHeader

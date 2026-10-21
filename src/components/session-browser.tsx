@@ -41,6 +41,11 @@ interface Props {
   branchOf?: (session: Session) => string | undefined;
   /** The project and code folder of each session. With it, the list shows a Project filter. */
   placeOf?: (session: Session) => { project?: string; folder?: string } | undefined;
+  /**
+   * The place that the place filter uses. 'folder' filters by code folder, for the chats of one
+   * project. Rows then show the code folder only when there is more than one.
+   */
+  filterBy?: 'project' | 'folder';
   /** The board item that a chat works on. Rows show "#12" and the list a Task filter. */
   taskOf?: (session: Session) => TrackerItem | undefined;
   /** Opens the task that a chat works on. */
@@ -102,11 +107,16 @@ export function SessionBrowser({
   newSessionLabel = 'New chat',
   branchOf,
   placeOf,
+  filterBy = 'project',
   taskOf,
   onOpenTask,
   onSessionCommand,
   isOpen,
 }: Props) {
+  const placeName = (session: Session) => {
+    const place = placeOf?.(session);
+    return filterBy === 'folder' ? place?.folder : place?.project;
+  };
   const { finished } = useActivityState();
   /** True when the chat waits for an approval or an answer, or finished and is not seen. */
   const waiting = (session: Session) =>
@@ -172,9 +182,7 @@ export function SessionBrowser({
   });
   const projects = placeOf
     ? [
-        ...new Set(
-          sessions.map((s) => placeOf(s)?.project).filter((name): name is string => !!name),
-        ),
+        ...new Set(sessions.map((s) => placeName(s)).filter((name): name is string => !!name)),
       ].sort()
     : [];
   const agents = new Set(sessions.map((s) => s.agent));
@@ -203,7 +211,7 @@ export function SessionBrowser({
               : !org.archived &&
                 (scope !== 'pinned' || org.pinned) &&
                 (scope !== 'waiting' || waiting(session))) &&
-            (project === 'all' || placeOf?.(session)?.project === project) &&
+            (project === 'all' || placeName(session) === project) &&
             (task === 'all' || (task === 'linked') === !!taskOf?.(session))) &&
         `${org.title || session.title} ${session.title} ${session.cwd} ${session.agent} ${org.notes || ''} ${taskOf?.(session)?.number ? '#' + taskOf(session)!.number : ''} ${taskOf?.(session)?.title || ''}`
           .toLowerCase()
@@ -249,13 +257,16 @@ export function SessionBrowser({
           )}
           {(projects.length > 1 || project !== 'all') && (
             <Choice
-              label="Filter by project"
+              label={filterBy === 'folder' ? 'Filter by code folder' : 'Filter by project'}
               size="sm"
               className="min-w-32"
               value={project}
               onChange={setProject}
               options={[
-                { value: 'all', label: 'All projects' },
+                {
+                  value: 'all',
+                  label: filterBy === 'folder' ? 'All code folders' : 'All projects',
+                },
                 ...projects.map((name) => ({ value: name, label: name })),
               ]}
             />
@@ -284,7 +295,14 @@ export function SessionBrowser({
             const branch = branchOf?.(session);
             const linked = taskOf?.(session);
             const place = placeOf?.(session);
-            const where = place ? [place.project, place.folder].filter(Boolean).join(' › ') : '';
+            const where =
+              filterBy === 'folder'
+                ? projects.length > 1
+                  ? place?.folder || ''
+                  : ''
+                : place
+                  ? [place.project, place.folder].filter(Boolean).join(' › ')
+                  : '';
             const menu = menuFor(session);
             return (
               <ChatContextMenu

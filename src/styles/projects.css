@@ -328,7 +328,7 @@
   color: var(--foreground);
 }
 /* Secondary text after a row label, such as the code folder of a chat. */
-.tree-row .tree-label:has(+ .tree-secondary) {
+.tree-row .tree-label.has-secondary {
   flex: 1 1 auto;
 }
 /* The secondary text gets smaller first, so the label keeps most of the row. */
@@ -679,10 +679,6 @@
   height: 2px;
   border-radius: 2px;
   background: var(--foreground);
-}
-.project-tracker[data-page='overview'] .project-tabs,
-.project-tracker[data-page='insights'] .project-tabs {
-  margin-bottom: var(--space-6);
 }
 /* "View: All project items" and its refresh button sit in the task toolbar. */
 .tracker-saved-views {
@@ -2984,26 +2980,70 @@ thead .tracker-task-select {
   margin-right: 6px;
   vertical-align: -2px;
 }
-/* Project tabs above the Docs and Memory pages. They line up with the page column. */
-.project-page-tabs {
-  flex-shrink: 0;
-  margin: var(--page-padding-top)
-    max(var(--page-padding-x), calc((100% - var(--page-max-width)) / 2 + var(--page-padding-x)))
-    var(--space-6);
+/* Project pages: one header and one tab bar that stay in the same place on each tab. Only the
+   page below the tab bar scrolls. */
+.management-pane:has(> .project-frame) {
+  padding: 0;
+  overflow: hidden;
+  scrollbar-gutter: auto;
 }
-.project-page-tabs + .page {
-  padding-top: 0;
-}
-.management-pane:has(> .project-page-tabs + .project-docs) {
+.project-frame {
   display: flex;
   flex-direction: column;
+  height: 100%;
+  min-height: 0;
 }
-.project-page-tabs:has(+ .project-docs) {
-  margin: var(--space-3) var(--space-4) 0;
+.project-frame-head {
+  flex-shrink: 0;
+  padding: var(--page-padding-top) var(--page-padding-x) 0;
 }
-.project-page-tabs + .project-docs {
+.project-frame-head .project-tabs {
+  margin-bottom: 0;
+}
+.project-frame-body {
   flex: 1;
-  height: auto;
+  min-height: 0;
+  overflow: auto;
+  padding: var(--space-6) var(--page-padding-x) var(--space-12);
+}
+.project-frame[data-page='tasks'] .project-frame-body {
+  padding-top: var(--space-4);
+}
+.project-frame-body > .page {
+  max-width: none;
+  padding: 0;
+}
+/* Docs has its own page list and scroll areas. */
+.project-frame[data-page='docs'] .project-frame-body {
+  padding: 0;
+  overflow: hidden;
+}
+@container (max-width: 640px) {
+  .project-frame-head,
+  .project-frame-body {
+    padding-inline: var(--space-4);
+  }
+}
+/* The slots that pages fill: text after the board line, and actions before Project settings. */
+.project-header-meta,
+.project-header-slot {
+  display: contents;
+}
+.project-header-host {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.project-page-summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: var(--space-4);
+  color: var(--muted-foreground);
+  font-size: 12px;
+  line-height: 16px;
 }
 .search-option-icon {
   display: inline-flex;

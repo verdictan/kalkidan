@@ -16,9 +16,7 @@ test('project creation is GitHub-backed without client fields or navigation', as
   await dialog.getByRole('button', { name: 'Atlas roadmap #1', exact: true }).click();
   await dialog.getByRole('button', { name: 'Create project', exact: true }).click();
   await expect(dialog).not.toBeVisible();
-  await expect(page.getByRole('region', { name: 'Project tracker' })).toContainText(
-    'Atlas roadmap',
-  );
+  await expect(page.locator('.project-header')).toContainText('Atlas roadmap');
   await page.getByRole('button', { name: 'Manage project Platform' }).click();
   await page.getByRole('menuitem', { name: 'Rename…', exact: true }).click();
   await expect(page.getByRole('dialog').getByLabel('Client label', { exact: true })).toHaveCount(0);
