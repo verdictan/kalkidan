@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 import { resolve } from 'node:path';
 import { backendLoader } from './helpers/backend-loader';
+import { acceptedManagedLaunch } from './helpers/managed-launch';
 
 async function drain() {
   for (let i = 0; i < 20; i++) await Promise.resolve();
@@ -124,6 +125,8 @@ function fixture(agent = 'codex', platform = 'linux') {
       return { path: '/fixture', env: {} };
     },
     { agentRequestTimeoutMs: 10 },
+    false,
+    acceptedManagedLaunch,
   );
   const session = { id: 'session', agent, cwd: '/repo', title: 'Test', updatedAt: '' };
   return {
@@ -451,6 +454,13 @@ test('startup failures, output limits, identity violations and request deadlines
       });
     assert.equal(r.status, 'failed', mode);
     assert.ok(r.error, mode);
+    if (mode === 'resolveFail') {
+      // A missing agent blocks the managed launch. Nothing starts a local CLI instead.
+      assert.equal(r.errorCode, 'managed_launch_blocked');
+      assert.equal(r.managedSetup, 'agent-setup');
+      assert.match(r.error!, /^Kalkidan runs agents only through managed Verdictan agents\./);
+      assert.equal(f.children.length, 0);
+    }
     f.runner.dispose();
   }
   const f = fixture();
@@ -477,7 +487,8 @@ test('pending handshakes close cleanly and resumed turns wait for the old proces
     f.settings.handshake = false;
     const run = await f.runner.start(f.session, 'task', true);
     await drain();
-    assert.equal(f.runner.status(run.id), run);
+    // Managed runs return a redacted copy of the state.
+    assert.deepEqual(f.runner.status(run.id), run);
     assert.throws(() => f.runner.status('missing'), /no longer available/);
     if (agent === 'claude') {
       f.emit({

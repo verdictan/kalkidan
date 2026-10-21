@@ -1,5 +1,6 @@
 import { interfaceConfig } from '../config/interface';
 import { trackerConnection } from '../domain/tracker';
+import { managedSetupTargets } from '../domain/verdictan';
 import { trackerClient } from '../lib/tracker-client';
 import {
   ConversationTools,
@@ -1034,6 +1035,23 @@ export function Conversation({
                       onClick={() => void reconnect()}
                     >
                       {reconnecting ? 'Reconnecting…' : 'Reconnect'}
+                    </Button>
+                  )}
+                  {run?.errorCode === 'managed_launch_blocked' && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="mt-1"
+                      onClick={() => {
+                        const target = managedSetupTargets[run.managedSetup || 'status'];
+                        window.dispatchEvent(
+                          new CustomEvent('kalkidan-open-settings', {
+                            detail: { section: target.section, anchor: target.anchor },
+                          }),
+                        );
+                      }}
+                    >
+                      {managedSetupTargets[run.managedSetup || 'status'].label}
                     </Button>
                   )}
                   {run?.errorCode === 'session_busy' && (

@@ -11,15 +11,9 @@ test('shell quoting preserves arbitrary folder names without executing shell syn
     await mkdir(path);
     const { stdout } = await exec('/bin/sh', ['-c', launchCommand(path, 'terminal') + ' && pwd']);
     assert.equal(stdout.trim(), path);
-    assert.throws(() => launchCommand(path, 'codex', 'bad;command'));
-    assert.equal(
-      launchCommand('/tmp', 'codex', 'session-1'),
-      "cd -- '/tmp' && codex resume 'session-1'",
-    );
-    assert.equal(
-      launchCommand('/tmp', 'claude', 'session-1'),
-      "cd -- '/tmp' && claude --resume 'session-1'",
-    );
+    // Agents run only as managed agents. A terminal never resumes a local agent CLI.
+    assert.throws(() => launchCommand(path, 'codex' as any));
+    assert.throws(() => launchCommand('/tmp', 'claude' as any));
   } finally {
     await rm(root, { recursive: true, force: true });
   }

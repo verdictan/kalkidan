@@ -1,5 +1,6 @@
 import type { BuiltinAgent } from '../config/agents';
 import type { TrackerItem } from './tracker';
+import type { ManagedSetupStep } from './verdictan';
 export interface ChatOptions {
   operationId?: string;
   forkFrom?: string;
@@ -101,7 +102,9 @@ export interface ChatRun {
   messages: ChatMessage[];
   activity: string;
   error?: string;
-  errorCode?: 'session_busy' | 'transport_lost';
+  errorCode?: 'session_busy' | 'transport_lost' | 'managed_launch_blocked';
+  /** With `managed_launch_blocked`: the setup step that can remove the block. */
+  managedSetup?: ManagedSetupStep;
   sessionReady?: boolean;
 }
 export interface AgentQuestion {

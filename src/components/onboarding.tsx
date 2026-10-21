@@ -201,7 +201,7 @@ export function Onboarding({
         : checkError
           ? `Could not check agents: ${checkError}`
           : installation?.status === 'installed'
-            ? `${agentName} is ready. It uses its own sign-in.`
+            ? `${agentName} is installed. Kalkidan runs it only as a managed Verdictan agent.`
             : `Kalkidan cannot find ${agentName} on this computer. Select Check again after you install it.`;
   function start() {
     if (!canStart || !repo) return;

@@ -88,6 +88,7 @@ export function SettingsDialog({
   api,
   onRefresh,
   section = 'general',
+  anchor,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -95,11 +96,29 @@ export function SettingsDialog({
   onRefresh: () => Promise<void>;
   /** The section that shows when the dialog opens, for example 'accounts'. */
   section?: SettingsSectionId | string;
+  /** The element in the section that gets focus, for example one managed setup step. */
+  anchor?: { id: string; request: number };
 }) {
   const [tab, setTab] = useState<SettingsSectionId>(sectionId(section));
   useEffect(() => {
     if (open) setTab(sectionId(section));
   }, [open, section]);
+  useEffect(() => {
+    if (!open || !anchor) return;
+    // Sections load their data after they open. Wait for the step to show, then move to it.
+    let tries = 0;
+    const timer = setInterval(() => {
+      // A step that is not available yet falls back to the account status.
+      const target =
+        document.getElementById(anchor.id) ||
+        (tries > 20 ? document.getElementById('verdictan-account') : null);
+      if (target || ++tries > 40) clearInterval(timer);
+      if (!target) return;
+      target.scrollIntoView({ block: 'start' });
+      target.focus({ preventScroll: true });
+    }, 50);
+    return () => clearInterval(timer);
+  }, [open, anchor]);
   const [installations, setInstallations] = useState<AgentInstallation[]>([]);
   const [checkRevision, setCheckRevision] = useState(0);
   const [checking, setChecking] = useState(false);
@@ -236,8 +255,8 @@ export function SettingsDialog({
                 <section aria-label="Agents on this computer" className="grid gap-3">
                   <div className="flex items-center justify-between gap-4">
                     <p className="text-xs text-muted-foreground">
-                      Kalkidan finds these agent command-line tools on this computer. Each agent
-                      uses its own sign-in.
+                      Managed Verdictan agents use these agent tools on this computer. Kalkidan does
+                      not start them directly.
                     </p>
                     <Button
                       variant="outline"

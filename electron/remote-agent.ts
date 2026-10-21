@@ -2,6 +2,7 @@ import { WorktreeCreation } from './operations/worktree';
 import { AgentStarts } from './operations/agent-start';
 import { PublishOperations, publishEffects } from './operations/publish';
 import { RemoteAccountClient } from './verdictan/remote-broker';
+import { DesktopProtocolError } from './verdictan/protocol';
 import { listDirectory } from './storage/directory-list';
 import { createVerdictanServices } from './verdictan/service';
 import { isVerdictanRegion } from './verdictan/region';
@@ -61,8 +62,7 @@ const locations = new ProjectLocationCache(join(homedir(), '.kalkidan', 'project
 const projectDocs = new Map<string, ProjectDocs>();
 const pty = new PtyTerminal();
 const chats = createAgentRuntimes(async (request) => {
-  if (!verdictanRuntime)
-    throw new Error('Install the managed runtime on this host before starting an agent.');
+  if (!verdictanRuntime) throw new DesktopProtocolError('desktop.host_runtime_missing');
   return verdictanRuntime.launch.prepare(request);
 });
 const terminal = new CommandTerminal();

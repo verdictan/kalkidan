@@ -6,11 +6,9 @@ import { launchCommand, parseWorktrees } from '../electron/core';
 
 test('shell commands quote folders and worktree records preserve spaces and detached heads', () => {
   assert.equal(launchCommand("/a' b", 'terminal'), "cd -- '/a'\\'' b'");
-  assert.equal(launchCommand('/repo', 'codex', 'id'), "cd -- '/repo' && codex resume 'id'");
-  assert.equal(launchCommand('/repo', 'claude', 'id'), "cd -- '/repo' && claude --resume 'id'");
-  assert.equal(launchCommand('/repo', 'claude'), "cd -- '/repo' && claude");
-  assert.throws(() => launchCommand('/repo', 'other' as any), /Unknown agent/);
-  assert.throws(() => launchCommand('/repo', 'codex', 'bad;command'), /Invalid session/);
+  // No terminal command can start a local agent CLI. Agents run only as managed agents.
+  for (const agent of ['codex', 'claude', 'other'])
+    assert.throws(() => launchCommand('/repo', agent as any), /inside Kalkidan/);
   assert.deepEqual(
     parseWorktrees(
       'worktree /main repo\nbranch refs/heads/main\n\nworktree /linked\nHEAD abc\n\nHEAD abc\n',

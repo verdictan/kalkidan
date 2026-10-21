@@ -1,5 +1,6 @@
 import type { ProjectDoc } from './domain/docs';
 import { githubDescriptor } from './domain/tracker';
+import { managedOnlyNotice } from './domain/verdictan';
 import type { API, Project, Session, ProjectGroup } from './types';
 const now = new Date().toISOString();
 let projects: Project[] = [
@@ -100,6 +101,8 @@ function previewBranch(branch: string) {
     throw new Error(`"${branch}" is not a valid branch name.`);
   return branch;
 }
+/** The browser preview never starts an agent. Agents run only as managed Verdictan agents. */
+const previewAgentBlock = `${managedOnlyNotice} The browser preview cannot start managed agents. Open the desktop app and complete managed agent setup.`;
 const nativeOnly = async () => {
   throw new Error('Open the desktop app to use native folder and Terminal actions.');
 };
@@ -476,7 +479,7 @@ export const demo: API = {
     }));
   },
   chatCreate: async () => {
-    throw new Error('Open the desktop app to send messages to your installed agent.');
+    throw new Error(previewAgentBlock);
   },
   transcript: async (agent, id) => ({
     messages: [
@@ -495,7 +498,7 @@ export const demo: API = {
     truncated: false,
   }),
   chatStart: async () => {
-    throw new Error('Open the desktop app to send messages to your installed agent.');
+    throw new Error(previewAgentBlock);
   },
   chatStatus: async () => {
     throw new Error('No active conversation in preview mode.');

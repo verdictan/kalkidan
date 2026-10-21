@@ -144,8 +144,11 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
   const [connectRequest, setConnectRequest] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsSection, setSettingsSection] = useState('general');
-  function openSettings(section = 'general') {
+  // The element that gets focus when Settings opens, for example one managed setup step.
+  const [settingsAnchor, setSettingsAnchor] = useState<{ id: string; request: number }>();
+  function openSettings(section = 'general', anchor?: string) {
     setSettingsSection(section);
+    setSettingsAnchor(anchor ? { id: anchor, request: Date.now() } : undefined);
     setSettingsOpen(true);
   }
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
@@ -352,7 +355,10 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
   // Other components ask the shell for these actions with window events.
   useEffect(() => {
     const onSettings = (event: Event) =>
-      openSettings((event as CustomEvent<{ section?: string }>).detail?.section || 'general');
+      openSettings(
+        (event as CustomEvent<{ section?: string }>).detail?.section || 'general',
+        (event as CustomEvent<{ anchor?: string }>).detail?.anchor,
+      );
     const onNewTask = (event: Event) => {
       // The board hears a forwarded event itself. Do not handle it again.
       if ((event as CustomEvent<{ forwarded?: boolean }>).detail?.forwarded) return;
@@ -1690,6 +1696,7 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
         open={settingsOpen}
         onOpenChange={setSettingsOpen}
         section={settingsSection as SettingsSectionId}
+        anchor={settingsAnchor}
         api={api}
         onRefresh={refresh}
       />

@@ -6,6 +6,7 @@ import {
   type VerdictanRegion,
 } from './verdictan/region';
 import { ProjectServices } from './verdictan/project-services';
+import { DesktopProtocolError } from './verdictan/protocol';
 import { ParallelDispatch } from './operations/parallel-dispatch';
 import { TaskExecutions } from './operations/task-execution';
 import { trackerConnection } from '../src/domain/tracker';
@@ -117,7 +118,7 @@ const owned = new Map<
 >();
 const previews = new Map<BrowserWindow, AnnotationBrowser>();
 const chatRunner = createAgentRuntimes(async (request) => {
-  if (!verdictan) throw new Error('Verdictan is not ready. Open Settings to complete setup.');
+  if (!verdictan) throw new DesktopProtocolError('desktop.runtime_missing');
   request.session.governanceScope = await resolveManagedScope(
     request.session.cwd,
     request.session.organization?.taskId,
