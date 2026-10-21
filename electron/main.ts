@@ -8,6 +8,7 @@ import {
 } from './verdictan/region';
 import { ProjectServices } from './verdictan/project-services';
 import { ManagedHistory } from './verdictan/managed-history';
+import { ProjectUsageReader } from './verdictan/project-usage';
 import { DesktopProtocolError } from './verdictan/protocol';
 import { ParallelDispatch } from './operations/parallel-dispatch';
 import { TaskExecutions } from './operations/task-execution';
@@ -1848,6 +1849,43 @@ app.whenReady().then(async () => {
     return { ...base, keys: { conversation_id: binding.conversation_id } };
   });
   handle('managed-history', (target) => managedHistory.list(target));
+  const projectUsage = new ProjectUsageReader({
+    history: (target) => managedHistory.list(target),
+    binding: async (agent, sessionId) => {
+      const { account } = await verdictan!.setup.inspect();
+      const binding = await verdictan!.bindings.read(
+        agent === 'codex' ? 'codex' : 'claude_code',
+        sessionId,
+      );
+      if (
+        !binding ||
+        binding.organization_id !== account.organizationId ||
+        binding.user_id !== account.userId
+      )
+        return null;
+      return {
+        cwd: binding.cwd,
+        billing: binding.provider_access_mode?.endsWith('_subscription')
+          ? 'subscription'
+          : 'metered',
+      };
+    },
+    inProject: async (groupId, cwd) => {
+      const group = projectGroups.groups.find((group) => group.id === groupId);
+      if (!group || group.hostId) return false;
+      for (const repo of projects)
+        if (!repo.hostId && group.repoIds.includes(repo.id)) {
+          const path = await realpath(repo.path).catch(() => repo.path);
+          if (pathContains(path, cwd) || pathContains(repo.path, cwd)) return true;
+        }
+      return false;
+    },
+  });
+  handle('project-usage', (groupId, chats) => {
+    if (!projectGroups.groups.some((group) => group.id === groupId))
+      throw Error('Project is unavailable.');
+    return projectUsage.read(groupId, chats);
+  });
   handle(
     'project-publish-doc',
     async (groupId, docId, docRevision, operationId, expectedRevision) => {

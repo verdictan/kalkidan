@@ -2649,6 +2649,62 @@ thead .tracker-task-select {
 .project-insights-sections .section-header {
   margin-bottom: 0;
 }
+/* Managed-agent usage on the Insights page. */
+.project-usage-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: var(--space-2);
+  margin: 0;
+}
+.project-usage-stats > div {
+  display: grid;
+  gap: var(--space-1);
+  min-width: 0;
+  padding: var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+}
+.project-usage-stats dt {
+  font-size: var(--text-xs);
+  color: var(--muted-foreground);
+}
+.project-usage-stats dd {
+  margin: 0;
+  font-size: var(--text-sm);
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+.project-usage-days {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
+  align-items: end;
+  gap: var(--space-1);
+  height: 72px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.project-usage-days > li {
+  display: flex;
+  align-items: flex-end;
+  height: 100%;
+  border-bottom: 1px solid var(--border);
+}
+.project-usage-bar {
+  width: 100%;
+  min-height: 0;
+  border-radius: var(--radius-xs) var(--radius-xs) 0 0;
+  background: var(--primary);
+}
+.project-usage-chip {
+  padding: 2px var(--space-2);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  font-size: var(--text-xs);
+  color: var(--muted-foreground);
+}
 .health-dot {
   width: 8px;
   height: 8px;

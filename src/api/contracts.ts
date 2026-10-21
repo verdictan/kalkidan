@@ -216,6 +216,14 @@ export interface ProjectAPI {
   managedHistory(
     target: import('../domain/managed-history').ManagedHistoryTarget,
   ): Promise<import('../domain/managed-history').ManagedHistoryPage>;
+  /**
+   * The managed-agent usage of the chats of a project, from the Verdictan history. The backend
+   * reads only chats in the code folders of the project.
+   */
+  projectUsage(
+    groupId: string,
+    chats: import('../domain/project-usage').ProjectUsageChatRef[],
+  ): Promise<import('../domain/project-usage').ProjectUsage>;
   historyPreview(): Promise<HistoryImportPreview>;
   historyImport(request: HistoryImportRequest): Promise<HistoryImportResult>;
   cloneRepository(name: string, groupId?: string): Promise<boolean>;
