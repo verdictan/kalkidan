@@ -331,6 +331,46 @@ export function selectionIssue(
   if (usesDefaultPolicy(selection) && defaultRemoved(setup)) return 'desktop.setup_default_removed';
   return undefined;
 }
+/** The fields of a selection that make the setup. A missing value is the same as empty. */
+function selectionFields(value: VerdictanSelection) {
+  return {
+    teamId: value.teamId || '',
+    configurationId: value.configurationId || '',
+    configurationVersionId: value.configurationVersionId || '',
+    // A selection without a mode uses the organization connection.
+    providerAccessMode: value.providerAccessMode || 'byok',
+    providerConnectionId: value.providerConnectionId || '',
+    model: value.model || '',
+    agentId: value.agentId || '',
+  };
+}
+/**
+ * True when the form `value` is the saved selection. A selection that was saved before the
+ * runtime sent agents has no agent. The form then shows the Kalkidan agent of the same team.
+ * When the saved selection uses the default policy, or the configuration of that agent, it is
+ * the same setup.
+ */
+export function sameSelection(
+  setup: VerdictanSetup,
+  saved: VerdictanSelection | undefined,
+  value: VerdictanSelection,
+) {
+  if (!saved) return false;
+  const a = selectionFields(saved);
+  const b = selectionFields(value);
+  const same = (keys: (keyof typeof a)[]) => keys.every((key) => a[key] === b[key]);
+  const others = ['teamId', 'providerAccessMode', 'providerConnectionId', 'model'] as const;
+  if (same([...others, 'configurationId', 'configurationVersionId', 'agentId'])) return true;
+  if (a.agentId || !b.agentId || b.configurationId || b.configurationVersionId) return false;
+  if (!usesAgentChoice(setup) || selectionIssue(setup, saved)) return false;
+  const agent = setup.agents!.find((item) => item.agent_id === b.agentId);
+  if (!agent?.default || agent.team_id !== a.teamId) return false;
+  const policy =
+    usesDefaultPolicy(saved) ||
+    (a.configurationId === agent.configuration_id &&
+      a.configurationVersionId === agent.configuration_version_id);
+  return policy && same([...others]);
+}
 /** The note for an administrator who removed the default Kalkidan setup. */
 export const defaultRemovedNotice =
   'An administrator removed the default Kalkidan setup. Choose another agent.';

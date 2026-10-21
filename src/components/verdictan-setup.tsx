@@ -15,6 +15,7 @@ import {
   noAgentNotice,
   policyLabels,
   policyRecovery,
+  sameSelection,
   selectionIssue,
   teamLabels,
   usesAgentChoice,
@@ -237,11 +238,8 @@ export function VerdictanSetupForm({
   );
   const saved = setup?.selections[agent];
   const savedIssue = setup && saved ? selectionIssue(setup, saved) : undefined;
-  const changedFrom = (value: VerdictanSelection) =>
-    !saved ||
-    (Object.keys({ ...saved, ...value }) as (keyof VerdictanSelection)[]).some(
-      (key) => (saved[key] || '') !== (value[key] || ''),
-    );
+  // A saved selection in another shape, for example one without an agent, is not a change.
+  const changedFrom = (value: VerdictanSelection) => !setup || !sameSelection(setup, saved, value);
   const completeSelection = (value: VerdictanSelection) =>
     !!value.teamId &&
     (agentChoice
