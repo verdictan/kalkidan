@@ -229,6 +229,11 @@ export interface ProjectAPI {
   removeGroup(id: string, withRepositories?: boolean): Promise<void>;
   moveRepo(repoId: string, groupId: string | null): Promise<void>;
   discover(groupId: string): Promise<{ added: number }>;
+  /** Reads the state of a pull request with `gh`. `id` is the repository entry. */
+  pullRequestStatus?(
+    id: string,
+    url: string,
+  ): Promise<{ state: 'open' | 'merged' | 'closed'; number: number; title?: string }>;
   /** Opens the native folder dialog. Resolves null when the user cancels. Electron only. */
   chooseFolder(title?: string, buttonLabel?: string): Promise<string | null>;
   /**
@@ -347,6 +352,10 @@ export interface MenuAPI {
 }
 export interface MemoryAPI {
   memoryList(groupId: string): Promise<import('../domain/memory').ProjectMemory>;
+  /** Memory entries with their source session and revision. */
+  memoryEntries?(groupId: string): Promise<import('../domain/memory').MemoryEntry[]>;
+  /** Marks an entry as wrong. The entry stops being given to agents. The file keeps a record. */
+  memoryForget?(groupId: string, id: string, revision: string): Promise<void>;
   projectResourceRevision?(groupId: string, kind: 'docs' | 'memory'): Promise<string>;
 }
 export interface API

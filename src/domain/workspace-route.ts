@@ -1,5 +1,6 @@
 import type { Session } from './conversation';
-export type ProjectPage = 'board' | 'docs' | 'tasks' | 'memory';
+/** 'board' is the project overview page (the old name is kept for saved routes). */
+export type ProjectPage = 'board' | 'docs' | 'tasks' | 'memory' | 'insights';
 export type WorkspacePage =
   | { kind: 'home' }
   | { kind: 'sessions' }

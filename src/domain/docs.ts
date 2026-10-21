@@ -24,6 +24,11 @@ export interface DocsAPI {
   docsDelete(groupId: string, id: string, revision: string): Promise<void>;
   docsTrash(groupId: string): Promise<DeletedProjectDoc[]>;
   docsRestore(groupId: string, trashId: string): Promise<ProjectDoc>;
+  /** Full-text search over the project docs. The same index as @docs. */
+  docsSearch?(groupId: string, query: string, limit?: number): Promise<DocPassage[]>;
+  /** Task-to-doc links, saved in the project folder. Keys are board item IDs. */
+  taskDocLinks?(groupId: string): Promise<Record<string, string[]>>;
+  setTaskDocLinks?(groupId: string, itemId: string, docIds: string[]): Promise<void>;
 }
 
 /** A bounded search result. Source line numbers refer to the Markdown file on disk. */

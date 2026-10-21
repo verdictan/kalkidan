@@ -19,6 +19,8 @@ export interface SessionOrganization {
   pinned?: boolean;
   archived?: boolean;
   taskId?: string;
+  /** The pull request opened from this session. */
+  pullRequest?: { url: string; number?: number; state?: 'open' | 'merged' | 'closed' };
 }
 export interface Session {
   governanceScope?: { projectId: string; taskId?: string };

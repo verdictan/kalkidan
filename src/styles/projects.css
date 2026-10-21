@@ -546,11 +546,12 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* Old name for .form-help. New code uses .form-help. The parent gap sets the spacing. */
 .help-text {
   color: var(--muted-foreground);
   font-size: var(--text-xs);
   line-height: 16px;
-  margin: var(--space-2) 0;
+  margin: 0;
 }
 .warnings {
   flex-shrink: 0;
