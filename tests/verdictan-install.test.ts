@@ -284,3 +284,35 @@ test('without an approved release, the status gives the reason', async (t) => {
   assert.equal(result.canInstallApproved, false);
   assert.match(result.reason!, /No reviewed/);
 });
+test('the status reports a running install before its first journal entry and clears it after', async (t) => {
+  const f = await fixture(t);
+  await f.installer.check();
+  // The Settings button calls start(). It returns before the download begins.
+  const started = await f.installer.start();
+  assert.equal(started.installing, true);
+  assert.equal(started.canInstallApproved, false);
+  assert.match(started.reason!, /in progress/);
+  // A poll during the install sees the flag, so the window keeps reading the status.
+  assert.equal(f.installer.status().installing, true);
+  const done = await f.installer.install();
+  assert.equal(done.operation?.phase, 'completed');
+  assert.equal(done.installing, undefined);
+  assert.equal(done.installed?.version, '0.2.1');
+  assert.equal(f.installer.status().installing, undefined);
+  assert.match(f.installer.status().reason!, /is installed/);
+});
+test('a failed install returns a final status that can install again', async (t) => {
+  const f = await fixture(t);
+  const options = (f.installer as any).options as RuntimeInstallerOptions;
+  const installer = new RuntimeInstaller({
+    ...options,
+    changed: undefined,
+    request: (async () => new Response('broken', { status: 500 })) as typeof fetch,
+  });
+  await installer.check();
+  const failed = await installer.install();
+  assert.equal(failed.operation?.phase, 'failed');
+  assert.equal(failed.installing, undefined);
+  assert.equal(failed.canInstallApproved, true);
+  assert.equal(failed.reason, undefined);
+});

@@ -17,11 +17,13 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { showToast } from './ui/toast';
 import { notifyUpdatesChanged } from '../hooks/use-update-status';
 import {
+  accountChanging,
   accountNames,
   accountPhaseLabel,
   displayVersion,
   managedSteps,
   runtimeInstallable,
+  runtimeBusy,
   runtimeNewerNotApproved,
   runtimeOutdated,
   runtimeStatusLabel,
@@ -39,9 +41,15 @@ function notifyManagedAgentsChanged() {
   window.dispatchEvent(new Event(managedAgentsChangedEvent));
 }
 
+type Region = NonNullable<VerdictanStatus['region']>;
+const regions: Region[] = ['eu', 'us'];
+const regionNames: Record<Region, string> = { eu: 'European Union', us: 'United States' };
+
 // Poll only while an operation runs. Otherwise read the state on focus and on request.
 const accountPollMs = 1000;
 const runtimePollMs = 1500;
+// While the desktop changes the account or the region, read again after this delay.
+const changeRetryMs = 1000;
 
 /** A block error inside a settings step. */
 export function StepError({ children }: { children: ReactNode }) {
@@ -78,43 +86,57 @@ function useRuntimeStatus(api: API, open: boolean, host: string) {
   const [status, setStatus] = useState<ComponentUpdateStatus>();
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  // True while the desktop changes the account or the region. The read tries again later.
+  const [changing, setChanging] = useState(false);
   const generation = useRef(0);
   const pending = useRef(false);
   const reading = useRef(false);
-  const read = useCallback(() => {
-    if (reading.current) return;
-    reading.current = true;
-    const id = generation.current;
-    void Promise.resolve()
-      .then(() => api.runtimeUpdateStatus(host))
-      .then(
-        (next) => {
-          if (generation.current !== id) return;
-          setStatus(next);
-          setError('');
-        },
-        () => {
-          if (generation.current === id)
-            setError('This computer is not available. Connect it, then check again.');
-        },
-      )
-      .finally(() => {
-        reading.current = false;
-      });
-  }, [api, host]);
+  const retry = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const read = useCallback(
+    function readRuntime() {
+      if (reading.current) return;
+      reading.current = true;
+      const id = generation.current;
+      clearTimeout(retry.current);
+      void Promise.resolve()
+        .then(() => api.runtimeUpdateStatus(host))
+        .then(
+          (next) => {
+            if (generation.current !== id) return;
+            setStatus(next);
+            setError('');
+            setChanging(false);
+          },
+          (failure) => {
+            if (generation.current !== id) return;
+            if (accountChanging(failure)) {
+              setChanging(true);
+              retry.current = setTimeout(readRuntime, changeRetryMs);
+            } else setError('This computer is not available. Connect it, then check again.');
+          },
+        )
+        .finally(() => {
+          reading.current = false;
+        });
+    },
+    [api, host],
+  );
   useEffect(() => {
     if (!open) return;
     generation.current++;
     reading.current = false;
     setStatus(undefined);
     setError('');
+    setChanging(false);
     read();
     return () => {
       generation.current++;
+      clearTimeout(retry.current);
     };
   }, [open, read]);
   useRefreshTriggers(api, open, read);
-  const running = updateRunning(status) || status?.discovery === 'checking';
+  // An install that starts has no journal entry yet. `installing` keeps the poll until it ends.
+  const running = runtimeBusy(status) || status?.discovery === 'checking';
   useEffect(() => {
     if (!open || !running) return;
     const timer = setInterval(read, runtimePollMs);
@@ -132,43 +154,65 @@ function useRuntimeStatus(api: API, open: boolean, host: string) {
       const result = await api[method](host);
       if (id === generation.current) setStatus(result);
       notifyUpdatesChanged();
-    } catch {
+    } catch (failure) {
       if (id === generation.current)
-        setError('The runtime operation did not finish. Check for updates, then try again.');
+        if (accountChanging(failure)) {
+          setChanging(true);
+          retry.current = setTimeout(read, changeRetryMs);
+        } else setError('The runtime operation did not finish. Check for updates, then try again.');
     } finally {
       pending.current = false;
       setBusy(false);
     }
   }
-  return { status, error, busy, action };
+  return { status, error, busy, changing, action, read };
 }
 
 /** Reads the account state. Polls only while a sign-in or a check runs. */
 function useAccountStatus(api: API, open: boolean) {
   const [status, setStatus] = useState<VerdictanStatus>();
   const [busy, setBusy] = useState(false);
+  // An action error stays until the next action. A read error goes after a read that works.
   const [error, setError] = useState('');
+  const [readError, setReadError] = useState('');
+  // True while the desktop changes the account or the region. The read tries again later.
+  const [changing, setChanging] = useState(false);
+  // The region that Kalkidan changes to now.
+  const [switchingTo, setSwitchingTo] = useState<Region>();
   const active = useRef(false);
   const generation = useRef(0);
-  const read = useCallback(() => {
-    const id = generation.current;
-    void Promise.resolve()
-      .then(() => api.verdictanStatus())
-      .then(
-        (next) => {
-          if (generation.current === id) setStatus(next);
-        },
-        () => {
-          if (generation.current === id) setError('Could not read the account status.');
-        },
-      );
-  }, [api]);
+  const retry = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const read = useCallback(
+    function readAccount() {
+      const id = generation.current;
+      clearTimeout(retry.current);
+      void Promise.resolve()
+        .then(() => api.verdictanStatus())
+        .then(
+          (next) => {
+            if (generation.current !== id) return;
+            setStatus(next);
+            setReadError('');
+            setChanging(false);
+          },
+          (failure) => {
+            if (generation.current !== id) return;
+            if (accountChanging(failure)) {
+              setChanging(true);
+              retry.current = setTimeout(readAccount, changeRetryMs);
+            } else setReadError('Could not read the account status.');
+          },
+        );
+    },
+    [api],
+  );
   useEffect(() => {
     if (!open) return;
     generation.current++;
     read();
     return () => {
       generation.current++;
+      clearTimeout(retry.current);
     };
   }, [open, read]);
   useRefreshTriggers(api, open, read);
@@ -178,28 +222,44 @@ function useAccountStatus(api: API, open: boolean) {
     const timer = setInterval(read, accountPollMs);
     return () => clearInterval(timer);
   }, [open, waiting, read]);
-  async function run(action: () => Promise<VerdictanStatus>, done?: string) {
+  async function run(action: () => Promise<VerdictanStatus>, done?: string, region?: Region) {
     if (active.current) return;
     active.current = true;
     setBusy(true);
     setError('');
+    setSwitchingTo(region);
     const id = generation.current;
     try {
       const result = await action();
       if (generation.current === id) {
         setStatus(result);
+        setReadError('');
+        setChanging(false);
         if (done && !result.error) showToast(done);
       }
       notifyManagedAgentsChanged();
-    } catch {
+    } catch (failure) {
       if (generation.current === id)
-        setError('The account operation did not finish. Check the status, then try again.');
+        if (accountChanging(failure)) {
+          setChanging(true);
+          retry.current = setTimeout(read, changeRetryMs);
+        } else setError('The account operation did not finish. Check the status, then try again.');
     } finally {
       active.current = false;
       setBusy(false);
+      setSwitchingTo(undefined);
     }
   }
-  return { status, setStatus, busy, error, setError, run };
+  return {
+    status,
+    setStatus,
+    busy,
+    error: error || readError,
+    setError,
+    changing,
+    switchingTo,
+    run,
+  };
 }
 
 /**
@@ -233,16 +293,27 @@ export function ManagedAgentsSettings({ api, open }: { api: API; open: boolean }
   const account = useAccountStatus(api, open);
   // After an install finishes, the account check finds the new runtime.
   const wasRunning = useRef(false);
-  const running = updateRunning(runtime.status);
+  // The operation that was in the journal before the install. An install that fails before
+  // its first journal entry leaves it, so its "completed" phase is not a new install.
+  const before = useRef<string>(undefined);
+  const running = runtimeBusy(runtime.status);
   useEffect(() => {
+    const operation = runtime.status?.operation;
     if (wasRunning.current && !running) {
-      if (runtime.status?.operation?.phase === 'completed') {
-        showToast(`Installed managed agents runtime ${runtime.status.operation.target.version}`);
+      if (operation?.phase === 'completed' && operation.id !== before.current) {
+        showToast(`Installed managed agents runtime ${operation.target.version}`);
         void account.run(() => api.verdictanCheck());
       }
     }
+    if (!running) before.current = operation?.id;
     wasRunning.current = running;
   }, [running]);
+  // After a region change, read the install state of the computer again.
+  const region = account.status?.region;
+  const readRuntime = runtime.read;
+  useEffect(() => {
+    if (open && region) readRuntime();
+  }, [open, region, readRuntime]);
   const steps = managedSteps(account.status, setup);
   const signedIn = steps.signedIn;
   // One primary button: the action of the first step that is not done.
@@ -391,9 +462,11 @@ function RuntimeStep({
   onHost: (host: string) => void;
   runtime: ReturnType<typeof useRuntimeStatus>;
 }) {
-  const { status, busy, error, action } = runtime;
+  const { status, busy, error, changing, action } = runtime;
   const operation = status?.operation;
   const running = updateRunning(status);
+  // An install that starts. The host has not written its first journal entry yet.
+  const starting = !!status?.installing && !running;
   const waitingForIdle = operation?.phase === 'waiting-for-idle';
   const installable = runtimeInstallable(status);
   const label = runtimeStatusLabel(status);
@@ -432,7 +505,8 @@ function RuntimeStep({
               <RefreshCw className={status?.discovery === 'checking' ? 'animate-spin' : ''} />
             </Button>
           </Hint>
-          {((installable && !running) || (waitingForIdle && runtimeOutdated(status))) && (
+          {((installable && !running && !starting) ||
+            (waitingForIdle && runtimeOutdated(status))) && (
             <Button
               size="sm"
               variant={primary || waitingForIdle ? 'default' : 'outline'}
@@ -485,7 +559,7 @@ function RuntimeStep({
             `Version ${status!.discovered!.version} is out. Your desktop policy has not approved it yet, so Kalkidan installs version ${status!.approved!.version}.`}
         </p>
       )}
-      {runtimeOutdated(status) && !installable && !running && status?.reason && (
+      {runtimeOutdated(status) && !installable && !running && !starting && status?.reason && (
         <p className="form-help">{status.reason}</p>
       )}
       {!status?.approved && status && status.discovery !== 'checking' && !error && (
@@ -517,8 +591,23 @@ function RuntimeStep({
           )}
         </div>
       )}
-      {operation?.error && !running && <StepError>{withoutManagedCode(operation.error)}</StepError>}
-      {(error || statusError) && <StepError>{error || statusError}</StepError>}
+      {starting && (
+        <div className="grid gap-2" aria-live="polite">
+          <span className="text-xs leading-4">
+            Starting the install of version {status!.approved?.version}
+          </span>
+          <Progress label="Runtime install" />
+        </div>
+      )}
+      {changing && (
+        <p role="status" className="form-help">
+          Kalkidan changes the account now. This step updates when the change is complete.
+        </p>
+      )}
+      {operation?.error && !running && !starting && (
+        <StepError>{withoutManagedCode(operation.error)}</StepError>
+      )}
+      {!changing && (error || statusError) && <StepError>{error || statusError}</StepError>}
       {!!status?.history.length && (
         <SettingsDisclosure title="Install history">
           <ul className="grid gap-2 text-xs leading-4">
@@ -541,10 +630,6 @@ function RuntimeStep({
   );
 }
 
-type Region = NonNullable<VerdictanStatus['region']>;
-const regions: Region[] = ['eu', 'us'];
-const regionNames: Record<Region, string> = { eu: 'European Union', us: 'United States' };
-
 function AccountStep({
   api,
   primary,
@@ -556,11 +641,14 @@ function AccountStep({
   runtimeMissing: boolean;
   account: ReturnType<typeof useAccountStatus>;
 }) {
-  const { status, setStatus, busy, error, setError, run } = account;
+  const { status, setStatus, busy, error, setError, run, changing, switchingTo } = account;
   const [pendingRegion, setPendingRegion] = useState<Region>();
   const details = status?.account;
+  // A region change stops agents and connects to the other service. It takes some seconds.
+  // Reads fail with "account is changing" during it. That is expected, not an error.
+  const switching = !!switchingTo || changing;
   // A status without a region needs an explicit EU or US choice before sign-in.
-  const regionRequired = !!status && !status.region;
+  const regionRequired = !!status && !status.region && !switching;
   const names = accountNames(status);
   const signedIn = status?.phase === 'authenticated';
   const canRenew = signedIn || status?.phase === 'expired';
@@ -644,9 +732,11 @@ function AccountStep({
       <div className="flex flex-wrap items-center gap-2">
         <StatusBadge
           status={
-            regionRequired
-              ? { label: 'Region not selected', tone: 'warning' }
-              : accountPhaseLabel(status?.phase)
+            switching
+              ? { label: 'Switching region…', tone: 'secondary' }
+              : regionRequired
+                ? { label: 'Region not selected', tone: 'warning' }
+                : accountPhaseLabel(status?.phase)
           }
         />
         {authorizing && (
@@ -683,8 +773,8 @@ function AccountStep({
       <div className="form-label">
         <span id="managed-region-label">Account region</span>
         <Select
-          value={pendingRegion || status?.region || ''}
-          disabled={busy || authorizing}
+          value={switchingTo || pendingRegion || status?.region || ''}
+          disabled={busy || authorizing || switching}
           onValueChange={(value) => {
             const region = value as Region;
             // The first choice changes nothing that runs. Apply it at once.
@@ -692,6 +782,7 @@ function AccountStep({
               void run(
                 () => api.verdictanSetRegion(region),
                 `Region set to ${regionNames[region]}`,
+                region,
               );
             else setPendingRegion(region);
           }}
@@ -712,12 +803,14 @@ function AccountStep({
           </SelectContent>
         </Select>
         <span className="form-help">
-          {regionRequired
-            ? 'Select the region of your organization before you sign in. Each region keeps a separate sign-in.'
-            : 'Each region keeps a separate sign-in.'}
+          {switching
+            ? `Kalkidan stops the agents and connects to the ${switchingTo ? `${regionNames[switchingTo]} ` : ''}service. Wait for the change to finish.`
+            : regionRequired
+              ? 'Select the region of your organization before you sign in. Each region keeps a separate sign-in.'
+              : 'Each region keeps a separate sign-in.'}
         </span>
       </div>
-      {pendingRegion && status?.region && pendingRegion !== status.region && (
+      {pendingRegion && !switching && status?.region && pendingRegion !== status.region && (
         <Alert size="sm" role="group" aria-label="Confirm region change" className="gap-y-2">
           <AlertDescription className="text-xs leading-4 text-foreground">
             A region change stops the agents that run now and disconnects SSH hosts. The app stays
@@ -737,11 +830,15 @@ function AccountStep({
               size="sm"
               disabled={busy}
               onClick={() =>
-                void run(async () => {
-                  const result = await api.verdictanSetRegion(pendingRegion);
-                  setPendingRegion(undefined);
-                  return result;
-                }, 'Region changed')
+                void run(
+                  async () => {
+                    const result = await api.verdictanSetRegion(pendingRegion);
+                    setPendingRegion(undefined);
+                    return result;
+                  },
+                  'Region changed',
+                  pendingRegion,
+                )
               }
             >
               Stop work and change region
@@ -765,7 +862,7 @@ function AccountStep({
           the access.
         </StepError>
       )}
-      {(error || (status?.error && !regionRequired)) && (
+      {!switching && (error || (status?.error && !regionRequired && !!status.region)) && (
         <StepError>{error || verdictanErrorMessage(status!.error!)}</StepError>
       )}
     </Step>
