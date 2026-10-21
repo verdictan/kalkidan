@@ -18,7 +18,7 @@ test('bundled runtime pins select the execution host, including SSH Linux', () =
     });
     assert.equal(release.artifact.target, artifact.target);
     assert.equal(release.artifact.sha256, selected.pin.artifact_sha256);
-    assert.equal(release.version, artifact.os === 'darwin' ? '0.4.1' : '0.3.0');
+    assert.equal(release.version, artifact.os === 'darwin' ? '0.6.1' : '0.3.0');
   }
   assert.throws(() => runtimePolicyForHost(policy, 'win32', 'x64'), /No reviewed/);
   assert.throws(() => runtimePolicyForHost(policy, 'linux', 'arm64'), /No reviewed/);

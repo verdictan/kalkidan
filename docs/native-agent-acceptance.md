@@ -120,3 +120,30 @@ Do not replace the selected subscription with API billing.
 The new managed Codex acceptance harness reached runtime provisioning with one
 EU policy. Gateway supervision then reported `desktop.gateway_unavailable`
 before a native model request. Local and SSH live acceptance remain open.
+
+## Runtime 0.6.1 approval on 2026-10-21
+
+The operator approved Verdictan 0.6.1 for macOS ARM64 with
+`scripts/approve-runtime.ts`. The evidence is the public `v0.6.1` release of
+`verdictan/packages` (tag `cli/v0.6.1`, source
+`be47270c251be6892f7ab78a9e6c50e1b98c1032`). The approval uses these values:
+
+- Manifest `desktop-release-manifest.v1.json`, SHA-256
+  `a005e2b5ed185a0cfaf2558461f737a39a7aaf0825ca42ce307070cf952f994c`.
+- Archive `verdictan-aarch64-apple-darwin.tar.gz`, SHA-256
+  `93e580d1c3ea8f030e1b73efb278e929ad3e4429aaa67c15284b3baf9ed84311`.
+- Executable SHA-256
+  `99d6338156cd1c47e0b61f2fd4ed8ce751a99710a3c27bddc80c3d043147c617`.
+- Manifest expiry: `1793184758` (2026-10-28 10:52:38 UTC). Renew the approval
+  before this time.
+
+`tests/acceptance/runtime-install.ts` installed 0.6.1 from the public release in
+a disposable root. Clean install, restart, and the capability probe passed.
+
+Linux x64 keeps the reviewed v0.3.0 approval. The 0.6.1 manifest has no Linux
+entry. The installer accepts only an artifact that its reviewed manifest lists,
+so a Linux archive alone cannot get approval. Verdictan 0.3.0 does not advertise
+`provider_access.claude_subscription`. This blocks Claude subscription launches on an SSH
+Linux host. A published manifest with an `x86_64-unknown-linux-gnu`
+entry for 0.6.1 or later removes this block. The v0.3.0 manifest expires at
+`1793135183` (2026-10-27 21:06:23 UTC).
