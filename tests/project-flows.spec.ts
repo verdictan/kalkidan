@@ -220,7 +220,7 @@ test('settings shows agent and remote controls without history import', async ({
   // Below 1100px wide, the sidebar starts closed.
   await page.getByRole('button', { name: 'Toggle sidebar', exact: true }).click();
   await page.getByRole('button', { name: 'Settings', exact: true }).click();
-  const dialog = page.getByRole('dialog', { name: 'Settings' });
+  const dialog = page.getByRole('region', { name: 'Settings', exact: true });
   await expect(dialog.getByRole('tab', { name: 'General' })).toHaveAttribute(
     'aria-selected',
     'true',
@@ -229,15 +229,18 @@ test('settings shows agent and remote controls without history import', async ({
   await expect(dialog.getByRole('region', { name: 'Agents on this computer' })).toBeVisible();
   await dialog.getByRole('tab', { name: 'Accounts', exact: true }).click();
   await expect(dialog.getByRole('region', { name: 'GitHub account' })).toBeVisible();
-  await dialog.getByRole('tab', { name: 'Remote hosts' }).click();
+  await dialog.getByRole('tab', { name: 'Computers' }).click();
   await expect(dialog.getByRole('button', { name: 'Add host', exact: true })).toBeVisible();
   await expect(dialog.getByText('Import chat history', { exact: true })).toHaveCount(0);
   await expect(dialog.getByRole('button', { name: 'Preview chat history' })).toHaveCount(0);
   await dialog.getByRole('tab', { name: 'General' }).click();
   await expect(dialog.getByRole('group', { name: 'Appearance' })).toBeVisible();
-  await expect(dialog.getByRole('button', { name: 'Close', exact: true })).toBeInViewport();
-  await page.screenshot({ path: 'test-results/settings-modal.png', fullPage: true });
-  await dialog.getByRole('button', { name: 'Close', exact: true }).click();
+  await page.screenshot({ path: 'test-results/settings-page.png', fullPage: true });
+  // Settings is a page in the main area. The sidebar leaves it.
+  await page
+    .getByRole('navigation', { name: 'Projects and repositories' })
+    .getByRole('button', { name: 'Projects', exact: true })
+    .click();
   await expect(dialog).toHaveCount(0);
 });
 

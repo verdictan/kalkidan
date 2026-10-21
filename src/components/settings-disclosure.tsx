@@ -32,6 +32,42 @@ export function SettingsDisclosure({
   );
 }
 
+/**
+ * One group in a Settings tab: a heading row with optional actions, then the content. The
+ * group can get focus, so a link to its `id` moves the focus to it.
+ */
+export function SettingsGroup({
+  id,
+  title,
+  label,
+  actions,
+  className,
+  children,
+}: {
+  id?: string;
+  title: ReactNode;
+  /** The name of the region. The default is the title. */
+  label?: string;
+  actions?: ReactNode;
+  className?: string;
+  children: ReactNode;
+}) {
+  return (
+    <section
+      id={id}
+      tabIndex={id ? -1 : undefined}
+      aria-label={label || (typeof title === 'string' ? title : undefined)}
+      className={cn('settings-group outline-none', className)}
+    >
+      <div className="settings-group-header">
+        <h3 className="settings-group-title">{title}</h3>
+        {actions && <div className="settings-group-actions">{actions}</div>}
+      </div>
+      {children}
+    </section>
+  );
+}
+
 /** Copies a value and confirms it with a toast. */
 export function copyValue(value: string, name: string) {
   void Promise.resolve()

@@ -9,9 +9,13 @@ import {
   desktopStatusLabel,
   displayVersion,
   helperStatusLabel,
+  runtimeInstallable,
+  runtimeStatusLabel,
   shortId,
 } from '../lib/verdictan-labels';
-import { RuntimeUpdateCard, StepError, UpdateCard } from './verdictan-settings';
+import type { ComponentUpdateStatus } from '../domain/updates';
+import { computerAnchor, runtimeAnchor } from '../domain/settings-route';
+import { StepError, UpdateCard, type SettingsNavigate } from './verdictan-settings';
 import { CopyValue, SettingsDisclosure } from './settings-disclosure';
 import { Progress } from './ui/progress';
 import type { StatusLabel } from '../lib/verdictan-labels';
@@ -29,7 +33,10 @@ const phaseText: Record<string, string> = {
 const megabytes = (bytes: number) => `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 
 /** The status badge of the desktop app. A running or staged update replaces the check result. */
-function desktopUpdateLabel(desktop: DesktopUpdateStatus): StatusLabel {
+export function desktopUpdateLabel(desktop: DesktopUpdateStatus): StatusLabel {
+  // A development build does not update. A release with the same version is not an update.
+  if (desktop.install.kind === 'development')
+    return { label: 'Development build; updates are off', tone: 'muted' };
   const phase = desktop.update?.phase;
   if (phase && activePhases.includes(phase)) return { label: phaseText[phase], tone: 'secondary' };
   if (phase === 'staged') return { label: 'Restart to update', tone: 'warning' };
@@ -83,7 +90,8 @@ function DesktopUpdateCard({
       setBusy(false);
     }
   }
-  const release = desktop.discovery === 'available' ? desktop.release : undefined;
+  const development = desktop.install.kind === 'development';
+  const release = desktop.discovery === 'available' && !development ? desktop.release : undefined;
   const selfUpdate = desktop.install.selfUpdate;
   const releaseLink = release && (
     <Button asChild size="sm" variant={selfUpdate ? 'outline' : 'default'}>
@@ -94,7 +102,8 @@ function DesktopUpdateCard({
     </Button>
   );
   let action: ReactNode = null;
-  if (!selfUpdate) action = releaseLink;
+  if (development) action = null;
+  else if (!selfUpdate) action = releaseLink;
   else if (update?.phase === 'staged')
     action = (
       <Button size="sm" disabled={busy} onClick={() => void run(() => api.desktopUpdateRestart())}>
@@ -148,6 +157,7 @@ function DesktopUpdateCard({
         <p>Install the download, then restart Kalkidan. The download does not replace the app.</p>
       )}
       {release && !selfUpdate && desktop.install.reason && <p>{desktop.install.reason}</p>}
+      {development && <p>Install a release build of Kalkidan to get updates.</p>}
       {(failure || update?.error) && <StepError>{failure || update?.error}</StepError>}
       {update?.phase === 'failed' && selfUpdate && releaseLink}
       {desktop.stale && desktop.lastSuccessAt && <p>The last check may be out of date.</p>}
@@ -184,6 +194,61 @@ function DesktopUpdateCard({
   );
 }
 
+/**
+ * The managed agents runtime of one computer in Settings › Updates. Install and update it in
+ * Settings › Computers.
+ */
+function RuntimeSummaryCard({
+  api,
+  open,
+  hostId,
+  name,
+  onOpen,
+}: {
+  api: API;
+  open: boolean;
+  /** 'local' or the ID of an SSH host. */
+  hostId: string;
+  name: string;
+  onOpen: () => void;
+}) {
+  const [status, setStatus] = useState<ComponentUpdateStatus>();
+  const [failed, setFailed] = useState(false);
+  useEffect(() => {
+    if (!open) return;
+    let live = true;
+    void Promise.resolve()
+      .then(() => api.runtimeUpdateStatus(hostId))
+      .then(
+        (value) => live && (setStatus(value), setFailed(false)),
+        () => live && setFailed(true),
+      );
+    return () => {
+      live = false;
+    };
+  }, [api, open, hostId]);
+  const label: StatusLabel = failed
+    ? { label: 'Check failed', tone: 'destructive' }
+    : runtimeStatusLabel(status);
+  return (
+    <UpdateCard
+      name={name}
+      version={status?.installed?.version}
+      status={label}
+      action={
+        <Button
+          variant={runtimeInstallable(status) ? 'default' : 'outline'}
+          size="sm"
+          aria-label={`Open ${name} in Computers`}
+          onClick={onOpen}
+        >
+          Open in Computers
+        </Button>
+      }
+    />
+  );
+}
+
 /** Settings › Updates: one card for each component that Kalkidan updates. */
 export function ComponentUpdates({
   api,
@@ -192,8 +257,8 @@ export function ComponentUpdates({
 }: {
   api: API;
   open?: boolean;
-  /** Switches Settings to another section, for example 'agents'. */
-  onNavigate: (section: 'agents' | 'managed-agents' | 'remote') => void;
+  /** Moves Settings to another tab, for example to one computer in Computers. */
+  onNavigate: SettingsNavigate;
 }) {
   const [inventory, setInventory] = useState<ComponentInventory>();
   const [busy, setBusy] = useState(false);
@@ -259,7 +324,25 @@ export function ComponentUpdates({
             onStatus={(next) => setInventory((value) => value && { ...value, desktop: next })}
           />
         )}
-        <RuntimeUpdateCard api={api} open={open} onManage={() => onNavigate('managed-agents')} />
+        <RuntimeSummaryCard
+          api={api}
+          open={open}
+          hostId="local"
+          name="Managed agents runtime"
+          onOpen={() => onNavigate('computers', runtimeAnchor())}
+        />
+        {inventory?.helpers
+          .filter((helper) => helper.connected)
+          .map((helper) => (
+            <RuntimeSummaryCard
+              key={`runtime-${helper.hostId}`}
+              api={api}
+              open={open}
+              hostId={helper.hostId}
+              name={`Managed agents runtime on ${helper.name}`}
+              onOpen={() => onNavigate('computers', runtimeAnchor(helper.hostId))}
+            />
+          ))}
         {inventory?.helpers.map((helper) => (
           <UpdateCard
             key={helper.hostId}
@@ -267,15 +350,18 @@ export function ComponentUpdates({
             subtitle={helper.installed ? `Build ${shortId(helper.installed)}` : 'Build not known'}
             status={helperStatusLabel(helper)}
             action={
-              helper.discovery === 'available' && (
-                <Button variant="outline" size="sm" onClick={() => onNavigate('remote')}>
-                  Open remote hosts
-                </Button>
-              )
+              <Button
+                variant={helper.discovery === 'available' ? 'default' : 'outline'}
+                size="sm"
+                aria-label={`Open ${helper.name} in Computers`}
+                onClick={() => onNavigate('computers', computerAnchor(helper.hostId))}
+              >
+                Open in Computers
+              </Button>
             }
           >
             {helper.discovery === 'available' && (
-              <p>Update the helper in Remote hosts. Active work on the host must finish first.</p>
+              <p>Update the helper in Computers. Active work on the host must finish first.</p>
             )}
             <SettingsDisclosure title="Verify helper">
               <dl className="meta-list">

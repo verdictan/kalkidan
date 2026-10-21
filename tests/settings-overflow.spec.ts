@@ -30,7 +30,8 @@ test('Settings tabs have no horizontal overflow and long paths truncate in the m
   // Below 1100px wide, the sidebar starts closed.
   await page.getByRole('button', { name: 'Toggle sidebar', exact: true }).click();
   await page.getByRole('button', { name: 'Settings', exact: true }).click();
-  const dialog = page.getByRole('dialog', { name: 'Settings' });
+  const dialog = page.getByRole('region', { name: 'Settings', exact: true });
+  // The sidebar stays open next to the Settings page. It makes the page narrow.
   await dialog.getByRole('tab', { name: 'Agents', exact: true }).click();
   const shown = dialog.getByLabel(longPath, { exact: true });
   await expect(shown).toBeVisible();
@@ -41,7 +42,7 @@ test('Settings tabs have no horizontal overflow and long paths truncate in the m
   expect(tabs.length).toBeGreaterThan(3);
   for (const name of tabs) {
     await dialog.getByRole('tab', { name, exact: true }).click();
-    const overflow = await dialog.locator('.settings-scroll').evaluate((pane) => {
+    const overflow = await page.locator('.management-pane').evaluate((pane) => {
       const right = pane.getBoundingClientRect().right;
       const wide = [...pane.querySelectorAll<HTMLElement>('*')].filter((node) => {
         const box = node.getBoundingClientRect();

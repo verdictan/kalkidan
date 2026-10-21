@@ -940,7 +940,7 @@ test('repository authorization explicitly requests browser login and shows appro
   await add
     .getByRole('button', { name: 'Check your GitHub account in Settings', exact: true })
     .click();
-  const settings = page.getByRole('dialog', { name: 'Settings' });
+  const settings = page.getByRole('region', { name: 'Settings', exact: true });
   const access = settings.getByLabel('GitHub Projects board access');
   await expect(access).toContainText('Not allowed');
   await access.getByRole('button', { name: 'Allow access', exact: true }).click();
@@ -962,9 +962,12 @@ test('project navigation replaces the main sidebar and global history page', asy
   await expect(page.getByText('UNGROUPED REPOSITORIES', { exact: true })).toHaveCount(0);
   await expect(page.getByRole('navigation', { name: 'Projects and repositories' })).toBeVisible();
   await page.getByRole('button', { name: 'Settings', exact: true }).click();
-  await page.getByRole('dialog').getByRole('tab', { name: 'Agents', exact: true }).click();
+  const settings = page.getByRole('region', { name: 'Settings', exact: true });
+  await settings.getByRole('tab', { name: 'Agents', exact: true }).click();
   await expect(page.getByRole('region', { name: 'Agents on this computer' })).toBeVisible();
-  await page.getByRole('dialog').getByRole('button', { name: 'Close', exact: true }).last().click();
+  await page.getByRole('button', { name: 'Go back', exact: true }).click();
+  await page.getByRole('button', { name: 'Go back', exact: true }).click();
+  await expect(settings).toHaveCount(0);
   await page.screenshot({ path: 'test-results/project-navigation.png', fullPage: true });
 });
 

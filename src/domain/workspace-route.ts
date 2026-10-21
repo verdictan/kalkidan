@@ -1,11 +1,13 @@
 import type { Session } from './conversation';
+import type { SettingsTab } from './settings-route';
 /** 'board' is the project overview page (the old name is kept for saved routes). */
 export type ProjectPage = 'board' | 'docs' | 'tasks' | 'memory' | 'insights';
 export type WorkspacePage =
   | { kind: 'home' }
   | { kind: 'sessions' }
   | { kind: 'project'; groupId: string; page: ProjectPage }
-  | { kind: 'repository'; repositoryId: string };
+  | { kind: 'repository'; repositoryId: string }
+  | { kind: 'settings'; tab: SettingsTab };
 export type WorkspaceRoute =
   | WorkspacePage
   | { kind: 'conversation'; session: Session; repositoryId?: string; parent: WorkspacePage };
@@ -18,6 +20,8 @@ export function routeKey(route: WorkspaceRoute): string {
       return `project:${route.groupId}:${route.page}`;
     case 'repository':
       return `repository:${route.repositoryId}`;
+    case 'settings':
+      return `settings:${route.tab}`;
     case 'conversation':
       return JSON.stringify([
         'conversation',
@@ -65,15 +69,18 @@ export type SavedRoute =
 const pageKinds = new Set(['home', 'sessions', 'project', 'repository']);
 const projectPages = new Set<ProjectPage>(['board', 'docs', 'tasks', 'memory', 'insights']);
 export function saveableRoute(route: WorkspaceRoute): SavedRoute | null {
+  // Settings is not a place to return to after a launch.
+  if (route.kind === 'settings') return null;
   if (route.kind !== 'conversation') return route;
+  const parent: WorkspacePage = route.parent.kind === 'settings' ? { kind: 'home' } : route.parent;
   // A draft has no saved file. Reopen its parent page.
-  if (route.session.id.startsWith('draft-')) return route.parent;
+  if (route.session.id.startsWith('draft-')) return parent;
   return {
     kind: 'conversation',
     agent: route.session.agent,
     id: route.session.id,
     hostId: route.session.hostId,
-    parent: route.parent,
+    parent,
   };
 }
 function readPage(value: unknown): WorkspacePage | null {

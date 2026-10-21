@@ -23,6 +23,10 @@ import { EntityIcon } from './ui/entity-icon';
 import { Input } from './ui/input';
 import { CommandHelp, HelpLink } from './github-account';
 import { ProgramPath } from './program-path';
+import { computerAnchor, type SettingsTab } from '../domain/settings-route';
+
+/** Moves Settings to a tab, and to an element in it. */
+type Navigate = (tab: SettingsTab, anchor?: string) => void;
 
 /** How to install each agent CLI. */
 const agentInstall: Record<string, { command: string; href: string }> = {
@@ -78,8 +82,8 @@ export function AgentProgramsSettings({
 }: {
   api: API;
   open: boolean;
-  /** Opens a different Settings section, for example Remote hosts. */
-  onNavigate?: (section: 'remote') => void;
+  /** Opens a different Settings tab, for example one host in Computers. */
+  onNavigate?: Navigate;
 }) {
   const [hosts, setHosts] = useState<RemoteHost[]>([]);
   const [checks, setChecks] = useState<Record<string, ComputerCheck>>({});
@@ -154,9 +158,8 @@ export function AgentProgramsSettings({
     <div className="grid min-w-0 grid-cols-1 gap-5">
       <div className="flex items-center justify-between gap-4">
         <p className="min-w-0 flex-1 text-xs text-muted-foreground">
-          Managed Verdictan agents use these agent programs on each computer. Kalkidan does not
-          start them directly. Kalkidan needs Codex {agentMinimumVersions.codex} or later and Claude
-          Code {agentMinimumVersions.claude_code} or later.
+          Kalkidan needs Codex {agentMinimumVersions.codex} or later and Claude Code{' '}
+          {agentMinimumVersions.claude_code} or later on each computer.
         </p>
         <Button
           variant="outline"
@@ -224,7 +227,7 @@ function ComputerPrograms({
   check: ComputerCheck;
   connected: boolean;
   onChosen: (agents: AgentInstallation[]) => void;
-  onNavigate?: (section: 'remote') => void;
+  onNavigate?: Navigate;
 }) {
   const where = host ? title : 'this computer';
   const checkedAt = check.checkedAt ? new Date(check.checkedAt).toISOString() : undefined;
@@ -261,8 +264,12 @@ function ComputerPrograms({
             ? 'This host is not connected. This is the last result.'
             : 'Connect the host to check its agents.'}{' '}
           {onNavigate && (
-            <button type="button" className="text-link" onClick={() => onNavigate('remote')}>
-              Open Remote hosts
+            <button
+              type="button"
+              className="text-link"
+              onClick={() => onNavigate('computers', computerAnchor(host.id))}
+            >
+              Open in Computers
             </button>
           )}
         </p>

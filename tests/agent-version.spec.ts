@@ -53,7 +53,7 @@ test('Settings › Agents shows each version and whether it meets the minimum', 
   await installWorkspace(page);
   await page.goto('/');
   await page.getByRole('button', { name: 'Settings', exact: true }).click();
-  const settings = page.getByRole('dialog', { name: 'Settings' });
+  const settings = page.getByRole('region', { name: 'Settings', exact: true });
   await settings.getByRole('tab', { name: 'Agents', exact: true }).click();
   await expect(settings).toContainText('Kalkidan needs Codex 0.160.0 or later');
   await expect(settings).toContainText('Claude Code 2.1.300 or later');
@@ -93,7 +93,7 @@ test('a Claude Code version below the minimum refuses the send and links to Sett
   );
   await expect(message).not.toContainText('desktop.');
   await message.getByRole('button', { name: 'Open agent settings', exact: true }).click();
-  const settings = page.getByRole('dialog', { name: 'Settings' });
+  const settings = page.getByRole('region', { name: 'Settings', exact: true });
   await expect(settings.getByRole('tab', { name: 'Agents', exact: true })).toHaveAttribute(
     'aria-selected',
     'true',

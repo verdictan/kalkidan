@@ -119,11 +119,9 @@ async function fixture(page: Page, extra: string) {
 
 async function openSetup(page: Page) {
   await page.getByRole('button', { name: 'Settings', exact: true }).click();
-  const settings = page.getByRole('dialog', { name: 'Settings' });
-  await settings.getByRole('tab', { name: 'Managed agents', exact: true }).click();
-  return settings
-    .getByRole('region', { name: 'Managed agents' })
-    .getByRole('region', { name: 'Choose setup' });
+  const settings = page.getByRole('region', { name: 'Settings', exact: true });
+  await settings.getByRole('tab', { name: 'Agents', exact: true }).click();
+  return settings.getByRole('region', { name: 'Managed setup' });
 }
 
 /** The visible labels of the options of one choice. The first line is the label. */
@@ -199,7 +197,7 @@ test('a member sees a calm note to ask an administrator to finish setup', async 
   // A note, not an error.
   await expect(note).not.toHaveClass(/destructive/);
   await expect(setup.getByRole('alert')).toHaveCount(0);
-  await expect(setup.getByRole('button', { name: 'Save Codex setup' })).toBeDisabled();
+  await expect(setup.getByRole('button', { name: 'Use this setup' })).toHaveCount(0);
 });
 
 test('the agent choice shows service names and generic labels, and saves the agent', async ({
@@ -224,8 +222,10 @@ test('the agent choice shows service names and generic labels, and saves the age
   await page.getByRole('option', { name: /Release bot/ }).click();
   await expect(setup.getByRole('combobox', { name: 'Agent' })).toHaveText('Release bot');
   await expect(setup).toContainText('The policy of this agent is Strict · 2.0.0.');
+  // The selection is complete when the model name is entered. It saves at once.
   await setup.getByRole('textbox').fill('gpt-5');
-  await setup.getByRole('button', { name: 'Save Codex setup' }).click();
+  await setup.getByRole('textbox').press('Enter');
+  await expect.poll(() => page.evaluate(() => (window as any).savedSelections.length)).toBe(1);
   const [[agent, selection]] = await page.evaluate(() => (window as any).savedSelections);
   expect(agent).toBe('codex');
   expect(selection).toMatchObject({
@@ -267,13 +267,12 @@ test('a removed default shows a calm note and needs another agent', async ({ pag
   const agent = setup.getByRole('combobox', { name: 'Agent' });
   await expect(agent).toHaveText('Choose an agent');
   await expect(setup.getByText('Ready for Codex')).toHaveCount(0);
-  const save = setup.getByRole('button', { name: 'Save Codex setup' });
-  await expect(save).toBeDisabled();
+  await expect(setup.getByRole('button', { name: 'Use this setup' })).toHaveCount(0);
   expect(await options(page, setup, 'Agent')).toEqual(['Choose an agent', 'Release bot']);
+  // The other agent completes the selection. It saves at once.
   await agent.click();
   await page.getByRole('option', { name: /Release bot/ }).click();
-  await expect(save).toBeEnabled();
-  await save.click();
+  await expect.poll(() => page.evaluate(() => (window as any).savedSelections.length)).toBe(1);
   const [[, selection]] = await page.evaluate(() => (window as any).savedSelections);
   expect(selection).toMatchObject({ agentId: release, teamId: team2, model: 'gpt-5' });
   await expectNoIds(setup);
@@ -298,5 +297,5 @@ test('a removed default without another agent tells the user to ask an administr
   await expect(setup.getByRole('note').filter({ hasText: 'removed the default' })).toHaveText(
     'An administrator removed the default Kalkidan setup, and you have no other agent. Ask an organization administrator to give you access to an agent.',
   );
-  await expect(setup.getByRole('button', { name: 'Save Codex setup' })).toBeDisabled();
+  await expect(setup.getByRole('button', { name: 'Use this setup' })).toHaveCount(0);
 });

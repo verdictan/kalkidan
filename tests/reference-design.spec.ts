@@ -10,7 +10,8 @@ test('dark desktop workflow preserves drafts across resizable tool panes and the
   await page.screenshot({ animations: 'disabled', path: 'test-results/reference-projects.png' });
   await page.getByRole('button', { name: 'Settings', exact: true }).click();
   await page.screenshot({ animations: 'disabled', path: 'test-results/reference-settings.png' });
-  await page.keyboard.press('Escape');
+  // Settings is a page. Go back returns to Projects.
+  await page.getByRole('button', { name: 'Go back', exact: true }).click();
   await page.getByRole('main').getByRole('button', { name: 'New project', exact: true }).click();
   await expect(page.getByRole('dialog')).toBeVisible();
   await page.screenshot({

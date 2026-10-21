@@ -74,13 +74,12 @@ test('Settings separates account sign-in from execution readiness and shows upda
   });
   await page.goto('/');
   await page.getByRole('button', { name: 'Settings', exact: true }).click();
-  const settings = page.getByRole('dialog', { name: 'Settings' });
-  await settings.getByRole('tab', { name: 'Managed agents', exact: true }).click();
-  const managed = settings.getByRole('region', { name: 'Managed agents' });
-  const account = managed.getByRole('region', { name: 'Sign in', exact: true });
+  const settings = page.getByRole('region', { name: 'Settings', exact: true });
+  await settings.getByRole('tab', { name: 'Accounts', exact: true }).click();
+  const account = settings.getByRole('region', { name: 'Verdictan account' });
   // Without the runtime, the user cannot sign in.
   await expect(account.getByRole('button', { name: 'Sign in', exact: true })).toBeDisabled();
-  await expect(account).toContainText('Install the runtime in step 1 first.');
+  await expect(account).toContainText('Install the managed agents runtime first.');
   await account.getByRole('button', { name: 'Check status' }).click();
   await account.getByRole('button', { name: 'Sign in', exact: true }).click();
   await expect(account).toContainText('Signed in');
@@ -88,13 +87,19 @@ test('Settings separates account sign-in from execution readiness and shows upda
   await expect(account).toContainText('Your account');
   await expect(account).not.toContainText('11111111-1111');
   await expect(account).not.toContainText('22222222-2222');
-  // Sign-in alone does not make the agents ready. The setup step is still open.
-  const readiness = managed.getByRole('list', { name: 'Agent readiness' });
+  // Sign-in alone does not make the agents ready. The setup is still open.
+  await settings.getByRole('tab', { name: 'Agents', exact: true }).click();
+  const readiness = settings.getByRole('list', { name: 'Agent readiness' });
   await expect(readiness).toContainText('Codex not set up');
   await expect(readiness).toContainText('Claude Code not set up');
+  await settings.getByRole('tab', { name: 'Accounts', exact: true }).click();
   await account.getByRole('button', { name: 'Sign out', exact: true }).click();
   await expect(account).toContainText('could not confirm that the service removed the access');
-  const runtime = managed.getByRole('region', { name: 'Install runtime' });
+  // The runtime of each computer is in Computers.
+  await settings.getByRole('tab', { name: 'Computers', exact: true }).click();
+  const runtime = settings
+    .getByRole('group', { name: 'This computer' })
+    .getByRole('region', { name: 'Managed agents runtime' });
   await expect(runtime).toContainText('Not installed');
   await runtime.getByRole('button', { name: 'Install version 0.2.1' }).click();
   await expect(runtime).toContainText('Waiting for active work to stop');
@@ -143,11 +148,9 @@ test('Settings requires an explicit EU or US region before sign-in', async ({ pa
   });
   await page.goto('/');
   await page.getByRole('button', { name: 'Settings', exact: true }).click();
-  const settings = page.getByRole('dialog', { name: 'Settings' });
-  await settings.getByRole('tab', { name: 'Managed agents', exact: true }).click();
-  const account = settings
-    .getByRole('region', { name: 'Managed agents' })
-    .getByRole('region', { name: 'Sign in', exact: true });
+  const settings = page.getByRole('region', { name: 'Settings', exact: true });
+  await settings.getByRole('tab', { name: 'Accounts', exact: true }).click();
+  const account = settings.getByRole('region', { name: 'Verdictan account' });
   const region = account.getByRole('combobox', { name: 'Account region' });
   // No region is selected, and there is no Global choice.
   await expect(region).toHaveText('Select a region');

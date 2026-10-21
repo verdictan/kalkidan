@@ -478,7 +478,7 @@ export function Onboarding({
   );
 }
 
-/** Opens Settings › Managed agents. Onboarding stays open under it. */
+/** Opens Settings › Agents at the managed setup. */
 function openManagedAgents() {
   window.dispatchEvent(
     new CustomEvent('kalkidan-open-settings', { detail: { section: 'managed-agents' } }),

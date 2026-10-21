@@ -93,7 +93,7 @@ async function installWorkspace(page: Page) {
   );
   await page.goto('/');
   await page.getByRole('button', { name: 'Settings', exact: true }).click();
-  const settings = page.getByRole('dialog', { name: 'Settings' });
+  const settings = page.getByRole('region', { name: 'Settings', exact: true });
   await settings.getByRole('tab', { name: 'Agents', exact: true }).click();
   return settings;
 }
@@ -136,11 +136,13 @@ test('Settings › Agents shows the agent programs of each computer', async ({ p
   // A host without a result asks the user to connect it.
   const newbox = settings.getByRole('region', { name: 'Agents on newbox' });
   await expect(newbox).toContainText('Connect the host to check its agents.');
-  await newbox.getByRole('button', { name: 'Open Remote hosts' }).click();
-  await expect(settings.getByRole('tab', { name: 'Remote hosts', exact: true })).toHaveAttribute(
+  await newbox.getByRole('button', { name: 'Open in Computers' }).click();
+  await expect(settings.getByRole('tab', { name: 'Computers', exact: true })).toHaveAttribute(
     'aria-selected',
     'true',
   );
+  // The card of that host gets the focus.
+  await expect(settings.getByRole('group', { name: 'newbox' })).toBeFocused();
 });
 
 test('the user chooses the program of an agent on a host and can reset it', async ({ page }) => {
@@ -227,7 +229,7 @@ test('a version refusal opens Settings › Agents at the program of that agent',
     'This computer has Claude Code 2.1.287 at /opt/homebrew/bin/claude.',
   );
   await card.getByRole('button', { name: 'Choose the Claude Code program', exact: true }).click();
-  const settings = page.getByRole('dialog', { name: 'Settings' });
+  const settings = page.getByRole('region', { name: 'Settings', exact: true });
   await expect(settings.getByRole('tab', { name: 'Agents', exact: true })).toHaveAttribute(
     'aria-selected',
     'true',
