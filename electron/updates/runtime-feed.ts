@@ -1,5 +1,7 @@
+import { downloadReleaseFile, releaseFileSize } from '../verdictan/download';
 import {
   releaseAssetURL,
+  releaseDownloadOrigins,
   runtimeArchiveName,
   runtimeTarget,
   type RuntimeDiscovery,
@@ -7,6 +9,10 @@ import {
 /**
  * Find the newest stable release that has an archive for this host. Discovery is not trust. The
  * installer accepts the release only when the Verdictan release key signs it.
+ *
+ * The latest-release redirect on github.com comes first, because the GitHub REST API allows only
+ * 60 unauthenticated requests each hour for each IP address. The API is the fallback, for example
+ * when the latest release is not a Verdictan CLI release.
  */
 export async function discoverRuntime(
   os: string,
@@ -16,6 +22,56 @@ export async function discoverRuntime(
   const target = runtimeTarget(os, arch);
   if (!target) return undefined;
   const name = runtimeArchiveName(target);
+  try {
+    const latest = await discoverLatest(name, request);
+    if (latest) return latest;
+  } catch {
+    // Use the API below.
+  }
+  return discoverFromAPI(name, request);
+}
+
+const latestReleaseURL = 'https://github.com/verdictan/packages/releases/latest';
+
+/** Read the latest tag from the github.com redirect, then the archive digest from `sha256.sum`. */
+async function discoverLatest(
+  name: string,
+  request: typeof fetch,
+): Promise<RuntimeDiscovery | undefined> {
+  const signal = AbortSignal.timeout(15000);
+  const response = await request(latestReleaseURL, { redirect: 'manual', signal });
+  await response.body?.cancel();
+  const location = response.headers.get('location');
+  if (![301, 302, 303, 307, 308].includes(response.status) || !location) return undefined;
+  const tag = new URL(location, latestReleaseURL);
+  const match = /^\/verdictan\/packages\/releases\/tag\/v(\d{1,8}\.\d{1,8}\.\d{1,8})$/.exec(
+    tag.pathname,
+  );
+  if (tag.origin !== 'https://github.com' || tag.search || tag.hash || !match) return undefined;
+  const version = match[1];
+  const sums = await downloadReleaseFile(
+    releaseAssetURL(version, 'sha256.sum'),
+    releaseDownloadOrigins,
+    65536,
+    signal,
+    request,
+  );
+  const line = sums
+    .toString('utf8')
+    .split('\n')
+    .map((row) => /^([a-f0-9]{64}) [ *]?(\S+)$/.exec(row.trim()))
+    .find((row) => row?.[2] === name);
+  if (!line) return undefined;
+  const size = await releaseFileSize(
+    releaseAssetURL(version, name),
+    releaseDownloadOrigins,
+    signal,
+    request,
+  );
+  return { version, releaseId: `tag:v${version}`, sha256: line[1], size };
+}
+
+async function discoverFromAPI(name: string, request: typeof fetch): Promise<RuntimeDiscovery> {
   const signal = AbortSignal.timeout(15000);
   for (let page = 1; page <= 5; page++) {
     const response = await request(
