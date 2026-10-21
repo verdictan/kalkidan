@@ -287,8 +287,7 @@ export function ProjectInsights({
               </Button>
             }
           >
-            Health, readiness and GitHub changes use the tasks of a GitHub Projects board. Local
-            tasks do not have these insights.
+            Health, readiness and GitHub changes use the tasks of a GitHub Projects board.
           </EmptyState>
         </div>
       ) : !board ? (
