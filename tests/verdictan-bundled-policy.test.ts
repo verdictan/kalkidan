@@ -18,7 +18,7 @@ test('bundled runtime pins select the execution host, including SSH Linux', () =
     });
     assert.equal(release.artifact.target, artifact.target);
     assert.equal(release.artifact.sha256, selected.pin.artifact_sha256);
-    assert.equal(release.version, '0.6.1');
+    assert.equal(release.version, artifact.os === 'darwin' ? '0.6.3' : '0.6.1');
     // Each host policy approves only its own target. Do not copy a pin to another target.
     assert.deepEqual(
       JSON.parse(selected.manifest).artifacts.map((entry: { target: string }) => entry.target),

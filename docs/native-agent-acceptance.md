@@ -173,6 +173,39 @@ executable digest. The Linux executable cannot run on macOS, so this check did
 not run the capability probe. Run `tests/acceptance/runtime-install.ts` on a
 Linux x64 host before you report Linux runtime acceptance.
 
+## Runtime 0.6.3 approval on 2026-10-21
+
+The owner approved Verdictan 0.6.3 for macOS ARM64 and Linux x64. The 0.6.3
+pins replace the 0.6.1 pins. The operator used the same method as for 0.6.1.
+
+The evidence is the public `v0.6.3` release of `verdictan/packages` (tag
+`cli/v0.6.3`, source `856f06919b1c93d28668ed136fe688cc7ce0d032`). The operator
+downloaded the assets with `gh release download` into an empty directory. The
+downloaded archives, their `.sha256` assets, and the `sha256.sum` entries agree.
+The extracted executables have the digests below.
+
+Offline checks passed for the two executables. Each executable reports version
+0.6.3 and both subscription capabilities. Each executable passed the six gateway
+startup cases.
+
+### macOS ARM64 pin
+
+The operator approved the published manifest with `scripts/approve-runtime.ts`
+for `darwin arm64 26.7.1`. The approval uses these values:
+
+- Manifest `desktop-release-manifest.v1.json`, SHA-256
+  `50d3ca1668e4185c14611adc0a69ebcf13f3e04fbc4b766e26470c8d5ffeeb19`,
+  sequence `1792589939378`.
+- Archive `verdictan-aarch64-apple-darwin.tar.gz`, size 89306873 bytes,
+  SHA-256 `8601cbea223e826e8bb4bbe1ed23881f9e6069f77f34d25dc91a1bbc4e421a3c`.
+- Executable SHA-256
+  `1a929f482c26fdcf3ebf725928cd34ffed1e1c9c1e1a877d53840608c76cef5e`.
+- Manifest expiry: `1793194739` (2026-10-28 13:38:59 UTC). Renew the approval
+  before this time.
+
+`tests/acceptance/runtime-install.ts` installed 0.6.3 from the public release in
+a disposable root. Clean install, restart, and the capability probe passed.
+
 ## Claude subscription adapter on 2026-10-21
 
 Verdictan CLI 0.6.1 advertises `provider_access.claude_subscription`. The Kalkidan
