@@ -31,7 +31,13 @@ export interface SessionOrganization {
   archived?: boolean;
   taskId?: string;
   /** The pull request opened from this session. */
-  pullRequest?: { url: string; number?: number; state?: 'open' | 'merged' | 'closed' };
+  pullRequest?: {
+    url: string;
+    number?: number;
+    state?: 'open' | 'merged' | 'closed';
+    /** An open pull request that is not ready for review. */
+    draft?: boolean;
+  };
   /** The chat that this chat is a fork of. */
   forkedFrom?: ChatLink;
   /** The forks of this chat, oldest first. */

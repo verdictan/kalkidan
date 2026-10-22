@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, readdir, writeFile, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, readdir, writeFile, rm, utimes } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { ProjectDocs } from '../electron/storage/project-docs';
@@ -35,6 +35,25 @@ test('project wiki persists Markdown, hierarchy, conflicts, and recoverable dele
     await assert.rejects(store.list('../outside'), /Project not found/);
     await assert.rejects(store.create('missing', 'No', null), /Project not found/);
     await assert.rejects(store.create('atlas', 'Bad', '../outside'), /Invalid page ID/);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('a page has the time its file last changed, also after an external edit', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'project-docs-'));
+  try {
+    const store = new ProjectDocs(root, (id) => id === 'atlas');
+    const created = await store.create('atlas', 'Guide', null);
+    assert.equal(typeof created.updatedAt, 'number');
+    const path = join(root, 'atlas', created.id + '.md');
+    const earlier = new Date('2026-01-02T03:04:05Z');
+    await utimes(path, earlier, earlier);
+    const read = await store.get('atlas', created.id);
+    assert.equal(read.updatedAt, earlier.getTime());
+    const saved = await store.save('atlas', { ...read, markdown: 'New text' });
+    assert.ok(saved.updatedAt! > earlier.getTime());
+    assert.equal((await store.get('atlas', created.id)).updatedAt, saved.updatedAt);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

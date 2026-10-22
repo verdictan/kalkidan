@@ -293,7 +293,12 @@ export interface ProjectAPI {
   pullRequestStatus(
     id: string,
     url: string,
-  ): Promise<{ state: 'open' | 'merged' | 'closed'; number: number; title?: string }>;
+  ): Promise<{
+    state: 'open' | 'merged' | 'closed';
+    number: number;
+    title?: string;
+    draft?: boolean;
+  }>;
   /** Opens the native folder dialog. Resolves null when the user cancels. Electron only. */
   chooseFolder(title?: string, buttonLabel?: string): Promise<string | null>;
   /** The path on disk of a file or folder dropped on the window. Empty when it has none. */

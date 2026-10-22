@@ -1,7 +1,8 @@
 export interface PublishRequest {
   id: string;
   commit?: { message: string; files?: string[] };
-  pullRequest?: { title: string; body: string };
+  /** `draft` opens the pull request as a draft. */
+  pullRequest?: { title: string; body: string; draft?: boolean };
 }
 export type PublishPhase =
   | 'ready'

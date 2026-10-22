@@ -6,6 +6,8 @@ export interface ProjectDoc {
   revision: string;
   /** The position among sibling pages. Pages without an order come last, sorted by title. */
   order?: number;
+  /** When the page file last changed, in milliseconds since 1970. Missing: not known. */
+  updatedAt?: number;
 }
 export type ProjectDocMetadata = Pick<ProjectDoc, 'id' | 'title' | 'parentId' | 'order'>;
 /** A deleted page in the project's .trash folder. */

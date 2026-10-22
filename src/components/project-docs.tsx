@@ -382,9 +382,11 @@ function DocEditor({
     onDirtyChange(saveState.status !== 'clean' || !!recovery);
   }, [saveState.status, recovery]);
   // A save shows only when it is slow (after 1 second) or when it fails. The time of the last
-  // save shows in the document bar.
+  // change shows in the document bar: from the page file, then from each save.
   const [slowSave, setSlowSave] = useState(false);
-  const [editedAt, setEditedAt] = useState<string>();
+  const [editedAt, setEditedAt] = useState(() =>
+    initial.updatedAt ? new Date(initial.updatedAt).toISOString() : undefined,
+  );
   const saving = ['dirty', 'saving'].includes(saveState.status);
   useEffect(() => {
     if (!saving) {

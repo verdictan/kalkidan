@@ -10,7 +10,13 @@ export interface PublishEffects {
   git(cwd: string, args: string[]): Promise<string>;
   commit(cwd: string, message: string, files?: string[]): Promise<{ commit: string }>;
   findPR(cwd: string, branch: string): Promise<string | undefined>;
-  createPR(cwd: string, branch: string, title: string, body: string): Promise<string>;
+  createPR(
+    cwd: string,
+    branch: string,
+    title: string,
+    body: string,
+    draft?: boolean,
+  ): Promise<string>;
 }
 export function publishEffects(
   github: () => Promise<{ path: string; args?: string[]; env: NodeJS.ProcessEnv }>,
@@ -74,7 +80,7 @@ export function publishEffects(
       if (matches.length > 1) throw new Error('Several pull requests match this branch.');
       return matches[0]?.url;
     },
-    createPR: async (cwd, branch, title, body) => {
+    createPR: async (cwd, branch, title, body, draft) => {
       const repo = await origin(cwd);
       return (
         await gh(
@@ -85,6 +91,7 @@ export function publishEffects(
             `--repo=${repo.full}`,
             `--head=${repo.owner}:${branch}`,
             `--title=${title}`,
+            ...(draft ? ['--draft'] : []),
             '--body-file',
             '-',
           ],
@@ -156,7 +163,8 @@ export class PublishOperations {
         !request.pullRequest.title.trim() ||
         request.pullRequest.title.length > 256 ||
         typeof request.pullRequest.body !== 'string' ||
-        request.pullRequest.body.length > 20000)
+        request.pullRequest.body.length > 20000 ||
+        (request.pullRequest.draft !== undefined && typeof request.pullRequest.draft !== 'boolean'))
     )
       throw new Error('Invalid pull request request.');
     const location = await this.location(cwd);
@@ -292,6 +300,7 @@ export class PublishOperations {
                 branch,
                 operation.request.pullRequest.title,
                 operation.request.pullRequest.body,
+                operation.request.pullRequest.draft === true,
               ),
             );
           }

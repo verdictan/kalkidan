@@ -20,7 +20,8 @@ async function fixture() {
   let failPush = true,
     uncertainCommit = false,
     uncertainPR = false,
-    pr: string | undefined;
+    pr: string | undefined,
+    draft: boolean | undefined;
   const effects: PublishEffects = {
     git: async (_cwd, args) => {
       if (args[0] === 'branch') return 'feature/work';
@@ -41,8 +42,9 @@ async function fixture() {
       return { commit: head };
     },
     findPR: async () => pr,
-    createPR: async () => {
+    createPR: async (_cwd, _branch, _title, _body, asDraft) => {
       creates++;
+      draft = asDraft;
       pr = 'https://github.com/org/repo/pull/1';
       if (uncertainPR) throw Error('lost receipt');
       return pr;
@@ -53,6 +55,7 @@ async function fixture() {
     root,
     service,
     counts: () => ({ commits, creates, pushes }),
+    draft: () => draft,
     allowPush: () => {
       failPush = false;
     },
@@ -91,6 +94,33 @@ test('uncertain commit and PR receipts reconcile their confirmed effects without
     assert.equal((await f.service().run(f.root, { id })).phase, 'unknown-outcome');
     assert.equal((await f.service().run(f.root, { id })).phase, 'completed');
     assert.deepEqual(f.counts(), { commits: 1, creates: 1, pushes: 1 });
+  } finally {
+    await rm(f.root, { recursive: true, force: true });
+  }
+});
+test('a draft request opens the pull request as a draft', async () => {
+  const f = await fixture();
+  try {
+    f.allowPush();
+    const draft = { ...request, pullRequest: { ...request.pullRequest, draft: true } };
+    assert.equal((await f.service().run(f.root, draft)).phase, 'completed');
+    assert.equal(f.draft(), true);
+  } finally {
+    await rm(f.root, { recursive: true, force: true });
+  }
+});
+test('a pull request is not a draft unless the request says so', async () => {
+  const f = await fixture();
+  try {
+    f.allowPush();
+    assert.equal((await f.service().run(f.root, request)).phase, 'completed');
+    assert.equal(f.draft(), false);
+    const invalid = {
+      ...request,
+      id: '22222222-2222-4222-8222-222222222222',
+      pullRequest: { ...request.pullRequest, draft: 'yes' as unknown as boolean },
+    };
+    await assert.rejects(f.service().run(f.root, invalid), /Invalid pull request request/);
   } finally {
     await rm(f.root, { recursive: true, force: true });
   }
