@@ -180,7 +180,7 @@ export function ProjectPortfolio({ api, groups }: { api: API; groups: ProjectGro
           {rows.map(({ groupId, item, risks: notes }) => (
             <div key={`${groupId}:${item.id}`} className="list-row row-hover px-2">
               <div className="grid min-w-0 flex-1 gap-0.5">
-                <span className="text-[13px] leading-5 font-medium">
+                <span className="text-sm font-medium">
                   <TaskTitle title={item.title} onOpen={() => openTask(groupId, item.id)} />
                 </span>
                 <span className="truncate text-xs leading-4 text-muted-foreground">

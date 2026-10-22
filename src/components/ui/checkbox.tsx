@@ -3,7 +3,7 @@ import { cn } from '@/lib/utils';
 
 // A drawn control, so that it looks the same in every theme and on every platform.
 const control =
-  'peer relative shrink-0 size-4 cursor-pointer appearance-none border border-[var(--border-strong,var(--border))] bg-[var(--background)] outline-none transition-[background-color,border-color] duration-[var(--motion-fast)] hover:border-[var(--muted-foreground)] focus-visible:shadow-[var(--focus-ring)] disabled:cursor-not-allowed disabled:opacity-50 checked:border-[var(--primary)] checked:bg-[var(--primary)]';
+  'peer relative shrink-0 size-4 cursor-pointer appearance-none border border-[var(--border-strong)] bg-[var(--background)] outline-none transition-[background-color,border-color] duration-[var(--motion-fast)] hover:border-[var(--muted-foreground)] focus-visible:shadow-[var(--focus-ring)] disabled:cursor-not-allowed disabled:opacity-50 checked:border-[var(--primary)] checked:bg-[var(--primary)]';
 const tick =
   'checked:bg-[image:var(--checkbox-tick)] checked:bg-center checked:bg-no-repeat checked:bg-[length:12px_12px] indeterminate:border-[var(--primary)] indeterminate:bg-[var(--primary)] indeterminate:bg-[image:var(--checkbox-dash)] indeterminate:bg-center indeterminate:bg-no-repeat indeterminate:bg-[length:10px_10px]';
 const dot =
@@ -15,7 +15,7 @@ export function Checkbox({ className, ...props }: Omit<ComponentProps<'input'>, 
     <input
       type="checkbox"
       data-slot="checkbox"
-      className={cn(control, tick, 'rounded-sm', className)}
+      className={cn(control, tick, 'rounded-xs', className)}
       {...props}
     />
   );

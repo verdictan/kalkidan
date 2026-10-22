@@ -403,7 +403,6 @@ export function TrackerBoard({
                             </DropdownMenuTrigger>
                             <DropdownMenuContent
                               align="end"
-                              className="min-w-48"
                               onCloseAutoFocus={(event) => {
                                 // The focus goes back to the card, not to the hidden menu button.
                                 event.preventDefault();

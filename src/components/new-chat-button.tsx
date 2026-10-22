@@ -122,7 +122,7 @@ export function NewChatButton({
             </Button>
           </DropdownMenuTrigger>
         </Hint>
-        <DropdownMenuContent align="end" className="min-w-60">
+        <DropdownMenuContent align="end" width="wide">
           <DropdownMenuLabel>Agent</DropdownMenuLabel>
           <DropdownMenuRadioGroup
             value={agent}

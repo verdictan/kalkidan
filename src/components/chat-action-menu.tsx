@@ -46,7 +46,8 @@ import { MoreButton } from './ui/more-button';
 import { Hint } from './hint';
 import {
   menuCollisionPadding,
-  menuContentClass,
+  menuSurfaceClass,
+  menuWideClass,
   menuItemClass,
   menuSeparatorClass,
   menuShortcutClass,
@@ -147,7 +148,7 @@ function Item({
         <P.Portal>
           <P.SubContent
             collisionPadding={menuCollisionPadding}
-            className={cn(menuContentClass, 'w-64')}
+            className={cn(menuSurfaceClass, menuWideClass)}
           >
             {item.children.map((child) => (
               <Fragment key={child.id}>
@@ -230,8 +231,9 @@ export function ChatActionsDropdown({
           aria-label={label}
           onCloseAutoFocus={menu.onCloseAutoFocus}
           className={cn(
-            menuContentClass,
-            'w-80 max-h-(--radix-dropdown-menu-content-available-height) origin-(--radix-dropdown-menu-content-transform-origin)',
+            menuSurfaceClass,
+            menuWideClass,
+            'max-h-(--radix-dropdown-menu-content-available-height) origin-(--radix-dropdown-menu-content-transform-origin)',
           )}
         >
           <Items parts={DropdownMenu} groups={groups} onRun={menu.run} />
@@ -303,8 +305,9 @@ export function ChatContextMenu({
           aria-label={label}
           onCloseAutoFocus={menu.onCloseAutoFocus}
           className={cn(
-            menuContentClass,
-            'w-80 max-h-(--radix-context-menu-content-available-height) origin-(--radix-context-menu-content-transform-origin)',
+            menuSurfaceClass,
+            menuWideClass,
+            'max-h-(--radix-context-menu-content-available-height) origin-(--radix-context-menu-content-transform-origin)',
           )}
         >
           <Items parts={ContextMenu} groups={groups} onRun={menu.run} />

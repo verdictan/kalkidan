@@ -194,7 +194,7 @@ export function MentionPicker({
               );
             })}
             {section.message && (
-              <div className="mention-picker-empty" role="presentation">
+              <div className="menu-empty" role="presentation">
                 {section.message}
               </div>
             )}

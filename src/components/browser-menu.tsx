@@ -160,7 +160,7 @@ export function BrowserMenu({
             <MoreButton type="button" label="Browser menu" disabled={!ready} />
           </DropdownMenuTrigger>
         </Hint>
-        <DropdownMenuContent align="end" className="w-64">
+        <DropdownMenuContent align="end" width="wide">
           <DropdownMenuItem onSelect={onFind}>
             Find in page
             {findShortcut && <DropdownMenuShortcut>{findShortcut}</DropdownMenuShortcut>}

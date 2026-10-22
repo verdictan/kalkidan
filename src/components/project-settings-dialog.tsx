@@ -371,9 +371,8 @@ function BoardSection({
           )}
           <div className="mt-auto flex justify-end">
             <Button
-              variant="ghost"
+              variant="destructive-outline"
               size="sm"
-              className="text-destructive hover:text-destructive"
               disabled={unlinking}
               onClick={() => setConfirmUnlink(true)}
             >

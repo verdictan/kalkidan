@@ -1,7 +1,10 @@
 import type { CSSProperties, ReactNode } from 'react';
 import { cn } from '@/lib/utils';
 
-/** A square tile for a project, repository, agent or tool. sm 28px in rows, lg 40px in headers. */
+/**
+ * A square tile with radius 8 for a project, repository, agent or tool. sm 28px in rows and page
+ * headers, lg 48px in empty states.
+ */
 export function EntityIcon({
   size = 'sm',
   color,

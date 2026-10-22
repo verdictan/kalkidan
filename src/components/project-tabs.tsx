@@ -85,7 +85,7 @@ export function ProjectTabs({
               ? `${checks} GitHub ${checks === 1 ? 'change needs' : 'changes need'} a check`
               : '';
           return (
-            <Hint key={tab.page} label={check ? `${check} (${keys})` : `${tab.label} (${keys})`}>
+            <Hint key={tab.page} label={check || tab.label} shortcut={keys}>
               <button
                 type="button"
                 className="project-tab"

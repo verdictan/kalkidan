@@ -228,7 +228,7 @@ export function ModelChip({
           </Button>
         </DropdownMenuTrigger>
       </Hint>
-      <DropdownMenuContent align="start" className="max-h-96 w-64">
+      <DropdownMenuContent align="start" width="wide" className="max-h-96">
         {agents.length > 1 && (
           <>
             <DropdownMenuLabel>Agent</DropdownMenuLabel>

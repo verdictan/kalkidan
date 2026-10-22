@@ -163,7 +163,10 @@ export function DocPagePicker({
                     {page.title || 'Untitled'}
                   </span>
                   {path && (
-                    <span className="text-subtle max-w-[45%] truncate text-xs" title={path}>
+                    <span
+                      className="text-muted-foreground max-w-[45%] truncate text-xs"
+                      title={path}
+                    >
                       {path}
                     </span>
                   )}

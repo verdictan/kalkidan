@@ -195,7 +195,7 @@ export function FolderPicker({
                   type="button"
                   key={entry.path}
                   title={entry.name}
-                  className="list-box-row text-sm disabled:opacity-50 [&_svg]:size-3.5 [&_svg]:shrink-0 [&_svg]:text-muted-foreground"
+                  className="list-box-row"
                   disabled={entry.kind === 'file'}
                   onClick={() => void browse(entry.path)}
                 >

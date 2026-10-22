@@ -275,7 +275,7 @@ export function EmbeddedBrowser({
           onChange={(e) => setUrl(e.target.value)}
         />
         {urlEdited && (
-          <Hint label="Open preview (Enter)">
+          <Hint label="Open preview" shortcut="Enter">
             <Button
               size="icon-sm"
               variant="ghost"

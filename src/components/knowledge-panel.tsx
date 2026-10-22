@@ -345,6 +345,7 @@ export function KnowledgePanel({
   const searchBox = (
     <div className="knowledge-search">
       <SearchInput
+        size="sm"
         aria-label="Search knowledge"
         placeholder="Search knowledge"
         value={query}

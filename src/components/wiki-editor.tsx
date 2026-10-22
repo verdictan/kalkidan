@@ -209,7 +209,7 @@ export function TaskPicker({
                     {taskText(task)}
                   </span>
                   {task.status && (
-                    <span className="text-subtle max-w-[35%] shrink-0 truncate text-xs">
+                    <span className="text-muted-foreground max-w-[35%] shrink-0 truncate text-xs">
                       {task.status}
                     </span>
                   )}
@@ -927,7 +927,7 @@ export function WikiEditor({
               <Button
                 variant="ghost"
                 size="xs"
-                className="wiki-bubble-style rounded-sm"
+                className="wiki-bubble-style"
                 aria-label={`Text style: ${textStyle?.label || 'Mixed'}`}
                 aria-haspopup="menu"
                 aria-expanded={textMenu}
@@ -971,7 +971,6 @@ export function WikiEditor({
                   key={name}
                   variant="ghost"
                   size="icon-xs"
-                  className="rounded-sm"
                   aria-label={name}
                   aria-pressed={editor.isActive(mark)}
                   tabIndex={i + 1 === toolIndex ? 0 : -1}
@@ -985,7 +984,6 @@ export function WikiEditor({
               <Button
                 variant="ghost"
                 size="icon-xs"
-                className="rounded-sm"
                 aria-label={editor.isActive('link') ? 'Edit link' : 'Add link'}
                 aria-pressed={editor.isActive('link')}
                 tabIndex={toolIndex === 5 ? 0 : -1}
@@ -1001,7 +999,6 @@ export function WikiEditor({
                   <Button
                     variant="ghost"
                     size="xs"
-                    className="rounded-sm"
                     tabIndex={toolIndex === 6 ? 0 : -1}
                     onFocus={() => setToolIndex(6)}
                     onMouseDown={(e) => e.preventDefault()}
@@ -1016,7 +1013,6 @@ export function WikiEditor({
                   <Button
                     variant="ghost"
                     size="xs"
-                    className="rounded-sm"
                     tabIndex={toolIndex === 7 ? 0 : -1}
                     onFocus={() => setToolIndex(7)}
                     onMouseDown={(e) => e.preventDefault()}
@@ -1184,7 +1180,7 @@ export function WikiEditor({
                 );
               })
             ) : (
-              <p className="wiki-slash-empty">No matching blocks</p>
+              <p className="menu-empty">No matching blocks</p>
             )}
           </div>,
           document.body,

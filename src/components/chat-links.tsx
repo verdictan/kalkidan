@@ -105,17 +105,18 @@ export function TaskChip({
         </Button>
       </Hint>
       <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <Button
-            variant="chip"
-            className="w-6 rounded-l-none bg-secondary px-0 text-secondary-foreground has-[>svg]:px-0"
-            aria-label="Task options"
-            title="Task options"
-          >
-            <ChevronDown aria-hidden="true" />
-          </Button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="start" className="w-52">
+        <Hint label="Task options">
+          <DropdownMenuTrigger asChild>
+            <Button
+              variant="chip"
+              className="w-6 rounded-l-none bg-secondary px-0 text-secondary-foreground has-[>svg]:px-0"
+              aria-label="Task options"
+            >
+              <ChevronDown aria-hidden="true" />
+            </Button>
+          </DropdownMenuTrigger>
+        </Hint>
+        <DropdownMenuContent align="start">
           {onOpen && (
             <DropdownMenuItem onSelect={onOpen}>
               <ExternalLink />

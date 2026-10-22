@@ -90,7 +90,7 @@ export function ContextUsageChip({
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button variant="chip" size="sm" aria-label={`${label}. Show what the agent read`}>
+        <Button variant="chip" aria-label={`${label}. Show what the agent read`}>
           <BookOpen aria-hidden="true" />
           {label}
         </Button>

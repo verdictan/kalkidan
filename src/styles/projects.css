@@ -16,7 +16,7 @@
   display: flex;
   align-items: stretch;
   border-bottom: 1px solid var(--border);
-  background: var(--chrome);
+  background: var(--navigation);
   -webkit-app-region: drag;
 }
 .topbar-brand {
@@ -30,8 +30,8 @@
   justify-content: flex-start;
   gap: var(--space-1);
   /* The 16px toggle icon lines up with the sidebar icon column (12px panel + 8px row inset). */
-  padding-inline: 14px;
-  background: var(--chrome);
+  padding-inline: var(--space-3);
+  background: var(--navigation);
 }
 .navigation-history {
   display: flex;
@@ -130,14 +130,14 @@
 /* "Skip to content": hidden until it has the keyboard focus. */
 .skip-link {
   position: fixed;
-  z-index: 100;
+  z-index: var(--z-titlebar);
   top: 8px;
   left: 8px;
-  padding: 6px 12px;
+  padding: var(--space-2) var(--space-3);
   border-radius: var(--radius-md);
   background: var(--popover, var(--background));
   color: var(--foreground);
-  font-size: 13px;
+  font-size: var(--text-sm);
   line-height: 20px;
   box-shadow: var(--focus-ring);
   transform: translateY(-200%);
@@ -182,7 +182,7 @@ main:focus {
   border-radius: var(--radius-md);
   background: color-mix(in srgb, var(--secondary) 60%, transparent);
   color: var(--muted-foreground);
-  font-size: 13px;
+  font-size: var(--text-sm);
   text-align: left;
   cursor: default;
 }
@@ -352,7 +352,6 @@ main:focus {
 }
 /* Second level: the recent chats of a project, and the empty and clone rows. */
 .tree-session-row,
-.tree-empty,
 .tree-cloning {
   padding-left: calc(var(--space-2) + 16px);
 }
@@ -381,17 +380,10 @@ main:focus {
   font-size: var(--text-xs);
   line-height: 16px;
 }
-.tree-empty,
 .tree-cloning {
   height: var(--control-sm);
   gap: var(--space-2);
   color: var(--muted-foreground);
-  font-size: var(--text-xs);
-  line-height: 16px;
-}
-.tree-empty-action {
-  height: auto;
-  padding: 0;
   font-size: var(--text-xs);
   line-height: 16px;
 }
@@ -403,7 +395,7 @@ main:focus {
 .tree-host-dot {
   width: 6px;
   height: 6px;
-  border-radius: 50%;
+  border-radius: var(--radius-full);
   background: var(--muted-foreground);
 }
 .tree-host-dot.host-connected {
@@ -467,7 +459,7 @@ main:focus {
   height: var(--row-height-lg);
 }
 .project-row > td {
-  padding-block: 6px;
+  padding-block: 0;
 }
 .project-directory .project-open > .min-w-0 {
   overflow-wrap: anywhere;
@@ -483,38 +475,6 @@ main:focus {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
-}
-.session-title {
-  color: var(--foreground);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.session-title span {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.session-meta {
-  color: var(--muted-foreground);
-  font-size: 12px;
-  line-height: 16px;
-  margin-top: 2px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.session-meta time {
-  font-variant-numeric: tabular-nums;
-}
-.session-note {
-  color: var(--muted-foreground);
-  font-size: 12px;
-  line-height: 16px;
-  margin-top: 4px;
-  max-height: 48px;
-  overflow: hidden;
-  white-space: pre-wrap;
 }
 .session-actions {
   display: flex;
@@ -539,25 +499,10 @@ main:focus {
   vertical-align: -2px;
   margin-right: 2px;
 }
-.session-archived-link {
-  margin-top: var(--space-2);
-  padding-inline: 0;
-}
-/* Session and branch copy rows: 48px, 6px block padding, like the other list rows. */
-.session-list > .list-row,
-.worktree.list-row {
-  min-height: var(--row-height-lg);
-  padding-block: 6px;
-}
 /* A multi-line branch copy row keeps its icon at the first line. */
 .worktree.list-row {
   align-items: flex-start;
-}
-.section-help {
-  margin: calc(-1 * var(--space-2)) 0 var(--space-2);
-  color: var(--muted-foreground);
-  font-size: var(--text-xs);
-  line-height: 16px;
+  padding-block: var(--space-2);
 }
 .worktree-preview {
   display: grid;
@@ -591,13 +536,13 @@ main:focus {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 13px;
+  font-size: var(--text-sm);
   line-height: 20px;
   font-weight: 500;
 }
 .worktree .worktree-path {
   display: block;
-  font-size: 12px;
+  font-size: var(--text-xs);
   line-height: 16px;
   color: var(--muted-foreground);
   overflow: hidden;
@@ -682,7 +627,7 @@ main:focus {
   right: 4px;
   width: 6px;
   height: 6px;
-  border-radius: 50%;
+  border-radius: var(--radius-full);
   background: var(--warning);
   pointer-events: none;
 }
@@ -730,7 +675,7 @@ main:focus {
   background: none;
   color: var(--muted-foreground);
   font: inherit;
-  font-size: 13px;
+  font-size: var(--text-sm);
   line-height: 20px;
   font-weight: 500;
   cursor: pointer;
@@ -753,7 +698,7 @@ main:focus {
   bottom: -1px;
   left: 0;
   height: 2px;
-  border-radius: 2px;
+  border-radius: var(--radius-xs);
   background: var(--foreground);
 }
 .tracker-view-filter {
@@ -777,13 +722,6 @@ main:focus {
   margin-left: auto;
   min-width: 0;
 }
-.tracker-count {
-  color: var(--muted-foreground);
-  font-size: 12px;
-  line-height: 16px;
-  white-space: nowrap;
-  font-variant-numeric: tabular-nums;
-}
 .tracker-filter-count {
   display: inline-flex;
   align-items: center;
@@ -793,7 +731,7 @@ main:focus {
   padding: 0 4px;
   border-radius: var(--radius-sm);
   background: var(--secondary);
-  font-size: 11px;
+  font-size: var(--text-2xs);
   line-height: 16px;
   font-variant-numeric: tabular-nums;
 }
@@ -870,13 +808,13 @@ main:focus {
 }
 .tracker-column-heading h4 {
   min-width: 0;
-  font-size: 13px;
+  font-size: var(--text-sm);
   line-height: 20px;
   font-weight: 600;
 }
 .tracker-column-heading > span {
   color: var(--muted-foreground);
-  font-size: 12px;
+  font-size: var(--text-xs);
   line-height: 16px;
   font-variant-numeric: tabular-nums;
 }
@@ -1000,11 +938,11 @@ thead .tracker-task-select:focus-visible {
   height: 20px;
   padding: 0 var(--space-2);
   border: 0;
-  border-radius: 999px;
+  border-radius: var(--radius-full);
   background: var(--primary-subtle);
   color: var(--link);
   font: inherit;
-  font-size: 11px;
+  font-size: var(--text-2xs);
   line-height: 16px;
   font-weight: 500;
   white-space: nowrap;
@@ -1036,7 +974,6 @@ button.tracker-task-chip:focus-visible {
   font-weight: 500;
 }
 .tracker-task-chats .activity-dot,
-.tracker-chat-state .activity-dot,
 .list-box-row .activity-dot {
   margin-left: 0;
 }
@@ -1059,17 +996,17 @@ button.tracker-task-chip:focus-visible {
   position: absolute;
   bottom: var(--space-4);
   left: 50%;
-  z-index: 20;
+  z-index: var(--z-sticky);
   display: flex;
   align-items: center;
   gap: var(--space-1);
   max-width: calc(100% - var(--space-8));
-  min-height: 40px;
+  min-height: var(--control-lg);
   padding: var(--space-1) var(--space-1) var(--space-1) var(--space-3);
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   background: var(--popover);
-  box-shadow: var(--shadow-popover);
+  box-shadow: var(--shadow-md);
   transform: translateX(-50%);
   overflow-x: auto;
   scrollbar-width: none;
@@ -1079,7 +1016,7 @@ button.tracker-task-chip:focus-visible {
 }
 .tracker-selection-count {
   flex-shrink: 0;
-  font-size: 13px;
+  font-size: var(--text-sm);
   line-height: 20px;
   font-weight: 600;
   white-space: nowrap;
@@ -1104,7 +1041,7 @@ button.tracker-task-chip:focus-visible {
   align-items: center;
   gap: var(--space-1);
   min-width: 0;
-  font-size: 12px;
+  font-size: var(--text-xs);
   line-height: 16px;
 }
 .tracker-task:hover {
@@ -1113,7 +1050,7 @@ button.tracker-task-chip:focus-visible {
 .tracker-task-meta {
   margin: 0;
   color: var(--muted-foreground);
-  font-size: 12px;
+  font-size: var(--text-xs);
   line-height: 16px;
   overflow-wrap: anywhere;
 }
@@ -1167,12 +1104,12 @@ button.tracker-task-chip:focus-visible {
   align-items: center;
   justify-content: space-between;
   gap: var(--space-3);
-  height: 48px;
+  height: var(--row-height-lg);
   padding: 0 var(--space-4) 0 var(--space-6);
   border-bottom: 1px solid var(--border);
   background: var(--card);
   color: var(--muted-foreground);
-  font-size: 12px;
+  font-size: var(--text-xs);
   line-height: 16px;
 }
 .tracker-issue-nav > div {
@@ -1187,12 +1124,12 @@ button.tracker-task-chip:focus-visible {
   align-items: center;
   row-gap: var(--space-1);
   margin: 0;
-  font-size: 13px;
+  font-size: var(--text-sm);
   line-height: 20px;
 }
 .tracker-issue-properties dt {
   color: var(--muted-foreground);
-  font-size: 12px;
+  font-size: var(--text-xs);
   line-height: 16px;
 }
 .tracker-issue-properties dd {
@@ -1214,11 +1151,11 @@ button.tracker-task-chip:focus-visible {
 }
 .tracker-issue-title {
   min-width: 0;
-  margin: -2px -4px;
-  padding: 2px 4px;
+  margin: 0 calc(-1 * var(--space-1));
+  padding: 0 var(--space-1);
   border-radius: var(--radius-sm);
-  font-size: 20px;
-  line-height: 28px;
+  font-size: var(--text-lg);
+  line-height: 24px;
   font-weight: 600;
   overflow-wrap: anywhere;
   outline: none;
@@ -1259,7 +1196,8 @@ button.tracker-task-chip:focus-visible {
   margin-top: 2px;
 }
 .tracker-edit-title {
-  font-size: 16px;
+  font-size: var(--text-lg);
+  line-height: 24px;
   font-weight: 600;
 }
 /* Lists, code, quotes and links come from .prose-ui. */
@@ -1291,7 +1229,7 @@ button.tracker-task-chip:focus-visible {
   background: none;
   color: inherit;
   font: inherit;
-  font-size: 12px;
+  font-size: var(--text-xs);
   line-height: 16px;
   outline: none;
 }
@@ -1371,22 +1309,13 @@ button.tracker-context-chip:hover,
   gap: var(--space-2);
   min-width: 0;
   color: var(--muted-foreground);
-  font-size: 12px;
+  font-size: var(--text-xs);
   line-height: 16px;
 }
 .tracker-start-where svg {
   flex-shrink: 0;
   width: 14px;
   height: 14px;
-}
-.tracker-start-where .text-link {
-  border: 0;
-  background: none;
-  font: inherit;
-  cursor: pointer;
-}
-.tracker-start-where .text-link:disabled {
-  opacity: 0.5;
 }
 /* "Change": plain 32px radio rows with no borders. */
 .tracker-start-options {
@@ -1409,8 +1338,8 @@ button.tracker-context-chip:hover,
   align-items: center;
   gap: var(--space-2);
   min-width: 0;
-  min-height: 32px;
-  font-size: 13px;
+  min-height: var(--row-height);
+  font-size: var(--text-sm);
   line-height: 20px;
 }
 .tracker-start-options fieldset:disabled .tracker-radio-row {
@@ -1422,7 +1351,7 @@ button.tracker-context-chip:hover,
   align-items: center;
   gap: var(--space-1);
   color: var(--muted-foreground);
-  font-size: 12px;
+  font-size: var(--text-xs);
   line-height: 16px;
 }
 /* "Details": the GitHub fields, the issue and its comments, folded. */
@@ -1447,7 +1376,7 @@ button.tracker-context-chip:hover,
   align-items: center;
   gap: var(--space-2);
   color: var(--muted-foreground);
-  font-size: 12px;
+  font-size: var(--text-xs);
   line-height: 16px;
 }
 .tracker-roadmap-chart {
@@ -1468,10 +1397,10 @@ button.tracker-context-chip:hover,
   min-height: var(--row-height);
 }
 .tracker-roadmap-axis {
-  min-height: 24px;
+  min-height: var(--control-xs);
   border-bottom: 1px solid var(--border);
   color: var(--muted-foreground);
-  font-size: 12px;
+  font-size: var(--text-xs);
   line-height: 16px;
 }
 .tracker-roadmap-label {
@@ -1488,7 +1417,7 @@ button.tracker-context-chip:hover,
   background: none;
   color: inherit;
   font: inherit;
-  font-size: 13px;
+  font-size: var(--text-sm);
   line-height: 20px;
   text-align: left;
   cursor: pointer;
@@ -1503,7 +1432,7 @@ button.tracker-context-chip:hover,
 .tracker-roadmap-track {
   position: relative;
   height: 100%;
-  min-height: 24px;
+  min-height: var(--control-xs);
 }
 .tracker-roadmap-tick {
   position: absolute;
@@ -1560,7 +1489,7 @@ button.tracker-context-chip:hover,
   display: grid;
   gap: 2px;
   margin: var(--space-1) 0 0;
-  font-size: 12px;
+  font-size: var(--text-xs);
   line-height: 16px;
 }
 .tracker-view-fields > div {
@@ -1608,7 +1537,7 @@ button.tracker-context-chip:hover,
 .project-home-empty {
   margin: 0;
   color: var(--muted-foreground);
-  font-size: 12px;
+  font-size: var(--text-xs);
   line-height: 16px;
 }
 .home-composer {
@@ -1618,21 +1547,21 @@ button.tracker-context-chip:hover,
   border: 1px solid var(--border);
   border-radius: var(--radius-xl);
   background: var(--card, var(--background));
-  box-shadow: var(--shadow-sm, none);
+  box-shadow: var(--shadow-xs);
 }
 .home-composer:focus-within {
   border-color: var(--ring);
 }
 .home-composer-input {
   width: 100%;
-  min-height: 40px;
+  min-height: var(--space-12);
   resize: none;
   border: 0;
   padding: 0 var(--space-1);
   background: none;
   color: var(--foreground);
   font: inherit;
-  font-size: 13px;
+  font-size: var(--text-sm);
   line-height: 20px;
   outline: none;
 }
@@ -1670,14 +1599,14 @@ button.tracker-context-chip:hover,
   background: none;
   color: inherit;
   font: inherit;
-  font-size: 13px;
+  font-size: var(--text-sm);
   line-height: 20px;
   text-align: left;
   cursor: default;
 }
 .folder-row:focus-visible {
   outline: none;
-  box-shadow: inset 0 0 0 2px var(--focus-color);
+  box-shadow: var(--focus-ring-inset);
 }
 .folder-row svg {
   flex-shrink: 0;
@@ -1721,7 +1650,7 @@ button.tracker-context-chip:hover,
   outline: none;
 }
 .chat-row:has(.chat-row-open:focus-visible) {
-  box-shadow: inset 0 0 0 2px var(--focus-color);
+  box-shadow: var(--focus-ring-inset);
 }
 .chat-row-text {
   display: grid;
@@ -1733,14 +1662,14 @@ button.tracker-context-chip:hover,
   align-items: center;
   gap: var(--space-2);
   min-width: 0;
-  font-size: 13px;
+  font-size: var(--text-sm);
   line-height: 20px;
   font-weight: 500;
 }
 .chat-row-meta {
   overflow: hidden;
   color: var(--muted-foreground);
-  font-size: 12px;
+  font-size: var(--text-xs);
   line-height: 16px;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1803,16 +1732,6 @@ button.tracker-context-chip:hover,
   padding-top: var(--space-3);
   border-top: 1px solid var(--border);
 }
-.sidebar-get-started {
-  display: flex;
-  align-items: center;
-  gap: var(--space-1);
-}
-.sidebar-setup-count {
-  color: var(--muted-foreground);
-  font-size: var(--text-xs);
-  line-height: 16px;
-}
 .sidebar-footer-row {
   display: flex;
   align-items: center;
@@ -1859,7 +1778,7 @@ button.tracker-context-chip:hover,
   align-items: center;
   justify-content: space-between;
   gap: var(--space-4);
-  min-height: 28px;
+  min-height: var(--control-sm);
   font-size: var(--text-xs);
   line-height: 16px;
 }
@@ -1873,7 +1792,7 @@ button.tracker-context-chip:hover,
 
 .sidebar-resizer {
   position: fixed;
-  z-index: 30;
+  z-index: var(--z-sticky);
   top: var(--titlebar-height);
   bottom: 0;
   left: calc(var(--navigation-width) - 3px);
@@ -1918,12 +1837,12 @@ button.tracker-context-chip:hover,
 }
 .command-palette-input {
   width: 100%;
-  height: 48px;
+  height: var(--row-height-lg);
   padding: 0 44px 0 calc(var(--space-4) + 24px);
   border: 0;
   background: transparent;
   color: var(--foreground);
-  font-size: 15px;
+  font-size: var(--text-base);
   outline: none;
 }
 .command-palette-input::placeholder {
@@ -1959,7 +1878,7 @@ button.tracker-context-chip:hover,
 }
 .workspace-search-results .search-status {
   padding: var(--space-1) var(--space-2);
-  font-size: 12px;
+  font-size: var(--text-xs);
   line-height: 16px;
   color: var(--muted-foreground);
 }
@@ -1971,10 +1890,10 @@ button.tracker-context-chip:hover,
   align-items: center;
   gap: var(--space-2);
   width: 100%;
-  min-height: 32px;
+  min-height: var(--row-height);
   padding: 0 var(--space-2);
   border-radius: var(--radius-md);
-  font-size: 13px;
+  font-size: var(--text-sm);
   line-height: 20px;
   white-space: nowrap;
   cursor: default;
@@ -1994,7 +1913,7 @@ button.tracker-context-chip:hover,
 }
 .search-option-title .activity-dot {
   display: inline-block;
-  margin-left: 6px;
+  margin-left: var(--space-2);
   vertical-align: 1px;
 }
 .search-option-detail {
@@ -2028,68 +1947,13 @@ button.tracker-context-chip:hover,
 .project-recent {
   margin-top: var(--section-gap);
 }
-.project-recent-list {
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-.project-recent-list > li + li {
-  border-top: 1px solid var(--border);
-}
-.project-recent-row {
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
-  /* The hover fill bleeds 8px past the text edge, like the project table. */
-  width: calc(100% + 2 * var(--space-2));
-  margin-inline: calc(-1 * var(--space-2));
-  min-height: var(--row-height-lg);
-  padding: 6px var(--space-2);
-  border: 0;
-  border-radius: var(--radius-md);
-  background: none;
-  color: inherit;
-  font: inherit;
-  text-align: left;
-  cursor: default;
-}
-.project-recent-row:focus-visible {
-  outline: none;
-  box-shadow: inset 0 0 0 2px var(--focus-color);
-}
-.project-recent-text {
-  flex: 1;
-  min-width: 0;
-  display: grid;
-}
-.project-recent-title {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  min-width: 0;
-  overflow: hidden;
-  white-space: nowrap;
-  font-size: 13px;
-  line-height: 20px;
-  font-weight: 500;
-}
-.project-recent-meta,
-.project-recent-time {
-  font-size: 12px;
-  line-height: 16px;
-  color: var(--muted-foreground);
-}
-.project-recent-time {
-  flex-shrink: 0;
-  font-variant-numeric: tabular-nums;
-}
 
 .worktree-sessions {
   display: flex;
   flex-wrap: wrap;
   gap: var(--space-1);
   /* The ghost chips bleed so their icons line up with the branch name. */
-  margin: var(--space-1) 0 0 -6px;
+  margin: var(--space-1) 0 0 calc(-1 * var(--space-2));
 }
 .worktree-sessions:empty {
   display: none;
@@ -2114,66 +1978,7 @@ button.tracker-context-chip:hover,
   /* The docs layout follows its own width, not the window width. */
   container-type: inline-size;
 }
-.docs-layout {
-  display: grid;
-  grid-template-columns: var(--docs-library-width, 240px) minmax(0, 1fr);
-  flex: 1 1 auto;
-  min-height: 0;
-  /* The page list starts at the page edge, under the project name and the tabs. */
-  padding-left: var(--page-padding-x);
-}
-/* No page list: before the first page, or while the user hides the list. */
-.docs-layout[data-library] {
-  grid-template-columns: minmax(0, 1fr);
-}
-.docs-layout[data-library='none'] {
-  padding-left: 0;
-}
-/* The page list: a header, a tree that scrolls, and Deleted pages at the bottom. */
-.docs-library {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-  min-width: 0;
-  min-height: 0;
-  padding: var(--space-4) var(--space-2) var(--space-2) 0;
-  border-right: 1px solid var(--border);
-  background: transparent;
-}
-.docs-library-resizer {
-  position: absolute;
-  z-index: 6;
-  top: 0;
-  right: -3px;
-  bottom: 0;
-  width: 6px;
-  cursor: col-resize;
-  touch-action: none;
-  user-select: none;
-}
-.docs-library-resizer:hover,
-.docs-library-resizer:focus-visible,
-.docs-library-resizer[data-dragging] {
-  background: var(--ring);
-  outline: none;
-}
-.docs-layout:has(.docs-library-resizer[data-dragging]) {
-  cursor: col-resize;
-  user-select: none;
-}
-.wiki-pages-label {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  min-height: var(--control-sm);
-  padding: 0 0 0 var(--space-2);
-}
-.wiki-tree-scroll {
-  flex: 1 1 auto;
-  min-height: 0;
-  overflow-y: auto;
-}
+
 .wiki-page-tree,
 .wiki-tree-children {
   list-style: none;
@@ -2193,7 +1998,7 @@ button.tracker-context-chip:hover,
   padding-inline: var(--space-2);
   border-radius: var(--radius-md);
   color: var(--foreground);
-  font-size: 13px;
+  font-size: var(--text-sm);
   line-height: 20px;
 }
 .wiki-tree-row:hover {
@@ -2239,7 +2044,7 @@ button.wiki-tree-icon:focus-visible {
   outline: none;
 }
 .wiki-tree-row:has(.doc-tree-page:focus-visible) {
-  box-shadow: inset 0 0 0 2px var(--focus-color);
+  box-shadow: var(--focus-ring-inset);
 }
 .wiki-tree-row {
   gap: var(--space-2);
@@ -2250,40 +2055,7 @@ button.wiki-tree-icon:focus-visible {
 .wiki-tree-row[data-drop='after'] {
   box-shadow: inset 0 -2px var(--ring);
 }
-.wiki-tree-actions {
-  flex-shrink: 0;
-  display: flex;
-  opacity: 0;
-}
-.wiki-tree-row:hover .wiki-tree-actions,
-.wiki-tree-row:has(:focus-visible) .wiki-tree-actions,
-.wiki-tree-row[data-selected='true'] .wiki-tree-actions,
-.wiki-tree-actions:has([data-state='open']) {
-  opacity: 1;
-}
-@media (hover: none) {
-  .wiki-tree-actions {
-    opacity: 1;
-  }
-}
-/* Deleted pages: the same row as a page in the list, in the muted color. */
-.docs-trash-row {
-  flex-shrink: 0;
-  gap: var(--space-2);
-  width: 100%;
-  color: var(--muted-foreground);
-  text-align: left;
-}
-.docs-trash-row:hover {
-  color: var(--foreground);
-}
-.docs-trash-row:focus-visible {
-  outline: none;
-  box-shadow: inset 0 0 0 2px var(--focus-color);
-}
-.docs-trash-row:disabled {
-  opacity: 0.5;
-}
+
 /* The dialog body scrolls, so the list has no height limit. */
 .wiki-deleted-list {
   list-style: none;
@@ -2313,7 +2085,7 @@ button.wiki-tree-icon:focus-visible {
   height: var(--control-lg);
   position: sticky;
   top: 0;
-  z-index: 5;
+  z-index: var(--z-sticky);
   background: var(--background);
   border-bottom: 1px solid transparent;
   transition: border-color var(--motion-fast);
@@ -2336,7 +2108,7 @@ button.wiki-tree-icon:focus-visible {
   align-items: center;
   gap: var(--space-1);
   min-width: 0;
-  font-size: 13px;
+  font-size: var(--text-sm);
   line-height: 20px;
   color: var(--muted-foreground);
 }
@@ -2364,7 +2136,7 @@ button.wiki-tree-icon:focus-visible {
 }
 .wiki-document-actions > [role='status'] {
   color: var(--muted-foreground);
-  font-size: 12px;
+  font-size: var(--text-xs);
   line-height: 16px;
 }
 .doc-alert-body {
@@ -2382,7 +2154,7 @@ button.wiki-tree-icon:focus-visible {
 .wiki-page {
   max-width: calc(var(--reading-width) + 2 * var(--space-12));
   margin: 0 auto;
-  padding: var(--space-4) var(--space-12) var(--space-24);
+  padding: var(--space-4) var(--space-12) var(--space-16);
 }
 /* The page title is a plain text field. It looks like the first heading of the page. */
 .doc-title {
@@ -2394,13 +2166,13 @@ button.wiki-tree-icon:focus-visible {
   outline: none;
   background: transparent;
   color: var(--foreground);
-  font-size: 32px;
-  line-height: 40px;
+  font-size: var(--text-2xl);
+  line-height: 32px;
   font-weight: 600;
   letter-spacing: -0.01em;
 }
 .doc-title::placeholder {
-  color: var(--subtle-foreground);
+  color: var(--muted-foreground);
 }
 .wiki-writing-area {
   position: relative;
@@ -2446,8 +2218,8 @@ button.wiki-tree-icon:focus-visible {
   width: 16px;
   height: 16px;
   margin: 0;
-  border: 1px solid var(--border-strong, var(--border));
-  border-radius: 4px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-xs);
   background-color: var(--background);
   cursor: pointer;
   outline: none;
@@ -2513,14 +2285,14 @@ button.wiki-tree-icon:focus-visible {
 }
 /* The format toolbar and the slash menu use the menu tokens. */
 .wiki-bubble {
-  z-index: 20;
+  z-index: var(--z-dropdown);
   display: flex;
   gap: 2px;
   padding: var(--space-1);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   background: var(--popover);
-  box-shadow: var(--shadow-popover);
+  box-shadow: var(--shadow-md);
 }
 .wiki-bubble button[aria-pressed='true'] {
   background: var(--surface-selected);
@@ -2548,7 +2320,7 @@ button.wiki-tree-icon:focus-visible {
   border-radius: var(--radius-lg);
   background: var(--popover);
   color: var(--popover-foreground);
-  box-shadow: var(--shadow-popover);
+  box-shadow: var(--shadow-md);
 }
 .wiki-bubble-menu > button {
   display: flex;
@@ -2557,7 +2329,7 @@ button.wiki-tree-icon:focus-visible {
   height: var(--control-sm);
   padding: 0 var(--space-2);
   border-radius: var(--radius-sm);
-  font-size: 13px;
+  font-size: var(--text-sm);
   text-align: left;
   outline: none;
 }
@@ -2573,7 +2345,7 @@ button.wiki-tree-icon:focus-visible {
 }
 .wiki-slash {
   position: fixed;
-  z-index: 50;
+  z-index: var(--z-dropdown);
   width: 320px;
   /* 12 rows, 2 group labels and the padding fit without a scroll bar. */
   max-height: min(400px, calc(100vh - 16px));
@@ -2583,18 +2355,7 @@ button.wiki-tree-icon:focus-visible {
   border-radius: var(--radius-lg);
   background: var(--popover);
   color: var(--popover-foreground);
-  box-shadow: var(--shadow-popover);
-}
-.wiki-slash-label,
-.wiki-slash-empty {
-  padding: 6px var(--space-2) var(--space-1);
-  color: var(--muted-foreground);
-  font-size: 12px;
-  line-height: 16px;
-  font-weight: 500;
-}
-.wiki-slash-empty {
-  font-weight: 400;
+  box-shadow: var(--shadow-md);
 }
 .wiki-slash button {
   display: flex;
@@ -2605,7 +2366,7 @@ button.wiki-tree-icon:focus-visible {
   padding: 0 var(--space-2);
   border-radius: var(--radius-sm);
   text-align: left;
-  font-size: 13px;
+  font-size: var(--text-sm);
 }
 .wiki-slash button[aria-selected='true'] {
   background: var(--surface-selected);
@@ -2626,7 +2387,7 @@ button.wiki-tree-icon:focus-visible {
   flex-shrink: 0;
   color: var(--muted-foreground);
   font-family: var(--font-mono, ui-monospace, monospace);
-  font-size: 12px;
+  font-size: var(--text-xs);
   line-height: 16px;
 }
 .wiki-outline {
@@ -2638,7 +2399,7 @@ button.wiki-tree-icon:focus-visible {
   outline: 0;
   resize: vertical;
   background: transparent;
-  font-size: 13px;
+  font-size: var(--text-sm);
   line-height: 20px;
 }
 /* The board tasks that link to the page, under the title. */
@@ -2649,7 +2410,7 @@ button.wiki-tree-icon:focus-visible {
   gap: var(--space-1) var(--space-2);
   margin-bottom: var(--space-6);
   color: var(--muted-foreground);
-  font-size: 12px;
+  font-size: var(--text-xs);
   line-height: 16px;
 }
 .doc-tasks-label {
@@ -2727,7 +2488,7 @@ button.doc-task-chip[data-add] {
 }
 .doc-read-count {
   color: var(--muted-foreground);
-  font-size: 12px;
+  font-size: var(--text-xs);
   line-height: 16px;
   white-space: nowrap;
 }
@@ -2805,7 +2566,7 @@ button.doc-task-chip[data-add] {
 .knowledge-rail-count {
   flex-shrink: 0;
   color: var(--muted-foreground);
-  font-size: 12px;
+  font-size: var(--text-xs);
   line-height: 16px;
   font-variant-numeric: tabular-nums;
 }
@@ -2845,7 +2606,7 @@ button.doc-task-chip[data-add] {
 }
 .knowledge-pane-title {
   margin: 0;
-  font-size: 16px;
+  font-size: var(--text-lg);
   line-height: 24px;
   font-weight: 600;
 }
@@ -2853,7 +2614,7 @@ button.doc-task-chip[data-add] {
 .knowledge-results-count {
   margin: 0;
   color: var(--muted-foreground);
-  font-size: 12px;
+  font-size: var(--text-xs);
   line-height: 16px;
 }
 .knowledge-insight {
@@ -2886,20 +2647,20 @@ button.doc-task-chip[data-add] {
 }
 .knowledge-result-title {
   display: block;
-  font-size: 13px;
+  font-size: var(--text-sm);
   line-height: 20px;
 }
 .knowledge-result-detail {
   display: -webkit-box;
   overflow: hidden;
   color: var(--muted-foreground);
-  font-size: 12px;
+  font-size: var(--text-xs);
   line-height: 16px;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
 }
 .knowledge-result mark {
-  border-radius: 2px;
+  border-radius: var(--radius-xs);
   background: color-mix(in srgb, var(--warning) 30%, transparent);
   color: inherit;
 }
@@ -2915,7 +2676,7 @@ button.doc-task-chip[data-add] {
   }
   .knowledge-rail {
     position: absolute;
-    z-index: 20;
+    z-index: var(--z-sticky);
     top: var(--space-2);
     bottom: var(--space-2);
     left: var(--space-4);
@@ -2925,7 +2686,7 @@ button.doc-task-chip[data-add] {
     border: 1px solid var(--border);
     border-radius: var(--radius-lg);
     background: var(--popover);
-    box-shadow: var(--shadow-popover);
+    box-shadow: var(--shadow-md);
   }
   .knowledge[data-rail-open='true'] .knowledge-rail {
     display: flex;
@@ -2947,7 +2708,7 @@ button.doc-task-chip[data-add] {
     width: 152px;
     gap: var(--space-2);
     color: var(--muted-foreground);
-    font-size: 12px;
+    font-size: var(--text-xs);
     line-height: 16px;
   }
   .wiki-outline > span {
@@ -2965,9 +2726,6 @@ button.doc-task-chip[data-add] {
   }
 }
 @container (max-width: 760px) {
-  .docs-layout {
-    grid-template-columns: min(var(--docs-library-width, 240px), 200px) minmax(0, 1fr);
-  }
   .wiki-page {
     padding: var(--space-8) var(--space-8) var(--space-16);
   }
@@ -2975,23 +2733,11 @@ button.doc-task-chip[data-add] {
     padding: 0 var(--space-8);
   }
 }
-@container (max-width: 640px) {
-  /* The same edge as the project header at this width. */
-  .docs-layout {
-    padding-left: var(--space-4);
-  }
-}
+
 @container (max-width: 600px) {
-  .docs-layout {
-    grid-template-columns: min(var(--docs-library-width, 240px), 180px) minmax(0, 1fr);
-  }
   .wiki-page,
   .wiki-document-bar-inner {
     padding-inline: var(--space-5);
-  }
-  .doc-title {
-    font-size: 24px;
-    line-height: 32px;
   }
   .wiki-document-actions > [role='status'] {
     display: none;
@@ -3007,7 +2753,7 @@ button.doc-task-chip[data-add] {
   display: inline-flex;
 }
 .repository-session-filter {
-  width: 200px;
+  width: 240px;
 }
 .repository-overview-section {
   min-width: 0;
@@ -3034,7 +2780,7 @@ button.doc-task-chip[data-add] {
   margin: 0 0 var(--space-2);
   padding: 0 var(--space-2);
   overflow: hidden;
-  font-size: 12px;
+  font-size: var(--text-xs);
   line-height: 16px;
   color: var(--muted-foreground);
   text-overflow: ellipsis;
@@ -3047,7 +2793,7 @@ button.doc-task-chip[data-add] {
 }
 .project-settings-group-label {
   margin: 0 0 var(--space-1);
-  font-size: 11px;
+  font-size: var(--text-2xs);
   line-height: 16px;
   font-weight: 600;
   color: var(--muted-foreground);
@@ -3063,7 +2809,7 @@ button.doc-task-chip[data-add] {
   display: flex;
   align-items: center;
   gap: var(--space-4);
-  min-height: 48px;
+  min-height: var(--row-height-lg);
   padding: var(--space-2) 0;
   border-bottom: 1px solid var(--border);
 }
@@ -3085,7 +2831,7 @@ button.doc-task-chip[data-add] {
   align-items: center;
   gap: var(--space-1);
   border-radius: var(--radius-sm);
-  font-size: 12px;
+  font-size: var(--text-xs);
   line-height: 16px;
   color: var(--muted-foreground);
   text-decoration: none;
@@ -3201,14 +2947,14 @@ button.doc-task-chip[data-add] {
   align-items: baseline;
   gap: var(--space-2);
   margin: 0 0 var(--space-2);
-  font-size: 16px;
+  font-size: var(--text-lg);
   line-height: 24px;
   font-weight: 600;
   scroll-margin-top: var(--space-4);
 }
 .memory-topic-count {
   color: var(--muted-foreground);
-  font-size: 12px;
+  font-size: var(--text-xs);
   line-height: 16px;
   font-weight: 400;
   font-variant-numeric: tabular-nums;
@@ -3245,7 +2991,7 @@ button.doc-task-chip[data-add] {
   gap: 0 var(--space-2);
   margin: var(--space-1) 0 0;
   color: var(--muted-foreground);
-  font-size: 12px;
+  font-size: var(--text-xs);
   line-height: 16px;
 }
 .memory-fact-meta > * + *::before {
@@ -3277,7 +3023,7 @@ button.doc-task-chip[data-add] {
 .memory-status {
   margin: 0;
   color: var(--muted-foreground);
-  font-size: 12px;
+  font-size: var(--text-xs);
   line-height: 16px;
 }
 .memory-form {
@@ -3288,11 +3034,6 @@ button.doc-task-chip[data-add] {
   display: flex;
   justify-content: flex-end;
   gap: var(--space-2);
-}
-.memory-status .text-link,
-.memory-fact-meta .text-link {
-  font-size: inherit;
-  line-height: inherit;
 }
 
 /* Planning tools and the Insights page: one review row, one selected-task list and one
@@ -3325,7 +3066,7 @@ button.doc-task-chip[data-add] {
 .review-row-title {
   min-width: 0;
   overflow-wrap: anywhere;
-  font-size: 13px;
+  font-size: var(--text-sm);
   line-height: 20px;
   font-weight: 500;
 }
@@ -3333,7 +3074,7 @@ button.doc-task-chip[data-add] {
   min-width: 0;
   overflow-wrap: anywhere;
   color: var(--muted-foreground);
-  font-size: 12px;
+  font-size: var(--text-xs);
   line-height: 16px;
 }
 .review-row-aside {
@@ -3342,8 +3083,8 @@ button.doc-task-chip[data-add] {
   align-items: center;
   gap: var(--space-2);
   min-height: 20px;
-  color: var(--subtle-foreground);
-  font-size: 12px;
+  color: var(--muted-foreground);
+  font-size: var(--text-xs);
   line-height: 16px;
 }
 .review-row-link {
@@ -3370,7 +3111,7 @@ button.doc-task-chip[data-add] {
 .selected-tasks {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: var(--space-2);
   max-height: 120px;
   overflow-y: auto;
   margin: 0;
@@ -3384,9 +3125,9 @@ button.doc-task-chip[data-add] {
   max-width: 280px;
   height: var(--control-xs);
   padding-inline: var(--space-2) 4px;
-  border-radius: 999px;
+  border-radius: var(--radius-full);
   background: var(--secondary);
-  font-size: 12px;
+  font-size: var(--text-xs);
   line-height: 16px;
 }
 .selected-task-remove {
@@ -3396,7 +3137,7 @@ button.doc-task-chip[data-add] {
   justify-content: center;
   width: 16px;
   height: 16px;
-  border-radius: 999px;
+  border-radius: var(--radius-full);
   color: var(--muted-foreground);
 }
 .selected-task-remove:hover {
@@ -3442,7 +3183,7 @@ button.doc-task-chip[data-add] {
 .tool-section-title {
   flex: 1;
   min-width: 0;
-  font-size: 13px;
+  font-size: var(--text-sm);
   line-height: 20px;
   font-weight: 600;
 }
@@ -3455,7 +3196,7 @@ button.doc-task-chip[data-add] {
 .tool-section-content {
   display: grid;
   gap: var(--space-2);
-  padding: var(--space-2) var(--space-2) var(--space-2) 30px;
+  padding: var(--space-2) var(--space-2) var(--space-2) var(--space-8);
 }
 .planning-pre {
   max-height: 240px;
@@ -3465,7 +3206,7 @@ button.doc-task-chip[data-add] {
   border-radius: var(--radius-md);
   background: var(--secondary);
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: var(--text-xs);
   line-height: 16px;
   white-space: pre-wrap;
 }
@@ -3482,11 +3223,7 @@ button.doc-task-chip[data-add] {
 .project-insights-sections .section-header {
   margin-bottom: 0;
 }
-/* Managed-agent usage on the Insights page. */
-.project-usage-intro {
-  max-width: 640px;
-  margin: 0;
-}
+
 .project-usage-stats {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
@@ -3538,7 +3275,7 @@ button.doc-task-chip[data-add] {
 .project-usage-chip {
   padding: 2px var(--space-2);
   border: 1px solid var(--border);
-  border-radius: 999px;
+  border-radius: var(--radius-full);
   font-size: var(--text-xs);
   color: var(--muted-foreground);
 }
@@ -3546,7 +3283,7 @@ button.doc-task-chip[data-add] {
   width: 8px;
   height: 8px;
   flex-shrink: 0;
-  border-radius: 999px;
+  border-radius: var(--radius-full);
 }
 .count-list {
   display: grid;
@@ -3562,7 +3299,7 @@ button.doc-task-chip[data-add] {
   padding-inline: var(--space-3);
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
-  font-size: 13px;
+  font-size: var(--text-sm);
   line-height: 20px;
 }
 .count-item-label {
@@ -3607,7 +3344,7 @@ button.doc-task-chip[data-add] {
   cursor: default;
 }
 .insight-tile-value {
-  font-size: 20px;
+  font-size: var(--text-xl);
   line-height: 28px;
   font-weight: 600;
   font-variant-numeric: tabular-nums;
@@ -3618,7 +3355,7 @@ button.doc-task-chip[data-add] {
 .insight-tile-label {
   overflow: hidden;
   color: var(--muted-foreground);
-  font-size: 12px;
+  font-size: var(--text-xs);
   line-height: 16px;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -3628,10 +3365,6 @@ button.doc-task-chip[data-add] {
   gap: var(--space-3);
 }
 
-/* Settings: a 720px dialog with a section list on the left and one column of rows. */
-.settings-page [role='tabpanel'] {
-  max-width: var(--dialog-lg);
-}
 .settings-dialog {
   height: min(560px, calc(100dvh - 2rem));
   grid-template-columns: 188px minmax(0, 1fr);
@@ -3650,7 +3383,7 @@ button.doc-task-chip[data-add] {
 .settings-nav-title {
   margin: 0 0 var(--space-2);
   padding: 0 var(--space-2);
-  font-size: 12px;
+  font-size: var(--text-2xs);
   line-height: 16px;
   font-weight: 600;
   color: var(--muted-foreground);
@@ -3662,7 +3395,7 @@ button.doc-task-chip[data-add] {
   height: var(--row-height);
   padding: 0 var(--space-2);
   border-radius: var(--radius-md);
-  font-size: 13px;
+  font-size: var(--text-sm);
   line-height: 20px;
   text-align: left;
   color: var(--muted-foreground);
@@ -3686,13 +3419,6 @@ button.doc-task-chip[data-add] {
   color: var(--foreground);
   font-weight: 500;
 }
-.settings-nav-version {
-  margin-top: auto;
-  padding: 0 var(--space-2);
-  font-size: 12px;
-  line-height: 16px;
-  color: var(--muted-foreground);
-}
 .settings-main {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
@@ -3702,22 +3428,9 @@ button.doc-task-chip[data-add] {
 .settings-main-title {
   margin: 0;
   padding: var(--space-5) var(--space-12) var(--space-3) var(--space-6);
-  font-size: 16px;
+  font-size: var(--text-lg);
   line-height: 24px;
   font-weight: 600;
-  outline: none;
-}
-.settings-scroll {
-  min-height: 0;
-  overflow-y: auto;
-  padding: 0 var(--space-6) var(--space-6);
-}
-.settings-panel {
-  display: grid;
-  align-content: start;
-  gap: var(--space-4);
-  min-width: 0;
-  max-width: var(--dialog-lg);
   outline: none;
 }
 /* One row: label and one line of help on the left, the control on the right. */
@@ -3734,14 +3447,13 @@ button.doc-task-chip[data-add] {
   align-items: center;
   gap: var(--space-3);
   min-width: 0;
-  min-height: 52px;
+  min-height: var(--row-height-lg);
   padding: var(--space-2) 0;
   border-bottom: 1px solid var(--border);
   outline: none;
   scroll-margin-top: var(--space-2);
 }
-.settings-row:focus-visible,
-.settings-group:focus-visible {
+.settings-row:focus-visible {
   box-shadow: var(--focus-ring);
   border-radius: var(--radius-md);
 }
@@ -3751,13 +3463,13 @@ button.doc-task-chip[data-add] {
   min-width: 0;
 }
 .settings-row-label {
-  font-size: 13px;
+  font-size: var(--text-sm);
   line-height: 20px;
   font-weight: 500;
   overflow-wrap: anywhere;
 }
 .settings-row-help {
-  font-size: 12px;
+  font-size: var(--text-xs);
   line-height: 16px;
   color: var(--muted-foreground);
   overflow-wrap: anywhere;
@@ -3772,7 +3484,7 @@ button.doc-task-chip[data-add] {
   max-width: 60%;
 }
 .settings-row-value {
-  font-size: 12px;
+  font-size: var(--text-xs);
   line-height: 16px;
   color: var(--muted-foreground);
 }
@@ -3793,32 +3505,12 @@ button.doc-task-chip[data-add] {
 .settings-row:has(+ .settings-row-extra) {
   border-bottom-color: transparent;
 }
-.settings-avatar {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 40px;
-  height: 40px;
-  flex-shrink: 0;
-  border-radius: 999px;
-  background: var(--surface-selected);
-  font-size: 13px;
-  line-height: 20px;
-  font-weight: 600;
-}
-.settings-group {
-  display: grid;
-  gap: var(--space-2);
-  min-width: 0;
-  align-content: start;
-  outline: none;
-}
 /* Preferences (settings-dialog.tsx): one short sheet, three small groups of rows. */
 .preferences-dialog {
   max-height: min(560px, calc(100dvh - 2rem));
 }
 .preferences-title {
-  font-size: 16px;
+  font-size: var(--text-lg);
   line-height: 24px;
   outline: none;
 }
@@ -3835,13 +3527,13 @@ button.doc-task-chip[data-add] {
 .preferences-group-label,
 .computers-group-label {
   margin: 0;
-  font-size: 12px;
+  font-size: var(--text-2xs);
   line-height: 16px;
   font-weight: 600;
   color: var(--muted-foreground);
 }
 .preferences-body .settings-row {
-  min-height: 44px;
+  min-height: var(--row-height-lg);
 }
 /* Computers page (computers-page.tsx): groups of rows in one bordered card each. */
 .computers-groups {
@@ -3898,8 +3590,7 @@ button.doc-task-chip[data-add] {
     border-bottom: 1px solid var(--border);
     border-radius: var(--radius-xl) var(--radius-xl) 0 0;
   }
-  .settings-nav-title,
-  .settings-nav-version {
+  .settings-nav-title {
     display: none;
   }
 }
@@ -3927,20 +3618,16 @@ button.doc-task-chip[data-add] {
 .conversation-trail .conversation-toolbar-title {
   min-width: min(24ch, 100%);
 }
-.tree-task-number,
-.session-task-number {
+.tree-task-number {
   flex-shrink: 0;
   color: var(--muted-foreground);
-  font-size: 12px;
+  font-size: var(--text-xs);
   line-height: 16px;
   font-variant-numeric: tabular-nums;
 }
-.session-title .session-task-number {
-  font-weight: 400;
-}
 .tree-more-row .tree-label {
   color: var(--muted-foreground);
-  font-size: 12px;
+  font-size: var(--text-xs);
 }
 .tree-more-row:hover .tree-label {
   color: var(--foreground);
@@ -3953,9 +3640,6 @@ button.doc-task-chip[data-add] {
 }
 .project-overview-tabs {
   margin-bottom: var(--space-4);
-}
-.project-needs-you {
-  margin-bottom: var(--space-6);
 }
 .needs-you-list {
   display: grid;
@@ -3970,7 +3654,7 @@ button.doc-task-chip[data-add] {
   align-items: center;
   gap: var(--space-3);
   min-height: var(--row-height-lg);
-  padding: 6px var(--space-3);
+  padding: 0 var(--space-3);
 }
 .needs-you-row + .needs-you-row {
   border-top: 1px solid var(--border);
@@ -3984,7 +3668,7 @@ button.doc-task-chip[data-add] {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 13px;
+  font-size: var(--text-sm);
   line-height: 20px;
   font-weight: 500;
 }
@@ -3993,61 +3677,11 @@ button.doc-task-chip[data-add] {
   text-overflow: ellipsis;
   white-space: nowrap;
   color: var(--muted-foreground);
-  font-size: 12px;
+  font-size: var(--text-xs);
   line-height: 16px;
 }
 .needs-you-row .activity-dot {
   margin-left: 0;
-}
-.project-home-status-list li {
-  display: block;
-}
-.project-home-status {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  width: calc(100% + 2 * var(--space-2));
-  min-height: 28px;
-  margin-inline: calc(-1 * var(--space-2));
-  padding: 4px var(--space-2);
-  border: 0;
-  border-radius: var(--radius-md);
-  background: none;
-  color: inherit;
-  font: inherit;
-  font-size: 13px;
-  line-height: 20px;
-  text-align: left;
-  cursor: default;
-}
-.project-home-status:focus-visible {
-  outline: none;
-  box-shadow: var(--focus-ring);
-}
-.project-home-status-chevron {
-  width: 14px;
-  height: 14px;
-  flex-shrink: 0;
-  color: var(--muted-foreground);
-  opacity: 0;
-}
-.project-home-status:hover .project-home-status-chevron,
-.project-home-status:focus-visible .project-home-status-chevron {
-  opacity: 1;
-}
-.project-home-progress {
-  display: grid;
-  gap: var(--space-1);
-}
-.project-home-doc .activity-dot {
-  margin-left: auto;
-}
-.project-home-inline-icon {
-  display: inline-block;
-  width: 14px;
-  height: 14px;
-  margin-right: 6px;
-  vertical-align: -2px;
 }
 /* Project pages: one header and one tab bar that stay in the same place on each tab. Only the
    page below the tab bar scrolls. */
@@ -4068,12 +3702,6 @@ button.doc-task-chip[data-add] {
 }
 .project-frame-head .project-tabs {
   margin-bottom: 0;
-}
-/* A compact project header: a 28px icon inline with the 20px title. */
-.project-frame-head .project-header {
-  /* The same height with or without the counts line, so the tabs stay in place on each tab. */
-  min-height: 62px;
-  padding-bottom: var(--space-4);
 }
 .project-frame-body {
   flex: 1;
@@ -4099,26 +3727,12 @@ button.doc-task-chip[data-add] {
     padding-inline: var(--space-4);
   }
 }
-/* The slots that pages fill: text after the board line, and actions before Project settings. */
-.project-header-meta,
-.project-header-slot {
-  display: contents;
-}
+
 .project-header-host {
   display: inline-flex;
   align-items: center;
   gap: 6px;
   min-width: 0;
-}
-.project-page-summary {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 6px;
-  margin-bottom: var(--space-4);
-  color: var(--muted-foreground);
-  font-size: 12px;
-  line-height: 16px;
 }
 .search-option-icon {
   display: inline-flex;
@@ -4134,7 +3748,7 @@ button.doc-task-chip[data-add] {
 .welcome {
   position: fixed;
   inset: 0;
-  z-index: 40;
+  z-index: var(--z-dropdown);
   display: grid;
   grid-template-rows: var(--titlebar-height) minmax(0, 1fr);
   background: var(--background);
@@ -4158,7 +3772,7 @@ button.doc-task-chip[data-add] {
   align-items: center;
   gap: var(--space-2);
   color: var(--muted-foreground);
-  font-size: 12px;
+  font-size: var(--text-xs);
   line-height: 16px;
 }
 .sign-in-screen {
@@ -4180,7 +3794,7 @@ button.doc-task-chip[data-add] {
 }
 .sign-in-mark {
   width: 48px;
-  height: 48px;
+  height: var(--space-12);
   margin-bottom: var(--space-2);
   border-radius: var(--radius-xl);
 }
@@ -4189,7 +3803,7 @@ button.doc-task-chip[data-add] {
   align-items: center;
   justify-content: center;
   width: 48px;
-  height: 48px;
+  height: var(--space-12);
   margin-bottom: var(--space-2);
   border: 1px solid var(--border);
   border-radius: var(--radius-xl);
@@ -4210,20 +3824,20 @@ button.doc-task-chip[data-add] {
 }
 .sign-in-title {
   margin: 0;
-  font-size: 20px;
+  font-size: var(--text-xl);
   line-height: 28px;
   font-weight: 600;
   letter-spacing: -0.01em;
 }
 .sign-in-screen[data-mode='dialog'] .sign-in-title {
-  font-size: 16px;
+  font-size: var(--text-lg);
   line-height: 24px;
 }
 .sign-in-lead {
   max-width: 400px;
   margin: 0;
   color: var(--muted-foreground);
-  font-size: 13px;
+  font-size: var(--text-sm);
   line-height: 20px;
 }
 .sign-in-actions {
@@ -4243,11 +3857,11 @@ button.doc-task-chip[data-add] {
 .sign-in-region {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--space-2);
   min-height: 28px;
   margin: 0;
   color: var(--muted-foreground);
-  font-size: 12px;
+  font-size: var(--text-xs);
   line-height: 16px;
 }
 .sign-in-region svg,
@@ -4281,14 +3895,14 @@ button.doc-task-chip[data-add] {
   max-width: 400px;
   margin: 0;
   color: var(--muted-foreground);
-  font-size: 12px;
+  font-size: var(--text-xs);
   line-height: 16px;
 }
 .sign-in-meta {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 6px;
+  gap: var(--space-2);
 }
 .sign-in-dialog {
   padding-top: var(--space-8);
@@ -4308,7 +3922,7 @@ button.doc-task-chip[data-add] {
   align-items: center;
   gap: var(--space-2);
   min-width: 0;
-  height: 48px;
+  height: var(--row-height-lg);
   padding: 0 var(--space-2);
   border-radius: var(--radius-md);
   color: var(--foreground);
@@ -4325,10 +3939,10 @@ button.doc-task-chip[data-add] {
   justify-content: center;
   width: 28px;
   height: 28px;
-  border-radius: 999px;
+  border-radius: var(--radius-full);
   background: var(--secondary);
   color: var(--secondary-foreground);
-  font-size: 11px;
+  font-size: var(--text-2xs);
   line-height: 16px;
   font-weight: 600;
 }
@@ -4346,13 +3960,10 @@ button.doc-task-chip[data-add] {
   align-items: center;
   gap: var(--space-2);
   padding: var(--space-2);
-  font-size: 12px;
+  font-size: var(--text-xs);
   line-height: 16px;
   font-weight: 400;
   letter-spacing: 0;
-}
-.account-menu-switch-item > span:first-child {
-  display: none !important;
 }
 .account-menu-switch-item {
   height: 32px;
@@ -4406,9 +4017,9 @@ button.doc-task-chip[data-add] {
   width: 24px;
   height: 24px;
   border: 1px solid var(--border);
-  border-radius: 999px;
+  border-radius: var(--radius-full);
   color: var(--muted-foreground);
-  font-size: 12px;
+  font-size: var(--text-xs);
   font-weight: 600;
   font-variant-numeric: tabular-nums;
 }
@@ -4443,7 +4054,7 @@ button.doc-task-chip[data-add] {
   padding: var(--space-2) var(--space-3);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
-  font-size: 12px;
+  font-size: var(--text-xs);
   line-height: 16px;
 }
 .onboarding-managed p {
@@ -4467,10 +4078,10 @@ button.doc-task-chip[data-add] {
 /* "Setting up agents · 62%" in the sidebar footer while the runtime installs. */
 .onboarding-setup-progress {
   display: grid;
-  gap: 6px;
+  gap: var(--space-2);
   padding: var(--space-1) var(--space-2);
   color: var(--muted-foreground);
-  font-size: 11px;
+  font-size: var(--text-2xs);
   line-height: 16px;
 }
 
@@ -4490,26 +4101,25 @@ button.doc-task-chip[data-add] {
   top: 50%;
   right: var(--space-1);
   transform: translateY(-50%);
+  --overlay-fill: color-mix(in oklch, var(--foreground) 4%, var(--navigation));
   border-radius: var(--radius-sm);
-  background: color-mix(in oklch, var(--foreground) 4%, var(--navigation));
-  box-shadow: -8px 0 8px -2px color-mix(in oklch, var(--foreground) 4%, var(--navigation));
+  background: var(--overlay-fill);
+}
+/* The title fades out under the overlay. */
+.tree-row-overlay::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  right: 100%;
+  bottom: 0;
+  width: var(--space-2);
+  background: linear-gradient(to right, transparent, var(--overlay-fill));
+  pointer-events: none;
 }
 .tree-row.selected .tree-row-overlay {
-  background: color-mix(in oklch, var(--foreground) 7%, var(--navigation));
-  box-shadow: -8px 0 8px -2px color-mix(in oklch, var(--foreground) 7%, var(--navigation));
+  --overlay-fill: color-mix(in oklch, var(--foreground) 7%, var(--navigation));
 }
-/* Docs under a project: one closed row, then its pages one level deeper. */
-.tree-docs-chevron {
-  margin-left: auto;
-  color: var(--muted-foreground);
-  transition: transform var(--motion-fast);
-}
-.tree-docs-row:not(:hover, :focus-within) .tree-docs-chevron {
-  opacity: 0;
-}
-.tree-doc-row {
-  padding-left: calc(var(--space-2) + 40px);
-}
+
 .tree-new-project {
   justify-self: start;
   margin: var(--space-1) 0 0 var(--space-2);
@@ -4530,27 +4140,15 @@ button.doc-task-chip[data-add] {
   min-height: var(--control-md);
   padding-top: var(--space-3);
 }
-.project-toolbar:has(.project-toolbar-meta:empty):has(.project-toolbar-end:empty):not(
-    :has(.project-toolbar-board)
-  ) {
-  display: none;
-}
 .project-toolbar-start {
   display: flex;
   flex: 1 1 auto;
   align-items: center;
-  gap: 6px;
+  gap: var(--space-2);
   min-width: 0;
   color: var(--muted-foreground);
   font-size: var(--text-xs);
   line-height: 16px;
-}
-.project-toolbar-board {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  min-width: 0;
-  color: var(--foreground);
 }
 .project-toolbar-meta,
 .project-toolbar-end {
@@ -4568,12 +4166,12 @@ button.doc-task-chip[data-add] {
   justify-content: center;
   min-width: 16px;
   height: 16px;
-  margin-left: 6px;
+  margin-left: var(--space-2);
   padding: 0 4px;
-  border-radius: 999px;
+  border-radius: var(--radius-full);
   background: var(--warning);
   color: var(--warning-foreground, var(--background));
-  font-size: 11px;
+  font-size: var(--text-2xs);
   line-height: 16px;
   font-weight: 500;
   vertical-align: 1px;

@@ -227,6 +227,7 @@ export function ProjectOverview({
       />
       {!!groups.length && onTabChange && (
         <SegmentedControl
+          size="sm"
           className="project-overview-tabs"
           label="Projects view"
           value={shownTab}

@@ -270,7 +270,7 @@ export function TaskStartButton({
   always?: boolean;
 }) {
   return (
-    <Hint label="Start a chat on this task (S)">
+    <Hint label="Start a chat on this task" shortcut="S">
       <Button
         variant="outline"
         size="xs"
@@ -419,7 +419,7 @@ export function TaskCheckbox({
   tabIndex?: number;
 }) {
   return (
-    <Hint label="Select (Space)">
+    <Hint label="Select" shortcut="Space">
       <Checkbox
         className={className ? `tracker-task-select ${className}` : 'tracker-task-select'}
         aria-label={`Select ${item.title}`}
@@ -626,7 +626,7 @@ function TaskRowMenu({
       <DropdownMenuTrigger asChild>
         <MoreButton size="xs" className="tracker-task-menu" label={`Task menu: ${item.title}`} />
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="min-w-48">
+      <DropdownMenuContent align="end">
         <DropdownMenuItem onSelect={() => onOpen(item)}>
           <PanelRight className="size-4" />
           Open task

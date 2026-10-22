@@ -93,26 +93,28 @@ function NotificationItem({ api, open }: { api: API; open: boolean }) {
     }
   }
   return (
-    <DropdownMenuCheckboxItem
-      checked={on}
-      // The switch shows the state. The check mark of the item does not show.
-      className="account-menu-switch-item pl-2"
-      aria-label="Tell me when an agent finishes or needs me"
-      title="Tell me when an agent finishes or needs me. Only when Kalkidan is in the background."
-      onSelect={(event) => {
-        event.preventDefault();
-        void toggle();
-      }}
-    >
-      <BellRing className="size-4" />
-      Notifications
-      <Switch
+    <Hint label="Tell me when an agent finishes or needs me. Only when Kalkidan is in the background.">
+      <DropdownMenuCheckboxItem
         checked={on}
-        tabIndex={-1}
-        aria-hidden="true"
-        className="pointer-events-none ml-auto"
-      />
-    </DropdownMenuCheckboxItem>
+        // The switch shows the state. The check mark of the item does not show.
+        indicator={false}
+        className="account-menu-switch-item"
+        aria-label="Tell me when an agent finishes or needs me"
+        onSelect={(event) => {
+          event.preventDefault();
+          void toggle();
+        }}
+      >
+        <BellRing className="size-4" />
+        Notifications
+        <Switch
+          checked={on}
+          tabIndex={-1}
+          aria-hidden="true"
+          className="pointer-events-none ml-auto"
+        />
+      </DropdownMenuCheckboxItem>
+    </Hint>
   );
 }
 
@@ -218,7 +220,7 @@ export function AccountMenu({ api }: { api: API }) {
               </Button>
             </DropdownMenuTrigger>
           </Hint>
-          <DropdownMenuContent side="top" align="end" className="account-menu-content w-72">
+          <DropdownMenuContent side="top" align="end" width="wide" className="account-menu-content">
             <NotificationItem api={api} open={open} />
             <DropdownMenuSeparator />
             <AppItems />
@@ -250,7 +252,7 @@ export function AccountMenu({ api }: { api: API }) {
             <ChevronsUpDown className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
           </button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent side="top" align="start" className="account-menu-content w-72">
+        <DropdownMenuContent side="top" align="start" width="wide" className="account-menu-content">
           <DropdownMenuLabel className="account-menu-header">
             <Avatar text={avatar} className="size-8" />
             <span className="min-w-0">

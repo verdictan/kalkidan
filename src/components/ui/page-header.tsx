@@ -1,31 +1,37 @@
 import type { ReactNode } from 'react';
 import { cn } from '@/lib/utils';
+import { Count } from './count';
 
-/** The title row of a management page: optional icon and eyebrow, title, subtitle, actions. */
+/**
+ * The header of a page. The title row is 32px high, so the 20/28 title is at the same y on
+ * every page, and the actions align with it. An optional 28px entity tile goes before the
+ * title: use it on entity pages, not on list pages. The 12/16 subtitle line is under the title.
+ * Set `reserveSubtitle` to keep its space when the subtitle is empty, so that the content
+ * below does not move. The header is 16px above the tabs or the content.
+ */
 export function PageHeader({
   icon,
-  eyebrow,
   title,
   subtitle,
+  reserveSubtitle = false,
   actions,
   className,
 }: {
+  /** An EntityIcon (28px). */
   icon?: ReactNode;
-  eyebrow?: ReactNode;
   title: ReactNode;
   subtitle?: ReactNode;
+  reserveSubtitle?: boolean;
   actions?: ReactNode;
   className?: string;
 }) {
+  const showSubtitle = Boolean(subtitle) || reserveSubtitle;
   return (
-    <header className={cn('page-header', className)}>
-      {icon}
-      <div className="page-header-text">
-        {eyebrow && <div className="page-header-eyebrow">{eyebrow}</div>}
-        <h1 className="page-title">{title}</h1>
-        {subtitle && <div className="page-subtitle">{subtitle}</div>}
-      </div>
+    <header className={cn('page-header', className)} data-icon={icon ? '' : undefined}>
+      {icon && <div className="page-header-icon">{icon}</div>}
+      <h1 className="page-title">{title}</h1>
       {actions && <div className="page-header-actions">{actions}</div>}
+      {showSubtitle && <div className="page-subtitle">{subtitle}</div>}
     </header>
   );
 }
@@ -51,7 +57,7 @@ export function SectionHeader({
     <div className={cn('section-header', className)} data-size={size}>
       <Heading className="section-title">
         {title}
-        {count !== undefined && <span className="section-count">{count}</span>}
+        {count !== undefined && <Count>{count}</Count>}
       </Heading>
       {actions && <div className="section-actions">{actions}</div>}
     </div>

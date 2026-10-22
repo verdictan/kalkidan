@@ -253,7 +253,7 @@ export function AddRepository({
                 <span>Project</span>
                 <Button
                   variant="bare"
-                  className="text-xs text-link hover:underline"
+                  className="text-xs text-link underline-offset-2 hover:underline"
                   disabled={busy}
                   onClick={() => setCreatingProject(true)}
                 >
@@ -397,7 +397,7 @@ export function AddRepository({
                           Is a repository missing?{' '}
                           <Button
                             variant="bare"
-                            className="text-xs text-link hover:underline"
+                            className="text-xs text-link underline-offset-2 hover:underline"
                             onClick={openAccountSettings}
                           >
                             Check your GitHub account in Preferences
@@ -567,10 +567,7 @@ function RadioList({
             tabIndex={option.value === focusable ? 0 : -1}
             disabled={disabled}
             title={option.label}
-            className={cn(
-              'list-box-row text-sm disabled:opacity-50',
-              option.description && 'items-start py-1.5',
-            )}
+            className={cn('list-box-row', option.description && 'items-start py-1.5')}
             onClick={() => onChange(option.value)}
             onKeyDown={(event) => move(event, index)}
           >
@@ -578,7 +575,7 @@ function RadioList({
             <span
               aria-hidden="true"
               className={cn(
-                'flex size-4 shrink-0 items-center justify-center rounded-full border border-[var(--border-strong,var(--border))] bg-background',
+                'flex size-4 shrink-0 items-center justify-center rounded-full border border-[var(--border-strong)] bg-background',
                 option.description && 'mt-0.5',
                 checked && 'border-primary bg-primary',
               )}

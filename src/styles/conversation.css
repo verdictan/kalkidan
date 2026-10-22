@@ -60,7 +60,7 @@
   max-width: 100%;
 }
 .chat-message-author {
-  font-size: 12px;
+  font-size: var(--text-xs);
   line-height: 16px;
   color: var(--muted-foreground);
   margin-bottom: 4px;
@@ -83,17 +83,17 @@
 /* Message bodies use .prose-ui for code, lists, quotes and links. Chat headings are
    smaller than page headings: h1 20/28, h2 16/24, h3 15/24. All are bold. */
 .prose-ui[data-variant='chat'] :where(h1) {
-  font-size: 20px;
+  font-size: var(--text-xl);
   line-height: 28px;
   margin: 24px 0 8px;
 }
 .prose-ui[data-variant='chat'] :where(h2) {
-  font-size: 16px;
+  font-size: var(--text-lg);
   line-height: 24px;
   margin: 20px 0 8px;
 }
 .prose-ui[data-variant='chat'] :where(h3) {
-  font-size: 16px;
+  font-size: var(--text-lg);
   line-height: 24px;
   font-weight: 600;
   margin: 16px 0 4px;
@@ -127,7 +127,7 @@
 }
 .chat-context-note {
   text-align: center;
-  font-size: 12px;
+  font-size: var(--text-xs);
   line-height: 16px;
   color: var(--muted-foreground);
   margin: 16px 0;
@@ -137,7 +137,7 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 12px;
+  font-size: var(--text-xs);
   line-height: 16px;
   color: var(--muted-foreground);
   margin: 12px 0;
@@ -180,11 +180,11 @@
   gap: 2px;
   max-width: 100%;
   height: var(--control-sm);
-  padding: 0 4px 0 10px;
-  border-radius: 9999px;
+  padding: 0 var(--space-1) 0 var(--space-2);
+  border-radius: var(--radius-full);
   background: var(--secondary);
   color: var(--secondary-foreground);
-  font-size: 12px;
+  font-size: var(--text-xs);
   line-height: 16px;
   font-weight: 500;
 }
@@ -197,7 +197,7 @@
   padding: 8px 8px 8px 12px;
   border-radius: var(--radius-lg);
   background: var(--muted);
-  font-size: 13px;
+  font-size: var(--text-sm);
   line-height: 20px;
 }
 .composer-notice > svg {
@@ -213,7 +213,7 @@
 /* The "@" picker. It opens above the caret in the composer. */
 .mention-picker {
   position: absolute;
-  z-index: 30;
+  z-index: var(--z-dropdown);
   width: min(380px, 100%);
   max-height: min(340px, 50vh);
   overflow-y: auto;
@@ -223,8 +223,8 @@
   background: var(--popover);
   color: var(--popover-foreground);
   box-shadow: var(--shadow-md);
-  font-size: 13px;
-  line-height: 18px;
+  font-size: var(--text-sm);
+  line-height: 20px;
 }
 .mention-picker-section + .mention-picker-section {
   margin-top: 4px;
@@ -234,7 +234,7 @@
 .mention-picker-heading {
   padding: 2px 8px;
   color: var(--muted-foreground);
-  font-size: 11px;
+  font-size: var(--text-2xs);
   font-weight: 500;
   line-height: 16px;
 }
@@ -255,13 +255,8 @@
   flex: 1 1 0;
   min-width: 0;
   color: var(--muted-foreground);
-  font-size: 12px;
+  font-size: var(--text-xs);
   text-align: right;
-}
-.mention-picker-empty {
-  padding: 2px 8px 4px;
-  color: var(--muted-foreground);
-  font-size: 12px;
 }
 /* A mention as a chip: in the composer and under a sent message. */
 .mention-chip {
@@ -275,15 +270,15 @@
   display: flex;
   flex-wrap: wrap;
   gap: 4px;
-  margin-top: 6px;
+  margin-top: var(--space-2);
 }
 .chat-mentions .mention-chip {
-  height: 22px;
+  height: 20px;
   padding: 0 8px;
-  border-radius: 9999px;
+  border-radius: var(--radius-full);
   background: var(--secondary);
   color: var(--secondary-foreground);
-  font-size: 12px;
+  font-size: var(--text-xs);
   line-height: 16px;
 }
 .chat-mention-inline {
@@ -317,12 +312,12 @@
   color: var(--destructive);
 }
 .chat-send-failure-title {
-  font-size: 13px;
+  font-size: var(--text-sm);
   line-height: 20px;
   font-weight: 600;
 }
 .chat-send-failure-body {
-  font-size: 12px;
+  font-size: var(--text-xs);
   line-height: 16px;
   color: var(--muted-foreground);
 }
@@ -330,7 +325,7 @@
 .agent-error-details {
   display: grid;
   gap: 4px;
-  font-size: 12px;
+  font-size: var(--text-xs);
   line-height: 16px;
   color: var(--muted-foreground);
 }
@@ -349,7 +344,7 @@
 .chat-sources-label {
   margin-right: 4px;
   color: var(--muted-foreground);
-  font-size: 12px;
+  font-size: var(--text-xs);
   line-height: 16px;
 }
 .composer-actions {
@@ -384,7 +379,7 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 6px 6px 6px 10px;
+  padding: var(--space-1) var(--space-1) var(--space-1) var(--space-3);
   border: 1px solid color-mix(in oklab, var(--warning) 45%, var(--border));
   border-radius: var(--radius-xl);
   background: var(--card);
@@ -399,14 +394,14 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  min-height: 36px;
+  min-height: var(--control-lg);
   margin: 0 0 8px;
   padding: 4px 4px 4px 12px;
   border: 1px solid var(--border);
   border-radius: var(--radius-xl);
   background: var(--card);
   color: var(--muted-foreground);
-  font-size: 12px;
+  font-size: var(--text-xs);
   line-height: 16px;
 }
 .run-changes-text {
@@ -447,7 +442,7 @@
   gap: 8px;
   height: 24px;
   border-radius: var(--radius-sm);
-  font-size: 12px;
+  font-size: var(--text-xs);
   line-height: 16px;
   color: var(--muted-foreground);
   text-align: left;
@@ -503,7 +498,7 @@ button.agent-step:hover {
   color: var(--destructive);
 }
 .agent-step-output {
-  padding: 4px 0 8px 22px;
+  padding: var(--space-1) 0 var(--space-2) var(--space-6);
 }
 
 .conversation-welcome {
@@ -512,7 +507,7 @@ button.agent-step:hover {
   flex-shrink: 0;
 }
 .conversation-welcome h3 {
-  font-size: 20px;
+  font-size: var(--text-xl);
   line-height: 28px;
   font-weight: 600;
   letter-spacing: -0.01em;
@@ -543,7 +538,7 @@ button.agent-step:hover {
     padding: 8px 0;
   }
   .conversation-welcome h3 {
-    font-size: 20px;
+    font-size: var(--text-xl);
     line-height: 28px;
   }
   .composer-dock {
@@ -561,14 +556,6 @@ button.agent-step:hover {
 .sidebar-github-connect {
   color: var(--foreground);
 }
-.sidebar-github {
-  flex-shrink: 0;
-  display: grid;
-  gap: var(--space-1);
-  border-top: 1px solid var(--border);
-  margin-top: var(--space-3);
-  padding-top: var(--space-3);
-}
 
 .session-menu-status {
   white-space: nowrap;
@@ -585,7 +572,7 @@ button.agent-step:hover {
   width: 100%;
   min-width: 0;
   min-height: var(--row-height);
-  font-size: 13px;
+  font-size: var(--text-sm);
   line-height: 20px;
   cursor: pointer;
 }
@@ -593,7 +580,7 @@ button.agent-step:hover {
   background: var(--surface-hover);
 }
 .commit-file-list .list-box-row:has(:focus-visible) {
-  box-shadow: inset 0 0 0 2px var(--focus-color);
+  box-shadow: var(--focus-ring-inset);
 }
 .commit-file-list input:focus-visible {
   outline: none;
@@ -608,13 +595,13 @@ button.agent-step:hover {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 12px;
+  font-size: var(--text-xs);
   line-height: 16px;
   color: var(--muted-foreground);
 }
 .commit-file-status {
   flex-shrink: 0;
-  font-size: 12px;
+  font-size: var(--text-xs);
   line-height: 16px;
   color: var(--muted-foreground);
 }
@@ -638,7 +625,7 @@ button.agent-step:hover {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 13px;
+  font-size: var(--text-sm);
   color: var(--muted-foreground);
   -webkit-app-region: no-drag;
 }
@@ -655,7 +642,7 @@ button.agent-step:hover {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 13px;
+  font-size: var(--text-sm);
   font-weight: 500;
   color: var(--foreground);
 }
@@ -681,8 +668,8 @@ button.agent-step:hover {
   min-width: 0;
   max-width: 32ch;
   padding: 0 6px;
-  border-radius: var(--radius-sm, 4px);
-  font-size: 12px;
+  border-radius: var(--radius-sm);
+  font-size: var(--text-xs);
   color: var(--muted-foreground);
   white-space: nowrap;
   -webkit-app-region: no-drag;
@@ -714,20 +701,20 @@ button.agent-step:hover {
   color: var(--destructive);
 }
 .policy-result-title {
-  font-size: 13px;
+  font-size: var(--text-sm);
   line-height: 20px;
   font-weight: 600;
 }
 .policy-result-body,
 .policy-result-note {
-  font-size: 12px;
+  font-size: var(--text-xs);
   line-height: 16px;
   color: var(--muted-foreground);
 }
 .policy-result-details {
   display: grid;
   gap: 4px;
-  font-size: 12px;
+  font-size: var(--text-xs);
   line-height: 16px;
 }
 .policy-result-details > div {
@@ -743,7 +730,7 @@ button.agent-step:hover {
   overflow-wrap: anywhere;
 }
 .policy-result-error {
-  font-size: 12px;
+  font-size: var(--text-xs);
   line-height: 16px;
   color: var(--destructive);
 }

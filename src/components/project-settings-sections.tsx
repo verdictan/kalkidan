@@ -319,12 +319,7 @@ export function ProjectGeneral({
             label="Remove project"
             help={`Kalkidan stops showing ${group.name}. All files stay on disk.`}
           >
-            <Button
-              variant="outline"
-              size="sm"
-              className="text-destructive hover:text-destructive"
-              onClick={onRemove}
-            >
+            <Button variant="destructive-outline" size="sm" onClick={onRemove}>
               Remove project…
             </Button>
           </SettingsRow>
@@ -392,7 +387,7 @@ export function ProjectCodeFolders({
                       <MoreHorizontal />
                     </Button>
                   </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end" className="w-52">
+                  <DropdownMenuContent align="end">
                     <DropdownMenuItem
                       className={menuDestructiveClass}
                       onSelect={() => onRemove(repo)}

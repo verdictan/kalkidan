@@ -224,7 +224,7 @@ export function TrackerProjectPicker({
             aria-label={`Available ${board}s`}
           >
             {loading ? (
-              <p role="status" className="list-box-row m-0 text-sm text-muted-foreground">
+              <p role="status" className="list-box-row m-0 text-muted-foreground">
                 Loading boards…
               </p>
             ) : (
@@ -238,7 +238,7 @@ export function TrackerProjectPicker({
                     aria-label={
                       project.number ? `${project.title} #${project.number}` : project.title
                     }
-                    className="list-box-row text-sm"
+                    className="list-box-row"
                     onClick={() => onChange(project.url)}
                   >
                     <span className="min-w-0 flex-1 truncate" title={project.title}>

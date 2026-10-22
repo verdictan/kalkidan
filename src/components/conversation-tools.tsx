@@ -425,12 +425,13 @@ export function ConversationTools({
                   <Hint
                     key={row.kind}
                     label={
-                      (selected
+                      selected
                         ? `Hide ${row.title}`
                         : row.kind === 'diff' && changeHint
                           ? changeHint
-                          : row.title) + (row.shortcut ? ` (${row.shortcut})` : '')
+                          : row.title
                     }
+                    shortcut={row.shortcut}
                   >
                     <button
                       type="button"

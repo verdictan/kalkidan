@@ -1659,7 +1659,7 @@ export function Conversation({
                       </Button>
                     </DropdownMenuTrigger>
                   </Hint>
-                  <DropdownMenuContent align="end" className="w-56">
+                  <DropdownMenuContent align="end">
                     {chatChanges > 0 && (
                       <DropdownMenuItem onSelect={openCommit}>Commit only…</DropdownMenuItem>
                     )}
@@ -1742,15 +1742,16 @@ export function Conversation({
                 >
                   Allow edits
                 </Button>
-                <Button
-                  variant="ghost"
-                  size="icon-sm"
-                  aria-label="Keep read only"
-                  title="Keep read only"
-                  onClick={() => setEditsRefused(false)}
-                >
-                  <X />
-                </Button>
+                <Hint label="Keep read only">
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
+                    aria-label="Keep read only"
+                    onClick={() => setEditsRefused(false)}
+                  >
+                    <X />
+                  </Button>
+                </Hint>
               </div>
             )}
             {taskId && taskNotice && (
@@ -1895,14 +1896,14 @@ export function Conversation({
                       </Button>
                     </DropdownMenuTrigger>
                   </Hint>
-                  <DropdownMenuContent align="start" className="w-60">
+                  <DropdownMenuContent align="start" width="wide">
                     {projectGroup && (
                       <DropdownMenuSub>
                         <DropdownMenuSubTrigger>
                           <FileText />
                           Doc page
                         </DropdownMenuSubTrigger>
-                        <DropdownMenuSubContent className="w-60">
+                        <DropdownMenuSubContent className="w-[var(--menu-width-wide)]">
                           {recentPages?.map((page) => (
                             <DropdownMenuItem key={page.id} onSelect={() => void attachDoc(page)}>
                               <FileText />
@@ -1968,7 +1969,7 @@ export function Conversation({
                         </Button>
                       </DropdownMenuTrigger>
                     </Hint>
-                    <DropdownMenuContent align="start" className="w-60">
+                    <DropdownMenuContent align="start" width="wide">
                       {folders.map((folder) => (
                         <DropdownMenuCheckboxItem
                           key={folder.id}
@@ -2050,7 +2051,7 @@ export function Conversation({
                   Sign in to send
                 </Button>
               ) : (
-                <Hint label={`Send (${enterToSend ? 'Enter' : sendShortcut})`}>
+                <Hint label="Send" shortcut={enterToSend ? 'Enter' : sendShortcut}>
                   <Button
                     className="composer-send rounded-full"
                     aria-label="Send"

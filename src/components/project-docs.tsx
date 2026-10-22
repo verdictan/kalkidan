@@ -582,7 +582,7 @@ function DocEditor({
                   <MoreButton label="Page actions" />
                 </DropdownMenuTrigger>
               </Hint>
-              <DropdownMenuContent align="end" className="min-w-[13rem]">
+              <DropdownMenuContent align="end">
                 <DropdownMenuItem onSelect={linkTask}>
                   <Link2 className="size-4" aria-hidden="true" />
                   Link a task
@@ -857,10 +857,7 @@ function PageRowMenu({
     <ContextMenu.Root>
       <ContextMenu.Trigger asChild>{children}</ContextMenu.Trigger>
       <ContextMenu.Portal>
-        <ContextMenu.Content
-          collisionPadding={menuCollisionPadding}
-          className={cn(menuContentClass, 'z-[70]')}
-        >
+        <ContextMenu.Content collisionPadding={menuCollisionPadding} className={menuContentClass}>
           {item('Add subpage', FilePlus, onSubpage)}
           {item('Move page…', FolderInput, onMove)}
           <ContextMenu.Separator className={menuSeparatorClass} />

@@ -165,7 +165,7 @@ function Composer({
                 <ChevronDown />
               </Button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="start" className="min-w-56">
+            <DropdownMenuContent align="start">
               <DropdownMenuRadioGroup value={repo?.id || ''} onValueChange={setRepoId}>
                 {repos.map((item) => (
                   <DropdownMenuRadioItem key={item.id} value={item.id}>
@@ -190,7 +190,7 @@ function Composer({
               <ChevronDown />
             </Button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="start" className="min-w-56">
+          <DropdownMenuContent align="start">
             <DropdownMenuRadioGroup
               value={agent}
               onValueChange={(value) => {
@@ -210,7 +210,7 @@ function Composer({
             </DropdownMenuRadioGroup>
           </DropdownMenuContent>
         </DropdownMenu>
-        <Hint label={`Start the chat (${keys})`}>
+        <Hint label="Start the chat" shortcut={keys}>
           <Button
             type="submit"
             size="icon-sm"
@@ -400,7 +400,7 @@ export function ProjectHomePage({
                   <ChevronDown />
                 </Button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="min-w-52">
+              <DropdownMenuContent align="end">
                 <DropdownMenuItem onSelect={onAddFolder}>
                   <FolderPlus className="size-4" />
                   Choose a folder…

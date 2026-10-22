@@ -296,7 +296,7 @@ export function SessionBrowser({
           <ChevronDown />
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="min-w-56">
+      <DropdownMenuContent align="start">
         {(agents.size > 1 || agent !== 'all') && (
           <>
             <DropdownMenuLabel>Agent</DropdownMenuLabel>

@@ -140,6 +140,7 @@ function ProjectHeader({
   return (
     <PageHeader
       className="project-header"
+      reserveSubtitle
       icon={
         <EntityIcon color={group.color ? projectColors[group.color] : undefined}>
           <Folder />

@@ -2336,7 +2336,8 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
           {navigationToggle}
           <div className="navigation-history" role="group" aria-label="Navigation history">
             <Hint
-              label={`Go back (${isMac ? shortcutLabel(['mod'], '[') : shortcutLabel(['alt'], '←')})`}
+              label="Go back"
+              shortcut={isMac ? shortcutLabel(['mod'], '[') : shortcutLabel(['alt'], '←')}
             >
               <Button
                 variant="ghost"
@@ -2349,7 +2350,8 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
               </Button>
             </Hint>
             <Hint
-              label={`Go forward (${isMac ? shortcutLabel(['mod'], ']') : shortcutLabel(['alt'], '→')})`}
+              label="Go forward"
+              shortcut={isMac ? shortcutLabel(['mod'], ']') : shortcutLabel(['alt'], '→')}
             >
               <Button
                 variant="ghost"
@@ -2693,7 +2695,7 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
                   <section className="page">
                     <PageHeader
                       icon={
-                        <EntityIcon size="lg">
+                        <EntityIcon>
                           <GitBranch />
                         </EntityIcon>
                       }
@@ -3117,8 +3119,7 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
                   </div>
                   <Button
                     type="button"
-                    variant="outline"
-                    className="text-destructive hover:text-destructive"
+                    variant="destructive-outline"
                     onClick={() => {
                       setModalError('');
                       setModal('remove');

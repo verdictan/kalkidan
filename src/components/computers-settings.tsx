@@ -287,7 +287,7 @@ export function HostRow({
               disabled={!!setup.busy}
             />
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-52">
+          <DropdownMenuContent align="end">
             <DropdownMenuItem onSelect={reconnect}>
               <RotateCw />
               Reconnect

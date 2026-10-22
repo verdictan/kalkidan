@@ -231,14 +231,15 @@ const openSession = (session: Session) =>
 
 function SessionLink({ session }: { session: Session }) {
   return (
-    <button
+    <Button
       type="button"
-      className="text-link max-w-full truncate"
+      variant="link"
+      className="max-w-full"
       title={session.title}
       onClick={() => openSession(session)}
     >
-      {session.title || 'Untitled chat'}
-    </button>
+      <span className="truncate">{session.title || 'Untitled chat'}</span>
+    </Button>
   );
 }
 

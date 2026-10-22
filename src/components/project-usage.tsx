@@ -313,7 +313,7 @@ export function ProjectUsageInsights({
                   <div className="grid min-w-0 flex-1 gap-0.5">
                     <button
                       type="button"
-                      className="truncate text-left text-[13px] leading-5 font-medium hover:underline"
+                      className="truncate text-left text-sm font-medium hover:underline"
                       onClick={() => openChat(chat.agent as Session['agent'], chat.sessionId)}
                     >
                       {title(chat.agent, chat.sessionId)}
@@ -365,14 +365,9 @@ export function ProjectUsageInsights({
           )}
           <p className="form-help m-0">
             {usageValuesNote} Requests until {fullTime(usage!.observedAt)}.{' '}
-            <button
-              type="button"
-              className="text-link"
-              disabled={busy}
-              onClick={() => void load(true)}
-            >
+            <Button type="button" variant="link" disabled={busy} onClick={() => void load(true)}>
               {busy ? 'Loading…' : 'Load again'}
-            </button>
+            </Button>
           </p>
         </>
       )}

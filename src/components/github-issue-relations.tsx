@@ -306,16 +306,17 @@ function RelationRow({
           {issue.title}
         </button>
       ) : (
-        <a
-          className="text-link inline-flex min-w-0 flex-1 items-center gap-1 text-sm"
-          href={issue.url}
-          target="_blank"
-          rel="noreferrer"
-          title="Not on this board. Opens on GitHub."
-        >
-          <span className="truncate">{issue.title}</span>
-          <ExternalLink className="size-3.5 shrink-0" aria-hidden="true" />
-        </a>
+        <Hint label="Not on this board. Opens on GitHub.">
+          <a
+            className="text-link underline-offset-2 hover:underline inline-flex min-w-0 flex-1 items-center gap-1 text-sm"
+            href={issue.url}
+            target="_blank"
+            rel="noreferrer"
+          >
+            <span className="truncate">{issue.title}</span>
+            <ExternalLink className="size-3.5 shrink-0" aria-hidden="true" />
+          </a>
+        </Hint>
       )}
       <Badge size="sm" variant={itemStateTone(issue.state)}>
         {itemStateLabel(issue.state)}

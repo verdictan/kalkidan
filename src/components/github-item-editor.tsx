@@ -258,7 +258,7 @@ export function ItemActionsMenu({
             <MoreButton size={size} label="Task actions" disabled={busy} />
           </DropdownMenuTrigger>
         </Hint>
-        <DropdownMenuContent align="end" className="min-w-48">
+        <DropdownMenuContent align="end">
           {items.map((entry) => {
             const reason = entry.disabled && entry.reason;
             // The issue items of the content editor have no icon. Close and reopen get one.

@@ -189,7 +189,7 @@ export function ToolSection({
 export function ExternalTextLink({ href, children }: { href: string; children: ReactNode }) {
   return (
     <a
-      className="text-link inline-flex items-center gap-1"
+      className="text-link underline-offset-2 hover:underline inline-flex items-center gap-1"
       href={href}
       target="_blank"
       rel="noreferrer"

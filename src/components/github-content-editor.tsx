@@ -9,13 +9,14 @@ import {
 } from 'react';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { Plus, X } from 'lucide-react';
+import { Plus } from 'lucide-react';
 import type { API } from '../types';
 import type { GitHubContentSnapshot, GitHubContentAction } from '../domain/github-content';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Textarea } from './ui/textarea';
 import { Badge } from './ui/badge';
+import { Tag } from './ui/tag';
 import { SectionHeader } from './ui/page-header';
 import { SegmentedControl } from './ui/segmented-control';
 import { Alert, AlertDescription } from './ui/alert';
@@ -37,7 +38,14 @@ import {
 type ReviewEvent = 'APPROVE' | 'REQUEST_CHANGES' | 'COMMENT';
 
 function ExternalAnchor({ node: _node, ...props }: ComponentProps<'a'> & { node?: unknown }) {
-  return <a {...props} className="text-link" target="_blank" rel="noreferrer" />;
+  return (
+    <a
+      {...props}
+      className="text-link underline-offset-2 hover:underline"
+      target="_blank"
+      rel="noreferrer"
+    />
+  );
 }
 function MarkdownBody({ children, empty }: { children: string; empty: string }) {
   return children.trim() ? (
@@ -137,22 +145,14 @@ function ChipList({
   return (
     <div className="flex flex-wrap items-center gap-1.5">
       {values.map((value) => (
-        <span
+        <Tag
           key={value.id}
-          className="inline-flex h-6 items-center gap-0.5 rounded-full border pr-0.5 pl-2 text-xs font-medium"
           style={value.style}
+          removeLabel={`Remove ${noun} ${value.name}`}
+          onRemove={disabled ? undefined : () => onRemove(value.name)}
         >
           {value.name}
-          <button
-            type="button"
-            className="inline-flex size-5 items-center justify-center rounded-full text-muted-foreground outline-none hover:bg-[var(--surface-hover)] hover:text-foreground focus-visible:shadow-[var(--focus-ring)] disabled:opacity-50"
-            aria-label={`Remove ${noun} ${value.name}`}
-            disabled={disabled}
-            onClick={() => onRemove(value.name)}
-          >
-            <X className="size-3" aria-hidden="true" />
-          </button>
-        </span>
+        </Tag>
       ))}
       {!values.length && disabled && <span className="text-sm text-muted-foreground">None</span>}
       {!disabled && (
@@ -496,7 +496,7 @@ export function GitHubContentEditor({
                     {time &&
                       (row.url ? (
                         <a
-                          className="text-link text-xs leading-4 text-muted-foreground"
+                          className="text-link underline-offset-2 hover:underline text-xs leading-4 text-muted-foreground"
                           href={row.url}
                           target="_blank"
                           rel="noreferrer"

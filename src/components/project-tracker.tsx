@@ -1382,7 +1382,7 @@ export function ProjectTrackerPanel({
           <ChevronDown aria-hidden="true" />
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="min-w-60">
+      <DropdownMenuContent align="end" width="wide">
         {planTools.map((name) => {
           const reason =
             name === 'iteration' && !hasIterationField
@@ -1488,7 +1488,7 @@ export function ProjectTrackerPanel({
               />
             </DropdownMenuTrigger>
           </Hint>
-          <DropdownMenuContent align="end" className="w-72">
+          <DropdownMenuContent align="end" width="wide">
             <DropdownMenuLabel className="truncate">
               {linkedProject.title}
               {linkedProject.number ? ` #${linkedProject.number}` : ''}
@@ -1588,7 +1588,7 @@ export function ProjectTrackerPanel({
       <span className="tracker-selection-count" role="status">
         {selectedVisible.length} selected
       </span>
-      <Hint label="Clear selection (Esc)">
+      <Hint label="Clear selection" shortcut="Esc">
         <Button
           variant="ghost"
           size="icon-xs"
@@ -1648,7 +1648,7 @@ export function ProjectTrackerPanel({
           <DropdownMenuTrigger asChild>
             <MoreButton size="sm" label="More actions for the selected tasks" />
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" side="top" className="min-w-56">
+          <DropdownMenuContent align="end" side="top">
             {moreTools.map((name) => (
               <DropdownMenuItem
                 key={name}
@@ -1813,7 +1813,7 @@ export function ProjectTrackerPanel({
         <PageHeader
           className="tracker-project-heading"
           icon={
-            <EntityIcon size="lg" color={group.color ? projectColors[group.color] : undefined}>
+            <EntityIcon color={group.color ? projectColors[group.color] : undefined}>
               <Folder />
             </EntityIcon>
           }
@@ -2311,7 +2311,7 @@ export function ProjectTrackerPanel({
                   size="sm"
                 />
               )}
-              <Hint label="Close (Esc)">
+              <Hint label="Close" shortcut="Esc">
                 <Button
                   variant="ghost"
                   size="icon-sm"
@@ -2435,7 +2435,7 @@ export function ProjectTrackerPanel({
                   <>
                     <GitPullRequest className="size-3.5 shrink-0 text-muted-foreground" />
                     <a
-                      className="text-link tabular-nums"
+                      className="text-link underline-offset-2 hover:underline tabular-nums"
                       href={taskPr.url}
                       target="_blank"
                       rel="noreferrer"
@@ -2746,15 +2746,16 @@ export function ProjectTrackerPanel({
                   <span className="truncate" title={whereText}>
                     {whereText}
                   </span>
-                  <button
+                  <Button
                     type="button"
-                    className="text-link shrink-0"
+                    variant="link"
+                    className="shrink-0"
                     aria-expanded={changing}
                     disabled={taskBusy}
                     onClick={() => setChanging((open) => !open)}
                   >
                     {changing ? 'Done' : 'Change'}
-                  </button>
+                  </Button>
                 </span>
               ) : (
                 <Button

@@ -509,14 +509,14 @@ export function SignInSteps({
       {!waiting && !settingUp && (
         <p className="sign-in-note">
           No account?{' '}
-          <button
+          <Button
             type="button"
-            className="text-link"
+            variant="link"
             disabled={!!preparing}
             onClick={() => void begin('register')}
           >
             Create one
-          </button>
+          </Button>
         </p>
       )}
       {!settingUp && (
@@ -591,7 +591,7 @@ function RegionMenu({
             <ChevronDown aria-hidden="true" />
           </button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="center" className="min-w-64">
+        <DropdownMenuContent align="center" width="wide">
           <DropdownMenuRadioGroup
             value={value || ''}
             onValueChange={(next) => onChange(next as Region)}
@@ -702,14 +702,14 @@ function AccountHelp({ api }: { api: API }) {
   return (
     <p className="sign-in-note sign-in-help" role="group" aria-label="Account help">
       <span>Did not get the verification email?</span>{' '}
-      <button type="button" className="text-link" onClick={() => open('verify')}>
+      <Button type="button" variant="link" onClick={() => open('verify')}>
         Send it again
-      </button>
+      </Button>
       <span aria-hidden="true"> · </span>
       <span>Cannot sign in?</span>{' '}
-      <button type="button" className="text-link" onClick={() => open('recover')}>
+      <Button type="button" variant="link" onClick={() => open('recover')}>
         Recover your account
-      </button>
+      </Button>
     </p>
   );
 }

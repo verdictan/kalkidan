@@ -8,7 +8,7 @@
   background: var(--muted);
   padding: 12px;
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: var(--text-xs);
   line-height: 20px;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
@@ -91,7 +91,7 @@
   min-width: 0;
   padding: 4px 8px;
   border-radius: var(--radius-sm);
-  font-size: 12px;
+  font-size: var(--text-xs);
   line-height: 16px;
   text-align: left;
   color: var(--muted-foreground);
@@ -102,7 +102,7 @@
 }
 .diff-file:focus-visible {
   outline: none;
-  box-shadow: inset 0 0 0 2px var(--focus-color);
+  box-shadow: var(--focus-ring-inset);
 }
 .diff-file[aria-current='true'] {
   background: var(--surface-selected);
@@ -118,7 +118,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 12px;
+  font-size: var(--text-xs);
   line-height: 16px;
   color: var(--muted-foreground);
 }
@@ -142,11 +142,11 @@
   flex-shrink: 0;
   flex-wrap: wrap;
   align-items: center;
-  gap: 4px;
-  min-height: 36px;
-  padding: 4px 8px;
+  gap: var(--space-1);
+  min-height: var(--control-lg);
+  padding: var(--space-1) var(--space-2);
   border-bottom: 1px solid var(--border);
-  font-size: 12px;
+  font-size: var(--text-xs);
   line-height: 16px;
   color: var(--muted-foreground);
 }
@@ -209,7 +209,7 @@
   display: grid;
   place-items: center;
   color: var(--muted-foreground);
-  font-size: 13px;
+  font-size: var(--text-sm);
 }
 
 .agent-panes.has-side-chat {
@@ -342,10 +342,10 @@
   min-width: 16px;
   height: 16px;
   padding: 0 4px;
-  border-radius: 9999px;
+  border-radius: var(--radius-full);
   background: var(--muted);
   color: var(--foreground);
-  font-size: 11px;
+  font-size: var(--text-2xs);
   line-height: 16px;
   font-variant-numeric: tabular-nums;
 }

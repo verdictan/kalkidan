@@ -646,7 +646,7 @@ export function ProjectTree({
       {groups.length > 0 && (
         <div className="tree-heading tree-projects-heading">
           <h2 className="sidebar-label">Your projects</h2>
-          <Hint label={`New project (${shortcutLabel(['mod', 'shift'], 'N')})`}>
+          <Hint label="New project" shortcut={shortcutLabel(['mod', 'shift'], 'N')}>
             <Button
               variant="ghost"
               size="icon-xs"

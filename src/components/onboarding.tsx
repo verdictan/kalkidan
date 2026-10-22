@@ -458,13 +458,9 @@ export function Onboarding({
                   {phase !== 'authorizing' && phase !== 'expired' && (
                     <span className="text-xs leading-4 text-muted-foreground">
                       No account?{' '}
-                      <button
-                        type="button"
-                        className="text-link"
-                        onClick={() => startSignIn('register')}
-                      >
+                      <Button type="button" variant="link" onClick={() => startSignIn('register')}>
                         Create one
-                      </button>
+                      </Button>
                     </span>
                   )}
                 </div>
@@ -484,14 +480,15 @@ export function Onboarding({
                     <Button disabled={importing} onClick={() => void chooseCodeFolder()}>
                       <FolderOpen /> {importing ? 'Adding code folders…' : 'Open a code folder…'}
                     </Button>
-                    <button
+                    <Button
                       type="button"
-                      className="text-link text-xs"
+                      variant="link"
+                      className="text-xs"
                       disabled={importing}
                       onClick={() => setCreating(true)}
                     >
                       Start with an empty project
-                    </button>
+                    </Button>
                   </div>
                 ) : (
                   <div className="flex flex-wrap items-center gap-2">
@@ -650,7 +647,7 @@ function FolderMenu({
           <ChevronDown />
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="max-h-72 min-w-48">
+      <DropdownMenuContent align="start" className="max-h-72">
         {groups.map((group, index) => (
           <DropdownMenuRadioGroup
             key={group.id}

@@ -856,7 +856,7 @@ export function CommitDialog({
               {result.commit ? `Committed ${result.commit.slice(0, 7)}.` : 'No new commit.'}{' '}
               {result.url && (
                 <a
-                  className="text-link inline-flex items-center gap-1"
+                  className="text-link underline-offset-2 hover:underline inline-flex items-center gap-1"
                   href={result.url}
                   target="_blank"
                   rel="noreferrer"
