@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, newChat, openSettings, settingsDialog } from './helpers/app';
 import { openTool } from './helpers/tools';
 import { openCodeFolder } from './helpers/navigation';
 test('dark desktop workflow preserves drafts across resizable tool panes and the launcher', async ({
@@ -9,10 +9,12 @@ test('dark desktop workflow preserves drafts across resizable tool panes and the
   await expect(page.getByRole('heading', { name: 'Projects', level: 1 })).toBeVisible();
   await expect(page.locator('html')).toHaveClass('dark');
   await page.screenshot({ animations: 'disabled', path: 'test-results/reference-projects.png' });
-  await page.getByRole('button', { name: 'Settings', exact: true }).click();
+  await openSettings(page);
   await page.screenshot({ animations: 'disabled', path: 'test-results/reference-settings.png' });
-  // Settings is a page. Go back returns to Projects.
-  await page.getByRole('button', { name: 'Go back', exact: true }).click();
+  // Settings is a dialog above the page. Escape closes it and Projects shows again.
+  await page.keyboard.press('Escape');
+  await expect(settingsDialog(page)).toHaveCount(0);
+  await expect(page.getByRole('heading', { name: 'Projects', level: 1 })).toBeVisible();
   await page.getByRole('main').getByRole('button', { name: 'New project', exact: true }).click();
   await expect(page.getByRole('dialog')).toBeVisible();
   await page.screenshot({
@@ -23,7 +25,7 @@ test('dark desktop workflow preserves drafts across resizable tool panes and the
   await page.locator('.project-tree').getByRole('button', { name: 'Atlas', exact: true }).click();
   await page.screenshot({ animations: 'disabled', path: 'test-results/reference-board.png' });
   await openCodeFolder(page);
-  await page.getByRole('button', { name: 'New Codex chat', exact: true }).click();
+  await newChat(page);
   await page.getByLabel('Message agent').fill('Keep this plan while I inspect the app.');
   await page.screenshot({
     animations: 'disabled',

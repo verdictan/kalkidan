@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './helpers/app';
 
 test('sidebar hides verified connections and restores the action when access is lost', async ({
   page,
@@ -31,7 +31,12 @@ test('sidebar hides verified connections and restores the action when access is 
   await expect(page.getByRole('heading', { name: 'Projects', level: 1 })).toBeVisible();
   const button = page.locator('.sidebar-github-connect');
   await expect(button).toHaveCount(0);
-  await expect(page.getByRole('button', { name: 'Settings', exact: true })).toBeVisible();
+  // The footer keeps the Settings and help menu.
+  await expect(
+    page
+      .getByRole('navigation', { name: 'Projects and repositories' })
+      .getByRole('button', { name: 'Settings and help', exact: true }),
+  ).toBeVisible();
   await page.evaluate(() => {
     (window as any).access = 'idle';
     window.dispatchEvent(new Event('focus'));

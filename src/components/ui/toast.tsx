@@ -88,7 +88,8 @@ export function Toaster({ className }: { className?: string }) {
   return (
     <div
       className={cn(
-        'pointer-events-none fixed right-4 bottom-4 z-50 flex w-[min(420px,calc(100vw-2rem))] flex-col items-end gap-2',
+        // Above the dialogs (z-50), so a toast with Undo stays usable while a dialog shows.
+        'pointer-events-none fixed right-4 bottom-4 z-[60] flex w-[min(420px,calc(100vw-2rem))] flex-col items-end gap-2',
         className,
       )}
     >
@@ -96,8 +97,8 @@ export function Toaster({ className }: { className?: string }) {
       <div className="sr-only" aria-live="polite">
         {list
           .filter((item) => item.tone !== 'error')
-          .map((item) => item.message)
-          .join('. ')}
+          .map((item) => item.message.trim().replace(/([^.!?])$/, '$1.'))
+          .join(' ')}
       </div>
       {list.map((item) => (
         <div

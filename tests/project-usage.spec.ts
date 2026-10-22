@@ -1,4 +1,5 @@
-import { test, expect, type Page } from '@playwright/test';
+import { type Page } from '@playwright/test';
+import { test, expect } from './helpers/app';
 
 /** Opens a page of the Atlas project from the sidebar. */
 async function openAtlas(page: Page, tab: 'Tasks' | 'Insights') {
@@ -146,10 +147,10 @@ test('Insights without a board show the managed-agent usage of the project chats
       { agent: 'claude', sessionId: 'subscription' },
     ],
   ]);
-  // Load the usage again reads each chat again, and the old usage stays on the page.
+  // Load again reads each chat again, and the old usage stays on the page.
   const before = calls.length;
   expect(calls.every((call: unknown[]) => call.length === 2)).toBe(true);
-  await usage.getByRole('button', { name: 'Load the usage again' }).click();
+  await usage.getByRole('button', { name: 'Load again', exact: true }).click();
   await expect.poll(() => page.evaluate(() => (window as any).usageCalls.length)).toBe(before + 1);
   expect((await page.evaluate(() => (window as any).usageCalls)).at(-1)[2]).toEqual({
     fresh: true,
@@ -169,7 +170,14 @@ test('Insights tell when the usage history is unavailable or empty', async ({ pa
     usage.getByRole('heading', { name: 'Usage history is not available' }),
   ).toBeVisible();
   await expect(usage.getByText('Managed agents are not ready.', { exact: true })).toBeVisible();
-  await expect(usage.getByRole('button', { name: 'Open managed agent settings' })).toBeVisible();
+  // An error without a managed code offers one action: Try again, which reads each chat again.
+  await expect(usage.getByRole('button', { name: 'Open Settings' })).toHaveCount(0);
+  const before = await page.evaluate(() => (window as any).usageCalls.length);
+  await usage.getByRole('button', { name: 'Try again', exact: true }).click();
+  await expect.poll(() => page.evaluate(() => (window as any).usageCalls.length)).toBe(before + 1);
+  expect((await page.evaluate(() => (window as any).usageCalls)).at(-1)[2]).toEqual({
+    fresh: true,
+  });
 });
 
 test('Insights tell when the project chats have no managed requests', async ({ page }) => {

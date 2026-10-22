@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './helpers/app';
 test('GitHub inspector edits fields, retains a failed draft, and restores archived items', async ({
   page,
 }) => {

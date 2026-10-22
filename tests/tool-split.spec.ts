@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, newChat } from './helpers/app';
 import { openTool } from './helpers/tools';
 import { openCodeFolder } from './helpers/navigation';
 test('tool pane resizes, keeps the composer visible, and preserves independent tabs', async ({
@@ -7,7 +7,7 @@ test('tool pane resizes, keeps the composer visible, and preserves independent t
   await page.goto('/');
   await page.setViewportSize({ width: 1440, height: 1000 });
   await openCodeFolder(page);
-  await page.getByRole('button', { name: 'New Codex chat', exact: true }).click();
+  await newChat(page);
   await page.getByLabel('Message agent').fill('Keep this draft');
   // The title bar shows the session tools with their names.
   const sessionTools = page.getByRole('group', { name: 'Session tools', exact: true });
@@ -97,7 +97,7 @@ test('browser menu exposes working find, device, history, settings, and data con
   });
   await page.goto('/');
   await openCodeFolder(page);
-  await page.getByRole('button', { name: 'New Codex chat' }).click();
+  await newChat(page);
   await openTool(page, 'Browser');
   await page.getByRole('button', { name: 'Open preview' }).click();
   const menu = () => page.getByRole('button', { name: 'Browser menu' }).click();
@@ -130,8 +130,10 @@ test('browser menu exposes working find, device, history, settings, and data con
   await page.keyboard.press('Escape');
   await menu();
   await page.getByRole('menuitem', { name: 'Browser settings' }).click();
-  await page.getByLabel('Home page').fill('https://example.com/');
-  await page.getByRole('button', { name: 'Save browser settings' }).click();
+  const browserSettings = page.getByRole('dialog', { name: 'Browser settings', exact: true });
+  await browserSettings.getByLabel('Home page').fill('https://example.com/');
+  await browserSettings.getByRole('button', { name: 'Save', exact: true }).click();
+  await expect(browserSettings.getByRole('status')).toContainText('Home page saved');
   await expect
     .poll(() =>
       page.evaluate(() =>

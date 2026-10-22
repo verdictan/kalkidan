@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './helpers/app';
 import { openProjectTab } from './helpers/navigation';
 
 test('Memory follows Docs in the project tabs and opens a read-only project page', async ({
@@ -28,10 +28,12 @@ test('Memory follows Docs in the project tabs and opens a read-only project page
   await expect(panel.getByRole('article', { name: 'Authentication' })).toBeVisible();
   await expect(panel.getByRole('textbox')).toHaveCount(0);
   await docs.click();
-  await expect(page.getByRole('complementary', { name: 'Document pages' })).toBeVisible();
+  await expect(docs).toHaveAttribute('aria-current', 'page');
+  // A project without pages shows the empty Docs page and no page list.
+  await expect(page.getByRole('heading', { name: 'No docs yet' })).toBeVisible();
 });
 
-test('Memory renders agent files and refreshes changes without editing controls', async ({
+test('Memory renders agent files and refreshes changes without open edit fields', async ({
   page,
 }) => {
   await page.addInitScript(() => {
@@ -85,7 +87,11 @@ test('Memory renders agent files and refreshes changes without editing controls'
   });
   await page.getByRole('button', { name: 'Refresh memory' }).click();
   await expect(panel).toContainText('Run npm test and lint.');
-  await expect(panel.locator('textarea, input, [contenteditable="true"]')).toHaveCount(0);
+  // The entries are not edit fields. The one field is Search memory. An entry form opens only
+  // from Add entry or Edit.
+  await expect(panel.locator('textarea, [contenteditable="true"]')).toHaveCount(0);
+  await expect(panel.locator('input')).toHaveCount(1);
+  await expect(panel.getByRole('searchbox', { name: 'Search memory' })).toBeVisible();
   await page.setViewportSize({ width: 757, height: 988 });
   await expect(panel.getByRole('heading', { name: 'Test conventions' })).toBeVisible();
 });

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { Brain, FileText, Pencil, Plus, Trash2 } from 'lucide-react';
+import { Brain, FileText, Pencil, Plus, RefreshCw, Trash2 } from 'lucide-react';
 import { Button } from './ui/button';
 import { Alert, AlertDescription } from './ui/alert';
 import { EmptyState } from './ui/empty-state';
@@ -430,6 +430,18 @@ export function ProjectMemoryPanel({
               onChange={(event) => setQuery(event.target.value)}
             />
           )}
+          {/* Refresh is in the tab toolbar, next to the other memory actions. */}
+          <Hint label="Refresh memory">
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              aria-label="Refresh memory"
+              disabled={state.status === 'loading' || state.status === 'refreshing'}
+              onClick={() => void refresh()}
+            >
+              <RefreshCw />
+            </Button>
+          </Hint>
           <Button
             size="sm"
             disabled={busy}

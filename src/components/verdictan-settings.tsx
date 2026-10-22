@@ -12,7 +12,7 @@ import {
 } from '../domain/verdictan';
 import type { ComponentUpdateStatus } from '../domain/updates';
 import { checkAgentVersion, nativeAgentKind } from '../domain/agent-version';
-import { agentProgramAnchor, agentComputerAnchor } from '../domain/agent-programs';
+import { agentProgramAnchor } from '../domain/agent-programs';
 import { useRefreshTriggers } from '../hooks/use-refresh-triggers';
 import { notifyUpdatesChanged } from '../hooks/use-update-status';
 import {
@@ -237,26 +237,33 @@ export function runtimeView(runtime: RuntimeState) {
 export function RuntimeControl({ runtime, name }: { runtime: RuntimeState; name: string }) {
   const view = runtimeView(runtime);
   const { status, busy, action } = runtime;
+  // An install that waits for the active work to stop can also be canceled.
+  const cancel = (
+    <Button
+      variant="ghost"
+      size="sm"
+      aria-label={`Cancel the install on ${name}`}
+      disabled={
+        busy ||
+        ['activating', 'validating', 'rolling-back'].includes(status?.operation?.phase || '')
+      }
+      onClick={() => void action('runtimeUpdateCancel')}
+    >
+      Cancel
+    </Button>
+  );
   return (
     <>
       <StatusBadge status={view.label} />
       {view.waitingForIdle ? (
-        <Button size="sm" disabled={busy} onClick={() => void action('runtimeUpdateInstall')}>
-          Finish install
-        </Button>
+        <>
+          <Button size="sm" disabled={busy} onClick={() => void action('runtimeUpdateInstall')}>
+            Finish install
+          </Button>
+          {cancel}
+        </>
       ) : view.running ? (
-        <Button
-          variant="ghost"
-          size="sm"
-          aria-label={`Cancel the install on ${name}`}
-          disabled={
-            busy ||
-            ['activating', 'validating', 'rolling-back'].includes(status?.operation?.phase || '')
-          }
-          onClick={() => void action('runtimeUpdateCancel')}
-        >
-          Cancel
-        </Button>
+        cancel
       ) : view.failure ? (
         <Button
           variant="outline"
@@ -752,6 +759,10 @@ function agentRowState(
   account: VerdictanStatus | undefined,
   setup: VerdictanSetup | undefined,
   program: AgentInstallation | undefined,
+  /** True when the account read failed. The row then does not stay at "Checking…". */
+  readFailed = false,
+  /** True when the setup read failed. The row then does not stay at "Checking…". */
+  setupFailed = false,
 ): AgentRowState {
   const name = managedAgentNames[agent];
   const kind = nativeAgentKind(agent)!;
@@ -770,6 +781,12 @@ function agentRowState(
         action: 'programs',
       };
   }
+  if (!account && readFailed)
+    return {
+      status: { label: 'Not set up', tone: 'muted' },
+      help: 'Kalkidan could not read the account status.',
+      action: 'none',
+    };
   if (!account)
     return { status: { label: 'Checking…', tone: 'secondary' }, help: '', action: 'none' };
   if (account.phase !== 'authenticated')
@@ -780,6 +797,12 @@ function agentRowState(
           ? 'Your session ended. Sign in again.'
           : 'Sign in to use managed agents.',
       action: 'sign-in',
+    };
+  if (!setup && setupFailed)
+    return {
+      status: { label: 'Not set up', tone: 'muted' },
+      help: 'Kalkidan could not read the agent setup of your organization.',
+      action: 'none',
     };
   if (!setup)
     return { status: { label: 'Checking…', tone: 'secondary' }, help: '', action: 'none' };
@@ -822,6 +845,7 @@ export function AgentsSection({
   const status = account.status;
   const signedIn = status?.phase === 'authenticated';
   const [setup, setSetup] = useState<VerdictanSetup>();
+  const [setupFailed, setSetupFailed] = useState(false);
   const [programs, setPrograms] = useState<AgentInstallation[]>();
   const [sheet, setSheet] = useState<ManagedAgentKind>();
   const [programsOpen, setProgramsOpen] = useState(false);
@@ -829,7 +853,13 @@ export function AgentsSection({
     if (!signedIn) return;
     void Promise.resolve()
       .then(() => api.verdictanSetup())
-      .then(setSetup, () => {});
+      .then(
+        (value) => {
+          setSetup(value);
+          setSetupFailed(false);
+        },
+        () => setSetupFailed(true),
+      );
   }, [api, signedIn]);
   const readPrograms = useCallback(() => {
     void Promise.resolve()
@@ -851,7 +881,7 @@ export function AgentsSection({
       <SettingsRows label="Managed agents" className="outline-none">
         {agents.map((agent) => {
           const program = programs?.find((item) => item.agent === agent);
-          const state = agentRowState(agent, status, setup, program);
+          const state = agentRowState(agent, status, setup, program, !!account.error, setupFailed);
           return (
             <SettingsRow
               key={agent}
@@ -903,11 +933,7 @@ export function AgentsSection({
               </SettingsRow>
             );
           })}
-          <SettingsRow
-            id={agentComputerAnchor()}
-            label="Programs on SSH hosts"
-            help="Set them for each host in Computers."
-          >
+          <SettingsRow label="Programs on SSH hosts" help="Set them for each host in Computers.">
             <button type="button" className="text-link text-xs" onClick={onOpenComputers}>
               Open Computers
             </button>

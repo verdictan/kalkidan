@@ -108,6 +108,10 @@ function DesktopUpdateBanner({
         Restart
       </Button>
     );
+  } else if (update?.phase === 'restarting') {
+    // The app quits and opens the new version. No action is possible until then.
+    title = `Restarting Kalkidan ${version}…`;
+    help = 'Kalkidan opens again with the new version.';
   } else if (active) {
     title = `Downloading Kalkidan ${version}`;
     help =

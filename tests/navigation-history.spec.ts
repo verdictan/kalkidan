@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './helpers/app';
 import { openCodeFolder } from './helpers/navigation';
 
 test('titlebar history traverses boards, repositories and chats, preserves drafts and branches', async ({

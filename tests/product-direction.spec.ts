@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, newChat } from './helpers/app';
 import { openCodeFolder, openProjectTab } from './helpers/navigation';
 
 test('project creation is GitHub-backed without client fields or navigation', async ({ page }) => {
@@ -12,15 +12,29 @@ test('project creation is GitHub-backed without client fields or navigation', as
   await expect(dialog.getByRole('button', { name: 'Create project', exact: true })).toBeEnabled();
   await dialog.getByRole('button', { name: 'More options', exact: true }).click();
   await dialog.getByRole('button', { name: 'Connect now', exact: true }).click();
+  // The owner has one board, so the picker selects it at once.
+  const board = dialog.getByRole('button', { name: 'Atlas roadmap #1', exact: true });
+  await expect(board).toHaveAttribute('aria-pressed', 'true');
+  await expect(dialog.getByRole('button', { name: 'Create project', exact: true })).toBeEnabled();
+  // Without a board, Create project is not available.
+  await dialog.getByRole('button', { name: 'Use URL', exact: true }).click();
   await expect(dialog.getByRole('button', { name: 'Create project', exact: true })).toBeDisabled();
-  await dialog.getByRole('button', { name: 'Atlas roadmap #1', exact: true }).click();
+  await dialog.getByRole('button', { name: 'Choose existing', exact: true }).click();
+  await board.click();
+  await expect(board).toHaveAttribute('aria-pressed', 'true');
   await dialog.getByRole('button', { name: 'Create project', exact: true }).click();
   await expect(dialog).not.toBeVisible();
-  await expect(page.locator('.project-header')).toContainText('Atlas roadmap');
+  // The Tasks toolbar names the connected board.
+  await openProjectTab(page, 'Tasks');
+  await expect(page.locator('.project-toolbar-board')).toContainText('Atlas roadmap #1');
   await page.getByRole('button', { name: 'Manage project Platform' }).click();
   await page.getByRole('menuitem', { name: 'Rename…', exact: true }).click();
-  await expect(page.getByRole('dialog').getByLabel('Client label', { exact: true })).toHaveCount(0);
-  await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+  // Rename opens Project settings at the project name.
+  const settings = page.getByRole('dialog', { name: 'Project settings', exact: true });
+  await expect(settings.getByLabel('Project name', { exact: true })).toHaveValue('Platform');
+  await expect(settings.getByLabel('Client label', { exact: true })).toHaveCount(0);
+  await settings.getByRole('button', { name: 'Close', exact: true }).click();
+  await expect(settings).toHaveCount(0);
   await page.getByRole('button', { name: 'Projects', exact: true }).click();
   const overview = page.getByRole('region', { name: 'Project overview' });
   await expect(overview.getByRole('button', { name: 'Platform', exact: true })).toBeVisible();
@@ -180,11 +194,11 @@ test('task worktree cancellation keeps the task open and a created worktree beco
   // The branch field is filled from the task. An empty branch blocks the start.
   await expect(dialog.getByLabel('Task branch')).not.toHaveValue('');
   await dialog.getByLabel('Task branch').clear();
-  await expect(dialog.getByRole('button', { name: 'New Codex chat' })).toBeDisabled();
+  await expect(dialog.getByRole('button', { name: 'Start task with Codex' })).toBeDisabled();
   await dialog.getByLabel('Task branch').fill('feature/client-task');
-  await dialog.getByRole('button', { name: 'New Codex chat' }).click();
+  await dialog.getByRole('button', { name: 'Start task with Codex' }).click();
   await expect(dialog).toBeVisible();
-  await dialog.getByRole('button', { name: 'New Codex chat' }).click();
+  await dialog.getByRole('button', { name: 'Start task with Codex' }).click();
   await expect(dialog).not.toBeVisible();
   // The tool launcher names the session folder.
   await page.getByRole('button', { name: 'New tool tab', exact: true }).click();
@@ -205,7 +219,7 @@ test('general conversations can add task context later', async ({ page }) => {
   await page.getByRole('button', { name: 'Atlas roadmap #1', exact: true }).click();
   await page.getByRole('button', { name: 'Connect board', exact: true }).click();
   await openCodeFolder(page);
-  await page.getByRole('button', { name: 'New Codex chat', exact: true }).click();
+  await newChat(page);
   await page.getByLabel('Message agent').fill('General question');
   await expect(page.getByRole('button', { name: 'Send', exact: true })).toBeEnabled();
   await page.getByRole('button', { name: 'Link task', exact: true }).click();
@@ -265,7 +279,7 @@ test('project board moves tasks and starts work in the selected repository', asy
   await page.getByRole('button', { name: 'Connect board', exact: true }).click();
   const tasks = page.getByRole('region', { name: 'Project tracker', exact: true });
   await expect(tasks.getByRole('region', { name: 'Tracker board', exact: true })).toBeVisible();
-  await tasks.getByRole('button', { name: 'Move task: Build the project overview' }).click();
+  await tasks.getByRole('button', { name: 'Task menu: Build the project overview' }).click();
   await page.getByRole('menuitem', { name: 'Done', exact: true }).click();
   await expect(tasks.getByRole('region', { name: 'Done column', exact: true })).toContainText(
     'Build the project overview',
@@ -283,8 +297,10 @@ test('project board moves tasks and starts work in the selected repository', asy
   ).toContainText('atlas-web');
   // On main, a branch copy is the default. The preview has no Git, so work in the folder.
   await page.getByRole('radio', { name: 'In atlas-web on main', exact: true }).check();
-  await page.getByRole('button', { name: 'New Codex chat', exact: true }).click();
+  await page.getByRole('button', { name: 'Start task with Codex', exact: true }).click();
   await expect(page.getByLabel('Message agent')).toContainText('Build the project overview');
+  // A narrow chat trail hides the code folder. A wide window shows it.
+  await page.setViewportSize({ width: 1360, height: 960 });
   await expect(
     page.getByRole('navigation', { name: 'Breadcrumb' }).getByRole('button', { name: /atlas-web/ }),
   ).toBeVisible();

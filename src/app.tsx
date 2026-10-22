@@ -40,6 +40,7 @@ import {
   savePreferredAgent,
 } from './lib/agent-preference';
 import { trackerConnection } from './domain/tracker';
+import { settingsTarget, type SettingsSection } from './domain/settings-route';
 import {
   chatActionMenu,
   isChatCommand,
@@ -202,34 +203,6 @@ function writeStored(key: string, value: unknown) {
     /* The app starts on Projects next time. */
   }
 }
-type SettingsSection = 'general' | 'account' | 'agents' | 'computers' | 'about';
-const settingsNames: Record<string, SettingsSection> = {
-  general: 'general',
-  account: 'account',
-  accounts: 'account',
-  'managed-agents': 'account',
-  agents: 'agents',
-  computers: 'computers',
-  remote: 'computers',
-  'remote-hosts': 'computers',
-  updates: 'about',
-  about: 'about',
-};
-/** The Settings section for a request. The older section names and anchors still work. */
-function settingsSection(section = 'general', anchor = ''): SettingsSection {
-  if (anchor === 'verdictan-account' || anchor === 'verdictan-region') return 'account';
-  if (
-    anchor === 'managed-agent-setup' ||
-    anchor === 'settings-default-agent' ||
-    anchor === 'settings-agents' ||
-    anchor.startsWith('agent-')
-  )
-    return 'agents';
-  if (anchor === 'verdictan-runtime' || /^(computer|runtime|helper-update)-/.test(anchor))
-    return 'computers';
-  if (anchor === 'settings-about') return 'about';
-  return settingsNames[section] || 'general';
-}
 /** Removes the Electron IPC prefix from an error message. */
 function errorText(error: unknown) {
   return error instanceof Error
@@ -274,10 +247,15 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
     // A menu item is not a good return target: it is removed when its menu closes.
     const onFocus = (event: FocusEvent) => {
       const target = event.target;
-      if (
-        target instanceof HTMLElement &&
-        !target.closest('[role="menu"], [role="dialog"], [role="alertdialog"]')
-      )
+      if (!(target instanceof HTMLElement)) return;
+      // A menu button does not get the focus when it opens its menu. Keep the button instead.
+      const menu = target.closest('[role="menu"]');
+      const button = menu?.id
+        ? document.querySelector<HTMLElement>(`[aria-controls="${CSS.escape(menu.id)}"]`)
+        : null;
+      if (button && !button.closest('[role="dialog"], [role="alertdialog"]'))
+        lastFocus.current = button;
+      else if (!target.closest('[role="menu"], [role="dialog"], [role="alertdialog"]'))
         lastFocus.current = target;
     };
     document.addEventListener('focusin', onFocus);
@@ -316,7 +294,9 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
     if (!settingsOpenRef.current && dialogOpen())
       document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
     else if (!settingsOpenRef.current) rememberTrigger();
-    setSettings({ open: true, section: settingsSection(section, anchor), anchor });
+    // The domain maps the older section names and the anchors, as the dialog does.
+    const target = settingsTarget(section, anchor);
+    setSettings({ open: true, section: target.tab, anchor: target.anchor });
   }
   // The first-run Welcome screen: before the workspace, until the user signs in or skips it.
   const welcome = useWelcomeGate(api, preview);
@@ -2854,11 +2834,10 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
         onRefresh={refresh}
         onOpenChange={(open) => {
           setSettings((current) => ({ ...current, open }));
-          if (!open) {
-            returnFocus();
-            void reload();
-          }
+          if (!open) void reload();
         }}
+        // The menu item that opened Settings is gone. The focus returns to the menu button.
+        onCloseAutoFocus={restoreTriggerFocus}
       />
       <BoardSettingsHost
         api={api}

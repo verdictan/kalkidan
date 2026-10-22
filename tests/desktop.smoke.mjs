@@ -409,15 +409,14 @@ try {
       .getByRole('button', { name, exact: true })
       .click();
   };
+  // This test checks the workspace, not the first-run Welcome screen.
+  await page.evaluate(() => window.workspace.setWelcomeDone());
   await page.reload();
   // The sidebar shows projects and chats only. Open the code folder from the project overview.
   await page.locator('.project-tree .project-select').first().click();
   await page.locator('.project-home-open').first().click();
-  // The default agent is the first installed agent, so the label names Codex or Claude Code.
-  await page
-    .getByRole('button', { name: /^New (Codex|Claude Code) chat$/ })
-    .first()
-    .click();
+  // "New chat" starts a chat with the default agent, the first installed agent.
+  await page.getByRole('button', { name: 'New chat', exact: true }).first().click();
   await openTool('Browser');
   await page.getByLabel('Preview URL').fill(previewUrl);
   await page.getByRole('button', { name: 'Open preview', exact: true }).click();

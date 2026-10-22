@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './helpers/app';
 import { openProjectTab } from './helpers/navigation';
 
 test('board quick creation, issue inspector and status changes share the tracker state', async ({
@@ -23,7 +23,7 @@ test('board quick creation, issue inspector and status changes share the tracker
   );
   await create.getByLabel('Task title').fill('Polish the issue workflow');
   await create.getByLabel('Task description').fill('## Acceptance criteria\n- Keep GitHub in sync');
-  await create.getByRole('button', { name: 'Add to GitHub', exact: true }).click();
+  await create.getByRole('button', { name: 'Create task', exact: true }).click();
   const progress = board.getByRole('region', { name: 'In progress column', exact: true });
   await expect(
     progress.getByRole('button', { name: 'Polish the issue workflow', exact: true }),
@@ -36,6 +36,11 @@ test('board quick creation, issue inspector and status changes share the tracker
   await expect(detail.getByRole('combobox', { name: 'Task status', exact: true })).toContainText(
     'Done',
   );
+  // Previous task follows the board order: the task is now in Done, after In progress.
+  await detail.getByRole('button', { name: 'Previous task', exact: true }).click();
+  await expect(
+    detail.getByRole('heading', { name: 'Build the project overview', exact: true }),
+  ).toBeVisible();
   await detail.getByRole('button', { name: 'Previous task', exact: true }).click();
   await expect(
     detail.getByRole('heading', { name: 'Review authentication', exact: true }),
@@ -112,16 +117,14 @@ test('failed initial status leaves one created item available for a status retry
   await openProjectTab(page, 'Tasks');
   await page.getByRole('button', { name: 'New task in Building', exact: true }).click();
   await page.getByLabel('Task title').fill('Only create once');
-  await page.getByRole('button', { name: 'Add to GitHub', exact: true }).click();
+  await page.getByRole('button', { name: 'Create task', exact: true }).click();
   await expect(page.getByRole('dialog')).not.toBeVisible();
   await expect(page.getByRole('alert')).toContainText(
     'Task created, but its status could not be set',
   );
   const board = page.getByRole('region', { name: 'Tracker board', exact: true });
   await expect(board.getByRole('button', { name: 'Only create once', exact: true })).toHaveCount(1);
-  await board
-    .getByRole('button', { name: 'Move task: Only create once. Status: No status' })
-    .click();
+  await board.getByRole('button', { name: 'Task menu: Only create once', exact: true }).click();
   await page.getByRole('menuitem', { name: 'Building', exact: true }).click();
   await expect(
     board

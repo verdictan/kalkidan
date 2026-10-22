@@ -672,18 +672,21 @@ export function ProjectTree({
           </span>
           <span className="tree-label">Projects</span>
         </Button>
-        <Hint label="New project">
-          <Button
-            variant="ghost"
-            size="icon-xs"
-            className="tree-row-action"
-            disabled={busy}
-            aria-label="New project"
-            onClick={() => setCreating(true)}
-          >
-            <FolderPlus />
-          </Button>
-        </Hint>
+        {/* With no projects, the sidebar shows one labeled "New project" button below. */}
+        {groups.length > 0 && (
+          <Hint label="New project">
+            <Button
+              variant="ghost"
+              size="icon-xs"
+              className="tree-row-action"
+              disabled={busy}
+              aria-label="New project"
+              onClick={() => setCreating(true)}
+            >
+              <FolderPlus />
+            </Button>
+          </Hint>
+        )}
       </div>
       {onAllSessions && (
         <div

@@ -1,9 +1,11 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './helpers/app';
 test('right click sets matching project folder colors and resets them', async ({ page }) => {
   await page.setViewportSize({ width: 1276, height: 988 });
   await page.goto('/');
   const project = page.locator('.project-tree').getByRole('button', { name: 'Atlas', exact: true });
   await project.click({ button: 'right' });
+  // The colors are in the "Folder color" submenu.
+  await page.getByRole('menuitem', { name: 'Folder color', exact: true }).click();
   for (const name of ['Red', 'Yellow', 'Blue', 'Green', 'Indigo', 'Violet'])
     await expect(page.getByRole('menuitemradio', { name, exact: true })).toBeVisible();
   await page.getByRole('menuitemradio', { name: 'Violet', exact: true }).click();
@@ -11,6 +13,7 @@ test('right click sets matching project folder colors and resets them', async ({
   await expect(icon).toHaveCSS('color', 'rgb(192, 132, 252)');
   await expect(page.locator('.project-symbol')).toHaveCSS('color', 'rgb(192, 132, 252)');
   await project.click({ button: 'right' });
+  await page.getByRole('menuitem', { name: 'Folder color', exact: true }).click();
   await expect(page.getByRole('menuitemradio', { name: 'Violet', exact: true })).toHaveAttribute(
     'aria-checked',
     'true',

@@ -1,4 +1,5 @@
-import { test, expect, type Page } from '@playwright/test';
+import { type Page } from '@playwright/test';
+import { test, expect } from './helpers/app';
 
 /** Chooses an option of a Radix select. */
 async function choose(page: Page, label: string, option: string) {
@@ -9,10 +10,14 @@ async function choose(page: Page, label: string, option: string) {
 async function openTool(page: Page, tool: string, titles: string[]) {
   for (const title of titles)
     await page.getByRole('checkbox', { name: `Select ${title}`, exact: true }).check();
-  await page
-    .getByRole('toolbar', { name: 'Selected tasks' })
-    .getByRole('button', { name: tool, exact: true })
-    .click();
+  const bar = page.getByRole('toolbar', { name: 'Selected tasks' });
+  const button = bar.getByRole('button', { name: tool, exact: true });
+  // The frequent tools are buttons. The other tools are in the More menu.
+  if (await button.count()) await button.click();
+  else {
+    await bar.getByRole('button', { name: 'More', exact: true }).click();
+    await page.getByRole('menuitem', { name: tool, exact: true }).click();
+  }
 }
 /** Opens the Insights page of the project. */
 async function openInsights(page: Page) {
@@ -306,24 +311,24 @@ test('explicit Docs selection previews source text and relationships before issu
   await page.getByRole('button', { name: 'Plan', exact: true }).click();
   await page.getByRole('menuitem', { name: 'Create tasks from a doc…', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: 'Create tasks from a doc page' });
-  await dialog.getByRole('button', { name: 'Choose source document' }).click();
+  await dialog.getByRole('button', { name: 'Choose a page', exact: true }).click();
   await page.getByRole('option', { name: 'Launch guide', exact: true }).click();
-  const repository = dialog.getByRole('combobox', { name: 'Plan issue repository' });
+  const repository = dialog.getByRole('combobox', { name: 'GitHub repository' });
   if ((await repository.textContent())?.includes('org/repo') !== true)
-    await choose(page, 'Plan issue repository', 'org/repo');
+    await choose(page, 'GitHub repository', 'org/repo');
   await expect(repository).toContainText('org/repo');
-  const second = dialog.getByRole('group', { name: 'Issue 2', exact: true });
-  await second.getByRole('combobox', { name: 'Parent', exact: true }).click();
+  const second = dialog.getByRole('group', { name: 'Task 2', exact: true });
+  await second.getByRole('combobox', { name: 'Parent task', exact: true }).click();
   await page.getByRole('option', { name: '1. Implement service', exact: true }).click();
   await second.getByRole('checkbox', { name: '1. Implement service', exact: true }).check();
-  await dialog.getByRole('button', { name: 'Review 2 issues' }).click();
+  await dialog.getByRole('button', { name: 'Review 2 tasks' }).click();
   await expect(dialog).toContainText('Acceptance criteria B.');
-  await expect(dialog.getByRole('button', { name: 'Create 2 issues' })).toBeDisabled();
+  await expect(dialog.getByRole('button', { name: 'Create 2 tasks' })).toBeDisabled();
   expect(await page.evaluate(() => (window as any).planningWrites)).toEqual([]);
   await dialog
-    .getByRole('checkbox', { name: 'I checked the descriptions, the repository and the links.' })
+    .getByRole('checkbox', { name: 'I checked the descriptions, the repository and the links' })
     .check();
-  await dialog.getByRole('button', { name: 'Create 2 issues' }).click();
+  await dialog.getByRole('button', { name: 'Create 2 tasks' }).click();
   await expect(dialog.getByText('Created', { exact: true })).toHaveCount(2);
   const request = (await page.evaluate(() => (window as any).planningWrites))[0][2];
   expect(request.entries[1]).toMatchObject({

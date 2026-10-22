@@ -78,6 +78,7 @@ export function SettingsDialog({
   section = 'general',
   anchor,
   onRefresh,
+  onCloseAutoFocus,
 }: {
   api: API;
   open: boolean;
@@ -88,6 +89,8 @@ export function SettingsDialog({
   anchor?: string;
   /** Reads the projects again after an SSH host connects. */
   onRefresh?: () => Promise<void>;
+  /** Moves the focus when the dialog closes, for example back to the element that opened it. */
+  onCloseAutoFocus?: (event: Event) => void;
 }) {
   const target = settingsTarget(section, anchor);
   const [active, setActive] = useState<SettingsSection>(target.tab);
@@ -157,6 +160,7 @@ export function SettingsDialog({
         size="lg"
         className="settings-dialog gap-0 overflow-hidden p-0"
         aria-describedby="settings-dialog-description"
+        onCloseAutoFocus={onCloseAutoFocus}
         onOpenAutoFocus={(event) => {
           // The active section in the list gets the focus, so ↑ and ↓ work at once.
           event.preventDefault();

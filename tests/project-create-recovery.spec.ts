@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './helpers/app';
 test('reopening an uncertain project creation resumes its original request', async ({ page }) => {
   await page.addInitScript(() => {
     localStorage.setItem('kalkidan:onboarding:v1', 'dismissed');

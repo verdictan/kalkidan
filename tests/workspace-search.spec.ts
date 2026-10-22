@@ -1,12 +1,13 @@
-import { test, expect, type Page } from '@playwright/test';
+import { type Page } from '@playwright/test';
+import { test, expect } from './helpers/app';
 
 const sidebar = (page: Page) => page.locator('nav.library-panel');
-const palette = (page: Page) => page.getByRole('dialog', { name: 'Search or run' });
+const palette = (page: Page) => page.getByRole('dialog', { name: 'Search or run a command' });
 
 /** Opens the command palette from the sidebar trigger and returns its field. */
 async function openPalette(page: Page) {
-  await page.getByRole('button', { name: 'Search or run', exact: true }).click();
-  const input = page.getByLabel('Search projects and chats');
+  await page.getByRole('button', { name: 'Search or run a command', exact: true }).click();
+  const input = page.getByRole('combobox', { name: 'Search or run a command' });
   await expect(input).toBeFocused();
   return input;
 }
@@ -65,11 +66,11 @@ test('the palette is a centered modal dialog and the sidebar keeps its navigatio
 
 test('Mod+K opens the palette, Escape closes it and returns the focus', async ({ page }) => {
   await page.goto('/');
-  const trigger = page.getByRole('button', { name: 'Search or run', exact: true });
+  const trigger = page.getByRole('button', { name: 'Search or run a command', exact: true });
   await expect(trigger).toHaveAttribute('aria-haspopup', 'dialog');
   await trigger.focus();
   await page.keyboard.press('ControlOrMeta+k');
-  await expect(page.getByLabel('Search projects and chats')).toBeFocused();
+  await expect(page.getByRole('combobox', { name: 'Search or run a command' })).toBeFocused();
   // The dialog hides the rest of the window from assistive technology while it is open.
   await expect(page.locator('.search-trigger')).toHaveAttribute('aria-expanded', 'true');
   await page.keyboard.press('Escape');
@@ -172,8 +173,10 @@ test('search discards stale results and reports inaccessible or truncated transc
     };
   });
   await page.goto('/');
+  // The workspace shows after the first-run check. Then Mod+K opens the palette.
+  await expect(page.getByRole('button', { name: 'Search or run a command' })).toBeVisible();
   await page.keyboard.press('ControlOrMeta+k');
-  const input = page.getByLabel('Search projects and chats');
+  const input = page.getByRole('combobox', { name: 'Search or run a command' });
   await input.fill('needle');
   await page.waitForTimeout(350);
   await input.fill('other');

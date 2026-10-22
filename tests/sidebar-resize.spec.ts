@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './helpers/app';
 test('sidebar resizes, clamps, persists, and restores after collapse', async ({ page }) => {
   await page.setViewportSize({ width: 1100, height: 988 });
   await page.goto('/');

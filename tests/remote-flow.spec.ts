@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, newChat } from './helpers/app';
 import { openCodeFolder, openAddCodeFolders } from './helpers/navigation';
 
 test('remote project flow checks and installs the host, picks remote folders, and routes sessions remotely', async ({
@@ -85,7 +85,11 @@ test('remote project flow checks and installs the host, picks remote folders, an
     };
   });
   await page.goto('/');
-  await page.getByRole('main').getByRole('button', { name: 'New project', exact: true }).click();
+  // An empty overview offers a code folder or an empty project. A remote project starts empty.
+  await page
+    .getByRole('main')
+    .getByRole('button', { name: 'New empty project', exact: true })
+    .click();
   const dialog = page.getByRole('dialog', { name: 'New project', exact: true });
   await dialog.getByLabel('Project name', { exact: true }).fill('Remote platform');
   await dialog.getByRole('button', { name: 'More options', exact: true }).click();
@@ -126,7 +130,7 @@ test('remote project flow checks and installs the host, picks remote folders, an
   await add.getByRole('button', { name: 'Add remote folder', exact: true }).click();
   await openCodeFolder(page);
   await expect(page.getByText(/^SSH · Development · connected/)).toBeVisible();
-  await page.getByRole('button', { name: 'New Codex chat', exact: true }).click();
+  await newChat(page);
   await page.getByLabel('Message agent').fill('Inspect this repository');
   await page.getByRole('button', { name: 'Send', exact: true }).click();
   await expect(page.getByText('Working on the remote host.', { exact: true })).toBeVisible();

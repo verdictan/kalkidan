@@ -33,7 +33,8 @@ try {
   const memory = await rpc('project-memory', ['test', root, 'list']);
   assert.match(memory.pages[0].content, /Remote memory/);
   await assert.rejects(rpc('project-memory', ['other', root, 'list']), /another project/);
-  await assert.rejects(rpc('project-memory', ['test', root, 'save']), /Unknown memory operation/);
+  await assert.rejects(rpc('project-memory', ['test', root, 'rename']), /Unknown memory operation/);
+  await assert.rejects(rpc('project-memory', ['test', root, 'save']), /memory entry to save/);
   const listing = await rpc('directory-list', [root]);
   assert.equal(listing.path, root);
   assert.ok(listing.entries.some((entry) => entry.name === 'docs' && entry.kind === 'directory'));

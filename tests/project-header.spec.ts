@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './helpers/app';
 
 test('every project tab shows one header and the tab bar does not move', async ({ page }) => {
   await page.goto('/');
@@ -10,11 +10,14 @@ test('every project tab shows one header and the tab bar does not move', async (
     const tab = tabs.getByRole('button', { name, exact: true });
     await tab.click();
     await expect(tab).toHaveAttribute('aria-current', 'page');
-    // One project header on each tab, with the project name, the board line and settings.
+    // One fixed project header on each tab: the name, the counts, New chat, the project menu
+    // and settings.
     const header = page.locator('.project-header');
     await expect(header).toHaveCount(1);
     await expect(header.getByRole('heading', { name: 'Atlas', exact: true })).toBeVisible();
-    await expect(header).toContainText('No GitHub Projects board');
+    await expect(header).toContainText('3 code folders · 2 chats');
+    await expect(header.getByRole('button', { name: 'New chat', exact: true })).toBeVisible();
+    await expect(header.getByRole('button', { name: 'Project actions' })).toBeVisible();
     await expect(header.getByRole('button', { name: 'Project settings' })).toBeVisible();
     await expect(page.getByRole('main').locator('.page-header')).toHaveCount(1);
     const box = await tabs.boundingBox();

@@ -1,4 +1,5 @@
-import { test, expect, type Page } from '@playwright/test';
+import { type Page } from '@playwright/test';
+import { test, expect, newChat } from './helpers/app';
 import { openCodeFolder } from './helpers/navigation';
 
 /**
@@ -84,15 +85,10 @@ async function installWorkspace(page: Page, options: { remote: boolean; slow?: b
   }, options);
 }
 
-async function newChat(page: Page, agent: 'codex' | 'claude') {
+async function openNewChat(page: Page, agent: 'codex' | 'claude') {
   await page.goto('/');
   await openCodeFolder(page);
-  if (agent === 'codex')
-    await page.getByRole('button', { name: 'New Codex chat', exact: true }).click();
-  else {
-    await page.getByRole('button', { name: 'Choose an agent', exact: true }).click();
-    await page.getByRole('menuitem', { name: 'New Claude Code chat', exact: true }).click();
-  }
+  await newChat(page, agent);
   await expect(page.getByRole('region', { name: 'Chats', exact: true })).toBeVisible();
 }
 
@@ -102,7 +98,7 @@ for (const remote of [false, true])
       page,
     }) => {
       await installWorkspace(page, { remote });
-      await newChat(page, agent);
+      await openNewChat(page, agent);
       const composer = page.getByLabel('Message agent');
       await composer.fill('Reply OK.');
       await composer.press('Enter');
@@ -111,10 +107,12 @@ for (const remote of [false, true])
       await expect(message).toContainText('Reply OK.');
       await expect(message.getByRole('button', { name: 'Try again', exact: true })).toBeVisible();
       await expect(
-        message.getByRole('button', { name: 'Change agent', exact: true }),
+        message.getByRole('button', { name: 'Use another agent', exact: true }),
       ).toBeVisible();
       // The agent did not start, so the chat has no session. The card says that it is not saved.
-      const unsaved = message.getByText('This chat is not saved because the agent did not start.');
+      const unsaved = message.getByText('This chat is saved after the agent starts.', {
+        exact: false,
+      });
       await expect(unsaved).toBeVisible();
       expect(
         await page.evaluate(() => JSON.parse(localStorage.getItem('kalkidan-open-chats') || '[]')),
@@ -135,7 +133,7 @@ for (const remote of [false, true])
 
 test('text typed while a message sends stays in the composer after a refusal', async ({ page }) => {
   await installWorkspace(page, { remote: false, slow: true });
-  await newChat(page, 'claude');
+  await openNewChat(page, 'claude');
   const composer = page.getByLabel('Message agent');
   await composer.fill('Reply OK.');
   await composer.press('Enter');
@@ -149,7 +147,7 @@ test('text typed while a message sends stays in the composer after a refusal', a
 
 test('a send that fails before the transcript accepts it keeps the draft', async ({ page }) => {
   await installWorkspace(page, { remote: false });
-  await newChat(page, 'codex');
+  await openNewChat(page, 'codex');
   const composer = page.getByLabel('Message agent');
   // Whitespace only is not a message. Nothing is sent, and the text stays.
   await composer.fill('   ');

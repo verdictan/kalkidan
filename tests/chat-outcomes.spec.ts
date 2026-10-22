@@ -1,4 +1,5 @@
-import { test, expect, type Page } from '@playwright/test';
+import { type Page } from '@playwright/test';
+import { test, expect, newChat } from './helpers/app';
 import { openCodeFolder } from './helpers/navigation';
 
 const tree = (page: Page) => page.getByRole('navigation', { name: 'Projects and repositories' });
@@ -110,8 +111,8 @@ test('All chats and the project Chats tab filter failed and refused chats', asyn
 
 test('the command palette shows the failed dot of a chat', async ({ page }) => {
   await withOutcomes(page);
-  await page.getByRole('button', { name: 'Search or run', exact: true }).click();
-  const palette = page.getByRole('dialog', { name: 'Search or run' });
+  await page.getByRole('button', { name: 'Search or run a command', exact: true }).click();
+  const palette = page.getByRole('dialog', { name: 'Search or run a command' });
   await palette.getByRole('combobox').fill('Failed chat');
   await expect(palette.getByRole('img', { name: failedWords })).toBeVisible();
 });
@@ -149,7 +150,7 @@ test('a refused new chat stays a draft and shows the refused dot', async ({ page
   });
   await page.goto('/');
   await openCodeFolder(page);
-  await page.getByRole('button', { name: 'New Codex chat', exact: true }).click();
+  await newChat(page);
   const composer = page.getByLabel('Message agent');
   await composer.fill('Reply OK.');
   await composer.press('Enter');

@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './helpers/app';
 import { openCodeFolder } from './helpers/navigation';
 test('a failed pull request keeps the successful commit and retries only the pull request', async ({
   page,
@@ -82,10 +82,11 @@ test('a failed pull request keeps the successful commit and retries only the pul
   await page.getByRole('button', { name: 'Chat actions', exact: true }).click();
   await page.getByRole('menuitem', { name: 'Commit changes…', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: 'Commit changes' });
-  await dialog.getByRole('button', { name: 'Commit and open pull request' }).click();
+  await dialog.getByRole('button', { name: 'Commit and create pull request' }).click();
   await expect(dialog.getByRole('alert')).toContainText('GitHub unavailable');
   await expect(dialog.getByRole('status')).toContainText('Committed abcdef1.');
-  await dialog.getByRole('button', { name: 'Open pull request', exact: true }).click();
-  await expect(dialog.getByRole('link', { name: 'Open pull request' })).toBeVisible();
+  // The commit is done, so the retry only creates the pull request.
+  await dialog.getByRole('button', { name: 'Create pull request', exact: true }).click();
+  await expect(dialog.getByRole('link', { name: 'View pull request #1' })).toBeVisible();
   expect(await page.evaluate(() => (window as any).operations)).toEqual(['commit', 'pr', 'pr']);
 });

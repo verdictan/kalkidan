@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './helpers/app';
 test('project folder browser navigates, filters, handles errors and selects a validated folder', async ({
   page,
 }) => {

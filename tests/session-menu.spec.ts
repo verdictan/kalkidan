@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, openMoreChatActions } from './helpers/app';
 import { openCodeFolder } from './helpers/navigation';
 async function openSession(page: any) {
   await page.goto('/');
@@ -29,12 +29,18 @@ test('session actions rename, pin, fork, and open an independent side session', 
   ).toBeVisible();
   await menu();
   await expect(page.getByRole('menuitem', { name: /^Unpin/ })).toBeVisible();
+  // Duplicate chat and the side chat are in the "More" submenu.
+  await openMoreChatActions(page);
   await page.getByRole('menuitem', { name: 'Duplicate chat', exact: true }).hover();
-  await page.getByRole('menuitem', { name: 'Continue here' }).click();
+  await page.keyboard.press('ArrowRight');
+  // The keyboard opens the nested submenu. Its first item, Continue here, has the focus.
+  await expect(page.getByRole('menuitem', { name: 'Continue here' })).toBeFocused();
+  await page.keyboard.press('Enter');
   await expect(page.locator('.conversation-toolbar-title:visible')).toContainText(
     'Fork of Release review',
   );
   await menu();
+  await openMoreChatActions(page);
   await page.getByRole('menuitem', { name: /Open a second chat beside this one/ }).click();
   await expect(page.getByLabel('Message agent')).toHaveCount(3);
   await expect(page.getByRole('button', { name: 'Close side chat' })).toBeVisible();
@@ -56,6 +62,7 @@ test('archive closes the session at once and the toast can undo it', async ({ pa
 test('chat actions open the managed agent usage history of the chat', async ({ page }) => {
   await openSession(page);
   await page.getByRole('button', { name: 'Chat actions', exact: true }).click();
+  await openMoreChatActions(page);
   await page.getByRole('menuitem', { name: 'Usage history…' }).click();
   const dialog = page.getByRole('dialog', { name: 'Usage history' });
   await expect(dialog).toContainText('Verdictan keeps one history for chats and tasks.');
@@ -120,6 +127,7 @@ test('usage history loads on open and shows duration and subscription cost', asy
   await openCodeFolder(page);
   await page.getByRole('button', { name: 'Resume Review', exact: true }).click();
   await page.getByRole('button', { name: 'Chat actions', exact: true }).click();
+  await openMoreChatActions(page);
   await page.getByRole('menuitem', { name: 'Usage history…' }).click();
   const dialog = page.getByRole('dialog', { name: 'Usage history' });
   // The history loads without a button press.

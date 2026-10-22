@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './helpers/app';
 
 test('a configured non-GitHub provider drives project creation and a read-only board', async ({
   page,
@@ -60,7 +60,11 @@ test('a configured non-GitHub provider drives project creation and a read-only b
     };
   });
   await page.goto('/');
-  await page.getByRole('main').getByRole('button', { name: 'New project', exact: true }).click();
+  // The empty overview offers a code folder first and an empty project second.
+  await page
+    .getByRole('main')
+    .getByRole('button', { name: 'New empty project', exact: true })
+    .click();
   const dialog = page.getByRole('dialog', { name: 'New project', exact: true });
   await dialog.getByLabel('Project name', { exact: true }).fill('Platform');
   await dialog.getByRole('button', { name: 'More options', exact: true }).click();
@@ -90,24 +94,21 @@ test('project workflow mappings can be configured and reopened', async ({ page }
   const connect = page.getByRole('dialog');
   await connect.getByRole('button', { name: 'Atlas roadmap #1', exact: true }).click();
   await connect.getByRole('button', { name: 'Connect board', exact: true }).click();
-  await page.getByRole('button', { name: 'Board actions', exact: true }).click();
-  await page.getByRole('menuitem', { name: 'Automatic status changes…', exact: true }).click();
+  // Automatic status changes are a section of Project settings. A choice saves at once.
+  await page.getByRole('button', { name: 'Project settings', exact: true }).click();
   const workflow = page.getByRole('dialog', { name: 'Project settings', exact: true });
-  await expect(workflow.getByRole('tab', { name: 'Status automation' })).toHaveAttribute(
-    'aria-selected',
-    'true',
-  );
-  // Save is available only after a change.
-  await expect(workflow.getByRole('button', { name: 'Save', exact: true })).toBeDisabled();
+  await workflow.getByRole('tab', { name: 'Automatic status changes', exact: true }).click();
+  await expect(
+    workflow.getByRole('tab', { name: 'Automatic status changes', exact: true }),
+  ).toHaveAttribute('aria-selected', 'true');
   await workflow.getByRole('combobox', { name: 'Status when work starts' }).click();
   await page.getByRole('option', { name: 'In progress', exact: true }).click();
-  await workflow.getByRole('button', { name: 'Save', exact: true }).click();
-  // The settings dialog stays open. Save is not available again until the next change.
-  await expect(workflow.getByRole('button', { name: 'Save', exact: true })).toBeDisabled();
-  await workflow.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await expect(page.getByText('Automatic status changes saved.', { exact: true })).toBeVisible();
+  await workflow.getByRole('button', { name: 'Close', exact: true }).click();
   await expect(workflow).not.toBeVisible();
-  await page.getByRole('button', { name: 'Board actions', exact: true }).click();
-  await page.getByRole('menuitem', { name: 'Automatic status changes…', exact: true }).click();
+  // Reopened, the section shows the saved choice.
+  await page.getByRole('button', { name: 'Project settings', exact: true }).click();
+  await workflow.getByRole('tab', { name: 'Automatic status changes', exact: true }).click();
   await expect(workflow.getByRole('combobox', { name: 'Status when work starts' })).toContainText(
     'In progress',
   );

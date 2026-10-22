@@ -46,6 +46,7 @@ function DialogContent({
   size = 'md',
   layout = 'simple',
   onCloseAutoFocus,
+  onInteractOutside,
   ...props
 }: React.ComponentProps<typeof DialogPrimitive.Content> & {
   showCloseButton?: boolean;
@@ -92,6 +93,14 @@ function DialogContent({
           size === 'lg' && 'sm:max-w-[var(--dialog-lg)]',
           className,
         )}
+        onInteractOutside={(event) => {
+          onInteractOutside?.(event);
+          // A toast, for example "Saved" with Undo, shows above the dialog. Using it does not
+          // close the dialog.
+          const target = event.target;
+          if (target instanceof Element && target.closest('[data-slot="toast"]'))
+            event.preventDefault();
+        }}
         onCloseAutoFocus={(event) => {
           onCloseAutoFocus?.(event);
           if (event.defaultPrevented) return;

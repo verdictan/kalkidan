@@ -1,4 +1,5 @@
-import { test, expect, type Page } from '@playwright/test';
+import { type Page } from '@playwright/test';
+import { test, expect, settingsTab } from './helpers/app';
 import { openCodeFolder } from './helpers/navigation';
 
 /** Opens a Claude Code chat. `allowed` is the model list of the organization, if any. */
@@ -82,14 +83,19 @@ async function send(page: Page, text: string) {
   return page.evaluate(() => (window as any).requests.at(-1));
 }
 
+/** The radio items of the model group in the open Agent and model menu. */
+const modelItems = (page: Page) => page.getByRole('menu').getByRole('menuitemradio');
+
 test('one allowed model shows as a label with the reason', async ({ page }) => {
   await openChat(page, { model: 'sonnet', allowed: ['sonnet'] });
   await expect(page.getByRole('button', { name: 'More options', exact: true })).toHaveCount(0);
-  await expect(page.getByRole('combobox', { name: 'Model', exact: true })).toHaveCount(0);
-  const label = page.getByRole('note', { name: /^Model: Sonnet\./ });
-  await expect(label).toHaveText('Sonnet');
+  await expect(page.getByRole('button', { name: /^Agent and model:/ })).toHaveCount(0);
+  const label = page.getByRole('note', { name: /^Agent and model: Claude Code · Sonnet\./ });
+  await expect(label).toHaveText('Claude Code · Sonnet');
   await label.focus();
-  await expect(page.getByRole('tooltip')).toHaveText('Your organization sets the model.');
+  await expect(page.getByRole('tooltip')).toHaveText(
+    'Your organization sets the model. More models: Settings › Agents.',
+  );
   // The chat picks no model, so the setup model applies.
   expect((await send(page, 'Hello')).model).toBeUndefined();
 });
@@ -98,27 +104,25 @@ test('the model chip lists only the allowed models and marks the setup default',
   page,
 }) => {
   await openChat(page, { model: 'sonnet', allowed: ['sonnet', 'opus'] });
-  const chip = page.getByRole('combobox', { name: 'Model', exact: true });
-  await expect(chip).toHaveText('Sonnet');
+  const chip = page.getByRole('button', { name: /^Agent and model:/ });
+  await expect(chip).toHaveAccessibleName('Agent and model: Claude Code · Sonnet');
   await chip.click();
-  const options = page.getByRole('option');
-  await expect(options).toHaveText(['SonnetDefault', 'Opus']);
-  await page.getByRole('option', { name: 'Opus', exact: true }).click();
-  await expect(chip).toHaveText('Opus');
+  await expect(modelItems(page)).toHaveText(['SonnetDefault', 'Opus']);
+  await page.getByRole('menuitemradio', { name: 'Opus', exact: true }).click();
+  await expect(chip).toHaveAccessibleName('Agent and model: Claude Code · Opus');
   expect((await send(page, 'Use Opus')).model).toBe('opus');
+  // Manage models… opens Settings › Agents, where each agent has its default model.
+  await chip.click();
+  await page.getByRole('menuitem', { name: 'Manage models…', exact: true }).click();
+  await expect(settingsTab(page, 'Agents')).toHaveAttribute('aria-selected', 'true');
 });
 
 test('without managed setup, the chip keeps the agent models', async ({ page }) => {
   await openChat(page, {});
-  const chip = page.getByRole('combobox', { name: 'Model', exact: true });
-  await expect(chip).toHaveText('Claude Code · Default');
+  const chip = page.getByRole('button', { name: /^Agent and model:/ });
+  await expect(chip).toHaveAccessibleName('Agent and model: Claude Code · Default');
   await chip.click();
-  await expect(page.getByRole('option')).toHaveText([
-    'Claude Code · Default',
-    'Sonnet',
-    'Opus',
-    'Haiku',
-  ]);
-  await page.getByRole('option', { name: 'Haiku', exact: true }).click();
+  await expect(modelItems(page)).toHaveText(['Default', 'Sonnet', 'Opus', 'Haiku']);
+  await page.getByRole('menuitemradio', { name: 'Haiku', exact: true }).click();
   expect((await send(page, 'Use Haiku')).model).toBe('haiku');
 });
