@@ -1,5 +1,5 @@
 import { useEffect, useId, useRef, useState } from 'react';
-import { GitBranchPlus, LoaderCircle, ExternalLink, GitPullRequest } from 'lucide-react';
+import { LoaderCircle, ExternalLink, GitPullRequest } from 'lucide-react';
 import type { API, ProjectGroup, Session, SessionOrganization, TrackerItem } from '../types';
 import type { WorkingFile, WorkingStatus } from '../api/contracts';
 import {
@@ -47,6 +47,7 @@ import {
   pullRequestActionLabel,
   pullRequestBody as buildPullRequestBody,
   pullRequestNumber,
+  suggestedBranch,
   type SessionPullRequest,
 } from '../lib/pull-request';
 
@@ -87,6 +88,7 @@ export function SessionMenu({
   archive,
   repositoryId,
   inProject,
+  board,
   onViewArchived,
   onReviewChanges,
 }: {
@@ -98,6 +100,8 @@ export function SessionMenu({
   repositoryId?: string;
   /** True when the code folder of the chat is in a project. Missing: not known. */
   inProject?: boolean;
+  /** True when the project has a task board. False hides Link task. Missing: not known. */
+  board?: boolean;
   update: (changes: SessionOrganization) => Promise<void>;
   branch: (fork: boolean, worktree?: string) => Promise<void>;
   archive: () => void;
@@ -181,6 +185,7 @@ export function SessionMenu({
     usageHistory: typeof api.managedHistory === 'function',
     repository: !!repositoryId,
     project: inProject,
+    board,
     noChanges,
     noBranchWork,
   });
@@ -228,8 +233,7 @@ export function SessionMenu({
         message: 'Add this code folder to a project to save chats to Docs.',
         tone: 'error',
       });
-    else if (id === 'link-task')
-      showToast({ message: 'Connect a task board to this project first.', tone: 'error' });
+    else if (id === 'link-task') showToast({ message: 'Connect a board on the Tasks page first.' });
     else if (id === 'open-pull-request' && session.organization?.pullRequest?.url)
       window.open(session.organization.pullRequest.url, '_blank', 'noreferrer');
   }
@@ -484,7 +488,8 @@ export function CommitDialog({
   const [result, setResult] = useState<{ commit?: string; url?: string } | null>(null);
   const submitting = useRef(false);
   const operationId = useRef<string | null>(null);
-  const [newBranch, setNewBranch] = useState<string | null>(null);
+  // On the default branch, "Create pull request" makes this branch first.
+  const [branchName, setBranchName] = useState('');
   // A draft task cannot be closed by a pull request. It can change to an issue first.
   const draftTask = !!task && !closesTask(task) && task.kind === 'DraftIssue';
   const [repositories, setRepositories] = useState<string[] | null>(null);
@@ -555,7 +560,7 @@ export function CommitDialog({
     setFiles(null);
     setError('');
     setResult(null);
-    setNewBranch(null);
+    setBranchName(suggestedBranch(sessionTitle));
     setMessage(initialMessage);
     try {
       operationId.current = localStorage.getItem(`kalkidan-publish:${repositoryId}`);
@@ -586,6 +591,9 @@ export function CommitDialog({
   const commitCount = files ? chosen.length : changes;
   const onDefault = !!status && status.branch === status.defaultBranch;
   const canPullRequest = !!status && !onDefault;
+  const pullRequestIntent = intent === 'pull-request';
+  // On the default branch, the pull request needs a new branch. The field has a name already.
+  const newBranchNeeded = pullRequestIntent && onDefault && !result?.url;
   async function submit(pullRequest: boolean) {
     if (submitting.current) return;
     submitting.current = true;
@@ -643,21 +651,24 @@ export function CommitDialog({
       setBusy(false);
     }
   }
-  async function moveToBranch() {
-    const name = newBranch?.trim();
-    if (!name) return;
-    setBusy(true);
-    setError('');
-    try {
-      await api.gitSwitchNewBranch(repositoryId, name);
-      setNewBranch(null);
-      onCommitted?.();
-      await load(true);
-    } catch (e) {
-      setError(errorMessage(e));
-    } finally {
-      setBusy(false);
+  /** Makes the branch on the default branch, then commits and opens the pull request. */
+  async function createPullRequest() {
+    if (newBranchNeeded) {
+      const name = branchName.trim();
+      if (!name || submitting.current) return;
+      setBusy(true);
+      setError('');
+      try {
+        await api.gitSwitchNewBranch(repositoryId, name);
+        onCommitted?.();
+        await load(true);
+      } catch (e) {
+        setError(errorMessage(e));
+        setBusy(false);
+        return;
+      }
     }
+    await submit(true);
   }
   const allSelected = !!files && chosen.length === files.length;
   return (
@@ -693,56 +704,16 @@ export function CommitDialog({
               </AlertDescription>
             </Alert>
           )}
-          {onDefault && !result?.url && (
-            <Alert size="sm">
-              <GitBranchPlus aria-hidden="true" />
-              <AlertDescription className="grid gap-2 text-xs">
-                <span>
-                  You are on {status.branch}. To open a pull request, commit on a new branch.
-                </span>
-                {newBranch === null ? (
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="justify-self-start"
-                    disabled={busy}
-                    onClick={() => setNewBranch('')}
-                  >
-                    Move changes to a new branch…
-                  </Button>
-                ) : (
-                  <form
-                    className="flex flex-wrap items-center gap-2"
-                    onSubmit={(e) => {
-                      e.preventDefault();
-                      void moveToBranch();
-                    }}
-                  >
-                    <Input
-                      autoFocus
-                      size="sm"
-                      aria-label="New branch name"
-                      placeholder="feature/my-change"
-                      className="w-56 min-w-0 flex-1"
-                      value={newBranch}
-                      onChange={(e) => setNewBranch(e.target.value)}
-                    />
-                    <Button size="sm" type="submit" disabled={busy || !newBranch.trim()}>
-                      Move changes
-                    </Button>
-                    <Button
-                      size="sm"
-                      type="button"
-                      variant="ghost"
-                      disabled={busy}
-                      onClick={() => setNewBranch(null)}
-                    >
-                      Cancel
-                    </Button>
-                  </form>
-                )}
-              </AlertDescription>
-            </Alert>
+          {newBranchNeeded && (
+            <label className="form-label">
+              New branch
+              <Input
+                value={branchName}
+                disabled={busy}
+                spellCheck={false}
+                onChange={(e) => setBranchName(e.target.value)}
+              />
+            </label>
           )}
           {!!files?.length && (
             <fieldset className="grid gap-1">
@@ -826,7 +797,7 @@ export function CommitDialog({
               onChange={(e) => setMessage(e.target.value)}
             />
           </label>
-          {draftTask && canPullRequest && !result?.url && (
+          {draftTask && pullRequestIntent && !result?.url && (
             <Alert size="sm">
               <GitPullRequest aria-hidden="true" />
               <AlertDescription className="grid gap-2 text-xs">
@@ -873,7 +844,7 @@ export function CommitDialog({
               </AlertDescription>
             </Alert>
           )}
-          {task && closesTask(task) && canPullRequest && (
+          {task && closesTask(task) && pullRequestIntent && (
             <p className="form-help">
               The pull request closes {task.repository}#{task.number} when it merges.
             </p>
@@ -913,29 +884,33 @@ export function CommitDialog({
               <Button variant="outline" disabled={busy} onClick={() => onOpenChange(false)}>
                 Cancel
               </Button>
-              {/* On a branch, the pull request is the main step. On the default branch, only a
-                  commit is possible until the changes move to a new branch. */}
-              <Button
-                variant={canPullRequest ? 'outline' : 'default'}
-                disabled={busy || !status || !commitCount || !message.trim() || !!result?.commit}
-                onClick={() => void submit(false)}
-              >
-                {busy && !canPullRequest
-                  ? 'Working…'
-                  : files && !allSelected
-                    ? `Commit ${plural(commitCount, 'file')}`
-                    : 'Commit'}
-              </Button>
-              {canPullRequest && (
+              {/* One primary button. "Create pull request" makes the branch on the default
+                  branch, commits the selected files and opens the pull request. */}
+              {pullRequestIntent ? (
                 <Button
-                  disabled={busy || !status || (!!commitCount && !message.trim()) || !!result?.url}
-                  onClick={() => void submit(true)}
+                  disabled={
+                    busy ||
+                    !status ||
+                    (!!commitCount && !message.trim()) ||
+                    (newBranchNeeded && !branchName.trim()) ||
+                    (!newBranchNeeded && !canPullRequest) ||
+                    !!result?.url
+                  }
+                  onClick={() => void createPullRequest()}
+                >
+                  <GitPullRequest aria-hidden="true" />
+                  {busy ? 'Working…' : 'Create pull request'}
+                </Button>
+              ) : (
+                <Button
+                  disabled={busy || !status || !commitCount || !message.trim() || !!result?.commit}
+                  onClick={() => void submit(false)}
                 >
                   {busy
                     ? 'Working…'
-                    : commitCount && !result?.commit
-                      ? 'Commit and create pull request'
-                      : 'Create pull request'}
+                    : files && !allSelected
+                      ? `Commit ${plural(commitCount, 'file')}`
+                      : 'Commit'}
                 </Button>
               )}
             </>

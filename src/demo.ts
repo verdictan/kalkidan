@@ -2,6 +2,7 @@ import type { DocPassage, ProjectDoc } from './domain/docs';
 import type { MemoryEntry } from './domain/memory';
 import type { DispatchPlan } from './domain/parallel-dispatch';
 import type { GitHubContentSnapshot } from './domain/github-content';
+import type { ProjectResourceKind } from './domain/github-resources';
 import { canRevertMutation, type GitHubMutationHistory } from './domain/project-batch';
 import { githubDescriptor } from './domain/tracker';
 import {
@@ -178,6 +179,9 @@ let demoMemory: MemoryEntry[] = [
     supersedes: [],
   },
 ];
+// The sample chats read two facts and the first page of the project.
+const demoContextChats = new Set(['codex:demo-session', 'claude:demo-claude']);
+const demoContextFacts = [demoMemoryId(1), demoMemoryId(2)];
 let demoWrites: GitHubMutationHistory = [
   {
     id: '00000000-0000-4000-8000-000000000001',
@@ -582,6 +586,28 @@ export const demo: API = {
     limited: false,
   }),
   memoryEntries: async () => structuredClone(demoMemory),
+  contextUsage: async (group, agent, id) => {
+    if (!demoContextChats.has(agent + ':' + id)) return { memory: [], docs: [] };
+    const doc = demoDocs[group]?.[0];
+    return {
+      memory: demoMemory
+        .filter((entry) => demoContextFacts.includes(entry.id))
+        .map((entry) => ({ id: entry.id, topic: entry.topic, title: entry.content })),
+      docs: doc ? [{ docId: doc.id, title: doc.title }] : [],
+    };
+  },
+  readCounts: async (group) => {
+    const chats = demoContextChats.size;
+    const doc = demoDocs[group]?.[0];
+    return {
+      memory: Object.fromEntries(
+        demoMemory
+          .filter((entry) => demoContextFacts.includes(entry.id))
+          .map((entry) => [entry.id, chats]),
+      ),
+      docs: doc ? { [doc.id]: chats } : {},
+    };
+  },
   memoryForget: async (_group, id, revision) => {
     const entry = demoMemory.find((value) => value.id === id);
     if (!entry) throw new Error('Memory entry not found. Reload memory.');
@@ -790,9 +816,14 @@ export const demo: API = {
   trackerSavedView: async () => {
     throw new Error('Saved GitHub views require the desktop app.');
   },
-  trackerResources: async () => {
-    throw new Error('Open the desktop app to manage GitHub project resources.');
-  },
+  // The preview board has no saved views or other GitHub resources.
+  trackerResources: async (_groupId: string, kind: ProjectResourceKind) => ({
+    projectId: 'demo',
+    kind,
+    writable: false,
+    revision: '0',
+    records: [],
+  }),
   trackerResourceChange: async () => {
     throw new Error('Open the desktop app to manage GitHub project resources.');
   },
@@ -802,9 +833,8 @@ export const demo: API = {
   trackerSettingsUpdate: async () => {
     throw new Error('Open the desktop app to manage GitHub project settings.');
   },
-  trackerPortfolio: async () => {
-    throw new Error('Portfolio reads require connected GitHub projects in the desktop app.');
-  },
+  // The preview has no tasks assigned to the user.
+  trackerPortfolio: async () => [],
   trackerDocsPlan: async () => {
     throw new Error('Issue publication requires the desktop app.');
   },

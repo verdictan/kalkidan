@@ -1,7 +1,7 @@
 import { useEffect, useId, useState, type ReactNode } from 'react';
 import { Tabs as TabsPrimitive } from 'radix-ui';
-import { Folder, FolderGit2, FolderPlus, GitBranch } from 'lucide-react';
-import type { API, Project, ProjectGroup, RemoteHost } from '../types';
+import { Folder, FolderGit2, FolderPlus, GitBranch, MoreHorizontal, Trash2 } from 'lucide-react';
+import type { API, Project, ProjectGroup } from '../types';
 import { projectColors, type ProjectColor } from '../domain/project-colors';
 import { worktreeParent } from '../lib/worktree-sessions';
 import { errorMessage } from '../lib/errors';
@@ -12,6 +12,13 @@ import { Alert, AlertDescription } from './ui/alert';
 import { EmptyState } from './ui/empty-state';
 import { showToast } from './ui/toast';
 import { DialogContent, DialogDescription, DialogTitle } from './ui/dialog';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from './ui/dropdown-menu';
+import { menuDestructiveClass } from './ui/menu-styles';
 
 const colorName = (value: ProjectColor | null) =>
   value ? value[0].toUpperCase() + value.slice(1) : 'Default';
@@ -19,29 +26,30 @@ const colorName = (value: ProjectColor | null) =>
 export type SettingsSection<T extends string> = { value: T; label: string; icon: ReactNode };
 
 /**
- * The frame of Project settings and Board settings: a list of sections on the left and one
- * section on the right. The dialog has a fixed height, so it does not move when the section
- * changes. Each panel mounts the first time that it opens and then stays mounted.
+ * The frame of Project settings. It uses the shell of Preferences: a list of sections on the
+ * left and one section on the right. The dialog has a fixed height, so it does not move when the
+ * section changes. Each panel mounts the first time that it opens and then stays mounted.
  */
 export function SettingsDialogFrame<T extends string>({
   title,
+  subtitle,
   description,
   sections,
   value,
   onValueChange,
   panels,
-  actions,
   onOpenAutoFocus,
 }: {
-  title: string;
+  /** The name of the dialog. The nav shows it above the sections. */
+  title: ReactNode;
+  /** One muted line below the title, for example the computer of a remote project. */
+  subtitle?: ReactNode;
   /** Text for assistive technology. The frame does not show it. */
   description: string;
   sections: SettingsSection<T>[];
   value: T;
   onValueChange(value: T): void;
   panels: Partial<Record<T, ReactNode>>;
-  /** Controls in the section header, to the left of the close button. */
-  actions?: ReactNode;
   onOpenAutoFocus?(event: Event): void;
 }) {
   const [visited, setVisited] = useState<T[]>([value]);
@@ -52,39 +60,36 @@ export function SettingsDialogFrame<T extends string>({
   return (
     <DialogContent
       size="lg"
-      // A fixed height, so that the dialog does not move when the section changes.
-      className="project-settings-dialog flex h-[min(616px,calc(100dvh-4rem))] gap-0 overflow-hidden p-0"
+      className="settings-dialog project-settings-dialog gap-0 overflow-hidden p-0"
       onOpenAutoFocus={onOpenAutoFocus}
     >
       <TabsPrimitive.Root
         value={active?.value}
         onValueChange={(next) => onValueChange(next as T)}
         orientation="vertical"
-        className="flex min-h-0 min-w-0 flex-1"
+        className="contents"
       >
-        <nav className="project-settings-nav">
-          <DialogTitle className="project-settings-nav-title text-xs leading-4 font-semibold text-muted-foreground">
+        <nav className="settings-nav">
+          <DialogTitle className="settings-nav-title truncate text-xs leading-4 font-semibold text-muted-foreground">
             {title}
           </DialogTitle>
+          {subtitle && <p className="project-settings-subtitle">{subtitle}</p>}
           <DialogDescription className="sr-only">{description}</DialogDescription>
-          <TabsPrimitive.List aria-label={`${title} sections`} className="grid gap-px">
+          <TabsPrimitive.List aria-label="Project settings sections" loop className="contents">
             {sections.map((item) => (
               <TabsPrimitive.Trigger
                 key={item.value}
                 value={item.value}
-                className="project-settings-nav-item"
+                className="settings-nav-item"
               >
                 {item.icon}
-                <span className="truncate">{item.label}</span>
+                <span className="min-w-0 flex-1 truncate">{item.label}</span>
               </TabsPrimitive.Trigger>
             ))}
           </TabsPrimitive.List>
         </nav>
-        <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-          <header className="project-settings-header">
-            <h3>{active?.label}</h3>
-            {actions}
-          </header>
+        <div className="settings-main">
+          <h2 className="settings-main-title truncate">{active?.label}</h2>
           <div className="project-settings-body">
             {sections.map(
               (item) =>
@@ -93,7 +98,7 @@ export function SettingsDialogFrame<T extends string>({
                     key={item.value}
                     forceMount
                     value={item.value}
-                    className="outline-none data-[state=inactive]:hidden"
+                    className="flex min-h-full flex-col outline-none data-[state=inactive]:hidden"
                   >
                     {panels[item.value]}
                   </TabsPrimitive.Content>
@@ -106,25 +111,38 @@ export function SettingsDialogFrame<T extends string>({
   );
 }
 
-/** A group of "Label — control" rows with dividers. */
+/** A group of "Label — control" rows with dividers, with an optional group label above. */
 export function SettingsRows({
   label,
+  title,
   className,
   children,
 }: {
   /** The name of the group for assistive technology. With it, the group is a region. */
   label?: string;
+  /** A visible group label above the rows. It also names the group. */
+  title?: string;
   className?: string;
   children: ReactNode;
 }) {
+  const id = useId();
   return (
-    <section aria-label={label} className={cn('project-settings-rows', className)}>
-      {children}
+    <section
+      aria-label={title ? undefined : label}
+      aria-labelledby={title ? id : undefined}
+      className={cn('project-settings-group', className)}
+    >
+      {title && (
+        <h3 id={id} className="project-settings-group-label">
+          {title}
+        </h3>
+      )}
+      <div className="project-settings-rows">{children}</div>
     </section>
   );
 }
 
-/** One row: a label with one line of help on the left, and the control on the right. */
+/** One row: a label with one short line of help on the left, and the control on the right. */
 export function SettingsRow({
   label,
   help,
@@ -161,19 +179,17 @@ export function SettingsRow({
 }
 
 /**
- * The name and color of a project, where its work runs, and the removal of the project. The
- * color saves at once with Undo. The name saves when you press Enter or leave the field.
+ * The name and color of a project, and the removal of the project. The color saves at once with
+ * Undo. The name saves when you press Enter or leave the field.
  */
 export function ProjectGeneral({
   api,
   group,
-  host,
   onSaved,
   onRemove,
 }: {
   api: API;
   group: ProjectGroup;
-  host?: RemoteHost;
   onSaved(): void | Promise<void>;
   /** Starts the removal of the project. Without it, the Remove project row does not show. */
   onRemove?(): void;
@@ -238,35 +254,30 @@ export function ProjectGeneral({
       setError(errorMessage(failure));
     }
   }
-  const location = group.hostId
-    ? [host?.name || 'SSH host', host?.target, group.rootPath].filter(Boolean).join(' · ')
-    : ['This computer', group.rootPath].filter(Boolean).join(' · ');
+  const nameState =
+    state === 'saving'
+      ? 'Saving…'
+      : state === 'saved'
+        ? 'Saved'
+        : name.trim() !== savedName
+          ? 'Press Enter to save.'
+          : '';
   return (
-    <div id="project-general-form" className="grid gap-6">
+    <div id="project-general-form" className="flex flex-1 flex-col gap-6">
       {error && (
         <Alert variant="destructive" size="sm">
           <AlertDescription>{error}</AlertDescription>
         </Alert>
       )}
-      <SettingsRows>
+      <SettingsRows label="Project">
         <SettingsRow
           label="Project name"
           htmlFor={nameId}
-          help={
-            <span role="status">
-              {state === 'saving'
-                ? 'Saving…'
-                : state === 'saved'
-                  ? 'Saved'
-                  : name.trim() !== savedName
-                    ? 'Press Enter to save.'
-                    : 'Shows in the sidebar and the header.'}
-            </span>
-          }
+          help={nameState && <span role="status">{nameState}</span>}
         >
           <Input
             id={nameId}
-            className="w-56"
+            className="w-60"
             value={name}
             maxLength={150}
             placeholder="e.g. Customer platform"
@@ -282,7 +293,7 @@ export function ProjectGeneral({
             }}
           />
         </SettingsRow>
-        <SettingsRow label="Folder color" help="Shows in the sidebar.">
+        <SettingsRow label="Folder color">
           <div role="group" aria-label="Folder color" className="project-settings-colors">
             {([null, ...Object.keys(projectColors)] as (ProjectColor | null)[]).map((value) => (
               <Button
@@ -301,21 +312,9 @@ export function ProjectGeneral({
             ))}
           </div>
         </SettingsRow>
-        <SettingsRow
-          label="Runs on"
-          help={
-            group.hostId && !group.rootPath
-              ? 'The project folder is set when the project opens on its host.'
-              : 'To use a different computer, create a new project there.'
-          }
-        >
-          <span className="project-settings-value" title={location}>
-            {location}
-          </span>
-        </SettingsRow>
       </SettingsRows>
       {onRemove && (
-        <SettingsRows label="Remove project" className="project-settings-danger">
+        <SettingsRows title="Danger zone" className="project-settings-danger">
           <SettingsRow
             label="Remove project"
             help={`Kalkidan stops showing ${group.name}. All files stay on disk.`}
@@ -335,7 +334,7 @@ export function ProjectGeneral({
   );
 }
 
-/** The code folders of a project: the list, Add a code folder and Remove. */
+/** The code folders of a project: the list, Add a code folder, and "⋯" › Remove on each row. */
 export function ProjectCodeFolders({
   group,
   repos,
@@ -356,35 +355,24 @@ export function ProjectCodeFolders({
           icon={<FolderGit2 />}
           title="No code folders"
           action={
-            <Button onClick={onAdd}>
+            <Button variant="outline" onClick={onAdd}>
               <FolderPlus />
               Add a code folder…
             </Button>
           }
-        >
-          Agents read and change the files in the code folders of a project.
-        </EmptyState>
+        />
       </section>
     );
   return (
     <section aria-label="Code folders" className="grid gap-3">
-      <div className="flex items-center gap-4">
-        <p className="project-settings-row-help m-0 flex-1">
-          Agents read and change the files in these folders. When you remove a folder, its files and
-          chats stay on disk.
-        </p>
-        <Button variant="outline" size="sm" onClick={onAdd}>
-          <FolderPlus />
-          Add a code folder…
-        </Button>
-      </div>
       <ul className="project-settings-rows m-0 list-none p-0">
         {members.map((repo) => {
           const copy = !!worktreeParent(repo, members);
           return (
             <li key={repo.id}>
               <SettingsRow
-                icon={copy ? <FolderGit2 /> : <GitBranch />}
+                className="project-settings-row-hover"
+                icon={copy ? <GitBranch /> : <FolderGit2 />}
                 label={repo.name}
                 help={
                   <span className="block truncate" title={repo.path}>
@@ -393,20 +381,36 @@ export function ProjectCodeFolders({
                   </span>
                 }
               >
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="text-destructive hover:text-destructive"
-                  aria-label={`Remove ${repo.name} from this project`}
-                  onClick={() => onRemove(repo)}
-                >
-                  Remove…
-                </Button>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="icon-sm"
+                      className="project-settings-row-menu"
+                      aria-label={`More actions for ${repo.name}`}
+                    >
+                      <MoreHorizontal />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="w-52">
+                    <DropdownMenuItem
+                      className={menuDestructiveClass}
+                      onSelect={() => onRemove(repo)}
+                    >
+                      <Trash2 />
+                      Remove from project…
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
               </SettingsRow>
             </li>
           );
         })}
       </ul>
+      <Button variant="ghost" size="sm" className="-ml-2 justify-self-start" onClick={onAdd}>
+        <FolderPlus />
+        Add a code folder…
+      </Button>
     </section>
   );
 }

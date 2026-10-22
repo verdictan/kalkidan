@@ -133,7 +133,13 @@ test('desktop routes project, docs, agent, terminal and remote handlers to the e
   await assert.rejects(call('pty-open', '/repo'), /unavailable/);
   f.state.directory = true;
   await assert.rejects(call('remote-remove', 'host'), /Move or remove/);
+  await assert.rejects(
+    call('remote-remove', 'other', { deleteHostData: true }),
+    /Connect the host to delete its Kalkidan data/,
+  );
   await call('remote-remove', 'other');
+  // The removed host forgets its identity, so a new connection gets a new one.
+  assert.ok(f.calls.some((c) => c[0] === 'forgetHost' && c[1] === 'other'));
   await assert.rejects(call('remote-call', 'host', 'unknown', []), /Unsupported/);
   await assert.rejects(call('remote-call', 'host', 'chatCreate', ['/outside']), /Add this remote/);
   await call('remote-call', 'host', 'chatCreate', ['/remote', 'codex', '@docs prompt', true]);

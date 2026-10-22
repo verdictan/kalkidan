@@ -6,7 +6,7 @@ test('single view ignores old split preferences and preserves conversation draft
 }) => {
   await page.addInitScript(() => localStorage.setItem('kalkidan.layout', 'split'));
   await page.goto(url);
-  await expect(page.getByRole('region', { name: 'Project overview', exact: true })).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Projects', exact: true })).toBeVisible();
   await openCodeFolder(page, 'atlas-web');
   await newChat(page);
   await page.getByLabel('Message agent').fill('Preserve this draft');
@@ -16,14 +16,12 @@ test('single view ignores old split preferences and preserves conversation draft
   );
   await expect(page.locator('.management-pane')).toBeHidden();
   await page.locator('.project-tree').getByRole('button', { name: 'Atlas', exact: true }).click();
-  await expect(
-    page.getByRole('button', { name: 'Connect a GitHub Projects board', exact: true }),
-  ).toBeVisible();
+  await expect(page.getByRole('form', { name: 'New chat', exact: true })).toBeVisible();
   await expect(page.getByLabel('Message agent')).toBeHidden();
   await page.getByRole('button', { name: 'Go back', exact: true }).click();
   await expect(page.getByLabel('Message agent')).toHaveValue('Preserve this draft');
   await page.getByRole('button', { name: 'Projects', exact: true }).click();
-  await expect(page.getByRole('region', { name: 'Project overview', exact: true })).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Projects', exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Go back', exact: true }).click();
   await expect(page.getByLabel('Message agent')).toHaveValue('Preserve this draft');
   await page.setViewportSize({ width: 980, height: 680 });
@@ -102,7 +100,7 @@ test('dragging a task syncs its status and a failed write keeps the original col
 });
 
 for (const outcome of ['completed', 'failed', 'stopped']) {
-  test(`linked task ${outcome}: starts In progress and completion requires explicit review`, async ({
+  test(`linked task ${outcome}: starts In progress and only a finished run offers Mark task done`, async ({
     page,
   }) => {
     await page.addInitScript(
@@ -176,19 +174,18 @@ for (const outcome of ['completed', 'failed', 'stopped']) {
     await page.getByRole('button', { name: 'Send', exact: true }).click();
     await expect(page.getByText('Response ended', { exact: true })).toBeVisible();
     expect(await page.evaluate(() => (window as any).writes)).toEqual(['progress']);
+    // The run does not complete the task. After a finished run the user marks it done from the
+    // changes row. A failed or stopped run does not offer "Mark task done".
+    const done = page.getByRole('button', { name: 'Mark task done', exact: true });
+    if (outcome === 'completed') await expect(done).toBeVisible();
+    else await expect(done).toHaveCount(0);
+    await expect(page.getByText('Task marked Done.', { exact: true })).toHaveCount(0);
+    expect(await page.evaluate(() => (window as any).writes)).toEqual(['progress']);
     if (outcome === 'completed') {
-      await expect(page.getByRole('button', { name: 'Mark task done', exact: true })).toHaveCount(
-        0,
-      );
-      await page.getByRole('button', { name: 'Review task completion', exact: true }).click();
-      await expect(page.getByText('Complete this task?', { exact: true })).toBeVisible();
-      await page.getByRole('button', { name: 'Mark task done', exact: true }).click();
+      await done.click();
       await expect(page.getByText('Task marked Done.', { exact: true })).toBeVisible();
       expect(await page.evaluate(() => (window as any).writes)).toEqual(['progress', 'done']);
-    } else
-      await expect(page.getByRole('button', { name: 'Mark task done', exact: true })).toHaveCount(
-        0,
-      );
+    }
   });
 }
 
@@ -220,28 +217,29 @@ test('settings shows agent and remote controls without history import', async ({
   await page.goto(url);
   // Below 1100px wide, the sidebar starts closed.
   await page.getByRole('button', { name: 'Toggle sidebar', exact: true }).click();
+  // The agents and the SSH hosts are on the Computers page.
+  const computers = await openSettings(page, 'Computers');
+  await expect(computers.getByRole('group', { name: 'Codex', exact: true })).toBeVisible();
+  await expect(computers.getByRole('group', { name: 'Claude Code', exact: true })).toBeVisible();
+  await expect(
+    computers.getByRole('form', { name: 'Add host' }).getByRole('textbox', { name: 'SSH target' }),
+  ).toBeVisible();
+  await expect(computers.getByText('Import chat history', { exact: true })).toHaveCount(0);
+  await expect(computers.getByRole('button', { name: 'Preview chat history' })).toHaveCount(0);
+  // Preferences is a dialog over the workspace with the account connections.
   await openSettings(page);
   const dialog = settingsDialog(page);
-  await expect(dialog.getByRole('tab', { name: 'General' })).toHaveAttribute(
-    'aria-selected',
-    'true',
-  );
-  await dialog.getByRole('tab', { name: 'Agents', exact: true }).click();
-  const agents = dialog.getByRole('list', { name: 'Managed agents' });
-  await expect(agents.getByRole('group', { name: 'Codex', exact: true })).toBeVisible();
-  await expect(agents.getByRole('group', { name: 'Claude Code', exact: true })).toBeVisible();
-  await dialog.getByRole('tab', { name: 'Account', exact: true }).click();
-  await expect(dialog.getByRole('region', { name: 'Connected services' })).toContainText('GitHub');
-  await dialog.getByRole('tab', { name: 'Computers' }).click();
-  await expect(dialog.getByRole('button', { name: 'Add SSH host', exact: true })).toBeVisible();
+  for (const name of ['Chats', 'Connections', 'This app'])
+    await expect(dialog.getByRole('region', { name, exact: true })).toBeVisible();
+  await expect(
+    dialog
+      .getByRole('region', { name: 'Connections' })
+      .getByRole('group', { name: 'GitHub and boards' }),
+  ).toBeVisible();
   await expect(dialog.getByText('Import chat history', { exact: true })).toHaveCount(0);
   await expect(dialog.getByRole('button', { name: 'Preview chat history' })).toHaveCount(0);
-  await dialog.getByRole('tab', { name: 'General' }).click();
-  await expect(
-    dialog.getByRole('group', { name: 'Appearance' }).getByRole('button', { name: 'Dark' }),
-  ).toBeVisible();
   await page.screenshot({ path: 'test-results/settings-page.png', fullPage: true });
-  // Settings is a dialog over the workspace. Escape closes it.
+  // Escape closes it.
   await page.keyboard.press('Escape');
   await expect(dialog).toHaveCount(0);
   await expect(page.getByRole('navigation', { name: 'Projects and repositories' })).toBeVisible();
@@ -282,7 +280,7 @@ test('project menu connects the chosen project without duplicate authorization',
     page.getByRole('menuitem', { name: 'Connect a GitHub Projects board…', exact: true }),
   ).toHaveCount(0);
   await page.getByRole('menuitem', { name: 'Project settings…', exact: true }).click();
-  const settings = page.getByRole('dialog', { name: 'Project settings', exact: true });
+  const settings = page.getByRole('dialog', { name: 'Project settings: Platform', exact: true });
   await expect(settings).toContainText('Platform');
   await settings.getByRole('tab', { name: 'Board', exact: true }).click();
   await expect(page.getByLabel('GitHub device code')).toHaveValue('ABCD-1234');
@@ -293,14 +291,21 @@ test('project menu connects the chosen project without duplicate authorization',
 
 test('task conversation returns to the filtered project board', async ({ page }) => {
   await page.goto(url);
-  await page.locator('.project-tree').getByRole('button', { name: 'Atlas', exact: true }).click();
-  await page.getByRole('button', { name: 'Connect a GitHub Projects board', exact: true }).click();
+  await openProjectTab(page, 'Tasks', 'Atlas');
+  await page
+    .getByRole('region', { name: 'Project tracker', exact: true })
+    .getByRole('button', { name: 'Connect a board', exact: true })
+    .click();
   await page.getByRole('button', { name: 'Atlas roadmap #1', exact: true }).click();
   await page.getByRole('button', { name: 'Connect board', exact: true }).click();
   await page.getByLabel('Search tasks').fill('authentication');
   await page.getByRole('button', { name: 'Review authentication', exact: true }).click();
-  // The preview has no Git, so the agent works in the folder, not in a branch copy.
-  await page.getByRole('radio', { name: 'In api-service on main', exact: true }).check();
+  // The preview cannot make a branch copy, so the agent works in the folder on main.
+  await page.getByRole('button', { name: 'Change', exact: true }).click();
+  await page
+    .getByRole('group', { name: 'Where to work' })
+    .getByRole('radio', { name: 'Work on main instead', exact: true })
+    .check();
   await page.getByRole('button', { name: 'Start task with Codex', exact: true }).click();
   await expect(page.getByLabel('Message agent')).toHaveValue(/Review authentication/);
   await page.getByRole('button', { name: 'Go back', exact: true }).click();

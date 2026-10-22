@@ -191,3 +191,30 @@ test('the slash menu finds blocks by alias and typed check list markers', async 
   assert.deepEqual(checklistMarker('- [X]'), { checked: true });
   assert.equal(checklistMarker('text [ ]'), null);
 });
+
+test('a page without ## headings makes one task per list item, and pages move by drag', async () => {
+  const { pageTasks } = await import('../src/components/docs-to-issues');
+  const { placedSiblings } = await import('../src/components/project-docs');
+  assert.deepEqual(
+    pageTasks('Intro\n\n- One\n- Two\n- Three', 'Plan').map((task) => task.title),
+    ['One', 'Two', 'Three'],
+  );
+  assert.equal(pageTasks('## A\ntext\n## B\n- x', 'Plan').length, 2);
+  const pages = [
+    { id: 'a', title: 'A', parentId: null, order: 0 },
+    { id: 'b', title: 'B', parentId: null, order: 1 },
+    { id: 'c', title: 'C', parentId: 'a', order: 0 },
+  ];
+  assert.deepEqual(
+    placedSiblings(pages, 'b', 'a', 'before')?.map((page) => page.id),
+    ['b', 'a'],
+  );
+  assert.deepEqual(
+    placedSiblings(pages, 'b', 'c', 'after')?.map((page) => [page.id, page.parentId]),
+    [
+      ['c', 'a'],
+      ['b', 'a'],
+    ],
+  );
+  assert.equal(placedSiblings(pages, 'a', 'c', 'before'), null);
+});

@@ -31,12 +31,20 @@ test('sidebar hides verified connections and restores the action when access is 
   await expect(page.getByRole('heading', { name: 'Projects', level: 1 })).toBeVisible();
   const button = page.locator('.sidebar-github-connect');
   await expect(button).toHaveCount(0);
-  // The footer keeps the Settings and help menu.
+  // The footer keeps the Preferences and help menu.
   await expect(
     page
       .getByRole('navigation', { name: 'Projects and repositories' })
-      .getByRole('button', { name: 'Settings and help', exact: true }),
+      .getByRole('button', { name: 'Preferences and help', exact: true }),
   ).toBeVisible();
+  // Signed out, the menu has the app items only. "Create one" is on the sign-in screens.
+  await page.getByRole('button', { name: 'Preferences and help', exact: true }).click();
+  const menu = page.getByRole('menu');
+  await expect(menu.getByRole('menuitem', { name: /Preferences/ })).toBeVisible();
+  await expect(
+    menu.getByRole('menuitem', { name: /Create account|Keyboard shortcuts/ }),
+  ).toHaveCount(0);
+  await page.keyboard.press('Escape');
   await page.evaluate(() => {
     (window as any).access = 'idle';
     window.dispatchEvent(new Event('focus'));

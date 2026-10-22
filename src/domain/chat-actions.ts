@@ -13,8 +13,6 @@ export const chatActionGroups = [
   'work',
   'share',
   'developer',
-  // The "More" submenu of the chat row menu and the Chat actions menu. No action is in it.
-  'more',
   'archive',
 ] as const;
 export type ChatActionGroup = (typeof chatActionGroups)[number];
@@ -58,6 +56,8 @@ export interface ChatActionState {
   noChanges?: boolean;
   /** The code folder has no changes and no commits that a pull request can take. */
   noBranchWork?: boolean;
+  /** The project has a task board. False hides Link task. */
+  board?: boolean;
 }
 
 export type ChatActionId =
@@ -88,7 +88,8 @@ export type ChatActionId =
   | 'copy-path'
   | 'open-vscode'
   | 'open-cursor'
-  | 'more'
+  | 'open-in'
+  | 'export'
   | 'archive';
 
 export type ChatShortcutModifier = 'mod' | 'alt' | 'shift';
@@ -241,8 +242,9 @@ export const chatActions: readonly ChatActionDefinition[] = [
     group: 'organize',
     keywords: 'issue board connect task',
     command: 'link-task',
-    // A chat links one task. With a linked task, Open linked task shows.
-    visible: ({ state }) => !state.linkedTask,
+    // A chat links one task. With a linked task, Open linked task shows. Without a board,
+    // there is no task to link.
+    visible: ({ state }) => !state.linkedTask && state.board !== false,
     enabled: all(checks.idle, checks.project),
   }),
   define({
@@ -534,32 +536,62 @@ function resolve(
 }
 
 /**
- * The actions that the chat row menu and the Chat actions menu show at the top level. The other
- * actions go in the "More" submenu.
+ * The layout of the chat row menu and the Chat actions menu: nine items, two levels. Commit and
+ * the pull request are not in these menus: the changes row of the chat shows them.
  */
-export const topChatActions: readonly ChatActionId[] = [
-  'open',
-  'rename',
-  'pin',
-  'link-task',
-  'open-linked-task',
-  'commit',
-  'create-pull-request',
-  'open-pull-request',
-  'archive',
+type MenuEntry =
+  ChatActionId | { id: 'open-in' | 'export'; label: string; children: ChatActionId[] };
+const chatMenuLayout: { group: ChatActionGroup; items: MenuEntry[] }[] = [
+  { group: 'open', items: ['open'] },
+  { group: 'organize', items: ['rename', 'pin', 'link-task', 'open-linked-task', 'notes'] },
+  {
+    group: 'work',
+    items: [
+      'duplicate',
+      {
+        id: 'open-in',
+        label: 'Open in',
+        children: ['show-folder', 'open-vscode', 'open-cursor', 'open-window', 'open-beside'],
+      },
+    ],
+  },
+  {
+    group: 'share',
+    items: [
+      {
+        id: 'export',
+        label: 'Export',
+        children: ['export-markdown', 'export-html', 'copy-markdown', 'save-to-docs'],
+      },
+      'usage-history',
+    ],
+  },
+  { group: 'archive', items: ['archive'] },
 ];
-/** The "More" submenu. It has no command and runs nothing itself. */
-const moreAction: ChatActionDefinition = {
-  id: 'more',
-  label: 'More',
-  group: 'more',
-  run: () => {},
-};
+/** The submenus of the layout. They have no command and run nothing themselves. */
+function submenuAction(id: 'open-in' | 'export', label: string): ChatActionDefinition {
+  return { id, label, group: id === 'open-in' ? 'work' : 'share', run: () => {} };
+}
+/** The menu item of an action, with the reason of its submenu when the submenu is blocked. */
+function menuItem(
+  id: ChatActionId,
+  context: ChatActionContext,
+  platform: ChatActionPlatform,
+): ChatMenuItem | null {
+  const action = chatAction(id);
+  if (!action) return null;
+  const item = resolve(action, context, platform);
+  if (!item) return null;
+  const available = chatActionAvailability(id, context.state);
+  return available === true
+    ? { ...item, separator: false }
+    : { ...item, separator: false, disabled: true, reason: available };
+}
 
 /**
  * The actions that one surface shows for a chat, in groups and in menu order. The chat row menu
- * and the Chat actions menu show the frequent actions and put the others in "More". The menu
- * bar and the palette show all actions.
+ * and the Chat actions menu show nine items in two levels. The menu bar and the palette show
+ * all actions.
  */
 export function chatActionMenu(
   surface: ChatActionSurface,
@@ -567,41 +599,47 @@ export function chatActionMenu(
   platform: ChatActionPlatform,
 ): ChatMenuGroup[] {
   const context = { surface, state };
-  const groups = chatActionGroups
-    .map((group) => ({
+  if (surface === 'menu-bar' || surface === 'palette')
+    return chatActionGroups
+      .map((group) => ({
+        group,
+        items: chatActions
+          .filter((action) => action.group === group)
+          .map((action) => resolve(action, context, platform))
+          .filter((item): item is ChatMenuItem => !!item),
+      }))
+      .filter((entry) => entry.items.length > 0);
+  return chatMenuLayout
+    .map(({ group, items }) => ({
       group,
-      items: chatActions
-        .filter((action) => action.group === group)
-        .map((action) => resolve(action, context, platform))
+      items: items
+        .map((entry): ChatMenuItem | null => {
+          if (typeof entry === 'string') {
+            const item = menuItem(entry, context, platform);
+            // A submenu of the definitions shows its items without separators.
+            return item?.children
+              ? {
+                  ...item,
+                  children: item.children.map((child) => ({ ...child, separator: false })),
+                }
+              : item;
+          }
+          const children = entry.children
+            .map((id) => menuItem(id, context, platform))
+            .filter((item): item is ChatMenuItem => !!item);
+          if (!children.length) return null;
+          return {
+            id: entry.id,
+            label: entry.label,
+            group,
+            disabled: children.every((child) => child.disabled),
+            children,
+            definition: submenuAction(entry.id, entry.label),
+          };
+        })
         .filter((item): item is ChatMenuItem => !!item),
     }))
     .filter((entry) => entry.items.length > 0);
-  if (surface === 'menu-bar' || surface === 'palette') return groups;
-  const top = groups
-    .map((entry) => ({
-      group: entry.group,
-      items: entry.items.filter((item) => topChatActions.includes(item.id)),
-    }))
-    .filter((entry) => entry.items.length > 0);
-  // The other actions keep their order. A separator goes between two groups.
-  const rest = groups.flatMap((entry) =>
-    entry.items
-      .filter((item) => !topChatActions.includes(item.id))
-      .map((item, index) => ({ ...item, separator: index === 0 && entry !== groups[0] })),
-  );
-  if (!rest.length) return top;
-  rest[0] = { ...rest[0], separator: false };
-  const more: ChatMenuItem = {
-    id: 'more',
-    label: 'More',
-    group: 'more',
-    disabled: false,
-    children: rest,
-    definition: moreAction,
-  };
-  const archive = top.findIndex((entry) => entry.group === 'archive');
-  const at = archive < 0 ? top.length : archive;
-  return [...top.slice(0, at), { group: 'more', items: [more] }, ...top.slice(at)];
 }
 
 /** The menu items without submenus. Each submenu item takes the reason of its submenu. */
@@ -687,6 +725,7 @@ const optionalKeys: (keyof ChatActionState)[] = [
   'project',
   'noChanges',
   'noBranchWork',
+  'board',
 ];
 /** Reads a state from an untrusted value, such as an IPC message. Returns null when invalid. */
 export function parseChatActionState(value: unknown): ChatActionState | null {

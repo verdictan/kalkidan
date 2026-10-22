@@ -333,9 +333,9 @@ export function ReadinessOverview({
   const check = (items: { id: string }[]) => () =>
     onCheck(items.slice(0, readinessLimit).map((item) => item.id));
   const rows = [
-    { label: 'Issues that can start', items: value.candidates, action: 'Check' },
-    { label: 'Issues with no description', items: value.noDescription, action: 'Review' },
-    { label: 'Issues with a chat', items: value.linked, action: 'Review' },
+    { label: 'Tasks that can start', items: value.candidates, action: 'Check' },
+    { label: 'Tasks with no description', items: value.noDescription, action: 'Review' },
+    { label: 'Tasks with a chat', items: value.linked, action: 'Review' },
   ].map((row) => ({
     label: row.label,
     count: row.items.length,
@@ -351,10 +351,6 @@ export function ReadinessOverview({
   return (
     <section aria-labelledby="readiness-title">
       <SectionHeader title={<span id="readiness-title">Readiness</span>} />
-      <p className="form-help">
-        Kalkidan counts what the board shows. "Check" and "Review" also read blockers, pull requests
-        and checks on GitHub.
-      </p>
       <ul className="count-list">
         {rows.map((row) => (
           <li key={row.label} className="count-item">

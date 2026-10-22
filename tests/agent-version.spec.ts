@@ -1,5 +1,5 @@
 import { type Page } from '@playwright/test';
-import { test, expect, newChat, openSettings, settingsDialog } from './helpers/app';
+import { test, expect, computersPage, newChat, openComputersPage } from './helpers/app';
 import { openCodeFolder } from './helpers/navigation';
 
 /** A workspace with one project. Each send is refused because Claude Code is too old. */
@@ -51,19 +51,21 @@ async function installWorkspace(page: Page) {
   });
 }
 
-test('Settings › Agents shows each version and whether it meets the minimum', async ({ page }) => {
+test('the Computers page shows each version and whether it meets the minimum', async ({ page }) => {
   await installWorkspace(page);
   await page.goto('/');
-  const settings = await openSettings(page, 'Agents');
+  const settings = await openComputersPage(page);
   // The row of each agent shows the state. A program that is too old needs an update.
   const claudeRow = settings.getByRole('group', { name: 'Claude Code', exact: true });
   await expect(claudeRow).toContainText('Needs update');
-  await expect(claudeRow).toContainText('Version 2.1.296 is too old. It needs 2.1.300 or later.');
+  await expect(claudeRow).toContainText('Version 2.1.296 · Needs 2.1.300 or later');
   await expect(settings.getByRole('group', { name: 'Codex', exact: true })).not.toContainText(
     'Needs update',
   );
-  // Fix… opens the agent programs of this computer, with each version and the minimum.
-  await claudeRow.getByRole('button', { name: 'Fix Claude Code', exact: true }).click();
+  // Choose… opens the agent programs of this computer, with each version and the minimum.
+  await claudeRow
+    .getByRole('button', { name: 'Choose the Claude Code program', exact: true })
+    .click();
   const programs = page.getByRole('dialog', { name: 'Agent programs on this computer' });
   await expect(programs).toContainText('Kalkidan needs Codex 0.160.0 or later');
   await expect(programs).toContainText('Claude Code 2.1.300 or later');
@@ -83,7 +85,7 @@ test('Settings › Agents shows each version and whether it meets the minimum', 
   await expect(programs.getByRole('status')).toContainText('Checked');
 });
 
-test('a Claude Code version below the minimum refuses the send and links to Settings › Agents', async ({
+test('a Claude Code version below the minimum refuses the send and links to the Computers page', async ({
   page,
 }) => {
   await installWorkspace(page);
@@ -99,14 +101,11 @@ test('a Claude Code version below the minimum refuses the send and links to Sett
   );
   await expect(message).not.toContainText('desktop.');
   await message.getByRole('button', { name: 'Open agent settings', exact: true }).click();
-  const settings = settingsDialog(page);
-  await expect(settings.getByRole('tab', { name: 'Agents', exact: true })).toHaveAttribute(
-    'aria-selected',
-    'true',
-  );
-  // The Codex row, at the top of the section, gets the focus.
-  await expect(settings.getByRole('group', { name: 'Codex', exact: true })).toBeFocused();
-  await expect(settings.getByRole('group', { name: 'Claude Code', exact: true })).toContainText(
-    'Needs update',
-  );
+  // The Computers page opens with the agent rows.
+  const settings = computersPage(page);
+  await expect(settings).toBeVisible();
+  const claude = settings.getByRole('group', { name: 'Claude Code', exact: true });
+  await expect(claude).toContainText('Needs update');
+  // The focus moves to the row of the agent in the message.
+  await expect(page.locator('#agent-program-local-claude')).toBeFocused();
 });

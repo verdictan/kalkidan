@@ -1,9 +1,8 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
-import { ExternalLink, Laptop } from 'lucide-react';
+import { Laptop } from 'lucide-react';
 import type { API } from '../api/contracts';
 import type { AgentInstallation } from '../domain/conversation';
 import {
-  accountLabel,
   selectionIssue,
   withoutManagedCode,
   type ManagedAgentKind,
@@ -16,7 +15,6 @@ import { agentProgramAnchor } from '../domain/agent-programs';
 import { useRefreshTriggers } from '../hooks/use-refresh-triggers';
 import {
   accountChanging,
-  accountNames,
   displayVersion,
   runtimeBusy,
   runtimeInstallable,
@@ -25,31 +23,21 @@ import {
   runtimeStatusLabel,
   updatePhaseLabel,
   updateRunning,
-  verdictanErrorMessage,
   type StatusLabel,
 } from '../lib/verdictan-labels';
 import { setAgentInstallations } from '../lib/agent-preference';
 import { computerAnchor, settingsAnchors } from '../domain/settings-route';
 import {
-  AgentSetupDialog,
+  VerdictanSetupForm,
   accessLabel,
   managedAgentNames,
   teamPolicyLabel,
 } from './verdictan-setup';
 import { AgentProgramsDialog } from './agent-programs';
 import { startSignIn } from './sign-in-steps';
-import { ConnectedServices, GitHubCliPathRow, useGitHubServices } from './github-account';
-import {
-  CopyValue,
-  SettingsAdvanced,
-  SettingsGroup,
-  SettingsRow,
-  SettingsRows,
-  StatusBadge,
-} from './settings-disclosure';
+import { SettingsRow, StatusBadge } from './settings-disclosure';
 import { Alert, AlertDescription } from './ui/alert';
 import { AgentIcon } from './ui/agent-icon';
-import { Badge } from './ui/badge';
 import { Button } from './ui/button';
 import { CheckboxRow } from './ui/checkbox';
 import {
@@ -264,7 +252,12 @@ export function RuntimeControl({ runtime, name }: { runtime: RuntimeState; name:
       <StatusBadge status={view.label} />
       {view.waitingForIdle ? (
         <>
-          <Button size="sm" disabled={busy} onClick={() => void action('runtimeUpdateInstall')}>
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={busy}
+            onClick={() => void action('runtimeUpdateInstall')}
+          >
             Finish install
           </Button>
           {cancel}
@@ -295,7 +288,12 @@ export function RuntimeControl({ runtime, name }: { runtime: RuntimeState; name:
           )}
         </>
       ) : view.installable && (!status?.installed || view.outdated) ? (
-        <Button size="sm" disabled={busy} onClick={() => void action('runtimeUpdateInstall')}>
+        <Button
+          variant="outline"
+          size="sm"
+          disabled={busy}
+          onClick={() => void action('runtimeUpdateInstall')}
+        >
           {status?.installed ? 'Update now' : 'Install'}
         </Button>
       ) : null}
@@ -469,234 +467,8 @@ export function useAccountStatus(api: API, open: boolean) {
   return { status, setStatus, busy, error: error || readError, changing, run, read };
 }
 
-/** Two letters for the avatar, from the name or the email. */
-function initials(name?: string, email?: string) {
-  const source = name || email?.split('@')[0] || '';
-  const parts = source.split(/[\s._-]+/).filter(Boolean);
-  const letters =
-    parts.length > 1 ? parts[0][0] + parts[parts.length - 1][0] : (parts[0] || '?').slice(0, 2);
-  return letters.toUpperCase();
-}
-
-/**
- * Settings › Account: who is signed in, the organization, the region, the connected services,
- * and an Advanced fold with the session and the service address. Sign-in starts the browser
- * flow of the shell. The first-run steps are in the Welcome screen.
- */
-export function AccountSection({ api, open }: { api: API; open: boolean }) {
-  const account = useAccountStatus(api, open);
-  const { status, busy, error, run, changing } = account;
-  const services = useGitHubServices(api, open);
-  const [regionOpen, setRegionOpen] = useState(false);
-  const details = status?.account;
-  const names = accountNames(status);
-  const phase = status?.phase;
-  const signedIn = phase === 'authenticated';
-  const expired = phase === 'expired';
-  const authorizing = phase === 'authorizing';
-  const known = signedIn || expired;
-  const plan = (details as { plan?: unknown } | undefined)?.plan;
-  // Without a region or a sign-in, the sign-in flow asks for them. That is not an error here.
-  const statusError =
-    status?.error && !authorizing && !changing && status.region && phase !== 'signed-out'
-      ? verdictanErrorMessage(status.error)
-      : '';
-  return (
-    <>
-      <SettingsRows label="Account">
-        {known ? (
-          <SettingsRow
-            id={settingsAnchors.account}
-            icon={
-              <span className="settings-avatar" aria-hidden="true">
-                {initials(names.user, names.email)}
-              </span>
-            }
-            label={names.user || names.email || accountLabel(details)}
-            help={
-              expired
-                ? 'Your session ended. Sign in again to start new chats.'
-                : names.user
-                  ? names.email
-                  : undefined
-            }
-          >
-            {expired ? (
-              <Button size="sm" onClick={() => startSignIn('login')}>
-                Sign in again
-              </Button>
-            ) : (
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={busy}
-                onClick={() => void run(() => api.verdictanLogout(), 'Signed out')}
-              >
-                Sign out
-              </Button>
-            )}
-          </SettingsRow>
-        ) : (
-          <SettingsRow
-            id={settingsAnchors.account}
-            label={authorizing ? 'Finish signing in in your browser' : 'Sign in to Verdictan'}
-            help={
-              authorizing
-                ? 'This window updates when you finish.'
-                : 'Run Codex and Claude Code through managed agents.'
-            }
-          >
-            {authorizing ? (
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={busy}
-                onClick={() => void run(() => api.verdictanCancel())}
-              >
-                Cancel sign-in
-              </Button>
-            ) : (
-              <>
-                <Button variant="ghost" size="sm" onClick={() => startSignIn('register')}>
-                  Create account
-                </Button>
-                <Button size="sm" onClick={() => startSignIn('login')}>
-                  Sign in
-                </Button>
-              </>
-            )}
-          </SettingsRow>
-        )}
-        {known && (
-          <SettingsRow
-            label="Organization"
-            help="Policies and model access come from your organization."
-          >
-            <span className="settings-row-value">{accountLabel(details)}</span>
-            {typeof plan === 'string' && plan.trim() && (
-              <Badge variant="muted" size="sm">
-                {plan.trim()}
-              </Badge>
-            )}
-          </SettingsRow>
-        )}
-        <SettingsRow
-          id={settingsAnchors.region}
-          label="Region"
-          help={
-            changing
-              ? 'Kalkidan changes the region now. Wait for the change to finish.'
-              : 'Changing it stops running agents.'
-          }
-        >
-          <span className="settings-row-value">
-            {status?.region ? regionNames[status.region] : 'Not chosen'}
-          </span>
-          <Button
-            variant="ghost"
-            size="sm"
-            disabled={busy || authorizing || changing || !status}
-            onClick={() => setRegionOpen(true)}
-          >
-            {status?.region ? 'Change…' : 'Choose…'}
-          </Button>
-        </SettingsRow>
-      </SettingsRows>
-      {status?.remoteRevocationPending && (
-        <StepError>
-          You are signed out on this computer. Kalkidan could not confirm that the service removed
-          the access.
-        </StepError>
-      )}
-      {(error || statusError) && <StepError>{error || statusError}</StepError>}
-      <SettingsGroup id={settingsAnchors.services} title="Connected services">
-        <ConnectedServices services={services} />
-      </SettingsGroup>
-      <SettingsAdvanced>
-        <SettingsRows>
-          {details?.expiresAt && (
-            <SettingsRow
-              label="Session ends"
-              help={`${new Date(details.expiresAt).toLocaleString()} · Kalkidan renews it automatically.`}
-            />
-          )}
-          {details?.apiUrl && (
-            <SettingsRow
-              label="Service address"
-              help={<CopyValue value={details.apiUrl} name="Service address" />}
-            />
-          )}
-          {known && api.verdictanOpenConsole && (
-            <SettingsRow label="Verdictan console" help="Manage your account and organization.">
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() =>
-                  void Promise.resolve()
-                    .then(() => api.verdictanOpenConsole())
-                    .catch(() =>
-                      showToast({ message: 'Could not open the console.', tone: 'error' }),
-                    )
-                }
-              >
-                Open
-                <ExternalLink aria-hidden="true" />
-              </Button>
-            </SettingsRow>
-          )}
-          <GitHubCliPathRow services={services} />
-          <SettingsRow label="Account status" help={accountStatusText(status)}>
-            <Button
-              variant="ghost"
-              size="sm"
-              disabled={busy || phase === 'checking'}
-              onClick={() => void run(() => api.verdictanCheck())}
-            >
-              Check status
-            </Button>
-          </SettingsRow>
-        </SettingsRows>
-      </SettingsAdvanced>
-      <RegionDialog
-        open={regionOpen}
-        current={status?.region}
-        signedIn={known}
-        busy={busy}
-        onCancel={() => setRegionOpen(false)}
-        onConfirm={(region) =>
-          void run(
-            () => api.verdictanSetRegion(region),
-            `Region set to ${regionNames[region]}`,
-          ).then((done) => done && setRegionOpen(false))
-        }
-      />
-    </>
-  );
-}
-
-function accountStatusText(status: VerdictanStatus | undefined) {
-  switch (status?.phase) {
-    case 'authenticated':
-      return status.executionReady ? 'Signed in. Managed agents are ready.' : 'Signed in.';
-    case 'expired':
-      return 'The session ended.';
-    case 'authorizing':
-      return 'Waiting for the browser sign-in.';
-    case 'missing':
-      return 'Managed agents are not installed on this computer.';
-    case 'error':
-      return 'The last check did not work.';
-    case 'checking':
-      return 'Checking…';
-    case 'signed-out':
-      return 'Signed out.';
-    default:
-      return 'Checking…';
-  }
-}
-
 /** Asks for the region. A change stops the agents that run, so it needs a confirmation. */
-function RegionDialog({
+export function RegionDialog({
   open,
   current,
   signedIn,
@@ -766,14 +538,20 @@ function RegionDialog({
   );
 }
 
-/** The state of one agent in Settings › Agents, with the help line and the action. */
+/** The state of one agent on the Computers page, with the help line and the action. */
 interface AgentRowState {
   status: StatusLabel;
   help: string;
-  action: 'change' | 'sign-in' | 'programs' | 'setup' | 'none';
+  /** The one action of the row. 'setup' opens the organization setup under the row. */
+  action: 'sign-in' | 'programs' | 'setup' | 'none';
 }
 
-function agentRowState(
+/** "Version 0.160.2", or empty when Kalkidan cannot read the version. */
+function programVersion(program: AgentInstallation | undefined) {
+  return program?.status === 'installed' && program.version ? `Version ${program.version}` : '';
+}
+
+export function agentRowState(
   agent: ManagedAgentKind,
   account: VerdictanStatus | undefined,
   setup: VerdictanSetup | undefined,
@@ -783,12 +561,12 @@ function agentRowState(
   /** True when the setup read failed. The row then does not stay at "Checking…". */
   setupFailed = false,
 ): AgentRowState {
-  const name = managedAgentNames[agent];
   const kind = nativeAgentKind(agent)!;
+  const version = programVersion(program);
   if (program?.status === 'missing')
     return {
-      status: { label: 'Not set up', tone: 'warning' },
-      help: `${name} is not installed on this computer.`,
+      status: { label: 'Not installed', tone: 'warning' },
+      help: 'Not found on this computer',
       action: 'programs',
     };
   if (program?.status === 'installed') {
@@ -796,77 +574,68 @@ function agentRowState(
     if (check.status === 'outdated')
       return {
         status: { label: 'Needs update', tone: 'warning' },
-        help: `Version ${program.version} is too old. It needs ${check.minimum} or later.`,
+        help: `${version} · Needs ${check.minimum} or later`,
         action: 'programs',
       };
   }
   if (!account && readFailed)
     return {
-      status: { label: 'Not set up', tone: 'muted' },
-      help: 'Kalkidan could not read the account status.',
+      status: { label: 'Not known', tone: 'muted' },
+      help: 'Kalkidan could not read the account.',
       action: 'none',
     };
   if (!account)
-    return { status: { label: 'Checking…', tone: 'secondary' }, help: '', action: 'none' };
+    return { status: { label: 'Checking…', tone: 'secondary' }, help: version, action: 'none' };
   if (account.phase !== 'authenticated')
     return {
-      status: { label: 'Not set up', tone: 'muted' },
-      help:
-        account.phase === 'expired'
-          ? 'Your session ended. Sign in again.'
-          : 'Sign in to use managed agents.',
+      status: { label: 'Needs sign-in', tone: 'warning' },
+      help: version,
       action: 'sign-in',
     };
   if (!setup && setupFailed)
     return {
-      status: { label: 'Not set up', tone: 'muted' },
-      help: 'Kalkidan could not read the agent setup of your organization.',
+      status: { label: 'Not known', tone: 'muted' },
+      help: 'Kalkidan could not read the setup of your organization.',
       action: 'none',
     };
   if (!setup)
-    return { status: { label: 'Checking…', tone: 'secondary' }, help: '', action: 'none' };
+    return { status: { label: 'Checking…', tone: 'secondary' }, help: version, action: 'none' };
   const saved = setup.selections[agent];
   if (!saved || selectionIssue(setup, saved))
     return {
-      status: { label: 'Not set up', tone: 'warning' },
-      help: saved
-        ? 'Your organization changed the setup. Choose again.'
-        : 'Choose the default model.',
+      status: { label: 'Needs setup', tone: 'warning' },
+      help: version,
       action: 'setup',
     };
   return {
     status: { label: 'Ready', tone: 'success' },
-    help: [saved.model ? `Default model ${saved.model}` : '', accessLabel(agent, saved)]
-      .filter(Boolean)
-      .join(' · '),
-    action: 'change',
+    help: [version, saved.model].filter(Boolean).join(' · '),
+    action: 'none',
   };
 }
 
+/** The organization setup of a saved selection in one line: "Platform team · Kalkidan default". */
+function setupLine(setup: VerdictanSetup, agent: ManagedAgentKind) {
+  const saved = setup.selections[agent];
+  return [teamPolicyLabel(setup, saved), saved ? accessLabel(agent, saved) : '']
+    .filter(Boolean)
+    .join(' · ');
+}
+
 /**
- * Settings › Agents: one row for Codex and one for Claude Code, each with its state and one
- * action. Change… and Fix… open the setup sheet, the sign-in, or the agent programs. The
- * Advanced fold shows the team and policy and the programs on this computer.
+ * The agent rows of the Computers page: one row for Codex and one for Claude Code with the
+ * program version, the default model, and the state. A warning shows only when the agent
+ * cannot run, with one outline action. "Choose…" picks the program on this computer. Under
+ * each row, "Organization setup" opens the team, policy and connection choices in place.
  */
-export function AgentsSection({
-  api,
-  open,
-  anchor,
-  onOpenComputers,
-}: {
-  api: API;
-  open: boolean;
-  /** The element that the dialog moves to. An anchor in Advanced opens it. */
-  anchor?: string;
-  onOpenComputers: () => void;
-}) {
+export function AgentRows({ api, open, anchor }: { api: API; open: boolean; anchor?: string }) {
   const account = useAccountStatus(api, open);
   const status = account.status;
   const signedIn = status?.phase === 'authenticated';
   const [setup, setSetup] = useState<VerdictanSetup>();
   const [setupFailed, setSetupFailed] = useState(false);
   const [programs, setPrograms] = useState<AgentInstallation[]>();
-  const [sheet, setSheet] = useState<ManagedAgentKind>();
+  const [expanded, setExpanded] = useState<ManagedAgentKind>();
   const [programsOpen, setProgramsOpen] = useState(false);
   const readSetup = useCallback(() => {
     if (!signedIn) return;
@@ -893,84 +662,87 @@ export function AgentsSection({
   }, [api]);
   useRefreshTriggers(api, open && signedIn, readSetup);
   useRefreshTriggers(undefined, open, readPrograms);
+  // A link to the managed setup opens the setup of the first agent that needs it.
+  const linked = useRef(false);
+  useEffect(() => {
+    if (linked.current || anchor !== settingsAnchors.managedSetup || !setup) return;
+    linked.current = true;
+    const first = (['codex', 'claude'] as const).find(
+      (agent) => !setup.selections[agent] || selectionIssue(setup, setup.selections[agent]),
+    );
+    if (first) setExpanded(first);
+  }, [anchor, setup]);
   const agents: ManagedAgentKind[] = ['codex', 'claude'];
-  const advancedOpen = !!anchor && (anchor.startsWith('agent-') || anchor === 'settings-agents');
   return (
     <>
-      <SettingsRows label="Managed agents" className="outline-none">
-        {agents.map((agent) => {
-          const program = programs?.find((item) => item.agent === agent);
-          const state = agentRowState(agent, status, setup, program, !!account.error, setupFailed);
-          return (
-            <SettingsRow
-              key={agent}
-              id={agent === 'codex' ? settingsAnchors.managedSetup : undefined}
-              icon={
-                <EntityIcon>
-                  <AgentIcon agent={agent} />
-                </EntityIcon>
-              }
-              label={managedAgentNames[agent]}
-              help={state.help}
-            >
-              <StatusBadge status={state.status} />
-              {state.action !== 'none' && (
-                <Button
-                  variant={state.action === 'change' ? 'outline' : 'default'}
-                  size="sm"
-                  aria-label={`${state.action === 'change' ? 'Change' : 'Fix'} ${managedAgentNames[agent]}`}
-                  onClick={() => {
-                    if (state.action === 'sign-in') startSignIn('login');
-                    else if (state.action === 'programs') setProgramsOpen(true);
-                    else setSheet(agent);
-                  }}
-                >
-                  {state.action === 'change' ? 'Change…' : 'Fix…'}
-                </Button>
-              )}
-            </SettingsRow>
-          );
-        })}
-      </SettingsRows>
-      <SettingsAdvanced defaultOpen={advancedOpen}>
-        <SettingsRows>
-          {signedIn && setup && (
-            <SettingsRow label="Team and policy" help={teamPolicyText(setup)} />
-          )}
-          {agents.map((agent) => {
-            const program = programs?.find((item) => item.agent === agent);
-            return (
-              <SettingsRow
-                key={agent}
-                id={agentProgramAnchor(agent)}
-                label={`${managedAgentNames[agent]} program on this computer`}
-                help={programText(program)}
+      {agents.map((agent) => {
+        const program = programs?.find((item) => item.agent === agent);
+        const state = agentRowState(agent, status, setup, program, !!account.error, setupFailed);
+        const name = managedAgentNames[agent];
+        const editing = expanded === agent;
+        return (
+          <SettingsRow
+            key={agent}
+            id={agent === 'codex' ? settingsAnchors.managedSetup : agentProgramAnchor(agent)}
+            icon={
+              <EntityIcon>
+                <AgentIcon agent={agent} />
+              </EntityIcon>
+            }
+            label={name}
+            help={state.help || undefined}
+            extra={
+              signedIn && setup ? (
+                <div className="grid gap-3">
+                  <div className="flex min-w-0 items-center gap-3">
+                    <span className="min-w-0 flex-1">
+                      <span className="settings-row-label block">Organization setup</span>
+                      <span className="settings-row-help block">
+                        {setupLine(setup, agent) || 'Not chosen'}
+                      </span>
+                    </span>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      aria-expanded={editing}
+                      aria-label={`${editing ? 'Hide' : 'Change'} the organization setup of ${name}`}
+                      onClick={() => setExpanded(editing ? undefined : agent)}
+                    >
+                      {editing ? 'Done' : state.action === 'setup' ? 'Set up…' : 'Change…'}
+                    </Button>
+                  </div>
+                  {editing && (
+                    <VerdictanSetupForm
+                      api={api}
+                      agent={agent}
+                      onSetup={(value) => {
+                        setSetup(value);
+                        notifyManagedAgentsChanged();
+                      }}
+                    />
+                  )}
+                </div>
+              ) : undefined
+            }
+          >
+            <StatusBadge status={state.status} />
+            {state.action === 'sign-in' ? (
+              <Button variant="outline" size="sm" onClick={() => startSignIn('login')}>
+                Sign in
+              </Button>
+            ) : (
+              <Button
+                variant="outline"
+                size="sm"
+                aria-label={`Choose the ${name} program`}
+                onClick={() => setProgramsOpen(true)}
               >
-                <Button variant="ghost" size="sm" onClick={() => setProgramsOpen(true)}>
-                  Choose…
-                </Button>
-              </SettingsRow>
-            );
-          })}
-          <SettingsRow label="Programs on SSH hosts" help="Set them for each host in Computers.">
-            <button type="button" className="text-link text-xs" onClick={onOpenComputers}>
-              Open Computers
-            </button>
+                Choose…
+              </Button>
+            )}
           </SettingsRow>
-        </SettingsRows>
-      </SettingsAdvanced>
-      {sheet && (
-        <AgentSetupDialog
-          api={api}
-          agent={sheet}
-          open={!!sheet}
-          onOpenChange={(next) => !next && setSheet(undefined)}
-          onSetup={(value) => {
-            setSetup(value);
-            notifyManagedAgentsChanged();
-          }}
-        />
-      )}
+        );
+      })}
       <AgentProgramsDialog
         api={api}
         open={programsOpen}
@@ -981,16 +753,8 @@ export function AgentsSection({
   );
 }
 
-function teamPolicyText(setup: VerdictanSetup) {
-  const codex = teamPolicyLabel(setup, setup.selections.codex);
-  const claude = teamPolicyLabel(setup, setup.selections.claude);
-  if (!codex && !claude) return 'Not chosen yet.';
-  if (codex === claude || !claude) return codex;
-  if (!codex) return claude;
-  return `Codex: ${codex} · Claude Code: ${claude}`;
-}
-
-function programText(program: AgentInstallation | undefined) {
+/** The program details of each agent, for the Details fold of the Computers page. */
+export function programText(program: AgentInstallation | undefined) {
   if (!program) return 'Checking…';
   if (program.status === 'unavailable') return 'Only in the desktop app.';
   if (program.status !== 'installed') return 'Not found.';

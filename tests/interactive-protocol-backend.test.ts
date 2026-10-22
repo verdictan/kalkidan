@@ -14,6 +14,8 @@ function fixture(agent = 'codex', platform = 'linux') {
     timers = new Map<any, Function>(),
     kills: any[] = [];
   const memoryScopes: any[] = [],
+    memoryReaders: Function[] = [],
+    contextRecords: any[] = [],
     extractions: any[] = [],
     launches: string[][] = [];
   let memoryClosed = 0;
@@ -77,9 +79,16 @@ function fixture(agent = 'codex', platform = 'linux') {
   const { InteractiveChatRunner } = backendLoader(
     {
       [resolve('electron/agents/memory-tools.ts')]: {
-        startMemoryTools: async (scope: any) => {
+        startMemoryTools: async (scope: any, _changed: unknown, read: Function) => {
           memoryScopes.push(scope);
+          memoryReaders.push(read);
           return { url: 'http://127.0.0.1:1234/mcp/scoped', close: () => memoryClosed++ };
+        },
+      },
+      [resolve('electron/storage/context-usage.ts')]: {
+        recordContextUsage: async (...args: any[]) => {
+          contextRecords.push(args);
+          return true;
         },
       },
       [resolve('electron/storage/memory-extraction.ts')]: {
@@ -138,6 +147,8 @@ function fixture(agent = 'codex', platform = 'linux') {
     kills,
     settings,
     memoryScopes,
+    memoryReaders,
+    contextRecords,
     extractions,
     launches,
     memoryClosed: () => memoryClosed,
@@ -579,12 +590,17 @@ test('agent protocols bound retained state and tolerate sparse events', async ()
 test('native runtimes bind memory tools to the backend project and queue extraction only after success', async () => {
   for (const agent of ['codex', 'claude']) {
     const f = fixture(agent);
+    let changed = 0;
     const run = await f.runner.start(f.session, 'task', true, false, undefined, undefined, {
       root: '/project',
       groupId: 'g',
       prompt: 'Use npm test.',
+      changed: () => changed++,
+      read: { memory: [], docs: [{ docId: 'auth', title: 'Auth flow' }] },
     });
     await drain();
+    // The agent searches memory. The turn records the fact and the page from the prompt.
+    f.memoryReaders[0]([{ id: 'fact', topic: 'Testing' }]);
     assert.equal(f.memoryScopes.length, 1);
     assert.equal(f.memoryScopes[0].root, '/project');
     assert.equal(f.memoryScopes[0].sources()[0].text, 'Use npm test.');
@@ -604,6 +620,18 @@ test('native runtimes bind memory tools to the backend project and queue extract
     assert.equal(run.status, 'completed');
     assert.equal(f.memoryClosed(), 1);
     assert.equal(f.extractions.length, 1);
+    assert.deepEqual(f.contextRecords, [
+      [
+        '/project',
+        agent,
+        'session',
+        {
+          memory: [{ id: 'fact', topic: 'Testing' }],
+          docs: [{ docId: 'auth', title: 'Auth flow' }],
+        },
+      ],
+    ]);
+    assert.equal(changed, 1);
     f.runner.dispose();
     assert.equal(f.extractions.length, 1);
   }

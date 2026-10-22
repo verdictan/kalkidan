@@ -3,7 +3,8 @@ import { interfaceConfig } from '../config/interface';
 
 const storageKey = 'kalkidan-sidebar-width';
 const openKey = 'kalkidan-sidebar-open';
-const { min, max, initial, contentMin, collapseBelow } = interfaceConfig.sidebar;
+const { min, max, initial, contentMin, collapseBelow, compactBelow, compact } =
+  interfaceConfig.sidebar;
 export function useSidebarWidth() {
   const [preferred, setPreferred] = useState(() => {
     try {
@@ -19,7 +20,11 @@ export function useSidebarWidth() {
     window.addEventListener('resize', resize);
     return () => window.removeEventListener('resize', resize);
   }, []);
-  const maximum = Math.max(min, Math.min(max, viewport - contentMin));
+  // A compact window keeps more room for the page: the sidebar is at most 220px wide.
+  const maximum = Math.max(
+    min,
+    Math.min(viewport < compactBelow ? compact : max, viewport - contentMin),
+  );
   const width = Math.min(preferred, maximum);
   function update(value: number) {
     const next = Math.round(Math.max(min, Math.min(maximum, value)));

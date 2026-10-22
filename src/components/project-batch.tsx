@@ -15,7 +15,7 @@ import { Input } from './ui/input';
 import { SectionHeader } from './ui/page-header';
 import { showToast } from './ui/toast';
 import {
-  describeFieldValue,
+  fieldChangeText,
   ErrorAlert,
   notifyGitHubWrites,
   ReviewRow,
@@ -281,7 +281,7 @@ export function FieldsTool({
                         onOpen={() => onOpenTask(change.itemId)}
                       />
                     }
-                    meta={`${definition?.name || 'Field'}: ${describeFieldValue(definition, change.before)} → ${describeFieldValue(definition, change.value)}`}
+                    meta={fieldChangeText(definition, change.before, change.value)}
                     status={state ? batchStateLabel(state) : undefined}
                   />
                 );

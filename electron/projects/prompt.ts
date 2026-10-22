@@ -5,7 +5,8 @@ import type { Project, ProjectGroup, ChatOptions } from '../../src/types';
 import { trackerConnection } from '../../src/domain/tracker';
 import type { TrackerRegistry } from '../trackers/registry';
 import { parseMentions, type MentionFileContent } from '../../src/domain/mentions';
-import type { MemoryEntry } from '../../src/domain/memory';
+import type { ContextUsage, MemoryEntry } from '../../src/domain/memory';
+import { factTitle } from '../agents/memory-tools';
 import type { ChatMessage } from '../../src/domain/conversation';
 import { mentionContext } from './mentions';
 export function createProjectPrompt(dependencies: {
@@ -28,7 +29,14 @@ export function createProjectPrompt(dependencies: {
     id: string,
   ): Promise<{ title?: string; messages: ChatMessage[] }>;
 }) {
-  return async (cwd: string, prompt: string, options?: ChatOptions, hostId?: string) => {
+  /** `read` collects the doc passages and memory facts that the prompt gives to the agent. */
+  return async (
+    cwd: string,
+    prompt: string,
+    options?: ChatOptions,
+    hostId?: string,
+    read?: ContextUsage,
+  ) => {
     if (typeof prompt !== 'string' || !prompt.trim() || prompt.length > 100000)
       throw new Error('Enter a message of up to 100,000 characters.');
     const repo = dependencies
@@ -95,6 +103,13 @@ export function createProjectPrompt(dependencies: {
             selected.push(passage);
         }
         if (selected.length) docsContext = docsHeader + JSON.stringify(selected);
+        read?.docs.push(
+          ...selected.map((passage) => ({
+            docId: passage.id,
+            title: passage.title,
+            ...(passage.heading ? { heading: passage.heading } : {}),
+          })),
+        );
       } catch {
         docsContext =
           '\n\nProject Docs search is unavailable. Do not assume the docs were checked.';
@@ -105,16 +120,30 @@ export function createProjectPrompt(dependencies: {
     let memoryRead: Promise<MemoryEntry[]> | undefined;
     const mentionsContext = await mentionContext(mentions, {
       file: dependencies.mentionFile && ((path) => dependencies.mentionFile!(cwd, path, hostId)),
-      doc: dependencies.readDoc && ((id) => dependencies.readDoc!(group, id)),
+      doc:
+        dependencies.readDoc &&
+        (async (id) => {
+          const doc = await dependencies.readDoc!(group, id);
+          read?.docs.push({ docId: doc.id, title: doc.title });
+          return doc;
+        }),
       task: trackerConnection(group)
         ? async (id) => (await board()).items.find((item) => item.id === id)
         : undefined,
       memory:
         dependencies.memoryEntries &&
-        (async (id) =>
-          (await (memoryRead ||= dependencies.memoryEntries!(group))).find(
+        (async (id) => {
+          const entry = (await (memoryRead ||= dependencies.memoryEntries!(group))).find(
             (entry) => entry.id === id,
-          )),
+          );
+          if (entry)
+            read?.memory.push({
+              id: entry.id,
+              topic: entry.topic,
+              title: factTitle(entry.content),
+            });
+          return entry;
+        }),
       chat:
         dependencies.chatMessages && ((agent, id) => dependencies.chatMessages!(group, agent, id)),
     });

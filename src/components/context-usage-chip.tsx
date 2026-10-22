@@ -1,0 +1,141 @@
+import { useEffect, useState } from 'react';
+import { BookOpen, FileText, Lightbulb } from 'lucide-react';
+import type { API } from '../types';
+import type { ContextUsage } from '../domain/memory';
+import { plural } from '../lib/platform';
+import { Button } from './ui/button';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuTrigger,
+} from './ui/dropdown-menu';
+
+/**
+ * Calls `read` now, when the window gets focus, and when the memory or docs of the project
+ * change.
+ */
+function useProjectReload(api: API, groupId: string, read: () => void) {
+  useEffect(() => {
+    read();
+    const unsubscribe = api.onProjectResourceChange?.((event) => {
+      if (event.groupId === groupId) read();
+    });
+    window.addEventListener('focus', read);
+    return () => {
+      unsubscribe?.();
+      window.removeEventListener('focus', read);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [api, groupId]);
+}
+
+/** How many chats read each memory fact and each doc page of a project. */
+export function useReadCounts(api: API, groupId: string) {
+  const [counts, setCounts] = useState<{
+    memory: Record<string, number>;
+    docs: Record<string, number>;
+  }>();
+  useProjectReload(api, groupId, () => {
+    if (typeof api.readCounts !== 'function') return;
+    void api
+      .readCounts(groupId)
+      .then(setCounts)
+      .catch(() => setCounts(undefined));
+  });
+  return counts;
+}
+
+/** "Context: 3 facts · 1 page", or an empty text when the agent read nothing. */
+export function contextUsageLabel(usage: ContextUsage | undefined) {
+  if (!usage) return '';
+  const parts = [
+    usage.memory.length ? plural(usage.memory.length, 'fact') : '',
+    usage.docs.length ? plural(usage.docs.length, 'page') : '',
+  ].filter(Boolean);
+  return parts.length ? `Context: ${parts.join(' · ')}` : '';
+}
+
+const openKnowledge = (detail: Record<string, string>) =>
+  window.dispatchEvent(new CustomEvent('kalkidan-open-project-page', { detail }));
+
+/**
+ * The facts and pages that the agent read in one chat. It shows in the chat header. A click
+ * lists them; an item opens it in the Knowledge tab. Nothing shows when the agent read nothing.
+ */
+export function ContextUsageChip({
+  api,
+  groupId,
+  agent,
+  sessionId,
+}: {
+  api: API;
+  groupId: string;
+  agent: string;
+  /** The provider session ID of the chat. */
+  sessionId: string;
+}) {
+  const [usage, setUsage] = useState<ContextUsage>();
+  useEffect(() => setUsage(undefined), [groupId, agent, sessionId]);
+  useProjectReload(api, `${groupId}`, () => {
+    if (typeof api.contextUsage !== 'function' || !sessionId) return;
+    void api
+      .contextUsage(groupId, agent, sessionId)
+      .then(setUsage)
+      .catch(() => setUsage(undefined));
+  });
+  const label = contextUsageLabel(usage);
+  if (!usage || !label) return null;
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button variant="chip" size="sm" aria-label={`${label}. Show what the agent read`}>
+          <BookOpen aria-hidden="true" />
+          {label}
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="max-w-80">
+        {usage.memory.length > 0 && <DropdownMenuLabel>Facts</DropdownMenuLabel>}
+        {usage.memory.map((fact) => (
+          <DropdownMenuItem
+            key={fact.id}
+            onSelect={() =>
+              openKnowledge({
+                groupId,
+                page: 'knowledge',
+                section: 'memory',
+                topic: fact.topic,
+                factId: fact.id,
+              })
+            }
+          >
+            <Lightbulb className="size-4" aria-hidden="true" />
+            <span className="truncate">{fact.title || fact.topic}</span>
+          </DropdownMenuItem>
+        ))}
+        {usage.docs.length > 0 && <DropdownMenuLabel>Pages</DropdownMenuLabel>}
+        {usage.docs.map((doc) => (
+          <DropdownMenuItem
+            key={doc.docId + (doc.heading || '')}
+            onSelect={() =>
+              openKnowledge({
+                groupId,
+                page: 'knowledge',
+                section: 'pages',
+                docId: doc.docId,
+                ...(doc.heading ? { heading: doc.heading } : {}),
+              })
+            }
+          >
+            <FileText className="size-4" aria-hidden="true" />
+            <span className="truncate">
+              {doc.title || 'Untitled'}
+              {doc.heading ? ` › ${doc.heading}` : ''}
+            </span>
+          </DropdownMenuItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}

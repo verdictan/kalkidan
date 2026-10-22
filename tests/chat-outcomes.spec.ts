@@ -1,4 +1,4 @@
-import { type Page } from '@playwright/test';
+import { type Locator, type Page } from '@playwright/test';
 import { test, expect, newChat } from './helpers/app';
 import { openCodeFolder } from './helpers/navigation';
 
@@ -58,6 +58,12 @@ async function withOutcomes(page: Page) {
   await page.goto('/');
 }
 
+/** Shows one view of a chat list, such as "Failed (1)", from its Filter chats menu. */
+async function showView(list: Locator, view: string) {
+  await list.getByRole('button', { name: 'Filter chats', exact: true }).click();
+  await list.page().getByRole('menuitemradio', { name: view, exact: true }).click();
+}
+
 const failedWords = 'The last run failed. The managed gateway stopped this turn after a refusal.';
 const refusedWords = 'Managed agents did not start the last run. Sign in to managed agents.';
 
@@ -88,10 +94,10 @@ test('All chats and the project Chats tab filter failed and refused chats', asyn
   await expect(
     all.getByRole('button', { name: 'Resume Failed chat' }).locator('.activity-dot'),
   ).toHaveAttribute('data-state', 'failed');
-  await all.getByRole('button', { name: 'Failed (1)', exact: true }).click();
+  await showView(all, 'Failed (1)');
   await expect(all.getByRole('button', { name: /^Resume / })).toHaveCount(1);
   await expect(all.getByRole('button', { name: 'Resume Failed chat' })).toBeVisible();
-  await all.getByRole('button', { name: 'Refused (1)', exact: true }).click();
+  await showView(all, 'Refused (1)');
   await expect(all.getByRole('button', { name: /^Resume / })).toHaveCount(1);
   await expect(all.getByRole('button', { name: 'Resume Refused chat' })).toBeVisible();
 
@@ -102,10 +108,10 @@ test('All chats and the project Chats tab filter failed and refused chats', asyn
     .click();
   const chats = page.getByRole('region', { name: 'Project chats' });
   await expect(chats.getByRole('button', { name: /^Resume / })).toHaveCount(4);
-  await chats.getByRole('button', { name: 'Refused (1)', exact: true }).click();
+  await showView(chats, 'Refused (1)');
   await expect(chats.getByRole('button', { name: /^Resume / })).toHaveCount(1);
   await expect(chats.getByRole('img', { name: refusedWords })).toBeVisible();
-  await chats.getByRole('button', { name: 'Failed (1)', exact: true }).click();
+  await showView(chats, 'Failed (1)');
   await expect(chats.getByRole('button', { name: 'Resume Failed chat' })).toBeVisible();
 });
 

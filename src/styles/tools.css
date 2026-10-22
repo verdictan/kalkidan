@@ -212,43 +212,6 @@
   font-size: 13px;
 }
 
-/* The tool launcher: a page header, then one 48px ghost row for each tool with an icon
-   tile, a name, a description and a muted shortcut. */
-.tool-launcher {
-  max-width: var(--page-max-width);
-  margin: 0 auto;
-  padding: var(--page-padding-top) var(--page-padding-x);
-  height: 100%;
-  overflow: auto;
-}
-.tool-launcher-grid {
-  display: grid;
-  grid-template-columns: 1fr;
-  gap: var(--space-1);
-}
-.tool-launcher-text {
-  display: grid;
-  flex: 1;
-  min-width: 0;
-  text-align: left;
-}
-.tool-launcher-title {
-  font-size: 13px;
-  line-height: 20px;
-  font-weight: 500;
-}
-.tool-launcher-description {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: 12px;
-  line-height: 16px;
-  color: var(--muted-foreground);
-}
-.tool-launcher-kbd {
-  background: transparent;
-  color: var(--muted-foreground);
-}
 .agent-panes.has-side-chat {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
@@ -370,48 +333,28 @@
 .tool-tab-close {
   color: var(--muted-foreground);
 }
-/* Terminal, Browser and Changes ({n}) in the title bar. */
+/* Terminal, Browser and Changes ({n}) in the title bar: one segmented group. The selected
+   button is the shown tool. */
 .tool-launch {
-  display: flex;
   flex-shrink: 0;
-  align-items: center;
-  gap: 2px;
-}
-.tool-launch-button {
-  color: var(--muted-foreground);
-  font-weight: 400;
-}
-.tool-launch-button:hover,
-.tool-launch-button[data-selected] {
-  color: var(--foreground);
 }
 .tool-launch-count {
   min-width: 16px;
   height: 16px;
   padding: 0 4px;
   border-radius: 9999px;
-  background: var(--secondary);
+  background: var(--muted);
   color: var(--foreground);
-  font-size: var(--text-2xs);
+  font-size: 11px;
   line-height: 16px;
   font-variant-numeric: tabular-nums;
 }
-/* Next to open tool tabs, or in a narrow window, the buttons show only their icons. The
-   button of the open tool keeps its label. The others show their name in a tooltip. */
-.tool-tabbar[data-expanded='true'] .tool-launch-button:not([data-selected]) .tool-launch-label {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  overflow: hidden;
-  clip-path: inset(50%);
-}
-/* A line between the tab strip and the "Open tool" and "Hide tools" buttons. */
-.tool-tabbar-divider {
-  flex-shrink: 0;
-  width: 1px;
-  height: 16px;
-  margin-inline: 4px;
-  background: var(--border);
+/* Two terminals or two browser tabs: a strip of tabs above the tool. */
+.conversation-tool-dock > .tool-tabs {
+  flex: 0 0 auto;
+  height: 36px;
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--border);
 }
 .tool-tab-content {
   height: 100%;
@@ -444,19 +387,12 @@
   padding-inline: 4px;
   -webkit-app-region: no-drag;
 }
-#conversation-titlebar-tabs:has([data-expanded='false']) {
+#conversation-titlebar-tabs:has(.tool-tabbar) {
   flex: 0 0 auto;
-}
-/* Narrow windows keep one title bar row. The breadcrumb and the tool tabs share the
-   width, the breadcrumb truncates, and the tab strip scrolls. */
-@media (max-width: 1100px) {
-  .tool-tab {
-    min-width: 88px;
-  }
 }
 /* Only a very narrow window shows the tool buttons as icons. Their names are in tooltips. */
 @media (max-width: 860px) {
-  .tool-launch-button:not([data-selected]) .tool-launch-label {
+  .tool-launch-button:not([aria-pressed='true']) .tool-launch-label {
     position: absolute;
     width: 1px;
     height: 1px;

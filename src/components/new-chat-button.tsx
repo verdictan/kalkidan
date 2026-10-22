@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { ChevronDown, FolderGit2, Plus, Settings2 } from 'lucide-react';
+import { ChevronDown, FolderGit2, Monitor, Plus } from 'lucide-react';
 import { agentCatalog, agentLabel } from '../config/agents';
 import {
   agentInstalled,
@@ -48,7 +48,15 @@ export function recentRepo(repos: Project[], sessions: Session[], preferredId?: 
  * Asks the shell for a new chat. Without a code folder, the shell asks the user to add one.
  * The agent is the preferred agent when `agent` is not set.
  */
-export function requestNewChat(detail: { groupId?: string; repoId?: string; agent?: Agent }) {
+export function requestNewChat(detail: {
+  groupId?: string;
+  repoId?: string;
+  agent?: Agent;
+  /** The first message. */
+  prompt?: string;
+  /** Sends `prompt` at once, as the first message of the chat. */
+  send?: boolean;
+}) {
   window.dispatchEvent(new CustomEvent('kalkidan-new-session', { detail }));
 }
 
@@ -128,9 +136,7 @@ export function NewChatButton({
                 key={id}
                 value={id}
                 disabled={!agentInstalled(id)}
-                title={
-                  agentInstalled(id) ? undefined : `Install ${agentLabel(id)} in Settings › Agents`
-                }
+                title={agentInstalled(id) ? undefined : `Install ${agentLabel(id)} in Computers`}
                 // The menu stays open, so the user can choose a code folder next.
                 onSelect={(event) => event.preventDefault()}
               >
@@ -159,13 +165,11 @@ export function NewChatButton({
               <DropdownMenuSeparator />
               <DropdownMenuItem
                 onSelect={() =>
-                  window.dispatchEvent(
-                    new CustomEvent('kalkidan-open-settings', { detail: { section: 'agents' } }),
-                  )
+                  window.dispatchEvent(new CustomEvent('kalkidan-open-computers', { detail: {} }))
                 }
               >
-                <Settings2 className="size-4" />
-                Install agents in Settings…
+                <Monitor className="size-4" />
+                Install agents…
               </DropdownMenuItem>
             </>
           )}

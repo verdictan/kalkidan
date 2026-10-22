@@ -1,5 +1,12 @@
-import { test, expect, openMoreChatActions } from './helpers/app';
+import { type Page } from '@playwright/test';
+import { test, expect } from './helpers/app';
 import { openCodeFolder } from './helpers/navigation';
+/** Opens a submenu of the open chat menu, such as "Open in", with the keyboard. */
+async function openChatSubmenu(page: Page, name: string) {
+  await page.getByRole('menuitem', { name, exact: true }).hover();
+  await page.keyboard.press('ArrowRight');
+  await expect(page.getByRole('menu')).toHaveCount(2);
+}
 async function openSession(page: any) {
   await page.goto('/');
   await page.locator('.project-tree').getByRole('button', { name: 'Atlas', exact: true }).click();
@@ -29,22 +36,23 @@ test('session actions rename, pin, fork, and open an independent side session', 
   ).toBeVisible();
   await menu();
   await expect(page.getByRole('menuitem', { name: /^Unpin/ })).toBeVisible();
-  // Duplicate chat and the side chat are in the "More" submenu.
-  await openMoreChatActions(page);
-  await page.getByRole('menuitem', { name: 'Duplicate chat', exact: true }).hover();
-  await page.keyboard.press('ArrowRight');
-  // The keyboard opens the nested submenu. Its first item, Continue here, has the focus.
+  // The keyboard opens the Duplicate chat submenu. Its first item, Continue here, has the focus.
+  await openChatSubmenu(page, 'Duplicate chat');
   await expect(page.getByRole('menuitem', { name: 'Continue here' })).toBeFocused();
   await page.keyboard.press('Enter');
   await expect(page.locator('.conversation-toolbar-title:visible')).toContainText(
     'Fork of Release review',
   );
+  // The side chat is in the "Open in" submenu.
   await menu();
-  await openMoreChatActions(page);
+  await openChatSubmenu(page, 'Open in');
   await page.getByRole('menuitem', { name: /Open a second chat beside this one/ }).click();
   await expect(page.getByLabel('Message agent')).toHaveCount(3);
   await expect(page.getByRole('button', { name: 'Close side chat' })).toBeVisible();
   await page.screenshot({ animations: 'disabled', path: 'test-results/side-session.png' });
+  // The new side chat takes the focus, so no tooltip covers its close button.
+  await expect(page.locator('.agent-pane[data-side] textarea')).toBeFocused();
+  await expect(page.getByRole('tooltip')).toHaveCount(0);
   await page.getByRole('button', { name: 'Close side chat' }).click();
   await expect(page.getByRole('button', { name: 'Close side chat' })).toHaveCount(0);
 });
@@ -62,7 +70,6 @@ test('archive closes the session at once and the toast can undo it', async ({ pa
 test('chat actions open the managed agent usage history of the chat', async ({ page }) => {
   await openSession(page);
   await page.getByRole('button', { name: 'Chat actions', exact: true }).click();
-  await openMoreChatActions(page);
   await page.getByRole('menuitem', { name: 'Usage history…' }).click();
   const dialog = page.getByRole('dialog', { name: 'Usage history' });
   await expect(dialog).toContainText('Verdictan keeps one history for chats and tasks.');
@@ -127,7 +134,6 @@ test('usage history loads on open and shows duration and subscription cost', asy
   await openCodeFolder(page);
   await page.getByRole('button', { name: 'Resume Review', exact: true }).click();
   await page.getByRole('button', { name: 'Chat actions', exact: true }).click();
-  await openMoreChatActions(page);
   await page.getByRole('menuitem', { name: 'Usage history…' }).click();
   const dialog = page.getByRole('dialog', { name: 'Usage history' });
   // The history loads without a button press.

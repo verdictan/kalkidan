@@ -121,10 +121,10 @@ for (const mac of [true, false])
       ['File', 'New task', 'new-task'],
       ['Go', 'Overview', 'go-overview'],
       ['Go', 'Tasks', 'go-tasks'],
-      ['Go', 'Docs', 'go-docs'],
-      ['Go', 'Memory', 'go-memory'],
-      ['Go', 'Insights', 'go-insights'],
+      ['Go', 'Chats', 'go-chats'],
+      ['Go', 'Knowledge', 'go-knowledge'],
       ['Go', 'All chats', 'all-sessions'],
+      ['Go', 'Computers', 'go-computers'],
       ['Chat', 'New chat', 'session-new'],
       ['Chat', 'Terminal', 'session-terminal'],
       ['Chat', 'Changes', 'session-changes'],
@@ -176,7 +176,7 @@ for (const mac of [true, false])
     const shown = all.map((entry) =>
       String(entry.accelerator || '').replace('Shift+CmdOrCtrl', 'CmdOrCtrl+Shift'),
     );
-    for (const key of ['CmdOrCtrl+N', 'CmdOrCtrl+Shift+N', 'CmdOrCtrl+6', 'CmdOrCtrl+Shift+K'])
+    for (const key of ['CmdOrCtrl+N', 'CmdOrCtrl+Shift+N', 'CmdOrCtrl+4', 'CmdOrCtrl+Shift+K'])
       assert.equal(shown.filter((value) => value === key).length, 1, key);
     // The renderer uses these keys. Menu items must not take them.
     const renderer = [
@@ -193,19 +193,16 @@ for (const mac of [true, false])
     for (const key of renderer) assert.ok(!keys.includes(key), key);
     const go = submenu(menu(mac), 'Go');
     assert.deepEqual(
-      ['Overview', 'Tasks', 'Chats', 'Docs', 'Memory', 'Insights', 'All chats'].map(
+      ['Overview', 'Tasks', 'Chats', 'Knowledge', 'All chats', 'Computers'].map(
         (label) => item(go, label).accelerator,
       ),
-      [
-        'CmdOrCtrl+1',
-        'CmdOrCtrl+2',
-        'CmdOrCtrl+3',
-        'CmdOrCtrl+4',
-        'CmdOrCtrl+5',
-        'CmdOrCtrl+6',
-        'CmdOrCtrl+Shift+L',
-      ],
+      ['CmdOrCtrl+1', 'CmdOrCtrl+2', 'CmdOrCtrl+3', 'CmdOrCtrl+4', 'CmdOrCtrl+Shift+L', undefined],
     );
+    // Knowledge holds Docs, Memory and Insights, so they have no menu items of their own.
+    for (const label of ['Docs', 'Memory', 'Insights', 'Settings…', 'Settings'])
+      assert.ok(!labels(menu(mac)).includes(label), label);
+    const settings = mac ? submenu(menu(mac), 'Kalkidan') : file;
+    assert.equal(item(settings, 'Preferences…').accelerator, mac ? 'Cmd+,' : 'Ctrl+,');
     assert.equal(item(file, 'New task').accelerator, 'CmdOrCtrl+Shift+K');
     assert.equal(item(go, 'Chats').click !== undefined, true);
     // Sign in shows once: in the app menu on macOS, in File elsewhere.

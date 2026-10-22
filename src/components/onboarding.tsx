@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { ArrowRight, Check, ChevronDown, FolderOpen, RefreshCw, X } from 'lucide-react';
+import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
+import { ArrowRight, Check, ChevronDown, FolderOpen, RefreshCw, Sparkles, X } from 'lucide-react';
 import type { API, Snapshot, Agent, AgentInstallation, Project } from '../types';
 import { agentCatalog, agentLabel } from '../config/agents';
 import { CreateProject } from './create-project';
@@ -8,7 +8,7 @@ import { Choice } from './choice';
 import { AgentInstallHelp } from './agent-programs';
 import { folderName, showFolderImportResult, useFolderImport } from './repository-import';
 import { Hint } from './hint';
-import { hasPrimaryModifier, shortcutLabel } from '../lib/platform';
+import { hasPrimaryModifier } from '../lib/platform';
 import { Button } from './ui/button';
 import { Progress } from './ui/progress';
 import { Textarea } from './ui/textarea';
@@ -21,6 +21,16 @@ import {
   DialogDescription,
   DialogFooter,
 } from './ui/dialog';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from './ui/dropdown-menu';
 import { errorMessage } from '../lib/errors';
 import {
   readPreferredAgent,
@@ -36,11 +46,26 @@ import {
   useRuntimeStatus,
   useVerdictanStatus,
 } from '../hooks/use-verdictan-status';
-import { setupSummary, startSignIn } from './sign-in-steps';
+import { signedInName, startSignIn } from './sign-in-steps';
 
-// The composer has starter chips. Onboarding starts with one useful draft that the user edits.
-const firstPrompt =
-  'Explore this repository and explain its architecture, main entry points, and how to run and test it. Identify a useful first task. Do not change files yet.';
+/** The draft of the first chat. The user can change it before Send. */
+export const firstChatPrompt =
+  'Explain this repository: its architecture, main entry points, and how to run and test it. Suggest a useful first task. Do not change files yet.';
+
+/**
+ * Opens a new chat in a code folder with the first draft. Use it after the first code folder
+ * is added: the user lands in the composer, not on a page. Kalkidan sends nothing.
+ */
+export function startFirstChat(detail: { groupId: string; repoId?: string; agent?: Agent }) {
+  window.dispatchEvent(
+    new CustomEvent('kalkidan-new-session', { detail: { ...detail, prompt: firstChatPrompt } }),
+  );
+}
+
+/** Opens the Get started dialog. The shell handles the event. */
+export function openGetStarted() {
+  window.dispatchEvent(new CustomEvent('kalkidan-open-get-started'));
+}
 
 const storageKey = 'kalkidan:onboarding:v1';
 export function onboardingDismissed() {
@@ -58,10 +83,48 @@ export function dismissOnboarding() {
   }
 }
 
-/** The two setup steps: a code folder, then a first chat. */
-export function onboardingProgress(data: Pick<Snapshot, 'projects' | 'sessions'>) {
-  const done = (data.projects.length > 0 ? 1 : 0) + (data.sessions.length > 0 ? 1 : 0);
-  return { done, total: 2, complete: done === 2 };
+/**
+ * The three setup steps: sign in, a code folder, then a first chat. `signedIn` is true when the
+ * build has no managed agents, for example in the browser preview.
+ */
+export function onboardingProgress(data: Pick<Snapshot, 'projects' | 'sessions'>, signedIn = true) {
+  const done =
+    (signedIn ? 1 : 0) + (data.projects.length > 0 ? 1 : 0) + (data.sessions.length > 0 ? 1 : 0);
+  return { done, total: 3, complete: done === 3 };
+}
+
+// True while the setup is not complete. The sidebar footer and the dialog set it. The account
+// menu reads it to show "Get started" until the setup is complete.
+let setupIncomplete = false;
+const setupListeners = new Set<() => void>();
+function publishSetupIncomplete(value: boolean) {
+  if (setupIncomplete === value) return;
+  setupIncomplete = value;
+  for (const listener of setupListeners) listener();
+}
+function subscribeSetup(listener: () => void) {
+  setupListeners.add(listener);
+  return () => setupListeners.delete(listener);
+}
+/** True while the setup is not complete. */
+export function useSetupIncomplete() {
+  return useSyncExternalStore(
+    subscribeSetup,
+    () => setupIncomplete,
+    () => false,
+  );
+}
+
+/** "Get started" for the account menu. It shows only until the setup is complete. */
+export function GetStartedMenuItem() {
+  const visible = useSetupIncomplete();
+  if (!visible) return null;
+  return (
+    <DropdownMenuItem onSelect={openGetStarted}>
+      <Sparkles className="size-4" />
+      Get started
+    </DropdownMenuItem>
+  );
 }
 
 const hiddenKey = 'kalkidan:get-started-hidden';
@@ -73,37 +136,61 @@ function getStartedHidden() {
   }
 }
 
+// A bridge with no methods, for callers that do not give `api`. The hooks then read nothing.
+const noApi = {} as API;
+
 /**
- * The "Get started" row in the sidebar footer, with the setup progress ("Setup 1/2") and a
- * button that hides it. It shows nothing when the setup is complete or hidden.
+ * The sidebar footer row for the setup. While the managed agents runtime installs, it shows
+ * "Setting up agents · 62%" and a bar. Otherwise it shows "Get started 2/3" when one step is
+ * left that no other place asks for: it hides while signed out (the session banner asks) and
+ * while there is no project (the empty state asks). "Hide" removes the row; the account menu
+ * keeps "Get started" until the setup is complete.
  */
 export function GetStartedButton({
+  api,
   data,
   onOpen,
   className,
 }: {
+  /** Without `api`, the row does not know the account or the runtime. */
+  api?: API;
   data: Pick<Snapshot, 'projects' | 'sessions'>;
   onOpen: () => void;
   className?: string;
 }) {
   const [hidden, setHidden] = useState(getStartedHidden);
-  const progress = onboardingProgress(data);
-  if (hidden || progress.complete) return null;
+  const bridge = api || noApi;
+  const account = useVerdictanStatus(bridge, !!api);
+  const runtime = useRuntimeStatus(bridge, !!api);
+  const managed = !!api && account.supported;
+  const signedIn = !managed || !account.status || account.status.phase === 'authenticated';
+  const progress = onboardingProgress(data, signedIn);
+  useEffect(() => publishSetupIncomplete(!progress.complete), [progress.complete]);
+  if (runtime.busy && !runtime.installed) {
+    const value = runtimeProgress(runtime.status);
+    return (
+      <div className="onboarding-setup-progress" role="status">
+        <span>Setting up agents{value !== undefined ? ` · ${value}%` : ''}</span>
+        <Progress value={value} label="Setting up agents" />
+      </div>
+    );
+  }
+  if (hidden || progress.complete || !signedIn || !data.projects.length) return null;
   return (
     <div className="onboarding-get-started">
       <Button
         variant="ghost"
         className={cn('min-w-0 flex-1 font-normal', className)}
         aria-label="Get started"
-        aria-description={`Setup ${progress.done} of ${progress.total} done`}
+        aria-description={`${progress.done} of ${progress.total} steps done`}
         onClick={onOpen}
       >
         <ArrowRight /> Get started
         <span className="ml-auto text-xs text-muted-foreground tabular-nums">
-          Setup {progress.done}/{progress.total}
+          {progress.done}/{progress.total}
         </span>
       </Button>
-      <Hint label="Hide Get started. Open it again from the Help menu.">
+      <Hint label="Hide">
         <Button
           variant="ghost"
           size="icon-sm"
@@ -125,6 +212,10 @@ export function GetStartedButton({
   );
 }
 
+/**
+ * Get started: 1 Sign in, 2 Open a code folder, 3 Say hello. Only the first step that is not
+ * done is open. After the user opens a code folder, the first chat opens at once with a draft.
+ */
 export function Onboarding({
   api,
   data,
@@ -151,7 +242,7 @@ export function Onboarding({
   const [creating, setCreating] = useState(false);
   const [importing, setImporting] = useState(false);
   const [setupError, setSetupError] = useState('');
-  // The repository list shows inside step 1. It does not replace this dialog.
+  // The repository list shows inside step 2. It does not replace this dialog.
   const folderImport = useFolderImport(api, `${open}:${groupId}`, { inline: true });
   const [agent, setAgent] = useState<Agent>(readPreferredAgent);
   const [installations, setInstallations] = useState<AgentInstallation[]>([]);
@@ -159,17 +250,29 @@ export function Onboarding({
   const [checking, setChecking] = useState(false);
   const [checkError, setCheckError] = useState('');
   const [checkRevision, setCheckRevision] = useState(0);
-  const [prompt, setPrompt] = useState(firstPrompt);
+  const [prompt, setPrompt] = useState(firstChatPrompt);
   // The step that the user opened. Without it, the first step that is not done is open.
-  const [openStep, setOpenStep] = useState<1 | 2>();
+  const [openStep, setOpenStep] = useState<1 | 2 | 3>();
   const groups = data.groups || [];
   const group = groups.find((g) => g.id === groupId) || groups[0];
   const repos = data.projects.filter((repo) => group?.repoIds.includes(repo.id));
   const repo = repos.find((r) => r.id === repoId) || repos[0];
-  const host = data.hosts?.find((h) => h.id === repo?.hostId);
   const installation = installations.find((item) => item.agent === agent);
   const agentName = agentLabel(agent);
-  const current = openStep ?? (repo ? 2 : 1);
+  // Agents run through managed agents. The account state and the runtime install state are
+  // separate sources: the runtime is ready only when the installer says that it is installed.
+  const managedSupported = !preview && typeof api.verdictanStatus === 'function';
+  const account = useVerdictanStatus(api, open && managedSupported);
+  const runtime = useRuntimeStatus(api, open && managedSupported);
+  const status = account.status;
+  const signedIn = status?.phase === 'authenticated';
+  // Without a managed-agent check (browser preview, older builds), sign-in is not a step.
+  const signInDone = !managedSupported || !status || signedIn;
+  const current = openStep ?? (!signInDone ? 1 : repo ? 3 : 2);
+  const progress = onboardingProgress(data, signInDone);
+  useEffect(() => {
+    if (open) publishSetupIncomplete(!progress.complete);
+  }, [open, progress.complete]);
   // The repositories of the project before an add. After the refresh, select the new one.
   const before = useRef<Set<string> | null>(null);
   useEffect(() => {
@@ -184,7 +287,10 @@ export function Onboarding({
     before.current = new Set(repos.map((r) => r.id));
     await onRefresh();
   }
-  /** Chooses a folder, makes a project with its name, and adds the repositories in it. */
+  /**
+   * Chooses a folder, makes a project with its name, and adds the repositories in it. When the
+   * user is signed in, the first chat then opens at once with the draft.
+   */
   async function chooseCodeFolder() {
     if (!folderImport.supported) {
       setCreating(true);
@@ -209,13 +315,19 @@ export function Onboarding({
         result.paths,
       );
       const snapshot = await api.snapshot();
-      const added = snapshot.groups?.find((g) => g.id === id)?.repoIds.length ?? 0;
+      const created = snapshot.groups?.find((g) => g.id === id);
+      const added = created?.repoIds.length ?? 0;
       setGroupId(id);
       setRepoId('');
       setOpenStep(undefined);
       await onRefresh();
       localStorage.removeItem(key);
       showFolderImportResult(name, added);
+      const first = snapshot.projects.find((p) => created?.repoIds.includes(p.id));
+      if (first && signInDone) {
+        onStart(agent, first, prompt.trim() || firstChatPrompt);
+        onOpenChange(false);
+      }
     } catch (error) {
       setSetupError(errorMessage(error));
     } finally {
@@ -256,13 +368,6 @@ export function Onboarding({
       active = false;
     };
   }, [api, open, repo?.hostId, preview, checkRevision]);
-  // Agents run through managed agents. The account state and the runtime install state are
-  // separate sources: the runtime is ready only when the installer says that it is installed.
-  const managedSupported = !preview && typeof api.verdictanStatus === 'function';
-  const account = useVerdictanStatus(api, open && managedSupported);
-  const runtime = useRuntimeStatus(api, open && managedSupported);
-  const status = account.status;
-  const signedIn = status?.phase === 'authenticated';
   const [setup, setSetup] = useState<VerdictanSetup>();
   const [applying, setApplying] = useState(false);
   const [applyError, setApplyError] = useState('');
@@ -306,27 +411,10 @@ export function Onboarding({
   // Without a managed-agent check (browser preview, older builds), do not block the draft.
   const managedReady =
     !managedSupported || !status || (signedIn && runtimeReady && agentSetupReady);
-  const agentReady =
-    preview ||
-    (repo?.hostId
-      ? host?.status === 'connected'
-      : installation?.status === 'installed' && !checking && !checkError);
   const missing = !preview && !repo?.hostId && !checking && installation?.status === 'missing';
-  // The chat opens with a draft and sends nothing, so a missing CLI does not block it. A send
-  // fails without managed agents, so their setup does block it.
+  // The chat opens with a draft and sends nothing, so a missing program does not block it. A
+  // send fails without managed agents, so their setup does block it.
   const canStart = !!repo && !!prompt.trim() && managedReady;
-  const agentStatus = preview
-    ? 'Browser preview: prepare a draft here. Run agents in the desktop app.'
-    : repo?.hostId
-      ? `${host?.name || 'Remote host'} · ${host?.status || 'disconnected'}. Kalkidan checks the agent on the host when you send your first message.`
-      : checking
-        ? 'Checking installed agents…'
-        : checkError
-          ? `Could not check agents: ${checkError}`
-          : installation?.status === 'installed'
-            ? `${agentName} is installed on this computer.`
-            : `Kalkidan cannot find ${agentName} on this computer.`;
-  const progress = onboardingProgress(data);
   function start() {
     if (!canStart || !repo) return;
     onStart(agent, repo, prompt.trim());
@@ -337,102 +425,96 @@ export function Onboarding({
         .filter(Boolean)
         .join(' · ')
     : '';
+  const phase = status?.phase;
   return (
     <>
       <Dialog open={open && !creating} onOpenChange={onOpenChange}>
         <DialogContent size="lg" layout="scroll" className="onboarding">
           <DialogHeader>
-            <DialogTitle>Set up your first chat</DialogTitle>
-            <DialogDescription>
-              Choose your code and write a first message. Kalkidan sends nothing until you select
-              Send.
+            <DialogTitle>Get started</DialogTitle>
+            <DialogDescription className="sr-only">
+              Sign in, open a code folder, and say hello to an agent.
             </DialogDescription>
           </DialogHeader>
           <DialogBody className="pb-2">
-            <ol className="onboarding-steps">
+            <ol className="onboarding-steps" aria-label={`${progress.done} of 3 steps done`}>
               <Step
                 number={1}
-                done={!!repo}
+                done={signInDone}
                 open={current === 1}
-                title="Choose your code folder"
-                summary={folderSummary}
+                title="Sign in"
+                summary={signedIn ? signedInName(status) : undefined}
+                disabled={signInDone}
                 onOpen={() => setOpenStep(1)}
+              >
+                <div className="flex flex-wrap items-center gap-3">
+                  <Button onClick={() => startSignIn('login')}>
+                    {phase === 'authorizing'
+                      ? 'Show sign-in'
+                      : phase === 'expired'
+                        ? 'Sign in again'
+                        : 'Sign in'}
+                  </Button>
+                  {phase !== 'authorizing' && phase !== 'expired' && (
+                    <span className="text-xs leading-4 text-muted-foreground">
+                      No account?{' '}
+                      <button
+                        type="button"
+                        className="text-link"
+                        onClick={() => startSignIn('register')}
+                      >
+                        Create one
+                      </button>
+                    </span>
+                  )}
+                </div>
+              </Step>
+              <Step
+                number={2}
+                done={!!repo}
+                open={current === 2}
+                title="Open a code folder"
+                summary={folderSummary}
+                onOpen={() => setOpenStep(2)}
               >
                 {folderImport.panel ? (
                   folderImport.panel
                 ) : !group ? (
-                  <>
-                    <p className="text-sm text-muted-foreground">
-                      Kalkidan makes a project with the name of the folder. If the folder holds more
-                      than one Git repository, Kalkidan adds each one.
-                    </p>
-                    <div className="grid justify-items-start gap-2">
-                      <Button disabled={importing} onClick={() => void chooseCodeFolder()}>
-                        <FolderOpen /> {importing ? 'Adding code folders…' : 'Open a code folder…'}
-                      </Button>
-                      <button
-                        type="button"
-                        className="text-link text-sm"
-                        disabled={importing}
-                        onClick={() => setCreating(true)}
-                      >
-                        Start with an empty project
-                      </button>
-                    </div>
-                  </>
+                  <div className="flex flex-wrap items-center gap-3">
+                    <Button disabled={importing} onClick={() => void chooseCodeFolder()}>
+                      <FolderOpen /> {importing ? 'Adding code folders…' : 'Open a code folder…'}
+                    </Button>
+                    <button
+                      type="button"
+                      className="text-link text-xs"
+                      disabled={importing}
+                      onClick={() => setCreating(true)}
+                    >
+                      Start with an empty project
+                    </button>
+                  </div>
                 ) : (
-                  <div className="grid gap-2">
-                    <div className="flex min-w-0 flex-wrap items-center gap-2">
-                      <Choice
-                        label="Setup project"
-                        value={group.id}
-                        options={groups.map((g) => ({ value: g.id, label: g.name }))}
-                        onChange={(value) => {
-                          setGroupId(value);
-                          setRepoId('');
-                        }}
-                      />
-                      {repos.length > 0 && (
-                        <Choice
-                          label="Setup repository"
-                          value={repo?.id || ''}
-                          options={repos.map((r) => ({ value: r.id, label: r.name }))}
-                          onChange={(value) => {
-                            setRepoId(value);
-                            setOpenStep(undefined);
-                          }}
-                        />
-                      )}
-                    </div>
-                    {repos.length === 0 && (
-                      <p className="text-xs leading-4 text-muted-foreground">
-                        This project has no code folder yet.
-                      </p>
-                    )}
-                    <div className="flex flex-wrap items-center gap-2">
-                      <AddRepository
-                        api={api}
-                        groupId={group.id}
-                        variant={repos.length ? 'ghost' : 'default'}
-                        size="sm"
-                        onRefresh={refreshAfterAdd}
-                        onProjectCreated={(created) => {
-                          // Setup continues with the new project.
-                          setGroupId(created.id);
-                          setRepoId('');
-                        }}
-                      >
-                        Add code folder
-                      </AddRepository>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        disabled={importing}
-                        onClick={() => void chooseCodeFolder()}
-                      >
-                        <FolderOpen /> Open another folder…
-                      </Button>
-                    </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <AddRepository
+                      api={api}
+                      groupId={group.id}
+                      variant={repos.length ? 'outline' : 'default'}
+                      onRefresh={refreshAfterAdd}
+                      onProjectCreated={(created) => {
+                        // Setup continues with the new project.
+                        setGroupId(created.id);
+                        setRepoId('');
+                      }}
+                    >
+                      Add code folder
+                    </AddRepository>
+                    <Button
+                      variant="ghost"
+                      disabled={importing}
+                      onClick={() => void chooseCodeFolder()}
+                    >
+                      <FolderOpen /> Open another folder…
+                    </Button>
                   </div>
                 )}
                 {setupError && (
@@ -442,18 +524,26 @@ export function Onboarding({
                 )}
               </Step>
               <Step
-                number={2}
-                done={false}
-                open={current === 2}
+                number={3}
+                done={data.sessions.length > 0}
+                open={current === 3}
                 disabled={!repo}
-                title="Write your first message"
-                summary={repo ? undefined : 'Choose a code folder first.'}
-                onOpen={() => setOpenStep(2)}
+                title="Say hello"
+                onOpen={() => setOpenStep(3)}
               >
-                <div className="flex min-w-0 flex-wrap items-center gap-2">
+                <div className="flex min-w-0 flex-wrap items-center gap-1">
+                  <FolderMenu
+                    data={data}
+                    value={repo}
+                    onChange={(nextGroup, nextRepo) => {
+                      setGroupId(nextGroup);
+                      setRepoId(nextRepo);
+                    }}
+                  />
                   <Choice
                     label="Agent"
                     size="sm"
+                    variant="ghost"
                     value={agent}
                     options={agentCatalog.map((a) => ({ value: a.id, label: a.name }))}
                     onChange={(value) => {
@@ -461,10 +551,19 @@ export function Onboarding({
                       savePreferredAgent(value as Agent);
                     }}
                   />
-                  <span role="status" className="min-w-0 text-xs leading-4 text-muted-foreground">
-                    {missing ? '' : agentStatus}
-                  </span>
-                  {(missing || checkError) && (
+                </div>
+                {(missing || checkError) && (
+                  <div
+                    role="status"
+                    className="flex flex-wrap items-start gap-2 text-xs leading-4 text-muted-foreground"
+                  >
+                    <div className="min-w-0 flex-1">
+                      {checkError ? (
+                        `Could not check agents: ${checkError}`
+                      ) : (
+                        <AgentInstallHelp agent={agent} />
+                      )}
+                    </div>
                     <Button
                       variant="ghost"
                       size="xs"
@@ -473,21 +572,14 @@ export function Onboarding({
                     >
                       <RefreshCw className={checking ? 'animate-spin' : ''} /> Check again
                     </Button>
-                  )}
-                </div>
-                {missing && (
-                  <div className="text-xs text-muted-foreground">
-                    <AgentInstallHelp agent={agent} />
                   </div>
                 )}
-                {managedSupported && status && (
+                {managedSupported && signedIn && (
                   <ManagedLine
-                    phase={status.phase}
                     runtimeReady={runtimeReady}
                     runtimeProgress={runtimeProgress(runtime.status)}
                     agentName={agentName}
                     agentSetupReady={agentSetupReady}
-                    summary={setupSummary(setup, managedAgent)}
                     applying={applying}
                     applyError={applyError}
                     onApply={() => void applyRecommended()}
@@ -506,37 +598,18 @@ export function Onboarding({
                   }}
                   rows={4}
                 />
-                <p className="text-xs leading-4 text-muted-foreground">
-                  You can change this draft in the chat before you send it. Press{' '}
-                  <kbd className="kbd">{shortcutLabel(['mod'], 'Enter')}</kbd> to open the chat.
-                </p>
               </Step>
             </ol>
           </DialogBody>
-          <DialogFooter className="items-center">
-            <span className="mr-auto text-xs text-muted-foreground tabular-nums">
-              Setup {progress.done}/{progress.total}
-            </span>
+          <DialogFooter>
             <Button variant="ghost" onClick={() => onOpenChange(false)}>
               Set up later
             </Button>
-            <Hint
-              label={
-                !repo
-                  ? 'Choose a code folder first'
-                  : !prompt.trim()
-                    ? 'Write the first message'
-                    : !managedReady
-                      ? 'Sign in and finish the managed agents setup first'
-                      : agentReady
-                        ? 'Opens the chat with your draft'
-                        : `Opens the chat with your draft. Make ${agentName} available before you send it.`
-              }
-            >
+            {current === 3 && (
               <Button disabled={!canStart} onClick={start}>
                 Open first chat
               </Button>
-            </Hint>
+            )}
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -556,65 +629,84 @@ export function Onboarding({
   );
 }
 
+/** "in api ▾": the code folder of the first chat, as a menu of every project's folders. */
+function FolderMenu({
+  data,
+  value,
+  onChange,
+}: {
+  data: Snapshot;
+  value?: Project;
+  onChange: (groupId: string, repoId: string) => void;
+}) {
+  const groups = (data.groups || []).filter((g) => g.repoIds.length > 0);
+  const many = groups.length > 1;
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button variant="chip" aria-label={`Code folder: ${value?.name || 'none'}`}>
+          <FolderOpen />
+          in {value?.name || 'a code folder'}
+          <ChevronDown />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" className="max-h-72 min-w-48">
+        {groups.map((group, index) => (
+          <DropdownMenuRadioGroup
+            key={group.id}
+            value={value?.id || ''}
+            onValueChange={(repoId) => onChange(group.id, repoId)}
+          >
+            {many && index > 0 && <DropdownMenuSeparator />}
+            {many && <DropdownMenuLabel>{group.name}</DropdownMenuLabel>}
+            {data.projects
+              .filter((repo) => group.repoIds.includes(repo.id))
+              .map((repo) => (
+                <DropdownMenuRadioItem key={repo.id} value={repo.id}>
+                  {repo.name}
+                </DropdownMenuRadioItem>
+              ))}
+          </DropdownMenuRadioGroup>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
 /**
- * One line about managed agents, with one action. It never leaves onboarding: the sign-in
- * opens as a dialog above it, and the recommended setup saves in place.
+ * One line about managed agents while they are not ready, with one action. It shows nothing
+ * when they are ready. The sign-in is step 1, so it is not here.
  */
 function ManagedLine({
-  phase,
   runtimeReady,
   runtimeProgress: progress,
   agentName,
   agentSetupReady,
-  summary,
   applying,
   applyError,
   onApply,
 }: {
-  phase: string;
   runtimeReady: boolean;
   runtimeProgress?: number;
   agentName: string;
   agentSetupReady: boolean;
-  summary?: string;
   applying: boolean;
   applyError: string;
   onApply: () => void;
 }) {
-  if (phase === 'authenticated' && runtimeReady && agentSetupReady)
-    return (
-      <p className="flex items-center gap-1.5 text-xs leading-4 text-muted-foreground">
-        <Check className="size-3.5 text-success" aria-hidden="true" />
-        Ready: {summary || `${agentName} managed agent`}
-      </p>
-    );
-  if (phase === 'authenticated' && !runtimeReady)
+  if (runtimeReady && agentSetupReady) return null;
+  if (!runtimeReady)
     return (
       <div className="grid gap-1.5 text-xs leading-4 text-muted-foreground" role="status">
-        <span>Getting managed agents ready{progress !== undefined ? `… ${progress}%` : '…'}</span>
-        <Progress value={progress} label="Managed agents runtime install" className="max-w-64" />
-      </div>
-    );
-  if (phase === 'authenticated')
-    return (
-      <div className="onboarding-managed" role="group" aria-label="Managed agents">
-        <p>{applyError || `Your organization has no saved setup for ${agentName} yet.`}</p>
-        <Button size="xs" variant="outline" disabled={applying} onClick={onApply}>
-          {applying ? 'Saving…' : 'Use the recommended setup'}
-        </Button>
+        <span>Setting up agents{progress !== undefined ? ` · ${progress}%` : '…'}</span>
+        <Progress value={progress} label="Setting up agents" className="max-w-64" />
       </div>
     );
   return (
     <div className="onboarding-managed" role="group" aria-label="Managed agents">
-      <p>
-        {phase === 'authorizing'
-          ? 'Finish signing in in your browser.'
-          : phase === 'expired'
-            ? 'Your session ended. Sign in again to send messages.'
-            : 'Sign in to Verdictan to send messages. Chats run as managed agents.'}
-      </p>
-      <Button size="xs" onClick={() => startSignIn('login')}>
-        {phase === 'authorizing' ? 'Show sign-in' : 'Sign in'}
+      <p>{applyError || `Your organization has no setup for ${agentName} yet.`}</p>
+      <Button size="xs" variant="outline" disabled={applying} onClick={onApply}>
+        {applying ? 'Saving…' : 'Use the recommended setup'}
       </Button>
     </div>
   );

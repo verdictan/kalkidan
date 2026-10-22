@@ -347,6 +347,13 @@ export async function desktopFixture(platform = 'linux', failure = '') {
       managed: {
         stopAll: asyncRecord('managedStopAll'),
         checkExpiry: record('managedCheckExpiry'),
+        revokeHost: asyncRecord('managedRevokeHost'),
+      },
+      bindings: {
+        knownIdentities: async (hostKey: string) =>
+          hostKey === 'other' ? { installationId: 'installation', hostId: 'other-id' } : null,
+        forgetHost: asyncRecord('forgetHost'),
+        clearConversations: asyncRecord('clearConversations'),
       },
       account: {
         status: record('verdictanStatus'),
