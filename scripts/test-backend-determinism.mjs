@@ -4,6 +4,9 @@ import { spawnSync } from 'node:child_process';
 const nativeTests = new Set([
   'interactive-chat.test.ts',
   'remote-hosts.test.ts',
+  // These open a real helper socket or run a helper over the SSH transport fixture.
+  'helper-daemon-socket.test.ts',
+  'remote-run-reattach.test.ts',
   'pty-terminal.test.ts',
   'conversation-tools.test.ts',
   'core-native.test.ts',

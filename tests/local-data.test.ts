@@ -339,6 +339,7 @@ test('host data removal touches only what Kalkidan made and keeps project folder
     put('.kalkidan/managed-agent-homes/h/codex/sessions/one.jsonl');
     put('.kalkidan/runtime/verdictan/installation.json');
     put('.kalkidan/operations/publish/a.json');
+    put('.kalkidan/run/helper-a.sock');
     put('.kalkidan/verdictan-bindings.json');
     put('.kalkidan/projects/p1/repos/app/main.ts');
     put('.local/share/kalkidan/agents/abc/agent.cjs');
@@ -348,6 +349,7 @@ test('host data removal touches only what Kalkidan made and keeps project folder
     const result = await removeHostData(base);
     assert.equal(existsSync(join(base, '.kalkidan/managed-agent-homes')), false);
     assert.equal(existsSync(join(base, '.kalkidan/runtime')), false);
+    assert.equal(existsSync(join(base, '.kalkidan/run')), false);
     assert.equal(existsSync(join(base, '.kalkidan/projects/p1/repos/app/main.ts')), true);
     assert.deepEqual(result.kept, ['~/.kalkidan/projects']);
     assert.equal(existsSync(join(base, '.local/share/kalkidan')), false);

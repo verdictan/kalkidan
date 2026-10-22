@@ -33,6 +33,13 @@ test('the row status reads the saved outcome, then the draft outcome in memory',
   assert.deepEqual(chatStatusInfo({ agent: 'codex', id: 'draft-1' }, 'running', store), {
     state: 'running',
   });
+  // A run that continues on an SSH host shows as running, also when its chat is not open.
+  const hosted = { agent: 'codex' as const, id: 'h::s', liveRunId: 'r1' };
+  assert.deepEqual(chatStatusInfo(hosted, undefined, store), {
+    state: 'running',
+    label: 'Running on the SSH host.',
+  });
+  assert.deepEqual(chatStatusInfo(hosted, 'approval', store), { state: 'approval' });
 });
 
 test('opening a chat removes only the finished mark, not a failed outcome', () => {

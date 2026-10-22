@@ -403,18 +403,17 @@ test('a remote run reports its end once, and a lost connection reports transport
   assert.equal(ended.length, 2);
   assert.equal(ended[1].create, true);
   assert.equal(outcomeRecord(ended[1]), undefined);
-  // A saved remote chat that runs when the connection closes fails with transport loss.
+  // A saved remote chat that runs when the connection closes continues on the host. It has no
+  // outcome yet.
   replies.set(
     'chatStart',
     run({ id: 'r3', sessionId: 'def', status: 'running', sessionReady: true }),
   );
   await hosts.call('h', 'chatStart', ['codex', 'def', 'Hello']);
   (hosts as any).closeConnection('h');
-  assert.equal(ended.length, 3);
-  const lost = outcomeRecord(ended[2]);
-  assert.equal(lost?.id, 'h::def');
-  assert.equal(lost?.outcome, 'failed');
-  assert.equal(lost?.reason, 'transport_lost');
+  assert.equal(ended.length, 2);
+  const detached = await hosts.call('h', 'chatStatus', ['r3']);
+  assert.deepEqual([detached.status, detached.hostDetached], ['running', true]);
 });
 
 test('the store keeps finished runs, ignores drafts, and reports read errors', async (t) => {

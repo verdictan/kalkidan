@@ -51,7 +51,13 @@ try:
 finally:
     os.close(fd)
 `;
+/**
+ * PROPOSAL: the recent output that a shell keeps, in characters. An app that attaches to the
+ * shell again gets this output first. Older output is removed.
+ */
+export const ptyScrollbackChars = 1_000_000;
 interface Shell {
+  cwd: string;
   child?: ChildProcessWithoutNullStreams;
   pty?: import('node-pty').IPty;
   output: string;
@@ -71,7 +77,7 @@ export class PtyTerminal {
     for (const [id, shell] of this.shells) if (shell.exited) this.shells.delete(id);
     const id = randomUUID();
     // Reserve capacity before any asynchronous native-module load.
-    const shell: Shell = { output: '', cursor: 0, exited: false, phase: 'opening' };
+    const shell: Shell = { cwd, output: '', cursor: 0, exited: false, phase: 'opening' };
     this.shells.set(id, shell);
     if (process.platform === 'win32') {
       let cancel!: (error: Error) => void;
@@ -96,7 +102,7 @@ export class PtyTerminal {
         shell.phase = 'ready';
         pty.onData((data) => {
           if (shell.exited) return;
-          shell.output = (shell.output + data).slice(-1000000);
+          shell.output = (shell.output + data).slice(-ptyScrollbackChars);
           shell.cursor += data.length;
         });
         pty.onExit(() => {
@@ -169,7 +175,7 @@ export class PtyTerminal {
             resolve();
           }
           if (typeof message.data === 'string') {
-            shell.output = (shell.output + message.data).slice(-1000000);
+            shell.output = (shell.output + message.data).slice(-ptyScrollbackChars);
             shell.cursor += message.data.length;
           }
         } catch {
@@ -244,6 +250,16 @@ export class PtyTerminal {
     } finally {
       s.phase = 'closed';
     }
+  }
+  /** The shells that still work, the oldest first. */
+  list() {
+    return [...this.shells]
+      .filter(([, shell]) => !shell.exited && shell.phase === 'ready')
+      .map(([id, shell]) => ({ id, cwd: shell.cwd }));
+  }
+  /** The number of shells that still work or start. */
+  openCount() {
+    return [...this.shells.values()].filter((shell) => !shell.exited).length;
   }
   closeAll() {
     for (const id of this.shells.keys()) this.close(id);

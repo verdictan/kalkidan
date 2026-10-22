@@ -53,6 +53,8 @@ test('host setup installs the bundled agent and routes RPC through an SSH transp
     await chmod(join(bin, 'ssh'), 0o755);
     process.env.PATH = bin + ':' + oldPath;
     process.env.HOME = root;
+    // The helper of the test stops soon after the test.
+    process.env.KALKIDAN_HELPER_IDLE_MS = '500';
     await hosts.load();
     const host = await hosts.add('Test host', 'test-host');
     assert.equal((await hosts.check(host.id)).status, 'checked');
@@ -93,8 +95,54 @@ test('host setup installs the bundled agent and routes RPC through an SSH transp
       scan.repositories.map((repo: { name: string; branch?: string }) => [repo.name, repo.branch]),
       [['one', 'main']],
     );
+    // The helper runs apart from the SSH connection, in a private folder of the user.
+    const first = await hosts.call(host.id, 'hello', []);
+    const { lstat } = await import('node:fs/promises');
+    assert.equal((await lstat(join(root, '.kalkidan', 'run'))).mode & 0o777, 0o700);
+    // A shell continues when the connection stops.
+    const repo = await import('node:fs/promises').then((fs) => fs.realpath(join(root, 'repo')));
+    const kept = await hosts.call(host.id, 'ptyOpen', [repo, 80, 24]);
+    await hosts.call(host.id, 'ptyWrite', [kept.id, "printf 'kept-%s\\n' before\r"]);
+    for (let i = 0; i < 100; i++) {
+      if ((await hosts.call(host.id, 'ptyRead', [kept.id, 0])).data.includes('kept-before')) break;
+      await new Promise((r) => setTimeout(r, 20));
+    }
     hosts.disconnect(host.id);
     await assert.rejects(hosts.call(host.id, 'hello', []), /offline/);
+    await assert.rejects(hosts.call(host.id, 'ptyRead', [kept.id, 0]), /offline/);
+    // The same helper answers the next connection, so its runs and shells continue.
+    await hosts.connect(host.id);
+    assert.equal((await hosts.call(host.id, 'hello', [])).pid, first.pid);
+    // A connection without a request, such as the check of a second helper that starts, does
+    // not take the helper from the app. The socket name is short in its own folder.
+    const { connectHelper } = await import('../electron/operations/helper-daemon');
+    const cwd = process.cwd();
+    process.chdir(join(root, '.kalkidan', 'run'));
+    try {
+      const probe = await connectHelper(`helper-${hosts.list()[0].version}.sock`);
+      assert.ok(probe);
+      await new Promise<void>((done) => probe.end(done));
+    } finally {
+      process.chdir(cwd);
+    }
+    await new Promise((r) => setTimeout(r, 100));
+    assert.equal((await hosts.call(host.id, 'hello', [])).pid, first.pid);
+    assert.equal(hosts.list()[0].status, 'connected');
+    assert.deepEqual(await hosts.call(host.id, 'chat-runs', []), []);
+    assert.deepEqual(await hosts.call(host.id, 'ptyList', []), [{ id: kept.id, cwd: repo }]);
+    // The recent output of the shell comes again, and the shell still works.
+    assert.match((await hosts.call(host.id, 'ptyRead', [kept.id, 0])).data, /kept-before/);
+    await hosts.call(host.id, 'ptyWrite', [kept.id, "printf 'kept-%s\\n' after\r"]);
+    let after = '';
+    for (let i = 0; i < 100 && !after.includes('kept-after'); i++) {
+      after = (await hosts.call(host.id, 'ptyRead', [kept.id, 0])).data;
+      await new Promise((r) => setTimeout(r, 20));
+    }
+    assert.match(after, /kept-after/);
+    // The user closes the shell.
+    await hosts.call(host.id, 'ptyClose', [kept.id]);
+    assert.deepEqual(await hosts.call(host.id, 'ptyList', []), []);
+    hosts.disconnect(host.id);
     // A failed connection keeps its reason for the UI. Reconnect clears it.
     const broken = join(root, 'broken');
     await mkdir(broken);
@@ -110,6 +158,7 @@ test('host setup installs the bundled agent and routes RPC through an SSH transp
     assert.equal(reconnected.error, undefined);
   } finally {
     hosts.close();
+    delete process.env.KALKIDAN_HELPER_IDLE_MS;
     process.env.PATH = oldPath;
     if (oldHome === undefined) delete process.env.HOME;
     else process.env.HOME = oldHome;

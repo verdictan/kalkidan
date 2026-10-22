@@ -24,7 +24,17 @@ export interface AgentRuntime {
   dispose(): void;
   /** Number of runs that are still working. Optional for test adapters. */
   runningCount?(): number;
+  /** The runs that are still working. Optional for test adapters. */
+  running?(): RunningRun[];
   checkoutBusy?(path: string): boolean;
+}
+
+/** A run that is still working, with the session that it started with. */
+export interface RunningRun {
+  id: string;
+  agent: Agent;
+  sessionId: string;
+  create: boolean;
 }
 
 /** Routes by explicit registration; an unknown provider never falls through to Claude. */
@@ -103,6 +113,9 @@ export class AgentRuntimes implements AgentRuntime {
   }
   stopAll() {
     for (const runtime of new Set(this.adapters.values())) runtime.stopAll();
+  }
+  running() {
+    return [...new Set(this.adapters.values())].flatMap((runtime) => runtime.running?.() ?? []);
   }
   runningCount() {
     let count = 0;

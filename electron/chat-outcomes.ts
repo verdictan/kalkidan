@@ -14,7 +14,7 @@ import type { ChatRun, Session } from '../src/domain/conversation';
 /** The store keeps the outcomes of this many chats. It removes the oldest outcomes first. */
 export const chatOutcomeLimit = 2000;
 const sessionId = /^(?:[a-zA-Z0-9_-]{1,160}::)?[a-zA-Z0-9_-]{1,160}$/;
-const hostId = /^[a-zA-Z0-9_-]{1,160}$/;
+const hostIdPattern = /^[a-zA-Z0-9_-]{1,160}$/;
 const runId = /^[a-zA-Z0-9_-]{1,160}$/;
 
 /** Returns a valid outcome record, or undefined for a value that is not valid. */
@@ -29,7 +29,7 @@ export function validateOutcome(value: unknown): ChatOutcomeRecord | undefined {
   if (typeof input.at !== 'string' || Number.isNaN(Date.parse(input.at))) return undefined;
   if (
     input.hostId !== undefined &&
-    (typeof input.hostId !== 'string' || !hostId.test(input.hostId))
+    (typeof input.hostId !== 'string' || !hostIdPattern.test(input.hostId))
   )
     return undefined;
   if (input.runId !== undefined && (typeof input.runId !== 'string' || !runId.test(input.runId)))
@@ -103,6 +103,34 @@ export function outcomeRecord(
   return record;
 }
 
+/**
+ * Reads the run outcomes that an SSH host sent. Each record gets the host and the desktop form
+ * of the session ID. The time of each record moves by the clock difference between the
+ * computers, so that it compares with the times of the desktop.
+ */
+export function hostOutcomes(hostId: string, value: unknown, now = Date.now()) {
+  if (!hostIdPattern.test(hostId) || !value || typeof value !== 'object') return [];
+  const input = value as { now?: unknown; outcomes?: unknown };
+  if (!Array.isArray(input.outcomes)) return [];
+  const hostNow = typeof input.now === 'string' ? Date.parse(input.now) : NaN;
+  const offset = Number.isNaN(hostNow) ? 0 : now - hostNow;
+  const records: ChatOutcomeRecord[] = [];
+  for (const row of input.outcomes.slice(0, chatOutcomeLimit)) {
+    const host = validateOutcome(row);
+    if (!host || host.id.includes('::') || (host.hostId && host.hostId !== hostId)) continue;
+    const at = new Date(Date.parse(host.at) + offset);
+    if (Number.isNaN(at.getTime())) continue;
+    const record = validateOutcome({
+      ...host,
+      id: `${hostId}::${host.id}`,
+      hostId,
+      at: at.toISOString(),
+    });
+    if (record) records.push(record);
+  }
+  return records;
+}
+
 /** The outcome of the latest run of each chat, in `chat-outcomes.json` in the data root. */
 export class ChatOutcomes {
   private entries = new Map<string, ChatOutcomeRecord>();
@@ -166,14 +194,41 @@ export class ChatOutcomes {
   record(value: ChatOutcomeRecord) {
     const record = validateOutcome(value);
     if (!record) return Promise.reject(new Error('Invalid chat outcome'));
+    return this.apply(record) ? this.persist() : this.writes;
+  }
+  /**
+   * Keeps the outcomes that an SSH host sent. The host keeps the outcome of each run that
+   * ended, also a run that ended when the desktop did not see it. The host time corrects the
+   * clock difference between the computers. A record that is not valid is ignored.
+   */
+  recover(hostId: string, value: unknown, now = Date.now()) {
+    const records = hostOutcomes(hostId, value, now);
+    let changed = false;
+    for (const record of records) changed = this.apply(record) || changed;
+    return changed ? this.persist().then(() => true) : this.writes.then(() => false);
+  }
+  /** Changes the memory. Returns false when the kept outcome stays. */
+  private apply(record: ChatOutcomeRecord) {
     const key = ChatOutcomes.key(record.agent, record.id);
     const previous = this.entries.get(key);
-    if (previous && (previous.at > record.at || (record.runId && previous.runId === record.runId)))
-      return this.writes;
+    if (previous) {
+      const sameRun = !!record.runId && previous.runId === record.runId;
+      // The desktop marks a run as lost when the connection closes. The host can then send the
+      // real outcome of the same run, which replaces the lost outcome.
+      const found =
+        sameRun &&
+        previous.outcome === 'failed' &&
+        previous.reason === 'transport_lost' &&
+        (record.outcome !== 'failed' || record.reason !== 'transport_lost');
+      if (!found && (previous.at > record.at || sameRun)) return false;
+    }
     const next = new Map(this.entries);
     next.delete(key);
     next.set(key, record);
     this.entries = this.bounded(next);
+    return true;
+  }
+  private persist() {
     const snapshot = { version: 1, outcomes: this.list() };
     const task = this.writes.catch(() => {}).then(() => writeJSON(this.file, snapshot));
     this.writes = task;

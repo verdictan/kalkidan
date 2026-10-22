@@ -148,6 +148,7 @@ const api: API = {
   ptyWrite: (id, input) => ipcRenderer.invoke('pty-write', id, input),
   ptyResize: (id, cols, rows) => ipcRenderer.invoke('pty-resize', id, cols, rows),
   ptyClose: (id) => ipcRenderer.invoke('pty-close', id),
+  ptyAttach: (cwd) => ipcRenderer.invoke('pty-attach', cwd),
   browserLayout: (id, bounds) => ipcRenderer.invoke('browser-layout', id, bounds),
   browserNavigate: (id, action) => ipcRenderer.invoke('browser-navigate', id, action),
   browserState: (id) => ipcRenderer.invoke('browser-state', id),

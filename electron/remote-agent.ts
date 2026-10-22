@@ -7,7 +7,6 @@ import { listDirectory } from './storage/directory-list';
 import { listMentionFiles, readMentionFile } from './projects/mention-files';
 import { createVerdictanServices } from './verdictan/service';
 import { hostCheckMethod } from './verdictan/remote-check';
-import { BindingStore } from './verdictan/bindings';
 import { isVerdictanRegion } from './verdictan/region';
 import { desktopVersion } from './verdictan/release';
 import { trustSystemCertificates } from './verdictan/network';
@@ -29,10 +28,22 @@ import { PtyTerminal } from './pty-terminal';
 import { createInterface } from 'node:readline';
 import { readFile, realpath, stat } from 'node:fs/promises';
 import { homedir } from 'node:os';
-import { join, basename } from 'node:path';
+import { join, basename, dirname } from 'node:path';
+import { spawn } from 'node:child_process';
+import { createServer, type Server, type Socket } from 'node:net';
 import { createHash, randomUUID } from 'node:crypto';
 import { exec, parseWorktrees } from './core';
 import { historyWithManaged } from './history';
+import { RunOutcomeLog } from './operations/run-outcomes';
+import {
+  connectHelper,
+  helperDecision,
+  helperSocketPath,
+  listenHelper,
+  prepareHelperDirectory,
+} from './operations/helper-daemon';
+import type { ChatRun } from '../src/domain/conversation';
+import { BindingStore, bindingSummary } from './verdictan/bindings';
 const runningBundleDigest = process.argv?.[1]
   ? readFile(process.argv[1])
       .then((bytes) => createHash('sha256').update(bytes).digest('hex'))
@@ -74,16 +85,52 @@ const worktreeCreation = new WorktreeCreation(
 const locations = new ProjectLocationCache(join(homedir(), '.kalkidan', 'projects'));
 const projectDocs = new Map<string, ProjectDocs>();
 const pty = new PtyTerminal();
-const chats = createAgentRuntimes(async (request) => {
-  if (!verdictanRuntime) throw new DesktopProtocolError('desktop.remote_runtime_missing');
-  return verdictanRuntime.launch.prepare(request);
-});
+// The outcome of each run stays on the host. The desktop reads it when it connects again.
+const runOutcomes = new RunOutcomeLog(join(homedir(), '.kalkidan', 'operations', 'run-outcomes'));
+const bindings = new BindingStore(join(homedir(), '.kalkidan'));
+// True when the helper stops, for example when the host shuts down. Then the open runs stop.
+let shuttingDown = false;
+/** The state of a run that the helper stopped, as the app must see it. */
+function presented(state: ChatRun): ChatRun {
+  // The user did not stop the runs that stop with the helper.
+  if (state?.status === 'stopped' && shuttingDown)
+    return { ...state, status: 'failed', errorCode: 'transport_lost' };
+  return state;
+}
+const chats = createAgentRuntimes(
+  async (request) => {
+    if (!verdictanRuntime) throw new DesktopProtocolError('desktop.remote_runtime_missing');
+    return verdictanRuntime.launch.prepare(request);
+  },
+  (run) => {
+    void runOutcomes.finished({ ...run, state: presented(run.state) }).catch(() => {});
+  },
+);
 const terminal = new CommandTerminal();
 let verdictanRuntime: ReturnType<typeof createVerdictanServices> | undefined;
 let verdictanOwner = '';
-let accountProxy = new RemoteAccountClient((frame) =>
-  process.stdout.write(JSON.stringify(frame) + '\n'),
-);
+/** One app connection: the SSH standard streams, or a socket of the helper. */
+interface AppConnection {
+  write(text: string): void;
+  closed(): boolean;
+  close(): void;
+}
+// The connected app. The helper continues without an app, so that runs continue.
+let client: AppConnection | undefined;
+/** Sends a frame to the connected app. Throws when no app is connected. */
+function send(frame: object) {
+  if (!client || client.closed()) throw new Error('No app is connected.');
+  client.write(JSON.stringify(frame) + '\n');
+}
+/** Sends an event to the connected app. Without an app, the event is not sent. */
+function notify(frame: object) {
+  try {
+    send(frame);
+  } catch {
+    // The app reads the resource again when it connects.
+  }
+}
+let accountProxy = new RemoteAccountClient(send);
 const codex = process.env.CODEX_HOME || join(homedir(), '.codex');
 const claude = process.env.CLAUDE_CONFIG_DIR || join(homedir(), '.claude');
 async function folder(value: string) {
@@ -110,7 +157,7 @@ const agentStarts = new AgentStarts(
   (id) => chats.status(id),
 );
 /** Start the Verdictan services of this host once, for the first runtime request. */
-function runtimeServices(version: unknown, hostId: unknown, regionValue: unknown) {
+async function runtimeServices(version: unknown, hostId: unknown, regionValue: unknown) {
   if (
     !desktopVersion(version) ||
     (regionValue != null && !isVerdictanRegion(regionValue)) ||
@@ -118,21 +165,27 @@ function runtimeServices(version: unknown, hostId: unknown, regionValue: unknown
     !/^[A-Za-z0-9_-]{1,128}$/.test(hostId)
   )
     throw new Error('Invalid runtime update request.');
-  if (verdictanOwner && verdictanOwner !== hostId)
-    throw new Error('Runtime host identity changed.');
   // No region means that the desktop has no selected account region yet.
   const region = (regionValue ?? undefined) as string | undefined;
-  if (verdictanRuntime && verdictanRuntime.region !== region)
-    throw new Error('Reconnect this host before changing the Verdictan region.');
+  // The helper outlives a connection. A different app or region can take the runtime only when
+  // no run uses it.
+  if (verdictanRuntime && (verdictanOwner !== hostId || verdictanRuntime.region !== region)) {
+    if (chats.runningCount() > 0)
+      throw new Error(
+        verdictanOwner !== hostId
+          ? 'Runtime host identity changed. Wait for the runs on this host to finish.'
+          : 'Wait for the runs on this host to finish before changing the Verdictan region.',
+      );
+    await verdictanRuntime.managed.stopAll();
+    verdictanRuntime.account.dispose();
+    verdictanRuntime = undefined;
+  }
   if (!verdictanRuntime) {
     verdictanOwner = hostId;
     verdictanRuntime = createVerdictanServices({
       root: join(homedir(), '.kalkidan'),
       client: async () => {
-        if (accountProxy.isClosed())
-          accountProxy = new RemoteAccountClient((frame) =>
-            process.stdout.write(JSON.stringify(frame) + '\n'),
-          );
+        if (accountProxy.isClosed()) accountProxy = new RemoteAccountClient(send);
         return accountProxy;
       },
       selections: () => accountProxy.query('setup.selection'),
@@ -170,19 +223,23 @@ async function dispatch(method: string, args: any[]): Promise<any> {
       // The host is being removed. Stop the work on it, then remove only Kalkidan's data.
       if (chats.runningCount() > 0) throw new Error('Stop the running agents on this host first.');
       chats.dispose();
+      // Shells and commands continue without an app, so they stop here too.
+      pty.closeAll();
+      terminal.stopAll();
       await verdictanRuntime?.managed.stopAll();
       verdictanRuntime?.account.reset();
       verdictanRuntime = undefined;
-      return removeHostData(homedir());
+      const removed = await removeHostData(homedir());
+      // The helper outlives connections. It stops after this answer, so nothing stays.
+      if (mode === 'helper') setTimeout(shutdown, 500).unref();
+      return removed;
     }
     case 'managed-stop':
       chats.dispose();
       await verdictanRuntime?.managed.stopAll();
       verdictanRuntime?.account.reset();
       accountProxy.close();
-      accountProxy = new RemoteAccountClient((frame) =>
-        process.stdout.write(JSON.stringify(frame) + '\n'),
-      );
+      accountProxy = new RemoteAccountClient(send);
       return true;
     case hostCheckMethod: {
       // Check status on the desktop. A host that refused the keychain starts its runtime again.
@@ -193,14 +250,14 @@ async function dispatch(method: string, args: any[]): Promise<any> {
     case 'runtime-update': {
       if (!['status', 'check', 'install', 'cancel'].includes(a))
         throw new Error('Invalid runtime update request.');
-      const runtime = runtimeServices(b, c, d);
+      const runtime = await runtimeServices(b, c, d);
       if (a === 'install') return runtime.installer.start();
       if (a === 'cancel') return runtime.installer.cancel();
       return runtime.installer.check(a === 'check');
     }
     case 'runtime-transfer': {
       // The desktop copies a signed release over this SSH connection. See transfer.ts.
-      runtimeServices(b, c, d);
+      await runtimeServices(b, c, d);
       if (a === 'begin') return runtimeTransfer.begin(e, f);
       if (a === 'chunk') return runtimeTransfer.chunk(e, f, args[6]);
       if (a === 'commit') return runtimeTransfer.commit(e);
@@ -290,6 +347,8 @@ async function dispatch(method: string, args: any[]): Promise<any> {
         systemVersion: hostSystemVersion(),
         node: process.version,
         home: homedir(),
+        // The same helper answers after a new connection while it keeps runs.
+        pid: process.pid,
       };
     case 'agent-installations':
       return agentInstallations();
@@ -464,13 +523,11 @@ async function dispatch(method: string, args: any[]): Promise<any> {
                 prompt: f.prompt,
                 read: normalizeUsage(f.read),
                 changed: () =>
-                  process.stdout.write(
-                    JSON.stringify({
-                      event: 'project-resource-changed',
-                      groupId: f.groupId,
-                      resource: 'memory',
-                    }) + '\n',
-                  ),
+                  notify({
+                    event: 'project-resource-changed',
+                    groupId: f.groupId,
+                    resource: 'memory',
+                  }),
               }
             : undefined,
         ),
@@ -493,20 +550,31 @@ async function dispatch(method: string, args: any[]): Promise<any> {
                 prompt: f.prompt,
                 read: normalizeUsage(f.read),
                 changed: () =>
-                  process.stdout.write(
-                    JSON.stringify({
-                      event: 'project-resource-changed',
-                      groupId: f.groupId,
-                      resource: 'memory',
-                    }) + '\n',
-                  ),
+                  notify({
+                    event: 'project-resource-changed',
+                    groupId: f.groupId,
+                    resource: 'memory',
+                  }),
               }
             : undefined,
         ),
       );
     }
+    case 'conversation-binding':
+      if (!['codex', 'claude_code'].includes(a) || !/^[a-zA-Z0-9_-]{1,160}$/.test(b))
+        throw new Error('Invalid conversation binding request.');
+      return bindingSummary(await bindings.read(a, b));
+    case 'run-outcomes':
+      // The host time lets the desktop correct a clock difference between the computers.
+      return { now: new Date().toISOString(), outcomes: await runOutcomes.list() };
+    case 'ptyList':
+      // The shells that still work. An app attaches to one again, with its recent output.
+      return pty.list();
+    case 'chat-runs':
+      // The runs that still work. The app attaches to them when it connects again.
+      return chats.running();
     case 'chatStatus':
-      return chats.status(a);
+      return presented(chats.status(a));
     case 'chatStop':
       return chats.stop(a);
     case 'chatApprove':
@@ -517,24 +585,64 @@ async function dispatch(method: string, args: any[]): Promise<any> {
       throw new Error('Unsupported remote operation');
   }
 }
-const input = createInterface({ input: process.stdin });
-input.on('line', (line) => {
-  if (line.length > 16000000) return;
-  let request: any;
-  try {
-    request = JSON.parse(line);
-  } catch {
-    return;
-  }
-  if (accountProxy.receive(request)) return;
-  if (typeof request.id !== 'string' || !Array.isArray(request.args)) return;
-  void dispatch(request.method, request.args)
-    .then((result) => process.stdout.write(JSON.stringify({ id: request.id, result }) + '\n'))
-    .catch((error) =>
-      process.stdout.write(JSON.stringify({ id: request.id, error: error.message }) + '\n'),
-    );
+/** The idle time of the helper from the environment of the host, or the default. */
+function helperIdle() {
+  const value = Number(process.env.KALKIDAN_HELPER_IDLE_MS);
+  return Number.isSafeInteger(value) && value > 0 ? value : undefined;
+}
+/** Reads the requests of one app connection. The answers go back to the same connection. */
+function serveConnection(
+  input: NodeJS.ReadableStream,
+  connection: AppConnection,
+  /** Called before the first line. A connection that sends nothing never takes the helper. */
+  claim?: () => void,
+) {
+  const reply = (frame: object) => {
+    if (!connection.closed()) connection.write(JSON.stringify(frame) + '\n');
+  };
+  const lines = createInterface({ input });
+  lines.on('line', (line) => {
+    if (claim) {
+      claim();
+      claim = undefined;
+    }
+    if (line.length > 16000000) return;
+    let request: any;
+    try {
+      request = JSON.parse(line);
+    } catch {
+      return;
+    }
+    if (client !== connection) return;
+    if (accountProxy.receive(request)) return;
+    if (typeof request.id !== 'string' || !Array.isArray(request.args)) return;
+    void dispatch(request.method, request.args)
+      .then((result) => reply({ id: request.id, result }))
+      .catch((error) => reply({ id: request.id, error: error.message }));
+  });
+  return lines;
+}
+const socketConnection = (socket: Socket): AppConnection => ({
+  write: (text) => void socket.write(text),
+  closed: () => socket.destroyed,
+  close: () => socket.end(),
 });
-const stop = () => {
+const lifecycle = { idleSince: Date.now() };
+/**
+ * The app connection closed. Runs, terminals and PTYs continue. The next app connection
+ * attaches to them again.
+ */
+function detach() {
+  lifecycle.idleSince = Date.now();
+  accountProxy.close();
+}
+let helperServer: Server | undefined;
+/** Stops the helper and the runs that still work. */
+function shutdown() {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  helperServer?.close();
+  client?.close();
   accountProxy.close();
   void runtimeTransfer.abort();
   void verdictanRuntime?.managed.stopAll();
@@ -543,7 +651,108 @@ const stop = () => {
   terminal.stopAll();
   pty.closeAll();
   setTimeout(() => process.exit(), 1200).unref();
-};
-input.on('close', stop);
-process.on('SIGTERM', stop);
-process.on('SIGINT', stop);
+}
+/**
+ * The helper of the host. It is one process for each user and version. It outlives the SSH
+ * connection, so that a run continues when the connection stops. Each app connection replaces
+ * the previous one, so that each run has one owner. The replaced app gets an event first.
+ */
+async function serve(path: string) {
+  process.umask(0o077);
+  const server = createServer((socket) => {
+    const connection = socketConnection(socket);
+    socket.on('error', () => {});
+    socket.on('close', () => {
+      if (client !== connection) return;
+      client = undefined;
+      detach();
+    });
+    // A connection takes the helper with its first request. A helper that checks whether this
+    // helper listens connects and closes without a request, so it never replaces the app.
+    serveConnection(socket, connection, () => {
+      const previous = client;
+      client = connection;
+      if (previous) {
+        try {
+          previous.write(JSON.stringify({ event: 'helper-replaced' }) + '\n');
+        } catch {
+          // The previous connection is already closed.
+        }
+        previous.close();
+        detach();
+      }
+      // A managed runtime of a run that ended without an app is released now.
+      void verdictanRuntime?.managed.retryReleases();
+    });
+  });
+  helperServer = server;
+  if (!(await listenHelper(server, path))) process.exit(0);
+  setInterval(() => {
+    const now = Date.now();
+    const busy = chats.runningCount() + pty.openCount() + terminal.runningCount();
+    if (client || busy > 0) lifecycle.idleSince = now;
+    const decision = helperDecision({
+      attached: !!client,
+      busy,
+      releasing: verdictanRuntime?.managed.releasing() ?? 0,
+      idleSince: lifecycle.idleSince,
+      now,
+      idle: helperIdle(),
+    });
+    if (decision === 'exit') shutdown();
+  }, 5000).unref();
+}
+/**
+ * The SSH command runs this relay. It connects the SSH connection to the helper of this user,
+ * and starts the helper first when it does not run. When the SSH connection stops, only the
+ * relay stops.
+ */
+async function relay(path: string) {
+  let socket = await connectHelper(path);
+  if (!socket) {
+    spawn(process.execPath, [process.argv[1], '--helper'], {
+      detached: true,
+      stdio: 'ignore',
+    }).unref();
+    for (let attempt = 0; attempt < 100 && !socket; attempt++) {
+      await new Promise((done) => setTimeout(done, 100));
+      socket = await connectHelper(path);
+    }
+  }
+  if (!socket) {
+    process.stderr.write('The Kalkidan helper did not start on this host.\n');
+    process.exit(1);
+  }
+  const connection = socket;
+  process.stdout.on('error', () => process.exit(0));
+  connection.on('error', () => process.exit(1));
+  connection.on('close', () => process.exit(0));
+  process.stdin.on('end', () => connection.end());
+  process.stdin.pipe(connection, { end: false });
+  connection.pipe(process.stdout);
+}
+const mode = process.argv?.includes('--helper')
+  ? 'helper'
+  : process.argv?.includes('--attach')
+    ? 'attach'
+    : 'stdio';
+if (mode === 'stdio') {
+  // One connection on the standard streams. The runs stop with the connection. Tests and
+  // local checks use this mode.
+  client = { write: (text) => void process.stdout.write(text), closed: () => false, close() {} };
+  serveConnection(process.stdin, client).on('close', shutdown);
+} else {
+  const path = helperSocketPath(homedir(), basename(dirname(process.argv[1] || '')));
+  void prepareHelperDirectory(dirname(path))
+    .then(() => {
+      // A socket path has a short length limit. The name in the private folder is short.
+      process.chdir(dirname(path));
+      return mode === 'helper' ? serve(basename(path)) : relay(basename(path));
+    })
+    .catch((error) => {
+      process.stderr.write(`The Kalkidan helper cannot start: ${error.message}\n`);
+      process.exit(1);
+    });
+}
+process.on('SIGTERM', shutdown);
+process.on('SIGINT', shutdown);

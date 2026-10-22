@@ -4,7 +4,7 @@ import {
   verdictanAccountPageUrl,
   type VerdictanStatus,
 } from '../src/domain/verdictan';
-import { identityKey } from './verdictan/bindings';
+import { identityKey, parseBindingSummary, type BindingSummary } from './verdictan/bindings';
 import {
   savedVerdictanRegion,
   saveVerdictanRegion,
@@ -13,7 +13,7 @@ import {
 } from './verdictan/region';
 import { ProjectServices } from './verdictan/project-services';
 import { ManagedHistory } from './verdictan/managed-history';
-import { ProjectUsageReader } from './verdictan/project-usage';
+import { ProjectUsageReader, chatHost } from './verdictan/project-usage';
 import { DesktopProtocolError } from './verdictan/protocol';
 import { ParallelDispatch } from './operations/parallel-dispatch';
 import { TaskExecutions } from './operations/task-execution';
@@ -360,9 +360,9 @@ function handle(channel: string, fn: (...args: any[]) => any) {
         const remoteMethod = channel === 'remote-call' ? args[1] : '';
         const kind =
           ['chat-create', 'chat-start'].includes(channel) ||
-          ['chatCreate', 'chatStart'].includes(remoteMethod)
+          ['chatCreate', 'chatStart', 'chatStatus'].includes(remoteMethod)
             ? 'chat'
-            : channel === 'pty-open' || remoteMethod === 'ptyOpen'
+            : channel === 'pty-open' || ['ptyOpen', 'ptyAttach'].includes(remoteMethod)
               ? 'pty'
               : channel === 'terminal-start' || remoteMethod === 'terminalStart'
                 ? 'terminal'
@@ -373,19 +373,20 @@ function handle(channel: string, fn: (...args: any[]) => any) {
             id: result.id,
             hostId: remoteMethod ? args[0] : undefined,
           } as const;
-          if (
-            [...owned].some(
-              ([window, resources]) =>
-                window !== owner &&
-                resources.some(
-                  (value) =>
-                    value.kind === resource.kind &&
-                    value.id === resource.id &&
-                    value.hostId === resource.hostId,
-                ),
-            )
-          )
-            throw new Error('This operation belongs to another window.');
+          const elsewhere = [...owned].some(
+            ([window, resources]) =>
+              window !== owner &&
+              resources.some(
+                (value) =>
+                  value.kind === resource.kind &&
+                  value.id === resource.id &&
+                  value.hostId === resource.hostId,
+              ),
+          );
+          // A run on an SSH host continues without its window. The window that reads it next
+          // owns it, so that the user can answer its approvals there.
+          if (remoteMethod === 'chatStatus' && elsewhere) return result;
+          if (elsewhere) throw new Error('This operation belongs to another window.');
           if (windows.has(owner)) {
             if (
               !owned
@@ -436,20 +437,11 @@ function stopResource(resource: {
   id: string;
   hostId?: string;
 }) {
+  // A run, a terminal or a PTY on an SSH host continues when its window closes, also when the
+  // app quits. The next window attaches to it again. Only the user stops it.
+  if (resource.hostId) return;
   try {
-    if (resource.hostId) {
-      void remote
-        .call(
-          resource.hostId,
-          resource.kind === 'chat'
-            ? 'chatStop'
-            : resource.kind === 'pty'
-              ? 'ptyClose'
-              : 'terminalStop',
-          [resource.id],
-        )
-        .catch(() => {});
-    } else if (resource.kind === 'chat') chatRunner.stop(resource.id);
+    if (resource.kind === 'chat') chatRunner.stop(resource.id);
     else if (resource.kind === 'pty') pty.close(resource.id);
     else terminal.stop(resource.id);
   } catch {
@@ -1031,6 +1023,8 @@ app.whenReady().then(async () => {
   handle('pty-write', (id, input) => pty.write(id, input));
   handle('pty-resize', (id, cols, rows) => pty.resize(id, cols, rows));
   handle('pty-close', (id) => pty.close(id));
+  // A shell on this computer stops with the app, so there is no shell to attach to again.
+  handle('pty-attach', () => null);
   ipcMain.handle('browser-action', (event, id, action, value) => {
     const owner = [...windows].find(
       (w) => w.webContents === event.sender && event.senderFrame === w.webContents.mainFrame,
@@ -1125,6 +1119,21 @@ app.whenReady().then(async () => {
   // installs without a chat or a visit to Settings. The check is the same status call that a
   // chat start makes. A host with no region yet, or no runtime, only reports its status.
   remote.onConnected((hostId) => {
+    // The host keeps the outcome of each run, also a run that ended when the app was closed or
+    // the connection was lost. The status dots then show the real outcome. An older helper
+    // does not have the outcomes; then the outcomes stay as they are.
+    void remote
+      .call(hostId, 'run-outcomes', [])
+      .then((value) => chatOutcomes.recover(hostId, value))
+      .then((changed) => {
+        if (!changed) return;
+        for (const window of windows)
+          if (!window.isDestroyed()) window.webContents.send('remote-hosts-changed');
+      })
+      .catch((error) => {
+        if (!/Unsupported remote operation/.test(String(error?.message)))
+          console.warn('Remote run outcomes not recovered', error?.message);
+      });
     if (!verdictan) return;
     void remote
       .call(hostId, 'runtime-update', ['status', app.getVersion(), hostId, verdictan.region])
@@ -1205,6 +1214,24 @@ app.whenReady().then(async () => {
   async function remoteHostCall(hostId: string, method: string, args: any[]) {
     if (!remoteMethods.has(method) || !Array.isArray(args))
       throw new Error('Unsupported remote operation');
+    if (method === 'ptyAttach') {
+      // A shell of this folder that continues on the host, and that no window owns. The newest
+      // shell comes first.
+      const shells = await remote.call(hostId, 'ptyList', []).catch(() => []);
+      const free = (Array.isArray(shells) ? shells : [])
+        .filter(
+          (shell: { id?: unknown; cwd?: unknown }) =>
+            typeof shell?.id === 'string' &&
+            shell.cwd === args[0] &&
+            ![...owned.values()].some((resources) =>
+              resources.some(
+                (value) => value.kind === 'pty' && value.id === shell.id && value.hostId === hostId,
+              ),
+            ),
+        )
+        .at(-1);
+      return free ? { id: free.id as string } : null;
+    }
     if (['ptyOpen', 'chatCreate', 'terminalStart', 'repositoryDiff'].includes(method)) {
       const path = args[0];
       if (
@@ -1590,11 +1617,14 @@ app.whenReady().then(async () => {
     for (const host of connected) {
       const cached = remoteSnapshots.read(host.id, () => remote.call(host.id, 'snapshot', []));
       if (cached.value) {
+        // A run that continues on the host marks its chat, so the chat view attaches to it.
+        const live = remote.liveRuns(host.id);
         remoteSessions.push(
           ...cached.value.sessions.map((session: any) => ({
             ...session,
             id: host.id + '::' + session.id,
             hostId: host.id,
+            ...(live.has(session.id) ? { liveRunId: live.get(session.id) } : {}),
           })),
         );
         warnings.push(...cached.value.warnings.map((warning) => host.name + ': ' + warning));
@@ -2318,6 +2348,21 @@ app.whenReady().then(async () => {
       throw Error('Select a project document to publish verified source content.');
     return projectServices.request(id, request);
   });
+  /**
+   * The Verdictan binding of a chat. The binding of a chat on an SSH host stays on that host, so
+   * the host sends a summary. A host that is offline, or a helper that is too old, gives null.
+   */
+  async function chatBinding(agent: string, sessionId: string): Promise<BindingSummary | null> {
+    const kind = agent === 'codex' ? 'codex' : agent === 'claude' ? 'claude_code' : '';
+    if (!kind) return null;
+    const hostId = chatHost(sessionId);
+    if (!hostId) return verdictan!.bindings.read(kind, sessionId);
+    if (!remote.hosts.some((host) => host.id === hostId)) return null;
+    const value = await remote
+      .call(hostId, 'conversation-binding', [kind, providerSessionId(hostId, sessionId)])
+      .catch(() => null);
+    return parseBindingSummary(value);
+  }
   const managedHistory = new ManagedHistory(async (target) => {
     const { client, account } = await verdictan!.setup.inspect();
     const base = {
@@ -2338,9 +2383,7 @@ app.whenReady().then(async () => {
       return { ...base, keys: { project_id: board.project.id, task_id: target.taskId } };
     }
     // The chat binding holds the conversation key. The renderer sends only the chat.
-    const kind =
-      target.agent === 'codex' ? 'codex' : target.agent === 'claude' ? 'claude_code' : '';
-    const binding = kind ? await verdictan!.bindings.read(kind, target.sessionId) : null;
+    const binding = await chatBinding(target.agent, target.sessionId);
     if (
       !binding ||
       binding.organization_id !== account.organizationId ||
@@ -2361,11 +2404,9 @@ app.whenReady().then(async () => {
       };
     },
     history: (target) => managedHistory.list(target),
+    hostName: (hostId) => remote.hosts.find((host) => host.id === hostId)?.name,
     binding: async (agent, sessionId, account) => {
-      const binding = await verdictan!.bindings.read(
-        agent === 'codex' ? 'codex' : 'claude_code',
-        sessionId,
-      );
+      const binding = await chatBinding(agent, sessionId);
       if (
         !binding ||
         binding.organization_id !== account.organizationId ||
@@ -2374,14 +2415,27 @@ app.whenReady().then(async () => {
         return null;
       return {
         cwd: binding.cwd,
+        conversationId: binding.conversation_id,
         billing: binding.provider_access_mode?.endsWith('_subscription')
           ? 'subscription'
           : 'metered',
       };
     },
-    inProject: async (groupId, cwd) => {
+    inProject: async (groupId, cwd, hostId) => {
       const group = projectGroups.groups.find((group) => group.id === groupId);
-      if (!group || group.hostId) return false;
+      if (!group) return false;
+      // A chat on an SSH host counts only for a project on the same host. The host resolved the
+      // folder of the chat, so the saved folders of the project compare directly.
+      if (hostId || group.hostId)
+        return (
+          group.hostId === hostId &&
+          projects.some(
+            (repo) =>
+              repo.hostId === hostId &&
+              group.repoIds.includes(repo.id) &&
+              pathContains(repo.path, cwd),
+          )
+        );
       for (const repo of projects)
         if (!repo.hostId && group.repoIds.includes(repo.id)) {
           const path = await realpath(repo.path).catch(() => repo.path);

@@ -142,6 +142,10 @@ test('Insights without a board show the managed-agent usage of the project chats
     usage.getByRole('listitem').filter({ hasText: 'gpt-5.4 · 2 requests' }),
   ).toBeVisible();
   await expect(usage.getByText('Included in your subscription', { exact: true })).toBeVisible();
+  // Each chat shows the computer that runs it.
+  await expect(usage.getByRole('list', { name: 'Usage by chat' })).toContainText(
+    'Codex · This computer · 2 requests',
+  );
   const days = usage.getByRole('list', { name: 'Requests for each day, last 14 days' });
   await expect(days.getByRole('listitem')).toHaveCount(14);
   await expect(

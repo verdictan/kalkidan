@@ -812,6 +812,25 @@ export function Conversation({
       clearTimeout(timer);
     };
   }, [api, run?.id, run?.status, run?.governance?.finalized]);
+  // A run that continued on the SSH host while this chat was closed: attach to it again.
+  useEffect(() => {
+    const id = session.liveRunId;
+    if (!id || runRef.current || startingRef.current) return;
+    let current = true;
+    api
+      .chatStatus(id)
+      .then((next) => {
+        if (!current || runRef.current || startingRef.current || next.status !== 'running') return;
+        runRef.current = next;
+        setRun(next);
+      })
+      .catch(() => {
+        // The run ended. The chat shows its saved transcript and outcome.
+      });
+    return () => {
+      current = false;
+    };
+  }, [api, session.liveRunId]);
   useEffect(() => {
     if (follow.current && scroll.current) scroll.current.scrollTop = scroll.current.scrollHeight;
   }, [messages, run, loading, open]);
@@ -1521,6 +1540,19 @@ export function Conversation({
               <LoaderCircle className="size-3.5 animate-spin" aria-hidden="true" />
               <span role="status">{activityText}</span>
             </div>
+          )}
+          {active && run?.hostDetached && (
+            <p className="chat-context-note" role="status">
+              The connection to the SSH host stopped. The run continues on the host. Kalkidan
+              connects again and then shows the run here.
+            </p>
+          )}
+          {session.hostId && approvalsPending + questionsPending > 0 && (
+            <p className="chat-context-note" role="status">
+              {run?.hostDetached
+                ? 'The run waits on the SSH host for your answer. Connect the host again to answer. Kalkidan never answers for you.'
+                : 'The run waits on the SSH host for your answer. It continues only after you answer. Kalkidan never answers for you.'}
+            </p>
           )}
           {shownPolicies.map((policy) => (
             <PolicyResultCard

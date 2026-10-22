@@ -47,6 +47,7 @@ test('remote RPC validates envelopes, dispatches supported operations, reports f
     resize = record('ptyResize');
     close = record('ptyClose');
     closeAll = record('ptyCloseAll');
+    list = () => [{ id: 'shell', cwd: '/repo' }];
   }
   class Terminal {
     start = record('terminalStart');
@@ -119,6 +120,7 @@ test('remote RPC validates envelopes, dispatches supported operations, reports f
           withCheckoutIdle: async (_path: string, action: () => Promise<unknown>) => action(),
           start: record('chatStart'),
           status: record('chatStatus'),
+          running: () => [{ id: 'run-1', agent: 'codex', sessionId: 'codex', create: false }],
           stop: record('chatStop'),
           approve: record('chatApprove'),
           respond: record('chatRespond'),
@@ -305,6 +307,11 @@ test('remote RPC validates envelopes, dispatches supported operations, reports f
     'chatRespond',
   ])
     assert.ok((await request(op, ['/repo', 'arg', 'arg'])).result, op);
+  // The helper lists the shells and runs that still work, so that an app attaches again.
+  assert.deepEqual((await request('ptyList')).result, [{ id: 'shell', cwd: '/repo' }]);
+  assert.deepEqual((await request('chat-runs')).result, [
+    { id: 'run-1', agent: 'codex', sessionId: 'codex', create: false },
+  ]);
   assert.match((await request('transcript', ['codex', 'missing'])).error, /not found/);
   for (const agent of ['codex', 'claude'])
     assert.deepEqual((await request('transcript', [agent, agent])).result, { messages: [] });
@@ -330,6 +337,7 @@ test('remote RPC validates envelopes, dispatches supported operations, reports f
   processEvents.emit('SIGTERM');
   processEvents.emit('SIGINT');
   stopTimer();
-  assert.equal(calls.filter((call) => call[0] === 'dispose').length, 3);
+  // The helper stops one time, also when more stop signals arrive.
+  assert.equal(calls.filter((call) => call[0] === 'dispose').length, 1);
   assert.equal(calls.at(-1)[0], 'exit');
 });

@@ -949,6 +949,17 @@ export class InteractiveChatRunner {
   runningCount() {
     return [...this.runs.values()].filter((run) => run.state.status === 'running').length;
   }
+  /** The runs that are still working, with the session that each run started with. */
+  running() {
+    return [...this.runs.values()]
+      .filter((run) => run.state.status === 'running')
+      .map((run) => ({
+        id: run.state.id,
+        agent: run.session.agent,
+        sessionId: run.state.sessionId || run.session.id,
+        create: run.create,
+      }));
+  }
   dispose() {
     for (const controller of this.extractionStops.keys()) controller.abort();
     this.extractionStops.clear();

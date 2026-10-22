@@ -995,6 +995,7 @@ export const demo: API = {
   ptyWrite: nativeOnly,
   ptyResize: nativeOnly,
   ptyClose: nativeOnly,
+  ptyAttach: async () => null,
   browserLayout: nativeOnly,
   browserNavigate: nativeOnly,
   browserState: nativeOnly,
