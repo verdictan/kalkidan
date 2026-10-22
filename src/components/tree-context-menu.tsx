@@ -1,20 +1,33 @@
-import { Check } from 'lucide-react';
+import { Check, Palette } from 'lucide-react';
 import { projectColors, type ProjectColor } from '../domain/project-colors';
-import { Fragment, type ReactElement } from 'react';
-import { ContextMenu } from 'radix-ui';
+import { Fragment, type ReactElement, type ReactNode } from 'react';
+import { ContextMenu, DropdownMenu as Menu } from 'radix-ui';
 import { cn } from '../lib/utils';
+import { Hint } from './hint';
+import { MoreButton } from './ui/more-button';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
+  DropdownMenuTrigger,
+} from './ui/dropdown-menu';
 import {
   menuCollisionPadding,
   menuContentClass,
   menuDestructiveClass,
   menuItemClass,
-  menuLabelClass,
   menuSeparatorClass,
 } from './ui/menu-styles';
 
 export interface TreeAction {
   label: string;
   action(): void;
+  /** A 16px icon before the label. */
+  icon?: ReactNode;
   disabled?: boolean;
   destructive?: boolean;
   /** Tells the user why the action is disabled. */
@@ -33,6 +46,53 @@ export const folderColorOptions: [string, string][] = [
   ...Object.entries(projectColors),
 ];
 export const colorName = (name: string) => name[0].toUpperCase() + name.slice(1);
+
+/** One color choice row: the swatch, the name and a check on the current color. */
+function ColorItems({
+  parts,
+  folderColor,
+}: {
+  parts: typeof ContextMenu | typeof Menu;
+  folderColor: FolderColorChoice;
+}) {
+  return (
+    <parts.RadioGroup
+      value={folderColor.value || 'default'}
+      onValueChange={(value) =>
+        folderColor.onChange(value === 'default' ? null : (value as ProjectColor))
+      }
+    >
+      {folderColorOptions.map(([name, color]) => (
+        <parts.RadioItem
+          key={name}
+          value={name}
+          disabled={folderColor.disabled}
+          className={menuItemClass}
+        >
+          <span className="size-3 shrink-0 rounded-full" style={{ backgroundColor: color }} />
+          <span className="flex-1">{colorName(name)}</span>
+          <parts.ItemIndicator aria-hidden="true">
+            <Check />
+          </parts.ItemIndicator>
+        </parts.RadioItem>
+      ))}
+    </parts.RadioGroup>
+  );
+}
+
+/** The label of an item, with the reason of a disabled item as a second line. */
+function ItemLabel({ item }: { item: TreeAction }) {
+  return item.disabled && item.reason ? (
+    <span className="grid min-w-0">
+      <span>{item.label}</span>
+      <span className="text-xs text-muted-foreground">{item.reason}</span>
+    </span>
+  ) : (
+    <>{item.label}</>
+  );
+}
+
+/** The right-click menu of a sidebar row. It has the same items as the row's … menu. */
 export function TreeContextMenu({
   children,
   actions,
@@ -75,36 +135,6 @@ export function TreeContextMenu({
           )}
           aria-label={label}
         >
-          {folderColor && (
-            <>
-              <ContextMenu.Label className={menuLabelClass}>Folder color</ContextMenu.Label>
-              <ContextMenu.RadioGroup
-                value={folderColor.value || 'default'}
-                onValueChange={(value) =>
-                  folderColor.onChange(value === 'default' ? null : (value as ProjectColor))
-                }
-              >
-                {folderColorOptions.map(([name, color]) => (
-                  <ContextMenu.RadioItem
-                    key={name}
-                    value={name}
-                    disabled={folderColor.disabled}
-                    className={menuItemClass}
-                  >
-                    <span
-                      className="size-3 shrink-0 rounded-full"
-                      style={{ backgroundColor: color }}
-                    />
-                    <span className="flex-1">{colorName(name)}</span>
-                    <ContextMenu.ItemIndicator aria-hidden="true">
-                      <Check />
-                    </ContextMenu.ItemIndicator>
-                  </ContextMenu.RadioItem>
-                ))}
-              </ContextMenu.RadioGroup>
-              <ContextMenu.Separator className={menuSeparatorClass} />
-            </>
-          )}
           {actions.map((item) => (
             <Fragment key={item.label}>
               {item.separator && <ContextMenu.Separator className={menuSeparatorClass} />}
@@ -114,19 +144,99 @@ export function TreeContextMenu({
                 className={cn(
                   menuItemClass,
                   // An item with a reason shows a second line, so it is taller.
-                  item.disabled && item.reason && 'h-auto flex-col items-start gap-0 py-1.5',
+                  item.disabled && item.reason && 'h-auto py-1.5',
                   item.destructive && menuDestructiveClass,
                 )}
               >
-                {item.label}
-                {item.disabled && item.reason && (
-                  <span className="text-xs text-muted-foreground">{item.reason}</span>
-                )}
+                {item.icon}
+                <ItemLabel item={item} />
               </ContextMenu.Item>
             </Fragment>
           ))}
+          {folderColor && (
+            <>
+              <ContextMenu.Separator className={menuSeparatorClass} />
+              <ContextMenu.Sub>
+                <ContextMenu.SubTrigger className={menuItemClass}>
+                  <Palette className="size-4" />
+                  <span className="flex-1">Folder color</span>
+                </ContextMenu.SubTrigger>
+                <ContextMenu.Portal>
+                  <ContextMenu.SubContent
+                    collisionPadding={menuCollisionPadding}
+                    className={menuContentClass}
+                  >
+                    <ColorItems parts={ContextMenu} folderColor={folderColor} />
+                  </ContextMenu.SubContent>
+                </ContextMenu.Portal>
+              </ContextMenu.Sub>
+            </>
+          )}
         </ContextMenu.Content>
       </ContextMenu.Portal>
     </ContextMenu.Root>
+  );
+}
+
+/**
+ * The … menu of a row, with a 16px icon on each item. In the sidebar, it has the same items as
+ * the right-click menu.
+ */
+export function TreeActionsMenu({
+  label,
+  actions,
+  folderColor,
+  disabled,
+  className,
+  size = 'xs',
+  align = 'start',
+}: {
+  label: string;
+  actions: TreeAction[];
+  folderColor?: FolderColorChoice;
+  disabled?: boolean;
+  className?: string;
+  /** md (32px) in page headers, sm (28px) in toolbars, xs (24px) in list and tree rows. */
+  size?: 'md' | 'sm' | 'xs';
+  align?: 'start' | 'end';
+}) {
+  return (
+    <DropdownMenu>
+      <Hint label={label} disabled={disabled}>
+        <DropdownMenuTrigger asChild>
+          <MoreButton size={size} label={label} className={className} disabled={disabled} />
+        </DropdownMenuTrigger>
+      </Hint>
+      <DropdownMenuContent align={align} aria-label={label}>
+        {actions.map((item) => (
+          <Fragment key={item.label}>
+            {item.separator && <DropdownMenuSeparator />}
+            <DropdownMenuItem
+              variant={item.destructive ? 'destructive' : 'default'}
+              disabled={item.disabled}
+              className={item.disabled && item.reason ? 'h-auto py-1.5' : undefined}
+              onSelect={item.action}
+            >
+              {item.icon}
+              <ItemLabel item={item} />
+            </DropdownMenuItem>
+          </Fragment>
+        ))}
+        {folderColor && (
+          <>
+            <DropdownMenuSeparator />
+            <DropdownMenuSub>
+              <DropdownMenuSubTrigger>
+                <Palette className="size-4" />
+                Folder color
+              </DropdownMenuSubTrigger>
+              <DropdownMenuSubContent>
+                <ColorItems parts={Menu} folderColor={folderColor} />
+              </DropdownMenuSubContent>
+            </DropdownMenuSub>
+          </>
+        )}
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }

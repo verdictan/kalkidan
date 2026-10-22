@@ -34,12 +34,28 @@ const ids = (state: ChatActionState, surface: ChatActionSurface = 'list') =>
     group.items.map((item) => item.id),
   ]);
 
+/** The IDs of the "More" submenu, with "---" for a separator. */
+const moreIds = (state: ChatActionState, surface: ChatActionSurface = 'list') =>
+  chatActionMenu(surface, state, 'mac')
+    .flatMap((group) => group.items)
+    .find((item) => item.id === 'more')!
+    .children!.flatMap((item) => [...(item.separator ? ['---'] : []), item.id]);
+
 test('the actions keep the fixed groups and order', () => {
-  assert.deepEqual(chatActionGroups, ['open', 'organize', 'work', 'share', 'developer', 'archive']);
-  assert.deepEqual(ids(ready), [
-    ['open', ['open', 'open-beside', 'open-window']],
+  assert.deepEqual(chatActionGroups, [
+    'open',
+    'organize',
+    'work',
+    'share',
+    'developer',
+    'more',
+    'archive',
+  ]);
+  // The menu bar and the palette show all actions in their groups.
+  assert.deepEqual(ids({ ...ready, open: true }, 'menu-bar'), [
+    ['open', ['open-beside', 'open-window']],
     ['organize', ['rename', 'pin', 'link-task', 'notes']],
-    ['work', ['commit', 'open-pull-request', 'duplicate', 'show-folder']],
+    ['work', ['commit', 'create-pull-request', 'duplicate', 'show-folder']],
     ['share', ['share', 'copy-markdown', 'usage-history']],
     ['developer', ['developer']],
     ['archive', ['archive']],
@@ -58,25 +74,65 @@ test('the actions keep the fixed groups and order', () => {
   assert.deepEqual(children('developer'), ['copy-id', 'copy-path', 'open-vscode', 'open-cursor']);
 });
 
+test('the chat menus show the frequent actions and put the others in More', () => {
+  assert.deepEqual(ids(ready), [
+    ['open', ['open']],
+    ['organize', ['rename', 'pin', 'link-task']],
+    ['work', ['commit', 'create-pull-request']],
+    ['more', ['more']],
+    ['archive', ['archive']],
+  ]);
+  assert.deepEqual(moreIds(ready), [
+    'open-beside',
+    'open-window',
+    '---',
+    'notes',
+    '---',
+    'duplicate',
+    'show-folder',
+    '---',
+    'share',
+    'copy-markdown',
+    'usage-history',
+    '---',
+    'developer',
+  ]);
+  // The open chat has no Open item, so More starts with the side chat.
+  assert.deepEqual(moreIds({ ...ready, open: true }, 'header')[0], 'open-beside');
+});
+
 test('the chat row menu and the chat header menu show the same actions, except Open', () => {
   const list = ids(ready, 'list');
   const header = ids({ ...ready, open: true }, 'header');
-  assert.deepEqual(header[0], ['open', ['open-beside', 'open-window']]);
-  assert.deepEqual(list.slice(1), header.slice(1));
-  // The menu bar and the palette act on the open chat. They show the header actions.
-  for (const surface of ['menu-bar', 'palette'] as const)
-    assert.deepEqual(ids({ ...ready, open: true }, surface), header);
+  assert.deepEqual(list.slice(1), header);
+  assert.deepEqual(moreIds(ready, 'list'), moreIds({ ...ready, open: true }, 'header'));
+  // The menu bar and the palette act on the open chat. They show the same actions.
+  assert.deepEqual(
+    ids({ ...ready, open: true }, 'palette'),
+    ids({ ...ready, open: true }, 'menu-bar'),
+  );
 });
 
 test('actions hide only when they cannot apply', () => {
   const linked = ids({ ...ready, linkedTask: true });
-  assert.deepEqual(linked[1], ['organize', ['rename', 'pin', 'open-linked-task', 'notes']]);
+  assert.deepEqual(linked[1], ['organize', ['rename', 'pin', 'open-linked-task']]);
   // Without managed agents, or on a remote computer, there is no usage history.
   for (const state of [
     { ...ready, usageHistory: false },
     { ...ready, remote: true },
   ])
-    assert.deepEqual(ids(state)[3], ['share', ['share', 'copy-markdown']]);
+    assert.ok(!moreIds(state).includes('usage-history'));
+  // With a pull request, View pull request #N replaces Create pull request.
+  const withPullRequest = chatActionMenu(
+    'header',
+    { ...ready, open: true, pullRequest: true, pullRequestNumber: 12 },
+    'mac',
+  ).flatMap((group) => group.items);
+  assert.ok(!withPullRequest.some((item) => item.id === 'create-pull-request'));
+  assert.equal(
+    withPullRequest.find((item) => item.id === 'open-pull-request')?.label,
+    'View pull request #12',
+  );
   // Every surface shows Archive. Pin and Archive change their labels with the state.
   for (const surface of surfaces) {
     const menu = chatActionMenu(surface, { ...ready, pinned: true, archived: true }, 'mac');
@@ -88,7 +144,7 @@ test('actions hide only when they cannot apply', () => {
 
 test('blocked actions are disabled with a reason', () => {
   const item = (state: ChatActionState, id: string) =>
-    chatActionMenu('header', { ...state, open: true }, 'mac')
+    chatActionMenu('menu-bar', { ...state, open: true }, 'mac')
       .flatMap((group) => group.items)
       .find((entry) => entry.id === id)!;
   assert.deepEqual(
@@ -107,7 +163,12 @@ test('blocked actions are disabled with a reason', () => {
   assert.equal(draft.saved, false);
   for (const id of ['duplicate', 'share', 'copy-markdown', 'open-window', 'developer'])
     assert.equal(item(draft, id).reason, reasons.firstMessage, id);
-  assert.equal(item(ready, 'open-pull-request').reason, reasons.noPullRequest);
+  assert.equal(item(ready, 'create-pull-request').disabled, false);
+  assert.equal(
+    item({ ...ready, noBranchWork: true }, 'create-pull-request').reason,
+    reasons.noBranchWork,
+  );
+  assert.equal(item({ ...ready, running: true }, 'create-pull-request').reason, reasons.running);
   assert.equal(item({ ...ready, pullRequest: true }, 'open-pull-request').disabled, false);
   assert.equal(item({ ...ready, remote: true }, 'show-folder').reason, reasons.remote);
   assert.equal(item({ ...ready, project: false }, 'link-task').reason, reasons.noProject);
@@ -141,6 +202,8 @@ test('each command belongs to one action and the menu bar can send it', () => {
   // Submenus have no command. Their items have one.
   for (const action of flatChatActions())
     assert.equal(!action.command, !!action.children || action.id === 'open', action.id);
+  // "More" is a submenu of the menus only. It is not an action.
+  assert.ok(!flatChatActions().some((action) => action.id === 'more'));
 });
 
 test('run uses the code of the surface, else the session command', () => {
@@ -189,4 +252,10 @@ test('the IPC state check keeps only known boolean values', () => {
     ...ready,
     noChanges: true,
   });
+  assert.deepEqual(parseChatActionState({ ...ready, noBranchWork: true, pullRequestNumber: 7 }), {
+    ...ready,
+    noBranchWork: true,
+    pullRequestNumber: 7,
+  });
+  assert.deepEqual(parseChatActionState({ ...ready, pullRequestNumber: -1 }), { ...ready });
 });

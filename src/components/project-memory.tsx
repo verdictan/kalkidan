@@ -1,16 +1,31 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { Brain, FileText, RefreshCw } from 'lucide-react';
+import { Brain, FileText, Pencil, Plus, Trash2 } from 'lucide-react';
 import { Button } from './ui/button';
 import { Alert, AlertDescription } from './ui/alert';
 import { EmptyState } from './ui/empty-state';
+import { Input } from './ui/input';
+import { MoreButton } from './ui/more-button';
+import { SearchInput } from './ui/search-input';
+import { Textarea } from './ui/textarea';
 import { showToast } from './ui/toast';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from './ui/dropdown-menu';
 import { Hint } from './hint';
 import { ConfirmDialog } from './confirm-dialog';
-import { ProjectHeaderActions } from './project-header';
 import type { API, ProjectGroup, Session } from '../types';
-import type { MemoryEntry, MemoryExtraction, ProjectMemory } from '../domain/memory';
+import type {
+  MemoryEntry,
+  MemoryExtraction,
+  MemoryWriteResult,
+  ProjectMemory,
+} from '../domain/memory';
 import { useProjectResource } from '../hooks/use-project-resource';
 import { errorMessage } from '../lib/errors';
 import { plural } from '../lib/platform';
@@ -19,6 +34,40 @@ import { managedSteps, memoryEmptyAction, type ManagedSteps } from '../lib/verdi
 import { managedAgentsChangedEvent } from './verdictan-settings';
 
 type MemoryPage = ProjectMemory['pages'][number];
+
+/** The text of a new or changed memory entry. */
+export interface MemoryEntryInput {
+  /** The entry to change. Undefined for a new entry. */
+  id?: string;
+  /** The revision that the user changed. The save stops when the entry changed meanwhile. */
+  expectedRevision?: string;
+  topic: string;
+  content: string;
+}
+
+/** What the page shows after a save: a toast, a message at the form, or a page error. */
+export function memorySaveOutcome(
+  result: MemoryWriteResult,
+):
+  | { kind: 'saved'; topic: string }
+  | { kind: 'duplicate' }
+  | { kind: 'conflict' }
+  | { kind: 'deferred'; reason: string } {
+  if (result.status === 'conflict') return { kind: 'conflict' };
+  if (result.status === 'deferred') return { kind: 'deferred', reason: result.reason };
+  if (result.status === 'duplicate') return { kind: 'duplicate' };
+  return { kind: 'saved', topic: memoryTopicName(result.entry) };
+}
+
+/** True when the topic or the text of a memory page contains each word of the search. */
+export function memoryMatches(
+  page: { topic?: string; name?: string; content: string },
+  query: string,
+) {
+  const words = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  const text = `${memoryTopicName(page)} ${page.content}`.toLowerCase();
+  return words.every((word) => text.includes(word));
+}
 
 /** The topic name of a memory page, with a capital first letter. */
 export function memoryTopicName(page: { topic?: string; name?: string }) {
@@ -74,11 +123,16 @@ function useManagedSteps(api: API) {
     const read = async () => {
       try {
         const status = await api.verdictanStatus();
-        const setup =
+        const [setup, runtime] = await Promise.all([
           status.phase === 'authenticated' && typeof api.verdictanSetup === 'function'
-            ? await api.verdictanSetup().catch(() => undefined)
-            : undefined;
-        if (live) setSteps(managedSteps(status, setup));
+            ? api.verdictanSetup().catch(() => undefined)
+            : undefined,
+          // The installer status is the real runtime state. Without it, the account is a fallback.
+          typeof api.runtimeUpdateStatus === 'function'
+            ? api.runtimeUpdateStatus('local').catch(() => undefined)
+            : undefined,
+        ]);
+        if (live) setSteps(managedSteps(status, setup, runtime));
       } catch {
         if (live) setSteps(undefined);
       }
@@ -137,9 +191,13 @@ export function ProjectMemoryPanel({
   const [forgetting, setForgetting] = useState<MemoryEntry | null>(null);
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState('');
+  const [query, setQuery] = useState('');
+  // The entry form: a new entry, or a change to the shown entry.
+  const [editing, setEditing] = useState<MemoryEntryInput | null>(null);
+  // A message at the entry form, for example for an entry that memory has already.
+  const [formError, setFormError] = useState('');
   const sessions = sessionsProp || loadedSessions;
   const topicList = useRef<HTMLElement>(null);
-  const loading = state.status === 'loading' || state.status === 'refreshing';
   const emptyAction = memoryEmptyAction(useManagedSteps(api));
 
   // Entries give the source chat and the revision. Older desktop apps do not have them.
@@ -190,7 +248,8 @@ export function ProjectMemoryPanel({
       memoryTopicName(page).toLowerCase() === value
     );
   };
-  const page = pages.find((item) => matches(item, selected)) || pages[0];
+  const visible = query.trim() ? pages.filter((item) => memoryMatches(item, query)) : pages;
+  const page = visible.find((item) => matches(item, selected)) || visible[0];
   const entry = page && entryForPage(page, entries);
   const sessionOf = (id?: string) => (id ? sessions?.find((s) => s.id === id) : undefined);
   const source = sessionOf(entry?.source.sessionId);
@@ -203,10 +262,37 @@ export function ProjectMemoryPanel({
       ),
     [extraction, entries, sessions],
   );
-  const lastUpdate = pages.reduce(
-    (latest, item) => (item.updatedAt > latest ? item.updatedAt : latest),
-    '',
-  );
+
+  async function saveEntry(value: MemoryEntryInput) {
+    setBusy(true);
+    setActionError('');
+    setFormError('');
+    try {
+      const outcome = memorySaveOutcome(
+        await api.memorySave(group.id, {
+          ...value,
+          topic: value.topic.trim(),
+          content: value.content.trim(),
+        }),
+      );
+      if (outcome.kind === 'saved') {
+        setEditing(null);
+        setSelected(value.topic.trim());
+        showToast({ message: `Memory entry “${outcome.topic}” saved.` });
+        await refresh();
+      } else if (outcome.kind === 'duplicate') {
+        setFormError('Memory has this entry already. Change the text, or select Cancel.');
+      } else if (outcome.kind === 'conflict') {
+        setEditing(null);
+        setActionError('This entry changed. Load it again.');
+        await refresh();
+      } else setFormError(outcome.reason);
+    } catch (failure) {
+      setFormError(errorMessage(failure));
+    } finally {
+      setBusy(false);
+    }
+  }
 
   async function promote(target: MemoryPage) {
     setBusy(true);
@@ -256,52 +342,107 @@ export function ProjectMemoryPanel({
     }
   }
 
-  const subtitle = pages.length ? (
-    <>
-      <span>{plural(pages.length, 'entry', 'entries')}</span>
-      {extraction ? (
-        <>
-          <span aria-hidden="true">·</span>
-          <span className="memory-status" role="status">
-            Last update: {extractionText(extraction).toLowerCase()}
-            {extractionSession && (
-              <>
-                {' from '}
-                <SessionLink session={extractionSession} />
-              </>
-            )}{' '}
-            <span title={fullTime(extraction.updatedAt)}>{relativeTime(extraction.updatedAt)}</span>
-          </span>
-        </>
-      ) : (
-        lastUpdate && (
-          <>
-            <span aria-hidden="true">·</span>
-            <span title={fullTime(lastUpdate)}>Last update {relativeTime(lastUpdate)}</span>
-          </>
-        )
+  const entryForm = editing && (
+    <form
+      className="memory-form"
+      aria-label={editing.id ? 'Edit memory entry' : 'New memory entry'}
+      onSubmit={(event) => {
+        event.preventDefault();
+        if (editing.topic.trim() && editing.content.trim()) void saveEntry(editing);
+      }}
+    >
+      <label className="form-label">
+        Topic
+        <Input
+          autoFocus={!editing.id}
+          maxLength={120}
+          placeholder="For example: Testing"
+          value={editing.topic}
+          disabled={busy}
+          onChange={(event) => {
+            setFormError('');
+            setEditing({ ...editing, topic: event.target.value });
+          }}
+        />
+      </label>
+      <label className="form-label">
+        Text
+        <Textarea
+          autoFocus={!!editing.id}
+          rows={8}
+          maxLength={16000}
+          placeholder="A fact that agents must know, for example: Run npm test before a pull request."
+          value={editing.content}
+          disabled={busy}
+          onChange={(event) => {
+            setFormError('');
+            setEditing({ ...editing, content: event.target.value });
+          }}
+          onKeyDown={(event) => {
+            if (event.key === 'Escape') {
+              event.preventDefault();
+              setEditing(null);
+            }
+          }}
+        />
+        <span className="form-help">Agents read this text at the start of each chat.</span>
+      </label>
+      {formError && (
+        <p role="alert" className="field-error">
+          {formError}
+        </p>
       )}
-    </>
-  ) : (
-    'Reusable knowledge that your agents save.'
+      <div className="memory-form-actions">
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          disabled={busy}
+          onClick={() => setEditing(null)}
+        >
+          Cancel
+        </Button>
+        <Button
+          type="submit"
+          size="sm"
+          disabled={busy || !editing.topic.trim() || !editing.content.trim()}
+        >
+          {editing.id ? 'Save entry' : 'Add entry'}
+        </Button>
+      </div>
+    </form>
   );
 
   return (
     <section className="page project-memory" aria-label="Project memory">
-      <ProjectHeaderActions>
-        <Hint label="Refresh memory">
+      <div className="memory-toolbar">
+        <p className="memory-intro">
+          Facts that agents learned about this project. Agents read them at the start of each chat.
+        </p>
+        <div className="memory-toolbar-actions">
+          {pages.length > 0 && (
+            <SearchInput
+              size="sm"
+              className="w-56"
+              aria-label="Search memory"
+              placeholder="Search memory"
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+            />
+          )}
           <Button
-            variant="ghost"
-            size="icon"
-            aria-label="Refresh memory"
-            disabled={loading}
-            onClick={() => void refresh()}
+            size="sm"
+            disabled={busy}
+            onClick={() => {
+              setActionError('');
+              setFormError('');
+              setEditing({ topic: '', content: '' });
+            }}
           >
-            <RefreshCw size={16} />
+            <Plus /> Add entry
           </Button>
-        </Hint>
-      </ProjectHeaderActions>
-      <div className="project-page-summary">{subtitle}</div>
+        </div>
+      </div>
       {extraction?.status === 'failed' && extraction.error && (
         <Alert variant="destructive" size="sm" className="mb-4">
           <AlertDescription>{extraction.error}</AlertDescription>
@@ -313,14 +454,13 @@ export function ProjectMemoryPanel({
         </Alert>
       )}
       {!memory && !error && <EmptyState compact>Loading memory…</EmptyState>}
-      {memory && !pages.length && (
+      {memory && !pages.length && !editing && (
         <EmptyState
           icon={<Brain />}
           title="No memory yet"
           action={
             emptyAction === 'start-chat' ? (
               <Button
-                variant="outline"
                 onClick={() =>
                   window.dispatchEvent(
                     new CustomEvent('kalkidan-new-session', { detail: { groupId: group.id } }),
@@ -331,11 +471,10 @@ export function ProjectMemoryPanel({
               </Button>
             ) : emptyAction === 'set-up' ? (
               <Button
-                variant="outline"
                 onClick={() =>
                   window.dispatchEvent(
                     new CustomEvent('kalkidan-open-settings', {
-                      detail: { section: 'managed-agents' },
+                      detail: { section: 'account' },
                     }),
                   )
                 }
@@ -350,84 +489,160 @@ export function ProjectMemoryPanel({
           {emptyAction === 'set-up' && ' Set up managed agents first.'}
         </EmptyState>
       )}
-      {page && (
+      {memory && !pages.length && editing && <div className="memory-entry">{entryForm}</div>}
+      {pages.length > 0 && (
         <div className="memory-layout">
           <nav ref={topicList} className="memory-topics" aria-label="Memory topics">
-            <h2 className="sidebar-label memory-topics-label">Topics</h2>
-            <ul>
-              {pages.map((item) => (
-                <li key={item.name}>
-                  <button
-                    type="button"
-                    className="wiki-tree-row row-focus memory-topic"
-                    data-selected={item.name === page.name}
-                    aria-current={item.name === page.name ? 'page' : undefined}
-                    title={memoryTopicName(item)}
-                    onClick={() => setSelected(item.name)}
-                  >
-                    <span className="truncate">{memoryTopicName(item)}</span>
-                  </button>
-                </li>
-              ))}
-            </ul>
+            <h2 className="sidebar-label memory-topics-label">
+              Topics
+              <span className="memory-topics-count" aria-label={`${visible.length} topics`}>
+                {visible.length}
+              </span>
+            </h2>
+            {visible.length ? (
+              <ul>
+                {visible.map((item) => (
+                  <li key={item.name}>
+                    <button
+                      type="button"
+                      className="wiki-tree-row row-focus memory-topic"
+                      data-selected={!editing?.id && editing ? false : item.name === page?.name}
+                      aria-current={item.name === page?.name ? 'page' : undefined}
+                      title={memoryTopicName(item)}
+                      onClick={() => {
+                        setEditing(null);
+                        setSelected(item.name);
+                      }}
+                    >
+                      <span className="truncate">{memoryTopicName(item)}</span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="memory-topics-empty">No topics match your search.</p>
+            )}
+            {extraction && (
+              <p className="memory-status" role="status">
+                Last update: {extractionText(extraction).toLowerCase()}
+                {extractionSession && (
+                  <>
+                    {' from '}
+                    <SessionLink session={extractionSession} />
+                  </>
+                )}{' '}
+                <span title={fullTime(extraction.updatedAt)}>
+                  {relativeTime(extraction.updatedAt)}
+                </span>
+              </p>
+            )}
           </nav>
-          <article className="memory-entry" aria-labelledby="memory-entry-title">
-            <div className="memory-entry-header">
-              <div className="min-w-0">
-                <h2 id="memory-entry-title" className="memory-entry-title">
-                  {memoryTopicName(page)}
-                </h2>
-                <p className="memory-entry-meta">
-                  <span title={fullTime(entry?.updatedAt || page.updatedAt)}>
-                    Updated {relativeTime(entry?.updatedAt || page.updatedAt)}
-                  </span>
-                  {source && (
-                    <>
-                      <span aria-hidden="true">·</span>
-                      <span className="flex min-w-0 items-center gap-1">
-                        Source: <SessionLink session={source} />
-                      </span>
-                    </>
-                  )}
-                  {entry?.provenance === 'external' && (
-                    <>
-                      <span aria-hidden="true">·</span>
-                      <span>Changed outside Kalkidan</span>
-                    </>
-                  )}
-                </p>
-              </div>
-              <div className="flex shrink-0 justify-end gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled={busy}
-                  onClick={() => void promote(page)}
-                >
-                  <FileText />
-                  Promote to Docs page
-                </Button>
-                {entry && (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    disabled={busy}
-                    onClick={() => setForgetting(entry)}
-                  >
-                    Mark as wrong
-                  </Button>
+          {editing && !editing.id ? (
+            <section className="memory-entry" aria-labelledby="memory-new-title">
+              <h2 id="memory-new-title" className="memory-entry-title mb-4">
+                New entry
+              </h2>
+              {entryForm}
+            </section>
+          ) : page ? (
+            <article className="memory-entry" aria-labelledby="memory-entry-title">
+              <div className="memory-entry-header">
+                <div className="min-w-0">
+                  <h2 id="memory-entry-title" className="memory-entry-title">
+                    {memoryTopicName(page)}
+                  </h2>
+                  <p className="memory-entry-meta">
+                    <span title={fullTime(entry?.updatedAt || page.updatedAt)}>
+                      Updated {relativeTime(entry?.updatedAt || page.updatedAt)}
+                    </span>
+                    {entry?.provenance === 'user' ? (
+                      <>
+                        <span aria-hidden="true">·</span>
+                        <span>Added by you</span>
+                      </>
+                    ) : (
+                      source && (
+                        <>
+                          <span aria-hidden="true">·</span>
+                          <span className="flex min-w-0 items-center gap-1">
+                            Source: <SessionLink session={source} />
+                          </span>
+                        </>
+                      )
+                    )}
+                    {entry?.provenance === 'external' && (
+                      <>
+                        <span aria-hidden="true">·</span>
+                        <span>Changed outside Kalkidan</span>
+                      </>
+                    )}
+                  </p>
+                </div>
+                {!editing && (
+                  <div className="flex shrink-0 items-center justify-end gap-1">
+                    {entry && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={busy}
+                        onClick={() => {
+                          setActionError('');
+                          setFormError('');
+                          setEditing({
+                            id: entry.id,
+                            expectedRevision: entry.revision,
+                            topic: entry.topic,
+                            content: entry.content,
+                          });
+                        }}
+                      >
+                        <Pencil /> Edit
+                      </Button>
+                    )}
+                    <DropdownMenu>
+                      <Hint label="Entry actions">
+                        <DropdownMenuTrigger asChild>
+                          <MoreButton label="Entry actions" disabled={busy} />
+                        </DropdownMenuTrigger>
+                      </Hint>
+                      <DropdownMenuContent align="end">
+                        <DropdownMenuItem onSelect={() => void promote(page)}>
+                          <FileText className="size-4" aria-hidden="true" />
+                          Promote to Docs page
+                        </DropdownMenuItem>
+                        {entry && (
+                          <>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem
+                              variant="destructive"
+                              onSelect={() => setForgetting(entry)}
+                            >
+                              <Trash2 className="size-4" aria-hidden="true" />
+                              Remove…
+                            </DropdownMenuItem>
+                          </>
+                        )}
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </div>
                 )}
               </div>
-            </div>
-            <div className="prose-ui" data-size="sm">
-              <Markdown skipHtml remarkPlugins={[remarkGfm]}>
-                {withoutRepeatedTitle(page.content, memoryTopicName(page))}
-              </Markdown>
-            </div>
-            {page.truncated && (
-              <p className="form-help mt-4">This preview shows only the first 64 KB.</p>
-            )}
-          </article>
+              {editing ? (
+                entryForm
+              ) : (
+                <>
+                  <div className="prose-ui" data-size="sm">
+                    <Markdown skipHtml remarkPlugins={[remarkGfm]}>
+                      {withoutRepeatedTitle(page.content, memoryTopicName(page))}
+                    </Markdown>
+                  </div>
+                  {page.truncated && (
+                    <p className="form-help mt-4">This preview shows only the first 64 KB.</p>
+                  )}
+                </>
+              )}
+            </article>
+          ) : null}
         </div>
       )}
       {memory?.limited && (
@@ -439,8 +654,8 @@ export function ProjectMemoryPanel({
       )}
       <ConfirmDialog
         open={!!forgetting}
-        title={`Mark “${forgetting ? memoryTopicName(forgetting) : ''}” as wrong?`}
-        description="Kalkidan removes this entry. Agents do not use it again. You cannot undo this."
+        title={`Remove “${forgetting ? memoryTopicName(forgetting) : ''}”?`}
+        description="Agents stop using this entry. You cannot undo this."
         confirmLabel="Remove entry"
         destructive
         busy={busy}

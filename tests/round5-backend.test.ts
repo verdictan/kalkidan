@@ -337,9 +337,13 @@ test('closing keywords in a pull request body name the issue', () => {
 test('managed agent errors keep a stable code and show plain words', () => {
   const error = new DesktopProtocolError('desktop.runtime_missing');
   assert.equal(error.code, 'desktop.runtime_missing');
-  assert.match(error.message, /^Managed agents are not set up\..*\[desktop\.runtime_missing\]$/);
+  assert.match(error.message, /^Managed agents are not ready\b.*\[desktop\.runtime_missing\]$/);
   assert.equal(managedErrorCode('Error: ' + error.message), 'desktop.runtime_missing');
-  assert.equal(managedErrorInfo('desktop.runtime_missing').section, 'managed-agents');
+  assert.equal(managedErrorInfo('desktop.runtime_missing').section, 'computers');
+  assert.equal(managedErrorInfo('desktop.auth_expired').section, 'account');
+  assert.equal(managedErrorInfo('desktop.setup_selection_required').section, 'agents');
+  assert.equal(managedErrorInfo('desktop.authorization_timeout').section, 'account');
+  assert.match(managedErrorText('desktop.authorization_timeout'), /waited 5 minutes/);
   assert.equal(managedErrorInfo('desktop.transport_lost').retry, true);
   assert.match(managedErrorText('desktop.made_up'), /Check the setup in Settings/);
   assert.equal(withoutManagedCode(error.message).includes('desktop.'), false);
@@ -422,7 +426,7 @@ test('Claude subscription errors use the managed error words and keep the recove
   const recovery = claudeSubscriptionRecovery('desktop.claude_subscription_login_required');
   assert.equal(recovery?.action, 'sign_in_native_claude_on_execution_host');
   assert.equal(recovery?.message, managedErrorText('desktop.claude_subscription_login_required'));
-  assert.equal(managedErrorInfo('desktop.readiness_failed').section, 'managed-agents');
-  assert.equal(managedErrorInfo('desktop.region_required').section, 'managed-agents');
+  assert.equal(managedErrorInfo('desktop.readiness_failed').section, 'computers');
+  assert.equal(managedErrorInfo('desktop.region_required').section, 'account');
   assert.doesNotMatch(managedErrorText('desktop.subscription_target_required'), /Verdictan/);
 });

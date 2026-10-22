@@ -24,6 +24,8 @@ test('CLI checks cover installation, invocation and authentication without leaki
         calls.push(args);
         if (phase === 'error' || (phase === 'signed-out' && (args[1] as string[])[0] === 'auth'))
           throw Object.assign(Error('SECRET'), { code: phase === 'signed-out' ? 1 : 2 });
+        if ((args[1] as string[])[0] === 'api') return { stdout: 'octo-cat\n' };
+        return { stdout: '' };
       },
     },
   });
@@ -33,7 +35,12 @@ test('CLI checks cover installation, invocation and authentication without leaki
     assert.equal(result.status, phase);
     assert.ok(!JSON.stringify(result).includes('SECRET'));
   }
-  assert.deepEqual(calls.at(-1)?.[1], ['auth', 'status', '--hostname', 'github.com']);
+  assert.deepEqual(calls.at(-2)?.[1], ['auth', 'status', '--hostname', 'github.com']);
+  assert.deepEqual(calls.at(-1)?.[1], ['api', 'user', '--jq', '.login']);
+  // The login is read once and kept for a time.
+  const count = calls.length;
+  assert.equal((await githubCliCheck()).login, 'octo-cat');
+  assert.equal(calls.length, count + 2, 'The second check reads no login');
   const installs = await load(source('agent-installations')).agentInstallations();
   assert.deepEqual(
     installs.map((x: any) => x.status),

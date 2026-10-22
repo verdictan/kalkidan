@@ -12,11 +12,11 @@ import {
 } from '../domain/verdictan';
 import { agentProgramAnchor, chooseProgramLabel } from '../domain/agent-programs';
 
-export type AgentErrorActionKind = 'settings' | 'retry' | 'change-agent' | 'install';
+export type AgentErrorActionKind = 'settings' | 'retry' | 'change-agent' | 'install' | 'sign-in';
 
 export interface AgentErrorAction {
   label: string;
-  /** The Settings section to open, for `settings` and `install`. */
+  /** The Settings section to open, for `settings` and `install`. `sign-in` opens no section. */
   section?: string;
   /** The element in the section that gets focus, for example one managed setup step. */
   anchor?: string;
@@ -36,17 +36,36 @@ export interface AgentError {
 
 const setUp: AgentErrorAction = {
   label: 'Set up managed agents',
-  section: 'managed-agents',
+  section: 'account',
   kind: 'settings',
 };
 const retry: AgentErrorAction = { label: 'Try again', kind: 'retry' };
 const install: AgentErrorAction = { label: 'How to install', section: 'agents', kind: 'install' };
-const changeAgent: AgentErrorAction = { label: 'Change agent', kind: 'change-agent' };
+const changeAgent: AgentErrorAction = { label: 'Use another agent', kind: 'change-agent' };
+/** Starts the Verdictan sign-in. The sign-in flow listens for `kalkidan-sign-in`. */
+const signIn: AgentErrorAction = { label: 'Sign in', kind: 'sign-in' };
 const sectionActions: Record<string, AgentErrorAction> = {
-  'managed-agents': { label: 'Open managed agents', section: 'managed-agents', kind: 'settings' },
+  'managed-agents': { label: 'Open account settings', section: 'account', kind: 'settings' },
+  account: { label: 'Open account settings', section: 'account', kind: 'settings' },
+  accounts: { label: 'Open account settings', section: 'account', kind: 'settings' },
   agents: { label: 'Open agent settings', section: 'agents', kind: 'settings' },
-  updates: { label: 'Open updates', section: 'updates', kind: 'settings' },
+  computers: { label: 'Open computer settings', section: 'computers', kind: 'settings' },
+  updates: { label: 'Check for updates', section: 'about', kind: 'settings' },
+  about: { label: 'Check for updates', section: 'about', kind: 'settings' },
 };
+// Codes that a Verdictan sign-in fixes, with the words for the chat.
+const signInCodes: Record<string, string> = {
+  'desktop.auth_required': 'Sign in to Verdictan to run agents.',
+  'desktop.auth_expired': 'Your Verdictan sign-in expired. Sign in again to run agents.',
+  'desktop.session_rejected': 'Your Verdictan sign-in expired. Sign in again to run agents.',
+  'desktop.account_invalid': 'Sign in to Verdictan again to run agents.',
+  'desktop.authorization_timeout': 'The sign-in did not finish. Sign in again to run agents.',
+};
+/** Plain words and the Sign in action for a code that a sign-in fixes. */
+function signInError(code: string): AgentError | undefined {
+  const message = signInCodes[code];
+  return message ? { message, action: signIn, code } : undefined;
+}
 // Codes that a new chat with the other agent can fix.
 const changeAgentCodes = new Set([
   'desktop.subscription_agent_required',
@@ -68,6 +87,8 @@ const refusalCodes =
 
 /** Plain words and one action for a managed agent code. Uses the backend's code list. */
 function managedError(code: string): AgentError {
+  const signInFix = signInError(code);
+  if (signInFix) return signInFix;
   const info = managedErrorInfo(code);
   // A launch refusal code has its own words and step. Only a step that can help shows.
   const refusal = refusalCodes.test(code) ? managedRefusal(code) : undefined;
@@ -94,6 +115,7 @@ function managedError(code: string): AgentError {
 
 /** The Settings action for a setup step. */
 function stepAction(step: ManagedSetupStep): AgentErrorAction {
+  if (step === 'sign-in') return signIn;
   const target = managedSetupTargets[step] || managedSetupTargets.status;
   return { label: target.label, section: target.section, anchor: target.anchor, kind: 'settings' };
 }
@@ -121,6 +143,8 @@ export function managedLaunchError(
   context: Omit<RefusalContext, 'version' | 'path'> & { hostId?: string } = {},
 ): AgentError {
   if (failure.code && /^desktop\.[a-z_]{1,100}$/.test(failure.code)) {
+    const signInFix = signInError(failure.code);
+    if (signInFix) return { ...signInFix, note: managedOnlyNotice };
     const { hostId, ...words } = context;
     const refusal = managedRefusal(failure.code, {
       ...words,
@@ -196,7 +220,7 @@ export function agentErrorMessage(error: unknown, agent?: string): AgentError {
   if (/rate limit|429|quota|usage limit/i.test(text))
     return {
       message: `${name} reached a usage limit. Wait, or use a different agent.`,
-      action: { label: 'Change agent', kind: 'change-agent' },
+      action: changeAgent,
     };
   return { message: text || `${name} could not reply.`, action: retry };
 }

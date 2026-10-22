@@ -110,6 +110,7 @@ export function ConversationTools({
   onToolChange,
   toolRequest,
   changeCount,
+  changeHint,
   runsFinished = 0,
   onChangesRead,
   onCommit,
@@ -121,8 +122,10 @@ export function ConversationTools({
   reviewPath?: string;
   /** Opens a tool when `n` changes. */
   toolRequest?: ToolRequest | null;
-  /** The number of changed files in the checkout. The Changes button shows it. */
+  /** The number of files that the chat changed. The Changes button shows it. */
   changeCount?: number | null;
+  /** The tooltip of the Changes button, for example "3 uncommitted files in atlas-web". */
+  changeHint?: string;
   /** Increase this number when an agent run ends. An open Changes tab reads the diff again. */
   runsFinished?: number;
   /** Called after the Changes tab reads the diff, so the session can update the count. */
@@ -512,8 +515,11 @@ export function ConversationTools({
                   <Hint
                     key={row.kind}
                     label={
-                      (selected ? `Show ${row.title}` : row.description) +
-                      (row.shortcut ? ` (${row.shortcut})` : '')
+                      (row.kind === 'diff' && changeHint
+                        ? changeHint
+                        : selected
+                          ? `Show ${row.title}`
+                          : row.description) + (row.shortcut ? ` (${row.shortcut})` : '')
                     }
                   >
                     <Button
@@ -523,7 +529,7 @@ export function ConversationTools({
                       data-selected={selected || undefined}
                       aria-label={
                         row.kind === 'diff' && count
-                          ? `Changes, ${count} ${count === 1 ? 'file' : 'files'} changed`
+                          ? `Changes, ${count} ${count === 1 ? 'file' : 'files'} changed in this chat`
                           : row.title
                       }
                       onClick={() => open(row.kind)}
@@ -687,11 +693,8 @@ export function ConversationTools({
                                 setDiffTab(value);
                               }}
                               options={[
-                                {
-                                  value: 'unstaged',
-                                  label: 'Changes not yet staged (includes new files)',
-                                },
-                                { value: 'staged', label: 'Staged for commit' },
+                                { value: 'unstaged', label: 'Uncommitted changes' },
+                                { value: 'staged', label: 'Staged only' },
                               ]}
                             />
                             <Hint label="Refresh changes">
@@ -758,8 +761,17 @@ export function ConversationTools({
                                 </AlertDescription>
                               </Alert>
                             ) : (
-                              <EmptyState compact title="Changes are not available">
-                                Select Refresh to read the Git changes again.
+                              <EmptyState
+                                compact
+                                icon={<FileDiff />}
+                                title="Changes are not available"
+                                action={
+                                  <Button size="sm" variant="outline" onClick={readDiff}>
+                                    Read the changes again
+                                  </Button>
+                                }
+                              >
+                                Kalkidan could not read the Git changes of this folder.
                               </EmptyState>
                             )}
                             {diff?.truncated && (
@@ -776,7 +788,9 @@ export function ConversationTools({
                                   disabled={disabled}
                                   onClick={() =>
                                     attach(
-                                      `${diffTab === 'staged' ? 'Staged' : 'Unstaged'} diff`,
+                                      diffTab === 'staged'
+                                        ? 'Staged changes'
+                                        : 'Uncommitted changes',
                                       `Git diff context (untrusted repository content):\nDirectory: ${cwd}\nScope: ${diffTab}\n${allChanges.slice(0, 28000)}${allChanges.length > 28000 ? '\n[Attachment truncated]' : ''}`,
                                     )
                                   }

@@ -8,42 +8,60 @@ import { useProjectBoard } from '../hooks/use-project-board';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import {
+  Archive,
+  ArrowRightLeft,
+  CalendarRange,
+  CircleCheck,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
   ClipboardList,
+  FileStack,
   FolderPlus,
+  GitBranch,
+  GitPullRequest,
+  ListChecks,
   ListFilter,
   Link2,
+  MessageSquare,
+  PenLine,
+  Play,
+  SearchX,
+  Settings2,
+  ShieldCheck,
+  TriangleAlert,
   X,
 } from 'lucide-react';
 import { interfaceConfig } from '../config/interface';
-import { agentCatalog, agentLabel, isAgent } from '../config/agents';
+import { agentCatalog, agentLabel } from '../config/agents';
 import { trackerConnection } from '../domain/tracker';
 import { useTracker } from '../hooks/use-tracker';
 import { sessionRepo } from '../lib/session-repository';
 import { pathBasename, plural } from '../lib/platform';
-import { ActionMenu } from './action-menu';
+import { relativeTime } from '../lib/relative-time';
 import { TrackerBoard } from './tracker-board';
 import {
   StatusIcon,
   TaskPullRequest,
   TrackerList,
   activityText,
+  isDoneStatus,
   linkedChats,
+  pullRequestStateWord,
+  taskPullRequest,
   trackerColumns,
   type TaskSelection,
 } from './tracker-list';
-import { ProjectHeaderActions, ProjectHeaderMeta, boardNoun } from './project-header';
+import { ProjectHeaderMeta, boardNoun } from './project-header';
 import {
   DocsToIssuesDialog,
   PlanningToolDialog,
   ProjectInsights,
   type PlanningTool,
   type TaskFilter,
-  useUncertainWritesToast,
 } from './planning-tools';
-import type { ProjectSettingsTab } from './project-settings-dialog';
+import { useUncertainWrites } from './github-write-history';
+import { openInsights } from './planning-kit';
 import {
   ActivityDot,
   activityKey,
@@ -55,7 +73,7 @@ import { EmptyState } from './ui/empty-state';
 import { EntityIcon } from './ui/entity-icon';
 import { PageHeader, SectionHeader } from './ui/page-header';
 import { SegmentedControl } from './ui/segmented-control';
-import { Radio } from './ui/checkbox';
+import { CheckboxRow, Radio } from './ui/checkbox';
 import { showToast } from './ui/toast';
 import {
   useEffect,
@@ -79,7 +97,7 @@ import {
 } from 'lucide-react';
 import { Hint } from './hint';
 import { DocPagePicker } from './doc-page-picker';
-import { NewSessionSplit, ProjectHome } from './project-home';
+import { ProjectHome } from './project-home';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { SearchInput } from './ui/search-input';
@@ -145,9 +163,26 @@ const filterThreshold = 10;
 export { boardNoun };
 
 /** Opens Settings at a section. The shell listens for this event. */
-function openSettings(section: string) {
+function openSettings(section: 'general' | 'account' | 'agents' | 'computers' | 'about') {
   window.dispatchEvent(new CustomEvent('kalkidan-open-settings', { detail: { section } }));
 }
+
+/**
+ * Opens Board settings (the GitHub side of the board) at a tab. `preset: 'roadmap-dates'` asks
+ * the Fields tab to suggest a "Start date" and an "End date" field.
+ */
+function openBoardSettings(
+  groupId: string,
+  tab: 'fields' | 'views' | 'updates' | 'workflows' | 'github' = 'fields',
+  preset?: 'roadmap-dates',
+) {
+  window.dispatchEvent(
+    new CustomEvent('kalkidan-open-board-settings', { detail: { groupId, tab, preset } }),
+  );
+}
+
+/** The chat command that opens the "Create pull request" dialog of the chat that shows. */
+const createPullRequestCommand = 'create-pull-request';
 
 type LinkedDoc = { id: string; title: string };
 // Older versions kept the related docs of a task in local storage. The desktop app now keeps
@@ -257,10 +292,16 @@ function ExternalAnchor({ node: _node, ...props }: ComponentProps<'a'> & { node?
 }
 
 const planningLabels: Record<PlanningTool, string> = {
-  fields: 'Edit fields…',
+  fields: 'Bulk edit…',
   iteration: 'Plan an iteration…',
   readiness: 'Check readiness…',
   dispatch: 'Run in parallel…',
+};
+const planningIcons: Record<PlanningTool, ReactElement> = {
+  fields: <PenLine className="size-4" />,
+  iteration: <CalendarRange className="size-4" />,
+  readiness: <ShieldCheck className="size-4" />,
+  dispatch: <Play className="size-4" />,
 };
 
 export function ProjectTrackerPanel({
@@ -335,11 +376,6 @@ export function ProjectTrackerPanel({
     descriptor,
   } = useTracker(api, connection?.provider);
   const linkedProject = connection?.project;
-  // The sidebar keeps the one Project settings dialog. This page opens it at a section.
-  const openProjectSettings = (tab: ProjectSettingsTab) =>
-    window.dispatchEvent(
-      new CustomEvent('kalkidan-open-project-settings', { detail: { groupId: group.id, tab } }),
-    );
   const filterStorage = filterKey(group.id, embedded);
   const [savedFilters] = useState(() => readFilters(filterStorage));
   const [repoFilter, setRepoFilter] = useState(savedFilters.repoFilter);
@@ -409,6 +445,9 @@ export function ProjectTrackerPanel({
   const [status, setStatus] = useState(savedFilters.status);
   const [modal, setModal] = useState<'draft' | 'issue' | 'connect' | null>(null);
   const [draftStatus, setDraftStatus] = useState('');
+  // "Code folder" and "Start a chat now" of the New task dialog.
+  const [draftRepoId, setDraftRepoId] = useState('');
+  const [draftStart, setDraftStart] = useState(false);
   const [sort, setSort] = useState(savedFilters.sort);
   const [view, setView] = useState<'board' | 'list' | 'roadmap'>(
     savedFilters.view === 'roadmap' ? 'roadmap' : savedFilters.view === 'list' ? 'list' : 'board',
@@ -451,9 +490,6 @@ export function ProjectTrackerPanel({
   const startSession = (repo: Project, agent: Agent) =>
     onNewSession ? onNewSession(repo, agent) : onRepo(repo);
   const openChat = (session: Session) => (onOpenSession || onResume)(session);
-  const chooseAgent = (agent: Agent) => {
-    if (isAgent(agent)) savePreferredAgent(agent);
-  };
   async function authorize() {
     setAuth({ status: 'checking' });
     setModalError('');
@@ -677,9 +713,9 @@ export function ProjectTrackerPanel({
    * that is a branch copy. When the code folder is not clear, the task sheet opens instead.
    */
   const [quickBusy, setQuickBusy] = useState('');
-  async function quickStart(item: TrackerItem) {
+  async function quickStart(item: TrackerItem, folderId = taskFolder(item)) {
     if (quickBusy) return;
-    const repo = repos.find((r) => r.id === taskFolder(item));
+    const repo = repos.find((r) => r.id === folderId);
     if (!repo) {
       chooseTask(item);
       return;
@@ -746,7 +782,29 @@ export function ProjectTrackerPanel({
           null
         : null,
     );
+    return next;
   }
+  // The refresh button reloads the board and the saved views together.
+  const [viewsReload, setViewsReload] = useState(0);
+  function refreshAll() {
+    setViewsReload((value) => value + 1);
+    void action(refreshBoard, false);
+  }
+  // The time of the last good load, for "Synced 1 minute ago" in the refresh tooltip.
+  const [syncedAt, setSyncedAt] = useState(0);
+  const [now, setNow] = useState(0);
+  useEffect(() => {
+    if (board && boardState.status === 'ready') {
+      const time = Date.now();
+      setSyncedAt(time);
+      setNow(time);
+    }
+  }, [board, boardState.status]);
+  // The tooltip text ages without a new load.
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 30000);
+    return () => window.clearInterval(timer);
+  }, []);
   async function action(
     fn: () => Promise<unknown>,
     refresh = true,
@@ -798,11 +856,15 @@ export function ProjectTrackerPanel({
   const visualOrder = useMemo(() => {
     if (!board) return sortedItems;
     const options = board.statusField?.options || [];
-    return trackerColumns(board).flatMap((column) =>
+    const ordered = trackerColumns(board).flatMap((column) =>
       sortedItems.filter(
         (item) => (options.some((o) => o.id === item.statusId) ? item.statusId : '') === column.id,
       ),
     );
+    // Archived tasks can have a status that no column shows. They go last.
+    return ordered.length === sortedItems.length
+      ? ordered
+      : [...ordered, ...sortedItems.filter((item) => !ordered.includes(item))];
   }, [board, sortedItems]);
 
   // Planning tools: they act on the selected tasks, or on the visible tasks.
@@ -820,14 +882,15 @@ export function ProjectTrackerPanel({
         ...(typeof api.dispatchPrepare === 'function' ? (['dispatch'] as const) : []),
       ];
   const docsPlanAvailable = github && typeof api.trackerDocsPlan === 'function';
-  // A GitHub write with an unknown result shows a toast with a Review action.
-  useUncertainWritesToast(api, group.id, github);
+  // A GitHub write with an unknown result shows an inline warning with a Review action.
+  const uncertainWrites = useUncertainWrites(api, group.id, github);
+  const canMove = !!board?.statusField && !!descriptor?.capabilities.updateStatus;
   const [selectedIds, setSelectedIds] = useState<ReadonlySet<string>>(new Set());
   const selectionAnchor = useRef('');
   const visibleIds = visualOrder.map((item) => item.id);
   const selectedVisible = visibleIds.filter((id) => selectedIds.has(id));
   const selection: TaskSelection | undefined =
-    planningTools.length && !savedView && view !== 'roadmap'
+    (planningTools.length || canMove) && !savedView && view !== 'roadmap'
       ? {
           ids: selectedIds,
           toggle(item, range) {
@@ -865,10 +928,13 @@ export function ProjectTrackerPanel({
     setTool({ tool: name, ids });
   }
 
+  /** Opens New task. The status is the column of "+", else the first status of the board. */
   function newItem(statusId = '') {
     setTitle('');
     setBody('');
-    setDraftStatus(statusId);
+    setDraftStatus(statusId || board?.statusField?.options[0]?.id || '');
+    setDraftRepoId(preferredRepoId || (repos.length === 1 ? repos[0].id : ''));
+    setDraftStart(false);
     setModalError('');
     setModal('draft');
   }
@@ -988,7 +1054,9 @@ export function ProjectTrackerPanel({
       for (const [name, handle] of handlers) window.removeEventListener(name, handle);
     };
   }, [embedded, group.id]);
-  const taskIndex = sortedItems.findIndex((item) => item.id === task?.id);
+  // Previous and next follow the screen: column by column, then top to bottom.
+  const sheetOrder = view === 'roadmap' || savedView ? sortedItems : visualOrder;
+  const taskIndex = sheetOrder.findIndex((item) => item.id === task?.id);
   const repositoryOptions = [
     ...new Set(
       board?.items.map((item) => item.repository).filter((repo): repo is string => !!repo) || [],
@@ -1024,6 +1092,7 @@ export function ProjectTrackerPanel({
     setModalError('');
     // After the dialog closes, an error shows on the page.
     let closed = false;
+    let startCreated = '';
     const kind = modal;
     try {
       if (modal === 'connect') {
@@ -1035,7 +1104,7 @@ export function ProjectTrackerPanel({
         const createdId = await client.draft(group.id, title, body);
         setModal(null);
         closed = true;
-        if (draftStatus) {
+        if (draftStatus && board?.statusField && descriptor?.capabilities.updateStatus) {
           try {
             if (!createdId) throw new Error('This tracker did not return the new task ID.');
             await client.status(group.id, createdId, draftStatus);
@@ -1047,17 +1116,22 @@ export function ProjectTrackerPanel({
             );
           }
         }
+        if (draftStart && createdId) startCreated = createdId;
       }
       setModal(null);
       closed = true;
       setError('');
-      await refreshBoard();
+      const next = await refreshBoard();
+      const created = startCreated && next?.items.find((item) => item.id === startCreated);
+      if (created) void quickStart(created, draftRepoId || taskFolder(created));
       showToast(
         kind === 'connect'
           ? `Connected the ${boardName}.`
           : kind === 'issue'
             ? `Added the task to the ${boardName}.`
-            : `Created the task on the ${boardName}.`,
+            : startCreated
+              ? 'Created the task. Starting a chat…'
+              : `Created the task on the ${boardName}.`,
       );
     } catch (e) {
       (closed ? setError : setModalError)(errorMessage(e));
@@ -1079,11 +1153,43 @@ export function ProjectTrackerPanel({
     if (!['all', 'draft', ...repositoryOptions].includes(repoFilter)) setRepoFilter('all');
   }, [board]);
   const linkedSessions = task ? linkedChats(projectSessions, task.id) : [];
-  const syncStatus = busy
+  const taskPr = taskPullRequest(linkedSessions);
+  const taskStatusName = task
+    ? board?.statusField?.options.find((o) => o.id === task.statusId)?.name || task.status || ''
+    : '';
+  // "Mark done" shows when the pull request is merged and the task is not done yet.
+  const doneOption = board?.statusField?.options.find((o) => isDoneStatus(o.name));
+  const markDoneOption =
+    taskPr?.state === 'merged' &&
+    doneOption &&
+    task?.statusId !== doneOption.id &&
+    descriptor?.capabilities.updateStatus
+      ? doneOption
+      : undefined;
+  /** Opens the chat and asks it for its "Create pull request" dialog. */
+  function createPullRequest(session: Session) {
+    setTask(null);
+    openChat(session);
+    setTimeout(
+      () =>
+        window.dispatchEvent(
+          new CustomEvent('kalkidan-session-command', {
+            detail: { command: createPullRequestCommand },
+          }),
+        ),
+      250,
+    );
+  }
+  const syncFailed = !!boardState.error && !busy;
+  const syncText = busy
     ? `Syncing with ${providerName}…`
-    : board && !error
-      ? `Synced with ${providerName}`
-      : '';
+    : syncFailed
+      ? `Could not sync with ${providerName}`
+      : syncedAt
+        ? now - syncedAt < 60000
+          ? 'Synced just now'
+          : `Synced ${relativeTime(new Date(syncedAt).toISOString())}`
+        : '';
   const filterCount = (status !== 'all' ? 1 : 0) + (repoFilter !== 'all' ? 1 : 0);
   const filtered = !!query || filterCount > 0 || !!savedView || savedViewPending;
   const total = board?.items.length || 0;
@@ -1113,8 +1219,13 @@ export function ProjectTrackerPanel({
   const showTasks = shownPage === 'tasks';
   const canStart = repos.length > 0;
   const savedViewsAvailable = github && typeof api.trackerSavedView === 'function';
+  const boardSettingsAvailable = github && typeof api.trackerResources === 'function';
   const archivedCount = board?.archivedItems?.length || 0;
-  const planMenu = board && (planningTools.length > 0 || docsPlanAvailable) && (
+  const toolsLabel = selectedVisible.length
+    ? `For ${plural(selectedVisible.length, 'selected task')}`
+    : `For ${plural(visibleIds.length, 'visible task')}`;
+  // One menu for the planning tools and the archived tasks.
+  const planMenu = board && (planningTools.length > 0 || docsPlanAvailable || !!archivedCount) && (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <Button variant="ghost" size="sm">
@@ -1124,19 +1235,14 @@ export function ProjectTrackerPanel({
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="min-w-56">
-        {planningTools.length > 0 && (
-          <DropdownMenuLabel>
-            {selectedVisible.length
-              ? `For ${plural(selectedVisible.length, 'selected task')}`
-              : `For ${plural(visibleIds.length, 'visible task')}`}
-          </DropdownMenuLabel>
-        )}
+        {planningTools.length > 0 && <DropdownMenuLabel>{toolsLabel}</DropdownMenuLabel>}
         {planningTools.map((name) => (
           <DropdownMenuItem
             key={name}
             disabled={!visibleIds.length}
             onSelect={() => openTool(name)}
           >
+            {planningIcons[name]}
             {planningLabels[name]}
           </DropdownMenuItem>
         ))}
@@ -1144,7 +1250,17 @@ export function ProjectTrackerPanel({
           <>
             {planningTools.length > 0 && <DropdownMenuSeparator />}
             <DropdownMenuItem onSelect={() => setDocsPlanOpen(true)}>
+              <FileStack className="size-4" />
               Create tasks from a doc…
+            </DropdownMenuItem>
+          </>
+        )}
+        {!!archivedCount && !savedView && (
+          <>
+            {(planningTools.length > 0 || docsPlanAvailable) && <DropdownMenuSeparator />}
+            <DropdownMenuItem onSelect={() => setArchived(!archived)}>
+              <Archive className="size-4" />
+              {archived ? 'Show active tasks' : `Show archived tasks (${archivedCount})`}
             </DropdownMenuItem>
           </>
         )}
@@ -1154,8 +1270,28 @@ export function ProjectTrackerPanel({
   // After the bar closes, the focus goes back to the tasks.
   const endSelection = () => {
     selection?.clear();
-    document.querySelector<HTMLElement>('.project-tracker .tracker-board, .tracker-list')?.focus();
+    document
+      .querySelector<HTMLElement>(
+        '.project-tracker .tracker-board [data-task-focus][tabindex="0"], ' +
+          '.project-tracker .tracker-list [data-task-focus]',
+      )
+      ?.focus();
   };
+  /** Moves the selected tasks to a status, one after the other. */
+  function moveSelected(statusId: string) {
+    const ids = selectedVisible;
+    const statusName = board?.statusField?.options.find((o) => o.id === statusId)?.name || '';
+    void action(async () => {
+      for (const id of ids) {
+        const item = board?.items.find((i) => i.id === id);
+        if (item && item.statusId !== statusId) await client.status(group.id, id, statusId);
+      }
+      selection?.clear();
+      showToast(`Moved ${plural(ids.length, 'task')} to ${statusName}.`);
+    });
+  }
+  const moreTools = planningTools.filter((name) => name === 'iteration' || name === 'readiness');
+  // The actions for the selected tasks float at the bottom of the board. The toolbar stays.
   const selectionBar = selection && selectedVisible.length > 0 && showTasks && (
     <div
       className="tracker-selection-bar"
@@ -1169,38 +1305,125 @@ export function ProjectTrackerPanel({
       }}
     >
       <span className="tracker-selection-count" role="status">
-        {plural(selectedVisible.length, 'task')} selected
+        {selectedVisible.length} selected
       </span>
       {selectedVisible.length < visibleIds.length && (
         <Hint label="Select all visible tasks (⌘A)">
           <Button variant="ghost" size="sm" onClick={() => selection.selectAll()}>
-            Select all {visibleIds.length}
+            Select all ({visibleIds.length})
           </Button>
         </Hint>
       )}
       <span className="tracker-filter-divider" aria-hidden="true" />
-      {planningTools.map((name) => (
-        <Button key={name} variant="ghost" size="sm" onClick={() => openTool(name)}>
-          {planningLabels[name]}
+      {canMove && (
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="ghost" size="sm" disabled={busy}>
+              <ArrowRightLeft />
+              Move to
+              <ChevronDown aria-hidden="true" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start" side="top">
+            {board?.statusField?.options.map((option) => (
+              <DropdownMenuItem key={option.id} onSelect={() => moveSelected(option.id)}>
+                <StatusIcon name={option.name} size={16} />
+                {option.name}
+              </DropdownMenuItem>
+            ))}
+          </DropdownMenuContent>
+        </DropdownMenu>
+      )}
+      {planningTools.includes('dispatch') && (
+        <Button variant="ghost" size="sm" onClick={() => openTool('dispatch')}>
+          <Play />
+          Start chats…
         </Button>
-      ))}
-      <Hint label="Clear the selection (Esc)">
-        <Button variant="ghost" size="sm" aria-keyshortcuts="Escape" onClick={endSelection}>
-          <X />
-          Clear
+      )}
+      {planningTools.includes('fields') && (
+        <Button variant="ghost" size="sm" onClick={() => openTool('fields')}>
+          <PenLine />
+          Bulk edit…
         </Button>
-      </Hint>
+      )}
+      {moreTools.length > 0 && (
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="ghost" size="sm">
+              More
+              <ChevronDown aria-hidden="true" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start" side="top">
+            {moreTools.map((name) => (
+              <DropdownMenuItem key={name} onSelect={() => openTool(name)}>
+                {planningIcons[name]}
+                {planningLabels[name]}
+              </DropdownMenuItem>
+            ))}
+          </DropdownMenuContent>
+        </DropdownMenu>
+      )}
+      <Button
+        variant="ghost"
+        size="sm"
+        className="tracker-selection-clear"
+        aria-label="Clear the selection"
+        aria-keyshortcuts="Escape"
+        onClick={endSelection}
+      >
+        <span className="kbd" aria-hidden="true">
+          Esc
+        </span>
+        to clear
+      </Button>
     </div>
   );
-  // While tasks are selected, the toolbar shows the actions for them. Escape or Clear ends it.
-  const taskToolbar = selectionBar ? (
-    <div className="tracker-filterbar">{selectionBar}</div>
-  ) : (
+  const newTaskButton = (
+    <div className="split-button" role="group" aria-label="New task">
+      <Button
+        size="sm"
+        className={descriptor?.capabilities.importItem ? 'rounded-r-none' : undefined}
+        disabled={busy || !descriptor?.capabilities.createItem}
+        onClick={() => newItem()}
+      >
+        <Plus size={16} />
+        New task
+      </Button>
+      {descriptor?.capabilities.importItem && (
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button
+              size="icon-sm"
+              disabled={busy}
+              className="rounded-l-none border-l border-primary-foreground/20"
+              aria-label="More ways to add a task"
+            >
+              <ChevronDown />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuItem onSelect={() => newItem()}>
+              <Plus className="size-4" />
+              New task
+            </DropdownMenuItem>
+            <DropdownMenuItem onSelect={addExisting}>
+              <Link2 className="size-4" />
+              Add existing issue or pull request…
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      )}
+    </div>
+  );
+  // The task tools: search and filters on the left; view, plan, refresh, Board settings and
+  // New task on the right. Selecting tasks does not hide them.
+  const taskToolbar = (
     <div className="tracker-filterbar" role="toolbar" aria-label="Task tools">
       <SearchInput
         size="sm"
         variant="filled"
-        className="min-w-40 flex-1 sm:max-w-64"
+        className="tracker-search"
         aria-label="Search tasks"
         placeholder="Search tasks…"
         value={query}
@@ -1243,100 +1466,67 @@ export function ProjectTrackerPanel({
             api={api}
             groupId={group.id}
             revision={board.cache?.revision}
+            reload={viewsReload}
             onChange={changeSavedView}
           />
         )}
         {savedView && <SavedViewFilterChip view={savedView} />}
-        {!!archivedCount && !savedView && (
-          <Hint label={archived ? 'Show the active tasks' : 'Show the archived tasks'}>
-            <Button
-              variant="chip"
-              size="sm"
-              className="tracker-archived-chip"
-              aria-pressed={archived}
-              onClick={() => setArchived(!archived)}
-            >
-              Archived
-              <span className="tracker-filter-count">{archivedCount}</span>
-            </Button>
-          </Hint>
-        )}
         <SegmentedControl
           size="sm"
           label="Task view"
+          className="tracker-view-switch"
           value={view}
           onChange={setView}
           options={[
-            { value: 'board', label: 'Board', icon: <Columns3 aria-hidden="true" /> },
-            { value: 'list', label: 'List', icon: <List aria-hidden="true" /> },
-            { value: 'roadmap', label: 'Roadmap' },
+            {
+              value: 'board',
+              label: <span className="tracker-view-label">Board</span>,
+              icon: <Columns3 aria-hidden="true" />,
+            },
+            {
+              value: 'list',
+              label: <span className="tracker-view-label">List</span>,
+              icon: <List aria-hidden="true" />,
+            },
+            {
+              value: 'roadmap',
+              label: <span className="tracker-view-label">Roadmap</span>,
+              icon: <CalendarRange aria-hidden="true" />,
+            },
           ]}
         />
         {planMenu}
-      </div>
-    </div>
-  );
-  const trackerMenu = linkedProject && (
-    <ActionMenu
-      label="Board actions"
-      size="md"
-      disabled={busy}
-      items={[
-        ...(connection &&
-        board?.statusField &&
-        descriptor?.capabilities.updateStatus &&
-        typeof api.trackerConfigure === 'function'
-          ? [
-              {
-                label: 'Automatic status changes…',
-                action: () => openProjectSettings('automation'),
-              },
-            ]
-          : []),
-        ...(github && typeof api.trackerSettings === 'function'
-          ? [{ label: 'GitHub project settings…', action: () => openProjectSettings('github') }]
-          : []),
-        ...(github && typeof api.trackerResources === 'function'
-          ? [{ label: 'Fields, views and reports…', action: () => openProjectSettings('fields') }]
-          : []),
-        { label: `Change ${boardName}…`, action: () => openProjectSettings('board') },
-      ]}
-    />
-  );
-  const newTaskButton = (
-    <div className="split-button" role="group" aria-label="New task">
-      <Button
-        className={descriptor?.capabilities.importItem ? 'rounded-r-none' : undefined}
-        disabled={busy || !descriptor?.capabilities.createItem}
-        onClick={() => newItem()}
-      >
-        <Plus size={16} />
-        New task
-      </Button>
-      {descriptor?.capabilities.importItem && (
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
+        <Hint label={syncText ? `Refresh board · ${syncText}` : 'Refresh board'}>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            className="tracker-refresh"
+            aria-label="Refresh board"
+            aria-describedby="tracker-sync-text"
+            disabled={busy}
+            onClick={refreshAll}
+          >
+            <RefreshCw size={16} className={busy ? 'animate-spin' : ''} />
+            {syncFailed && <span className="tracker-refresh-warning" aria-hidden="true" />}
+          </Button>
+        </Hint>
+        <span id="tracker-sync-text" className="sr-only" role="status">
+          {syncText}
+        </span>
+        {boardSettingsAvailable && (
+          <Hint label="Board settings">
             <Button
-              size="icon"
-              disabled={busy}
-              className="rounded-l-none border-l border-primary-foreground/20"
-              aria-label="More ways to add a task"
+              variant="ghost"
+              size="icon-sm"
+              aria-label="Board settings"
+              onClick={() => openBoardSettings(group.id)}
             >
-              <ChevronDown />
+              <Settings2 size={16} />
             </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
-            <DropdownMenuItem onSelect={() => newItem()}>
-              <Plus />
-              New task
-            </DropdownMenuItem>
-            <DropdownMenuItem onSelect={addExisting}>
-              <Link2 />
-              Add existing issue or pull request…
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
-      )}
+          </Hint>
+        )}
+        {newTaskButton}
+      </div>
     </div>
   );
   const restricted = board?.restrictedItems || 0;
@@ -1352,44 +1542,6 @@ export function ProjectTrackerPanel({
       )}
     </>
   );
-  const headerActions = showOverview ? (
-    <>
-      <NewSessionSplit
-        repos={repos}
-        sessions={sessions}
-        agent={preferredAgent}
-        preferredRepoId={preferredRepoId}
-        onAgent={chooseAgent}
-        onStart={startSession}
-      />
-      {!!repos.length && (
-        <Button variant="outline" onClick={addFolder}>
-          <FolderPlus />
-          Add a code folder
-        </Button>
-      )}
-      {trackerMenu}
-    </>
-  ) : linkedProject ? (
-    <>
-      <span role="status" className="tracker-sync-status">
-        {syncStatus}
-      </span>
-      <Hint label="Refresh board">
-        <Button
-          variant="ghost"
-          size="icon"
-          aria-label="Refresh board"
-          disabled={busy}
-          onClick={() => void action(refreshBoard, false)}
-        >
-          <RefreshCw size={16} className={busy ? 'animate-spin' : ''} />
-        </Button>
-      </Hint>
-      {showTasks && newTaskButton}
-      {trackerMenu}
-    </>
-  ) : null;
   return (
     <section
       className={embedded ? 'project-tracker embedded-tracker' : 'project-tracker'}
@@ -1429,13 +1581,9 @@ export function ProjectTrackerPanel({
               {headerMeta}
             </>
           }
-          actions={headerActions}
         />
       ) : (
-        <>
-          <ProjectHeaderMeta>{headerMeta}</ProjectHeaderMeta>
-          <ProjectHeaderActions>{headerActions}</ProjectHeaderActions>
-        </>
+        <ProjectHeaderMeta>{headerMeta}</ProjectHeaderMeta>
       )}
       {error && (
         <Alert variant="destructive" size="sm">
@@ -1443,17 +1591,12 @@ export function ProjectTrackerPanel({
             {error}
             {linkedProject &&
               (authErrorPattern.test(error) ? (
-                <Button variant="outline" size="sm" onClick={() => openSettings('accounts')}>
+                <Button variant="outline" size="sm" onClick={() => openSettings('account')}>
                   Sign in to {providerName}
                 </Button>
               ) : (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled={busy}
-                  onClick={() => void action(refreshBoard, false)}
-                >
-                  Retry
+                <Button variant="outline" size="sm" disabled={busy} onClick={refreshAll}>
+                  Try again
                 </Button>
               ))}
           </AlertDescription>
@@ -1510,6 +1653,22 @@ export function ProjectTrackerPanel({
           />
         </div>
       )}
+      {showTasks && linkedProject && uncertainWrites > 0 && (
+        <Alert size="sm" role="status" className="tracker-write-alert">
+          <TriangleAlert className="text-warning" />
+          <AlertDescription className="flex flex-wrap items-center justify-between gap-2">
+            <span>
+              {uncertainWrites === 1
+                ? '1 GitHub change needs a check.'
+                : `${uncertainWrites} GitHub changes need a check.`}{' '}
+              Kalkidan could not confirm the result.
+            </span>
+            <Button variant="outline" size="xs" onClick={() => openInsights(group.id)}>
+              Review
+            </Button>
+          </AlertDescription>
+        </Alert>
+      )}
       {showOverview ? (
         <ProjectHome
           api={api}
@@ -1547,26 +1706,66 @@ export function ProjectTrackerPanel({
         />
       ) : !linkedProject ? (
         <EmptyState
-          title={`No ${boardName}`}
+          icon={<Columns3 />}
+          title={`Connect a ${boardName}`}
           action={<Button onClick={connect}>Connect a board</Button>}
         >
-          Connect one to see the tasks of this project here.
+          See the tasks of this project here, and start a chat on a task.
         </EmptyState>
       ) : (
-        !items.length && (
+        !items.length &&
+        view !== 'roadmap' &&
+        (busy || error ? (
           <EmptyState compact className="tracker-empty-result">
-            {busy
-              ? 'Loading tasks…'
-              : error
-                ? 'Tasks could not be loaded. Use Retry above.'
-                : filtered
-                  ? 'No tasks match the search or filters. Clear them to see all tasks.'
-                  : archived
-                    ? 'No archived tasks.'
-                    : `No tasks yet. Tasks come from your ${boardName}. Select New task, or add ` +
-                      `tasks on ${providerName} and refresh.`}
+            {busy ? 'Loading tasks…' : 'Tasks could not be loaded. Use Try again above.'}
           </EmptyState>
-        )
+        ) : filtered ? (
+          <EmptyState
+            icon={<SearchX />}
+            title="No matching tasks"
+            className="tracker-empty-result"
+            action={
+              !!query || filterCount > 0 ? (
+                <Button
+                  onClick={() => {
+                    setQuery('');
+                    setStatus('all');
+                    setRepoFilter('all');
+                  }}
+                >
+                  Clear filters
+                </Button>
+              ) : undefined
+            }
+          >
+            No task matches the search, the filters or the view.
+          </EmptyState>
+        ) : archived ? (
+          <EmptyState
+            icon={<Archive />}
+            title="No archived tasks"
+            className="tracker-empty-result"
+            action={<Button onClick={() => setArchived(false)}>Show active tasks</Button>}
+          >
+            Archived tasks show here.
+          </EmptyState>
+        ) : (
+          <EmptyState
+            icon={<ListChecks />}
+            title="No tasks yet"
+            className="tracker-empty-result"
+            action={
+              descriptor?.capabilities.createItem ? (
+                <Button onClick={() => newItem()}>
+                  <Plus />
+                  New task
+                </Button>
+              ) : undefined
+            }
+          >
+            Create a task here, or add tasks on {providerName}.
+          </EmptyState>
+        ))
       )}
       {board &&
         showTasks &&
@@ -1577,7 +1776,11 @@ export function ProjectTrackerPanel({
             board={board}
             items={sortedItems}
             onOpen={chooseTask}
-            onOpenSettings={github ? () => openProjectSettings('fields') : undefined}
+            onAddDateFields={
+              boardSettingsAvailable
+                ? () => openBoardSettings(group.id, 'fields', 'roadmap-dates')
+                : undefined
+            }
           />
         ) : savedView ? (
           <GitHubViewLayout
@@ -1621,6 +1824,7 @@ export function ProjectTrackerPanel({
             selection={selection}
           />
         ))}
+      {selectionBar}
       {board && tool && (
         <PlanningToolDialog
           key={tool.tool}
@@ -1654,7 +1858,7 @@ export function ProjectTrackerPanel({
         />
       )}
       <Dialog open={!!modal} onOpenChange={(open) => !open && !busy && closeModal()}>
-        <DialogContent size="md">
+        <DialogContent size="md" layout="scroll">
           <DialogHeader>
             <DialogTitle>
               {modal === 'connect'
@@ -1673,138 +1877,170 @@ export function ProjectTrackerPanel({
                   : `Kalkidan adds the task to the ${boardName}.`}
             </DialogDescription>
           </DialogHeader>
-          {modal === 'connect' && (
-            <div className="space-y-3" aria-live="polite">
-              {['checking', 'verifying'].includes(auth.status) && (
-                <p className="text-sm text-muted-foreground">Checking {providerName} access…</p>
-              )}
-              {auth.status === 'waiting' && (
-                <>
-                  <p className="text-sm">
-                    {auth.code
-                      ? `Enter this code on ${providerName} and approve access:`
-                      : `Requesting a code from ${providerName}…`}
-                  </p>
-                  {auth.code && (
-                    <>
-                      <Input
-                        aria-label={`${providerName} device code`}
-                        readOnly
-                        value={auth.code}
-                        className="text-center font-mono text-lg tracking-widest"
-                        onFocus={(event) => event.target.select()}
-                      />
+          <DialogBody className="grid gap-4">
+            {modal === 'connect' && (
+              <div className="space-y-3" aria-live="polite">
+                {['checking', 'verifying'].includes(auth.status) && (
+                  <p className="text-sm text-muted-foreground">Checking {providerName} access…</p>
+                )}
+                {auth.status === 'waiting' && (
+                  <>
+                    <p className="text-sm">
+                      {auth.code
+                        ? `Enter this code on ${providerName} and approve access:`
+                        : `Requesting a code from ${providerName}…`}
+                    </p>
+                    {auth.code && (
+                      <>
+                        <Input
+                          aria-label={`${providerName} device code`}
+                          readOnly
+                          value={auth.code}
+                          className="text-center font-mono text-lg tracking-widest"
+                          onFocus={(event) => event.target.select()}
+                        />
+                        <Button
+                          variant="outline"
+                          onClick={() => void action(() => client.openAuth(), false)}
+                        >
+                          Open {providerName}
+                        </Button>
+                      </>
+                    )}
+                    <p className="text-xs text-muted-foreground">
+                      {auth.message ||
+                        'Waiting for approval. This dialog will update automatically.'}
+                    </p>
+                  </>
+                )}
+                {!trackerAuthPending(auth) && auth.status !== 'ready' && (
+                  <>
+                    <Alert variant="destructive" size="sm">
+                      <AlertDescription>{auth.message}</AlertDescription>
+                    </Alert>
+                    <div className="flex justify-end gap-2">
                       <Button
-                        variant="outline"
-                        onClick={() => void action(() => client.openAuth(), false)}
+                        variant="ghost"
+                        onClick={() => {
+                          closeModal();
+                          openSettings('account');
+                        }}
                       >
-                        Open {providerName}
+                        Open account settings
                       </Button>
-                    </>
-                  )}
-                  <p className="text-xs text-muted-foreground">
-                    {auth.message || 'Waiting for approval. This dialog will update automatically.'}
-                  </p>
-                </>
-              )}
-              {auth.status === 'ready' && (
-                <Badge variant="success">{providerName} access granted</Badge>
-              )}
-              {!trackerAuthPending(auth) && auth.status !== 'ready' && (
-                <>
-                  <Alert variant="destructive" size="sm">
-                    <AlertDescription>{auth.message}</AlertDescription>
-                  </Alert>
-                  <div className="flex justify-end gap-2">
-                    <Button
-                      variant="ghost"
-                      onClick={() => {
-                        closeModal();
-                        openSettings('accounts');
-                      }}
-                    >
-                      Open account settings
-                    </Button>
-                    <Button variant="outline" onClick={() => void authorize()}>
-                      Try again
-                    </Button>
-                  </div>
-                </>
-              )}
-            </div>
-          )}
-          {modal === 'draft' ? (
-            <div className="space-y-4">
-              <label className="form-label">
-                Title
-                <Input
-                  maxLength={256}
-                  aria-label="Task title"
-                  onKeyDown={submitOnEnter}
-                  placeholder="What needs to be done?"
-                  value={title}
-                  onChange={(e) => setTitle(e.target.value)}
-                />
-              </label>
-              {board?.statusField && descriptor?.capabilities.updateStatus && (
+                      <Button variant="outline" onClick={() => void authorize()}>
+                        Try again
+                      </Button>
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
+            {modal === 'draft' ? (
+              <div className="space-y-4">
                 <label className="form-label">
-                  Status
-                  <Choice
-                    className="w-full"
-                    label="Initial status"
-                    value={draftStatus}
-                    onChange={setDraftStatus}
-                    options={[
-                      { value: '', label: 'Board default' },
-                      ...board.statusField.options.map((o) => ({ value: o.id, label: o.name })),
-                    ]}
+                  Title
+                  <Input
+                    maxLength={256}
+                    aria-label="Task title"
+                    onKeyDown={submitOnEnter}
+                    placeholder="What needs to be done?"
+                    value={title}
+                    onChange={(e) => setTitle(e.target.value)}
                   />
                 </label>
-              )}
-              <label className="form-label">
-                Description
-                <Textarea
-                  rows={4}
-                  className="field-sizing-fixed resize-y"
-                  maxLength={20000}
-                  aria-label="Task description"
-                  placeholder="Description and acceptance criteria"
-                  value={body}
-                  onChange={(e) => setBody(e.target.value)}
+                {board?.statusField && descriptor?.capabilities.updateStatus && (
+                  <label className="form-label">
+                    Status
+                    <Choice
+                      className="w-full"
+                      label="Initial status"
+                      value={draftStatus}
+                      onChange={setDraftStatus}
+                      options={[
+                        ...board.statusField.options.map((o, index) => ({
+                          value: o.id,
+                          label: index === 0 ? `${o.name} (board default)` : o.name,
+                        })),
+                        { value: '', label: 'No status' },
+                      ]}
+                    />
+                  </label>
+                )}
+                <label className="form-label">
+                  Description
+                  <Textarea
+                    rows={4}
+                    className="field-sizing-fixed resize-y"
+                    maxLength={20000}
+                    aria-label="Task description"
+                    placeholder="Description and acceptance criteria"
+                    value={body}
+                    onChange={(e) => setBody(e.target.value)}
+                  />
+                </label>
+                {repos.length > 0 && (
+                  <>
+                    <label className="form-label">
+                      Code folder
+                      <Choice
+                        className="w-full"
+                        label="Code folder for the chat"
+                        value={draftRepoId}
+                        onChange={setDraftRepoId}
+                        options={[
+                          { value: '', label: 'From the GitHub repository of the task' },
+                          ...repos.map((r) => ({ value: r.id, label: r.name })),
+                        ]}
+                      />
+                    </label>
+                    <CheckboxRow
+                      label="Start a chat now"
+                      description={`Kalkidan starts a ${agentLabel(preferredAgent)} chat on the new task.`}
+                      checked={draftStart}
+                      onChange={(event) => setDraftStart(event.target.checked)}
+                    />
+                  </>
+                )}
+              </div>
+            ) : modal === 'connect' ? (
+              auth.status === 'ready' && (
+                <TrackerProjectPicker
+                  provider={provider}
+                  api={api}
+                  defaultTitle={group.name}
+                  value={url}
+                  onChange={setUrl}
+                  onBusy={setBusy}
                 />
-              </label>
-            </div>
-          ) : modal === 'connect' ? (
-            auth.status === 'ready' && (
-              <TrackerProjectPicker
-                provider={provider}
-                api={api}
-                defaultTitle={group.name}
+              )
+            ) : (
+              <Input
+                aria-label={`${providerName} URL`}
+                placeholder="Issue or pull request URL"
+                onKeyDown={submitOnEnter}
                 value={url}
-                onChange={setUrl}
-                onBusy={setBusy}
+                onChange={(e) => setUrl(e.target.value)}
               />
-            )
-          ) : (
-            <Input
-              aria-label={`${providerName} URL`}
-              placeholder="Issue or pull request URL"
-              onKeyDown={submitOnEnter}
-              value={url}
-              onChange={(e) => setUrl(e.target.value)}
-            />
-          )}
-          {modalError && (
-            <p role="alert" className="field-error">
-              {modalError}
-            </p>
-          )}
+            )}
+            {modalError && (
+              <p role="alert" className="field-error">
+                {modalError}
+              </p>
+            )}
+          </DialogBody>
           <DialogFooter>
             <Button variant="outline" disabled={busy} onClick={closeModal}>
               Cancel
             </Button>
             <Button disabled={!modalReady} onClick={() => void submitModal()}>
-              {busy ? 'Saving…' : modal === 'connect' ? 'Connect board' : `Add to ${providerName}`}
+              {busy
+                ? 'Saving…'
+                : modal === 'connect'
+                  ? 'Connect board'
+                  : modal === 'issue'
+                    ? 'Add task'
+                    : 'Create task'}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -1831,8 +2067,7 @@ export function ProjectTrackerPanel({
         >
           <div className="tracker-issue-nav">
             <span className="truncate">
-              {linkedProject?.title || 'Task'}
-              {task?.number ? ` · #${task.number}` : ''}
+              {[taskStatusName, task?.number ? `#${task.number}` : ''].filter(Boolean).join(' · ')}
             </span>
             <div>
               <Hint label="Previous task">
@@ -1841,7 +2076,7 @@ export function ProjectTrackerPanel({
                   size="icon-sm"
                   aria-label="Previous task"
                   disabled={taskBusy || taskIndex <= 0}
-                  onClick={() => chooseTask(sortedItems[taskIndex - 1])}
+                  onClick={() => chooseTask(sheetOrder[taskIndex - 1])}
                 >
                   <ChevronLeft size={16} />
                 </Button>
@@ -1851,8 +2086,8 @@ export function ProjectTrackerPanel({
                   variant="ghost"
                   size="icon-sm"
                   aria-label="Next task"
-                  disabled={taskBusy || taskIndex < 0 || taskIndex >= sortedItems.length - 1}
-                  onClick={() => chooseTask(sortedItems[taskIndex + 1])}
+                  disabled={taskBusy || taskIndex < 0 || taskIndex >= sheetOrder.length - 1}
+                  onClick={() => chooseTask(sheetOrder[taskIndex + 1])}
                 >
                   <ChevronRight size={16} />
                 </Button>
@@ -1866,7 +2101,6 @@ export function ProjectTrackerPanel({
                   size="sm"
                 />
               )}
-              <span className="tracker-filter-divider" aria-hidden="true" />
               <Hint label="Close (Esc)">
                 <Button
                   variant="ghost"
@@ -1924,6 +2158,70 @@ export function ProjectTrackerPanel({
                 <span className="truncate" title={task?.repository}>
                   {task?.repository || 'None'}
                 </span>
+              </dd>
+              <dt>Pull request</dt>
+              <dd className="tracker-issue-pr">
+                {taskPr ? (
+                  <>
+                    <GitPullRequest className="size-3.5 shrink-0 text-muted-foreground" />
+                    <span className="tabular-nums">
+                      {taskPr.number ? `#${taskPr.number}` : 'Pull request'}
+                    </span>
+                    {taskPr.state && (
+                      <Badge
+                        size="sm"
+                        variant={
+                          taskPr.state === 'merged'
+                            ? 'default'
+                            : taskPr.state === 'open'
+                              ? 'success'
+                              : 'muted'
+                        }
+                      >
+                        {pullRequestStateWord(taskPr.state)}
+                      </Badge>
+                    )}
+                    <a
+                      className="text-link text-xs"
+                      href={taskPr.url}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      Open on GitHub
+                      <ExternalLink size={12} aria-hidden="true" />
+                    </a>
+                    {markDoneOption && (
+                      <Button
+                        variant="outline"
+                        size="xs"
+                        className="ml-auto"
+                        disabled={busy}
+                        onClick={() =>
+                          void action(
+                            () => client.status(group.id, task!.id, markDoneOption.id),
+                            true,
+                            setTaskError,
+                          )
+                        }
+                      >
+                        <CircleCheck />
+                        Mark done
+                      </Button>
+                    )}
+                  </>
+                ) : linkedSessions.length ? (
+                  <Button
+                    variant="ghost"
+                    size="xs"
+                    className="-ml-2"
+                    onClick={() => createPullRequest(linkedSessions[0])}
+                  >
+                    <GitBranch />
+                    Create pull request…
+                  </Button>
+                ) : (
+                  <span className="text-muted-foreground">None</span>
+                )}
               </dd>
             </dl>
             {!editsContent && (
@@ -2147,11 +2445,6 @@ export function ProjectTrackerPanel({
                       {taskError}
                     </p>
                   )}
-                  <p className="form-help m-0">
-                    You can review the prompt before you send it.
-                    {docLinks.length > 0 &&
-                      ` The chat gets ${plural(docLinks.length, 'related doc')}.`}
-                  </p>
                 </div>
               ) : (
                 <div className="tracker-work-empty">
@@ -2172,18 +2465,16 @@ export function ProjectTrackerPanel({
             </section>
           </div>
           <DialogFooter className="tracker-issue-footer">
-            <Button variant="outline" disabled={taskBusy} onClick={() => setTask(null)}>
-              Close
-            </Button>
             <StartHint reason={taskBusy ? '' : startBlocker}>
-              <div className="split-button" role="group" aria-label="Start a chat">
+              <div className="split-button" role="group" aria-label="Start task">
                 <Button
                   className="rounded-r-none"
                   disabled={!startReady}
+                  aria-label={`Start task with ${agentLabel(preferredAgent)}`}
                   onClick={() => void startTask(preferredAgent)}
                 >
                   <AgentIcon agent={preferredAgent} />
-                  {taskBusy ? 'Starting…' : `New ${agentLabel(preferredAgent)} chat`}
+                  {taskBusy ? 'Starting…' : 'Start task'}
                 </Button>
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
@@ -2206,8 +2497,8 @@ export function ProjectTrackerPanel({
                           void startTask(agent);
                         }}
                       >
-                        <AgentIcon agent={agent} />
-                        New {agentLabel(agent)} chat
+                        <AgentIcon agent={agent} className="size-4" />
+                        Start with {agentLabel(agent)}
                       </DropdownMenuItem>
                     ))}
                   </DropdownMenuContent>
@@ -2345,7 +2636,11 @@ function LinkChatDialog({
               })}
             </ul>
           ) : (
-            <EmptyState compact>
+            <EmptyState
+              compact
+              icon={query ? <SearchX /> : <MessageSquare />}
+              title={query ? 'No matching chats' : 'No other chats'}
+            >
               {query ? 'No chat matches the search.' : 'This project has no other chats.'}
             </EmptyState>
           )}
@@ -2355,11 +2650,6 @@ function LinkChatDialog({
             </Alert>
           )}
         </DialogBody>
-        <DialogFooter>
-          <Button variant="outline" disabled={!!busy} onClick={() => onOpenChange(false)}>
-            Cancel
-          </Button>
-        </DialogFooter>
       </DialogContent>
     </Dialog>
   );

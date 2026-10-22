@@ -74,12 +74,16 @@ test('preview windows enforce navigation, bounds, device, selection and download
     configure: record('configure'),
     visit: record('visit'),
     summary: () => ({ history: [] }),
-    action: async () => 'profile-action',
+    action: async (wc: any, action: string) => {
+      calls.push(['profileAction', action, wc.session]);
+      return 'profile-action';
+    },
   };
   const { AnnotationBrowser, previewURL } = backendLoader({
     electron: {
       WebContentsView: View,
       dialog: { showSaveDialog: async () => ({ canceled, filePath: '/fixture/screenshot' }) },
+      session: { fromPartition: (name: string) => ({ partition: name }) },
     },
     'node:fs/promises': { writeFile: async (...args: any[]) => calls.push(['write', ...args]) },
   })(resolve('electron/annotation-browser.ts'));
@@ -129,6 +133,13 @@ test('preview windows enforce navigation, bounds, device, selection and download
   assert.equal(state.find.matches, 2);
   assert.deepEqual(browser.state('default').pendingURLs, []);
   assert.deepEqual(await browser.action('missing', 'profile', null), { history: [] });
+  // Settings › General › Built-in browser saves with no open preview. A page action still fails.
+  for (const action of ['settings', 'import', 'clear'])
+    assert.equal(await browser.action('missing', action, {}), 'profile-action');
+  assert.deepEqual(calls.filter((c) => c[0] === 'profileAction').at(-1)?.[2], {
+    partition: 'persist:kalkidan-preview',
+  });
+  await assert.rejects(browser.action('missing', 'autofill', {}), /Open a browser preview/);
   await assert.rejects(browser.action('default', 'find', {}), /shorter search/);
   await browser.action('default', 'find', { text: 'word' });
   await browser.action('default', 'find', { text: 'word', forward: false, next: true });

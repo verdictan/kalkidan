@@ -1,11 +1,15 @@
 import { useEffect, useState } from 'react';
 import type { API } from '../api/contracts';
-import { displayVersion, runtimeOutdated, updateRunning } from '../lib/verdictan-labels';
+import type { DesktopUpdateStatus } from '../domain/updates';
+import { displayVersion } from '../lib/verdictan-labels';
 
 export interface UpdateSummary {
-  /** True when an update waits for the user: the desktop app, an SSH helper, or the runtime. */
+  /**
+   * True only when a Kalkidan desktop update is downloaded and ready to install with a restart.
+   * The runtime and the SSH helpers update by themselves, so they do not count.
+   */
   available: boolean;
-  /** Plain words for the dot tooltip and a command, for example "Kalkidan 1.5.0 available". */
+  /** Plain words for the "Update" pill tooltip, for example "Kalkidan 1.5.0 is ready". */
   label?: string;
 }
 
@@ -16,52 +20,43 @@ export function notifyUpdatesChanged() {
   window.dispatchEvent(new Event(updatesChangedEvent));
 }
 
+/** True when a desktop update is staged, so only a restart is necessary. */
+export function desktopUpdateReady(desktop: DesktopUpdateStatus | undefined) {
+  return desktop?.install.kind !== 'development' && desktop?.update?.phase === 'staged';
+}
+
 // Read the cached state at most once each minute when the window gets focus.
 const focusIntervalMs = 60_000;
 const pollIntervalMs = 30 * 60_000;
 
 /**
- * If an update is available, for the dot on the sidebar Settings row. It reads the cached
- * update state. It does not download anything.
+ * If a desktop update is ready to restart, for the "Update" pill on the sidebar. The pill
+ * opens Settings › About. It reads the cached update state. It does not download anything.
  */
 export function useUpdateStatus(api: API): UpdateSummary {
   const [summary, setSummary] = useState<UpdateSummary>({ available: false });
   useEffect(() => {
+    // Older desktop builds and the browser demo do not report updates.
+    if (typeof api.componentUpdates !== 'function') return;
     let live = true;
     let last = 0;
     const read = async () => {
       last = Date.now();
-      const [components, runtime] = await Promise.allSettled([
-        Promise.resolve().then(() => api.componentUpdates?.(false)),
-        Promise.resolve().then(() => api.runtimeUpdateStatus?.('local')),
-      ]);
+      const { desktop } = await api.componentUpdates(false);
       if (!live) return;
-      const labels: string[] = [];
-      if (components.status === 'fulfilled' && components.value) {
-        const { desktop, helpers } = components.value;
-        if (desktop.discovery === 'available')
-          labels.push(
-            desktop.release
-              ? `Kalkidan ${displayVersion(desktop.release.version)} available`
-              : 'Kalkidan update available',
-          );
-        const helpersAvailable = helpers.filter((helper) => helper.discovery === 'available');
-        if (helpersAvailable.length === 1)
-          labels.push(`SSH helper update for ${helpersAvailable[0].name}`);
-        else if (helpersAvailable.length > 1)
-          labels.push(`${helpersAvailable.length} SSH helper updates`);
-      }
-      if (runtime.status === 'fulfilled' && runtime.value) {
-        const status = runtime.value;
-        // A runtime that is not installed is part of setup. Only updates count here.
-        if (status.installed && runtimeOutdated(status) && !updateRunning(status))
-          labels.push(`Managed agents runtime ${status.latest!.version} available`);
-      }
       setSummary(
-        labels.length ? { available: true, label: labels.join(' · ') } : { available: false },
+        desktopUpdateReady(desktop)
+          ? {
+              available: true,
+              label: `Kalkidan ${displayVersion(desktop.update!.version)} is ready. Restart to update.`,
+            }
+          : { available: false },
       );
     };
-    const refresh = () => void read().catch(() => {});
+    const refresh = () =>
+      void Promise.resolve()
+        .then(read)
+        .catch(() => {});
     const onFocus = () => {
       if (Date.now() - last >= focusIntervalMs) refresh();
     };
@@ -69,13 +64,11 @@ export function useUpdateStatus(api: API): UpdateSummary {
     const timer = setInterval(refresh, pollIntervalMs);
     window.addEventListener('focus', onFocus);
     window.addEventListener(updatesChangedEvent, refresh);
-    const unsubscribe = api.onRemoteHostsChange?.(refresh);
     return () => {
       live = false;
       clearInterval(timer);
       window.removeEventListener('focus', onFocus);
       window.removeEventListener(updatesChangedEvent, refresh);
-      unsubscribe?.();
     };
   }, [api]);
   return summary;

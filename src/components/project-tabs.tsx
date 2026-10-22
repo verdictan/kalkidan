@@ -1,7 +1,9 @@
 import { useRef, type KeyboardEvent } from 'react';
 import type { ProjectPage } from '../domain/workspace-route';
+import { isMac, shortcutLabel } from '../lib/platform';
+import { Hint } from './hint';
 
-/** The pages of a project, in the order of the tab bar. */
+/** The pages of a project, in the order of the tab bar. Mod+1 to Mod+6 open them in this order. */
 export const projectTabs: { page: ProjectPage; label: string }[] = [
   { page: 'board', label: 'Overview' },
   { page: 'tasks', label: 'Tasks' },
@@ -32,7 +34,10 @@ export function ProjectTabs({
   page,
   onSelect,
   className,
+  checks = 0,
 }: {
+  /** GitHub changes whose result is not known. The Insights tab shows the count. */
+  checks?: number;
   groupId: string;
   /** The page that shows now. */
   page: ProjectPage;
@@ -65,24 +70,36 @@ export function ProjectTabs({
       className={className ? `project-tabs ${className}` : 'project-tabs'}
     >
       <div ref={list} className="project-tabs-list" onKeyDown={move}>
-        {projectTabs.map((tab) => {
+        {projectTabs.map((tab, index) => {
           const current = tab.page === page;
+          const keys = shortcutLabel(['mod'], String(index + 1));
+          const check =
+            tab.page === 'insights' && checks > 0
+              ? `${checks} GitHub ${checks === 1 ? 'change needs' : 'changes need'} a check`
+              : '';
           return (
-            <button
-              key={tab.page}
-              type="button"
-              className="project-tab"
-              aria-current={current ? 'page' : undefined}
-              // One tab stop: the current tab. The arrow keys reach the others.
-              tabIndex={current ? 0 : -1}
-              onClick={() => {
-                if (current) return;
-                onSelect?.(tab.page);
-                openProjectPage(groupId, tab.page);
-              }}
-            >
-              {tab.label}
-            </button>
+            <Hint key={tab.page} label={check ? `${check} (${keys})` : `${tab.label} (${keys})`}>
+              <button
+                type="button"
+                className="project-tab"
+                aria-current={current ? 'page' : undefined}
+                aria-keyshortcuts={`${isMac ? 'Meta' : 'Control'}+${index + 1}`}
+                // One tab stop: the current tab. The arrow keys reach the others.
+                tabIndex={current ? 0 : -1}
+                onClick={() => {
+                  if (current) return;
+                  onSelect?.(tab.page);
+                  openProjectPage(groupId, tab.page);
+                }}
+              >
+                {tab.label}
+                {check && (
+                  <span className="project-tab-badge" aria-label={check}>
+                    {checks}
+                  </span>
+                )}
+              </button>
+            </Hint>
           );
         })}
       </div>

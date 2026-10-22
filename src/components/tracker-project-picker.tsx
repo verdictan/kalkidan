@@ -1,5 +1,6 @@
 import { useTracker } from '../hooks/use-tracker';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { Check, SquareKanban } from 'lucide-react';
 import type { API, TrackerOwner, TrackerProject } from '../types';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
@@ -51,6 +52,8 @@ export function TrackerProjectPicker({
   const [notice, setNotice] = useState('');
   const [revision, setRevision] = useState(0);
   const owner = owners.find((o) => o.id === ownerId);
+  const select = useRef(onChange);
+  select.current = onChange;
   useEffect(() => {
     let active = true;
     setLoading(true);
@@ -96,6 +99,11 @@ export function TrackerProjectPicker({
       active = false;
     };
   }, [client, owner, revision]);
+  // When the owner has only one board, select it, so that the user can connect at once.
+  useEffect(() => {
+    if (mode === 'pick' && !loading && !value && projects.length === 1)
+      select.current(projects[0].url);
+  }, [mode, loading, projects]);
   async function create() {
     if (!owner || creating) return;
     setCreating(true);
@@ -108,7 +116,7 @@ export function TrackerProjectPicker({
       onChange(project.url);
       setMode('pick');
       setNotice(
-        `Created “${project.title}” on ${providerName}. Finish this dialog to connect it to ${defaultTitle}.`,
+        `Created “${project.title}” on ${providerName}. Select Connect board to connect it to ${defaultTitle}.`,
       );
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -138,21 +146,24 @@ export function TrackerProjectPicker({
         ]}
       />
       {mode !== 'url' && (
-        <Choice
-          className="w-full"
-          label={`${providerName} owner`}
-          disabled={loading || creating}
-          value={ownerId}
-          onChange={(id) => {
-            setOwnerId(id);
-            onChange('');
-            setNotice('');
-          }}
-          options={owners.map((o) => ({
-            value: o.id,
-            label: `${o.login}${o.kind === 'user' ? ' (personal)' : ''}`,
-          }))}
-        />
+        <div className="form-label">
+          <span aria-hidden="true">Owner</span>
+          <Choice
+            className="w-full"
+            label="Owner"
+            disabled={loading || creating}
+            value={ownerId}
+            onChange={(id) => {
+              setOwnerId(id);
+              onChange('');
+              setNotice('');
+            }}
+            options={owners.map((o) => ({
+              value: o.id,
+              label: `${o.login}${o.kind === 'user' ? ' (personal)' : ''}`,
+            }))}
+          />
+        </div>
       )}
       {error && (
         <Alert variant="destructive" size="sm">
@@ -215,7 +226,9 @@ export function TrackerProjectPicker({
           />
           <div className="list-box" role="group" aria-label={`Available ${board}s`}>
             {loading ? (
-              <EmptyState compact>Loading boards…</EmptyState>
+              <p role="status" className="list-box-row m-0 text-sm text-muted-foreground">
+                Loading boards…
+              </p>
             ) : (
               projects
                 .filter((p) => `${p.title} ${p.number}`.toLowerCase().includes(query.toLowerCase()))
@@ -241,6 +254,10 @@ export function TrackerProjectPicker({
                         #{project.number}
                       </span>
                     ) : null}
+                    <Check
+                      aria-hidden="true"
+                      className={cn('size-4 shrink-0', value !== project.url && 'invisible')}
+                    />
                   </button>
                 ))
             )}
@@ -249,7 +266,7 @@ export function TrackerProjectPicker({
               !projects.some((p) =>
                 `${p.title} ${p.number}`.toLowerCase().includes(query.toLowerCase()),
               ) && (
-                <EmptyState compact>
+                <EmptyState compact icon={<SquareKanban />}>
                   {query
                     ? 'No matching boards.'
                     : descriptor?.capabilities.createProject

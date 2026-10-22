@@ -6,8 +6,8 @@ import {
   waitsForUser,
   type SessionActivityState,
 } from './activity-dot';
-import { useEffect, useState } from 'react';
-import { ArchiveRestore, GitBranch, History, Pin } from 'lucide-react';
+import { useEffect, useState, type ReactNode } from 'react';
+import { ArchiveRestore, GitBranch, MessagesSquare, Pin } from 'lucide-react';
 import { agentCatalog, agentLabel } from '../config/agents';
 import { fullTime, relativeTime } from '../lib/relative-time';
 import { plural } from '../lib/platform';
@@ -18,6 +18,7 @@ import { AgentIcon } from './ui/agent-icon';
 import { Button } from './ui/button';
 import { EmptyState } from './ui/empty-state';
 import { EntityIcon } from './ui/entity-icon';
+import { SearchInput } from './ui/search-input';
 import { SegmentedControl } from './ui/segmented-control';
 import type { API, Session, SessionOrganization, TrackerItem } from '../types';
 
@@ -28,6 +29,13 @@ interface Props {
   onChanged?: () => void;
   sessions: Session[];
   query?: string;
+  /**
+   * With it, the filter row starts with a search field. Every chat list puts its search there,
+   * first on the left.
+   */
+  onQueryChange?: (query: string) => void;
+  /** Controls at the right end of the filter row, such as "New chat". */
+  actions?: ReactNode;
   compact?: boolean;
   busy: boolean;
   onUpdate: (session: Session, changes: SessionOrganization) => Promise<boolean>;
@@ -36,8 +44,6 @@ interface Props {
   storageKey?: string;
   /** Background state of open sessions, by `activityKey`. */
   activity?: Record<string, SessionActivityState>;
-  /** The label of the button that starts a session, for the empty state. */
-  newSessionLabel?: string;
   /** The branch copy of a session, shown as a badge on sessions of a branch copy. */
   branchOf?: (session: Session) => string | undefined;
   /** The project and code folder of each session. With it, the list shows a Project filter. */
@@ -99,13 +105,14 @@ export function SessionBrowser({
   onChanged,
   sessions,
   query = '',
+  onQueryChange,
+  actions,
   compact = false,
   busy,
   onUpdate,
   onResume,
   storageKey,
   activity = {},
-  newSessionLabel = 'New chat',
   branchOf,
   placeOf,
   filterBy = 'project',
@@ -239,35 +246,48 @@ export function SessionBrowser({
   const shown = compact ? list.slice(0, 3) : list;
   return (
     <>
-      {showFilters && (
+      {(showFilters || onQueryChange || actions) && !compact && (
         <div className="session-filters">
-          <SegmentedControl
-            label="Chat view"
-            value={scope}
-            onChange={setScope}
-            options={[
-              { value: 'active', label: 'Active' },
-              {
-                value: 'waiting',
-                label: waitingCount ? `Waiting for you (${waitingCount})` : 'Waiting for you',
-              },
-              // Failed and Refused show only when a chat has that outcome, or when selected.
-              ...(failedCount || scope === 'failed'
-                ? [{ value: 'failed', label: failedCount ? `Failed (${failedCount})` : 'Failed' }]
-                : []),
-              ...(refusedCount || scope === 'refused'
-                ? [
-                    {
-                      value: 'refused',
-                      label: refusedCount ? `Refused (${refusedCount})` : 'Refused',
-                    },
-                  ]
-                : []),
-              { value: 'pinned', label: 'Pinned' },
-              { value: 'archived', label: 'Archived' },
-            ]}
-          />
-          {(agents.size > 1 || agent !== 'all') && (
+          {onQueryChange && (
+            <SearchInput
+              size="sm"
+              className="repository-session-filter"
+              aria-label="Filter chats"
+              placeholder="Filter chats"
+              value={query}
+              onChange={(event) => onQueryChange(event.target.value)}
+            />
+          )}
+          {showFilters && (
+            <SegmentedControl
+              size="sm"
+              label="Chat view"
+              value={scope}
+              onChange={setScope}
+              options={[
+                { value: 'active', label: 'Active' },
+                {
+                  value: 'waiting',
+                  label: waitingCount ? `Waiting for you (${waitingCount})` : 'Waiting for you',
+                },
+                // Failed and Refused show only when a chat has that outcome, or when selected.
+                ...(failedCount || scope === 'failed'
+                  ? [{ value: 'failed', label: failedCount ? `Failed (${failedCount})` : 'Failed' }]
+                  : []),
+                ...(refusedCount || scope === 'refused'
+                  ? [
+                      {
+                        value: 'refused',
+                        label: refusedCount ? `Refused (${refusedCount})` : 'Refused',
+                      },
+                    ]
+                  : []),
+                { value: 'pinned', label: 'Pinned' },
+                { value: 'archived', label: 'Archived' },
+              ]}
+            />
+          )}
+          {showFilters && (agents.size > 1 || agent !== 'all') && (
             <Choice
               label="Filter by agent"
               size="sm"
@@ -280,7 +300,7 @@ export function SessionBrowser({
               ]}
             />
           )}
-          {(projects.length > 1 || project !== 'all') && (
+          {showFilters && (projects.length > 1 || project !== 'all') && (
             <Choice
               label={filterBy === 'folder' ? 'Filter by code folder' : 'Filter by project'}
               size="sm"
@@ -296,7 +316,7 @@ export function SessionBrowser({
               ]}
             />
           )}
-          {(linkedCount > 0 || task !== 'all') && (
+          {showFilters && (linkedCount > 0 || task !== 'all') && (
             <Choice
               label="Filter by task"
               size="sm"
@@ -310,6 +330,7 @@ export function SessionBrowser({
               ]}
             />
           )}
+          {actions && <div className="session-filters-end">{actions}</div>}
         </div>
       )}
       {shown.length ? (
@@ -402,8 +423,8 @@ export function SessionBrowser({
         </div>
       ) : (
         <EmptyState
-          compact
-          icon={<History />}
+          compact={compact}
+          icon={<MessagesSquare />}
           title={
             scope === 'archived' && !compact
               ? 'No archived chats'
@@ -426,9 +447,7 @@ export function SessionBrowser({
               ? 'Chats whose last run failed or did not start show here.'
               : sessions.length
                 ? 'Try a different search or filter. Use ⋯ on a chat to pin it, add notes, or archive it.'
-                : placeOf
-                  ? 'No agent chats yet. Open a code folder, then start a chat.'
-                  : `No agent chats in this folder yet. Select ${newSessionLabel} above.`}
+                : 'Select New chat to start one. The agent works in a code folder of the project.'}
         </EmptyState>
       )}
       {!showFilters && !compact && archivedCount > 0 && (

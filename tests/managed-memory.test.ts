@@ -261,3 +261,71 @@ test('retrieval caps both entry count and excerpt characters', async (t) => {
   assert.equal(results.length, 3);
   assert.ok(results.reduce((size, item) => size + item.excerpt.length, 0) <= 4800);
 });
+
+test('the user saves and edits memory entries that agents read as trusted entries', async (t) => {
+  const { root, scope } = await setup(t);
+  const { projectMemory } = await import('../electron/storage/managed-memory');
+  const user = projectMemory(root);
+  await assert.rejects(user.save({ topic: '', content: 'x' }), /topic of up to 120/);
+  await assert.rejects(user.save({ topic: 'T', content: 'x'.repeat(2001) }), /2,000 characters/);
+  await assert.rejects(
+    user.save({ id: 'a'.repeat(64), topic: 'T', content: 'x' }),
+    /topic of up to 120/,
+    'An edit needs the revision that the user saw',
+  );
+  assert.equal(
+    (await user.save({ topic: 'Keys', content: 'password: hunter2' })).status,
+    'deferred',
+  );
+  const saved = await user.save({ topic: ' Releases ', content: ' Tag releases from main. ' });
+  assert.equal(saved.status, 'saved');
+  if (saved.status !== 'saved') return;
+  assert.equal(saved.entry.provenance, 'user');
+  assert.equal(saved.entry.topic, 'Releases');
+  assert.deepEqual(saved.entry.source, { sessionId: '', turnId: '', references: [] });
+  // The index keeps the provenance when the entry loads again.
+  const [loaded] = await user.list();
+  assert.equal(loaded.provenance, 'user');
+  assert.equal(loaded.revision, saved.entry.revision);
+  assert.equal(
+    (await user.save({ topic: 'Other', content: 'tag releases from MAIN.' })).status,
+    'duplicate',
+  );
+  // An edit with an old revision is a conflict. The current revision saves.
+  const stale = await user.save({
+    id: saved.entry.id,
+    expectedRevision: 'b'.repeat(64),
+    topic: 'Releases',
+    content: 'Tag releases from the release branch.',
+  });
+  assert.deepEqual(stale, {
+    status: 'conflict',
+    id: saved.entry.id,
+    revision: saved.entry.revision,
+  });
+  const edited = await user.save({
+    id: saved.entry.id,
+    expectedRevision: saved.entry.revision,
+    topic: 'Releases',
+    content: 'Tag releases from the release branch.',
+  });
+  assert.equal(edited.status, 'saved');
+  if (edited.status !== 'saved') return;
+  assert.equal(edited.entry.id, saved.entry.id);
+  assert.equal(edited.entry.createdAt, saved.entry.createdAt);
+  // Agents find the user entry and treat it as trusted: no review for the same fact.
+  const agent = new ManagedMemory({
+    ...scope,
+    sources: () => [{ id: 'user', text: 'Tag releases from the release branch.' }],
+  });
+  assert.equal((await agent.search('release branch'))[0]?.provenance, 'user');
+  const again = await agent.upsert({
+    topic: 'Releases',
+    content: 'Tag releases from the release branch.',
+    references: [{ id: 'user', quote: 'Tag releases from the release branch.' }],
+  });
+  assert.equal(again.status, 'duplicate');
+  // Forget works for a user entry as for any entry.
+  await user.forget(edited.entry.id, edited.entry.revision);
+  assert.deepEqual(await user.list(), []);
+});

@@ -19,7 +19,7 @@ import { BoardColumnHeading, useScrollShadow } from './tracker-board';
 export function SavedViewFilterChip({ view }: { view: SavedProjectView }) {
   const help =
     'GitHub applies the filter of this view. A layout change here stays on this computer. ' +
-    'To change the shared view, open Project settings › Fields and views.';
+    'To change the shared view, open Board settings › Views.';
   return (
     <Hint label={help}>
       <Badge

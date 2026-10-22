@@ -424,10 +424,12 @@
   display: none;
 }
 
-/* The breadcrumb gets the space that the tools do not use, so it shortens first. */
+/* The breadcrumb gets the space that the tools do not use, so it shortens first. It shortens
+   from the middle (conversation.css): the tool labels hide only in a very narrow window. */
 #conversation-titlebar-heading {
   flex: 1 1 0;
   min-width: 96px;
+  container: chat-trail / inline-size;
 }
 #conversation-titlebar-tabs:empty,
 #conversation-titlebar-heading:empty {
@@ -451,6 +453,9 @@
   .tool-tab {
     min-width: 88px;
   }
+}
+/* Only a very narrow window shows the tool buttons as icons. Their names are in tooltips. */
+@media (max-width: 860px) {
   .tool-launch-button:not([data-selected]) .tool-launch-label {
     position: absolute;
     width: 1px;

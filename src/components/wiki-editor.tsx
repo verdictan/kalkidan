@@ -22,12 +22,25 @@ import { TableKit } from '@tiptap/extension-table';
 import Image from '@tiptap/extension-image';
 import {
   Bold,
+  ChevronDown,
   CircleDot,
   Italic,
   Strikethrough,
   Code,
   FileText,
+  Heading1,
+  Heading2,
+  Heading3,
   Link as LinkIcon,
+  List,
+  ListOrdered,
+  ListTodo,
+  Minus,
+  Pilcrow,
+  Quote,
+  SquareCode,
+  Table,
+  type LucideIcon,
 } from 'lucide-react';
 import { Button } from './ui/button';
 import {
@@ -50,7 +63,27 @@ import { WikiContextMenu } from './wiki-context-menu';
 import { hasPrimaryModifier } from '../lib/platform';
 
 type Slash = { from: number; to: number; query: string; left: number; top: number };
-type Command = { label: string; hint: string; run: (e: Editor) => unknown };
+export type Command = {
+  label: string;
+  /** The 16px icon on the left of the item. */
+  icon: LucideIcon;
+  /** The Markdown shortcut that makes the same block. It shows on the right. */
+  shortcut?: string;
+  /** Other words that find the command, for example "todo" for Checklist. */
+  keywords: string[];
+  group: 'Blocks' | 'Links';
+  run: (e: Editor) => unknown;
+};
+
+/** The slash menu height: 12 rows of 28px, 2 group labels and the padding. */
+const slashHeight = 400;
+
+/** True when the command label or one of its keywords contains the typed text. */
+export function commandMatches(command: Pick<Command, 'label' | 'keywords'>, query: string) {
+  const value = query.trim().toLowerCase();
+  if (!value) return true;
+  return [command.label, ...command.keywords].some((word) => word.toLowerCase().includes(value));
+}
 
 /** A link to another page of these docs. All pages are in one folder, so the link works on disk. */
 export const pageHref = (id: string) => `./${id}.md`;
@@ -225,56 +258,158 @@ function tableMenuProps(tableToolbar: RefObject<HTMLDivElement | null>) {
 const commands: Command[] = [
   {
     label: 'Heading 1',
-    hint: 'Large section heading',
+    icon: Heading1,
+    shortcut: '#',
+    keywords: ['h1', 'title', 'large heading'],
+    group: 'Blocks',
     run: (e: Editor) => e.chain().focus().setHeading({ level: 1 }).run(),
   },
   {
     label: 'Heading 2',
-    hint: 'Medium section heading',
+    icon: Heading2,
+    shortcut: '##',
+    keywords: ['h2', 'section heading'],
+    group: 'Blocks',
     run: (e: Editor) => e.chain().focus().setHeading({ level: 2 }).run(),
   },
   {
     label: 'Heading 3',
-    hint: 'Small section heading',
+    icon: Heading3,
+    shortcut: '###',
+    keywords: ['h3', 'small heading'],
+    group: 'Blocks',
     run: (e: Editor) => e.chain().focus().setHeading({ level: 3 }).run(),
   },
   {
     label: 'Bullet list',
-    hint: 'A simple list',
+    icon: List,
+    shortcut: '-',
+    keywords: ['ul', 'bullets', 'unordered list'],
+    group: 'Blocks',
     run: (e: Editor) => e.chain().focus().toggleBulletList().run(),
   },
   {
     label: 'Numbered list',
-    hint: 'An ordered list',
+    icon: ListOrdered,
+    shortcut: '1.',
+    keywords: ['ol', 'ordered list', 'numbers'],
+    group: 'Blocks',
     run: (e: Editor) => e.chain().focus().toggleOrderedList().run(),
   },
   {
     label: 'Checklist',
-    hint: 'Track tasks',
+    icon: ListTodo,
+    shortcut: '[]',
+    keywords: ['todo', 'task', 'check box', 'checkbox', 'track tasks'],
+    group: 'Blocks',
     run: (e: Editor) => e.chain().focus().toggleTaskList().run(),
   },
   {
     label: 'Quote',
-    hint: 'Highlight a quotation',
+    icon: Quote,
+    shortcut: '>',
+    keywords: ['blockquote', 'quotation'],
+    group: 'Blocks',
     run: (e: Editor) => e.chain().focus().toggleBlockquote().run(),
   },
   {
     label: 'Code block',
-    hint: 'Code with monospace formatting',
+    icon: SquareCode,
+    shortcut: '```',
+    keywords: ['code', 'pre', 'monospace', 'snippet'],
+    group: 'Blocks',
     run: (e: Editor) => e.chain().focus().setCodeBlock().run(),
   },
   {
     label: 'Table',
-    hint: 'Organize information',
+    icon: Table,
+    keywords: ['grid', 'columns', 'rows'],
+    group: 'Blocks',
     run: (e: Editor) =>
       e.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run(),
   },
   {
     label: 'Divider',
-    hint: 'Separate sections',
+    icon: Minus,
+    shortcut: '---',
+    keywords: ['hr', 'line', 'rule', 'separator'],
+    group: 'Blocks',
     run: (e: Editor) => e.chain().focus().setHorizontalRule().run(),
   },
 ];
+
+/** The block styles of the "Text" menu in the format toolbar. */
+const textStyles: {
+  label: string;
+  short: string;
+  icon: LucideIcon;
+  active: (e: Editor) => boolean;
+  run: (e: Editor) => unknown;
+}[] = [
+  {
+    label: 'Paragraph',
+    short: 'Text',
+    icon: Pilcrow,
+    active: (e) =>
+      e.isActive('paragraph') &&
+      !e.isActive('bulletList') &&
+      !e.isActive('orderedList') &&
+      !e.isActive('taskList'),
+    run: (e) => e.chain().focus().clearNodes().setParagraph().run(),
+  },
+  {
+    label: 'Heading 1',
+    short: 'H1',
+    icon: Heading1,
+    active: (e) => e.isActive('heading', { level: 1 }),
+    run: (e) => e.chain().focus().setHeading({ level: 1 }).run(),
+  },
+  {
+    label: 'Heading 2',
+    short: 'H2',
+    icon: Heading2,
+    active: (e) => e.isActive('heading', { level: 2 }),
+    run: (e) => e.chain().focus().setHeading({ level: 2 }).run(),
+  },
+  {
+    label: 'Heading 3',
+    short: 'H3',
+    icon: Heading3,
+    active: (e) => e.isActive('heading', { level: 3 }),
+    run: (e) => e.chain().focus().setHeading({ level: 3 }).run(),
+  },
+  {
+    label: 'Bullet list',
+    short: 'List',
+    icon: List,
+    active: (e) => e.isActive('bulletList'),
+    run: (e) => e.chain().focus().toggleBulletList().run(),
+  },
+  {
+    label: 'Numbered list',
+    short: 'List',
+    icon: ListOrdered,
+    active: (e) => e.isActive('orderedList'),
+    run: (e) => e.chain().focus().toggleOrderedList().run(),
+  },
+  {
+    label: 'Checklist',
+    short: 'List',
+    icon: ListTodo,
+    active: (e) => e.isActive('taskList'),
+    run: (e) => e.chain().focus().toggleTaskList().run(),
+  },
+];
+
+/**
+ * Text that becomes a check list item when the user types a space after it: "[ ]", "[x]",
+ * or the same after a list marker ("- [ ]"). Returns null for other text.
+ */
+export function checklistMarker(before: string) {
+  const match = /^\s*(?:[-+*]\s+)?\[([ xX]?)\]$/.exec(before);
+  return match ? { checked: match[1].toLowerCase() === 'x' } : null;
+}
+
 export function WikiEditor({
   markdown,
   readOnly,
@@ -312,7 +447,10 @@ export function WikiEditor({
   const tableToolbar = useRef<HTMLDivElement>(null);
   const [tableMenu] = useState(() => tableMenuProps(tableToolbar));
   const [toolIndex, setToolIndex] = useState(0);
+  const [textMenu, setTextMenu] = useState(false);
+  const textMenuRef = useRef<HTMLDivElement>(null);
   const slashId = useId();
+  const editorRef = useRef<Editor | null>(null);
   const keyHandler = useRef<(event: KeyboardEvent) => boolean>(() => false);
   function detect(editor: Editor) {
     const { $from, empty } = editor.state.selection;
@@ -327,8 +465,12 @@ export function WikiEditor({
       from: $from.start(),
       to: $from.pos,
       query: match[1],
-      left: Math.min(rect.left, window.innerWidth - 330),
-      top: Math.min(rect.bottom + 8, window.innerHeight - 330),
+      left: Math.max(8, Math.min(rect.left, window.innerWidth - 328)),
+      // Below the line when there is space, else above it.
+      top:
+        rect.bottom + 8 + slashHeight <= window.innerHeight - 8
+          ? rect.bottom + 8
+          : Math.max(8, rect.top - 8 - slashHeight),
     });
     setIndex(0);
   }
@@ -360,6 +502,23 @@ export function WikiEditor({
       handleTextInput: (view, from, to, text) => {
         if (text !== ' ') return false;
         const { $from } = view.state.selection;
+        const inList = $from.depth >= 2 ? $from.node(-1).type.name : '';
+        // "[ ] ", "[x] " and "- [ ] " make a check list item. In a bullet or numbered list,
+        // only this item becomes a check list item.
+        const marker =
+          $from.parent.type.name === 'paragraph' &&
+          inList !== 'taskItem' &&
+          checklistMarker($from.parent.textBetween(0, $from.parentOffset));
+        if (marker && editorRef.current) {
+          const length = $from.parentOffset;
+          view.dispatch(view.state.tr.delete(from - length, to));
+          const chain = editorRef.current.chain();
+          if (inList === 'listItem') chain.liftListItem('listItem');
+          chain.toggleTaskList();
+          if (marker.checked) chain.updateAttributes('taskItem', { checked: true });
+          chain.run();
+          return true;
+        }
         if ($from.depth < 2 || !['listItem', 'taskItem'].includes($from.node(-1).type.name))
           return false;
         const before = $from.parent.textBetween(0, $from.parentOffset);
@@ -372,8 +531,12 @@ export function WikiEditor({
       onChange(editor.getMarkdown());
       detect(editor);
     },
-    onSelectionUpdate: ({ editor }) => detect(editor),
+    onSelectionUpdate: ({ editor }) => {
+      detect(editor);
+      setTextMenu(false);
+    },
   });
+  editorRef.current = editor;
   useEffect(() => {
     if (editor && editor.isEditable === readOnly) editor.setEditable(!readOnly, false);
   }, [editor, readOnly]);
@@ -383,7 +546,9 @@ export function WikiEditor({
       ? [
           {
             label: 'Link to page',
-            hint: 'Link to a page in these docs',
+            icon: FileText,
+            keywords: ['link', 'page', 'doc', 'wiki'],
+            group: 'Links' as const,
             run: () => setPickerOpen(true),
           },
         ]
@@ -392,15 +557,15 @@ export function WikiEditor({
       ? [
           {
             label: 'Link to task',
-            hint: 'Link to a task on the board',
+            icon: CircleDot,
+            keywords: ['link', 'task', 'issue', 'board'],
+            group: 'Links' as const,
             run: () => setTaskPickerOpen(true),
           },
         ]
       : []),
   ];
-  const filtered = allCommands.filter((c) =>
-    c.label.toLowerCase().includes(slash?.query.toLowerCase() || ''),
-  );
+  const filtered = allCommands.filter((c) => commandMatches(c, slash?.query || ''));
   const activeOption = slash && !readOnly && filtered[index] ? `${slashId}-${index}` : '';
   // Focus stays in the editor while the slash menu is open. Point assistive
   // technology at the highlighted option.
@@ -488,6 +653,7 @@ export function WikiEditor({
     const current = buttons.indexOf(document.activeElement as HTMLButtonElement);
     if (event.key === 'Escape') {
       event.preventDefault();
+      setTextMenu(false);
       editor.view.focus();
       return;
     }
@@ -537,8 +703,10 @@ export function WikiEditor({
   }
   keyHandler.current = (event) => {
     if (readOnly || event.isComposing) return false;
-    // The app search ignores Mod-K in the editor (data-shortcut-scope). Here it adds a link.
+    // With selected text or in a link, Mod-K adds or edits a link. Otherwise the key goes to
+    // the app search: the shortcut scope is set only when there is text to link.
     if (
+      linkScope &&
       hasPrimaryModifier(event) &&
       !event.shiftKey &&
       !event.altKey &&
@@ -574,24 +742,82 @@ export function WikiEditor({
     return false;
   };
   const headings: { text: string; level: number; pos: number }[] = [];
+  const textStyle = editor ? textStyles.find((style) => style.active(editor)) : undefined;
+  /** Opens the Text menu and moves focus to the active style, or closes it. */
+  function toggleTextMenu(focus: boolean) {
+    setTextMenu((open) => !open);
+    if (!focus || textMenu) return;
+    requestAnimationFrame(() =>
+      (
+        textMenuRef.current?.querySelector<HTMLElement>('[aria-checked="true"]') ||
+        textMenuRef.current?.querySelector<HTMLElement>('[role="menuitemradio"]')
+      )?.focus(),
+    );
+  }
+  function textMenuKeyDown(event: ReactKeyboardEvent<HTMLDivElement>) {
+    const items = [...event.currentTarget.querySelectorAll<HTMLElement>('[role="menuitemradio"]')];
+    const current = items.indexOf(document.activeElement as HTMLElement);
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      event.stopPropagation();
+      setTextMenu(false);
+      toolbar.current?.querySelector<HTMLElement>('button')?.focus();
+      return;
+    }
+    const next =
+      event.key === 'ArrowDown'
+        ? (current + 1) % items.length
+        : event.key === 'ArrowUp'
+          ? (current - 1 + items.length) % items.length
+          : event.key === 'Home'
+            ? 0
+            : event.key === 'End'
+              ? items.length - 1
+              : -1;
+    if (next < 0) return;
+    event.preventDefault();
+    items[next].focus();
+  }
+  // Close the Text menu when the toolbar hides.
+  const hasSelection = !!editor && !editor.state.selection.empty;
+  useEffect(() => {
+    if (!hasSelection) setTextMenu(false);
+  }, [hasSelection]);
+  const linkScope = !!editor && !readOnly && (hasSelection || editor.isActive('link'));
   editor?.state.doc.descendants((node, pos) => {
     if (node.type.name === 'heading')
       headings.push({ text: node.textContent, level: node.attrs.level, pos });
   });
   return (
-    <div className="wiki-writing-area" data-shortcut-scope="editor">
+    <div className="wiki-writing-area" data-shortcut-scope={linkScope ? 'editor' : undefined}>
       <div className="wiki-editor-body" onClick={openPageLink}>
         {editor && !readOnly && (
           <BubbleMenu editor={editor} className="wiki-bubble">
             {/* The menu element does not pass key events correctly, so the toolbar is a child. */}
             <div
               ref={toolbar}
-              className="flex gap-0.5"
+              className="flex items-center gap-0.5"
               role="toolbar"
               aria-label="Text formatting"
               aria-orientation="horizontal"
               onKeyDown={toolbarKeyDown}
             >
+              <Button
+                variant="ghost"
+                size="xs"
+                className="wiki-bubble-style rounded-sm"
+                aria-label={`Text style: ${textStyle?.label || 'Mixed'}`}
+                aria-haspopup="menu"
+                aria-expanded={textMenu}
+                tabIndex={toolIndex === 0 ? 0 : -1}
+                onFocus={() => setToolIndex(0)}
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={(e) => toggleTextMenu(e.detail === 0)}
+              >
+                {textStyle?.short || 'Text'}
+                <ChevronDown size={12} aria-hidden="true" />
+              </Button>
+              <span className="wiki-bubble-divider" aria-hidden="true" />
               {[
                 {
                   name: 'Bold',
@@ -626,8 +852,8 @@ export function WikiEditor({
                   className="rounded-sm"
                   aria-label={name}
                   aria-pressed={editor.isActive(mark)}
-                  tabIndex={i === toolIndex ? 0 : -1}
-                  onFocus={() => setToolIndex(i)}
+                  tabIndex={i + 1 === toolIndex ? 0 : -1}
+                  onFocus={() => setToolIndex(i + 1)}
                   onMouseDown={(e) => e.preventDefault()}
                   onClick={action}
                 >
@@ -640,14 +866,41 @@ export function WikiEditor({
                 className="rounded-sm"
                 aria-label={editor.isActive('link') ? 'Edit link' : 'Add link'}
                 aria-pressed={editor.isActive('link')}
-                tabIndex={toolIndex === 4 ? 0 : -1}
-                onFocus={() => setToolIndex(4)}
+                tabIndex={toolIndex === 5 ? 0 : -1}
+                onFocus={() => setToolIndex(5)}
                 onMouseDown={(e) => e.preventDefault()}
                 onClick={openLink}
               >
                 <LinkIcon size={14} />
               </Button>
             </div>
+            {textMenu && (
+              <div
+                ref={textMenuRef}
+                className="wiki-bubble-menu"
+                role="menu"
+                aria-label="Text style"
+                onKeyDown={textMenuKeyDown}
+              >
+                {textStyles.map((style) => (
+                  <button
+                    key={style.label}
+                    type="button"
+                    role="menuitemradio"
+                    aria-checked={style === textStyle}
+                    tabIndex={-1}
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => {
+                      style.run(editor);
+                      setTextMenu(false);
+                    }}
+                  >
+                    <style.icon size={16} aria-hidden="true" />
+                    <span>{style.label}</span>
+                  </button>
+                ))}
+              </div>
+            )}
           </BubbleMenu>
         )}
         {editor && !readOnly && (
@@ -734,30 +987,50 @@ export function WikiEditor({
             aria-label="Insert block"
             style={{ left: slash.left, top: slash.top }}
           >
-            <p aria-hidden="true">Insert block</p>
             {filtered.length ? (
-              filtered.map((c, i) => (
-                <button
-                  key={c.label}
-                  id={`${slashId}-${i}`}
-                  role="option"
-                  tabIndex={-1}
-                  aria-selected={i === index}
-                  onMouseDown={(e) => e.preventDefault()}
-                  onClick={() => choose(i)}
-                >
-                  <span>{c.label}</span>
-                  <small>{c.hint}</small>
-                </button>
-              ))
+              (['Blocks', 'Links'] as const).map((group) => {
+                const items = filtered.filter((c) => c.group === group);
+                if (!items.length) return null;
+                return (
+                  <div key={group} role="group" aria-labelledby={`${slashId}-${group}`}>
+                    <p id={`${slashId}-${group}`} className="wiki-slash-label">
+                      {group}
+                    </p>
+                    {items.map((c) => {
+                      const i = filtered.indexOf(c);
+                      return (
+                        <button
+                          key={c.label}
+                          id={`${slashId}-${i}`}
+                          role="option"
+                          tabIndex={-1}
+                          aria-selected={i === index}
+                          onMouseDown={(e) => e.preventDefault()}
+                          onMouseMove={() => setIndex(i)}
+                          onClick={() => choose(i)}
+                        >
+                          <c.icon size={16} aria-hidden="true" />
+                          <span>{c.label}</span>
+                          {c.shortcut && (
+                            <kbd className="kbd" aria-hidden="true">
+                              {c.shortcut}
+                            </kbd>
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+                );
+              })
             ) : (
-              <p>No matching blocks</p>
+              <p className="wiki-slash-empty">No matching blocks</p>
             )}
           </div>,
           document.body,
         )}
       <Dialog open={linkOpen} onOpenChange={setLinkOpen}>
         <DialogContent
+          layout="scroll"
           onCloseAutoFocus={(event) => {
             // The page picker now owns focus. Closing this dialog must not take it back.
             if (pickerOpen) event.preventDefault();
@@ -771,27 +1044,29 @@ export function WikiEditor({
                 {groupId && ' Or link to a page in these docs.'}
               </DialogDescription>
             </DialogHeader>
-            <Input
-              aria-label="Link URL"
-              autoFocus
-              value={url}
-              onChange={(e) => setUrl(e.target.value)}
-              placeholder="https://…"
-            />
-            {groupId && (
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                className="justify-self-start"
-                onClick={() => {
-                  setLinkOpen(false);
-                  setPickerOpen(true);
-                }}
-              >
-                <FileText /> Link a page…
-              </Button>
-            )}
+            <DialogBody className="grid gap-3">
+              <Input
+                aria-label="Link URL"
+                autoFocus
+                value={url}
+                onChange={(e) => setUrl(e.target.value)}
+                placeholder="https://…"
+              />
+              {groupId && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="justify-self-start"
+                  onClick={() => {
+                    setLinkOpen(false);
+                    setPickerOpen(true);
+                  }}
+                >
+                  <FileText /> Link a page…
+                </Button>
+              )}
+            </DialogBody>
             <DialogFooter>
               {editingLink && (
                 <Button

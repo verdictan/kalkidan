@@ -1,84 +1,94 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { Laptop, Plus, Server } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { Bot, Download, Plus, RotateCw, Server, Trash2, Unplug } from 'lucide-react';
 import type { API, RemoteHost } from '../types';
-import type { HelperUpdateStatus } from '../domain/updates';
-import { agentComputerAnchor } from '../domain/agent-programs';
+import type { ComponentInventory, HelperUpdateStatus } from '../domain/updates';
 import { computerAnchor, helperUpdateAnchor } from '../domain/settings-route';
 import { helperStatusLabel, shortId } from '../lib/verdictan-labels';
 import { errorMessage } from '../lib/errors';
+import { useRefreshTriggers } from '../hooks/use-refresh-triggers';
 import {
   AddHostForm,
-  HelperUpdateButton,
   HostSetup,
+  helperSetupText,
+  hostStatusLabels,
   useHostSetup,
   useRemoteHosts,
 } from './remote-host-picker';
-import { ManagedRuntime, type SettingsNavigate } from './verdictan-settings';
-import { SettingsGroup } from './settings-disclosure';
-import { Badge } from './ui/badge';
+import {
+  RuntimeControl,
+  RuntimeExtra,
+  RuntimeHistory,
+  ThisComputerRow,
+  runtimeExtraShown,
+  runtimeView,
+  useRuntimeStatus,
+} from './verdictan-settings';
+import { AgentProgramsDialog } from './agent-programs';
+import { ConfirmDialog } from './confirm-dialog';
+import {
+  CopyValue,
+  SettingsAdvanced,
+  SettingsGroup,
+  SettingsRow,
+  SettingsRows,
+  StatusBadge,
+} from './settings-disclosure';
 import { Button } from './ui/button';
-
-const hostStatus: Record<
-  RemoteHost['status'],
-  { label: string; tone: 'success' | 'secondary' | 'warning' | 'destructive' | 'muted' }
-> = {
-  connected: { label: 'Connected', tone: 'success' },
-  connecting: { label: 'Connecting…', tone: 'secondary' },
-  queued: { label: 'Waiting to connect', tone: 'secondary' },
-  'retry-wait': { label: 'Connection lost', tone: 'warning' },
-  error: { label: 'Connection failed', tone: 'destructive' },
-  checked: { label: 'Not connected', tone: 'muted' },
-  disconnected: { label: 'Disconnected', tone: 'muted' },
-};
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from './ui/dropdown-menu';
+import { menuDestructiveClass } from './ui/menu-styles';
+import { EntityIcon } from './ui/entity-icon';
+import { MoreButton } from './ui/more-button';
 
 /**
- * The update state of the helper on each SSH host, by host ID. It reads the state again when
- * a host changes, for example after a helper update. A failed read shows no update state.
+ * The update state of the helper on each SSH host, by host ID, and the desktop inventory. It
+ * reads again when a host changes, when the section opens, and on window focus.
  */
 function useHelperUpdates(api: API, open: boolean, hosts: RemoteHost[]) {
-  const [helpers, setHelpers] = useState<Record<string, HelperUpdateStatus>>({});
+  const [inventory, setInventory] = useState<ComponentInventory>();
   const key = hosts.map((h) => `${h.id}:${h.status}:${h.installedDigest || ''}`).join(',');
-  useEffect(() => {
+  const read = () => {
     // Older desktop builds do not report component versions.
-    if (!open || typeof api.componentUpdates !== 'function') return;
-    let live = true;
+    if (typeof api.componentUpdates !== 'function') return;
     void Promise.resolve()
       .then(() => api.componentUpdates(false))
-      .then(
-        (value) => {
-          if (live) setHelpers(Object.fromEntries(value.helpers.map((h) => [h.hostId, h])));
-        },
-        () => {
-          if (live) setHelpers({});
-        },
-      );
-    return () => {
-      live = false;
-    };
-  }, [api, open, key]);
+      .then(setInventory, () => setInventory(undefined));
+  };
+  useRefreshTriggers(undefined, open, read);
+  useEffect(() => {
+    if (open) read();
+  }, [key]);
+  const helpers: Record<string, HelperUpdateStatus> = Object.fromEntries(
+    (inventory?.helpers || []).map((h) => [h.hostId, h]),
+  );
   return helpers;
 }
 
 /**
- * Settings › Computers: one card for this computer and one for each SSH host. Each card shows
- * the connection, the managed agents runtime, the helper, and a link to its agent programs.
+ * Settings › Computers: one row for this computer and one row for each SSH host. A host row
+ * has a "…" menu with its actions. The setup checklist shows only while a host is added. The
+ * Advanced fold has the install history and the helper builds and digests.
  */
-export function ComputersSettings({
+export function ComputersSection({
   api,
   open,
-  onNavigate,
   onRefresh,
 }: {
   api: API;
   open: boolean;
-  onNavigate: SettingsNavigate;
   /** Reads the projects again after a host connects. */
-  onRefresh: () => Promise<void>;
+  onRefresh?: () => Promise<void>;
 }) {
+  const runtime = useRuntimeStatus(api, open, 'local');
   const { hosts, setHosts, error } = useRemoteHosts(api, open);
   const helpers = useHelperUpdates(api, open, hosts);
   const [adding, setAdding] = useState(false);
-  // The host that was just added. Its setup starts at once.
+  // The host that was just added. Its checklist shows until it connects or the user closes it.
   const [added, setAdded] = useState('');
   const [refreshError, setRefreshError] = useState('');
   // Read the projects again only when a host becomes connected, not on each render.
@@ -87,7 +97,7 @@ export function ComputersSettings({
     const now = new Set(hosts.filter((h) => h.status === 'connected').map((h) => h.id));
     const before = connected.current;
     connected.current = now;
-    if (!before || ![...now].some((id) => !before.has(id))) return;
+    if (!onRefresh || !before || ![...now].some((id) => !before.has(id))) return;
     setRefreshError('');
     void onRefresh().catch((failure) =>
       setRefreshError(`Could not refresh projects: ${errorMessage(failure)}`),
@@ -100,228 +110,335 @@ export function ComputersSettings({
         : [...previous, host],
     );
   }
+  const newHost = hosts.find((h) => h.id === added);
   return (
-    <div className="grid min-w-0 gap-4">
-      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
-        <p className="min-w-0 flex-1 text-xs text-muted-foreground">
-          This computer and the SSH hosts that run your projects. Kalkidan installs a small helper
-          on each host.
-        </p>
-        {!adding && (
+    <>
+      <SettingsRows label="Computers">
+        <ThisComputerRow api={api} runtime={runtime} />
+        {hosts
+          .filter((host) => host.id !== added)
+          .map((host) => (
+            <HostRow
+              key={host.id}
+              api={api}
+              open={open}
+              host={host}
+              helper={helpers[host.id]}
+              onHost={store}
+              onRemoved={(id) => setHosts((previous) => previous.filter((h) => h.id !== id))}
+            />
+          ))}
+      </SettingsRows>
+      {adding || newHost ? (
+        <SettingsGroup title={newHost ? `Set up ${newHost.name}` : 'Add SSH host'}>
+          <div className="settings-advanced-box py-3">
+            {newHost ? (
+              <>
+                <HostSetup
+                  api={api}
+                  host={newHost}
+                  autoStart
+                  onHost={store}
+                  onRemoved={(id) => {
+                    setHosts((previous) => previous.filter((h) => h.id !== id));
+                    setAdded('');
+                  }}
+                />
+                <div className="mt-3 flex justify-end">
+                  <Button
+                    size="sm"
+                    variant={newHost.status === 'connected' ? 'default' : 'outline'}
+                    onClick={() => setAdded('')}
+                  >
+                    {newHost.status === 'connected' ? 'Done' : 'Close'}
+                  </Button>
+                </div>
+              </>
+            ) : (
+              <AddHostForm
+                api={api}
+                onCancel={() => setAdding(false)}
+                onAdded={(host) => {
+                  store(host);
+                  setAdded(host.id);
+                  setAdding(false);
+                }}
+              />
+            )}
+          </div>
+        </SettingsGroup>
+      ) : (
+        <div className="grid justify-items-start gap-1">
           <Button variant="outline" size="sm" onClick={() => setAdding(true)}>
             <Plus />
-            Add host
+            Add SSH host
           </Button>
-        )}
-      </div>
-      {adding && (
-        <SettingsGroup title="Add host" className="computer-card">
-          <AddHostForm
-            api={api}
-            onCancel={() => setAdding(false)}
-            onAdded={(host) => {
-              store(host);
-              setAdded(host.id);
-              setAdding(false);
-            }}
-          />
-        </SettingsGroup>
-      )}
-      <ul className="grid min-w-0 gap-3" aria-label="Computers">
-        <ComputerCard api={api} open={open} onNavigate={onNavigate} />
-        {hosts.map((host) => (
-          <HostCard
-            key={host.id}
-            api={api}
-            open={open}
-            host={host}
-            helper={helpers[host.id]}
-            autoStart={added === host.id}
-            onHost={store}
-            onRemoved={(id) => setHosts((previous) => previous.filter((h) => h.id !== id))}
-            onNavigate={onNavigate}
-          />
-        ))}
-      </ul>
-      {!hosts.length && !adding && (
-        <p className="text-xs text-muted-foreground">
-          No SSH hosts. Select Add host to run projects on a computer that you can reach with SSH.
-        </p>
+          {!hosts.length && (
+            <p className="form-help mt-0">
+              Run projects on a computer that you reach with SSH. Kalkidan uses your SSH keys.
+            </p>
+          )}
+        </div>
       )}
       {(error || refreshError) && (
         <p role="alert" className="field-error whitespace-pre-wrap break-words">
           {refreshError || error}
         </p>
       )}
-    </div>
+      <SettingsAdvanced>
+        <SettingsRows>
+          <RuntimeHistory status={runtime.status} name="this computer" />
+          {runtime.status?.latest && (
+            <SettingsRow
+              label="Managed agents release"
+              help={`Latest ${runtime.status.latest.version}${
+                runtime.status.lastSuccessAt
+                  ? ` · Checked ${new Date(runtime.status.lastSuccessAt).toLocaleString()}`
+                  : ''
+              }`}
+            />
+          )}
+          {hosts.map((host) => (
+            <HelperDetails key={host.id} host={host} helper={helpers[host.id]} />
+          ))}
+          {!runtime.status?.history.length && !runtime.status?.latest && !hosts.length && (
+            <SettingsRow
+              label="No details yet"
+              help="Install history and helper builds show here."
+            />
+          )}
+        </SettingsRows>
+      </SettingsAdvanced>
+    </>
   );
 }
 
-/** The card of one SSH host: the connection, the runtime, and the helper with its update. */
-function HostCard({
+/** The helper builds and digests of one host, for the Advanced fold. */
+function HelperDetails({ host, helper }: { host: RemoteHost; helper?: HelperUpdateStatus }) {
+  const digest = host.installedDigest || host.runningDigest;
+  return (
+    <SettingsRow
+      label={`Helper on ${host.name}`}
+      help={
+        <span className="grid gap-1 pt-1">
+          <span>
+            {[
+              host.version ? `Version ${host.version}` : 'Not installed',
+              digest ? `Build ${shortId(digest)}` : '',
+              host.node ? `Node.js ${host.node}` : '',
+              helper ? helperStatusLabel(helper).label : '',
+            ]
+              .filter(Boolean)
+              .join(' · ')}
+          </span>
+          {helper?.installed && <CopyValue value={helper.installed} name="Installed digest" />}
+          {helper?.running && helper.running !== helper.installed && (
+            <CopyValue value={helper.running} name="Running digest" />
+          )}
+          {helper?.approved && <CopyValue value={helper.approved} name="Digest in this app" />}
+        </span>
+      }
+    />
+  );
+}
+
+/** The help line of a host row. */
+function hostHelp(host: RemoteHost, busy: string) {
+  if (busy) return busy;
+  if (host.setup && !['ready', 'failed'].includes(host.setup.phase))
+    return helperSetupText(host.setup);
+  switch (host.status) {
+    case 'connected':
+      return [host.target, host.platform, host.node ? `Node.js ${host.node}` : '']
+        .filter(Boolean)
+        .join(' · ');
+    case 'retry-wait':
+      return host.retryAt
+        ? `Connection lost. Kalkidan tries again at ${new Date(host.retryAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}.`
+        : 'Connection lost. Kalkidan tries again soon.';
+    case 'error':
+      return host.setup?.phase === 'failed'
+        ? helperSetupText(host.setup)
+        : host.error || 'Connection failed.';
+    default:
+      return host.target;
+  }
+}
+
+/** One SSH host: name, "target · OS · Node.js", status, and a "…" menu with its actions. */
+function HostRow({
   api,
   open,
   host,
   helper,
-  autoStart,
   onHost,
   onRemoved,
-  onNavigate,
 }: {
   api: API;
   open: boolean;
   host: RemoteHost;
   helper?: HelperUpdateStatus;
-  autoStart: boolean;
   onHost: (host: RemoteHost) => void;
   onRemoved: (hostId: string) => void;
-  onNavigate: SettingsNavigate;
 }) {
-  // The connection and the helper update share one state, so one action runs at a time.
   const setup = useHostSetup(api, { onHost, onRemoved });
-  const digest = host.installedDigest || host.runningDigest;
-  const available = helper?.discovery === 'available';
-  const status =
-    helper && ['available', 'waiting-for-idle'].includes(helper.discovery)
+  const ready = host.status === 'connected';
+  const runtime = useRuntimeStatus(api, open && ready, host.id);
+  const view = runtimeView(runtime);
+  const [confirm, setConfirm] = useState<'disconnect' | 'update' | 'remove'>();
+  const [programs, setPrograms] = useState(false);
+  const offline = ['retry-wait', 'error', 'disconnected', 'checked'].includes(host.status);
+  const helperUpdate = helper?.discovery === 'available';
+  const status = setup.busy
+    ? { label: 'Working…', tone: 'secondary' as const }
+    : helperUpdate
       ? helperStatusLabel(helper)
-      : undefined;
+      : hostStatusLabels[host.status];
+  // The runtime of a connected host shows only when it needs something or installs.
+  const runtimeNeedsUser =
+    ready && runtime.status && (runtimeExtraShown(runtime) || view.label.label !== 'Ready');
+  function reconnect() {
+    if (host.version) void setup.act('Connecting…', () => api.remoteConnect(host.id), 'connect');
+    else void setup.guide(host);
+  }
   return (
-    <ComputerCard
-      api={api}
-      open={open}
-      host={host}
-      onNavigate={onNavigate}
-      connection={
-        <HostSetup
-          api={api}
-          host={host}
-          setup={setup}
-          autoStart={autoStart}
-          onHost={onHost}
-          onRemoved={onRemoved}
-        />
-      }
-    >
-      <section aria-label="Kalkidan helper" className="computer-card-section grid gap-2">
-        <div className="flex min-w-0 flex-wrap items-center gap-2">
-          <h4 className="text-[13px] leading-5 font-semibold">Kalkidan helper</h4>
-          {status && (
-            <Badge variant={status.tone} size="sm">
-              {status.label}
-            </Badge>
-          )}
-        </div>
-        <dl className="meta-list">
-          <dt>Version</dt>
-          <dd>{host.version || 'Not installed'}</dd>
-          {digest && (
-            <>
-              <dt>Build</dt>
-              <dd>{shortId(digest)}</dd>
-            </>
-          )}
-          {host.node && (
-            <>
-              <dt>Node.js</dt>
-              <dd>{host.node}</dd>
-            </>
-          )}
-        </dl>
-        {available && (
-          <p className="text-xs text-muted-foreground">
-            This app has a new version of the helper. The update stops active work on this host.
+    <>
+      <SettingsRow
+        id={computerAnchor(host.id)}
+        icon={
+          <EntityIcon>
+            <Server />
+          </EntityIcon>
+        }
+        label={host.name}
+        help={hostHelp(host, setup.busy)}
+        extra={
+          setup.error || runtimeNeedsUser || (host.status === 'checked' && !host.version) ? (
+            <div className="grid gap-2">
+              {host.status === 'checked' && !host.version && !setup.busy && (
+                <div className="flex flex-wrap items-center gap-2">
+                  <p className="form-help mt-0 flex-1">
+                    SSH works. Kalkidan installs a small helper on {host.target}. It needs Node.js
+                    22 or later.
+                  </p>
+                  <Button size="sm" onClick={() => void setup.install(host)}>
+                    Install helper
+                  </Button>
+                </div>
+              )}
+              {runtimeNeedsUser && (
+                <div className="grid gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <p className="form-help mt-0 flex-1">{view.help}</p>
+                    <RuntimeControl runtime={runtime} name={host.name} />
+                  </div>
+                  <RuntimeExtra runtime={runtime} />
+                </div>
+              )}
+              {setup.error && (
+                <p role="alert" className="field-error whitespace-pre-wrap break-words">
+                  {setup.error}
+                </p>
+              )}
+            </div>
+          ) : undefined
+        }
+      >
+        <StatusBadge status={status} />
+        {offline && host.status !== 'checked' && (
+          <Button variant="outline" size="sm" disabled={!!setup.busy} onClick={reconnect}>
+            Reconnect
+          </Button>
+        )}
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <MoreButton
+              id={helperUpdateAnchor(host.id)}
+              label={`Actions for ${host.name}`}
+              disabled={!!setup.busy}
+            />
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-52">
+            <DropdownMenuItem onSelect={reconnect}>
+              <RotateCw />
+              Reconnect
+            </DropdownMenuItem>
+            {['connected', 'connecting', 'queued', 'retry-wait'].includes(host.status) && (
+              <DropdownMenuItem onSelect={() => setConfirm('disconnect')}>
+                <Unplug />
+                Disconnect…
+              </DropdownMenuItem>
+            )}
+            {host.version && (
+              <DropdownMenuItem onSelect={() => setConfirm('update')}>
+                <Download />
+                {helperUpdate ? 'Update helper (new version)…' : 'Update helper…'}
+              </DropdownMenuItem>
+            )}
+            <DropdownMenuItem onSelect={() => setPrograms(true)}>
+              <Bot />
+              Agent programs…
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              className={menuDestructiveClass}
+              onSelect={() => {
+                setup.setRemoveError('');
+                setConfirm('remove');
+              }}
+            >
+              <Trash2 />
+              Remove host…
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </SettingsRow>
+      <ConfirmDialog
+        open={confirm === 'disconnect'}
+        title={`Disconnect ${host.name}?`}
+        description="Disconnecting stops all active work on this host. Running agent chats stop."
+        confirmLabel="Disconnect"
+        destructive
+        onCancel={() => setConfirm(undefined)}
+        onConfirm={() => {
+          setConfirm(undefined);
+          void setup.act('Disconnecting…', async () => {
+            await api.remoteDisconnect(host.id);
+            return { ...host, status: 'disconnected' };
+          });
+        }}
+      />
+      <ConfirmDialog
+        open={confirm === 'update'}
+        title={`Update the helper on ${host.name}?`}
+        description="The update stops all active work on this host. Running agent chats stop."
+        confirmLabel="Update helper"
+        destructive
+        onCancel={() => setConfirm(undefined)}
+        onConfirm={() => {
+          setConfirm(undefined);
+          void setup.act('Updating the helper…', () => api.remoteInstall(host.id));
+        }}
+      />
+      <ConfirmDialog
+        open={confirm === 'remove'}
+        title={`Remove ${host.name}?`}
+        description="Kalkidan forgets this host. Files on the host do not change. You cannot remove a host while a project uses it."
+        confirmLabel="Remove host"
+        destructive
+        busy={setup.busy === 'Removing host…'}
+        onCancel={() => setConfirm(undefined)}
+        onConfirm={() =>
+          void setup.remove(host).then((removed) => removed && setConfirm(undefined))
+        }
+      >
+        {setup.removeError && (
+          <p role="alert" className="field-error whitespace-pre-wrap break-words">
+            {setup.removeError}
           </p>
         )}
-        {host.version && (
-          <div>
-            <HelperUpdateButton
-              api={api}
-              host={host}
-              setup={setup}
-              id={helperUpdateAnchor(host.id)}
-              available={available}
-            />
-          </div>
-        )}
-      </section>
-    </ComputerCard>
-  );
-}
-
-/**
- * One computer: this computer when `host` is not set, else one SSH host. `connection` and
- * `children` are the sections of an SSH host.
- */
-function ComputerCard({
-  api,
-  open,
-  host,
-  connection,
-  children,
-  onNavigate,
-}: {
-  api: API;
-  open: boolean;
-  host?: RemoteHost;
-  connection?: ReactNode;
-  children?: ReactNode;
-  onNavigate: SettingsNavigate;
-}) {
-  const name = host ? host.name : 'This computer';
-  const ready = !host || host.status === 'connected';
-  const status = host ? hostStatus[host.status] : undefined;
-  return (
-    <li
-      id={computerAnchor(host?.id)}
-      tabIndex={-1}
-      role="group"
-      aria-label={name}
-      className="computer-card outline-none"
-    >
-      <header className="flex min-w-0 flex-wrap items-center gap-2">
-        {host ? (
-          <Server className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
-        ) : (
-          <Laptop className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
-        )}
-        <h3 className="min-w-0 truncate text-sm font-semibold">{name}</h3>
-        {host && (
-          <span className="min-w-0 truncate text-xs text-muted-foreground">{host.target}</span>
-        )}
-        <span className="ml-auto flex shrink-0 items-center gap-2">
-          {status && (
-            <Badge variant={status.tone} size="sm">
-              {status.label}
-            </Badge>
-          )}
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => onNavigate('agents', agentComputerAnchor(host?.id))}
-          >
-            Agent programs
-          </Button>
-        </span>
-      </header>
-      {connection && (
-        <section aria-label="Connection" className="computer-card-section">
-          <h4 className="text-[13px] leading-5 font-semibold">Connection</h4>
-          {connection}
-        </section>
-      )}
-      <div className="computer-card-section">
-        {ready ? (
-          <ManagedRuntime api={api} open={open} hostId={host?.id || 'local'} />
-        ) : (
-          <section aria-label="Managed agents runtime" className="grid gap-1">
-            <h4 className="text-[13px] leading-5 font-semibold">Managed agents runtime</h4>
-            <p className="text-xs text-muted-foreground">
-              Connect the host to see and install its runtime.
-            </p>
-          </section>
-        )}
-      </div>
-      {children}
-    </li>
+      </ConfirmDialog>
+      <AgentProgramsDialog api={api} host={host} open={programs} onOpenChange={setPrograms} />
+    </>
   );
 }

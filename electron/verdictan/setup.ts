@@ -4,6 +4,7 @@ import {
   policyReadinessValues,
   selectionIssue,
   providerAccessModes,
+  recommendedSelection,
   serviceName,
   subscriptionAgent,
   usesDefaultPolicy,
@@ -420,6 +421,30 @@ export class VerdictanSetupService {
     )
       throw new DesktopProtocolError('desktop.setup_selection_required');
     return value;
+  }
+  /**
+   * Saves the recommended setup for each agent that has no saved setup. An agent that needs a
+   * choice of the user keeps no setup. `models` returns the model list of an agent.
+   */
+  async applyRecommended(models: (agent: 'codex' | 'claude') => Promise<string[]>) {
+    let setup = await this.status();
+    for (const agent of ['codex', 'claude'] as const) {
+      const value = recommendedSelection(
+        setup,
+        agent,
+        await models(agent).catch(() => [] as string[]),
+      );
+      if (!value) continue;
+      try {
+        setup = await this.select(agent, value);
+      } catch (error) {
+        const code = error instanceof DesktopProtocolError ? error.code : '';
+        // The session ended. Sign-in must come first.
+        if (sessionCodes.has(code)) throw error;
+        // The choices changed. Settings shows the choice to the user.
+      }
+    }
+    return setup;
   }
   async select(agent: 'codex' | 'claude', value: VerdictanSelection) {
     const { key, setup } = await this.inspect();

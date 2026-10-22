@@ -271,6 +271,10 @@ export async function desktopFixture(platform = 'linux', failure = '') {
       dialog: {
         showErrorBox: record('errorBox'),
         showMessageBoxSync: () => state.choice,
+        showMessageBox: async (...args: any[]) => {
+          calls.push(['messageBox', args.at(-1)]);
+          return { response: state.choice };
+        },
         showOpenDialog: async () => ({ canceled: state.cancel, filePaths: ['/added'] }),
         showSaveDialog: async () => ({ canceled: state.cancel, filePath: '/export' }),
       },
@@ -319,6 +323,7 @@ export async function desktopFixture(platform = 'linux', failure = '') {
       installer: {
         check: asyncRecord('runtimeCheck'),
         start: asyncRecord('runtimeStart'),
+        install: asyncRecord('runtimeInstall'),
         cancel: record('runtimeCancel'),
       },
       managed: { stopAll: asyncRecord('managedStopAll') },
@@ -330,8 +335,14 @@ export async function desktopFixture(platform = 'linux', failure = '') {
         renew: asyncRecord('verdictanRenew'),
         logout: asyncRecord('verdictanLogout'),
         dispose: record('verdictanDispose'),
+        reopenBrowser: asyncRecord('verdictanReopenBrowser'),
+        autoRenew: asyncRecord('verdictanAutoRenew'),
       },
-      setup: { status: asyncRecord('verdictanSetup'), select: asyncRecord('verdictanSelect') },
+      setup: {
+        status: asyncRecord('verdictanSetup'),
+        select: asyncRecord('verdictanSelect'),
+        applyRecommended: asyncRecord('verdictanApplyRecommended'),
+      },
       launch: { prepare: asyncRecord('managedPrepare') },
       remoteBroker: { reset: record('brokerReset'), request: asyncRecord('brokerRequest') },
     }),

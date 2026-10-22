@@ -21,7 +21,8 @@ export function shortcutGroups(): { title: string; items: [string, string][] }[]
         ['Search or run a command', shortcutLabel(['mod'], 'K')],
         ['Show keyboard shortcuts', shortcutLabel(['mod'], '/')],
         ['Open settings', shortcutLabel(['mod'], ',')],
-        ['New project', shortcutLabel(['mod'], 'N')],
+        ['New chat', shortcutLabel(['mod'], 'N')],
+        ['New project', shortcutLabel(['mod', 'shift'], 'N')],
         ['New task', shortcutLabel(['mod', 'shift'], 'K')],
         ['Add a code folder', shortcutLabel(['mod', 'shift'], 'O')],
         ['Show or hide the sidebar', shortcutLabel(['mod'], 'B')],
@@ -35,9 +36,10 @@ export function shortcutGroups(): { title: string; items: [string, string][] }[]
         ['Go forward', isMac ? shortcutLabel(['mod'], ']') : shortcutLabel(['alt'], '→')],
         ['Go to the project overview', shortcutLabel(['mod'], '1')],
         ['Go to Tasks', shortcutLabel(['mod'], '2')],
-        ['Go to Docs', shortcutLabel(['mod'], '3')],
-        ['Go to Memory', shortcutLabel(['mod'], '4')],
-        ['Go to Insights', shortcutLabel(['mod'], '5')],
+        ['Go to Chats', shortcutLabel(['mod'], '3')],
+        ['Go to Docs', shortcutLabel(['mod'], '4')],
+        ['Go to Memory', shortcutLabel(['mod'], '5')],
+        ['Go to Insights', shortcutLabel(['mod'], '6')],
         ['Show all chats', shortcutLabel(['mod', 'shift'], 'L')],
         ['Move between sidebar rows', '↑ ↓'],
         ['Expand or collapse a project', '→ ←'],
@@ -50,7 +52,6 @@ export function shortcutGroups(): { title: string; items: [string, string][] }[]
     {
       title: 'Chat',
       items: [
-        ['New chat in the open code folder', shortcutLabel(['mod', 'shift'], 'N')],
         ['Send the message', 'Enter'],
         ['Add a new line', shortcutLabel(['shift'], 'Enter')],
         ['Rename the chat', sessionKey(isMac ? 'R' : 'E')],
@@ -72,7 +73,7 @@ export function shortcutGroups(): { title: string; items: [string, string][] }[]
       title: 'Docs',
       items: [
         ['Save the page', shortcutLabel(['mod'], 'S')],
-        ['Add a link', shortcutLabel(['mod'], 'K')],
+        ['Add a link to the selected text', shortcutLabel(['mod'], 'K')],
         ['Insert a block', '/'],
       ],
     },
@@ -89,11 +90,12 @@ export function ShortcutsSheet({
 }) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent size="md" layout="scroll">
+      <DialogContent size="lg" layout="scroll">
         <DialogHeader>
           <DialogTitle>Keyboard shortcuts</DialogTitle>
           <DialogDescription>
-            Use these keys to work faster. Text fields and the terminal keep their own keys.
+            Text fields and the terminal keep their own keys. In a doc,{' '}
+            {shortcutLabel(['mod'], 'K')} adds a link when text is selected. Else it opens search.
           </DialogDescription>
         </DialogHeader>
         <DialogBody>

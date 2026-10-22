@@ -1,11 +1,19 @@
-import { useState } from 'react';
-import { Download, KeyRound, Minus, Plus } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { Download, KeyRound, Minus, Plus, Settings2 } from 'lucide-react';
 import { Button, buttonVariants } from './ui/button';
 import { Input } from './ui/input';
 import { MoreButton } from './ui/more-button';
 import { Switch } from './ui/switch';
 import { EmptyState } from './ui/empty-state';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from './ui/dialog';
+import {
+  Dialog,
+  DialogBody,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from './ui/dialog';
 import {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -87,8 +95,7 @@ export function BrowserMenu({
   const [panel, setPanel] = useState<string | null>(null);
   const [data, setData] = useState<BrowserProfileData>();
   const [busy, setBusy] = useState(false);
-  const [home, setHome] = useState('');
-  const [remember, setRemember] = useState(true);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [filter, setFilter] = useState('');
   const [notice, setNotice] = useState('');
   const [failed, setFailed] = useState(false);
@@ -127,8 +134,6 @@ export function BrowserMenu({
     const profile = (await act('profile')) as BrowserProfileData | undefined;
     if (profile) {
       setData(profile);
-      setHome(profile.settings.home);
-      setRemember(profile.settings.rememberHistory);
     }
   }
   async function refresh() {
@@ -222,11 +227,18 @@ export function BrowserMenu({
             Clear browsing data
           </DropdownMenuItem>
           <DropdownMenuSeparator />
-          <DropdownMenuItem onSelect={() => void show('Browser settings')}>
-            Browser settings
+          <DropdownMenuItem onSelect={() => setSettingsOpen(true)}>
+            <Settings2 aria-hidden="true" />
+            Browser settings…
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
+      <BrowserSettingsDialog
+        api={api}
+        browserId={id}
+        open={settingsOpen}
+        onOpenChange={setSettingsOpen}
+      />
       <Dialog open={!!panel} onOpenChange={(open) => !open && openPanel(null)}>
         <DialogContent size="md">
           <DialogHeader>
@@ -246,73 +258,6 @@ export function BrowserMenu({
             >
               {notice}
             </p>
-          )}
-          {panel === 'Browser settings' && (
-            <form
-              className="space-y-4"
-              onSubmit={(e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                void attempt('settings', { home, rememberHistory: remember }).then(
-                  async (outcome) => {
-                    if (!outcome.ok) return;
-                    await refresh();
-                    setNotice('Browser settings saved');
-                  },
-                );
-              }}
-            >
-              <label className="form-label">
-                Home page
-                <Input
-                  aria-label="Home page"
-                  value={home}
-                  onChange={(e) => setHome(e.target.value)}
-                />
-              </label>
-              <label className="flex items-center justify-between text-sm">
-                Remember browsing history
-                <Switch checked={remember} onCheckedChange={setRemember} />
-              </label>
-              <p className="form-help">
-                Browser cookies persist between launches. Camera, microphone, location, and
-                notifications remain blocked.
-              </p>
-              <Button disabled={busy}>Save browser settings</Button>
-              <section className="grid gap-2 border-t pt-4" aria-labelledby="browser-import">
-                <h3 id="browser-import" className="text-sm font-semibold">
-                  Import sign-in data
-                </h3>
-                <p className="form-help">
-                  Import a JSON cookie array, or a password CSV with url, username, and password
-                  columns. Direct Chrome profile import is not supported.
-                </p>
-                <div className="flex flex-wrap gap-2">
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="outline"
-                    disabled={busy}
-                    onClick={() => void act('import', 'cookies')}
-                  >
-                    Import cookies from JSON…
-                  </Button>
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="outline"
-                    disabled={busy}
-                    onClick={() =>
-                      void attempt('import', 'passwords').then((outcome) =>
-                        outcome.ok ? refresh() : undefined,
-                      )
-                    }
-                  >
-                    Import passwords from CSV…
-                  </Button>
-                </div>
-              </section>
-            </form>
           )}
           {panel === 'Clear browsing data' && (
             <div className="space-y-3">
@@ -521,5 +466,163 @@ export function BrowserMenu({
         </DialogContent>
       </Dialog>
     </>
+  );
+}
+
+/**
+ * The settings of the built-in browser: the home page, the history switch, and the import of
+ * sign-in data. The switch saves at once. The home page has its own Save button. Settings ›
+ * General opens it too, with the browser ID 'default'.
+ */
+export function BrowserSettingsDialog({
+  api,
+  browserId = 'default',
+  open,
+  onOpenChange,
+}: {
+  api: API;
+  browserId?: string;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}) {
+  const [home, setHome] = useState('');
+  const [savedHome, setSavedHome] = useState('');
+  const [remember, setRemember] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [notice, setNotice] = useState('');
+  const [failed, setFailed] = useState(false);
+  async function attempt(action: string, value?: unknown) {
+    setBusy(true);
+    setNotice('');
+    setFailed(false);
+    try {
+      const result = await api.browserAction(browserId, action, value);
+      if (typeof result === 'string') setNotice(result);
+      return { ok: true as const, result };
+    } catch (e) {
+      setNotice(errorMessage(e));
+      setFailed(true);
+      return { ok: false as const };
+    } finally {
+      setBusy(false);
+    }
+  }
+  useEffect(() => {
+    if (!open) return;
+    setNotice('');
+    setFailed(false);
+    void attempt('profile').then((outcome) => {
+      const profile = outcome.ok ? (outcome.result as BrowserProfileData | undefined) : undefined;
+      if (!profile) return;
+      setHome(profile.settings.home);
+      setSavedHome(profile.settings.home);
+      setRemember(profile.settings.rememberHistory);
+    });
+  }, [open, browserId]);
+  async function save(next: { home: string; rememberHistory: boolean }, message: string) {
+    const outcome = await attempt('settings', next);
+    if (outcome.ok) {
+      setSavedHome(next.home);
+      setNotice(message);
+    }
+    return outcome.ok;
+  }
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent size="md" layout="scroll">
+        <DialogHeader>
+          <DialogTitle>Browser settings</DialogTitle>
+          <DialogDescription>
+            Settings of the Kalkidan browser. Other browsers do not change.
+          </DialogDescription>
+        </DialogHeader>
+        <DialogBody className="grid content-start gap-4">
+          {notice && (
+            <p
+              role={failed ? 'alert' : 'status'}
+              className={failed ? 'field-error break-words' : 'text-xs leading-4 break-words'}
+            >
+              {notice}
+            </p>
+          )}
+          <form
+            className="grid gap-2"
+            onSubmit={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              void save({ home, rememberHistory: remember }, 'Home page saved');
+            }}
+          >
+            <label className="form-label" htmlFor="browser-home">
+              Home page
+            </label>
+            <div className="flex gap-2">
+              <Input
+                id="browser-home"
+                aria-label="Home page"
+                className="min-w-0 flex-1"
+                value={home}
+                onChange={(e) => setHome(e.target.value)}
+              />
+              <Button type="submit" variant="outline" disabled={busy || home === savedHome}>
+                Save
+              </Button>
+            </div>
+          </form>
+          <label className="flex items-center justify-between gap-4 text-sm">
+            <span className="grid">
+              Remember browsing history
+              <span className="form-help mt-0">Cookies stay between launches.</span>
+            </span>
+            <Switch
+              checked={remember}
+              disabled={busy}
+              onCheckedChange={(value) => {
+                setRemember(value);
+                void save(
+                  { home: savedHome, rememberHistory: value },
+                  value ? 'History is on' : 'History is off',
+                ).then((ok) => !ok && setRemember(!value));
+              }}
+            />
+          </label>
+          <p className="form-help mt-0">
+            Camera, microphone, location, and notifications stay blocked.
+          </p>
+          <section className="grid gap-2 border-t pt-4" aria-labelledby="browser-import">
+            <h3 id="browser-import" className="text-sm font-semibold">
+              Import sign-in data
+            </h3>
+            <p className="form-help mt-0">
+              Import a JSON cookie array, or a password CSV with url, username, and password
+              columns.
+            </p>
+            <div className="flex flex-wrap gap-2">
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                disabled={busy}
+                onClick={() => void attempt('import', 'cookies')}
+              >
+                Import cookies from JSON…
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                disabled={busy}
+                onClick={() => void attempt('import', 'passwords')}
+              >
+                Import passwords from CSV…
+              </Button>
+            </div>
+          </section>
+        </DialogBody>
+        <DialogFooter>
+          <Button onClick={() => onOpenChange(false)}>Done</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

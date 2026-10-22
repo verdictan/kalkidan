@@ -1,20 +1,22 @@
 import { useEffect, useState } from 'react';
 import {
   Brain,
-  ChevronDown,
   ChevronRight,
   FileText,
   FolderGit2,
   FolderPlus,
   GitBranch,
+  ListPlus,
+  MessageSquarePlus,
   Plus,
   SquareKanban,
 } from 'lucide-react';
-import { agentCatalog, agentLabel } from '../config/agents';
+import { agentLabel } from '../config/agents';
 import { sessionRepo } from '../lib/session-repository';
 import { NeedsYouList, relativeTime, useNeedsYou } from './project-overview';
 import { ActivityDot, ChatStatusDot, activityKey, useActivityState } from './activity-dot';
-import { agentInstalled, agentMenuLabel } from '../lib/agent-preference';
+import { NewChatButton } from './new-chat-button';
+import { useInProjectFrame } from './project-header';
 import { progressStatus } from '../hooks/use-project-boards';
 import { StatusIcon, trackerColumns } from './tracker-list';
 import { Hint } from './hint';
@@ -23,16 +25,6 @@ import { Button } from './ui/button';
 import { EmptyState } from './ui/empty-state';
 import { EntityIcon } from './ui/entity-icon';
 import { SectionHeader } from './ui/page-header';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuRadioGroup,
-  DropdownMenuRadioItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from './ui/dropdown-menu';
 import type { ProjectDocMetadata } from '../domain/docs';
 import type { API, Agent, Project, ProjectGroup, Session, TrackerBoard } from '../types';
 
@@ -104,74 +96,25 @@ function TimeLabel({ value }: { value?: string }) {
 }
 
 /**
- * "New {agent} chat" with a menu to choose the code folder and the agent. The main
- * part starts in the last used code folder.
+ * The "New chat" split button for pages outside a project frame. Inside a frame, the project
+ * header has the one "New chat" button, so this renders nothing.
  */
 export function NewSessionSplit({
   repos,
   sessions,
-  agent,
   preferredRepoId,
-  onAgent,
-  onStart,
 }: {
   repos: Project[];
   sessions: Session[];
-  agent: Agent;
+  /** The agent and the callbacks of older callers. The button reads the preference itself. */
+  agent?: Agent;
   preferredRepoId?: string;
-  onAgent: (agent: Agent) => void;
-  onStart: (repo: Project, agent: Agent) => void;
+  onAgent?: (agent: Agent) => void;
+  onStart?: (repo: Project, agent: Agent) => void;
 }) {
-  const target = lastUsedRepo(repos, sessions, preferredRepoId);
-  if (!target) return null;
-  return (
-    <div className="split-button" role="group" aria-label="Start a chat">
-      <Hint label={`Start in ${target.name}`}>
-        <Button className="rounded-r-none" onClick={() => onStart(target, agent)}>
-          <AgentIcon agent={agent} />
-          New {agentLabel(agent)} chat
-        </Button>
-      </Hint>
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <Button
-            size="icon"
-            className="rounded-l-none border-l border-primary-foreground/20"
-            aria-label="Choose a code folder and an agent"
-          >
-            <ChevronDown />
-          </Button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" className="min-w-56">
-          <DropdownMenuLabel>Start in</DropdownMenuLabel>
-          {repos.map((repo) => (
-            <DropdownMenuItem key={repo.id} onSelect={() => onStart(repo, agent)}>
-              <FolderGit2 />
-              <span className="min-w-0 truncate">{repo.name}</span>
-            </DropdownMenuItem>
-          ))}
-          <DropdownMenuSeparator />
-          <DropdownMenuLabel>Agent</DropdownMenuLabel>
-          <DropdownMenuRadioGroup value={agent} onValueChange={(value) => onAgent(value as Agent)}>
-            {agentCatalog.map(({ id }) => (
-              <DropdownMenuRadioItem
-                key={id}
-                value={id}
-                disabled={!agentInstalled(id)}
-                title={
-                  agentInstalled(id) ? undefined : `Install ${agentLabel(id)} in Settings › Agents`
-                }
-                onSelect={(e) => e.preventDefault()}
-              >
-                <AgentIcon agent={id} />
-                {agentMenuLabel(id, agentLabel(id))}
-              </DropdownMenuRadioItem>
-            ))}
-          </DropdownMenuRadioGroup>
-        </DropdownMenuContent>
-      </DropdownMenu>
-    </div>
-  );
+  const inFrame = useInProjectFrame();
+  if (inFrame || !repos.length) return null;
+  return <NewChatButton repos={repos} sessions={sessions} preferredRepoId={preferredRepoId} />;
 }
 
 /** The overview of one project: what needs you, code folders, recent chats, tasks, docs and memory. */
@@ -349,10 +292,16 @@ export function ProjectHome({
               title="Code folders"
               count={repos.length}
               actions={
-                <Button variant="ghost" size="sm" onClick={onCloneFromGitHub}>
-                  <GitHubMark />
-                  Clone from GitHub
-                </Button>
+                <>
+                  <Button variant="ghost" size="sm" onClick={onAddFolder}>
+                    <FolderPlus />
+                    Add a code folder
+                  </Button>
+                  <Button variant="ghost" size="sm" onClick={onCloneFromGitHub}>
+                    <GitHubMark />
+                    Clone from GitHub
+                  </Button>
+                </>
               }
             />
             <ul className="project-home-list">
@@ -385,15 +334,17 @@ export function ProjectHome({
                         </span>
                       </span>
                     </button>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      aria-label={`New ${agentLabel(agent)} chat in ${repo.name}`}
-                      onClick={() => onNewSession(repo, agent)}
-                    >
-                      <AgentIcon agent={agent} />
-                      New {agentLabel(agent)} chat
-                    </Button>
+                    <Hint label={`New chat in ${repo.name}`}>
+                      <Button
+                        variant="ghost"
+                        size="icon-xs"
+                        className="project-home-row-action"
+                        aria-label={`New chat in ${repo.name}`}
+                        onClick={() => onNewSession(repo, agent)}
+                      >
+                        <MessageSquarePlus />
+                      </Button>
+                    </Hint>
                   </li>
                 );
               })}
@@ -472,18 +423,9 @@ export function ProjectHome({
               title="Tasks"
               count={board?.items.length}
               actions={
-                canCreateTask && (
-                  <Hint label="New task">
-                    <Button
-                      variant="ghost"
-                      size="icon-xs"
-                      aria-label="New task"
-                      onClick={onNewTask}
-                    >
-                      <Plus />
-                    </Button>
-                  </Hint>
-                )
+                <Button variant="ghost" size="sm" onClick={onOpenTasks}>
+                  Open tasks
+                </Button>
               }
             />
             {board ? (
@@ -549,10 +491,12 @@ export function ProjectHome({
             ) : (
               <p className="project-home-card-text">Loading tasks…</p>
             )}
-            <Button variant="outline" size="sm" className="self-start" onClick={onOpenTasks}>
-              <SquareKanban />
-              Open tasks
-            </Button>
+            {canCreateTask && (
+              <Button variant="outline" size="sm" className="self-start" onClick={onNewTask}>
+                <ListPlus />
+                New task
+              </Button>
+            )}
           </section>
         ) : (
           onConnectBoard && (
@@ -561,7 +505,7 @@ export function ProjectHome({
               <p className="project-home-card-text">
                 Optional. Connect a {boardName} to see its tasks here and start chats from them.
               </p>
-              <Button variant="secondary" size="sm" className="self-start" onClick={onConnectBoard}>
+              <Button variant="outline" size="sm" className="self-start" onClick={onConnectBoard}>
                 <SquareKanban />
                 Connect a {boardName}
               </Button>

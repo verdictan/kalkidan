@@ -1,54 +1,49 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { ExternalLink, RefreshCw } from 'lucide-react';
+import { Download, ExternalLink } from 'lucide-react';
 import type { API } from '../types';
 import type { ComponentInventory, DesktopUpdateStatus } from '../domain/updates';
-import { Button } from './ui/button';
-import { errorMessage } from '../lib/errors';
+import { settingsAnchors } from '../domain/settings-route';
+import { useRefreshTriggers } from '../hooks/use-refresh-triggers';
 import { notifyUpdatesChanged } from '../hooks/use-update-status';
+import { errorMessage } from '../lib/errors';
+import { fullTime, relativeTime } from '../lib/relative-time';
+import { desktopStatusLabel, displayVersion, type StatusLabel } from '../lib/verdictan-labels';
+import { Hint } from './hint';
 import {
-  desktopStatusLabel,
-  displayVersion,
-  helperStatusLabel,
-  runtimeInstallable,
-  runtimeStatusLabel,
-  shortId,
-} from '../lib/verdictan-labels';
-import type { ComponentUpdateStatus } from '../domain/updates';
-import { computerAnchor, helperUpdateAnchor, runtimeAnchor } from '../domain/settings-route';
-import { StepError, UpdateCard, type SettingsNavigate } from './verdictan-settings';
-import { CopyValue, SettingsDisclosure } from './settings-disclosure';
+  CopyValue,
+  SettingsAdvanced,
+  SettingsRow,
+  SettingsRows,
+  StatusBadge,
+} from './settings-disclosure';
+import { StepError, runtimeView, useRuntimeStatus } from './verdictan-settings';
+import { Button } from './ui/button';
+import { EntityIcon } from './ui/entity-icon';
 import { Progress } from './ui/progress';
-import type { StatusLabel } from '../lib/verdictan-labels';
+
+export const userGuideUrl = 'https://github.com/verdictan/kalkidan/blob/main/docs/user-guide.md';
+export const reportIssueUrl = 'https://github.com/verdictan/kalkidan/issues';
 
 const activePhases = ['downloading', 'verifying', 'staging'];
-const phaseText: Record<string, string> = {
-  downloading: 'Downloading',
-  verifying: 'Checking the SHA-256 checksum',
-  staging: 'Preparing the update',
-  staged: 'Ready to install',
-  restarting: 'Restarting',
-  failed: 'Update failed',
-  canceled: 'Download canceled',
-};
 const megabytes = (bytes: number) => `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 
-/** The status badge of the desktop app. A running or staged update replaces the check result. */
+/** The status of the desktop app. A running or staged update replaces the check result. */
 export function desktopUpdateLabel(desktop: DesktopUpdateStatus): StatusLabel {
-  // A development build does not update. A release with the same version is not an update.
-  if (desktop.install.kind === 'development')
-    return { label: 'Development build; updates are off', tone: 'muted' };
+  // A development build does not update. The reason shows on the line below.
+  if (desktop.install.kind === 'development') return { label: 'Updates off', tone: 'muted' };
   const phase = desktop.update?.phase;
-  if (phase && activePhases.includes(phase)) return { label: phaseText[phase], tone: 'secondary' };
-  if (phase === 'staged') return { label: 'Restart to update', tone: 'warning' };
-  if (phase === 'restarting') return { label: 'Restarting', tone: 'secondary' };
+  if (phase && activePhases.includes(phase)) return { label: 'Downloading…', tone: 'secondary' };
+  if (phase === 'staged') return { label: 'Ready to restart', tone: 'warning' };
+  if (phase === 'restarting') return { label: 'Restarting…', tone: 'secondary' };
   return desktopStatusLabel(desktop);
 }
 
 /**
- * The Kalkidan card in Settings › Updates. Each step needs a user action: download, verify,
- * then "Restart to update". A copy that cannot update itself links to the release page.
+ * The update banner at the top of About: "Kalkidan x.y is ready — Restart". Before that, it
+ * shows the download of an available release and its progress. Nothing shows without a
+ * release.
  */
-function DesktopUpdateCard({
+function DesktopUpdateBanner({
   api,
   desktop,
   onStatus,
@@ -84,329 +79,286 @@ function DesktopUpdateCard({
     setFailure('');
     try {
       onStatus(await action());
+      notifyUpdatesChanged();
     } catch (reason) {
       setFailure(errorMessage(reason));
     } finally {
       setBusy(false);
     }
   }
-  const development = desktop.install.kind === 'development';
-  const release = desktop.discovery === 'available' && !development ? desktop.release : undefined;
+  if (desktop.install.kind === 'development') return null;
+  const release = desktop.discovery === 'available' ? desktop.release : undefined;
+  const staged = update?.phase === 'staged';
+  const failed = update?.phase === 'failed' || !!failure;
+  if (!release && !update) return null;
+  const version = displayVersion(update?.version || release?.version || '');
   const selfUpdate = desktop.install.selfUpdate;
-  const releaseLink = release && (
-    <Button asChild size="sm" variant={selfUpdate ? 'outline' : 'default'}>
-      <a href={release.url} target="_blank" rel="noreferrer">
-        {selfUpdate ? 'Open release page' : `Download ${displayVersion(release.version)}`}
-        <ExternalLink aria-hidden="true" />
-      </a>
-    </Button>
-  );
-  let action: ReactNode = null;
-  if (development) action = null;
-  else if (!selfUpdate) action = releaseLink;
-  else if (update?.phase === 'staged')
-    action = (
-      <Button size="sm" disabled={busy} onClick={() => void run(() => api.desktopUpdateRestart())}>
-        Restart to update
-      </Button>
-    );
-  else if (active)
-    action = (
-      <Button
-        size="sm"
-        variant="outline"
-        disabled={busy}
-        onClick={() => void run(() => api.desktopUpdateCancel())}
-      >
-        Cancel download
-      </Button>
-    );
-  else if (release && (!update || ['failed', 'canceled'].includes(update.phase)))
-    action = (
-      <Button size="sm" disabled={busy} onClick={() => void run(() => api.desktopUpdateDownload())}>
-        Download {displayVersion(release.version)}
-      </Button>
-    );
   const percent =
     update?.phase === 'downloading' && update.totalBytes > 0
       ? (update.receivedBytes / update.totalBytes) * 100
       : undefined;
+  let title: string;
+  let help: ReactNode;
+  let action: ReactNode = null;
+  if (staged) {
+    title = `Kalkidan ${version} is ready`;
+    help = 'Restart to finish. The agents on this computer stop. Your chats stay.';
+    action = (
+      <Button size="sm" disabled={busy} onClick={() => void run(() => api.desktopUpdateRestart())}>
+        Restart
+      </Button>
+    );
+  } else if (active) {
+    title = `Downloading Kalkidan ${version}`;
+    help =
+      update!.phase === 'downloading' && update!.totalBytes > 0
+        ? `${megabytes(update!.receivedBytes)} of ${megabytes(update!.totalBytes)}`
+        : update!.phase === 'verifying'
+          ? `Verifying version ${version}…`
+          : 'Preparing the update…';
+    action = (
+      <Button
+        variant="ghost"
+        size="sm"
+        disabled={busy}
+        onClick={() => void run(() => api.desktopUpdateCancel())}
+      >
+        Cancel
+      </Button>
+    );
+  } else if (release && !selfUpdate) {
+    title = `Kalkidan ${version} is available`;
+    help = desktop.install.reason || 'Install the download, then restart Kalkidan.';
+    action = (
+      <Button asChild size="sm">
+        <a href={release.url} target="_blank" rel="noreferrer">
+          Download
+          <ExternalLink aria-hidden="true" />
+        </a>
+      </Button>
+    );
+  } else if (release) {
+    title = `Kalkidan ${version} is available`;
+    help = failed ? 'The download did not finish.' : 'Download it now. You restart when you want.';
+    action = (
+      <Button size="sm" disabled={busy} onClick={() => void run(() => api.desktopUpdateDownload())}>
+        {failed ? 'Try again' : 'Download'}
+      </Button>
+    );
+  } else return null;
   return (
-    <UpdateCard
-      name="Kalkidan"
-      version={displayVersion(desktop.runningVersion)}
-      status={desktopUpdateLabel(desktop)}
-      action={action}
-    >
-      {update && update.phase !== 'staged' && (
-        <p role="status" aria-live="polite">
-          {phaseText[update.phase]} · Kalkidan {displayVersion(update.version)}
-          {update.phase === 'downloading' &&
-            update.totalBytes > 0 &&
-            ` · ${megabytes(update.receivedBytes)} of ${megabytes(update.totalBytes)}`}
-        </p>
-      )}
-      {active && <Progress label="Desktop update download" value={percent} />}
-      {update?.phase === 'staged' && (
-        <p role="status" aria-live="polite">
-          Kalkidan {displayVersion(update.version)} is verified and ready. Restart to install it.
-          The agents on this computer stop before the restart. Their chats stay on disk.
-        </p>
-      )}
-      {release && !selfUpdate && (
-        <p>Install the download, then restart Kalkidan. The download does not replace the app.</p>
-      )}
-      {release && !selfUpdate && desktop.install.reason && <p>{desktop.install.reason}</p>}
-      {development && <p>Install a release build of Kalkidan to get updates.</p>}
+    <section aria-label="Kalkidan update" className="grid gap-2">
+      <div className="settings-banner">
+        <EntityIcon>
+          <Download />
+        </EntityIcon>
+        <div className="settings-row-text" aria-live="polite">
+          <span className="settings-row-label">{title}</span>
+          <span className="settings-row-help">{help}</span>
+        </div>
+        {action}
+      </div>
+      {active && <Progress label="Kalkidan update download" value={percent} />}
       {(failure || update?.error) && <StepError>{failure || update?.error}</StepError>}
-      {update?.phase === 'failed' && selfUpdate && releaseLink}
-      {desktop.stale && desktop.lastSuccessAt && <p>The last check may be out of date.</p>}
-      {desktop.error && <p>{desktop.error}</p>}
-      <SettingsDisclosure title="Verify download">
-        <dl className="meta-list">
-          <dt>Running build</dt>
-          <dd>
-            <CopyValue value={desktop.runningBuild} name="Running build" />
-          </dd>
-          {release && (
-            <>
-              <dt>New version</dt>
-              <dd>
-                <CopyValue value={release.version} name="Version" />
-              </dd>
-              <dt>SHA-256</dt>
-              <dd>
-                <CopyValue value={release.sha256} name="SHA-256" />
-              </dd>
-              <dt>Published</dt>
-              <dd>{new Date(release.publishedAt).toLocaleString()}</dd>
-            </>
-          )}
-          {desktop.lastSuccessAt && (
-            <>
-              <dt>Last checked</dt>
-              <dd>{new Date(desktop.lastSuccessAt).toLocaleString()}</dd>
-            </>
-          )}
-        </dl>
-      </SettingsDisclosure>
-    </UpdateCard>
+    </section>
   );
 }
 
 /**
- * The managed agents runtime of one computer in Settings › Updates. Install and update it in
- * Settings › Computers.
+ * Settings › About: the update banner, the Kalkidan version with the one "Check for updates"
+ * button, the agent tools, and help links. The Advanced fold has the build, the SHA-256, and
+ * the release page.
  */
-function RuntimeSummaryCard({
-  api,
-  open,
-  hostId,
-  name,
-  onOpen,
-}: {
-  api: API;
-  open: boolean;
-  /** 'local' or the ID of an SSH host. */
-  hostId: string;
-  name: string;
-  onOpen: () => void;
-}) {
-  const [status, setStatus] = useState<ComponentUpdateStatus>();
-  const [failed, setFailed] = useState(false);
-  useEffect(() => {
-    if (!open) return;
-    let live = true;
-    void Promise.resolve()
-      .then(() => api.runtimeUpdateStatus(hostId))
-      .then(
-        (value) => live && (setStatus(value), setFailed(false)),
-        () => live && setFailed(true),
-      );
-    return () => {
-      live = false;
-    };
-  }, [api, open, hostId]);
-  const label: StatusLabel = failed
-    ? { label: 'Check failed', tone: 'destructive' }
-    : runtimeStatusLabel(status);
-  return (
-    <UpdateCard
-      name={name}
-      version={status?.installed?.version}
-      status={label}
-      action={
-        <Button
-          variant={runtimeInstallable(status) ? 'default' : 'outline'}
-          size="sm"
-          aria-label={`Open ${name} in Computers`}
-          onClick={onOpen}
-        >
-          Open in Computers
-        </Button>
-      }
-    />
-  );
-}
-
-/** Settings › Updates: one card for each component that Kalkidan updates. */
-export function ComponentUpdates({
+export function AboutSection({
   api,
   open = true,
-  onNavigate,
+  onOpenComputers,
 }: {
   api: API;
   open?: boolean;
-  /** Moves Settings to another tab, for example to one computer in Computers. */
-  onNavigate: SettingsNavigate;
+  /** Opens Settings › Computers, where a runtime or a helper problem shows. */
+  onOpenComputers?: () => void;
 }) {
   const [inventory, setInventory] = useState<ComponentInventory>();
-  const [busy, setBusy] = useState(false);
+  const [checking, setChecking] = useState(false);
   const [error, setError] = useState('');
-  const [revision, setRevision] = useState(0);
   const generation = useRef(0);
-  useEffect(() => {
+  const runtime = useRuntimeStatus(api, open, 'local');
+  function read(force: boolean) {
     // Older desktop builds do not report component versions.
-    if (!open || typeof api.componentUpdates !== 'function') return;
-    let live = true;
-    const refresh = (force: boolean) => {
-      const token = ++generation.current;
-      setBusy(true);
-      void Promise.resolve()
-        .then(() => api.componentUpdates(force))
-        .then(
-          (value) => {
-            if (live && token === generation.current) {
-              setInventory(value);
-              setError('');
-              if (force) notifyUpdatesChanged();
-            }
-          },
-          (failure) => {
-            if (live && token === generation.current) setError(errorMessage(failure));
-          },
-        )
-        .finally(() => {
-          if (live && token === generation.current) setBusy(false);
-        });
-    };
-    refresh(revision > 0);
-    const unsubscribe = api.onRemoteHostsChange?.(() => refresh(false));
-    return () => {
-      live = false;
-      unsubscribe?.();
-    };
-  }, [api, open, revision]);
+    if (typeof api.componentUpdates !== 'function') return;
+    const token = ++generation.current;
+    if (force) setChecking(true);
+    void Promise.resolve()
+      .then(() => api.componentUpdates(force))
+      .then(
+        (value) => {
+          if (token !== generation.current) return;
+          setInventory(value);
+          setError('');
+          if (force) notifyUpdatesChanged();
+        },
+        (failure) => token === generation.current && setError(errorMessage(failure)),
+      )
+      .finally(() => token === generation.current && setChecking(false));
+  }
+  useRefreshTriggers(undefined, open, () => read(false));
+  useEffect(() => {
+    if (!open) return;
+    return api.onRemoteHostsChange?.(() => read(false));
+  }, [api, open]);
   const desktop = inventory?.desktop;
+  const development = desktop?.install.kind === 'development';
+  const checkedAt = desktop?.lastSuccessAt ? new Date(desktop.lastSuccessAt).toISOString() : '';
+  const version = !desktop?.runningVersion
+    ? 'Version not known'
+    : /^\d/.test(desktop.runningVersion)
+      ? `Version ${displayVersion(desktop.runningVersion)}`
+      : desktop.runningVersion;
+  const kalkidanHelp = development
+    ? `${version} · Updates are off in a development build.`
+    : checking
+      ? `${version} · Checking…`
+      : checkedAt
+        ? `${version} · Checked ${relativeTime(checkedAt)}`
+        : version;
+  const view = runtimeView(runtime);
+  const helperUpdates = (inventory?.helpers || []).filter((h) =>
+    ['available', 'waiting-for-idle'].includes(h.discovery),
+  );
+  const toolsStatus: StatusLabel = !runtime.status
+    ? { label: 'Checking…', tone: 'secondary' }
+    : view.failure
+      ? { label: 'Needs attention', tone: 'destructive' }
+      : view.running
+        ? { label: 'Updating…', tone: 'secondary' }
+        : !runtime.status.installed
+          ? { label: 'Not installed', tone: 'warning' }
+          : helperUpdates.length
+            ? { label: 'Update waiting', tone: 'warning' }
+            : { label: 'Up to date', tone: 'success' };
+  const toolsAttention = ['destructive', 'warning'].includes(toolsStatus.tone);
+  const checkButton = (
+    <Button
+      variant="outline"
+      size="sm"
+      disabled={checking || development || !desktop}
+      onClick={() => read(true)}
+    >
+      {checking ? 'Checking…' : 'Check for updates'}
+    </Button>
+  );
   return (
-    <section aria-label="Updates" className="grid gap-3">
-      <div className="flex items-center justify-between gap-4">
-        <p className="form-help">
-          Kalkidan checks for new versions. It installs a desktop update only after you select
-          Restart to update.
-        </p>
-        <Button
-          variant="outline"
-          size="sm"
-          disabled={busy}
-          onClick={() => setRevision((value) => value + 1)}
-        >
-          <RefreshCw className={busy ? 'animate-spin' : ''} />
-          {busy ? 'Checking…' : 'Check for updates'}
-        </Button>
-      </div>
-      {error && <StepError>{error}</StepError>}
-      <ul className="grid gap-2" aria-label="Components">
-        {desktop && (
-          <DesktopUpdateCard
-            api={api}
-            desktop={desktop}
-            onStatus={(next) => setInventory((value) => value && { ...value, desktop: next })}
-          />
-        )}
-        <RuntimeSummaryCard
+    <>
+      {desktop && (
+        <DesktopUpdateBanner
           api={api}
-          open={open}
-          hostId="local"
-          name="Managed agents runtime"
-          onOpen={() => onNavigate('computers', runtimeAnchor())}
+          desktop={desktop}
+          onStatus={(next) => setInventory((value) => value && { ...value, desktop: next })}
         />
-        {inventory?.helpers
-          .filter((helper) => helper.connected)
-          .map((helper) => (
-            <RuntimeSummaryCard
-              key={`runtime-${helper.hostId}`}
-              api={api}
-              open={open}
-              hostId={helper.hostId}
-              name={`Managed agents runtime on ${helper.name}`}
-              onOpen={() => onNavigate('computers', runtimeAnchor(helper.hostId))}
+      )}
+      <SettingsRows label="About">
+        <SettingsRow
+          id={settingsAnchors.about}
+          icon={
+            <img
+              src="./brand/kalkidan-icon.svg"
+              alt=""
+              width="32"
+              height="32"
+              className="size-8 shrink-0 rounded-lg"
             />
-          ))}
-        {inventory?.helpers.map((helper) => (
-          <UpdateCard
-            key={helper.hostId}
-            name={`SSH helper on ${helper.name}`}
-            subtitle={helper.installed ? `Build ${shortId(helper.installed)}` : 'Build not known'}
-            status={helperStatusLabel(helper)}
-            action={
-              <Button
-                variant={helper.discovery === 'available' ? 'default' : 'outline'}
-                size="sm"
-                aria-label={`Open ${helper.name} in Computers`}
-                onClick={() =>
-                  onNavigate(
-                    'computers',
-                    // Move to the update button when the update waits for the user.
-                    helper.discovery === 'available' || helper.discovery === 'waiting-for-idle'
-                      ? helperUpdateAnchor(helper.hostId)
-                      : computerAnchor(helper.hostId),
-                  )
-                }
-              >
-                Open in Computers
-              </Button>
-            }
-          >
-            {helper.discovery === 'available' && (
-              <p>Update the helper in Computers. Active work on the host must finish first.</p>
+          }
+          label="Kalkidan"
+          help={
+            <span
+              data-testid="settings-version"
+              title={checkedAt ? fullTime(checkedAt) : undefined}
+            >
+              {kalkidanHelp}
+            </span>
+          }
+        >
+          {/* The banner shows an update. Only "Updates off" needs a badge here. */}
+          {development && <StatusBadge status={desktopUpdateLabel(desktop)} />}
+          {development ? (
+            <Hint label="A development build does not update. Install a release build to get updates.">
+              {checkButton}
+            </Hint>
+          ) : (
+            checkButton
+          )}
+        </SettingsRow>
+        <SettingsRow
+          label="Agent tools"
+          help={
+            toolsAttention
+              ? helperUpdates.length && !view.failure
+                ? 'An SSH helper update waits for active work to stop.'
+                : view.help
+              : 'Managed agents and SSH helpers update by themselves.'
+          }
+        >
+          <StatusBadge status={toolsStatus} />
+          {toolsAttention && onOpenComputers && (
+            <Button variant="ghost" size="sm" onClick={onOpenComputers}>
+              Open Computers
+            </Button>
+          )}
+        </SettingsRow>
+        <SettingsRow label="Help" help="Guides and problem reports.">
+          <ExternalTextLink href={userGuideUrl}>User guide</ExternalTextLink>
+          <ExternalTextLink href={reportIssueUrl}>Report an issue</ExternalTextLink>
+        </SettingsRow>
+      </SettingsRows>
+      {error && <StepError>{error}</StepError>}
+      {desktop && (
+        <SettingsAdvanced>
+          <SettingsRows>
+            <SettingsRow
+              label="Build"
+              help={<CopyValue value={desktop.runningBuild} name="Build" />}
+            />
+            {desktop.release && (
+              <>
+                <SettingsRow
+                  label={`Kalkidan ${displayVersion(desktop.release.version)} SHA-256`}
+                  help={<CopyValue value={desktop.release.sha256} name="SHA-256" />}
+                />
+                <SettingsRow
+                  label="Release page"
+                  help={`Published ${new Date(desktop.release.publishedAt).toLocaleString()}`}
+                >
+                  <ExternalTextLink href={desktop.release.url}>Open</ExternalTextLink>
+                </SettingsRow>
+              </>
             )}
-            <SettingsDisclosure title="Verify helper">
-              <dl className="meta-list">
-                <dt>Installed</dt>
-                <dd>
-                  {helper.installed ? (
-                    <CopyValue value={helper.installed} name="Digest" />
-                  ) : (
-                    'Not known'
-                  )}
-                </dd>
-                <dt>Running</dt>
-                <dd>
-                  {helper.running ? (
-                    <CopyValue value={helper.running} name="Digest" />
-                  ) : helper.connected ? (
-                    'Not known'
-                  ) : (
-                    'Disconnected'
-                  )}
-                </dd>
-                <dt>In this app</dt>
-                <dd>
-                  <CopyValue value={helper.approved} name="Digest" />
-                </dd>
-              </dl>
-            </SettingsDisclosure>
-          </UpdateCard>
-        ))}
-      </ul>
-      <p className="form-help">
-        Codex and Claude Code update separately. See their versions in{' '}
-        <button type="button" className="text-link" onClick={() => onNavigate('agents')}>
-          Settings › Agents
-        </button>
-        .
-      </p>
-    </section>
+            {desktop.lastSuccessAt && (
+              <SettingsRow
+                label="Last check"
+                help={`${new Date(desktop.lastSuccessAt).toLocaleString()}${
+                  desktop.stale ? ' · It may be out of date.' : ''
+                }`}
+              />
+            )}
+            {desktop.error && <SettingsRow label="Last check error" help={desktop.error} />}
+          </SettingsRows>
+        </SettingsAdvanced>
+      )}
+    </>
+  );
+}
+
+function ExternalTextLink({ href, children }: { href: string; children: ReactNode }) {
+  return (
+    <a
+      href={href}
+      target="_blank"
+      rel="noreferrer"
+      className="inline-flex items-center gap-1 rounded-sm text-xs leading-4 text-link outline-none hover:underline focus-visible:shadow-[var(--focus-ring)]"
+    >
+      {children}
+      <ExternalLink className="size-3" aria-hidden="true" />
+    </a>
   );
 }

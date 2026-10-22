@@ -30,7 +30,12 @@ export interface MemoryEntry {
   topic: string;
   content: string;
   revision: string;
-  provenance: 'verified' | 'legacy' | 'external';
+  /**
+   * `verified`: an agent saved it with exact quotes from a chat. `user`: the user wrote or
+   * edited it in Memory; it has no chat references. Agents read both the same way. `external`:
+   * the file changed outside Kalkidan. `legacy`: a file from before managed memory.
+   */
+  provenance: 'verified' | 'user' | 'legacy' | 'external';
   source: { sessionId: string; turnId: string; references: { id: string; quote: string }[] };
   createdAt: string;
   updatedAt: string;

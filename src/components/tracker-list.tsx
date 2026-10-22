@@ -32,14 +32,21 @@ import { Choice } from './choice';
 import { Hint } from './hint';
 import { pathBasename, plural } from '../lib/platform';
 
-export function StatusIcon({ name }: { name: string }) {
-  if (/done|complete|closed/i.test(name))
-    return <CircleCheck size={14} className="shrink-0 text-success" aria-hidden="true" />;
+/** True for a status that means the work is complete, such as "Done" or "Closed". */
+export function isDoneStatus(name: string) {
+  return /done|complete|closed/i.test(name);
+}
+
+/** The icon of a status. Menus use size 16; rows and cards use 14. */
+export function StatusIcon({ name, size = 14 }: { name: string; size?: 14 | 16 }) {
+  const box = size === 16 ? 'size-4' : 'size-3.5';
+  if (isDoneStatus(name))
+    return <CircleCheck className={`${box} shrink-0 text-success`} aria-hidden="true" />;
   if (/progress|doing|review/i.test(name))
-    return <CircleDot size={14} className="shrink-0 text-warning" aria-hidden="true" />;
+    return <CircleDot className={`${box} shrink-0 text-warning`} aria-hidden="true" />;
   if (/backlog|no status/i.test(name))
-    return <CircleDashed size={14} className="shrink-0 text-muted-foreground" aria-hidden="true" />;
-  return <Circle size={14} className="shrink-0 text-muted-foreground" aria-hidden="true" />;
+    return <CircleDashed className={`${box} shrink-0 text-muted-foreground`} aria-hidden="true" />;
+  return <Circle className={`${box} shrink-0 text-muted-foreground`} aria-hidden="true" />;
 }
 export function trackerColumns(board: TrackerBoard) {
   const options = board.statusField?.options || [];
@@ -66,7 +73,7 @@ export interface TaskWorkProps {
   /** The background state of open chats, by activityKey(agent, id). */
   activity?: Record<string, SessionActivityState>;
   onOpenChat?: (session: Session) => void;
-  /** Starts a chat on the task. The board shows "Start" and the S key starts it. */
+  /** Starts a chat on the task. The board shows "Start task" and the S key starts it. */
   onStart?: (item: TrackerItem) => void;
   selection?: TaskSelection;
 }
@@ -105,16 +112,28 @@ export function TaskChats({
   chats,
   activity,
   onOpenChat,
+  showAgent = false,
+  tabIndex,
 }: {
   chats: Session[];
   activity?: Record<string, SessionActivityState>;
   onOpenChat?: (session: Session) => void;
+  /** Shows the agent of the latest chat, for the Chat column of the list. */
+  showAgent?: boolean;
+  /** -1 on the board, where the card is the only tab stop. */
+  tabIndex?: number;
 }) {
   if (!chats.length) return null;
   const state = chatsActivity(chats, activity);
-  const label = state ? activityWords[state] : plural(chats.length, 'chat');
+  const label = state
+    ? activityWords[state]
+    : showAgent && chats.length === 1
+      ? agentLabel(chats[0].agent)
+      : plural(chats.length, 'chat');
   const icon = state ? (
     <ActivityDot state={state} />
+  ) : showAgent ? (
+    <AgentIcon agent={chats[0].agent} />
   ) : (
     <MessageSquare size={12} aria-hidden="true" />
   );
@@ -133,6 +152,7 @@ export function TaskChats({
             size="xs"
             className="tracker-task-chats"
             data-state={state}
+            tabIndex={tabIndex}
             aria-label={`${label}. Open chat: ${title(chats[0])}`}
             onClick={() => onOpenChat(chats[0])}
           >
@@ -148,6 +168,7 @@ export function TaskChats({
               size="xs"
               className="tracker-task-chats"
               data-state={state}
+              tabIndex={tabIndex}
               aria-label={`${label}. ${plural(chats.length, 'chat')}. Choose a chat to open`}
             >
               {icon}
@@ -170,22 +191,30 @@ export function TaskChats({
           </DropdownMenuContent>
         </DropdownMenu>
       )}
-      <TaskPullRequest chats={chats} />
+      <TaskPullRequest chats={chats} tabIndex={tabIndex} />
     </>
   );
 }
 
-/** The pull request that a chat of the task opened, as a badge that opens it on GitHub. */
-export function TaskPullRequest({ chats }: { chats: Session[] }) {
-  const pullRequest = chats.find((s) => s.organization?.pullRequest?.url)?.organization
-    ?.pullRequest;
+/** The pull request of the chats of a task: the one of the latest chat that has one. */
+export function taskPullRequest(chats: Session[]) {
+  return chats.find((s) => s.organization?.pullRequest?.url)?.organization?.pullRequest;
+}
+export function pullRequestStateWord(state?: 'open' | 'merged' | 'closed') {
+  return state ? pullRequestWords[state] : '';
+}
+
+/** The pull request that a chat of the task opened, as a small link that opens it on GitHub. */
+export function TaskPullRequest({ chats, tabIndex }: { chats: Session[]; tabIndex?: number }) {
+  const pullRequest = taskPullRequest(chats);
   if (!pullRequest) return null;
   return (
-    <Badge asChild variant="outline" size="sm" className="tracker-task-pr">
+    <Button asChild variant="ghost" size="xs" className="tracker-task-pr">
       <a
         href={pullRequest.url}
         target="_blank"
         rel="noreferrer"
+        tabIndex={tabIndex}
         aria-label={
           `Pull request${pullRequest.number ? ` #${pullRequest.number}` : ''}` +
           `${pullRequest.state ? `, ${pullRequestWords[pullRequest.state].toLowerCase()}` : ''}` +
@@ -194,27 +223,36 @@ export function TaskPullRequest({ chats }: { chats: Session[] }) {
         data-state={pullRequest.state}
       >
         <GitPullRequest aria-hidden="true" />
-        PR{pullRequest.number ? ` #${pullRequest.number}` : ''}
+        {pullRequest.number ? `#${pullRequest.number}` : 'PR'}
         {pullRequest.state ? ` · ${pullRequestWords[pullRequest.state]}` : ''}
       </a>
-    </Badge>
+    </Button>
   );
 }
 
-/** A small "Start" button that shows on hover and focus. The S key does the same. */
-export function TaskStartButton({ item, onStart }: { item: TrackerItem; onStart: () => void }) {
+/** The "Start task" button of a card or a row. It always shows. The S key does the same. */
+export function TaskStartButton({
+  item,
+  onStart,
+  tabIndex,
+}: {
+  item: TrackerItem;
+  onStart: () => void;
+  tabIndex?: number;
+}) {
   return (
     <Hint label="Start a chat on this task (S)">
       <Button
         variant="ghost"
         size="xs"
         className="tracker-task-start"
-        aria-label={`Start a chat on ${item.title}`}
+        aria-label={`Start task: ${item.title}`}
         aria-keyshortcuts="S"
+        tabIndex={tabIndex}
         onClick={onStart}
       >
         <Play aria-hidden="true" />
-        Start
+        Start task
       </Button>
     </Hint>
   );
@@ -228,9 +266,14 @@ function typing(event: KeyboardEvent) {
   );
 }
 
+/** True when the event comes from the title button of a task, the focus stop of the task. */
+function onTaskTitle(event: KeyboardEvent) {
+  return !!(event.target as HTMLElement).closest('[data-task-focus]');
+}
+
 /**
- * Keys on a task: S starts a chat. On the board or the list: ⌘A or Ctrl+A selects all visible
- * tasks and Escape clears the selection.
+ * Keys on a task: S starts a chat and Space selects the task. On the board or the list: ⌘A or
+ * Ctrl+A selects all visible tasks and Escape clears the selection.
  */
 export function taskKeys(item: TrackerItem, work: TaskWorkProps) {
   return (event: KeyboardEvent) => {
@@ -239,7 +282,18 @@ export function taskKeys(item: TrackerItem, work: TaskWorkProps) {
       event.preventDefault();
       event.stopPropagation();
       work.onStart(item);
+    } else if (event.key === ' ' && work.selection && onTaskTitle(event)) {
+      // Space on the title selects. Without this, the button opens the task.
+      event.preventDefault();
+      event.stopPropagation();
+      work.selection.toggle(item, event.shiftKey);
     }
+  };
+}
+/** Stops the click that Space makes on a title button when Space selects the task. */
+export function taskKeyUp(work: TaskWorkProps) {
+  return (event: KeyboardEvent) => {
+    if (event.key === ' ' && work.selection && onTaskTitle(event)) event.preventDefault();
   };
 }
 export function selectionKeys(selection?: TaskSelection) {
@@ -265,20 +319,26 @@ export function selectionClick(event: MouseEvent, item: TrackerItem, selection?:
   return true;
 }
 
-/** The check box that selects a task. It shows on hover and focus, and always while selecting. */
+/**
+ * The check box that selects a task. Its outline always shows faintly, so that the place is
+ * clear. It shows fully on hover and focus, and while the user selects.
+ */
 export function TaskCheckbox({
   item,
   selection,
   className,
+  tabIndex,
 }: {
   item: TrackerItem;
   selection: TaskSelection;
   className?: string;
+  tabIndex?: number;
 }) {
   return (
     <Checkbox
       className={className ? `tracker-task-select ${className}` : 'tracker-task-select'}
       aria-label={`Select ${item.title}`}
+      tabIndex={tabIndex}
       checked={selection.ids.has(item.id)}
       onClick={(event) => {
         // The change event has no Shift key, so the click changes the selection. React then
@@ -311,7 +371,7 @@ export function TrackerList({
   const selecting = !!selection?.ids.size;
   const allSelected =
     !!selection && items.length > 0 && items.every((i) => selection.ids.has(i.id));
-  const columnCount = selection ? 4 : 3;
+  const columnCount = 4 + (selection ? 1 : 0) + (work.onStart ? 1 : 0);
   return (
     <Table
       className="tracker-list table-fixed"
@@ -334,8 +394,14 @@ export function TrackerList({
             </TableHead>
           )}
           <TableHead className={selection ? '' : 'first:pl-0'}>Title</TableHead>
-          <TableHead className="w-[22%]">GitHub repository</TableHead>
-          <TableHead className="w-44">Status</TableHead>
+          <TableHead className="w-[18%]">Repository</TableHead>
+          <TableHead className="w-40">Chat</TableHead>
+          <TableHead className="w-40">Status</TableHead>
+          {work.onStart && (
+            <TableHead className="tracker-list-start">
+              <span className="sr-only">Start</span>
+            </TableHead>
+          )}
         </TableRow>
       </TableHeader>
       {trackerColumns(board).map((column) => {
@@ -347,7 +413,7 @@ export function TrackerList({
         if (!tasks.length) return null;
         return (
           <TableBody key={column.id}>
-            <TableRow className="tracker-list-group hover:bg-transparent">
+            <TableRow className="tracker-list-group border-b-0 hover:bg-transparent">
               <th scope="rowgroup" colSpan={columnCount} className="h-8 pl-0 text-left font-normal">
                 <span className="flex items-center gap-2">
                   <StatusIcon name={column.name} />
@@ -363,9 +429,10 @@ export function TrackerList({
               return (
                 <TableRow
                   key={item.id}
-                  className="tracker-list-row h-[var(--row-height-lg)]"
+                  className="tracker-list-row h-[var(--row-height-lg)] border-b-0"
                   data-state={selected ? 'selected' : undefined}
                   onKeyDown={taskKeys(item, work)}
+                  onKeyUp={taskKeyUp(work)}
                   onClick={(event) => {
                     if (
                       (event.target as HTMLElement).closest('button, a, input, [role="combobox"]')
@@ -380,11 +447,12 @@ export function TrackerList({
                     </TableCell>
                   )}
                   <TableCell className={`${selection ? '' : 'first:pl-0'} whitespace-normal`}>
-                    <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+                    <div className="flex min-w-0 items-baseline gap-2">
                       <Button
                         variant="bare"
                         className="min-w-0 px-0 text-left font-medium whitespace-normal break-words hover:underline"
                         data-task-focus={item.id}
+                        aria-keyshortcuts={work.onStart ? 'S' : undefined}
                         onClick={(event) => {
                           if (!selectionClick(event, item, selection)) onOpen(item);
                         }}
@@ -392,18 +460,10 @@ export function TrackerList({
                         {item.title}
                       </Button>
                       {item.number ? (
-                        <span className="text-xs text-muted-foreground tabular-nums">
+                        <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
                           #{item.number}
                         </span>
                       ) : null}
-                      <TaskChats
-                        chats={chats}
-                        activity={work.activity}
-                        onOpenChat={work.onOpenChat}
-                      />
-                      {work.onStart && (
-                        <TaskStartButton item={item} onStart={() => work.onStart?.(item)} />
-                      )}
                     </div>
                   </TableCell>
                   <TableCell
@@ -412,12 +472,26 @@ export function TrackerList({
                   >
                     {item.repository ? pathBasename(item.repository) : 'Not linked'}
                   </TableCell>
+                  <TableCell className="max-w-0">
+                    <div className="tracker-list-chat">
+                      {chats.length ? (
+                        <TaskChats
+                          chats={chats}
+                          activity={work.activity}
+                          onOpenChat={work.onOpenChat}
+                          showAgent
+                        />
+                      ) : (
+                        <span className="text-muted-foreground">None</span>
+                      )}
+                    </div>
+                  </TableCell>
                   <TableCell>
                     {board.statusField && (
                       <Choice
                         size="sm"
                         variant="ghost"
-                        className="-ml-2.5"
+                        className="tracker-list-status -ml-2.5"
                         label={`Status for ${item.title}`}
                         value={hasStatus ? item.statusId || '' : ''}
                         disabled={busy}
@@ -433,6 +507,11 @@ export function TrackerList({
                       />
                     )}
                   </TableCell>
+                  {work.onStart && (
+                    <TableCell className="tracker-list-start">
+                      <TaskStartButton item={item} onStart={() => work.onStart?.(item)} />
+                    </TableCell>
+                  )}
                 </TableRow>
               );
             })}

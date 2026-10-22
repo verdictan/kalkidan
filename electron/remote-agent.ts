@@ -182,6 +182,7 @@ async function dispatch(method: string, args: any[]): Promise<any> {
       if (c === 'list') return readProjectMemory(root);
       if (c === 'entries') return projectMemory(root).list();
       if (c === 'forget') return projectMemory(root).forget(d[0], d[1]);
+      if (c === 'save') return projectMemory(root).save(d[0]);
       throw new Error('Unknown memory operation.');
     }
     case 'project-docs': {

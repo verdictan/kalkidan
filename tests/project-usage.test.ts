@@ -446,3 +446,14 @@ test('an error from a binding stops the other chats', async () => {
   await sleep(30);
   assert.equal(bindings, usageConcurrency);
 });
+
+test('a usage error offers only an action that can fix it', async () => {
+  const { usageErrorAction } = await import('../src/components/project-usage');
+  assert.deepEqual(usageErrorAction('Managed-agent history requires the desktop app.'), {
+    kind: 'none',
+  });
+  assert.deepEqual(usageErrorAction('Something failed.'), { kind: 'retry' });
+  assert.deepEqual(usageErrorAction('Sign in. [desktop.auth_expired]'), { kind: 'sign-in' });
+  assert.deepEqual(usageErrorAction('Stopped. [desktop.browser_failed]'), { kind: 'retry' });
+  assert.equal(usageErrorAction('Missing. [desktop.runtime_missing]').kind, 'settings');
+});

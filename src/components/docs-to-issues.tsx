@@ -43,6 +43,39 @@ function readRequest(key: string): DocsIssuePlan | undefined {
   }
 }
 
+/**
+ * One task for each top-level list item of a page. The indented lines under an item become its
+ * description. A page without list items gives the same tasks as the ## headings.
+ */
+export function splitListItems(markdown: string, title: string) {
+  const items: { title: string; body: string }[] = [];
+  let current: { title: string; body: string } | undefined;
+  let fence: string | undefined;
+  for (const line of markdown.split('\n')) {
+    const marker = /^ {0,3}(`{3,}|~{3,})/.exec(line)?.[1];
+    if (marker && (!fence || marker.startsWith(fence))) fence = fence ? undefined : marker;
+    const item =
+      !fence && !marker && /^ {0,3}(?:[-*+]|\d+[.)])\s+(?:\[[ xX]\]\s+)?(.+?)\s*$/.exec(line);
+    if (item) {
+      current = { title: item[1], body: '' };
+      items.push(current);
+    } else if (current && (/^\s+\S/.test(line) || !line.trim())) current.body += line.trim() + '\n';
+    else current = undefined;
+  }
+  if (!items.length) return splitDocPlan(markdown, title);
+  return items.slice(0, 20).map((value) => ({
+    title: value.title.slice(0, 256),
+    body: value.body.trim().slice(0, 18000),
+  }));
+}
+
+/** The number of ## headings that make tasks. Zero when the page has none. */
+export function headingTaskCount(markdown: string) {
+  const marker = '\u0000';
+  const entries = splitDocPlan(markdown, marker);
+  return entries.length === 1 && entries[0].title === marker ? 0 : entries.length;
+}
+
 /** Removes entry `index` and moves the parent and blocker numbers of the later entries. */
 function removeEntry(entries: Entry[], index: number): Entry[] {
   const move = (value: number) => (value > index ? value - 1 : value);
@@ -82,8 +115,9 @@ async function linkDoc(
 }
 
 /**
- * Create tasks from a doc page: each level-two heading becomes an issue that you can edit.
- * With `pageId`, the dialog starts with that page.
+ * Create tasks from a doc page: each ## heading (or each list item) becomes a task that you can
+ * edit. Kalkidan adds each task to the board as a GitHub issue. With `pageId`, the dialog starts
+ * with that page.
  */
 export function DocsToIssuesDialog({
   api,
@@ -109,8 +143,11 @@ export function DocsToIssuesDialog({
     [busy, setBusy] = useState(false),
     [error, setError] = useState(''),
     [result, setResult] = useState<DocsIssuePlanResult>(),
-    [request, setRequest] = useState<DocsIssuePlan>();
+    [request, setRequest] = useState<DocsIssuePlan>(),
+    [byListItem, setByListItem] = useState(false);
   const pending = useRef(false);
+  const form = useRef<HTMLDivElement>(null);
+  const focused = useRef(false);
   const key = board ? `kalkidan-docs-issues:${group.id}:${board.project.id}` : '';
 
   async function choose(id: string) {
@@ -121,7 +158,9 @@ export function DocsToIssuesDialog({
     try {
       const value = await api.docsRead(group.id, id);
       setDoc(value);
-      setEntries(splitDocPlan(value.markdown, value.title));
+      setEntries(
+        (byListItem ? splitListItems : splitDocPlan)(value.markdown, value.title || 'Untitled'),
+      );
       setReview(false);
     } catch (failure) {
       setError(errorMessage(failure));
@@ -135,6 +174,7 @@ export function DocsToIssuesDialog({
   useEffect(() => {
     if (!open) return;
     let disposed = false;
+    focused.current = false;
     setError('');
     setResult(undefined);
     void api
@@ -159,6 +199,24 @@ export function DocsToIssuesDialog({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [api, group.id, open, pageId]);
 
+  // The first field to fill gets focus: the GitHub repository, or the page when there is none.
+  useEffect(() => {
+    if (!open || focused.current || !board || request || busy) return;
+    const target = entries.length
+      ? form.current?.querySelector<HTMLElement>('[data-field="repository"] :is(button, input)')
+      : form.current?.querySelector<HTMLElement>('[data-field="page"]');
+    if (!target) return;
+    focused.current = true;
+    target.focus();
+  }, [open, board, entries.length, request, busy]);
+  function splitBy(listItems: boolean) {
+    setByListItem(listItems);
+    if (doc)
+      setEntries(
+        (listItems ? splitListItems : splitDocPlan)(doc.markdown, doc.title || 'Untitled'),
+      );
+  }
+  const headings = doc ? headingTaskCount(doc.markdown) : 0;
   const repositories = [
     ...new Set(board?.items.flatMap((item) => (item.repository ? [item.repository] : [])) || []),
   ].sort();
@@ -243,17 +301,29 @@ export function DocsToIssuesDialog({
   }
   const finished = !!result?.rows.every((row) => row.state === 'complete');
   const state = (index: number) => result?.rows.find((row) => row.index === index)?.state;
+  const readOnly = !!board && !board.writable;
   return (
     <Dialog open={open} onOpenChange={(value) => !busy && onOpenChange(value)}>
-      <DialogContent size="lg" layout="scroll">
+      <DialogContent
+        size="lg"
+        layout="scroll"
+        // The first empty field gets focus when the page and the board load.
+        onOpenAutoFocus={(event) => event.preventDefault()}
+      >
         <DialogHeader>
           <DialogTitle>Create tasks from a doc page</DialogTitle>
           <DialogDescription>
-            Each level-two heading of the page becomes an issue. Edit the issues, then create them.
-            Kalkidan does not send project memory.
+            Each ## heading becomes a task. Edit the tasks, then add them to the board.
           </DialogDescription>
         </DialogHeader>
-        <DialogBody className="grid content-start gap-4">
+        <DialogBody ref={form} className="grid content-start gap-4">
+          {readOnly && (
+            <Alert size="sm">
+              <AlertDescription>
+                You can only read this board. Ask the owner for access to add tasks.
+              </AlertDescription>
+            </Alert>
+          )}
           {!request ? (
             <>
               <div className="flex flex-wrap items-center justify-between gap-2">
@@ -270,20 +340,44 @@ export function DocsToIssuesDialog({
                 <Button
                   size="sm"
                   variant={doc ? 'ghost' : 'outline'}
+                  data-field="page"
                   disabled={busy}
                   onClick={() => setPicker(true)}
                 >
-                  {doc ? 'Change page' : 'Choose source document'}
+                  {doc ? 'Change page' : 'Choose a page'}
                 </Button>
               </div>
+              {doc && (
+                <div className="docs-plan-split">
+                  <p className="text-sm" role="status">
+                    {byListItem
+                      ? `${plural(entries.length, 'task')} from list items`
+                      : headings
+                        ? `${plural(entries.length, 'task')} from ## headings`
+                        : '1 task: the page has no ## headings'}
+                  </p>
+                  {!byListItem && !headings && (
+                    <p className="form-help m-0">
+                      Tip: Add ## headings to the page to split it into tasks.
+                    </p>
+                  )}
+                  <CheckboxRow
+                    label="One task per list item"
+                    description="Use the top-level list items of the page, not the ## headings."
+                    checked={byListItem}
+                    disabled={busy}
+                    onChange={(event) => splitBy(event.target.checked)}
+                  />
+                </div>
+              )}
               {entries.length > 0 && (
                 <>
                   <div className="planning-form-grid">
-                    <label className="form-label">
-                      Repository
+                    <label className="form-label" data-field="repository">
+                      GitHub repository
                       {repositories.length && !custom ? (
                         <FormSelect
-                          label="Plan issue repository"
+                          label="GitHub repository"
                           value={repository}
                           disabled={busy}
                           onChange={(value) => {
@@ -299,7 +393,7 @@ export function DocsToIssuesDialog({
                         />
                       ) : (
                         <Input
-                          aria-label="Plan issue repository"
+                          aria-label="GitHub repository"
                           placeholder="owner/repository"
                           value={repository}
                           disabled={busy}
@@ -324,14 +418,14 @@ export function DocsToIssuesDialog({
                         <SectionHeader
                           size="sm"
                           as="h4"
-                          title={<span id={heading}>Issue {index + 1}</span>}
+                          title={<span id={heading}>Task {index + 1}</span>}
                           actions={
                             entries.length > 1 ? (
                               <Button
                                 size="xs"
                                 variant="ghost"
                                 disabled={busy}
-                                aria-label={`Remove issue ${index + 1}`}
+                                aria-label={`Remove task ${index + 1}`}
                                 onClick={() => setEntries(removeEntry(entries, index))}
                               >
                                 Remove
@@ -342,7 +436,7 @@ export function DocsToIssuesDialog({
                         <label className="form-label">
                           Title
                           <Input
-                            aria-label={`Issue ${index + 1} title`}
+                            aria-label={`Task ${index + 1} title`}
                             maxLength={256}
                             value={entry.title}
                             disabled={busy}
@@ -352,7 +446,7 @@ export function DocsToIssuesDialog({
                         <label className="form-label">
                           Description
                           <Textarea
-                            aria-label={`Issue ${index + 1} description`}
+                            aria-label={`Task ${index + 1} description`}
                             maxLength={18000}
                             rows={4}
                             value={entry.body}
@@ -363,9 +457,9 @@ export function DocsToIssuesDialog({
                         {index > 0 && (
                           <div className="planning-form-grid">
                             <label className="form-label">
-                              Parent
+                              Parent task
                               <FormSelect
-                                label="Parent"
+                                label="Parent task"
                                 value={entry.parent === undefined ? '' : String(entry.parent)}
                                 disabled={busy}
                                 onChange={(value) =>
@@ -416,7 +510,7 @@ export function DocsToIssuesDialog({
                     );
                   })}
                   <CheckboxRow
-                    label="Add the page name and version to each description."
+                    label="Add the page name and version to each description"
                     checked={reference}
                     disabled={busy}
                     onChange={(event) => setReference(event.target.checked)}
@@ -429,7 +523,7 @@ export function DocsToIssuesDialog({
               <SectionHeader
                 size="sm"
                 as="h4"
-                title={`Create ${plural(request.entries.length, 'issue')} in ${request.repository}`}
+                title={`Create ${plural(request.entries.length, 'task')} in ${request.repository}`}
               />
               <div className="review-list">
                 {request.entries.map((entry, index) => {
@@ -438,7 +532,7 @@ export function DocsToIssuesDialog({
                     <ReviewRow
                       key={index}
                       title={`${index + 1}. ${entry.title}`}
-                      meta={`${entry.parent === undefined ? 'No parent' : `Parent: issue ${entry.parent + 1}`} · Blocked by: ${entry.blockedBy?.map((value) => value + 1).join(', ') || 'none'}`}
+                      meta={`${entry.parent === undefined ? 'No parent' : `Parent: task ${entry.parent + 1}`} · Blocked by: ${entry.blockedBy?.map((value) => value + 1).join(', ') || 'none'}`}
                       status={value ? docsPlanStateLabel(value) : undefined}
                     >
                       <div className="prose-ui pt-1" data-size="sm">
@@ -452,14 +546,14 @@ export function DocsToIssuesDialog({
               </div>
               {!finished && (
                 <p className="form-help">
-                  Each description also gets a hidden marker with the plan ID. If an issue fails,
-                  the issues that Kalkidan created stay. "Try again" continues with those issues. It
-                  does not delete them or create them again.
+                  Kalkidan adds each task to the board as a GitHub issue. If a task fails, the tasks
+                  that Kalkidan created stay. "Try again" continues with those tasks. It does not
+                  create them again.
                 </p>
               )}
               {!finished && (
                 <CheckboxRow
-                  label="I checked the descriptions, the repository and the links."
+                  label="I checked the descriptions, the repository and the links"
                   checked={review}
                   disabled={busy}
                   onChange={(event) => setReview(event.target.checked)}
@@ -468,9 +562,6 @@ export function DocsToIssuesDialog({
             </>
           )}
           <ErrorAlert>{error}</ErrorAlert>
-          {board && !board.writable && (
-            <p className="form-help">You can only read this board. Ask the owner for access.</p>
-          )}
         </DialogBody>
         <DialogFooter>
           {!request ? (
@@ -488,7 +579,7 @@ export function DocsToIssuesDialog({
                 }
                 onClick={preview}
               >
-                Review {plural(entries.length, 'issue')}
+                Review {plural(entries.length || 1, 'task')}
               </Button>
             </>
           ) : (
@@ -504,10 +595,10 @@ export function DocsToIssuesDialog({
                   onClick={() => void publish()}
                 >
                   {busy
-                    ? 'Creating issues…'
+                    ? 'Creating tasks…'
                     : result
                       ? 'Try again'
-                      : `Create ${plural(request.entries.length, 'issue')}`}
+                      : `Create ${plural(request.entries.length, 'task')}`}
                 </Button>
               )}
             </>

@@ -1,7 +1,27 @@
 import type { ReactNode } from 'react';
 import type { Editor } from '@tiptap/react';
 import { ContextMenu } from 'radix-ui';
-import { Check, ChevronRight } from 'lucide-react';
+import {
+  BetweenHorizontalEnd,
+  BetweenVerticalEnd,
+  Blocks,
+  Bold,
+  Check,
+  ChevronRight,
+  Code,
+  Columns3,
+  Italic,
+  Link as LinkIcon,
+  Pilcrow,
+  Redo2,
+  RemoveFormatting,
+  Rows3,
+  Strikethrough,
+  Table,
+  Unlink,
+  Undo2,
+  type LucideIcon,
+} from 'lucide-react';
 import { cn } from '../lib/utils';
 import {
   menuCollisionPadding,
@@ -28,12 +48,18 @@ export function WikiContextMenu({
 }: {
   editor: Editor;
   children: ReactNode;
-  commands: { label: string; run: (editor: Editor) => unknown }[];
+  commands: { label: string; icon?: LucideIcon; run: (editor: Editor) => unknown }[];
   onLink: () => void;
   /** Removes the table and shows a notice with Undo. */
   onRemoveTable: () => void;
 }) {
-  const item = (label: string, action: () => unknown, disabled = false, destructive = false) => (
+  const item = (
+    label: string,
+    Icon: LucideIcon | undefined,
+    action: () => unknown,
+    disabled = false,
+    destructive = false,
+  ) => (
     <ContextMenu.Item
       key={label}
       className={cn(itemClass, destructive && menuDestructiveClass)}
@@ -42,6 +68,7 @@ export function WikiContextMenu({
         action();
       }}
     >
+      {Icon && <Icon className="size-4" aria-hidden="true" />}
       {label}
     </ContextMenu.Item>
   );
@@ -80,27 +107,35 @@ export function WikiContextMenu({
           aria-label="Document editing"
           onCloseAutoFocus={(event) => event.preventDefault()}
         >
-          {item('Undo', () => editor.chain().focus().undo().run(), !editor.can().undo())}
-          {item('Redo', () => editor.chain().focus().redo().run(), !editor.can().redo())}
+          {item('Undo', Undo2, () => editor.chain().focus().undo().run(), !editor.can().undo())}
+          {item('Redo', Redo2, () => editor.chain().focus().redo().run(), !editor.can().redo())}
           <ContextMenu.Separator className={menuSeparatorClass} />
           {[
-            { label: 'Bold', mark: 'bold', run: () => editor.chain().focus().toggleBold().run() },
+            {
+              label: 'Bold',
+              Icon: Bold,
+              mark: 'bold',
+              run: () => editor.chain().focus().toggleBold().run(),
+            },
             {
               label: 'Italic',
+              Icon: Italic,
               mark: 'italic',
               run: () => editor.chain().focus().toggleItalic().run(),
             },
             {
               label: 'Strikethrough',
+              Icon: Strikethrough,
               mark: 'strike',
               run: () => editor.chain().focus().toggleStrike().run(),
             },
             {
               label: 'Inline code',
+              Icon: Code,
               mark: 'code',
               run: () => editor.chain().focus().toggleCode().run(),
             },
-          ].map(({ label, mark, run }) => (
+          ].map(({ label, Icon, mark, run }) => (
             <ContextMenu.CheckboxItem
               key={mark}
               className={itemClass}
@@ -109,21 +144,25 @@ export function WikiContextMenu({
                 run();
               }}
             >
+              <Icon className="size-4" aria-hidden="true" />
               {label}
               <ContextMenu.ItemIndicator className={menuShortcutClass}>
                 <Check className="size-3.5" />
               </ContextMenu.ItemIndicator>
             </ContextMenu.CheckboxItem>
           ))}
-          {item(editor.isActive('link') ? 'Edit link' : 'Add link', onLink)}
+          {item(editor.isActive('link') ? 'Edit link' : 'Add link', LinkIcon, onLink)}
           {editor.isActive('link') &&
-            item('Remove link', () =>
+            item('Remove link', Unlink, () =>
               editor.chain().focus().extendMarkRange('link').unsetLink().run(),
             )}
-          {item('Clear formatting', () => editor.chain().focus().unsetAllMarks().run())}
+          {item('Clear formatting', RemoveFormatting, () =>
+            editor.chain().focus().unsetAllMarks().run(),
+          )}
           <ContextMenu.Separator className={menuSeparatorClass} />
           <ContextMenu.Sub>
             <ContextMenu.SubTrigger className={itemClass}>
+              <Blocks className="size-4" aria-hidden="true" />
               Blocks
               <ChevronRight className="ml-auto" aria-hidden="true" />
             </ContextMenu.SubTrigger>
@@ -133,24 +172,39 @@ export function WikiContextMenu({
                 sideOffset={4}
                 collisionPadding={menuCollisionPadding}
               >
-                {item('Paragraph', () => editor.chain().focus().clearNodes().setParagraph().run())}
-                {commands.map((command) => item(command.label, () => command.run(editor)))}
+                {item('Paragraph', Pilcrow, () =>
+                  editor.chain().focus().clearNodes().setParagraph().run(),
+                )}
+                {commands.map((command) =>
+                  item(command.label, command.icon, () => command.run(editor)),
+                )}
               </ContextMenu.SubContent>
             </ContextMenu.Portal>
           </ContextMenu.Sub>
           {editor.isActive('table') && (
             <>
               <ContextMenu.Separator className={menuSeparatorClass} />
-              {item('Add row', () => editor.chain().focus().addRowAfter().run())}
-              {item('Add column', () => editor.chain().focus().addColumnAfter().run())}
-              {item('Delete row', () => editor.chain().focus().deleteRow().run(), false, true)}
+              {item('Add row', BetweenHorizontalEnd, () =>
+                editor.chain().focus().addRowAfter().run(),
+              )}
+              {item('Add column', BetweenVerticalEnd, () =>
+                editor.chain().focus().addColumnAfter().run(),
+              )}
+              {item(
+                'Delete row',
+                Rows3,
+                () => editor.chain().focus().deleteRow().run(),
+                false,
+                true,
+              )}
               {item(
                 'Delete column',
+                Columns3,
                 () => editor.chain().focus().deleteColumn().run(),
                 false,
                 true,
               )}
-              {item('Remove table', onRemoveTable, false, true)}
+              {item('Remove table', Table, onRemoveTable, false, true)}
             </>
           )}
         </ContextMenu.Content>

@@ -104,3 +104,40 @@ test('memory topics read as words and the page does not repeat its title', async
   assert.equal(extractionText({ ...base, status: 'saved', saved: 0 }), 'Nothing new to save');
   assert.equal(extractionText({ ...base, status: 'failed' }), 'Could not save memory');
 });
+
+test('memory search matches the topic and the text', async () => {
+  const { memoryMatches } = await import('../src/components/project-memory');
+  const page = { name: 'testing.md', content: 'Run npm test before a pull request.' };
+  assert.ok(memoryMatches(page, 'testing'));
+  assert.ok(memoryMatches(page, 'npm PULL'));
+  assert.ok(memoryMatches(page, ''));
+  assert.ok(!memoryMatches(page, 'deploy'));
+});
+
+test('a memory save result maps to one outcome', async () => {
+  const { memorySaveOutcome } = await import('../src/components/project-memory');
+  const entry = {
+    version: 1 as const,
+    id: 'e',
+    topic: 'testing',
+    content: 'Run npm test.',
+    revision: 'r',
+    provenance: 'user' as const,
+    source: { sessionId: '', turnId: '', references: [] },
+    createdAt: '',
+    updatedAt: '',
+    supersedes: [],
+  };
+  assert.deepEqual(memorySaveOutcome({ status: 'saved', entry }), {
+    kind: 'saved',
+    topic: 'Testing',
+  });
+  assert.deepEqual(memorySaveOutcome({ status: 'duplicate', entry }), { kind: 'duplicate' });
+  assert.deepEqual(memorySaveOutcome({ status: 'conflict', id: 'e', revision: 's' }), {
+    kind: 'conflict',
+  });
+  assert.deepEqual(memorySaveOutcome({ status: 'deferred', reason: 'Busy.' }), {
+    kind: 'deferred',
+    reason: 'Busy.',
+  });
+});

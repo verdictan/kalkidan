@@ -5,7 +5,7 @@ import {
   type NativeAgentKind,
 } from './agent-version';
 import { safeProgramPath } from './agent-programs';
-import { runtimeAnchor, settingsAnchors, type SettingsTab } from './settings-route';
+import { runtimeAnchor, settingsAnchors, type SettingsSection } from './settings-route';
 
 /** Safe desktop state. Account and runtime credentials never cross renderer IPC. */
 export interface VerdictanAccount {
@@ -20,6 +20,8 @@ export interface VerdictanAccount {
   expiresAt?: string;
   /** The user email. Present only when the runtime sends it. */
   userEmail?: string;
+  /** The plan name of the organization, for example "Team". Only when the service sends it. */
+  plan?: string;
 }
 export interface VerdictanCapabilities {
   cliVersion: string;
@@ -408,6 +410,132 @@ export function sameSelection(
       a.configurationVersionId === agent.configuration_version_id);
   return policy && same([...others]);
 }
+export type ManagedAgentKind = 'codex' | 'claude';
+const agentProviders: Record<ManagedAgentKind, string> = { codex: 'openai', claude: 'anthropic' };
+const emptySelection: VerdictanSelection = {
+  teamId: '',
+  configurationId: '',
+  configurationVersionId: '',
+  providerConnectionId: '',
+  model: '',
+};
+/** The models that the organization allows for an agent, or nothing when it sends no list. */
+export function setupAllowedModels(setup: VerdictanSetup | undefined, agent: ManagedAgentKind) {
+  const value = setup?.allowedModels as unknown;
+  const list = Array.isArray(value)
+    ? value
+    : value && typeof value === 'object'
+      ? (value as Record<string, unknown>)[agent]
+      : undefined;
+  return Array.isArray(list)
+    ? list.filter((item): item is string => typeof item === 'string' && !!item.trim())
+    : undefined;
+}
+/**
+ * The selection that Settings shows first for an agent: the saved one, or the only choice of
+ * each list. The Kalkidan agent is preselected. The user must still choose when a list has
+ * more than one item. Settings and "Use recommended setup" both use it.
+ */
+export function initialSelection(
+  setup: VerdictanSetup,
+  agent: ManagedAgentKind,
+): VerdictanSelection {
+  const saved = setup.selections[agent];
+  const issue = saved && selectionIssue(setup, saved);
+  const agentChoice = usesAgentChoice(setup);
+  if (saved && !issue && !!saved.agentId === agentChoice) return saved;
+  const connections = setup.providerConnections.filter((p) => p.provider === agentProviders[agent]);
+  // A saved selection that needs a new agent or policy keeps its access and model.
+  const { agentId: _agent, ...kept } = saved || {
+    ...emptySelection,
+    providerConnectionId: connections.length === 1 ? connections[0].provider_connection_id : '',
+  };
+  if (agentChoice) {
+    // The Kalkidan agent is preselected. When it is gone, the user must choose an agent.
+    const removed = defaultRemoved(setup);
+    const pick = issue
+      ? undefined
+      : setup.agents!.find((a) => a.default) ||
+        (setup.agents!.length === 1 && !removed ? setup.agents![0] : undefined);
+    return {
+      ...kept,
+      agentId: pick?.agent_id || '',
+      teamId: pick?.team_id || '',
+      configurationId: '',
+      configurationVersionId: '',
+    };
+  }
+  // With a default, empty policy IDs select it. Otherwise the only policy, when there is one.
+  const fallback = !defaultRemoved(setup) && !!setup.defaultPolicy;
+  const [policy] = !fallback && setup.policies.length === 1 ? setup.policies : [];
+  return {
+    ...kept,
+    teamId: setup.teams.length === 1 ? setup.teams[0].team_id : '',
+    configurationId: policy?.configuration_id || '',
+    configurationVersionId: policy?.configuration_version_id || '',
+  };
+}
+/** True when a selection has every choice that a save needs. */
+export function completeSelection(
+  setup: VerdictanSetup,
+  agent: ManagedAgentKind,
+  value: VerdictanSelection,
+) {
+  const agentChoice = usesAgentChoice(setup);
+  const defaultPolicy = defaultRemoved(setup) ? undefined : setup.defaultPolicy;
+  return (
+    !!value.teamId &&
+    (agentChoice
+      ? !!setup.agents?.some((a) => a.agent_id === value.agentId)
+      : !!value.configurationVersionId || (!!defaultPolicy && usesDefaultPolicy(value))) &&
+    (isSubscriptionMode(value.providerAccessMode)
+      ? subscriptionAgent[value.providerAccessMode] === agent &&
+        !!setup.providerAccessModes?.includes(value.providerAccessMode)
+      : setup.providerConnections.some(
+          (p) =>
+            p.provider_connection_id === value.providerConnectionId &&
+            p.provider === agentProviders[agent],
+        )) &&
+    !!value.model
+  );
+}
+/**
+ * The recommended setup for an agent that has no saved setup: the preselection of Settings,
+ * the only provider connection (or the subscription of the agent when there is no
+ * connection and the runtime offers it), and the first allowed model. `models` is the model
+ * list of the agent, used when the organization sends no allowed list. Returns nothing when
+ * the user must choose, for example between two teams.
+ */
+export function recommendedSelection(
+  setup: VerdictanSetup,
+  agent: ManagedAgentKind,
+  models: readonly string[] = [],
+): VerdictanSelection | undefined {
+  if (setup.selections[agent]) return undefined;
+  const value = initialSelection(setup, agent);
+  const connections = setup.providerConnections.filter((p) => p.provider === agentProviders[agent]);
+  const mode: ProviderAccessMode = agent === 'codex' ? 'codex_subscription' : 'claude_subscription';
+  const access: Partial<VerdictanSelection> =
+    !value.providerConnectionId && !connections.length && setup.providerAccessModes?.includes(mode)
+      ? { providerAccessMode: mode, providerConnectionId: '' }
+      : {};
+  const model = value.model || (setupAllowedModels(setup, agent) ?? models)[0] || '';
+  const next: VerdictanSelection = { ...value, ...access, model };
+  // The agent ID goes only with the agent choice.
+  if (!usesAgentChoice(setup)) delete next.agentId;
+  return completeSelection(setup, agent, next) ? next : undefined;
+}
+/**
+ * The words of the sign-out confirmation, for example "Sign out stops 2 running agents and
+ * disconnects 1 SSH host. Your projects and chats stay on this computer."
+ */
+export function signOutDetail(agents: number, hosts: number) {
+  const count = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
+  const stops = agents ? `stops ${count(agents, 'running agent')}` : '';
+  const disconnects = hosts ? `disconnects ${count(hosts, 'SSH host')}` : '';
+  const actions = [stops, disconnects].filter(Boolean).join(' and ');
+  return `${actions ? `Sign out ${actions}. ` : ''}Your projects and chats stay on this computer.`;
+}
 /** The note for an administrator who removed the default Kalkidan setup. */
 export const defaultRemovedNotice =
   'An administrator removed the default Kalkidan setup. Choose another agent.';
@@ -444,71 +572,78 @@ export function accountLabel(account?: Pick<VerdictanAccount, 'organizationName'
  */
 export interface ManagedErrorInfo {
   message: string;
-  section?: 'managed-agents' | 'agents' | 'updates';
+  section?: SettingsSection;
   retry?: boolean;
 }
-const setUp = 'managed-agents' as const;
+const setUp = 'agents' as const;
 const signInClaude =
   'Sign in to Claude Code on the machine where work runs. Then send the message again.';
 export const managedErrors: Record<string, ManagedErrorInfo> = {
   'desktop.runtime_missing': {
-    message: 'Managed agents are not set up. Install the runtime in Settings to start a chat.',
-    section: setUp,
+    message:
+      'Managed agents are not ready on this computer. Kalkidan installs them by itself. Wait, then try again.',
+    section: 'computers',
   },
   'desktop.remote_runtime_missing': {
     message: 'Managed agents are not installed on this host. Install the runtime for this host.',
-    section: setUp,
+    section: 'computers',
   },
   'desktop.runtime_not_found': {
     message: 'Managed agents are not set up on this computer.',
-    section: setUp,
+    section: 'computers',
   },
   'desktop.executable_invalid': {
     message: 'The managed agents runtime is damaged. Install it again in Settings.',
-    section: 'updates',
+    section: 'computers',
   },
-  'desktop.auth_required': { message: 'Sign in to managed agents.', section: setUp },
+  'desktop.auth_required': { message: 'Sign in to managed agents.', section: 'account' },
   'desktop.auth_expired': {
     message: 'Your managed agents session expired. Sign in again.',
-    section: setUp,
+    section: 'account',
   },
   'desktop.account_invalid': {
     message: 'The managed agents account is not valid. Sign in again.',
-    section: setUp,
+    section: 'account',
   },
   'desktop.identity_mismatch': {
     message: 'The browser account is not the saved account. Use the same account, or sign out.',
-    section: setUp,
+    section: 'account',
   },
   'desktop.region_mismatch': {
     message: 'The saved account is in a different region. Sign out, then change the region.',
-    section: setUp,
+    section: 'account',
   },
   'desktop.browser_failed': { message: 'The browser did not open. Try again.', retry: true },
+  'desktop.authorization_timeout': {
+    message:
+      'The sign-in did not finish. Kalkidan waited 5 minutes. Nothing changed on your account.',
+    section: 'account',
+    retry: true,
+  },
   'desktop.cancel_failed': { message: 'The sign-in did not stop. Check the status.', retry: true },
   'desktop.setup_invalid': {
     message: 'The managed agents setup is not complete. Finish the setup in Settings.',
-    section: setUp,
+    section: 'agents',
   },
   'desktop.setup_selection_required': {
     message: 'Choose an agent or a policy, a connection and a model for managed agents.',
-    section: setUp,
+    section: 'agents',
   },
   'desktop.setup_default_removed': {
     message: 'An administrator removed the default Kalkidan setup. Choose another agent.',
-    section: setUp,
+    section: 'agents',
   },
   'desktop.setup_agent_unavailable': {
     message: 'The agent that you chose is not available now. Choose another agent.',
-    section: setUp,
+    section: 'agents',
   },
   'desktop.setup_resource_unavailable': {
     message: 'The agent that you chose is not available now. Choose another agent.',
-    section: setUp,
+    section: 'agents',
   },
   'desktop.setup_bootstrap_required': {
     message: 'Ask an organization administrator to finish Kalkidan setup.',
-    section: setUp,
+    section: 'agents',
   },
   'desktop.history_invalid': {
     message: 'Kalkidan could not check the history from Verdictan. Load it again.',
@@ -517,28 +652,28 @@ export const managedErrors: Record<string, ManagedErrorInfo> = {
   'desktop.setup_default_configuration_required': {
     message:
       'Your organization has no Kalkidan default policy. Ask an organization administrator to connect Kalkidan once.',
-    section: setUp,
+    section: 'agents',
   },
   'desktop.setup_permission_required': {
     message:
       'You cannot read the Kalkidan default policy. Ask an organization administrator for access.',
-    section: setUp,
+    section: 'agents',
   },
   'desktop.runtime_expired': {
     message: 'Managed agents access for this computer expired. Renew it in Settings.',
-    section: setUp,
+    section: 'computers',
   },
   'desktop.invalid_runtime_credential': {
     message: 'Managed agents access for this computer is not valid. Renew it in Settings.',
-    section: setUp,
+    section: 'computers',
   },
   'desktop.host_revoked': {
     message: 'This computer cannot run managed agents now. Connect it again in Settings.',
-    section: setUp,
+    section: 'computers',
   },
   'desktop.runtime_reconciliation_required': {
     message: 'Managed agents must update their records. Check the status in Settings.',
-    section: setUp,
+    section: 'computers',
   },
   'desktop.agent_version_unsupported': {
     message:
@@ -563,7 +698,7 @@ export const managedErrors: Record<string, ManagedErrorInfo> = {
   },
   'desktop.subscription_agent_required': {
     message: 'Your subscription access works with a different agent. Change the agent.',
-    section: setUp,
+    section: 'agents',
   },
   'desktop.resume_incompatible': {
     message: 'Managed agents cannot continue this chat. Start a new chat.',
@@ -579,19 +714,19 @@ export const managedErrors: Record<string, ManagedErrorInfo> = {
   },
   'desktop.process_isolation_unavailable': {
     message: 'This computer cannot keep the agent apart from other programs. Check the setup.',
-    section: setUp,
+    section: 'computers',
   },
   'desktop.isolation_scope_invalid': {
     message: 'This computer cannot keep the agent apart from other programs. Check the setup.',
-    section: setUp,
+    section: 'computers',
   },
   'desktop.protected_pipe_unavailable': {
     message: 'Managed agents cannot open a private connection on this computer. Check the setup.',
-    section: setUp,
+    section: 'computers',
   },
   'desktop.loopback_required': {
     message: 'Managed agents need a local network connection that is not available.',
-    section: setUp,
+    section: 'computers',
   },
   'desktop.secure_storage_unavailable': {
     message:
@@ -625,32 +760,32 @@ export const managedErrors: Record<string, ManagedErrorInfo> = {
   'desktop.runtime_stopped': { message: 'Managed agents stopped. Try again.', retry: true },
   'desktop.operation_unsupported': {
     message: 'The installed managed agents runtime cannot do this. Update the runtime.',
-    section: 'updates',
+    section: 'computers',
   },
   'desktop.region_required': {
     message: 'Select the EU or US region, then sign in to managed agents.',
-    section: setUp,
+    section: 'account',
   },
   'desktop.session_rejected': {
     message: 'The managed agents service did not accept the sign-in. Sign in again.',
-    section: setUp,
+    section: 'account',
   },
   'desktop.readiness_required': {
     message:
-      'The managed agents check on the machine where work runs did not pass. Check the status in Settings › Accounts, then try again.',
-    section: setUp,
+      'The managed agents check on the machine where work runs did not pass. Check the status in Settings › Computers, then try again.',
+    section: 'computers',
     retry: true,
   },
   'desktop.readiness_failed': {
     message:
-      'The managed agents check on the machine where work runs did not pass. Check the status in Settings › Accounts, then try again.',
-    section: setUp,
+      'The managed agents check on the machine where work runs did not pass. Check the status in Settings › Computers, then try again.',
+    section: 'computers',
     retry: true,
   },
   'desktop.readiness_blocked': {
     message:
-      'The managed gateway on the machine where work runs is not ready. Try again in a moment. If it continues, check Settings › Accounts.',
-    section: setUp,
+      'The managed gateway on the machine where work runs is not ready. Try again in a moment. If it continues, check Settings › Computers.',
+    section: 'computers',
     retry: true,
   },
   'desktop.event_authority_unavailable': {
@@ -659,23 +794,23 @@ export const managedErrors: Record<string, ManagedErrorInfo> = {
   },
   'desktop.evidence_unavailable': {
     message:
-      'The managed gateway on the machine where work runs did not send its status. Try again in a moment. If it continues, check Settings › Accounts.',
-    section: setUp,
+      'The managed gateway on the machine where work runs did not send its status. Try again in a moment. If it continues, check Settings › Computers.',
+    section: 'computers',
     retry: true,
   },
   'desktop.claude_subscription_unsupported': {
     message:
       'This runtime cannot use your Claude subscription. Your work is safe. Update the runtime.',
-    section: 'updates',
+    section: 'computers',
   },
   'desktop.claude_subscription_login_required': {
     message: `${signInClaude} Kalkidan does not send your message again.`,
-    section: setUp,
+    section: 'agents',
   },
   'desktop.claude_subscription_native_profile_unsupported': {
     message:
       'This computer uses a custom Claude Code profile. Use the default Claude Code sign-in on this computer. Then send the message again.',
-    section: setUp,
+    section: 'agents',
   },
   'desktop.claude_subscription_credential_format_unsupported': {
     message:
@@ -685,12 +820,12 @@ export const managedErrors: Record<string, ManagedErrorInfo> = {
   'desktop.claude_subscription_login_expiring': {
     message:
       'Your Claude Code sign-in expires soon. Run /login in Claude Code on the machine where work runs. Then send the message again.',
-    section: setUp,
+    section: 'agents',
   },
   'desktop.claude_subscription_identity_unavailable': {
     message:
       'Managed agents cannot check your Claude account now. Check the status, then try again.',
-    section: setUp,
+    section: 'agents',
   },
   'desktop.claude_subscription_route_unsupported': {
     message:
@@ -702,16 +837,16 @@ export const managedErrors: Record<string, ManagedErrorInfo> = {
   },
   'desktop.subscription_account_required': {
     message: 'Sign in to Claude Code on the machine where work runs. Then start this chat again.',
-    section: setUp,
+    section: 'agents',
   },
   'desktop.subscription_credentials_invalid': {
     message: 'The managed agents launch settings are not valid. Choose the setup again.',
-    section: setUp,
+    section: 'agents',
   },
   'desktop.subscription_target_required': {
     message:
       'Your policy does not allow the selected model. Choose an allowed model, or ask your administrator.',
-    section: setUp,
+    section: 'agents',
   },
 };
 // Codes for a lost or failed connection. The same action can work a second time.
@@ -852,16 +987,16 @@ export type ManagedSetupStep =
 /** Where each step is in Settings: the tab, the element that gets focus, and a label. */
 export const managedSetupTargets: Record<
   ManagedSetupStep,
-  { section: SettingsTab; anchor: string; label: string }
+  { section: SettingsSection; anchor: string; label: string }
 > = {
-  region: { section: 'accounts', anchor: settingsAnchors.region, label: 'Select the region' },
+  region: { section: 'account', anchor: settingsAnchors.region, label: 'Select the region' },
   'sign-in': {
-    section: 'accounts',
+    section: 'account',
     anchor: settingsAnchors.account,
     label: 'Sign in to managed agents',
   },
   status: {
-    section: 'accounts',
+    section: 'account',
     anchor: settingsAnchors.account,
     label: 'Check managed agent status',
   },
@@ -1097,6 +1232,12 @@ function refusalWords(
   }
   return undefined;
 }
+/** Codes that an update of the managed agents runtime fixes. */
+const runtimeUpdateCodes = new Set([
+  'desktop.executable_invalid',
+  'desktop.operation_unsupported',
+  'desktop.claude_subscription_unsupported',
+]);
 /** The setup step for a launch refusal code. Null when no Settings step helps. */
 function refusalStep(code: string): ManagedSetupStep | null {
   if (transientRefusals.has(code) || platformRefusals.has(code)) return null;
@@ -1106,7 +1247,7 @@ function refusalStep(code: string): ManagedSetupStep | null {
   const section = managedErrors[code]?.section;
   return (
     launchBlocks[code]?.[0] ||
-    (section === 'updates' ? 'runtime' : section ? 'agent-setup' : 'status')
+    (runtimeUpdateCodes.has(code) ? 'runtime' : section ? 'agent-setup' : 'status')
   );
 }
 /**

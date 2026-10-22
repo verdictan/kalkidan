@@ -9,8 +9,7 @@ import { sessionRepo } from '../lib/session-repository';
 import { Conversation, type ConversationDraft } from './conversation';
 import type { MentionChat } from '../lib/mention-sections';
 import { Button } from './ui/button';
-import { Hint } from './hint';
-import { shortcutLabel } from '../lib/platform';
+import { agentLabel, isAgent } from '../config/agents';
 import type { SessionActivity, SessionActivityState } from './activity-dot';
 import type { API, Session, Project, ProjectGroup, RemoteHost } from '../types';
 const keyOf = (session: Session) => session.agent + ':' + session.id;
@@ -236,6 +235,29 @@ export function AgentWorkspace({
     );
     onComplete();
   }
+  /**
+   * Changes the agent of a new chat before its first message. The draft keeps its ID, text and
+   * task, so the sidebar shows one chat.
+   */
+  function switchAgent(tab: Session, agent: string, taskId?: string) {
+    const key = keyOf(tab);
+    if (created[key] || !tab.id.startsWith('draft-') || !isAgent(agent)) return;
+    const session = liveSession(tab);
+    const generic = /^New( .*)? (session|chat)$/.test(session.title);
+    const next: Session = {
+      ...session,
+      agent,
+      title: generic ? `New ${agentLabel(agent)} chat` : session.title,
+      organization: taskId ? { ...session.organization, taskId } : session.organization,
+    };
+    const draft = drafts.current.get(key);
+    drafts.current.delete(key);
+    if (draft) drafts.current.set(keyOf(next), draft);
+    setTabs((previous) => previous.map((t) => (keyOf(t) === key ? next : t)));
+    if (sideKey === key) setSideKey(keyOf(next));
+    onDraft(next);
+    if (key === selectedKey) onSelect(next);
+  }
   async function branch(fork: boolean, worktree?: string) {
     let repo = sessionRepo(live, projects);
     if (!repo) throw new Error('Add this repository to a project first.');
@@ -337,6 +359,7 @@ export function AgentWorkspace({
               )}
               <button
                 type="button"
+                data-middle
                 className="conversation-breadcrumb-repo"
                 aria-label={`Back to ${repositoryName}`}
                 title={`Back to ${repositoryName}`}
@@ -368,17 +391,6 @@ export function AgentWorkspace({
                 </button>
               )}
             </nav>
-            <Hint label={`Close chat (${shortcutLabel(['mod'], 'W')})`}>
-              <Button
-                variant="ghost"
-                size="icon-xs"
-                className="conversation-close"
-                aria-label="Close chat"
-                onClick={() => closeRef.current(selectedKey)}
-              >
-                <X />
-              </Button>
-            </Hint>
           </div>,
           document.getElementById('conversation-titlebar-heading')!,
         )}
@@ -448,6 +460,11 @@ export function AgentWorkspace({
                       );
                       onDraft({ ...liveSession(tab), title });
                     }}
+                    onAgentChange={
+                      tab.id.startsWith('draft-') && !created[key]
+                        ? (agent, taskId) => switchAgent(tab, agent, taskId)
+                        : undefined
+                    }
                     onSessionCreated={(id, title) => {
                       setCreated((previous) => ({ ...previous, [key]: { id, title } }));
                       onCreated?.(tab, id, title);

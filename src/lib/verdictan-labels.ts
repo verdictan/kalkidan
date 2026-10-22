@@ -16,7 +16,7 @@ export interface StatusLabel {
   tone: StatusTone;
 }
 
-/** The account state in Settings › Accounts › Verdictan. */
+/** The account state in Settings › Account. */
 export const accountPhaseLabels: Record<VerdictanStatus['phase'], StatusLabel> = {
   missing: { label: 'Runtime not installed', tone: 'muted' },
   checking: { label: 'Checking…', tone: 'secondary' },
@@ -63,6 +63,32 @@ export function updatePhaseLabel(phase: UpdatePhase | string) {
   return updatePhaseLabels[phase as UpdatePhase] || 'Unknown state';
 }
 
+/** The verb of a running install step, for the progress line. */
+const progressVerbs: Partial<Record<UpdatePhase, string>> = {
+  requested: 'Starting the install of',
+  downloading: 'Downloading',
+  verifying: 'Verifying',
+  staged: 'Preparing',
+  'waiting-for-idle': 'Waiting to install',
+  activating: 'Installing',
+  validating: 'Checking',
+  'rolling-back': 'Restoring the version before',
+};
+
+/**
+ * The progress line of a runtime install, for example "Verifying version 0.6.9…" or
+ * "Downloading version 0.6.9 · 42%".
+ */
+export function runtimeProgressLabel(
+  phase: UpdatePhase | string,
+  version: string,
+  percent?: number,
+) {
+  const verb = progressVerbs[phase as UpdatePhase] || updatePhaseLabel(phase);
+  const target = `${verb} version ${displayVersion(version)}`;
+  return percent === undefined ? `${target}…` : `${target} · ${Math.round(percent)}%`;
+}
+
 /** Phases in which an install or update is still running. */
 export const activeUpdatePhases: readonly UpdatePhase[] = [
   'requested',
@@ -99,23 +125,24 @@ export function runtimeOutdated(status: ComponentUpdateStatus | undefined) {
   return !!status?.latest && status.installed?.sha256 !== status.latest.sha256;
 }
 
-/** The runtime state of a computer in Settings › Computers and in Updates. */
+/** The runtime state of a computer in Settings › Computers. */
 export function runtimeStatusLabel(status: ComponentUpdateStatus | undefined): StatusLabel {
   if (!status || status.discovery === 'checking') return { label: 'Checking…', tone: 'secondary' };
   if (updateRunning(status))
     return { label: updatePhaseLabel(status.operation!.phase), tone: 'secondary' };
   if (status.installing) return { label: 'Installing…', tone: 'secondary' };
+  if (status.discovery === 'failed' && !status.installed)
+    return { label: 'Check failed', tone: 'destructive' };
   if (!status.installed)
     return status.latest
       ? { label: 'Not installed', tone: 'warning' }
       : { label: 'Not installed', tone: 'muted' };
-  if (runtimeOutdated(status))
-    return { label: `Version ${status.latest!.version} available`, tone: 'warning' };
+  if (runtimeOutdated(status)) return { label: 'Update ready', tone: 'warning' };
   if (status.discovery === 'failed') return { label: 'Check failed', tone: 'destructive' };
-  return { label: `Installed ${status.installed.version}`, tone: 'success' };
+  return { label: 'Ready', tone: 'success' };
 }
 
-/** The desktop app state in Settings › Updates. */
+/** The desktop app state in Settings › About. */
 export function desktopStatusLabel(desktop: DesktopUpdateStatus): StatusLabel {
   switch (desktop.discovery) {
     case 'available':
@@ -135,7 +162,7 @@ export function desktopStatusLabel(desktop: DesktopUpdateStatus): StatusLabel {
   }
 }
 
-/** The SSH helper state in Settings › Updates. */
+/** The SSH helper state in Settings › Computers. */
 export function helperStatusLabel(helper: HelperUpdateStatus): StatusLabel {
   if (!helper.connected && helper.discovery !== 'current')
     return { label: 'Disconnected', tone: 'muted' };
@@ -234,13 +261,28 @@ export interface ManagedSteps {
   claude: boolean;
 }
 
+/**
+ * True when the managed agents runtime is installed on the computer. This is the one source of
+ * the runtime state: the installer status, not the account phase.
+ */
+export function runtimeReady(runtime: ComponentUpdateStatus | undefined) {
+  return !!runtime?.installed;
+}
+
+/**
+ * Each managed-agent step and if it is done. `runtime` is the installer status of this
+ * computer (`runtimeUpdateStatus`). Without it, the account phase is a fallback.
+ */
 export function managedSteps(
   status: VerdictanStatus | undefined,
   setup: VerdictanSetup | undefined,
+  runtime?: ComponentUpdateStatus,
 ): ManagedSteps {
   const signedIn = status?.phase === 'authenticated';
   return {
-    runtime: !!status && status.phase !== 'missing' && status.phase !== 'checking',
+    runtime: runtime
+      ? runtimeReady(runtime)
+      : !!status && status.phase !== 'missing' && status.phase !== 'checking',
     signedIn,
     // A saved choice that needs a new agent, for example a removed default, is not done.
     codex: signedIn && !!setup && !selectionIssue(setup, setup.selections.codex),

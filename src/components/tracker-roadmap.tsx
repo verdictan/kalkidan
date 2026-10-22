@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { CalendarRange, CalendarX } from 'lucide-react';
 import type { TrackerBoard, TrackerItem } from '../types';
 import { Button } from './ui/button';
 import { EmptyState } from './ui/empty-state';
@@ -44,13 +45,13 @@ export function TrackerRoadmap({
   board,
   items,
   onOpen,
-  onOpenSettings,
+  onAddDateFields,
 }: {
   board: TrackerBoard;
   items: TrackerItem[];
   onOpen: (item: TrackerItem) => void;
-  /** Opens Project settings at Fields and views, where the user adds date fields. */
-  onOpenSettings?: () => void;
+  /** Opens Board settings › Fields with a "Start date" and an "End date" field ready to add. */
+  onAddDateFields?: () => void;
 }) {
   const dates = (board.fields || []).filter((field) => field.dataType === 'DATE');
   const [start, setStart] = useState(dates[0]?.id || '');
@@ -79,18 +80,12 @@ export function TrackerRoadmap({
   if (!dates.length)
     return (
       <EmptyState
-        compact
-        title="No date fields"
-        action={
-          onOpenSettings && (
-            <Button variant="outline" size="sm" onClick={onOpenSettings}>
-              Open fields and views
-            </Button>
-          )
-        }
+        icon={<CalendarRange />}
+        title="Add dates to see a roadmap"
+        action={onAddDateFields && <Button onClick={onAddDateFields}>Add date fields</Button>}
       >
-        The roadmap uses date fields of the board. Add a start date and an end date field in Project
-        settings › Fields and views.
+        The roadmap shows each task from its start date to its end date. The board has no date
+        fields yet.
       </EmptyState>
     );
   return (
@@ -176,7 +171,7 @@ export function TrackerRoadmap({
           </ul>
         </div>
       ) : (
-        <EmptyState compact>
+        <EmptyState icon={<CalendarX />} title="No dated tasks">
           No task has a start and an end date in these fields. Set the dates in a task, or choose
           other fields.
         </EmptyState>

@@ -221,8 +221,9 @@ export class RuntimeInstaller {
   }
   /**
    * Start an automatic update when a newer signed release is known and a version is installed.
-   * The first install starts from setup. An automatic attempt that failed, or that the user
-   * canceled, does not start again for the same release. Install in Settings starts it again.
+   * The desktop app starts the first install at launch, in the background, and again at each
+   * launch until it succeeds. An automatic update that failed, or that the user canceled, does
+   * not start again for the same release. Install in Settings starts it again.
    */
   private autoUpdate() {
     if (this.installPending) return;

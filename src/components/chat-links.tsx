@@ -2,11 +2,13 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import {
   ChevronDown,
+  CircleAlert,
   ExternalLink,
   FileText,
   GitPullRequest,
   Link2Off,
   ListTodo,
+  LogIn,
   Plus,
   RefreshCw,
   Replace,
@@ -162,7 +164,14 @@ export function PullRequestChip({ pr }: { pr: SessionPullRequest }) {
   );
 }
 
-/** The action buttons for a chat error: Settings, Try again, Change agent or How to install. */
+/** Starts the Verdictan sign-in. The sign-in flow shows the waiting screen. */
+export const startSignIn = () => dispatchApp('kalkidan-sign-in', { intent: 'login' });
+
+/**
+ * The action buttons for a chat error. The fix (Sign in or a Settings page) is the filled
+ * button, "Try again" is outline and "Use another agent" is ghost. A retryable error shows
+ * "Try again" first.
+ */
 export function AgentErrorActions({
   error,
   onRetry,
@@ -176,70 +185,80 @@ export function AgentErrorActions({
 }) {
   const action = error.action;
   const buttons: ReactNode[] = [];
-  const settings = action && (action.kind === 'settings' || action.kind === 'install');
-  // A retryable error shows "Try again" first. Settings is then the second choice.
+  const fix =
+    action &&
+    (action.kind === 'settings' || action.kind === 'install' || action.kind === 'sign-in');
+  // A retryable error shows "Try again" first. The fix is then the second choice.
   const retryFirst = !!error.retryFirst && !!onRetry;
-  if (onRetry && retryFirst)
-    buttons.push(
-      <Button key="retry" size="sm" disabled={busy} onClick={onRetry}>
-        <RefreshCw aria-hidden="true" />
-        {busy ? 'Sending…' : 'Try again'}
-      </Button>,
-    );
-  if (settings)
+  const retryButton = (filled: boolean) => (
+    <Button
+      key="retry"
+      size="sm"
+      variant={filled ? 'default' : 'outline'}
+      disabled={busy}
+      onClick={onRetry}
+    >
+      <RefreshCw aria-hidden="true" />
+      {busy ? 'Sending…' : 'Try again'}
+    </Button>
+  );
+  if (onRetry && retryFirst) buttons.push(retryButton(true));
+  if (fix)
     buttons.push(
       <Button
-        key="settings"
+        key="fix"
         size="sm"
         variant={buttons.length ? 'outline' : 'default'}
-        onClick={() => openSettings(action.section, action.anchor)}
+        onClick={() =>
+          action.kind === 'sign-in' ? startSignIn() : openSettings(action.section, action.anchor)
+        }
       >
-        <Settings aria-hidden="true" />
+        {action.kind === 'sign-in' ? <LogIn aria-hidden="true" /> : <Settings aria-hidden="true" />}
         {action.label}
       </Button>,
     );
-  if (onRetry && !retryFirst)
-    buttons.push(
-      <Button
-        key="retry"
-        size="sm"
-        variant={buttons.length ? 'outline' : 'default'}
-        disabled={busy}
-        onClick={onRetry}
-      >
-        <RefreshCw aria-hidden="true" />
-        {busy ? 'Sending…' : 'Try again'}
-      </Button>,
-    );
+  if (onRetry && !retryFirst) buttons.push(retryButton(!buttons.length));
   if (onChangeAgent)
     buttons.push(
-      <Button key="agent" size="sm" variant="outline" disabled={busy} onClick={onChangeAgent}>
+      <Button key="agent" size="sm" variant="ghost" disabled={busy} onClick={onChangeAgent}>
         <Shuffle aria-hidden="true" />
-        Change agent
+        Use another agent
       </Button>,
     );
   if (!buttons.length) return null;
   return <div className="flex flex-wrap gap-2">{buttons}</div>;
 }
 
-/** A secondary note under a chat error. "Why?" shows it. */
-export function AgentErrorNote({ note }: { note: string }) {
+/** The secondary note and the code of a chat error, in a fold. "Details" shows them. */
+export function AgentErrorNote({ note, code }: { note?: string; code?: string }) {
+  if (!note && !code) return null;
   return (
-    <details className="text-muted-foreground">
-      <summary className="w-fit cursor-pointer select-none">Why?</summary>
-      <span>{note}</span>
+    <details className="agent-error-details">
+      <summary>Details</summary>
+      {note && <span>{note}</span>}
+      {code && (
+        <span>
+          Code: <code className="font-mono">{code}</code>
+        </span>
+      )}
     </details>
   );
 }
 
-/** The error under a message that was not sent, with its actions. */
+/**
+ * The card under a message that did not reach the agent: "{agent} could not start", the cause
+ * in plain words and its actions. Only the icon is red.
+ */
 export function SendFailure({
+  agentName,
   error,
   onRetry,
   onChangeAgent,
   busy,
   unsaved,
 }: {
+  /** The name of the agent, for example "Codex". */
+  agentName: string;
   error: AgentError;
   onRetry?: () => void;
   onChangeAgent?: () => void;
@@ -248,29 +267,23 @@ export function SendFailure({
   unsaved?: boolean;
 }) {
   return (
-    <Alert variant="destructive" size="sm" className="chat-send-failure" role="alert">
-      <AlertDescription className="grid gap-2 text-xs">
-        <span>{error.message}</span>
-        {error.note && <AgentErrorNote note={error.note} />}
-        {error.code && (
-          <span className="text-muted-foreground">
-            Details: <code className="font-mono">{error.code}</code>
-          </span>
-        )}
-        {unsaved && (
-          <span className="text-muted-foreground">
-            This chat is not saved because the agent did not start. When you quit Kalkidan, this
-            chat and its message close.
-          </span>
-        )}
+    <div className="chat-send-failure" role="alert">
+      <CircleAlert className="chat-send-failure-icon" aria-hidden="true" />
+      <div className="grid min-w-0 gap-2">
+        <p className="chat-send-failure-title">{agentName} could not start</p>
+        <p className="chat-send-failure-body">
+          {error.message}
+          {unsaved && ' This chat is saved after the agent starts.'}
+        </p>
         <AgentErrorActions
           error={error}
           onRetry={onRetry}
           onChangeAgent={onChangeAgent}
           busy={busy}
         />
-      </AlertDescription>
-    </Alert>
+        <AgentErrorNote note={error.note} code={error.code} />
+      </div>
+    </div>
   );
 }
 
@@ -365,7 +378,7 @@ export function TaskLinkDialog({
   const failed = error || loadError;
   return (
     <Dialog open={open} onOpenChange={(value) => !busy && onOpenChange(value)}>
-      <DialogContent size="md">
+      <DialogContent size="md" layout="scroll">
         <DialogHeader>
           <DialogTitle>{mode === 'link' ? 'Link a task' : 'New task from this chat'}</DialogTitle>
           <DialogDescription>
@@ -374,62 +387,64 @@ export function TaskLinkDialog({
               : 'Kalkidan adds a draft item to the board and links it to this chat.'}
           </DialogDescription>
         </DialogHeader>
-        {mode === 'link' ? (
-          <div className="grid gap-2">
-            <Choice
-              className="w-full"
-              label="Chat task"
-              value={choice}
-              onChange={setChoice}
-              disabled={busy || loading}
-              options={[
-                { value: '', label: loading ? 'Loading tasks…' : 'No task' },
-                ...items.map((item) => ({ value: item.id, label: item.title })),
-              ]}
-            />
-            <Button
-              variant="ghost"
-              size="sm"
-              className="justify-self-start"
-              disabled={busy}
-              onClick={startCreate}
-            >
-              <Plus aria-hidden="true" />
-              New task from this chat…
-            </Button>
-          </div>
-        ) : (
-          <div className="grid gap-4">
-            <label className="form-label">
-              Title
-              <Input
-                autoFocus
-                value={title}
-                maxLength={256}
-                disabled={busy}
-                onChange={(e) => setTitle(e.target.value)}
+        <DialogBody className="grid gap-4">
+          {mode === 'link' ? (
+            <div className="grid gap-2">
+              <Choice
+                className="w-full"
+                label="Chat task"
+                value={choice}
+                onChange={setChoice}
+                disabled={busy || loading}
+                options={[
+                  { value: '', label: loading ? 'Loading tasks…' : 'No task' },
+                  ...items.map((item) => ({ value: item.id, label: item.title })),
+                ]}
               />
-            </label>
-            <label className="form-label">
-              Description
-              <Textarea
-                rows={6}
-                value={body}
-                maxLength={20000}
+              <Button
+                variant="ghost"
+                size="sm"
+                className="justify-self-start"
                 disabled={busy}
-                onChange={(e) => setBody(e.target.value)}
-              />
-              <span className="form-help">
-                The first message and the last answer of the chat. Edit them as necessary.
-              </span>
-            </label>
-          </div>
-        )}
-        {failed && (
-          <p role="alert" className="field-error">
-            {failed}
-          </p>
-        )}
+                onClick={startCreate}
+              >
+                <Plus aria-hidden="true" />
+                New task from this chat…
+              </Button>
+            </div>
+          ) : (
+            <div className="grid gap-4">
+              <label className="form-label">
+                Title
+                <Input
+                  autoFocus
+                  value={title}
+                  maxLength={256}
+                  disabled={busy}
+                  onChange={(e) => setTitle(e.target.value)}
+                />
+              </label>
+              <label className="form-label">
+                Description
+                <Textarea
+                  rows={6}
+                  value={body}
+                  maxLength={20000}
+                  disabled={busy}
+                  onChange={(e) => setBody(e.target.value)}
+                />
+                <span className="form-help">
+                  The first message and the last answer of the chat. Edit them as necessary.
+                </span>
+              </label>
+            </div>
+          )}
+          {failed && (
+            <p role="alert" className="field-error">
+              {failed}
+            </p>
+          )}
+        </DialogBody>
         <DialogFooter>
           {mode === 'create' ? (
             <>

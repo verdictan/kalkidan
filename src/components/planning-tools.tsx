@@ -24,7 +24,11 @@ import { errorMessage } from '../lib/errors';
 
 export { DocsToIssuesDialog } from './docs-to-issues';
 export { ProjectPortfolio } from './project-portfolio';
-export { useUncertainWritesToast, notifyGitHubWrites } from './github-write-history';
+export {
+  useUncertainWrites,
+  useUncertainWritesToast,
+  notifyGitHubWrites,
+} from './github-write-history';
 
 export type PlanningTool = 'fields' | 'iteration' | 'readiness' | 'dispatch';
 /** A task filter for the Tasks page. The values are the same as the filter bar values. */
@@ -278,7 +282,7 @@ export function ProjectInsights({
                 onClick={() =>
                   window.dispatchEvent(
                     new CustomEvent('kalkidan-open-project-settings', {
-                      detail: { groupId: group.id, tab: 'board' },
+                      detail: { groupId: group.id, section: 'board' },
                     }),
                   )
                 }

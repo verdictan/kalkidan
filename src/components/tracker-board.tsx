@@ -6,23 +6,34 @@ import {
   linkedChats,
   selectionClick,
   selectionKeys,
+  taskKeyUp,
   taskKeys,
   trackerColumns,
   type TaskWorkProps,
 } from './tracker-list';
-import { ChevronDown, Plus } from 'lucide-react';
-import { useEffect, useRef, useState, type ReactNode, type RefObject } from 'react';
+import { PanelRight, Play, Plus, SquareCheck } from 'lucide-react';
+import {
+  useEffect,
+  useRef,
+  useState,
+  type KeyboardEvent,
+  type ReactNode,
+  type RefObject,
+} from 'react';
 import { pathBasename, plural } from '../lib/platform';
 import type { TrackerBoard, TrackerItem, Session } from '../types';
+import { cn } from '../lib/utils';
 import { Card, CardContent } from './ui/card';
 import { Button } from './ui/button';
 import { EmptyState } from './ui/empty-state';
+import { MoreButton } from './ui/more-button';
 import {
   DropdownMenu,
   DropdownMenuTrigger,
   DropdownMenuContent,
   DropdownMenuLabel,
   DropdownMenuItem,
+  DropdownMenuSeparator,
 } from './ui/dropdown-menu';
 
 /** The heading of a board column: status icon, name, task count and an optional action. */
@@ -83,6 +94,11 @@ export function useScrollShadow(scroller: RefObject<HTMLElement | null>, key: un
   };
 }
 
+/**
+ * The board columns. The board is one tab stop: the arrow keys move between the cards (up and
+ * down in a column, left and right between columns), Enter opens a task, Space selects it, S
+ * starts a chat and Shift+F10 opens the card menu with "Move to".
+ */
 export function TrackerBoard({
   board,
   items,
@@ -104,11 +120,60 @@ export function TrackerBoard({
   const [dragged, setDragged] = useState<string | null>(null);
   const [over, setOver] = useState<string | null>(null);
   const [announcement, setAnnouncement] = useState('');
+  const [activeId, setActiveId] = useState('');
+  const [menuId, setMenuId] = useState('');
   const options = board.statusField?.options || [];
   const columns = trackerColumns(board);
   const scroller = useRef<HTMLDivElement>(null);
   const shadow = useScrollShadow(scroller, columns.length);
   const { selection } = work;
+  const grid = columns.map((column) =>
+    items.filter(
+      (item) =>
+        (options.some((option) => option.id === item.statusId) ? item.statusId : '') === column.id,
+    ),
+  );
+  const flat = grid.flat();
+  // The card that has the tab stop: the last focused card, else the first card.
+  const current = flat.some((item) => item.id === activeId) ? activeId : flat[0]?.id;
+  function focusCard(id: string) {
+    setActiveId(id);
+    const card = scroller.current?.querySelector<HTMLElement>(
+      `[data-task-focus="${CSS.escape(id)}"]`,
+    );
+    card?.focus();
+    card?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  }
+  function moveFocus(event: KeyboardEvent) {
+    selectionKeys(selection)(event);
+    if (event.defaultPrevented || event.altKey || event.metaKey || event.ctrlKey) return;
+    const target = (event.target as HTMLElement).closest<HTMLElement>('[data-task-focus]');
+    const id = target?.dataset.taskFocus;
+    if (!id) return;
+    const column = grid.findIndex((tasks) => tasks.some((item) => item.id === id));
+    if (column < 0) return;
+    const row = grid[column].findIndex((item) => item.id === id);
+    let next: TrackerItem | undefined;
+    if (event.key === 'ArrowUp') next = grid[column][row - 1];
+    else if (event.key === 'ArrowDown') next = grid[column][row + 1];
+    else if (event.key === 'Home') next = grid[column][0];
+    else if (event.key === 'End') next = grid[column].at(-1);
+    else if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
+      const step = event.key === 'ArrowLeft' ? -1 : 1;
+      // Skip empty columns. Keep the row when the next column has enough cards.
+      for (let index = column + step; index >= 0 && index < grid.length; index += step)
+        if (grid[index].length) {
+          next = grid[index][Math.min(row, grid[index].length - 1)];
+          break;
+        }
+    } else if (event.key === 'F10' && event.shiftKey) {
+      event.preventDefault();
+      setMenuId(id);
+      return;
+    } else return;
+    event.preventDefault();
+    if (next) focusCard(next.id);
+  }
   return (
     <div
       ref={scroller}
@@ -118,18 +183,14 @@ export function TrackerBoard({
       role="region"
       aria-label="Tracker board"
       aria-busy={busy}
-      tabIndex={0}
-      onKeyDown={selectionKeys(selection)}
+      aria-keyshortcuts="ArrowUp ArrowDown ArrowLeft ArrowRight"
+      onKeyDown={moveFocus}
     >
       <span className="sr-only" role="status">
         {announcement}
       </span>
-      {columns.map((column) => {
-        const tasks = items.filter(
-          (item) =>
-            (options.some((option) => option.id === item.statusId) ? item.statusId : '') ===
-            column.id,
-        );
+      {columns.map((column, columnIndex) => {
+        const tasks = grid[columnIndex];
         return (
           <section
             key={column.id}
@@ -168,6 +229,7 @@ export function TrackerBoard({
                     size="icon-xs"
                     className="tracker-column-add"
                     aria-label={`New task in ${column.name}`}
+                    tabIndex={-1}
                     disabled={busy}
                     onClick={() => onCreate(column.id)}
                   >
@@ -183,24 +245,31 @@ export function TrackerBoard({
             >
               {tasks.map((item) => {
                 const chats = linkedChats(sessions, item.id);
-                const statusName =
-                  options.find((option) => option.id === item.statusId)?.name || 'No status';
                 const selected = !!selection?.ids.has(item.id);
+                const move = (status: string, name: string) => {
+                  setAnnouncement(`Moving ${item.title} to ${name}`);
+                  onStatus(item, status);
+                };
                 return (
-                  // The title button is the only focus stop that opens the task. A
-                  // pointer click on the card body also opens it. The status pill moves
-                  // the task without drag and drop. Shift or ⌘ with a click selects.
+                  // The title button is the one focus stop of the card. A pointer click on the
+                  // card body also opens the task. Shift or ⌘ with a click selects.
                   <Card
                     key={item.id}
                     role="listitem"
                     data-selected={selected || undefined}
                     onKeyDown={taskKeys(item, work)}
+                    onKeyUp={taskKeyUp(work)}
                     onClick={(event) => {
                       if (
                         (event.target as HTMLElement).closest('button, a, input, [role="menuitem"]')
                       )
                         return;
                       if (!selectionClick(event, item, selection)) onOpen(item);
+                    }}
+                    onContextMenu={(event) => {
+                      if ((event.target as HTMLElement).closest('a, input')) return;
+                      event.preventDefault();
+                      setMenuId(item.id);
                     }}
                     draggable={!busy && !!board.statusField}
                     onDragStart={(event) => {
@@ -219,67 +288,111 @@ export function TrackerBoard({
                     data-dragging={dragged === item.id || undefined}
                     className="tracker-task gap-0 has-[.tracker-task-title:focus-visible]:shadow-[var(--focus-ring)]"
                   >
-                    <CardContent className="flex flex-col items-start gap-1 p-0">
-                      {selection && <TaskCheckbox item={item} selection={selection} />}
+                    <CardContent className="flex flex-col items-stretch gap-1 p-0">
+                      {selection && (
+                        <TaskCheckbox
+                          item={item}
+                          selection={selection}
+                          tabIndex={-1}
+                          className="absolute top-3 right-3"
+                        />
+                      )}
                       <Button
                         variant="bare"
-                        className="tracker-task-title max-w-full px-0 text-left text-sm leading-5 font-medium whitespace-normal break-words focus-visible:ring-0"
+                        className={cn(
+                          'tracker-task-title max-w-full self-start px-0 text-left text-sm leading-5 font-medium whitespace-normal break-words focus-visible:ring-0',
+                          selection && 'pr-6',
+                        )}
                         data-task-focus={item.id}
-                        aria-keyshortcuts={work.onStart ? 'S' : undefined}
+                        tabIndex={item.id === current ? 0 : -1}
+                        aria-keyshortcuts={
+                          [work.onStart && 'S', selection && 'Space', 'Shift+F10']
+                            .filter(Boolean)
+                            .join(' ') || undefined
+                        }
+                        onFocus={() => setActiveId(item.id)}
                         onClick={(event) => {
                           if (!selectionClick(event, item, selection)) onOpen(item);
                         }}
                       >
                         {item.title}
                       </Button>
-                      <p className="tracker-task-meta">
-                        {item.repository
-                          ? pathBasename(item.repository)
-                          : 'Not linked to a GitHub repository'}
-                        {item.number ? ` #${item.number}` : ''}
-                      </p>
-                      {(board.statusField || chats.length > 0 || work.onStart) && (
-                        <div className="tracker-task-footer">
-                          {board.statusField && (
-                            <DropdownMenu>
-                              <DropdownMenuTrigger asChild>
-                                <Button
-                                  variant="outline"
-                                  size="xs"
-                                  className="tracker-task-status"
-                                  aria-label={`Move task: ${item.title}. Status: ${statusName}`}
-                                  disabled={busy}
-                                >
-                                  <StatusIcon name={statusName} />
-                                  <span className="truncate">{statusName}</span>
-                                  <ChevronDown aria-hidden="true" />
-                                </Button>
-                              </DropdownMenuTrigger>
-                              <DropdownMenuContent align="start">
-                                <DropdownMenuLabel>Move to</DropdownMenuLabel>
-                                {options.map((option) => (
-                                  <DropdownMenuItem
-                                    key={option.id}
-                                    disabled={option.id === item.statusId}
-                                    onSelect={() => onStatus(item, option.id)}
-                                  >
-                                    <StatusIcon name={option.name} />
-                                    {option.name}
-                                  </DropdownMenuItem>
-                                ))}
-                              </DropdownMenuContent>
-                            </DropdownMenu>
-                          )}
-                          <TaskChats
-                            chats={chats}
-                            activity={work.activity}
-                            onOpenChat={work.onOpenChat}
-                          />
+                      <div className="tracker-task-footer">
+                        <span className="tracker-task-meta truncate" title={item.repository}>
+                          {item.repository ? pathBasename(item.repository) : 'No repository'}
+                          {item.number ? ` #${item.number}` : ''}
+                        </span>
+                        <TaskChats
+                          chats={chats}
+                          activity={work.activity}
+                          onOpenChat={work.onOpenChat}
+                          tabIndex={-1}
+                        />
+                        <span className="tracker-task-actions">
+                          <DropdownMenu
+                            open={menuId === item.id}
+                            onOpenChange={(open) => setMenuId(open ? item.id : '')}
+                          >
+                            <DropdownMenuTrigger asChild>
+                              <MoreButton
+                                size="xs"
+                                className="tracker-task-menu"
+                                label={`Task menu: ${item.title}`}
+                                tabIndex={-1}
+                              />
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent
+                              align="end"
+                              className="min-w-48"
+                              onCloseAutoFocus={(event) => {
+                                // The focus goes back to the card, not to the hidden menu button.
+                                event.preventDefault();
+                                focusCard(item.id);
+                              }}
+                            >
+                              <DropdownMenuItem onSelect={() => onOpen(item)}>
+                                <PanelRight className="size-4" />
+                                Open task
+                              </DropdownMenuItem>
+                              {work.onStart && (
+                                <DropdownMenuItem onSelect={() => work.onStart?.(item)}>
+                                  <Play className="size-4" />
+                                  Start task
+                                </DropdownMenuItem>
+                              )}
+                              {selection && (
+                                <DropdownMenuItem onSelect={() => selection.toggle(item, false)}>
+                                  <SquareCheck className="size-4" />
+                                  {selected ? 'Clear selection' : 'Select'}
+                                </DropdownMenuItem>
+                              )}
+                              {board.statusField && (
+                                <>
+                                  <DropdownMenuSeparator />
+                                  <DropdownMenuLabel>Move to</DropdownMenuLabel>
+                                  {options.map((option) => (
+                                    <DropdownMenuItem
+                                      key={option.id}
+                                      disabled={busy || option.id === item.statusId}
+                                      onSelect={() => move(option.id, option.name)}
+                                    >
+                                      <StatusIcon name={option.name} size={16} />
+                                      {option.name}
+                                    </DropdownMenuItem>
+                                  ))}
+                                </>
+                              )}
+                            </DropdownMenuContent>
+                          </DropdownMenu>
                           {work.onStart && (
-                            <TaskStartButton item={item} onStart={() => work.onStart?.(item)} />
+                            <TaskStartButton
+                              item={item}
+                              tabIndex={-1}
+                              onStart={() => work.onStart?.(item)}
+                            />
                           )}
-                        </div>
-                      )}
+                        </span>
+                      </div>
                     </CardContent>
                   </Card>
                 );
