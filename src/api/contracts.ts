@@ -124,6 +124,15 @@ export interface AgentAPI {
     options?: ChatOptions,
   ): Promise<ChatRun>;
   transcript(agent: Agent, id: string): Promise<Transcript>;
+  /**
+   * Tells whether the signed-in account owns a managed chat. A chat of another account or
+   * organization is read-only. Reads only the saved binding, also on an SSH host. Moves nothing.
+   */
+  conversationOwnership(
+    agent: Agent,
+    id: string,
+    hostId?: string,
+  ): Promise<import('../domain/conversation-ownership').ConversationOwnership>;
   chatStart(
     agent: Agent,
     id: string,

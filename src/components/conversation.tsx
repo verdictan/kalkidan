@@ -8,6 +8,8 @@ import {
   type ConversationContext,
   type ToolRequest,
 } from './conversation-tools';
+import { PolicyResultCard } from './policy-result';
+import { addPolicyRecords, chatPolicyLimit, type PolicyRecord } from '../domain/policy-result';
 import { AgentActivity, RunRequests, runLineCounts } from './agent-activity';
 import { ContextUsageChip } from './context-usage-chip';
 import { useVerdictanStatus } from '../hooks/use-verdictan-status';
@@ -48,6 +50,7 @@ import {
 import Markdown, { defaultUrlTransform } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Alert, AlertDescription } from './ui/alert';
+import { ReadOnlyConversation, useConversationOwnership } from './conversation-ownership';
 import { showToast } from './ui/toast';
 import { errorMessage } from '../lib/errors';
 import { agentErrorMessage, managedLaunchError, type AgentError } from '../lib/agent-errors';
@@ -280,6 +283,7 @@ export function Conversation({
   onSessionCreated,
   onTitleChange,
   onAgentChange,
+  onStartNew,
   hostName,
   mentionChats = [],
   folders = [],
@@ -306,9 +310,14 @@ export function Conversation({
   onTitleChange?: (title: string) => void;
   /** Changes the agent of a new chat before its first message. It keeps the linked task. */
   onAgentChange?: (agent: string, taskId?: string) => void;
+  /** Opens a new, empty chat under the active account, in the same code folder. */
+  onStartNew?: () => void;
 }) {
   // The computer where the agent runs, for refusal messages.
   const computer = session.hostId ? hostName || 'the SSH host' : 'this computer';
+  // A chat of another account or organization is read-only. Its context and usage stay there.
+  const ownership = useConversationOwnership(api, session, open);
+  const readOnly = ownership.state === 'other';
   const [toolOpen, setToolOpen] = useState(false);
   const [toolRequest, setToolRequest] = useState<ToolRequest | null>(null);
   const showTool = (kind: ToolRequest['kind']) =>
@@ -639,10 +648,36 @@ export function Conversation({
     text: string;
     prompt: string;
   } | null>(null);
+  // The saved policy results of this chat. They stay after a restart. A finished run with
+  // policy results reads them again.
+  const [savedPolicies, setSavedPolicies] = useState<PolicyRecord[]>([]);
+  // The saved chat ID of the last run with policy results, and a count that reads them again.
+  const [policyChat, setPolicyChat] = useState<string>();
+  const [policyReads, setPolicyReads] = useState(0);
+  useEffect(() => {
+    const id = policyChat || session.id;
+    if (!api.chatPolicyResults || id.startsWith('draft-')) return;
+    let current = true;
+    api
+      .chatPolicyResults(session.agent, id, session.hostId)
+      .then((records) => {
+        if (current) setSavedPolicies(addPolicyRecords([], records, chatPolicyLimit));
+      })
+      .catch(() => {
+        /* The chat shows the results of the current run only. */
+      });
+    return () => {
+      current = false;
+    };
+  }, [api, session.agent, session.id, session.hostId, policyChat, policyReads]);
   function finishRun(next: ChatRun) {
     if (finished.current.has(next.id)) return;
     finished.current.add(next.id);
     syncStartedTask(next);
+    if (next.policies?.length) {
+      if (next.sessionReady && next.sessionId) setPolicyChat(next.sessionId);
+      setPolicyReads((count) => count + 1);
+    }
 
     if (session.projectId && !providerSession.current && next.sessionReady && next.sessionId) {
       providerSession.current = next.sessionId;
@@ -697,6 +732,7 @@ export function Conversation({
             ? managedLaunchError(launchFailure(next), {
                 computer,
                 hostId: session.hostId,
+                agent: session.agent,
                 regionSaved: !!account?.region,
               })
             : agentErrorMessage(`${next.error || ''} ${next.errorCode || ''}`, session.agent, {
@@ -800,7 +836,7 @@ export function Conversation({
   async function send(retry?: { allowEdits?: boolean; resend?: { text: string; prompt: string } }) {
     const again = retry ? retry.resend || submitted.current : null;
     if (retry ? !again : !prompt.trim()) return;
-    if (active || taskBusy || startingRef.current || loading) return;
+    if (active || taskBusy || startingRef.current || loading || readOnly) return;
     if (signedOut) {
       sendAfterSignIn.current = true;
       startSignIn();
@@ -1000,12 +1036,22 @@ export function Conversation({
     !!session.hostId &&
     !!error &&
     /host|ssh|disconnect|not connected|connection|ECONNRESET|EPIPE|timed out/i.test(error);
+  // Saved results and the results of the current run, without copies, oldest first.
+  const shownPolicies = addPolicyRecords(savedPolicies, run?.policies || [], chatPolicyLimit);
+  const latestRunPolicy = run?.policies?.length
+    ? [...shownPolicies]
+        .reverse()
+        .find((policy) =>
+          run.policies!.some((own) => own.at === policy.at && own.requestId === policy.requestId),
+        )
+    : undefined;
   // Desktop codes and agent errors show as plain words with an action.
   const errorInfo: AgentError | null = error
     ? run?.errorCode === 'managed_launch_blocked' && run.error === error
       ? managedLaunchError(launchFailure(run), {
           computer,
           hostId: session.hostId,
+          agent: session.agent,
           regionSaved: !!account?.region,
         })
       : /\bdesktop\.[a-z_]+|verdictan is not ready/i.test(error) ||
@@ -1301,13 +1347,17 @@ export function Conversation({
   const lines = runLineCounts(runs);
   const answered = runsFinished > 0 || messages.some((message) => message.role === 'assistant');
   const changesKey = `${chatChanges}:${unsharedCommits}:${pullRequest?.state || ''}`;
+  // A task is done only after a run that finished, or when it has a pull request. A run that
+  // failed or was stopped does not offer "Mark task done".
+  const canMarkDone =
+    !!taskId && !taskDone && (!!pullRequest || runs.at(-1)?.status === 'completed');
   const showChanges =
     !active &&
     !!repositoryId &&
     changesHidden !== changesKey &&
     (chatChanges > 0 ||
       unsharedCommits > 0 ||
-      (!!taskId && !taskDone && answered && (!!pullRequest || runsFinished > 0)));
+      (canMarkDone && answered && (!!pullRequest || runsFinished > 0)));
   // A new chat shows its code folder and branch. Another folder starts a new chat there.
   const folderPill =
     !!session.projectId && !messages.length && !run && !providerSession.current && !!repositoryId;
@@ -1472,6 +1522,20 @@ export function Conversation({
               <span role="status">{activityText}</span>
             </div>
           )}
+          {shownPolicies.map((policy) => (
+            <PolicyResultCard
+              key={`${policy.requestId || ''}:${policy.at}`}
+              api={api}
+              policy={policy}
+              busy={!!active || starting}
+              // Only the last message can go again. Results of earlier runs offer no retry.
+              onRetry={
+                policy === latestRunPolicy
+                  ? () => void send({ allowEdits: runEdits.current })
+                  : undefined
+              }
+            />
+          ))}
           {run?.status === 'stopped' && (
             <p className="chat-context-note">Response stopped. Send another message to continue.</p>
           )}
@@ -1546,7 +1610,7 @@ export function Conversation({
                     Create pull request…
                   </Button>
                 ) : (
-                  taskId && (
+                  canMarkDone && (
                     <Button size="xs" disabled={taskBusy} onClick={() => void requestDone()}>
                       {taskBusy ? 'Updating…' : 'Mark task done'}
                     </Button>
@@ -1564,12 +1628,12 @@ export function Conversation({
                     {chatChanges > 0 && (
                       <DropdownMenuItem onSelect={openCommit}>Commit only…</DropdownMenuItem>
                     )}
-                    {taskId && (chatChanges > 0 || unsharedCommits > 0 || pullRequest) && (
+                    {canMarkDone && (chatChanges > 0 || unsharedCommits > 0 || pullRequest) && (
                       <DropdownMenuItem disabled={taskBusy} onSelect={() => void requestDone()}>
                         Mark task done
                       </DropdownMenuItem>
                     )}
-                    {(chatChanges > 0 || (taskId && (unsharedCommits > 0 || pullRequest))) && (
+                    {(chatChanges > 0 || (canMarkDone && (unsharedCommits > 0 || pullRequest))) && (
                       <DropdownMenuSeparator />
                     )}
                     <DropdownMenuItem onSelect={() => setChangesHidden(changesKey)}>
@@ -1659,6 +1723,7 @@ export function Conversation({
                 {taskNotice}
               </p>
             )}
+            {readOnly && <ReadOnlyConversation ownership={ownership} onStartNew={onStartNew} />}
             {errorInfo && (
               <Alert variant="destructive" size="sm" className="max-h-32 overflow-auto">
                 <AlertDescription className="grid gap-1 text-xs whitespace-pre-wrap">
@@ -1695,6 +1760,7 @@ export function Conversation({
               data-composer=""
               className="max-h-[clamp(80px,20vh,180px)] min-h-8 resize-none rounded-none border-0 bg-transparent px-0 py-0 text-base shadow-none focus-visible:ring-0 dark:bg-transparent"
               aria-label="Message agent"
+              readOnly={readOnly}
               aria-description={
                 (enterToSend
                   ? 'Press Enter to send. Press Shift+Enter for a new line.'
@@ -1951,7 +2017,7 @@ export function Conversation({
                       enterToSend ? 'Enter' : isMac ? 'Meta+Enter' : 'Control+Enter'
                     }
                     size="icon-sm"
-                    disabled={taskBusy || !prompt.trim() || loading}
+                    disabled={taskBusy || !prompt.trim() || loading || readOnly}
                     onClick={() => void send()}
                   >
                     <ArrowUp />

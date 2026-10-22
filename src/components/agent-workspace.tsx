@@ -10,6 +10,7 @@ import { trackerConnection } from '../domain/tracker';
 import { Conversation, type ConversationDraft } from './conversation';
 import type { MentionChat } from '../lib/mention-sections';
 import { Button } from './ui/button';
+import { showToast } from './ui/toast';
 import { agentLabel, isAgent } from '../config/agents';
 import type { SessionActivity, SessionActivityState } from './activity-dot';
 import type { API, Session, Project, ProjectGroup, RemoteHost } from '../types';
@@ -19,6 +20,8 @@ const timestamp = () => new Date().toISOString();
 // approval stays mounted until it finishes.
 const mountedLimit = 5;
 const titleOf = (session: Session) => session.organization?.title || session.title;
+/** The time now, as the `updatedAt` text of a new draft. */
+const nowText = () => new Date().toISOString();
 // The picker offers the most recent chats only.
 const mentionChatLimit = 200;
 /** The other saved chats in the code folders of a project, newest first, for "@" mentions. */
@@ -105,6 +108,14 @@ export function AgentWorkspace({
     ]);
   }, [initialTabs]);
   const [sideKey, setSideKey] = useState<string | null>(null);
+  // A new side chat takes the focus, after the menu that opened it gives the focus back.
+  useEffect(() => {
+    if (!sideKey) return;
+    const timer = window.setTimeout(() =>
+      document.querySelector<HTMLTextAreaElement>('.agent-pane[data-side] textarea')?.focus(),
+    );
+    return () => window.clearTimeout(timer);
+  }, [sideKey]);
   const [running, setRunning] = useState<Record<string, SessionActivityState | null>>({});
   const [created, setCreated] = useState<Record<string, { id: string; title: string }>>({});
   // Keys in the order the user viewed them, most recent first.
@@ -259,6 +270,32 @@ export function AgentWorkspace({
     if (sideKey === key) setSideKey(keyOf(next));
     onDraft(next);
     if (key === selectedKey) onSelect(next);
+  }
+  /**
+   * Opens a new, empty chat in the code folder of a read-only chat of another account. The new
+   * chat gets its own authorized binding under the active account when it starts. Nothing of the
+   * read-only chat moves.
+   */
+  function startNew(tab: Session) {
+    const source = liveSession(tab);
+    const repo = sessionRepo(source, projects);
+    if (!repo) {
+      showToast({ message: 'Add this repository to a project first.', tone: 'error' });
+      return;
+    }
+    const draft: Session = {
+      id: 'draft-' + crypto.randomUUID(),
+      projectId: repo.id,
+      cwd: repo.path,
+      hostId: repo.hostId,
+      agent: source.agent,
+      title: `New ${agentLabel(source.agent)} chat`,
+      updatedAt: nowText(),
+    };
+    setTabs((previous) => [...previous, draft]);
+    onDraft(draft);
+    setSideKey(null);
+    onSelect(draft);
   }
   async function branch(fork: boolean, worktree?: string) {
     let repo = sessionRepo(live, projects);
@@ -430,6 +467,7 @@ export function AgentWorkspace({
                 <div
                   className="agent-pane"
                   key={key}
+                  data-side={key === sideKey || undefined}
                   hidden={key !== selectedKey && key !== sideKey}
                 >
                   {key === sideKey && (
@@ -483,6 +521,7 @@ export function AgentWorkspace({
                         ? (agent, taskId) => switchAgent(tab, agent, taskId)
                         : undefined
                     }
+                    onStartNew={() => startNew(tab)}
                     onSessionCreated={(id, title) => {
                       setCreated((previous) => ({ ...previous, [key]: { id, title } }));
                       onCreated?.(tab, id, title);

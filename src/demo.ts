@@ -611,6 +611,9 @@ export const demo: API = {
   verdictanOpenConsole: async () => {
     if (!demoAccount.region) throw new Error(managedErrorText('desktop.region_required'));
   },
+  verdictanOpenAccountPage: async () => {
+    if (!demoAccount.region) throw new Error(managedErrorText('desktop.region_required'));
+  },
   verdictanRenew: async () => demoSaveAccount({ expired: false }),
   verdictanLogout: async () => {
     demoStopAuthorization();
@@ -1138,6 +1141,7 @@ export const demo: API = {
     ],
     truncated: false,
   }),
+  conversationOwnership: async () => ({ state: 'unmanaged' }),
   chatStart: async () => {
     throw new Error(previewAgentBlock);
   },
