@@ -210,6 +210,11 @@ export function DiagnosticsSection({ api, open = true }: { api: API; open?: bool
                   {record.durationMs !== undefined ? ` · ${duration(record.durationMs)}` : ''}
                   {' · '}
                   <CopyValue value={record.id} name="Correlation ID" />
+                  {record.detail && (
+                    <span className="block whitespace-pre-wrap break-words pt-1 font-mono text-xs">
+                      {record.detail}
+                    </span>
+                  )}
                 </>
               }
             />

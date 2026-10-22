@@ -1436,12 +1436,12 @@ function refusalWords(
     case 'desktop.agent_version_unsupported':
       return `Kalkidan cannot confirm the agent version on ${where}. ${supportedAgent}`;
     case 'desktop.readiness_blocked':
-      return `The managed gateway on ${where} is not ready. Try again in a moment. If it continues, check Settings › Accounts.`;
+      return `The managed gateway on ${where} is not ready. Try again in a moment. If it continues, check Settings › Computers.`;
     case 'desktop.evidence_unavailable':
-      return `The managed gateway on ${where} did not send its status. Try again in a moment. If it continues, check Settings › Accounts.`;
+      return `The managed gateway on ${where} did not send its status. Try again in a moment. If it continues, check Settings › Computers.`;
     case 'desktop.readiness_failed':
     case 'desktop.readiness_required':
-      return `The managed agents check on ${where} did not pass. Check the status in Settings › Accounts, then try again.`;
+      return `The managed agents check on ${where} did not pass. Check the status in Settings › Computers, then try again.`;
     case 'desktop.event_buffer_full':
       return `The event buffer on ${where} is full. New requests stop until Verdictan receives the stored events. Check the network connection of ${where}, then try again.`;
     case 'desktop.clock_skew':

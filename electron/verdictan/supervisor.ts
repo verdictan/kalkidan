@@ -5,6 +5,7 @@ import { StringDecoder } from 'node:string_decoder';
 import { uuid, type RuntimeCredentials } from './credentials';
 import { DesktopProtocolError } from './protocol';
 import { eventBufferEnvironment } from './event-buffer';
+import { StderrTail, logGatewayFailure } from './gateway-log';
 
 /** The capability of a runtime that runs many gateways in one supervisor process. */
 export const multiGatewayCapability = 'gateway.supervise.multi';
@@ -33,6 +34,8 @@ export interface GatewayEvent {
   data: Record<string, unknown>;
 }
 interface Pending {
+  /** The request operation, for diagnostics. */
+  operation: string;
   resolve(value: { event: string; data: Record<string, unknown> }): void;
   reject(error: Error): void;
   /** Events that end the request. `error` always ends it. */
@@ -66,6 +69,13 @@ const address = /^http:\/\/127\.0\.0\.1:\d{1,5}$/;
 const runtimeKey = (gatewayId: string, runtimeId: string) => `${gatewayId}/${runtimeId}`;
 /** A crash within this time of the last crash counts as repeated. */
 const crashWindowMs = 60000;
+/** Safe fields of a supervisor `error` event, for diagnostics. Never its message text. */
+function errorReason(data: Record<string, unknown>) {
+  return ['code', 'failure_stage', 'failure_kind', 'http_status']
+    .filter((key) => /^[A-Za-z0-9_.-]{1,100}$/.test(String(data[key] ?? '')))
+    .map((key) => `${key} ${String(data[key])}`)
+    .join(', ');
+}
 
 /**
  * One `verdictan gateway supervise --multi` process for each computer. It hosts one gateway for
@@ -82,6 +92,9 @@ export class GatewaySupervisor {
   private listeners = new Map<string, (event: GatewayEvent) => void>();
   private stopping = false;
   private lastCrash = -Infinity;
+  private stderr = new StderrTail();
+  /** The process whose failure is already in the diagnostics. Its close adds no record. */
+  private logged?: ChildProcess;
   /** True after a repeated crash. The supervisor does not start again until `reset`. */
   failed = false;
   /**
@@ -113,6 +126,7 @@ export class GatewaySupervisor {
     this.stopping = false;
     this.sequence = 0;
     this.generation = undefined;
+    this.stderr = new StderrTail();
     const child = (this.options.launch || spawn)(executable, ['gateway', 'supervise', '--multi'], {
       stdio: ['pipe', 'pipe', 'pipe', 'pipe'],
       windowsHide: true,
@@ -128,6 +142,7 @@ export class GatewaySupervisor {
     this.child = child;
     const ready = new Promise<void>((resolve, reject) => {
       this.pending.set('supervisor', {
+        operation: 'supervisor.start',
         resolve: () => resolve(),
         reject,
         ends: ['supervisor.ready'],
@@ -140,7 +155,8 @@ export class GatewaySupervisor {
     child.on('error', () => this.fail(child, new DesktopProtocolError('desktop.gateway_failed')));
     child.stdin?.on('error', () => {});
     (child.stdio[3] as Writable | null)?.on('error', () => {});
-    child.stderr?.on('data', () => {});
+    const stderr = this.stderr;
+    child.stderr?.on('data', (bytes: Buffer) => stderr.push(bytes));
     child.once('close', () => this.closed(child));
     let buffer = '';
     const decoder = new StringDecoder('utf8');
@@ -190,6 +206,15 @@ export class GatewaySupervisor {
       this.generation = event.generation_id;
     } else if (!this.generation) throw new Error();
     const pending = this.pending.get(event.correlation_id);
+    // A detach of something that is not attached any more is not a failure.
+    if (event.event === 'error' && !pending?.operation.endsWith('.detach'))
+      logGatewayFailure(
+        `gateway.${pending?.operation ?? 'event'}`,
+        typeof event.data.code === 'string' && /^desktop\.[a-z_]{1,100}$/.test(event.data.code)
+          ? event.data.code
+          : 'desktop.gateway_unavailable',
+        errorReason(event.data),
+      );
     if (pending && (event.event === 'error' || pending.ends.includes(event.event))) {
       this.pending.delete(event.correlation_id);
       clearTimeout(pending.timer);
@@ -216,6 +241,12 @@ export class GatewaySupervisor {
   /** Stops a process that broke the protocol. Its close starts the crash handling. */
   private fail(child: ChildProcess, error: Error) {
     if (this.child !== child) return;
+    this.logged = child;
+    logGatewayFailure(
+      'gateway.supervisor',
+      error instanceof DesktopProtocolError ? error.code : 'desktop.gateway_failed',
+      this.stderr.text(),
+    );
     this.rejectAll(error);
     child.kill('SIGKILL');
   }
@@ -239,6 +270,12 @@ export class GatewaySupervisor {
       ),
     );
     const gateways = this.gateways();
+    if (!this.stopping && this.logged !== child)
+      logGatewayFailure(
+        'gateway.supervisor',
+        started ? 'desktop.gateway_stopped' : 'desktop.supervisor_unavailable',
+        this.stderr.text(),
+      );
     if (!started && !this.stopping) this.unsupported = true;
     if (this.stopping || !started) return;
     const repeated = this.now() - this.lastCrash < crashWindowMs;
@@ -262,6 +299,7 @@ export class GatewaySupervisor {
     const reply = new Promise<{ event: string; data: Record<string, unknown> }>(
       (resolve, reject) => {
         this.pending.set(correlation, {
+          operation,
           resolve,
           reject,
           ends,

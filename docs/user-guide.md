@@ -520,6 +520,10 @@ Kalkidan sends no telemetry. To give support the versions, the connection state,
 3. Read the preview. Then select **Export…** and choose a file.
 4. Attach the file to your support request.
 
+When a managed gateway does not start, **Correlation IDs** shows a `gateway.…` row. The row
+gives the safe error code, the state of the readiness check, and the end of the gateway log.
+Kalkidan removes credentials from that text.
+
 ![Diagnostics with runtime and agent versions](images/diagnostics.png)
 
 [Operational targets](operational-targets.md) describes the local measurements in the bundle.

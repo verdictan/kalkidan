@@ -31,8 +31,11 @@ export interface AgentDiagnostics {
   support: AgentVersionStatus | 'missing';
 }
 export interface CorrelationRecord {
-  /** A broker request, or a request that the gateway recorded for an agent turn. */
-  kind: 'broker' | 'request';
+  /**
+   * A broker request, a request that the gateway recorded for an agent turn, or a gateway or
+   * supervisor step that failed.
+   */
+  kind: 'broker' | 'request' | 'gateway';
   id: string;
   /** The broker operation, or the agent turn for a gateway request. */
   operation: string;
@@ -40,6 +43,8 @@ export interface CorrelationRecord {
   outcome: string;
   at: string;
   durationMs?: number;
+  /** Why a gateway step failed: safe codes and redacted stderr. Never a credential. */
+  detail?: string;
 }
 export type MeasurementName =
   | 'setup_completion_ms'
