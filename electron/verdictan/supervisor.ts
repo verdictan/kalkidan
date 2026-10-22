@@ -69,6 +69,11 @@ export class GatewaySupervisor {
   private lastCrash = -Infinity;
   /** True after a repeated crash. The supervisor does not start again until `reset`. */
   failed = false;
+  /**
+   * True when the process stopped before `supervisor.ready`, for example an older runtime
+   * without the multi mode. Kalkidan then uses one process for each runtime.
+   */
+  unsupported = false;
   constructor(private options: SupervisorOptions) {}
   private now() {
     return (this.options.now || Date.now)();
@@ -79,6 +84,8 @@ export class GatewaySupervisor {
   }
   /** Starts the process once. Concurrent callers share the start. */
   start(): Promise<void> {
+    if (this.unsupported)
+      return Promise.reject(new DesktopProtocolError('desktop.supervisor_unavailable'));
     if (this.failed) return Promise.reject(new DesktopProtocolError('desktop.gateway_failed'));
     if (this.child && this.generation) return Promise.resolve();
     return (this.starting ??= this.launch().finally(() => {
@@ -203,11 +210,19 @@ export class GatewaySupervisor {
   }
   private closed(child: ChildProcess) {
     if (this.child !== child) return;
+    const started = !!this.generation;
     this.child = undefined;
     this.generation = undefined;
-    this.rejectAll(new DesktopProtocolError('desktop.gateway_stopped'));
+    // A process that stops before `supervisor.ready` did not start, for example a runtime
+    // without the multi mode. That is not a crash.
+    this.rejectAll(
+      new DesktopProtocolError(
+        started ? 'desktop.gateway_stopped' : 'desktop.supervisor_unavailable',
+      ),
+    );
     const gateways = this.gateways();
-    if (this.stopping) return;
+    if (!started && !this.stopping) this.unsupported = true;
+    if (this.stopping || !started) return;
     const repeated = this.now() - this.lastCrash < crashWindowMs;
     this.lastCrash = this.now();
     if (repeated) this.failed = true;
@@ -344,6 +359,7 @@ export class GatewaySupervisor {
   /** Allows a new start after a repeated crash, for example when the user checks the status. */
   reset() {
     this.failed = false;
+    this.unsupported = false;
     this.lastCrash = -Infinity;
   }
 }

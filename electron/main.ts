@@ -700,6 +700,8 @@ app.whenReady().then(async () => {
     }
   });
   handle('verdictan-check', async () => {
+    // After repeated crashes, the gateway supervisor starts again only after a check.
+    verdictan!.managed.resetSupervisor();
     const status = await withRegion(verdictan!.account.check());
     // Check status also starts the runtime again on each SSH host. When this computer refused
     // the keychain, the hosts cannot reach the account, so they wait for the next check.

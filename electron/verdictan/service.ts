@@ -19,6 +19,8 @@ import { RuntimeInstaller } from './install';
 import { probeRuntime } from './runtime-probe';
 import { proxyConfigured, withReleaseErrors } from './network';
 import { hostDisplayName, hostNameCapability } from './host-name';
+import { GatewayInstances } from './instances';
+import { multiGatewayCapability } from './supervisor';
 
 export function createVerdictanServices(options: {
   root: string;
@@ -109,12 +111,21 @@ export function createVerdictanServices(options: {
       return executable ? new DesktopProtocol(executable, args) : null;
     },
   });
+  // Undelivered usage records must survive a restart, so the queue is not in a temporary folder.
+  const eventDirectory = join(options.root, 'runtime', 'verdictan', 'events');
   const managed = new ManagedRuntimes({
     apiOrigin,
-    // Undelivered usage records must survive a restart, so the queue is not in a temporary folder.
-    eventDirectory: join(options.root, 'runtime', 'verdictan', 'events'),
+    eventDirectory,
     client: () => account.runtimeClient(),
     executable: () => installer.executable(),
+    // One supervisor for this computer with one gateway instance for each agent. A runtime
+    // without the multi mode starts one process for each chat runtime.
+    instances: new GatewayInstances({
+      apiOrigin,
+      client: () => account.runtimeClient(),
+      supervisor: { executable: () => installer.executable(), eventDirectory },
+    }),
+    multi: () => !!account.status().capabilities?.capabilities.includes(multiGatewayCapability),
     changed: options.changed,
     // The account session of this device was revoked. Remove the local session at once.
     revoked: (reason) => {
