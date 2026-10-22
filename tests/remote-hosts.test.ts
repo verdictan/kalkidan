@@ -113,6 +113,21 @@ test('host setup installs the bundled agent and routes RPC through an SSH transp
     // The same helper answers the next connection, so its runs and shells continue.
     await hosts.connect(host.id);
     assert.equal((await hosts.call(host.id, 'hello', [])).pid, first.pid);
+    // A connection without a request, such as the check of a second helper that starts, does
+    // not take the helper from the app. The socket name is short in its own folder.
+    const { connectHelper } = await import('../electron/operations/helper-daemon');
+    const cwd = process.cwd();
+    process.chdir(join(root, '.kalkidan', 'run'));
+    try {
+      const probe = await connectHelper(`helper-${hosts.list()[0].version}.sock`);
+      assert.ok(probe);
+      await new Promise<void>((done) => probe.end(done));
+    } finally {
+      process.chdir(cwd);
+    }
+    await new Promise((r) => setTimeout(r, 100));
+    assert.equal((await hosts.call(host.id, 'hello', [])).pid, first.pid);
+    assert.equal(hosts.list()[0].status, 'connected');
     assert.deepEqual(await hosts.call(host.id, 'chat-runs', []), []);
     assert.deepEqual(await hosts.call(host.id, 'ptyList', []), [{ id: kept.id, cwd: repo }]);
     // The recent output of the shell comes again, and the shell still works.

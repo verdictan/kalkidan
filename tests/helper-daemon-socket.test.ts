@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -18,11 +18,17 @@ test('one helper listens on a socket, and a socket of a stopped helper is replac
   const root = await temporary(t);
   const path = join(root, 'h.sock');
   assert.equal(await connectHelper(path), undefined);
-  const first = createServer((socket) => socket.end('first\n'));
+  // The peer can close first, so a reset of a connection is not an error of the helper.
+  const first = createServer((socket) => socket.on('error', () => {}).end('first\n'));
   t.after(() => first.close());
   assert.equal(await listenHelper(first, path), true);
   const socket = await connectHelper(path);
   assert.ok(socket);
+  // The helper answers on the connection.
+  assert.equal(
+    await new Promise((done) => socket.once('data', (data) => done(String(data)))),
+    'first\n',
+  );
   socket.destroy();
   // A second helper does not take the socket of a helper that listens.
   const second = createServer();
@@ -42,7 +48,8 @@ test('one helper listens on a socket, and a socket of a stopped helper is replac
   t.after(() => third.close());
   assert.equal(await listenHelper(third, stale), true);
   // A different error goes to the caller.
-  await mkdir(join(root, 'folder.sock'));
   await assert.rejects(listenHelper(createServer(), join(root, 'missing', 'x.sock')));
-  await assert.rejects(connectHelper(join(root, 'folder.sock')));
+  // A folder in the path that is a file is an error on each system.
+  await writeFile(join(root, 'file'), '');
+  await assert.rejects(connectHelper(join(root, 'file', 'x.sock')), /ENOTDIR/);
 });

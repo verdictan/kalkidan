@@ -591,12 +591,21 @@ function helperIdle() {
   return Number.isSafeInteger(value) && value > 0 ? value : undefined;
 }
 /** Reads the requests of one app connection. The answers go back to the same connection. */
-function serveConnection(input: NodeJS.ReadableStream, connection: AppConnection) {
+function serveConnection(
+  input: NodeJS.ReadableStream,
+  connection: AppConnection,
+  /** Called before the first line. A connection that sends nothing never takes the helper. */
+  claim?: () => void,
+) {
   const reply = (frame: object) => {
     if (!connection.closed()) connection.write(JSON.stringify(frame) + '\n');
   };
   const lines = createInterface({ input });
   lines.on('line', (line) => {
+    if (claim) {
+      claim();
+      claim = undefined;
+    }
     if (line.length > 16000000) return;
     let request: any;
     try {
@@ -651,27 +660,30 @@ function shutdown() {
 async function serve(path: string) {
   process.umask(0o077);
   const server = createServer((socket) => {
-    const previous = client;
     const connection = socketConnection(socket);
-    client = connection;
     socket.on('error', () => {});
-    if (previous) {
-      try {
-        previous.write(JSON.stringify({ event: 'helper-replaced' }) + '\n');
-      } catch {
-        // The previous connection is already closed.
-      }
-      previous.close();
-      detach();
-    }
     socket.on('close', () => {
       if (client !== connection) return;
       client = undefined;
       detach();
     });
-    serveConnection(socket, connection);
-    // A managed runtime of a run that ended without an app is released now.
-    void verdictanRuntime?.managed.retryReleases();
+    // A connection takes the helper with its first request. A helper that checks whether this
+    // helper listens connects and closes without a request, so it never replaces the app.
+    serveConnection(socket, connection, () => {
+      const previous = client;
+      client = connection;
+      if (previous) {
+        try {
+          previous.write(JSON.stringify({ event: 'helper-replaced' }) + '\n');
+        } catch {
+          // The previous connection is already closed.
+        }
+        previous.close();
+        detach();
+      }
+      // A managed runtime of a run that ended without an app is released now.
+      void verdictanRuntime?.managed.retryReleases();
+    });
   });
   helperServer = server;
   if (!(await listenHelper(server, path))) process.exit(0);
