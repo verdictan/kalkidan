@@ -24,6 +24,8 @@ export async function changeTaskStatus(
   const option = board.statusField?.options.find((option) =>
     configured ? option.id === configured : option.name.trim().toLowerCase() === name.toLowerCase(),
   );
+  // With no saved status and no status of the default name, the step is "Don't move".
+  if (!option && !configured) return item.title;
   if (!option)
     throw new Error(
       `The board has no “${name}” status. Change the status of the task on the board.`,

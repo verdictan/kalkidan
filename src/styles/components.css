@@ -107,6 +107,8 @@
 
 /* One empty state. */
 .empty-state {
+  /* Every page-level empty state sits at the top of its area, 48px down. */
+  align-self: start;
   display: grid;
   justify-items: center;
   gap: var(--space-2);
@@ -188,7 +190,8 @@
   color: var(--foreground);
 }
 .segmented-item[aria-pressed='true'] {
-  background: var(--background);
+  /* A raised selected item in both themes. */
+  background: var(--popover);
   color: var(--foreground);
   box-shadow: var(--shadow-xs);
 }
@@ -206,7 +209,7 @@
 .segmented[data-size='sm'] .segmented-item {
   height: var(--control-xs);
   padding-inline: var(--space-2);
-  font-size: 12px;
+  font-size: 13px;
 }
 
 /* An inner panel inside a dialog or page. */

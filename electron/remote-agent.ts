@@ -14,6 +14,7 @@ import {
   importLegacyDocs,
 } from './storage/project-location';
 import { memoryDirectory, readProjectMemory } from './storage/project-memory';
+import { contextUsage, normalizeUsage, readCounts } from './storage/context-usage';
 import { projectMemory } from './storage/managed-memory';
 import { resourceRevision } from './storage/resource-revision';
 import { remoteProtocolVersion } from '../src/domain/host';
@@ -182,6 +183,8 @@ async function dispatch(method: string, args: any[]): Promise<any> {
       if (c === 'list') return readProjectMemory(root);
       if (c === 'entries') return projectMemory(root).list();
       if (c === 'forget') return projectMemory(root).forget(d[0], d[1]);
+      if (c === 'usage') return contextUsage(root, d?.[0], d?.[1]);
+      if (c === 'counts') return readCounts(root);
       if (c === 'save') {
         if (!d?.[0] || typeof d[0] !== 'object') throw new Error('Enter a memory entry to save.');
         return projectMemory(root).save(d[0]);
@@ -402,6 +405,7 @@ async function dispatch(method: string, args: any[]): Promise<any> {
                 root: await folder(f.root),
                 groupId: f.groupId,
                 prompt: f.prompt,
+                read: normalizeUsage(f.read),
                 changed: () =>
                   process.stdout.write(
                     JSON.stringify({
@@ -430,6 +434,7 @@ async function dispatch(method: string, args: any[]): Promise<any> {
                 root: await folder(f.root),
                 groupId: f.groupId,
                 prompt: f.prompt,
+                read: normalizeUsage(f.read),
                 changed: () =>
                   process.stdout.write(
                     JSON.stringify({

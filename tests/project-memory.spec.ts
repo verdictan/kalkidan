@@ -1,36 +1,53 @@
+import { type Page } from '@playwright/test';
 import { test, expect } from './helpers/app';
 import { openProjectTab } from './helpers/navigation';
 
-test('Memory follows Docs in the project tabs and opens a read-only project page', async ({
+/** The rail of the Knowledge tab. */
+const rail = (page: Page) => page.getByRole('complementary', { name: 'Knowledge sections' });
+
+/** The Memory pane. The rail has a Memory group too, so look in the pane. */
+const memoryPane = (page: Page) =>
+  page.locator('.knowledge-pane').getByRole('region', { name: 'Memory', exact: true });
+
+/** Opens all facts in the Memory section of the Knowledge tab. */
+async function openMemory(page: Page, project?: string) {
+  await openProjectTab(page, 'Knowledge', project);
+  await rail(page)
+    .getByRole('button', { name: /^All facts( \d+)?$/ })
+    .click();
+}
+
+test('Memory is a section of the Knowledge tab and shows facts by topic without edit fields', async ({
   page,
 }) => {
   await page.goto('/');
   await page.locator('.project-tree').getByRole('button', { name: 'Atlas', exact: true }).click();
   const tabs = page.getByRole('navigation', { name: 'Project page' });
-  const docs = tabs.getByRole('button', { name: 'Docs', exact: true });
-  const memory = tabs.getByRole('button', { name: 'Memory', exact: true });
-  const docsBox = await docs.boundingBox();
-  const memoryBox = await memory.boundingBox();
-  expect(memoryBox!.x).toBeGreaterThan(docsBox!.x);
-  await memory.click();
-  await expect(memory).toHaveAttribute('aria-current', 'page');
-  const panel = page.getByRole('region', { name: 'Project memory', exact: true });
-  // One project header shows the project name above the tabs. Memory has no header of its own.
+  const knowledge = tabs.getByRole('button', { name: 'Knowledge', exact: true });
+  await knowledge.click();
+  await expect(knowledge).toHaveAttribute('aria-current', 'page');
+  // The Memory group follows the Pages group in the rail.
+  const pagesBox = await rail(page)
+    .getByRole('region', { name: 'Pages', exact: true })
+    .boundingBox();
+  const memoryBox = await rail(page)
+    .getByRole('region', { name: 'Memory', exact: true })
+    .boundingBox();
+  expect(memoryBox!.y).toBeGreaterThan(pagesBox!.y);
+  const allFacts = rail(page).getByRole('button', { name: /^All facts( \d+)?$/ });
+  await allFacts.click();
+  await expect(allFacts).toHaveAttribute('aria-current', 'page');
+  const panel = memoryPane(page);
+  // One project header shows the project name above the tabs.
   await expect(page.locator('.project-header')).toContainText('Atlas');
-  await expect(panel.locator('header')).toHaveCount(0);
-  // The demo has saved entries. The page shows them by topic and has no text fields.
-  const topics = panel.getByRole('navigation', { name: 'Memory topics' });
-  await expect(topics.getByRole('button', { name: 'Testing', exact: true })).toBeVisible();
-  await expect(panel.getByRole('article', { name: 'Testing' })).toContainText('npm run test:ui');
+  // The demo has saved facts. The pane shows them by topic and has no text fields.
+  await expect(panel.getByRole('region', { name: /^Testing/ })).toContainText('npm run test:ui');
   await expect(panel.getByRole('textbox')).toHaveCount(0);
-  await page.getByRole('button', { name: 'Refresh memory' }).click();
-  await topics.getByRole('button', { name: 'Authentication', exact: true }).click();
-  await expect(panel.getByRole('article', { name: 'Authentication' })).toBeVisible();
+  const topic = rail(page).getByRole('button', { name: /^Authentication( \d+)?$/ });
+  await topic.click();
+  await expect(topic).toHaveAttribute('aria-current', 'page');
+  await expect(panel.getByRole('region', { name: /^Authentication/ })).toBeVisible();
   await expect(panel.getByRole('textbox')).toHaveCount(0);
-  await docs.click();
-  await expect(docs).toHaveAttribute('aria-current', 'page');
-  // A project without pages shows the empty Docs page and no page list.
-  await expect(page.getByRole('heading', { name: 'No docs yet' })).toBeVisible();
 });
 
 test('Memory renders agent files and refreshes changes without open edit fields', async ({
@@ -42,6 +59,7 @@ test('Memory renders agent files and refreshes changes without open edit fields'
     (window as any).memoryRevisionReads = 0;
     (window as any).workspace = {
       trackerProviders: async () => [],
+      docsMetadata: async () => [],
       snapshot: async () => ({
         projects: [],
         groups: [{ id: 'g', name: 'Test', repoIds: [] }],
@@ -70,8 +88,8 @@ test('Memory renders agent files and refreshes changes without open edit fields'
     };
   });
   await page.goto('/');
-  await openProjectTab(page, 'Memory');
-  const panel = page.getByRole('region', { name: 'Project memory', exact: true });
+  await openMemory(page);
+  const panel = memoryPane(page);
   await expect(panel.getByRole('heading', { name: 'Test conventions' })).toBeVisible();
   await expect(panel).toContainText('Run npm test.');
   // The project overview can read memory too. Count the reads from here.
@@ -85,13 +103,13 @@ test('Memory renders agent files and refreshes changes without open edit fields'
   await page.evaluate(() => {
     (window as any).memoryBody = 'Run npm test and lint.';
   });
-  await page.getByRole('button', { name: 'Refresh memory' }).click();
+  // When the window gets focus again, a changed revision loads the facts again.
+  await page.evaluate(() => window.dispatchEvent(new Event('focus')));
   await expect(panel).toContainText('Run npm test and lint.');
-  // The entries are not edit fields. The one field is Search memory. An entry form opens only
-  // from Add entry or Edit.
-  await expect(panel.locator('textarea, [contenteditable="true"]')).toHaveCount(0);
-  await expect(panel.locator('input')).toHaveCount(1);
-  await expect(panel.getByRole('searchbox', { name: 'Search memory' })).toBeVisible();
+  // The facts are not edit fields. The search is in the rail. A fact form opens only from Add
+  // fact or Edit fact.
+  await expect(panel.locator('input, textarea, [contenteditable="true"]')).toHaveCount(0);
+  await expect(rail(page).getByRole('combobox', { name: 'Search knowledge' })).toBeVisible();
   await page.setViewportSize({ width: 757, height: 988 });
   await expect(panel.getByRole('heading', { name: 'Test conventions' })).toBeVisible();
 });
@@ -100,6 +118,7 @@ test('late Memory reads cannot display content in another project', async ({ pag
   await page.addInitScript(() => {
     (window as any).workspace = {
       trackerProviders: async () => [],
+      docsMetadata: async () => [],
       snapshot: async () => ({
         projects: [],
         sessions: [],
@@ -120,12 +139,12 @@ test('late Memory reads cannot display content in another project', async ({ pag
     };
   });
   await page.goto('/');
-  await openProjectTab(page, 'Memory');
+  await openMemory(page);
   await expect
     .poll(() => page.evaluate(() => typeof (window as any).resolveAlpha))
     .toBe('function');
-  await openProjectTab(page, 'Memory', 'Beta');
-  await expect(page.getByRole('region', { name: 'Project memory', exact: true })).toBeVisible();
+  await openMemory(page, 'Beta');
+  await expect(memoryPane(page)).toBeVisible();
   await expect(page.locator('.project-header')).toContainText('Beta');
   await expect(page.getByRole('alert')).toContainText('Beta is offline');
   await page.evaluate(() =>
@@ -146,6 +165,7 @@ for (const ready of [true, false])
     await page.addInitScript((isReady) => {
       (window as any).workspace = {
         trackerProviders: async () => [],
+        docsMetadata: async () => [],
         snapshot: async () => ({
           projects: [],
           groups: [{ id: 'g', name: 'Test', repoIds: [] }],
@@ -162,9 +182,9 @@ for (const ready of [true, false])
       };
     }, ready);
     await page.goto('/');
-    await openProjectTab(page, 'Memory');
-    const panel = page.getByRole('region', { name: 'Project memory', exact: true });
-    await expect(panel).toContainText('No memory yet');
+    await openMemory(page);
+    const panel = memoryPane(page);
+    await expect(panel).toContainText('No facts yet');
     const start = panel.getByRole('button', { name: 'Start a chat', exact: true });
     const setUp = panel.getByRole('button', { name: 'Set up managed agents', exact: true });
     if (ready) {

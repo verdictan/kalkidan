@@ -3,15 +3,11 @@ import { AttachHint, DiffReview } from './diff-review';
 import { createPortal } from 'react-dom';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import {
-  ChevronRight,
   FileDiff,
   GitCommitHorizontal,
   Globe,
-  LayoutGrid,
   LoaderCircle,
-  PanelRightClose,
   Paperclip,
-  Plus,
   RefreshCw,
   Terminal,
   X,
@@ -19,24 +15,16 @@ import {
 import { Button } from './ui/button';
 import { Alert, AlertDescription } from './ui/alert';
 import { EmptyState } from './ui/empty-state';
-import { EntityIcon } from './ui/entity-icon';
-import { PageHeader } from './ui/page-header';
 import { Choice } from './choice';
 import { Hint } from './hint';
 import { ConfirmDialog } from './confirm-dialog';
-import {
-  hasPrimaryModifier,
-  isMac,
-  isTypingTarget,
-  pathBasename,
-  shortcutLabel,
-} from '../lib/platform';
+import { hasPrimaryModifier, isMac, isTypingTarget, shortcutLabel } from '../lib/platform';
 import { InteractiveTerminal } from './interactive-terminal';
 import { EmbeddedBrowser } from './embedded-browser';
 import type { API, RepositoryDiff } from '../types';
 import { errorMessage } from '../lib/errors';
 export type ConversationContext = { id: string; label: string; text: string };
-type ToolKind = 'terminal' | 'browser' | 'diff' | 'home';
+type ToolKind = 'terminal' | 'browser' | 'diff';
 /** A request from the session view to show a tool. Increase `n` to send it again. */
 export type ToolRequest = { kind: 'terminal' | 'browser' | 'diff'; n: number };
 type ToolTab = { id: string; kind: ToolKind; title: string; url?: string };
@@ -53,21 +41,18 @@ const launcherRows = [
   {
     kind: 'terminal',
     title: 'Terminal',
-    description: 'Run commands in this folder',
     icon: Terminal,
     shortcut: shortcuts.terminal,
   },
   {
     kind: 'browser',
     title: 'Browser',
-    description: 'Preview your app and point the agent at an element',
     icon: Globe,
     shortcut: '',
   },
   {
     kind: 'diff',
     title: 'Changes',
-    description: 'Review, attach and commit the changed files',
     icon: FileDiff,
     shortcut: shortcuts.diff,
   },
@@ -163,6 +148,8 @@ export function ConversationTools({
   const container = useRef<HTMLDivElement>(null);
   const current = tabs.find((t) => t.id === active);
   const tool = expanded ? current?.kind : null;
+  // The open tabs of the shown tool. Two or more show a tab strip above the tool.
+  const sameKind = current ? tabs.filter((t) => t.kind === current.kind) : [];
   const [diff, setDiff] = useState<RepositoryDiff | null>(null);
   const [diffTab, setDiffTab] = useState('unstaged');
   const [busy, setBusy] = useState(false);
@@ -221,14 +208,7 @@ export function ConversationTools({
     const tab = {
       id: crypto.randomUUID(),
       kind,
-      title:
-        kind === 'terminal'
-          ? 'Terminal'
-          : kind === 'browser'
-            ? 'New browser tab'
-            : kind === 'diff'
-              ? 'Changes'
-              : 'Tools',
+      title: kind === 'terminal' ? 'Terminal' : kind === 'browser' ? 'New browser tab' : 'Changes',
       url,
     };
     setTabs((previous) => [...previous, tab]);
@@ -257,9 +237,15 @@ export function ConversationTools({
     if (active === id) {
       const next = remaining.at(-1)?.id || null;
       setActive(next);
-      if (next) requestAnimationFrame(() => document.getElementById('tab-' + next)?.focus());
+      if (next) requestAnimationFrame(() => focusTab(remaining.find((t) => t.id === next)!));
     }
     if (!remaining.length) setExpanded(false);
+  }
+  /** Focuses the tab of a tool: its tab in the tool strip, else its title bar button. */
+  function focusTab(tab: ToolTab) {
+    (
+      document.getElementById('tab-' + tab.id) || document.getElementById('tool-launch-' + tab.kind)
+    )?.focus();
   }
   /** A terminal tab has a running shell. Ask before it stops. */
   function requestClose(tab: ToolTab) {
@@ -315,8 +301,9 @@ export function ConversationTools({
         e.preventDefault();
         open('diff');
       } else if (!e.shiftKey && e.code === 'KeyT') {
+        // A second terminal. The tool strip shows the terminals.
         e.preventDefault();
-        add('home');
+        add('terminal');
       }
     };
     window.addEventListener('keydown', keys);
@@ -426,113 +413,36 @@ export function ConversationTools({
         document.getElementById('conversation-titlebar-tabs') &&
         createPortal(
           <div className="tool-tabbar" data-expanded={expanded}>
-            <div
-              hidden={!expanded}
-              role="tablist"
-              aria-label="Tool tabs"
-              className="tool-tabs"
-              onKeyDown={(e) => {
-                if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(e.key)) return;
-                e.preventDefault();
-                const index = tabs.findIndex((t) => t.id === active);
-                const next =
-                  tabs[
-                    e.key === 'Home'
-                      ? 0
-                      : e.key === 'End'
-                        ? tabs.length - 1
-                        : (index + (e.key === 'ArrowRight' ? 1 : -1) + tabs.length) % tabs.length
-                  ];
-                setActive(next.id);
-                document.getElementById('tab-' + next.id)?.focus();
-              }}
-            >
-              {tabs.map((tab) => {
-                const Icon =
-                  tab.kind === 'terminal'
-                    ? Terminal
-                    : tab.kind === 'browser'
-                      ? Globe
-                      : tab.kind === 'diff'
-                        ? FileDiff
-                        : LayoutGrid;
-                const hint =
-                  tab.kind === 'terminal'
-                    ? `${tab.title} (${shortcuts.terminal}). In the terminal, press F6 to go back to the tabs.`
-                    : tab.kind === 'diff'
-                      ? `${tab.title} (${shortcuts.diff})`
-                      : tab.title;
-                return (
-                  <div key={tab.id} className={'tool-tab' + (active === tab.id ? ' selected' : '')}>
-                    <Hint label={hint}>
-                      <Button
-                        role="tab"
-                        size="sm"
-                        className="min-w-0 flex-1 justify-start gap-2 px-2 text-xs font-normal hover:bg-transparent"
-                        tabIndex={active === tab.id ? 0 : -1}
-                        aria-selected={active === tab.id}
-                        aria-controls={'tool-' + tab.id}
-                        aria-description={
-                          'Press Delete to close this tab.' +
-                          (tab.kind === 'terminal'
-                            ? ' In the terminal, press F6 to go back to the tabs.'
-                            : '')
-                        }
-                        id={'tab-' + tab.id}
-                        variant="ghost"
-                        onClick={() => setActive(tab.id)}
-                        onKeyDown={(e) => {
-                          if (e.key !== 'Delete' && e.key !== 'Backspace') return;
-                          e.preventDefault();
-                          requestClose(tab);
-                        }}
-                      >
-                        <Icon size={14} aria-hidden="true" />
-                        <span>{tab.title}</span>
-                      </Button>
-                    </Hint>
-                    <Button
-                      variant="ghost"
-                      size="icon-2xs"
-                      className="tool-tab-close"
-                      tabIndex={-1}
-                      title={'Close ' + tab.title}
-                      aria-label={'Close ' + tab.title}
-                      onClick={() => requestClose(tab)}
-                    >
-                      <X />
-                    </Button>
-                  </div>
-                );
-              })}
-            </div>
-            {expanded && <span className="tool-tabbar-divider" aria-hidden="true" />}
-            <div className="tool-launch" role="group" aria-label="Session tools">
+            {/* Each button is the tool: selected = shown. Select it again to hide the tools. */}
+            <div className="segmented tool-launch" data-size="sm" role="group" aria-label="Tools">
               {launcherRows.map((row) => {
                 const count = row.kind === 'diff' ? changeCount || 0 : 0;
                 const selected = tool === row.kind;
+                // Changes shows when there are changes, or when its tab is open.
+                if (row.kind === 'diff' && !count && !tabs.some((t) => t.kind === 'diff'))
+                  return null;
                 return (
                   <Hint
                     key={row.kind}
                     label={
-                      (row.kind === 'diff' && changeHint
-                        ? changeHint
-                        : selected
-                          ? `Show ${row.title}`
-                          : row.description) + (row.shortcut ? ` (${row.shortcut})` : '')
+                      (selected
+                        ? `Hide ${row.title}`
+                        : row.kind === 'diff' && changeHint
+                          ? changeHint
+                          : row.title) + (row.shortcut ? ` (${row.shortcut})` : '')
                     }
                   >
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="tool-launch-button"
-                      data-selected={selected || undefined}
+                    <button
+                      type="button"
+                      id={'tool-launch-' + row.kind}
+                      className="segmented-item tool-launch-button"
+                      aria-pressed={selected}
                       aria-label={
                         row.kind === 'diff' && count
                           ? `Changes, ${count} ${count === 1 ? 'file' : 'files'} changed in this chat`
                           : row.title
                       }
-                      onClick={() => open(row.kind)}
+                      onClick={() => open(selected ? null : row.kind)}
                     >
                       <row.icon aria-hidden="true" />
                       <span className="tool-launch-label">{row.title}</span>
@@ -541,34 +451,11 @@ export function ConversationTools({
                           {count}
                         </span>
                       )}
-                    </Button>
+                    </button>
                   </Hint>
                 );
               })}
             </div>
-            <Hint label={`New tool tab (${shortcuts.tab})`}>
-              <Button
-                variant="ghost"
-                size="icon-sm"
-                aria-label="New tool tab"
-                aria-keyshortcuts={isMac ? 'Meta+T' : 'Control+T'}
-                onClick={() => add('home')}
-              >
-                <Plus />
-              </Button>
-            </Hint>
-            {expanded && (
-              <Hint label="Hide tools">
-                <Button
-                  variant="ghost"
-                  size="icon-sm"
-                  aria-label="Hide tools"
-                  onClick={() => setExpanded(false)}
-                >
-                  <PanelRightClose />
-                </Button>
-              </Hint>
-            )}
           </div>,
           document.getElementById('conversation-titlebar-tabs')!,
         )}
@@ -578,62 +465,72 @@ export function ConversationTools({
             {limit}
           </p>
         )}
+        {sameKind.length > 1 && (
+          <div
+            role="tablist"
+            aria-label={`${current?.kind === 'browser' ? 'Browser' : 'Terminal'} tabs`}
+            className="tool-tabs"
+            onKeyDown={(e) => {
+              if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(e.key)) return;
+              e.preventDefault();
+              const index = sameKind.findIndex((t) => t.id === active);
+              const next =
+                sameKind[
+                  e.key === 'Home'
+                    ? 0
+                    : e.key === 'End'
+                      ? sameKind.length - 1
+                      : (index + (e.key === 'ArrowRight' ? 1 : -1) + sameKind.length) %
+                        sameKind.length
+                ];
+              setActive(next.id);
+              document.getElementById('tab-' + next.id)?.focus();
+            }}
+          >
+            {sameKind.map((tab) => (
+              <div key={tab.id} className={'tool-tab' + (active === tab.id ? ' selected' : '')}>
+                <Button
+                  role="tab"
+                  size="sm"
+                  className="min-w-0 flex-1 justify-start px-2 text-xs font-normal hover:bg-transparent"
+                  tabIndex={active === tab.id ? 0 : -1}
+                  aria-selected={active === tab.id}
+                  aria-controls={'tool-' + tab.id}
+                  id={'tab-' + tab.id}
+                  variant="ghost"
+                  onClick={() => setActive(tab.id)}
+                  onKeyDown={(e) => {
+                    if (e.key !== 'Delete' && e.key !== 'Backspace') return;
+                    e.preventDefault();
+                    requestClose(tab);
+                  }}
+                >
+                  <span>{tab.title}</span>
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon-2xs"
+                  className="tool-tab-close"
+                  tabIndex={-1}
+                  aria-label={'Close ' + tab.title}
+                  onClick={() => requestClose(tab)}
+                >
+                  <X />
+                </Button>
+              </div>
+            ))}
+          </div>
+        )}
         <section className="conversation-tool-panel" aria-label="Repository tools">
           {tabs.map((tab) => (
             <div
               key={tab.id}
               id={'tool-' + tab.id}
-              role="tabpanel"
-              aria-labelledby={'tab-' + tab.id}
+              role={sameKind.length > 1 ? 'tabpanel' : undefined}
+              aria-labelledby={sameKind.length > 1 ? 'tab-' + tab.id : 'tool-launch-' + tab.kind}
               hidden={active !== tab.id}
               className="tool-tab-content"
             >
-              {tab.kind === 'home' && (
-                <div className="tool-launcher">
-                  <PageHeader
-                    title="Tools"
-                    subtitle={`${pathBasename(cwd)} · ${remote ? 'SSH host' : 'This computer'}`}
-                  />
-                  <div className="tool-launcher-grid">
-                    {launcherRows.map((row) => (
-                      <Button
-                        key={row.kind}
-                        variant="ghost"
-                        size="lg"
-                        aria-label={row.title}
-                        aria-description={row.description}
-                        className="h-auto min-h-[var(--row-height-lg)] w-full justify-start gap-3 px-2 py-2 font-normal has-[>svg]:px-2"
-                        onClick={() => {
-                          setTabs((previous) =>
-                            previous.map((t) =>
-                              t.id === tab.id ? { ...t, kind: row.kind, title: row.title } : t,
-                            ),
-                          );
-                          if (row.kind === 'terminal') focusTerminal(tab.id);
-                          if (row.kind === 'diff') readDiff();
-                        }}
-                      >
-                        <EntityIcon>
-                          <row.icon />
-                        </EntityIcon>
-                        <span className="tool-launcher-text">
-                          <span className="tool-launcher-title">{row.title}</span>
-                          <span className="tool-launcher-description">{row.description}</span>
-                        </span>
-                        {row.shortcut && (
-                          <kbd className="kbd tool-launcher-kbd" aria-hidden="true">
-                            {row.shortcut}
-                          </kbd>
-                        )}
-                        <ChevronRight
-                          className="size-3.5 text-muted-foreground"
-                          aria-hidden="true"
-                        />
-                      </Button>
-                    ))}
-                  </div>
-                </div>
-              )}
               {tab.kind === 'terminal' && (
                 <InteractiveTerminal
                   api={api}
@@ -642,7 +539,7 @@ export function ConversationTools({
                   disabled={disabled}
                   disabledReason={disabledReason}
                   focusRequest={focusRequests[tab.id] || 0}
-                  onLeave={() => document.getElementById('tab-' + tab.id)?.focus()}
+                  onLeave={() => focusTab(tab)}
                   onAttach={(text) =>
                     attach(
                       'Terminal output',
@@ -720,6 +617,7 @@ export function ConversationTools({
                               >
                                 <Button
                                   size="sm"
+                                  variant="outline"
                                   className="ml-auto"
                                   disabled={busy || disabled || nothingToCommit}
                                   onClick={onCommit}

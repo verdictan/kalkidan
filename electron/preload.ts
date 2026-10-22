@@ -65,6 +65,8 @@ const api: API = {
   setTaskDocLinks: (group, itemId, docIds) =>
     ipcRenderer.invoke('docs-set-task-links', group, itemId, docIds),
   memoryEntries: (group) => ipcRenderer.invoke('memory-entries', group),
+  contextUsage: (...args) => ipcRenderer.invoke('context-usage', ...args),
+  readCounts: (group) => ipcRenderer.invoke('read-counts', group),
   memoryForget: (group, id, revision) => ipcRenderer.invoke('memory-forget', group, id, revision),
   memorySave: (group, entry) => ipcRenderer.invoke('memory-save', group, entry),
   pullRequestStatus: (id, url) => ipcRenderer.invoke('pull-request-status', id, url),

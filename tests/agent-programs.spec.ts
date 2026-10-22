@@ -1,5 +1,5 @@
 import { type Locator, type Page } from '@playwright/test';
-import { test, expect, newChat, openSettings, settingsDialog, settingsTab } from './helpers/app';
+import { test, expect, computersPage, newChat, openComputersPage } from './helpers/app';
 import { openCodeFolder } from './helpers/navigation';
 
 const oldClaude = '/home/linuxbrew/.linuxbrew/bin/claude';
@@ -94,31 +94,29 @@ async function installWorkspace(page: Page) {
     { oldClaude, newClaude },
   );
   await page.goto('/');
-  return openSettings(page, 'Agents');
+  return openComputersPage(page);
 }
 
-/** Opens the agent programs of an SSH host from its card in Settings › Computers. */
+/** Opens the agent programs of an SSH host from its row on the Computers page. */
 async function openHostPrograms(page: Page, settings: Locator, host: string) {
-  await settingsTab(page, 'Computers').click();
   await settings.getByRole('button', { name: `Actions for ${host}`, exact: true }).click();
   await page.getByRole('menuitem', { name: 'Agent programs…', exact: true }).click();
   return page.getByRole('dialog', { name: `Agent programs on ${host}`, exact: true });
 }
 
-test('Settings › Agents shows the agent programs of each computer', async ({ page }) => {
+test('the Computers page shows the agent programs of each computer', async ({ page }) => {
   const settings = await installWorkspace(page);
-  // Advanced shows the program of each agent on this computer.
-  await settings.getByRole('button', { name: 'Advanced', exact: true }).click();
-  const localRow = settings.getByRole('group', { name: 'Claude Code program on this computer' });
-  await expect(localRow).toContainText(
-    '/Users/me/.local/bin/claude · 2.1.306 · Found automatically',
-  );
-  await localRow.getByRole('button', { name: 'Choose…' }).click();
+  // "Choose…" in the agent row shows the program of each agent on this computer.
+  const localRow = settings.getByRole('group', { name: 'Claude Code', exact: true });
+  await localRow.getByRole('button', { name: 'Choose the Claude Code program' }).click();
   const localPrograms = page.getByRole('dialog', { name: 'Agent programs on this computer' });
   const local = localPrograms.getByRole('list', { name: 'Agents on this computer' });
-  await expect(local.getByRole('listitem', { name: 'Claude Code on this computer' })).toContainText(
-    'Meets the minimum',
-  );
+  const localClaude = local.getByRole('listitem', { name: 'Claude Code on this computer' });
+  await expect(localClaude).toContainText('Meets the minimum');
+  await expect(
+    localClaude.getByLabel('/Users/me/.local/bin/claude', { exact: true }),
+  ).toBeVisible();
+  await expect(localClaude).toContainText('Version 2.1.306 · Found automatically');
   await localPrograms.getByRole('button', { name: 'Done', exact: true }).click();
 
   // The connected host shows the program that it uses, the version, and the other programs.
@@ -142,7 +140,7 @@ test('Settings › Agents shows the agent programs of each computer', async ({ p
   // A host that is not connected shows the last result and when Kalkidan checked it.
   const buildbox = await openHostPrograms(page, settings, 'buildbox');
   await expect(buildbox).toContainText('This host is not connected. This is the last result.');
-  await expect(buildbox.getByRole('status')).toContainText('Checked 2 hours ago');
+  await expect(buildbox.getByRole('status')).toContainText('Checked 2h');
   await expect(buildbox.getByRole('listitem', { name: 'Codex on buildbox' })).toContainText(
     'Meets the minimum',
   );
@@ -182,7 +180,7 @@ test('the user chooses the program of an agent on a host and can reset it', asyn
   ]);
 });
 
-test('a version refusal opens Settings › Agents at the program of that agent', async ({ page }) => {
+test('a version refusal opens the Computers page at the row of that agent', async ({ page }) => {
   await page.addInitScript(() => {
     const w = window as any;
     const refused = (agent: string) => ({
@@ -238,13 +236,8 @@ test('a version refusal opens Settings › Agents at the program of that agent',
     'This computer has Claude Code 2.1.287 at /opt/homebrew/bin/claude.',
   );
   await card.getByRole('button', { name: 'Choose the Claude Code program', exact: true }).click();
-  const settings = settingsDialog(page);
-  await expect(settings.getByRole('tab', { name: 'Agents', exact: true })).toHaveAttribute(
-    'aria-selected',
-    'true',
-  );
-  // Advanced opens, and the program row of that agent gets the focus.
+  // The Computers page opens, and the row of that agent gets the focus.
   await expect(
-    settings.getByRole('group', { name: 'Claude Code program on this computer' }),
+    computersPage(page).getByRole('group', { name: 'Claude Code', exact: true }),
   ).toBeFocused();
 });

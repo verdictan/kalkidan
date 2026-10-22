@@ -8,9 +8,12 @@ import { showToast } from './ui/toast';
 import { agentLabel } from '../config/agents';
 import { errorMessage } from '../lib/errors';
 
-/** One style for approval and question cards: 12px padding, 16px icon, 13/600 title. */
+/**
+ * One style for approval and question cards above the composer: a card with 12px padding,
+ * a 16px icon and a 13/600 title.
+ */
 export const requestCardClass =
-  'space-y-3 rounded-lg bg-muted p-3 focus-visible:shadow-[var(--focus-ring)] focus-visible:outline-none';
+  'request-card space-y-3 rounded-xl border bg-card p-3 text-card-foreground shadow-sm focus-visible:shadow-[var(--focus-ring)] focus-visible:outline-none';
 export const requestTitleClass = 'text-sm font-semibold';
 
 // Drafts survive panel remounts in this process only. Secret answers are never retained.
@@ -19,31 +22,35 @@ export function AgentQuestions({
   api,
   run,
   onUpdate,
+  pendingOnly = false,
 }: {
   api: API;
   run: ChatRun;
   onUpdate: (run: ChatRun) => void;
+  /** Shows only the questions that wait for an answer. */
+  pendingOnly?: boolean;
 }) {
   return (
     <>
       {!!run.unsupportedRequests && (
         <div role="status" className={requestCardClass}>
-          <h3 className={requestTitleClass}>Kalkidan cannot show an agent request</h3>
+          <h3 className={requestTitleClass}>Kalkidan declined a request it cannot show</h3>
           <p className="text-xs text-muted-foreground">
-            Kalkidan declined the unsupported request. No permission was given. Ask the agent to
-            send its question as a message, then reply in the chat.
+            No permission was given. Ask the agent to send its question as a message.
           </p>
         </div>
       )}
-      {run.requests?.map((request) => (
-        <QuestionForm
-          key={JSON.stringify([request.runId, request.id])}
-          api={api}
-          request={request}
-          active={run.status === 'running'}
-          onUpdate={onUpdate}
-        />
-      ))}
+      {run.requests
+        ?.filter((request) => !pendingOnly || request.status === 'pending')
+        .map((request) => (
+          <QuestionForm
+            key={JSON.stringify([request.runId, request.id])}
+            api={api}
+            request={request}
+            active={run.status === 'running'}
+            onUpdate={onUpdate}
+          />
+        ))}
     </>
   );
 }
@@ -84,7 +91,6 @@ function QuestionForm({
   return (
     <form
       aria-label="Agent questions"
-      data-approval-pending={pending ? '' : undefined}
       tabIndex={-1}
       className={requestCardClass}
       onSubmit={async (event) => {

@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
-import { Columns3, Copy, ExternalLink, RefreshCw } from 'lucide-react';
+import { Copy, ExternalLink } from 'lucide-react';
 import type { API, GitHubAuthState, GitHubCliStatus } from '../types';
 import { trackerAuthPending } from '../domain/tracker';
 import { interfaceConfig } from '../config/interface';
 import { useRefreshTriggers } from '../hooks/use-refresh-triggers';
+import { settingsAnchors } from '../domain/settings-route';
 import { SettingsRow, StatusBadge } from './settings-disclosure';
 import { Button } from './ui/button';
 import {
@@ -15,23 +16,15 @@ import {
   DialogHeader,
   DialogTitle,
 } from './ui/dialog';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from './ui/dropdown-menu';
-import { EntityIcon } from './ui/entity-icon';
 import { Input } from './ui/input';
-import { MoreButton } from './ui/more-button';
 import { showToast } from './ui/toast';
 import type { StatusLabel } from '../lib/verdictan-labels';
 
-/** Opens Settings › Account. Every GitHub sign-in outside Settings uses this. */
+/** Opens Preferences at the GitHub row. Every GitHub sign-in outside Preferences uses this. */
 export function openAccountSettings() {
   window.dispatchEvent(
     new CustomEvent('kalkidan-open-settings', {
-      detail: { section: 'account', anchor: 'settings-connected-services' },
+      detail: { section: 'account', anchor: settingsAnchors.github },
     }),
   );
 }
@@ -76,17 +69,8 @@ export function HelpLink({ href, children }: { href: string; children: ReactNode
   );
 }
 
-function GitHubMark() {
-  return (
-    <span
-      className="tracker-provider-mark size-4"
-      style={{ maskImage: 'url(./icons/github.svg)' }}
-    />
-  );
-}
-
 /**
- * The GitHub state for Settings › Account: the GitHub CLI sign-in for repositories, and the
+ * The GitHub state for Preferences: the GitHub CLI sign-in for repositories, and the
  * Projects access for boards. It reads again when the section opens and on window focus.
  */
 export function useGitHubServices(api: API, open: boolean) {
@@ -177,114 +161,80 @@ function ghLogin(gh: GitHubCliStatus | undefined) {
 }
 
 /**
- * Settings › Account › Connected services: one row for GitHub (the GitHub CLI) and one for
- * GitHub Projects boards (the Projects access, with the device approval in a small sheet).
+ * The GitHub CLI part of the help line of the GitHub row. Empty when the badge already says it.
  */
-export function ConnectedServices({ services }: { services: GitHubServices }) {
+function ghText(gh: GitHubCliStatus | undefined) {
+  if (gh?.status === 'ready') return ghLogin(gh) ? `@${ghLogin(gh)}` : '';
+  if (gh?.status === 'signed-out') return 'Run gh auth login';
+  return '';
+}
+
+/**
+ * The GitHub row of Preferences: the GitHub CLI for repositories and the Projects access for
+ * boards in one row. It shows "Connected" when both work. Otherwise it shows the one action
+ * that each part needs.
+ */
+export function GitHubRow({ services }: { services: GitHubServices }) {
   const { gh, auth, authChecked, allow } = services;
   const [sheet, setSheet] = useState(false);
-  const login = ghLogin(gh);
-  const ghHelp = !gh
-    ? 'Checking…'
-    : gh.status === 'ready'
-      ? login
-        ? `Signed in as @${login} through the GitHub CLI.`
-        : 'Signed in through the GitHub CLI.'
-      : gh.status === 'signed-out'
-        ? 'Run gh auth login in a terminal to find and clone repositories.'
-        : gh.status === 'missing'
-          ? 'Install the GitHub CLI to find and clone repositories.'
-          : gh.status === 'unavailable'
-            ? 'Available in the desktop app.'
-            : 'Kalkidan could not check the GitHub CLI.';
   const pending = trackerAuthPending(auth);
-  const boardStatus: StatusLabel = !authChecked
-    ? { label: 'Checking…', tone: 'secondary' }
-    : auth.status === 'ready'
-      ? { label: 'Allowed', tone: 'success' }
+  const boardsReady = auth.status === 'ready';
+  const boardText = !authChecked
+    ? ''
+    : boardsReady
+      ? 'Boards allowed'
       : pending
-        ? { label: 'Waiting…', tone: 'secondary' }
-        : auth.status === 'error'
-          ? { label: 'Not allowed', tone: 'destructive' }
-          : { label: 'Not allowed', tone: 'muted' };
+        ? 'Waiting for approval'
+        : 'Boards not allowed';
+  const connected = gh?.status === 'ready' && boardsReady;
+  const status: StatusLabel | undefined =
+    !gh || !authChecked
+      ? { label: 'Checking…', tone: 'secondary' }
+      : connected
+        ? { label: 'Connected', tone: 'success' }
+        : gh.status !== 'ready'
+          ? ghStatus[gh.status]
+          : undefined;
   function start() {
     setSheet(true);
     if (!pending) void allow();
   }
   return (
     <>
-      <ul className="settings-rows" aria-label="Connected services">
-        <SettingsRow
-          icon={
-            <EntityIcon>
-              <GitHubMark />
-            </EntityIcon>
-          }
-          label="GitHub"
-          help={ghHelp}
-        >
-          {gh && <StatusBadge status={ghStatus[gh.status]} />}
-          {gh?.status === 'signed-out' && (
-            <Button variant="ghost" size="sm" onClick={() => copyCommand('gh auth login')}>
-              <Copy />
-              Copy command
-            </Button>
-          )}
-          {gh?.status === 'missing' && (
-            <Button asChild variant="ghost" size="sm">
-              <a href="https://cli.github.com" target="_blank" rel="noreferrer">
-                How to install
-                <ExternalLink aria-hidden="true" />
-              </a>
-            </Button>
-          )}
-        </SettingsRow>
-        <SettingsRow
-          icon={
-            <EntityIcon>
-              <Columns3 />
-            </EntityIcon>
-          }
-          label="GitHub Projects boards"
-          help="Read and update the tasks on your boards."
-        >
-          <StatusBadge status={boardStatus} />
-          {auth.status === 'ready' ? (
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <MoreButton label="GitHub Projects access actions" />
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                <DropdownMenuItem onSelect={start}>
-                  <RefreshCw />
-                  Allow again…
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          ) : (
-            authChecked && (
-              <Button size="sm" variant="outline" onClick={start}>
-                {pending ? 'Continue…' : auth.status === 'error' ? 'Try again…' : 'Allow access…'}
-              </Button>
-            )
-          )}
-        </SettingsRow>
-      </ul>
+      <SettingsRow
+        id={settingsAnchors.github}
+        label="GitHub and boards"
+        help={[ghText(gh), boardText].filter(Boolean).join(' · ')}
+      >
+        {status && <StatusBadge status={status} />}
+        {gh?.status === 'signed-out' && (
+          <Button variant="outline" size="sm" onClick={() => copyCommand('gh auth login')}>
+            Copy command
+          </Button>
+        )}
+        {gh?.status === 'missing' && (
+          <Button asChild variant="ghost" size="sm">
+            <a href="https://cli.github.com" target="_blank" rel="noreferrer">
+              How to install
+              <ExternalLink aria-label="Opens in the browser" />
+            </a>
+          </Button>
+        )}
+        {authChecked && !boardsReady && (
+          <Button size="sm" variant="outline" onClick={start}>
+            {pending ? 'Continue…' : auth.status === 'error' ? 'Try again…' : 'Allow access…'}
+          </Button>
+        )}
+      </SettingsRow>
       <BoardAccessDialog services={services} open={sheet} onOpenChange={setSheet} />
       {/* One live region announces the result of both checks together. */}
       <p role="status" className="sr-only">
         {gh && authChecked
-          ? `GitHub: ${ghStatus[gh.status].label}. GitHub Projects boards: ${boardStatus.label}.`
+          ? `GitHub: ${ghStatus[gh.status].label}. GitHub Projects boards: ${boardText}.`
           : ''}
       </p>
     </>
   );
-}
-
-/** The program path of the GitHub CLI, for the Advanced fold of Settings › Account. */
-export function GitHubCliPathRow({ services }: { services: GitHubServices }) {
-  if (!services.gh?.path) return null;
-  return <SettingsRow label="GitHub CLI program" help={services.gh.path} />;
 }
 
 /** The GitHub device approval for Projects access: the code, Open GitHub, and Cancel. */

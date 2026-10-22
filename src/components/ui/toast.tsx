@@ -89,7 +89,7 @@ export function Toaster({ className }: { className?: string }) {
     <div
       className={cn(
         // Above the dialogs (z-50), so a toast with Undo stays usable while a dialog shows.
-        'pointer-events-none fixed right-4 bottom-4 z-[60] flex w-[min(420px,calc(100vw-2rem))] flex-col items-end gap-2',
+        'pointer-events-none fixed right-4 bottom-[calc(1rem+var(--toast-offset,0px))] z-[60] flex w-[min(420px,calc(100vw-2rem))] flex-col items-end gap-2',
         className,
       )}
     >
@@ -110,7 +110,7 @@ export function Toaster({ className }: { className?: string }) {
           onFocus={() => pauseTimer(item.id)}
           onBlur={() => startTimer(item.id)}
           className={cn(
-            'pointer-events-auto flex max-w-full min-h-10 items-center gap-2 rounded-lg border bg-popover py-1.5 pr-1.5 pl-3 text-sm text-popover-foreground shadow-md',
+            'pointer-events-auto flex max-w-full min-h-10 items-center gap-2 rounded-lg border bg-popover py-2 pr-2 pl-3 text-sm text-popover-foreground shadow-md',
             'motion-safe:animate-in motion-safe:fade-in-0 motion-safe:slide-in-from-bottom-2 motion-safe:duration-[var(--motion-base)]',
             item.tone === 'error' && 'text-destructive',
           )}
