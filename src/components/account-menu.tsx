@@ -4,7 +4,6 @@ import {
   ChevronsUpDown,
   CircleAlert,
   ExternalLink,
-  Keyboard,
   Laptop,
   LogIn,
   LogOut,
@@ -57,11 +56,6 @@ import { openSettings, SignInSteps, startSignIn, type SignInIntent } from './sig
 import { checkStatusEvent } from './chat-links';
 
 export { startSignIn } from './sign-in-steps';
-
-/** Opens the keyboard shortcuts sheet. The shell handles the event. */
-function showShortcuts() {
-  window.dispatchEvent(new Event('kalkidan-show-shortcuts'));
-}
 
 /** Two letters for the avatar: "Dana Kim" is "DK", "dana.kim@acme.dev" is "DA". */
 export function initials(name: string | undefined) {
@@ -191,11 +185,6 @@ function AppItems() {
         Preferences…
         <DropdownMenuShortcut>{shortcutLabel(['mod'], ',')}</DropdownMenuShortcut>
       </DropdownMenuItem>
-      <DropdownMenuItem onSelect={showShortcuts}>
-        <Keyboard className="size-4" />
-        Keyboard shortcuts
-        <DropdownMenuShortcut>{shortcutLabel(['mod'], '/')}</DropdownMenuShortcut>
-      </DropdownMenuItem>
       <DropdownMenuItem asChild>
         <a href={userGuideUrl} target="_blank" rel="noreferrer">
           <BookOpen className="size-4" />
@@ -221,7 +210,7 @@ function useMenuOpen() {
 /**
  * The account row in the sidebar footer: one 48px trigger that fills the row. Signed in, it
  * shows the initials, the name and the organization, and opens the account menu: theme,
- * notifications, Computers, Preferences, shortcuts, help, and Sign out. Signed out, it is the
+ * notifications, Computers, Preferences, help, and Sign out. Signed out, it is the
  * one "Sign in" of the app, with a "…" menu for the same app items.
  */
 export function AccountMenu({ api }: { api: API }) {
@@ -285,15 +274,6 @@ export function AccountMenu({ api }: { api: API }) {
             <NotificationItem api={api} open={open} />
             <DropdownMenuSeparator />
             <AppItems />
-            {supported && (
-              <>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem onSelect={() => startSignIn('register')}>
-                  <UserRound className="size-4" />
-                  Create account
-                </DropdownMenuItem>
-              </>
-            )}
           </DropdownMenuContent>
         </DropdownMenu>
       </div>

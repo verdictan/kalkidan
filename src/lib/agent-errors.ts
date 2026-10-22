@@ -13,6 +13,7 @@ import {
   type RefusalContext,
 } from '../domain/verdictan';
 import { agentProgramAnchor, chooseProgramLabel } from '../domain/agent-programs';
+import { settingsAnchors } from '../domain/settings-route';
 
 export type AgentErrorActionKind =
   'settings' | 'retry' | 'change-agent' | 'install' | 'sign-in' | 'check-status';
@@ -107,7 +108,7 @@ function managedError(code: string, context: AgentErrorContext = {}): AgentError
         code === keychainRefusedCode
           ? checkStatus
           : refusal.step
-            ? stepAction(refusal.step, context)
+            ? stepAction(refusal.step, context, code)
             : refusal.retry
               ? retry
               : undefined,
@@ -123,19 +124,46 @@ function managedError(code: string, context: AgentErrorContext = {}): AgentError
         : code === 'desktop.agent_version_unsupported'
           ? install
           : info.section
-            ? sectionActions[info.section]
+            ? withAgentAnchor(sectionActions[info.section], code)
             : info.retry
               ? retry
               : undefined;
   return { message: info.message, action, code };
 }
 
+/**
+ * A version code names its agent, for example `desktop.claude_code_version_unsupported`. The agent
+ * settings action then moves to the row of that agent. Without such a code, it moves to the row
+ * of the chat's agent, when the caller gives it.
+ */
+function withAgentAnchor<T extends AgentErrorAction | undefined>(
+  action: T,
+  code?: string,
+  fallback?: { agent?: string; hostId?: string },
+): T {
+  const kind = code ? versionAgent(code) : undefined;
+  const agent = (kind === 'claude_code' ? 'claude' : kind) || fallback?.agent;
+  return action &&
+    agent &&
+    action.section === 'agents' &&
+    (!action.anchor || action.anchor === settingsAnchors.agents)
+    ? { ...action, anchor: agentProgramAnchor(agent, fallback?.hostId) }
+    : action;
+}
+
 /** The Settings action for a setup step. */
-function stepAction(step: ManagedSetupStep, context: AgentErrorContext = {}): AgentErrorAction {
+function stepAction(
+  step: ManagedSetupStep,
+  context: AgentErrorContext = {},
+  code?: string,
+): AgentErrorAction {
   const fixed = managedSetupStep(step, { regionSaved: context.regionSaved });
   if (fixed === 'sign-in') return signIn;
   const target = managedSetupTargets[fixed] || managedSetupTargets.status;
-  return { label: target.label, section: target.section, anchor: target.anchor, kind: 'settings' };
+  return withAgentAnchor(
+    { label: target.label, section: target.section, anchor: target.anchor, kind: 'settings' },
+    code,
+  );
 }
 
 /** A blocked managed launch, as the desktop reports it in a chat run. */
@@ -158,12 +186,12 @@ export interface ManagedLaunchFailure {
  */
 export function managedLaunchError(
   failure: ManagedLaunchFailure,
-  context: Omit<RefusalContext, 'version' | 'path'> & { hostId?: string } = {},
+  context: Omit<RefusalContext, 'version' | 'path'> & { hostId?: string; agent?: string } = {},
 ): AgentError {
   if (failure.code && /^desktop\.[a-z_]{1,100}$/.test(failure.code)) {
     const signInFix = signInError(failure.code);
     if (signInFix) return { ...signInFix, note: managedOnlyNotice };
-    const { hostId, ...words } = context;
+    const { hostId, agent: _agent, ...words } = context;
     const regionContext = { regionSaved: context.regionSaved };
     const refusal = managedRefusal(failure.code, {
       ...words,
@@ -187,7 +215,7 @@ export function managedLaunchError(
         : failure.code === keychainRefusedCode
           ? checkStatus
           : refusal.step
-            ? stepAction(refusal.step, regionContext)
+            ? stepAction(refusal.step, regionContext, failure.code)
             : undefined,
       retryFirst: refusal.retry,
     };
@@ -199,7 +227,11 @@ export function managedLaunchError(
   return {
     message: message || 'The managed launch checks did not pass.',
     note: managedOnlyNotice,
-    action: stepAction(failure.step || 'status', { regionSaved: context.regionSaved }),
+    action: withAgentAnchor(
+      stepAction(failure.step || 'status', { regionSaved: context.regionSaved }, failure.code),
+      undefined,
+      { agent: context.agent, hostId: context.hostId },
+    ),
   };
 }
 
@@ -241,7 +273,12 @@ export function agentErrorMessage(
   if (/not (signed|logged) in|log ?in required|unauthori[sz]ed|401|api key/i.test(text))
     return {
       message: `${name} is not signed in. Sign in to the agent, then try again.`,
-      action: { label: 'Open agent settings', section: 'agents', kind: 'settings' },
+      action: {
+        label: 'Open agent settings',
+        section: 'agents',
+        ...(agent ? { anchor: agentProgramAnchor(agent) } : {}),
+        kind: 'settings',
+      },
     };
   if (/rate limit|429|quota|usage limit/i.test(text))
     return {

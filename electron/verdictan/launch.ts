@@ -8,6 +8,8 @@ import { BindingStore, assertCompatible, identityKey, type ConversationBinding }
 import { VerdictanSetupService } from './setup';
 import { ManagedRuntimes } from './runtime';
 import { DesktopProtocolError } from './protocol';
+import type { VerdictanRegion } from './region';
+import { addPolicyRecords } from '../../src/domain/policy-result';
 import { assertIsolationPlatform, prepareIsolation } from './isolation';
 import { uuid } from './credentials';
 import {
@@ -87,6 +89,8 @@ const apiCredentialVariables = ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN'];
 
 /** Mandatory entry point for native launches, including Memory extraction. */
 export class VerdictanLaunchService {
+  /** The account region. A policy result keeps it, so its review link uses that Console. */
+  region?: VerdictanRegion;
   constructor(
     private store: BindingStore,
     private setup: VerdictanSetupService,
@@ -262,7 +266,17 @@ export class VerdictanLaunchService {
       started = true;
       request.signal.throwIfAborted();
       const endpoint = this.runtimes.endpoint(sessionId);
-      guard = await inferenceGuard(endpoint, binding.provider_access_mode || 'byok');
+      // Each policy result of a refused or escalated request shows in the chat and is saved.
+      guard = await inferenceGuard(endpoint, binding.provider_access_mode || 'byok', (policy) => {
+        if (!observed) return;
+        observed.policies = addPolicyRecords(observed.policies, [
+          {
+            ...policy,
+            ...(this.region ? { region: this.region } : {}),
+            at: new Date(this.now()).toISOString(),
+          },
+        ]);
+      });
       const home = await this.store.home(binding);
       if (binding.provider_access_mode === 'codex_subscription')
         await prepareSubscriptionAuth(home);

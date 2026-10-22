@@ -158,7 +158,8 @@ export function settingsPlace(
   if (id === settingsAnchors.account) return { place: 'preferences', anchor: id };
   if (id === settingsAnchors.defaultAgent)
     return { place: 'computers', anchor: settingsAnchors.agents };
-  if (target.tab === 'agents' || target.tab === 'computers')
-    return { place: 'computers', anchor: id };
+  // The agents section without an element opens the agent rows.
+  if (target.tab === 'agents') return { place: 'computers', anchor: id || settingsAnchors.agents };
+  if (target.tab === 'computers') return { place: 'computers', anchor: id };
   return { place: 'preferences', anchor: id };
 }

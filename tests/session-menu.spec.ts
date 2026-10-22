@@ -50,9 +50,9 @@ test('session actions rename, pin, fork, and open an independent side session', 
   await expect(page.getByLabel('Message agent')).toHaveCount(3);
   await expect(page.getByRole('button', { name: 'Close side chat' })).toBeVisible();
   await page.screenshot({ animations: 'disabled', path: 'test-results/side-session.png' });
-  // The menu gives the focus back to Chat actions. Escape closes its tooltip, which covers the
-  // close button of the side chat.
-  await page.keyboard.press('Escape');
+  // The new side chat takes the focus, so no tooltip covers its close button.
+  await expect(page.locator('.agent-pane[data-side] textarea')).toBeFocused();
+  await expect(page.getByRole('tooltip')).toHaveCount(0);
   await page.getByRole('button', { name: 'Close side chat' }).click();
   await expect(page.getByRole('button', { name: 'Close side chat' })).toHaveCount(0);
 });
