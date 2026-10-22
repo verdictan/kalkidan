@@ -88,9 +88,6 @@ test('an SSH host without access to the release server gets a copy from this com
     name: 'Copy managed agents from this computer to build-host',
   });
   await expect(copy).toBeVisible();
-  await settings.getByRole('list', { name: 'Computers' }).screenshot({
-    path: 'test-results/runtime-copy.png',
-  });
   await copy.click();
   await expect(settings).not.toContainText('The release server cannot be reached.');
   await expect(copy).toHaveCount(0);
