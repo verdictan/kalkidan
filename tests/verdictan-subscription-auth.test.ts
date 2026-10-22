@@ -31,7 +31,9 @@ test('managed subscription login copies only host-local session fields and prese
   assert.equal(await readFile(source, 'utf8'), original);
   const link = join(root, 'linked.json');
   await symlink(source, link);
-  await assert.rejects(prepareSubscriptionAuth(home, link), /Sign in/);
+  await assert.rejects(prepareSubscriptionAuth(home, link), {
+    code: 'desktop.codex_subscription_login_invalid',
+  });
   await writeFile(
     source,
     JSON.stringify({
@@ -39,7 +41,14 @@ test('managed subscription login copies only host-local session fields and prese
       tokens: { access_token: 'test-access', account_id: 'test-account' },
     }),
   );
-  await assert.rejects(prepareSubscriptionAuth(home, source), /subscription/);
+  await assert.rejects(prepareSubscriptionAuth(home, source), {
+    code: 'desktop.codex_subscription_login_required',
+  });
   await writeFile(source, 'x'.repeat(65537));
-  await assert.rejects(prepareSubscriptionAuth(home, source), /Invalid native/);
+  await assert.rejects(prepareSubscriptionAuth(home, source), {
+    code: 'desktop.codex_subscription_login_invalid',
+  });
+  await assert.rejects(prepareSubscriptionAuth(home, join(root, 'missing.json')), {
+    code: 'desktop.codex_subscription_login_required',
+  });
 });

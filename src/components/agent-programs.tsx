@@ -205,6 +205,11 @@ export function AgentProgramsDialog({
   );
 }
 
+/** The subscription that the native login of each coding agent uses. */
+const subscriptionName: Record<string, string> = {
+  codex: 'ChatGPT',
+  claude: 'the Claude subscription',
+};
 /** One agent on one computer: the program, its version, the status, and the other programs. */
 function ProgramRow({
   api,
@@ -291,6 +296,13 @@ function ProgramRow({
               ? `Version ${installation.version}`
               : 'Kalkidan cannot read the version'}
             {installation.source && ` · ${sourceLabel[installation.source]}`}
+          </p>
+        )}
+        {installation?.status === 'installed' && installation.subscriptionLogin && (
+          <p className="text-xs text-muted-foreground" data-testid={`agent-login-${agent}`}>
+            {installation.subscriptionLogin === 'signed-in'
+              ? `Signed in to ${subscriptionName[agent] ?? 'the subscription'} on ${where}`
+              : `Not signed in to ${subscriptionName[agent] ?? 'the subscription'} on ${where}. Kalkidan needs this sign-in for subscription access.`}
           </p>
         )}
         {!checking &&

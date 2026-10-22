@@ -66,7 +66,38 @@ export interface GatewayOptions {
    * revoked the runtime. Then the runtime must not start again with the same credentials.
    */
   lost?(revocation?: GatewayRevocation, code?: string): void;
+  /**
+   * True after Kalkidan checked the sign-in of the coding agent for this access mode on this
+   * host. Only then does readiness accept that the native Codex proof is still to come.
+   */
+  agentLoginChecked?: boolean;
 }
+/** The correlation of one agent turn, for the desktop headers of a gateway request. */
+export interface TurnCorrelation {
+  hostId: string;
+  projectId: string;
+  taskId: string;
+  conversationId: string;
+  runId: string;
+  turnId: string;
+}
+/** The ChatGPT login of the native Codex CLI, for the catalog check of a subscription runtime. */
+export interface CodexCatalogLogin {
+  accessToken: string;
+  accountId: string;
+}
+/** Gateway codes of a catalog check that a new `codex login` fixes. */
+const codexLoginCodes = new Set([
+  'desktop.subscription_credentials_required',
+  'desktop.subscription_credentials_invalid',
+]);
+/** Gateway codes of a catalog check that Kalkidan relays, because the setup fixes them. */
+const relayedCatalogCodes = new Set([
+  'desktop.subscription_scope_required',
+  'desktop.subscription_model_binding_required',
+  'desktop.subscription_account_mismatch',
+  'desktop.subscription_account_required',
+]);
 /** The reasons of a `credential.revoked` event from the supervised gateway. */
 export const gatewayRevocationReasons = [
   'host_revoked',
@@ -294,6 +325,7 @@ export class ManagedGateway {
       // A Codex subscription runtime that is ready except for the proof of Codex itself.
       const probePending =
         !ok &&
+        this.options.agentLoginChecked === true &&
         this.credentials.provider_access_mode === 'codex_subscription' &&
         result?.ready === false &&
         result?.provider_authentication === 'probe_required' &&
@@ -425,19 +457,8 @@ export class ManagedGateway {
     }).toString();
     return this.readJSON(url, signal);
   }
-  /** Backend-only launch data. The caller must also enforce process-tree isolation. */
-  async nativeRoute(
-    agent: NativeAgent,
-    correlation: {
-      hostId: string;
-      projectId: string;
-      taskId: string;
-      conversationId: string;
-      runId: string;
-      turnId: string;
-    },
-  ) {
-    await this.readiness(agent);
+  /** The desktop headers of one agent turn. The gateway records the request with them. */
+  private desktopHeaders(agent: NativeAgent, correlation: TurnCorrelation) {
     if (
       !Object.values(correlation).every((value) => /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/.test(value))
     )
@@ -455,12 +476,74 @@ export class ManagedGateway {
       agent_kind: agent.kind,
       agent_version: agent.version,
     };
-    const headers = Object.fromEntries(
+    return Object.fromEntries(
       Object.entries(fields).map(([key, value]) => [
         `x-verdictan-desktop-${key.replaceAll('_', '-')}`,
         value,
       ]),
     );
+  }
+  /**
+   * Checks that a Codex subscription runtime reaches the Codex models with the native ChatGPT
+   * login of this host. It sends the same catalog request as Codex, through the gateway. The
+   * gateway then has the proof of the subscription. Other access modes need no check: their
+   * readiness already includes the provider.
+   */
+  async verifyCodexCatalog(
+    agent: NativeAgent,
+    correlation: TurnCorrelation,
+    login: CodexCatalogLogin,
+  ) {
+    if (this.credentials.provider_access_mode !== 'codex_subscription') return;
+    await this.listening;
+    if (this.closed || this.stopping) throw new DesktopProtocolError('desktop.gateway_unavailable');
+    const url = new URL('/backend-api/codex/models', this.address);
+    if (/^[A-Za-z0-9._-]{1,80}$/.test(agent.version))
+      url.search = new URLSearchParams({ client_version: agent.version }).toString();
+    let status = 0;
+    let body: unknown;
+    try {
+      const response = await (this.options.request || fetch)(url, {
+        redirect: 'error',
+        headers: {
+          authorization: 'Bearer ' + login.accessToken,
+          'chatgpt-account-id': login.accountId,
+          'x-gateway-key': this.credentials.inference_credential,
+          ...this.desktopHeaders(agent, correlation),
+        },
+        signal: AbortSignal.any([this.controller.signal, AbortSignal.timeout(20000)]),
+      });
+      status = response.status;
+      // The catalog can be large. Read only the error reply.
+      if (response.ok) {
+        await response.body?.cancel().catch(() => {});
+        return;
+      }
+      body = response.body ? await this.readBody(response.body).catch(() => undefined) : undefined;
+    } catch (error) {
+      if (error instanceof DesktopProtocolError && error.code === 'desktop.invalid_correlation')
+        throw error;
+    }
+    const code = replyCode(body);
+    const relayed =
+      (code && codexLoginCodes.has(code)) ||
+      // ChatGPT refused the login of Codex, for example an expired login.
+      (status === 401 && code === 'desktop.subscription_catalog_unavailable')
+        ? 'desktop.codex_subscription_login_required'
+        : code && relayedCatalogCodes.has(code)
+          ? code
+          : 'desktop.codex_subscription_catalog_unavailable';
+    logGatewayFailure(
+      'gateway.codex_catalog',
+      relayed,
+      status ? readinessReason(status, body) : 'no reply',
+    );
+    throw new DesktopProtocolError(relayed);
+  }
+  /** Backend-only launch data. The caller must also enforce process-tree isolation. */
+  async nativeRoute(agent: NativeAgent, correlation: TurnCorrelation) {
+    await this.readiness(agent);
+    const headers = this.desktopHeaders(agent, correlation);
     const mode = this.credentials.provider_access_mode || 'byok';
     // A subscription runtime never falls back to another agent's route or to API billing.
     if (

@@ -722,7 +722,13 @@ test('Linux host-local login requires a private, owner-only native credential fi
 });
 
 async function launchFixture(
-  options: { previous?: 'byok'; access?: () => Promise<any>; installed?: string } = {},
+  options: {
+    previous?: 'byok';
+    access?: () => Promise<any>;
+    installed?: string;
+    /** The Claude login check before the launch. */
+    login?: () => Promise<void>;
+  } = {},
 ) {
   const root = await mkdtemp(join(tmpdir(), 'claude-launch-'));
   const calls: { operation: string; parameters?: any }[] = [];
@@ -791,6 +797,13 @@ async function launchFixture(
     options.access || (async () => ({ token, expiresAt: now + 30000 + 80 })),
     () => now,
     async () => options.installed ?? claude.version,
+    {
+      codex: async () => ({ accessToken: 'unused', accountId: 'unused' }),
+      claude: async () => {
+        calls.push({ operation: 'claude-login' });
+        await options.login?.();
+      },
+    },
   );
   if (options.previous)
     await store.save('claude_code', 'old', {
@@ -1014,5 +1027,26 @@ test('Claude subscription launches accept each Claude Code version at or above 2
     );
   } finally {
     await old.cleanup();
+  }
+});
+
+test('a Claude subscription launch checks the Claude login before Verdictan provisions anything', async () => {
+  const f = await launchFixture({
+    login: async () => {
+      throw new DesktopProtocolError('desktop.claude_subscription_login_required');
+    },
+  });
+  try {
+    await assert.rejects(f.service.prepare(f.request), (error: any) => {
+      assert.ok(error instanceof SubscriptionRecoveryError);
+      assert.equal(error.code, 'desktop.claude_subscription_login_required');
+      return true;
+    });
+    const operations = f.calls.map((call) => call.operation);
+    assert.ok(operations.includes('claude-login'));
+    assert.equal(operations.includes('resources.provision'), false);
+    assert.equal(operations.includes('start'), false);
+  } finally {
+    await f.cleanup();
   }
 });

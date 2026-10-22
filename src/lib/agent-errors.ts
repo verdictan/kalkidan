@@ -156,6 +156,7 @@ function stepAction(
   step: ManagedSetupStep,
   context: AgentErrorContext = {},
   code?: string,
+  fallback?: { agent?: string; hostId?: string },
 ): AgentErrorAction {
   const fixed = managedSetupStep(step, { regionSaved: context.regionSaved });
   if (fixed === 'sign-in') return signIn;
@@ -163,6 +164,7 @@ function stepAction(
   return withAgentAnchor(
     { label: target.label, section: target.section, anchor: target.anchor, kind: 'settings' },
     code,
+    fallback,
   );
 }
 
@@ -215,7 +217,11 @@ export function managedLaunchError(
         : failure.code === keychainRefusedCode
           ? checkStatus
           : refusal.step
-            ? stepAction(refusal.step, regionContext, failure.code)
+            ? stepAction(refusal.step, regionContext, failure.code, {
+                // The agent sign-in step opens the row of the agent of the chat.
+                agent: refusal.step === 'agent-sign-in' ? context.agent : undefined,
+                hostId,
+              })
             : undefined,
       retryFirst: refusal.retry,
     };

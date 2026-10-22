@@ -2,7 +2,9 @@ import { agentVersionErrorCode, checkAgentVersion } from '../../src/domain/agent
 import { DesktopClient, DesktopProtocolError, type RuntimeProvision } from './protocol';
 import {
   ManagedGateway,
+  type CodexCatalogLogin,
   type GatewayOptions,
+  type TurnCorrelation,
   type GatewayRevocation,
   type NativeAgent,
   type SharedGateway,
@@ -35,6 +37,8 @@ interface OwnedRuntime {
   shared?: SharedGateway & { renew(next: RuntimeCredentials): Promise<void> };
   /** Stops the coding agent. `code` says why, when the gateway stopped without a request. */
   stopAgent(code?: string): Promise<void>;
+  /** True after Kalkidan checked the sign-in of the coding agent on this host. */
+  agentLoginChecked?: boolean;
 }
 interface RuntimeOptions {
   apiOrigin: string;
@@ -104,6 +108,7 @@ export class ManagedRuntimes {
     binding: RuntimeProvision,
     agent: NativeAgent,
     stopAgent: (code?: string) => Promise<void>,
+    checks: { agentLoginChecked?: boolean } = {},
   ) {
     return this.exclusive(binding.session_id, async () => {
       if (this.blockedHosts.has(binding.installation_id + ':' + binding.host_id))
@@ -124,6 +129,7 @@ export class ManagedRuntimes {
         agent: { ...agent },
         phase: 'provisioning',
         stopAgent,
+        agentLoginChecked: checks.agentLoginChecked,
       };
       this.records.set(binding.session_id, item);
       this.options.changed?.();
@@ -190,6 +196,7 @@ export class ManagedRuntimes {
       credentials: frame,
       eventDirectory: this.options.eventDirectory,
       ...(shared ? { instance: shared } : {}),
+      ...(item.agentLoginChecked ? { agentLoginChecked: true } : {}),
       lost: (revocation, code) => {
         item.gateway = undefined;
         void this.releaseShared(item);
@@ -264,6 +271,21 @@ export class ManagedRuntimes {
       this.set(item, 'failed');
       throw error;
     }
+  }
+  /** Checks the Codex model catalog of a ready subscription runtime. See `ManagedGateway`. */
+  async verifyCodexCatalog(
+    sessionId: string,
+    correlation: Omit<TurnCorrelation, 'hostId'>,
+    login: CodexCatalogLogin,
+  ) {
+    const item = this.records.get(sessionId);
+    if (!item?.gateway || item.phase !== 'ready' || this.closing)
+      throw new DesktopProtocolError('desktop.gateway_unavailable');
+    await item.gateway.verifyCodexCatalog(
+      item.agent,
+      { ...correlation, hostId: item.binding.host_id },
+      login,
+    );
   }
   evidence(sessionId: string, kind: 'events' | 'snapshot', cursor?: string, signal?: AbortSignal) {
     const item = this.records.get(sessionId);

@@ -460,3 +460,51 @@ test('each SSH host has its own agent', async ({ page }) => {
   await dialog.getByRole('button', { name: 'Change agent', exact: true }).click();
   expect(await page.evaluate(() => (window as any).computerAgents)).toEqual([['host-1', kalkidan]]);
 });
+
+test('a Codex subscription row asks for the Codex sign-in, and Check again reads it again', async ({
+  page,
+}) => {
+  await fixture(
+    page,
+    `window.codexLogin = 'signed-out';
+    return {
+      models: async () => [{ id: 'gpt-6-astra', name: 'GPT-6-Astra' }],
+      agentInstallations: async () => [
+        {
+          agent: 'codex',
+          status: 'installed',
+          path: '/usr/local/bin/codex',
+          version: '0.163.0-alpha.10.2',
+          source: 'automatic',
+          subscriptionLogin: window.codexLogin,
+        },
+        { agent: 'claude', status: 'missing' },
+      ],
+      verdictanSetup: async () => helpers.setup({
+        status: 'ready',
+        providerAccessModes: ['byok', 'codex_subscription'],
+        bootstrap: helpers.record(),
+        agents: [helpers.agents.kalkidan],
+        selections: {
+          codex: {
+            teamId: ids.team,
+            agentId: ids.kalkidan,
+            configurationId: '',
+            configurationVersionId: '',
+            providerConnectionId: '',
+            providerAccessMode: 'codex_subscription',
+            model: 'gpt-6-astra',
+          },
+        },
+      }),
+    };`,
+  );
+  await openComputersPage(page);
+  const row = computersPage(page).getByRole('group', { name: 'Codex', exact: true });
+  await expect(codexStatus(page)).toHaveText('Needs agent sign-in');
+  await expect(row).toContainText('run codex login, and sign in with ChatGPT');
+  await page.evaluate(() => ((window as any).codexLogin = 'signed-in'));
+  await row.getByRole('button', { name: 'Check the Codex sign-in again' }).click();
+  await expect(codexStatus(page)).toHaveText('Ready');
+  await expect(row.getByRole('button', { name: 'Check the Codex sign-in again' })).toHaveCount(0);
+});

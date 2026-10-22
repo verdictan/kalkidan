@@ -503,6 +503,25 @@ macOS Keychain or from `~/.claude/.credentials.json` on Linux. If the message sa
 that the sign-in format is not supported, update Claude Code and run `/login`.
 On Linux, the file must belong to you and must not be readable by other users.
 
+### A chat says that the agent is not signed in
+
+Kalkidan checks each coding agent before a managed chat starts. Verdictan does not check the
+sign-in of the coding agent. The checks are the same on this computer and on an SSH host:
+
+- The agent program is installed, and its version is supported.
+- For Codex subscription access, Codex has a ChatGPT login in `~/.codex/auth.json`.
+- For Claude subscription access, Claude Code has a Claude subscription login.
+- For Codex subscription access, Codex gets its model list through the managed gateway.
+
+When a check fails, the chat does not start. The message tells the cause and the fix.
+
+1. Open a terminal on the machine where work runs.
+2. For Codex, run `codex login` and sign in with ChatGPT. For Claude Code, run `claude`, then
+   `/login`.
+3. In **Settings** › **Computers**, select **Check again** on the row of the agent. The row must
+   show **Ready**.
+4. Send the message again.
+
 ### Kalkidan does not support the Verdictan runtime version
 
 Kalkidan supports the current Verdictan runtime release and the two releases before it (now 0.6.11 to 0.6.13; Kalkidan never installs 0.6.11, which cannot start managed gateways). Older versions work with a warning until 2027-01-20. The one-time setup needs 0.6.6 or later. See [Compatibility](compatibility.md) for the support window and the deprecation dates.
