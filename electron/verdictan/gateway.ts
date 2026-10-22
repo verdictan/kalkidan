@@ -41,7 +41,23 @@ export interface GatewayOptions {
   launch?: typeof spawn;
   request?: typeof fetch;
   now?: () => number;
-  lost?(): void;
+  /**
+   * The gateway stopped without a request from Kalkidan. `revocation` is set when Verdictan
+   * revoked the runtime. Then the runtime must not start again with the same credentials.
+   */
+  lost?(revocation?: GatewayRevocation): void;
+}
+/** The reasons of a `credential.revoked` event from the supervised gateway. */
+export const gatewayRevocationReasons = [
+  'host_revoked',
+  'session_revoked',
+  'runtime_revoked',
+  'credential_revoked',
+  'offline_limit',
+] as const;
+export type GatewayRevocation = (typeof gatewayRevocationReasons)[number];
+function isRevocation(value: unknown): value is GatewayRevocation {
+  return (gatewayRevocationReasons as readonly unknown[]).includes(value);
 }
 /** Owns one runtime generation. A listening socket never authorizes execution. */
 export class ManagedGateway {
@@ -156,20 +172,26 @@ export class ManagedGateway {
       this.address = url.origin;
       clearTimeout(this.startupTimer);
       this.resolveListening();
+    } else if (event.event === 'credential.revoked') {
+      if (data.runtime_id !== this.credentials.runtime_id || !isRevocation(data.reason))
+        throw new Error();
+      this.fail('desktop.credential_revoked', data.reason);
     } else if (['credential.expired', 'gateway.stopped', 'error'].includes(event.event)) {
       this.fail('desktop.gateway_unavailable');
     } else if (!['gateway.status', 'gateway.stopping'].includes(event.event)) throw new Error();
   }
-  private fail(code: string) {
+  private fail(code: string, revocation?: GatewayRevocation) {
     if (this.closed) return;
     this.closed = true;
+    // A stopped gateway never uses its credentials again. Do not keep the secrets in memory.
+    this.credentials = { ...this.credentials, runtime_credential: '', inference_credential: '' };
     this.controller.abort();
     clearTimeout(this.startupTimer);
     clearTimeout(this.expiryTimer);
     this.rejectListening(new DesktopProtocolError(code));
     if (!this.stopping) {
       // Fail closed. A dead or invalid supervisor cannot retain agent ownership.
-      this.options.lost?.();
+      this.options.lost?.(revocation);
       this.child.kill('SIGKILL');
     }
   }

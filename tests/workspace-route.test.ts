@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  projectPageOf,
   reconcileRoute,
   resolveRouteSession,
   restoreRoute,
@@ -15,7 +16,7 @@ test('route reconciliation removes stale entities and resolves draft history wit
     kind: 'conversation',
     repositoryId: 'r',
     session,
-    parent: { kind: 'project', groupId: 'g', page: 'docs' },
+    parent: { kind: 'project', groupId: 'g', page: 'knowledge', section: 'pages' },
   };
   const next = reconcileRoute(route, [], [{ id: 'r' }]);
   assert.equal(next.kind, 'conversation');
@@ -29,7 +30,7 @@ test('route reconciliation removes stale entities and resolves draft history wit
 
 test('saved routes restore only when their project, folder and chat still exist', () => {
   const session = { id: 's1', agent: 'codex', cwd: '/r' } as Session;
-  const parent = { kind: 'project' as const, groupId: 'g', page: 'docs' as const };
+  const parent = { kind: 'project' as const, groupId: 'g', page: 'knowledge' as const };
   const saved = JSON.parse(
     JSON.stringify(saveableRoute({ kind: 'conversation', session, parent })),
   ) as unknown;
@@ -43,4 +44,17 @@ test('saved routes restore only when their project, folder and chat still exist'
   );
   assert.equal(restoreRoute({ kind: 'project', groupId: 'g', page: 'nope' }, [], [], []), null);
   assert.equal(restoreRoute('junk', [], [], []), null);
+});
+
+test('older project pages open Knowledge at their section', () => {
+  assert.deepEqual(projectPageOf('docs'), { page: 'knowledge', section: 'pages' });
+  assert.deepEqual(projectPageOf('memory'), { page: 'knowledge', section: 'memory' });
+  assert.deepEqual(projectPageOf('insights'), { page: 'knowledge', section: 'insights' });
+  assert.deepEqual(projectPageOf('chats'), { page: 'chats' });
+  assert.equal(projectPageOf('nope'), null);
+  assert.deepEqual(
+    restoreRoute({ kind: 'project', groupId: 'g', page: 'memory' }, [{ id: 'g' }], [], []),
+    { kind: 'project', groupId: 'g', page: 'knowledge', section: 'memory' },
+  );
+  assert.deepEqual(restoreRoute({ kind: 'computers' }, [], [], []), { kind: 'computers' });
 });

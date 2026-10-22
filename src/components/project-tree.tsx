@@ -7,13 +7,14 @@ import {
   useChatStatus,
   type SessionActivityState,
 } from './activity-dot';
-import { TreeActionsMenu, TreeContextMenu, type TreeAction } from './tree-context-menu';
+import { projectMenuActions, TreeActionsMenu, TreeContextMenu } from './tree-context-menu';
 import { projectSessions, sessionRepo } from '../lib/session-repository';
 import { errorMessage } from '../lib/errors';
 import { CreateProject } from './create-project';
 import { ProjectSettingsDialog, type ProjectSettingsTab } from './project-settings-dialog';
-import type { ProjectDocMetadata } from '../domain/docs';
 import { openProjectPage } from './project-tabs';
+import { trackerConnection } from '../domain/tracker';
+import { useNeedsYou } from './project-overview';
 import { AddRepository } from './add-repository';
 import { ChatActionsDropdown, ChatContextMenu } from './chat-action-menu';
 import { useChatListActions } from './chat-list-actions';
@@ -25,19 +26,15 @@ import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import {
   ChevronDown,
   Eye,
-  FileText,
   Folder,
-  FolderOpen,
   FolderPlus,
+  Inbox,
   LayoutGrid,
   Loader2,
-  MessageSquarePlus,
   MessagesSquare,
-  PenLine,
+  Monitor,
   Plus,
-  Settings2,
   SquarePen,
-  Unplug,
 } from 'lucide-react';
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from './ui/collapsible';
 import { AgentIcon } from './ui/agent-icon';
@@ -55,9 +52,6 @@ import {
 import type { API, Project, ProjectGroup, Session, RemoteHost, TrackerItem } from '../types';
 
 const collapsedKey = 'kalkidan-collapsed-projects';
-const docsOpenKey = 'kalkidan-sidebar-docs-open';
-/** The sidebar shows this many doc pages under each project. "All pages" opens the rest. */
-const docLimit = 8;
 /** Each project shows its most recent chats in the sidebar. */
 const recentLimit = interfaceConfig.recentChats;
 function savedCollapsed(key = collapsedKey) {
@@ -71,6 +65,8 @@ function savedCollapsed(key = collapsedKey) {
 // The row paints hover, selection and the focus ring. Its main button only holds the content.
 const rowButton =
   'tree-row-button min-w-0 flex-1 justify-start gap-2 px-0 font-normal hover:bg-transparent focus-visible:ring-0 has-[>svg]:px-0';
+// A chat row is 28px high. Its button has the same height, so it stays inside the row.
+const childButton = rowButton + ' h-7';
 const titleOf = (session: Session) => session.organization?.title || session.title;
 const sameSession = (a: Session | null | undefined, b: Session) =>
   !!a && a.agent === b.agent && a.id === b.id;
@@ -129,18 +125,28 @@ export function ProjectTree({
   addFolderRequest,
   onNewChat,
   onNewChatIn,
-  activePage,
-  activeDoc,
+  onNewTaskIn,
+  onNewPageIn,
+  onWaiting,
+  waitingCurrent = false,
+  onComputers,
+  computersCurrent = false,
   query = '',
 }: {
-  /** The page of the open project, such as 'docs'. */
-  activePage?: string;
-  /** The doc page that shows, for the selected Docs row. */
-  activeDoc?: string;
   /** Starts a new chat where the user works now. The top row of the sidebar runs it. */
   onNewChat?: () => void;
-  /** Starts a new chat in a project. The project row shows it on hover. */
+  /** Starts a new chat in a project, from the project menu. */
   onNewChatIn?: (group: ProjectGroup) => void;
+  /** Opens New task in a project, from the project menu. */
+  onNewTaskIn?: (group: ProjectGroup) => void;
+  /** Makes a new doc page in a project, from the project menu. */
+  onNewPageIn?: (group: ProjectGroup) => void;
+  /** Opens the chats that wait for the user. The row shows only when one waits. */
+  onWaiting?: () => void;
+  waitingCurrent?: boolean;
+  /** Opens the Computers page: SSH hosts and agent programs. */
+  onComputers?: () => void;
+  computersCurrent?: boolean;
   /** Reloads the snapshot without a busy state. */
   onRefresh: () => Promise<unknown>;
   /** Background session state for each repository ID. */
@@ -232,7 +238,9 @@ export function ProjectTree({
       : undefined,
     stateOf: (session) => {
       const repo = sessionRepo(session, allRepos);
+      const group = repo && groups.find((g) => g.repoIds.includes(repo.id));
       return {
+        board: !!group && !!trackerConnection(group),
         open: sameSession(activeSession, session),
         running: !!running(session),
         linkedTask: !!(taskOf?.(session) || session.organization?.taskId || session.task?.id),
@@ -257,7 +265,9 @@ export function ProjectTree({
   useEffect(() => {
     const onOpen = (event: Event) => {
       const detail = (
-        event as CustomEvent<{ groupId?: string; tab?: string; section?: string } | undefined>
+        event as CustomEvent<
+          { groupId?: string; tab?: string; section?: string; rename?: boolean } | undefined
+        >
       ).detail;
       // An event without a project is for the project that shows.
       const id = detail?.groupId || latest.current.activeGroup;
@@ -265,7 +275,12 @@ export function ProjectTree({
       const section = (['general', 'folders', 'board'] as const).find(
         (value) => value === detail?.section,
       );
-      setSettings({ groupId: id, tab: detail?.tab as ProjectSettingsTab | undefined, section });
+      setSettings({
+        groupId: id,
+        tab: detail?.tab as ProjectSettingsTab | undefined,
+        section,
+        rename: !!detail?.rename,
+      });
     };
     window.addEventListener('kalkidan-open-project-settings', onOpen);
     return () => window.removeEventListener('kalkidan-open-project-settings', onOpen);
@@ -286,131 +301,6 @@ export function ProjectTree({
       }
       return next;
     });
-  }
-  // The Docs row under each project. It starts closed. Its pages load when it opens.
-  const [docsOpen, setDocsOpen] = useState(() => savedCollapsed(docsOpenKey));
-  const [docPages, setDocPages] = useState<Record<string, ProjectDocMetadata[] | undefined>>({});
-  function loadDocs(groupId: string) {
-    if (typeof api.docsMetadata !== 'function') return;
-    Promise.resolve()
-      .then(() => api.docsMetadata(groupId))
-      .then((pages) => setDocPages((current) => ({ ...current, [groupId]: pages })))
-      .catch(() => setDocPages((current) => ({ ...current, [groupId]: [] })));
-  }
-  useEffect(() => {
-    for (const id of docsOpen) if (groups.some((group) => group.id === id)) loadDocs(id);
-  }, [groups.map((group) => group.id).join(','), activeDoc]);
-  function toggleDocs(groupId: string, open: boolean) {
-    if (open) loadDocs(groupId);
-    setDocsOpen((current) => {
-      const next = new Set(current);
-      if (open) next.add(groupId);
-      else next.delete(groupId);
-      try {
-        localStorage.setItem(docsOpenKey, JSON.stringify([...next]));
-      } catch {
-        /* Optional preference. */
-      }
-      return next;
-    });
-  }
-  /** The Docs row of a project and, when it is open, its top pages. */
-  function docsRows(group: ProjectGroup) {
-    const open = docsOpen.has(group.id);
-    const pages = (docPages[group.id] || [])
-      .filter((page) => !page.parentId)
-      .sort(
-        (a, b) =>
-          (a.order ?? Number.MAX_SAFE_INTEGER) - (b.order ?? Number.MAX_SAFE_INTEGER) ||
-          a.title.localeCompare(b.title),
-      );
-    const docsCurrent = activeGroup === group.id && activePage === 'docs' && !activeSession;
-    const pageRow = (
-      key: string,
-      label: string,
-      open: () => void,
-      current = false,
-      more = false,
-    ) => (
-      <div
-        key={key}
-        className={
-          'tree-row tree-session-row tree-doc-row row-hover row-focus' +
-          (more ? ' tree-more-row' : '') +
-          (current ? ' selected row-selected' : '')
-        }
-      >
-        <Button
-          variant="ghost"
-          className={rowButton}
-          title={label}
-          aria-current={current ? 'page' : undefined}
-          onClick={open}
-        >
-          <span className="tree-label">{label}</span>
-        </Button>
-      </div>
-    );
-    return (
-      <Collapsible
-        key={group.id + ':docs'}
-        open={open}
-        onOpenChange={(value) => toggleDocs(group.id, value)}
-      >
-        <div
-          className={
-            'tree-row tree-session-row tree-docs-row row-hover row-focus' +
-            (docsCurrent && !activeDoc ? ' selected row-selected' : '')
-          }
-        >
-          <CollapsibleTrigger asChild>
-            <Button variant="ghost" className={rowButton} aria-label={`Docs of ${group.name}`}>
-              <span className="tree-icon">
-                <FileText className="size-3.5" />
-              </span>
-              <span className="tree-label">Docs</span>
-              <ChevronDown
-                className={'tree-docs-chevron size-3.5' + (open ? '' : ' -rotate-90')}
-                aria-hidden="true"
-              />
-            </Button>
-          </CollapsibleTrigger>
-        </div>
-        <CollapsibleContent>
-          {docPages[group.id] === undefined ? (
-            <div className="tree-row tree-empty tree-doc-row" role="status">
-              <span className="tree-label">Loading pages…</span>
-            </div>
-          ) : pages.length ? (
-            [
-              ...pages
-                .slice(0, docLimit)
-                .map((page) =>
-                  pageRow(
-                    page.id,
-                    page.title || 'Untitled',
-                    () => openProjectPage(group.id, 'docs', { docId: page.id }),
-                    docsCurrent && activeDoc === page.id,
-                  ),
-                ),
-              ...(pages.length > docLimit
-                ? [
-                    pageRow(
-                      'all',
-                      `All ${plural(pages.length, 'page')}`,
-                      () => openProjectPage(group.id, 'docs'),
-                      false,
-                      true,
-                    ),
-                  ]
-                : []),
-            ]
-          ) : (
-            pageRow('none', 'No pages yet', () => openProjectPage(group.id, 'docs'), false, true)
-          )}
-        </CollapsibleContent>
-      </Collapsible>
-    );
   }
   /** One chat row: in Pinned, or under its project. */
   function sessionRow(session: Session, kind: 'pinned' | 'recent', folder?: string) {
@@ -433,7 +323,7 @@ export function ProjectTree({
         >
           <Button
             variant="ghost"
-            className={rowButton}
+            className={kind === 'recent' ? childButton : rowButton}
             // The title gets the full row. The code folder shows in the tooltip only: the
             // project row above gives the context.
             title={folder ? `${title} · ${folder}` : title}
@@ -493,7 +383,7 @@ export function ProjectTree({
             >
               <Button
                 variant="ghost"
-                className={rowButton}
+                className={childButton}
                 title={`See all chats of ${group.name}`}
                 onClick={() => (onProjectChats || onProject)(group)}
               >
@@ -514,53 +404,34 @@ export function ProjectTree({
   const views = groups.flatMap((group) =>
     (pinnedViews[group.id] || []).map((view) => ({ group, view })),
   );
-  const hasRepositories = (group: ProjectGroup) =>
-    group.repoIds.some((id) => allRepos.some((repo) => repo.id === id));
+  const waiting = useNeedsYou(sessions, allRepos).length;
   const showAddFolder = (group: ProjectGroup) =>
     setAddFolder((current) => ({ groupId: group.id, at: (current?.at || 0) + 1 }));
-  const icon = (Icon: typeof Folder) => <Icon className="size-4" />;
-  // Navigation to the project pages is in the project tabs. The menu has no copies of it.
-  function projectActions(group: ProjectGroup, host?: RemoteHost): TreeAction[] {
-    return [
-      ...(onNewChatIn
-        ? [
-            {
-              label: 'New chat',
-              icon: icon(MessageSquarePlus),
-              action: () => onNewChatIn(group),
-            },
-          ]
-        : []),
-      { label: 'Open project', icon: icon(FolderOpen), action: () => onProject(group) },
-      ...(host && host.status !== 'connected'
-        ? [
-            {
-              label: `Reconnect to ${host.name}`,
-              icon: icon(Unplug),
+  // The one project menu. The project header has the same items in the same order.
+  function projectActions(group: ProjectGroup, host?: RemoteHost) {
+    return projectMenuActions({
+      busy,
+      onNewChat: () => (onNewChatIn ? onNewChatIn(group) : onProject(group)),
+      onNewTask: () => (onNewTaskIn ? onNewTaskIn(group) : openProjectPage(group.id, 'tasks')),
+      onNewPage: () => (onNewPageIn ? onNewPageIn(group) : openProjectPage(group.id, 'knowledge')),
+      onAddFolder: () => showAddFolder(group),
+      onCloneFromGitHub: () =>
+        setAddFolder((current) => ({
+          groupId: group.id,
+          at: (current?.at || 0) + 1,
+          source: 'github',
+        })),
+      onRename: () => openSettings(group, 'general', true),
+      onSettings: () => openSettings(group),
+      reconnect:
+        host && host.status !== 'connected'
+          ? {
+              host: host.name,
               disabled: reconnecting === host.id || host.status === 'connecting',
-              action: () => void reconnect(host),
-            },
-          ]
-        : []),
-      {
-        label: 'Add a code folder…',
-        icon: icon(FolderPlus),
-        separator: true,
-        disabled: busy,
-        action: () => showAddFolder(group),
-      },
-      {
-        label: 'Rename…',
-        icon: icon(PenLine),
-        disabled: busy,
-        action: () => openSettings(group, 'general', true),
-      },
-      {
-        label: 'Project settings…',
-        icon: icon(Settings2),
-        action: () => openSettings(group),
-      },
-    ];
+              run: () => void reconnect(host),
+            }
+          : undefined,
+    });
   }
   async function reconnect(host: RemoteHost) {
     setReconnecting(host.id);
@@ -655,6 +526,27 @@ export function ProjectTree({
           </Button>
         </div>
       )}
+      {onWaiting && waiting > 0 && (
+        <div
+          className={
+            'tree-row tree-top-row tree-nav-row tree-waiting-row row-hover row-focus' +
+            (waitingCurrent ? ' selected row-selected' : '')
+          }
+        >
+          <Button
+            variant="ghost"
+            className={rowButton}
+            aria-current={waitingCurrent ? 'page' : undefined}
+            onClick={onWaiting}
+          >
+            <span className="tree-icon">
+              <Inbox className="size-3.5" />
+            </span>
+            <span className="tree-label">Waiting for you</span>
+            <span className="tree-count">{waiting}</span>
+          </Button>
+        </div>
+      )}
       <div
         className={
           'tree-row tree-top-row tree-nav-row row-hover row-focus' +
@@ -672,21 +564,6 @@ export function ProjectTree({
           </span>
           <span className="tree-label">Projects</span>
         </Button>
-        {/* With no projects, the sidebar shows one labeled "New project" button below. */}
-        {groups.length > 0 && (
-          <Hint label="New project">
-            <Button
-              variant="ghost"
-              size="icon-xs"
-              className="tree-row-action"
-              disabled={busy}
-              aria-label="New project"
-              onClick={() => setCreating(true)}
-            >
-              <FolderPlus />
-            </Button>
-          </Hint>
-        )}
       </div>
       {onAllSessions && (
         <div
@@ -705,6 +582,26 @@ export function ProjectTree({
               <MessagesSquare className="size-3.5" />
             </span>
             <span className="tree-label">All chats</span>
+          </Button>
+        </div>
+      )}
+      {onComputers && (
+        <div
+          className={
+            'tree-row tree-top-row tree-nav-row row-hover row-focus' +
+            (computersCurrent ? ' selected row-selected' : '')
+          }
+        >
+          <Button
+            variant="ghost"
+            className={rowButton}
+            aria-current={computersCurrent ? 'page' : undefined}
+            onClick={onComputers}
+          >
+            <span className="tree-icon">
+              <Monitor className="size-3.5" />
+            </span>
+            <span className="tree-label">Computers</span>
           </Button>
         </div>
       )}
@@ -747,15 +644,30 @@ export function ProjectTree({
       )}
       {/* The heading always shows, so the tree does not move when a chat opens. */}
       {groups.length > 0 && (
-        <h2 className="sidebar-label tree-heading tree-projects-heading">Your projects</h2>
+        <div className="tree-heading tree-projects-heading">
+          <h2 className="sidebar-label">Your projects</h2>
+          <Hint label={`New project (${shortcutLabel(['mod', 'shift'], 'N')})`}>
+            <Button
+              variant="ghost"
+              size="icon-xs"
+              className="tree-row-action"
+              disabled={busy}
+              aria-label="New project"
+              onClick={() => setCreating(true)}
+            >
+              <Plus />
+            </Button>
+          </Hint>
+        </div>
       )}
       {groups.map((group) => {
         const members = allRepos.filter((repo) => group.repoIds.includes(repo.id));
         const projectCurrent = activeGroup === group.id && !activeSession;
         const activeRepo = activeSession ? sessionRepo(activeSession, allRepos) : undefined;
-        // The project row shows that the current page is inside it, without a background.
+        // On a page of the project, or in one of its chats, the project row has a weak
+        // highlight. Only the chat row, when it shows, has the strong one.
         const containsCurrent =
-          !projectCurrent &&
+          projectCurrent ||
           (activeRepo
             ? group.repoIds.includes(activeRepo.id)
             : !activeGroup && members.some((repo) => selected === repo.id));
@@ -788,7 +700,6 @@ export function ProjectTree({
               <div
                 className={
                   'tree-row tree-top-row project-group-heading row-hover row-focus' +
-                  (projectCurrent ? ' selected row-selected' : '') +
                   (containsCurrent ? ' contains-current' : '')
                 }
               >
@@ -838,19 +749,6 @@ export function ProjectTree({
                   )}
                   {!open && <ActivityDot state={groupState} />}
                 </Button>
-                {onNewChatIn && (
-                  <Hint label={`New chat in ${group.name}`}>
-                    <Button
-                      variant="ghost"
-                      size="icon-xs"
-                      className="tree-row-menu"
-                      aria-label={`New chat in ${group.name}`}
-                      onClick={() => onNewChatIn(group)}
-                    >
-                      <Plus />
-                    </Button>
-                  </Hint>
-                )}
                 <TreeActionsMenu
                   className="tree-row-menu"
                   disabled={busy}
@@ -870,29 +768,6 @@ export function ProjectTree({
                   <span className="tree-label">Cloning {clone.name}…</span>
                 </div>
               ))}
-              {!hasRepositories(group) && !clones.length ? (
-                <div className="tree-row tree-empty">
-                  <span className="tree-icon" aria-hidden="true" />
-                  <Button
-                    variant="link"
-                    size="xs"
-                    className="tree-empty-action tree-row-button"
-                    disabled={busy}
-                    onClick={() => showAddFolder(group)}
-                  >
-                    Add a code folder
-                  </Button>
-                </div>
-              ) : (
-                !chats.length &&
-                !clones.length && (
-                  <div className="tree-row tree-empty">
-                    <span className="tree-icon" aria-hidden="true" />
-                    <span className="tree-label">No chats yet</span>
-                  </div>
-                )
-              )}
-              {docsRows(group)}
             </CollapsibleContent>
           </Collapsible>
         );

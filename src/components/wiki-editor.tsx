@@ -12,6 +12,7 @@ import {
 } from 'react';
 import { createPortal } from 'react-dom';
 import { EditorContent, useEditor, type Editor } from '@tiptap/react';
+import { isNodeSelection, posToDOMRect } from '@tiptap/core';
 import { BubbleMenu } from '@tiptap/react/menus';
 import StarterKit from '@tiptap/starter-kit';
 import { Markdown } from '@tiptap/markdown';
@@ -33,6 +34,8 @@ import {
   Heading3,
   Link as LinkIcon,
   List,
+  ListChecks,
+  MessageSquare,
   ListOrdered,
   ListTodo,
   Minus,
@@ -61,8 +64,11 @@ import { showToast } from './ui/toast';
 import { DocPagePicker } from './doc-page-picker';
 import { WikiContextMenu } from './wiki-context-menu';
 import { hasPrimaryModifier } from '../lib/platform';
+import { menuLabelClass } from './ui/menu-styles';
 
 type Slash = { from: number; to: number; query: string; left: number; top: number };
+type CommandGroup = 'Ask and plan' | 'Blocks' | 'Links';
+const commandGroups: CommandGroup[] = ['Ask and plan', 'Blocks', 'Links'];
 export type Command = {
   label: string;
   /** The 16px icon on the left of the item. */
@@ -71,11 +77,11 @@ export type Command = {
   shortcut?: string;
   /** Other words that find the command, for example "todo" for Checklist. */
   keywords: string[];
-  group: 'Blocks' | 'Links';
+  group: CommandGroup;
   run: (e: Editor) => unknown;
 };
 
-/** The slash menu height: 12 rows of 28px, 2 group labels and the padding. */
+/** The slash menu height: the most rows that show, the group labels and the padding. */
 const slashHeight = 400;
 
 /** True when the command label or one of its keywords contains the typed text. */
@@ -108,7 +114,7 @@ const taskText = (task: TrackerItem) =>
   task.number ? `#${task.number} ${task.title}` : task.title || 'Untitled task';
 
 /** A searchable list of the board tasks. Enter or a click picks a task. */
-function TaskPicker({
+export function TaskPicker({
   open,
   onOpenChange,
   tasks,
@@ -150,7 +156,9 @@ function TaskPicker({
       <DialogContent size="md" layout="scroll" onCloseAutoFocus={onCloseAutoFocus}>
         <DialogHeader>
           <DialogTitle>Link a task</DialogTitle>
-          <DialogDescription>Search the tasks of the project board.</DialogDescription>
+          <DialogDescription className="sr-only">
+            Search the tasks of the project board.
+          </DialogDescription>
           <SearchInput
             className="mt-3"
             aria-label="Search tasks"
@@ -252,6 +260,40 @@ function tableMenuProps(tableToolbar: RefObject<HTMLDivElement | null>) {
       return table ? { getBoundingClientRect: () => table.getBoundingClientRect() } : null;
     },
     options: { placement: 'top-start', offset: 8, flip: true } satisfies BubbleProps['options'],
+  };
+}
+
+/**
+ * The format toolbar shows for each selection that is not empty, also after Select all. It shows
+ * 8px above the first selected line, or under the last line when there is no space above. Like
+ * the table menu, the props must not change between renders.
+ */
+function formatMenuProps(toolbar: RefObject<HTMLDivElement | null>) {
+  let view: Editor['view'] | null = null;
+  const shouldShow: NonNullable<BubbleProps['shouldShow']> = (props) => {
+    view = props.view;
+    const { editor, state } = props;
+    return (
+      editor.isEditable &&
+      !state.selection.empty &&
+      !isNodeSelection(state.selection) &&
+      (props.view.hasFocus() || !!toolbar.current?.contains(document.activeElement))
+    );
+  };
+  return {
+    shouldShow,
+    anchor: () => {
+      if (!view) return null;
+      const { from, to } = view.state.selection;
+      const rect = posToDOMRect(view, Math.max(1, from), Math.max(1, to));
+      return { getBoundingClientRect: () => rect };
+    },
+    options: {
+      placement: 'top-start',
+      offset: 8,
+      flip: { fallbackPlacements: ['bottom-start'] },
+      shift: { padding: 8 },
+    } satisfies BubbleProps['options'],
   };
 }
 
@@ -410,6 +452,22 @@ export function checklistMarker(before: string) {
   return match ? { checked: match[1].toLowerCase() === 'x' } : null;
 }
 
+/** The page and task actions of the editor: in "/" and in the selection toolbar. */
+export interface WikiEditorActions {
+  /** The number of tasks that the page makes. It shows on "Make this list into tasks". */
+  taskCount: number;
+  onMakeTasks: () => void;
+  onAskAgent: () => void;
+  /** Links a task to the page. The editor also adds a link to the task in the text. */
+  onLinkTask: (task: TrackerItem) => void;
+  /** Opens the task picker when the project has no board yet: connect a board first. */
+  onConnectBoard?: () => void;
+  /** Makes a task from the selected text. */
+  onMakeTask: (text: string) => void;
+  /** Asks an agent about the selected text. */
+  onAskSelection: (text: string) => void;
+}
+
 export function WikiEditor({
   markdown,
   readOnly,
@@ -419,7 +477,9 @@ export function WikiEditor({
   tasks,
   onOpenTask,
   api,
+  actions,
 }: {
+  actions?: WikiEditorActions;
   /** The API that the page picker reads pages from. Default: the desktop bridge or the demo. */
   api?: Pick<API, 'docsMetadata'>;
   /** The board tasks for "/task". Undefined: the project has no board. Null: the board loads. */
@@ -440,12 +500,15 @@ export function WikiEditor({
   const [url, setUrl] = useState('');
   const [editingLink, setEditingLink] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
+  // The text that opened the page picker ("[[" or "@"). It comes back when no page is picked.
+  const pickerTrigger = useRef('');
   const [taskPickerOpen, setTaskPickerOpen] = useState(false);
   // The format toolbar and the table toolbar each have one tab stop. Arrow keys move between
   // the buttons.
   const toolbar = useRef<HTMLDivElement>(null);
   const tableToolbar = useRef<HTMLDivElement>(null);
   const [tableMenu] = useState(() => tableMenuProps(tableToolbar));
+  const [formatMenu] = useState(() => formatMenuProps(toolbar));
   const [toolIndex, setToolIndex] = useState(0);
   const [textMenu, setTextMenu] = useState(false);
   const textMenuRef = useRef<HTMLDivElement>(null);
@@ -500,6 +563,21 @@ export function WikiEditor({
       // already a list item. Without this, the list shortcut puts a second list in the item,
       // and literal text "- " would load again as a nested list. Use Tab to make a nested list.
       handleTextInput: (view, from, to, text) => {
+        // "[[" and "@" open the page picker. A page link goes in place of the typed text.
+        if (groupId && (text === '[' || text === '@') && view.state.selection.empty) {
+          const { $from } = view.state.selection;
+          const before = $from.parent.textBetween(0, $from.parentOffset);
+          const opens =
+            $from.parent.type.name !== 'codeBlock' &&
+            !view.state.schema.marks.code?.isInSet($from.marks()) &&
+            (text === '[' ? before.endsWith('[') : !before || /\s$/.test(before));
+          if (opens) {
+            if (text === '[') view.dispatch(view.state.tr.delete(from - 1, to));
+            pickerTrigger.current = text === '[' ? '[[' : '@';
+            setPickerOpen(true);
+            return true;
+          }
+        }
         if (text !== ' ') return false;
         const { $from } = view.state.selection;
         const inList = $from.depth >= 2 ? $from.node(-1).type.name : '';
@@ -540,31 +618,59 @@ export function WikiEditor({
   useEffect(() => {
     if (editor && editor.isEditable === readOnly) editor.setEditable(!readOnly, false);
   }, [editor, readOnly]);
-  const allCommands: Command[] = [
-    ...commands,
-    ...(groupId
+  const planCommands: Command[] = actions
+    ? [
+        {
+          label: actions.taskCount
+            ? `Make this list into tasks (${actions.taskCount})`
+            : 'Make this list into tasks',
+          icon: ListChecks,
+          keywords: ['tasks', 'issues', 'plan', 'board', 'create'],
+          group: 'Ask and plan',
+          run: () => actions.onMakeTasks(),
+        },
+        {
+          label: 'Link a task',
+          icon: CircleDot,
+          keywords: ['link', 'task', 'issue', 'board'],
+          group: 'Ask and plan',
+          run: () =>
+            tasks === undefined && actions.onConnectBoard
+              ? actions.onConnectBoard()
+              : setTaskPickerOpen(true),
+        },
+        {
+          label: 'Ask an agent about this page',
+          icon: MessageSquare,
+          keywords: ['agent', 'chat', 'ask', 'codex', 'claude'],
+          group: 'Ask and plan',
+          run: () => actions.onAskAgent(),
+        },
+      ]
+    : tasks !== undefined
       ? [
           {
-            label: 'Link to page',
-            icon: FileText,
-            keywords: ['link', 'page', 'doc', 'wiki'],
-            group: 'Links' as const,
-            run: () => setPickerOpen(true),
-          },
-        ]
-      : []),
-    ...(tasks !== undefined
-      ? [
-          {
-            label: 'Link to task',
+            label: 'Link a task',
             icon: CircleDot,
             keywords: ['link', 'task', 'issue', 'board'],
-            group: 'Links' as const,
+            group: 'Links',
             run: () => setTaskPickerOpen(true),
           },
         ]
-      : []),
-  ];
+      : [];
+  const linkCommands: Command[] = groupId
+    ? [
+        {
+          label: 'Link to page',
+          icon: FileText,
+          shortcut: '[[',
+          keywords: ['link', 'page', 'doc', 'wiki'],
+          group: 'Links',
+          run: () => setPickerOpen(true),
+        },
+      ]
+    : [];
+  const allCommands: Command[] = [...planCommands, ...commands, ...linkCommands];
   const filtered = allCommands.filter((c) => commandMatches(c, slash?.query || ''));
   const activeOption = slash && !readOnly && filtered[index] ? `${slashId}-${index}` : '';
   // Focus stays in the editor while the slash menu is open. Point assistive
@@ -581,7 +687,14 @@ export function WikiEditor({
     }
     if (activeOption) {
       dom.setAttribute('aria-activedescendant', activeOption);
-      document.getElementById(activeOption)?.scrollIntoView({ block: 'nearest' });
+      // Scroll only the menu. scrollIntoView also scrolls the page, and the page then jumps.
+      const option = document.getElementById(activeOption);
+      const list = option?.closest<HTMLElement>('.wiki-slash');
+      if (option && list) {
+        if (option.offsetTop < list.scrollTop) list.scrollTop = option.offsetTop - 4;
+        else if (option.offsetTop + option.offsetHeight > list.scrollTop + list.clientHeight)
+          list.scrollTop = option.offsetTop + option.offsetHeight - list.clientHeight + 4;
+      }
     } else dom.removeAttribute('aria-activedescendant');
   }, [editor, slash, readOnly, activeOption, slashId]);
   function openLink() {
@@ -657,7 +770,7 @@ export function WikiEditor({
       editor.view.focus();
       return;
     }
-    if (hasPrimaryModifier(event.nativeEvent) && event.key.toLowerCase() === 'k') {
+    if (hasPrimaryModifier(event.nativeEvent) && event.key.toLowerCase() === 'l') {
       event.preventDefault();
       openLink();
       return;
@@ -703,14 +816,12 @@ export function WikiEditor({
   }
   keyHandler.current = (event) => {
     if (readOnly || event.isComposing) return false;
-    // With selected text or in a link, Mod-K adds or edits a link. Otherwise the key goes to
-    // the app search: the shortcut scope is set only when there is text to link.
+    // Mod-L adds or edits a link. Mod-K always opens the app search.
     if (
-      linkScope &&
       hasPrimaryModifier(event) &&
       !event.shiftKey &&
       !event.altKey &&
-      event.key.toLowerCase() === 'k'
+      event.key.toLowerCase() === 'l'
     ) {
       openLink();
       return true;
@@ -783,16 +894,27 @@ export function WikiEditor({
   useEffect(() => {
     if (!hasSelection) setTextMenu(false);
   }, [hasSelection]);
-  const linkScope = !!editor && !readOnly && (hasSelection || editor.isActive('link'));
+  /** The selected text, for "Make task" and "Ask agent" in the selection toolbar. */
+  function selectedText() {
+    if (!editor) return '';
+    const { from, to } = editor.state.selection;
+    return editor.state.doc.textBetween(from, to, '\n').trim();
+  }
   editor?.state.doc.descendants((node, pos) => {
     if (node.type.name === 'heading')
       headings.push({ text: node.textContent, level: node.attrs.level, pos });
   });
   return (
-    <div className="wiki-writing-area" data-shortcut-scope={linkScope ? 'editor' : undefined}>
+    <div className="wiki-writing-area">
       <div className="wiki-editor-body" onClick={openPageLink}>
         {editor && !readOnly && (
-          <BubbleMenu editor={editor} className="wiki-bubble">
+          <BubbleMenu
+            editor={editor}
+            className="wiki-bubble"
+            shouldShow={formatMenu.shouldShow}
+            getReferencedVirtualElement={formatMenu.anchor}
+            options={formatMenu.options}
+          >
             {/* The menu element does not pass key events correctly, so the toolbar is a child. */}
             <div
               ref={toolbar}
@@ -873,6 +995,41 @@ export function WikiEditor({
               >
                 <LinkIcon size={14} />
               </Button>
+              {actions && (
+                <>
+                  <span className="wiki-bubble-divider" aria-hidden="true" />
+                  <Button
+                    variant="ghost"
+                    size="xs"
+                    className="rounded-sm"
+                    tabIndex={toolIndex === 6 ? 0 : -1}
+                    onFocus={() => setToolIndex(6)}
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => {
+                      const text = selectedText();
+                      if (text) actions.onMakeTask(text);
+                    }}
+                  >
+                    <ListChecks size={14} aria-hidden="true" />
+                    Make task
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="xs"
+                    className="rounded-sm"
+                    tabIndex={toolIndex === 7 ? 0 : -1}
+                    onFocus={() => setToolIndex(7)}
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => {
+                      const text = selectedText();
+                      if (text) actions.onAskSelection(text);
+                    }}
+                  >
+                    <MessageSquare size={14} aria-hidden="true" />
+                    Ask agent
+                  </Button>
+                </>
+              )}
             </div>
             {textMenu && (
               <div
@@ -945,7 +1102,7 @@ export function WikiEditor({
         {editor && !readOnly ? (
           <WikiContextMenu
             editor={editor}
-            commands={allCommands}
+            commands={commands}
             onLink={openLink}
             onRemoveTable={removeTable}
           >
@@ -988,12 +1145,16 @@ export function WikiEditor({
             style={{ left: slash.left, top: slash.top }}
           >
             {filtered.length ? (
-              (['Blocks', 'Links'] as const).map((group) => {
+              commandGroups.map((group) => {
                 const items = filtered.filter((c) => c.group === group);
                 if (!items.length) return null;
                 return (
-                  <div key={group} role="group" aria-labelledby={`${slashId}-${group}`}>
-                    <p id={`${slashId}-${group}`} className="wiki-slash-label">
+                  <div
+                    key={group}
+                    role="group"
+                    aria-labelledby={`${slashId}-${group.replace(/\s/g, '-')}`}
+                  >
+                    <p id={`${slashId}-${group.replace(/\s/g, '-')}`} className={menuLabelClass}>
                       {group}
                     </p>
                     {items.map((c) => {
@@ -1012,9 +1173,9 @@ export function WikiEditor({
                           <c.icon size={16} aria-hidden="true" />
                           <span>{c.label}</span>
                           {c.shortcut && (
-                            <kbd className="kbd" aria-hidden="true">
+                            <span className="wiki-slash-hint" aria-hidden="true">
                               {c.shortcut}
-                            </kbd>
+                            </span>
                           )}
                         </button>
                       );
@@ -1096,7 +1257,10 @@ export function WikiEditor({
           open={taskPickerOpen}
           onOpenChange={setTaskPickerOpen}
           tasks={tasks}
-          onPick={linkTask}
+          onPick={(task) => {
+            linkTask(task);
+            actions?.onLinkTask(task);
+          }}
           onCloseAutoFocus={(event) => {
             event.preventDefault();
             editor?.view.focus();
@@ -1108,8 +1272,18 @@ export function WikiEditor({
           api={api}
           groupId={groupId}
           open={pickerOpen}
-          onOpenChange={setPickerOpen}
-          onPick={linkPage}
+          onOpenChange={(open) => {
+            setPickerOpen(open);
+            // No page was picked: give back the text that opened the picker.
+            if (!open && pickerTrigger.current) {
+              editor?.chain().focus().insertContent(pickerTrigger.current).run();
+              pickerTrigger.current = '';
+            }
+          }}
+          onPick={(doc) => {
+            pickerTrigger.current = '';
+            linkPage(doc);
+          }}
           title="Link a page"
           onCloseAutoFocus={(event) => {
             event.preventDefault();

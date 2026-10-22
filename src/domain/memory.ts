@@ -53,3 +53,9 @@ export type MemoryWriteResult =
   | { status: 'saved' | 'duplicate'; entry: MemoryEntry }
   | { status: 'conflict'; id: string; revision: string }
   | { status: 'deferred'; reason: string };
+
+/** What an agent read in one chat. */
+export interface ContextUsage {
+  memory: { id: string; topic: string; title?: string }[];
+  docs: { docId: string; title: string; heading?: string }[];
+}

@@ -1,8 +1,16 @@
-import { useEffect, useState } from 'react';
-import { TriangleAlert } from 'lucide-react';
+import { useCallback, useEffect, useState } from 'react';
+import { Bookmark } from 'lucide-react';
 import type { API } from '../types';
 import type { SavedProjectView } from '../domain/github-resources';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
+import {
+  DropdownMenuItem,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
+} from './ui/dropdown-menu';
+import { menuShortcutClass } from './ui/menu-styles';
 import { errorMessage } from '../lib/errors';
 
 export interface SavedViewSummary {
@@ -11,8 +19,6 @@ export interface SavedViewSummary {
 }
 
 const allItems = '__all';
-// The item that loads the views again after an error.
-const retryItem = '__retry';
 function choiceKey(groupId: string) {
   return `kalkidan-saved-view:${groupId}`;
 }
@@ -62,16 +68,29 @@ export function openSavedView(groupId: string, viewId: string) {
   );
 }
 
+/** The saved views of a board and the chosen view, for the board "⋯" menu. */
+export interface SavedViews {
+  views: SavedViewSummary[];
+  /** The ID of the chosen view. Empty for all tasks. */
+  selected: string;
+  choose: (id: string) => void;
+  /** The error of the last load. The menu then shows "Views could not load · Retry". */
+  error: string;
+  busy: boolean;
+  retry: () => void;
+}
+
 /**
- * "View: All project items ▾" for the board toolbar. The choice is kept for each project. The
- * board refresh button loads the views again (`reload`). When the views do not load, the
- * select shows a warning and the item "Could not load views. Try again".
+ * Loads the saved GitHub views of a board and keeps the choice for each project. The board
+ * "⋯" menu shows them (`SavedViewsMenu`). A change of `reload` loads the views again. With
+ * `enabled` false, nothing loads.
  */
-export function GitHubSavedViews({
+export function useSavedViews({
   api,
   groupId,
   revision,
   reload = 0,
+  enabled = true,
   onChange,
 }: {
   api: API;
@@ -79,18 +98,22 @@ export function GitHubSavedViews({
   revision?: string;
   /** A counter. Each change loads the views again. */
   reload?: number;
+  enabled?: boolean;
   onChange: (view: SavedProjectView | null, pending: boolean) => void;
-}) {
+}): SavedViews {
   const [views, setViews] = useState<SavedViewSummary[]>(() => readSavedViewList(groupId));
   const [selected, setSelected] = useState(() => read(choiceKey(groupId)) || '');
   const [attempt, setAttempt] = useState(0);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
-  function choose(id: string) {
-    setSelected(id);
-    write(choiceKey(groupId), id);
-    onChange(null, !!id);
-  }
+  const choose = useCallback(
+    (id: string) => {
+      setSelected(id);
+      write(choiceKey(groupId), id);
+      onChange(null, !!id);
+    },
+    [groupId, onChange],
+  );
   // The command palette and the sidebar open a view with this event.
   useEffect(() => {
     const handle = (event: Event) => {
@@ -104,6 +127,7 @@ export function GitHubSavedViews({
     return () => window.removeEventListener('kalkidan-open-saved-view', handle);
   }, [groupId, onChange]);
   useEffect(() => {
+    if (!enabled) return;
     let active = true;
     setBusy(true);
     setError('');
@@ -144,48 +168,52 @@ export function GitHubSavedViews({
     return () => {
       active = false;
     };
-  }, [api, groupId, revision, selected, attempt, reload, onChange]);
-  const current = views.find((view) => view.id === selected);
-  return (
-    <div className="tracker-saved-views" role="group" aria-label="GitHub view">
-      <Select
-        value={selected || allItems}
-        onValueChange={(value) => {
-          if (value === retryItem) setAttempt((count) => count + 1);
-          else choose(value === allItems ? '' : value);
+  }, [api, groupId, revision, selected, attempt, reload, enabled, onChange]);
+  const retry = useCallback(() => setAttempt((count) => count + 1), []);
+  return { views, selected, choose, error, busy, retry };
+}
+
+/**
+ * "Saved view: All tasks ›" for the board "⋯" menu. When the views do not load, the item is
+ * "Views could not load · Retry". With only the default view, nothing shows.
+ */
+export function SavedViewsMenu({ value }: { value: SavedViews }) {
+  const { views, selected, choose, error, retry } = value;
+  if (error)
+    return (
+      <DropdownMenuItem
+        title={error}
+        onSelect={(event) => {
+          event.preventDefault();
+          retry();
         }}
       >
-        <SelectTrigger
-          size="sm"
-          variant="filled"
-          aria-label={error ? 'GitHub saved view. The views did not load' : 'GitHub saved view'}
-          className="tracker-saved-view-trigger"
-          title={error ? `Could not load the GitHub views. ${error}` : current?.name}
-          data-error={error ? true : undefined}
+        <Bookmark className="size-4" />
+        Views could not load
+        <span className={menuShortcutClass}>Retry</span>
+      </DropdownMenuItem>
+    );
+  if (!views.length) return null;
+  const current = views.find((view) => view.id === selected)?.name || 'All tasks';
+  return (
+    <DropdownMenuSub>
+      <DropdownMenuSubTrigger>
+        <Bookmark className="size-4" />
+        <span className="min-w-0 truncate">Saved view: {current}</span>
+      </DropdownMenuSubTrigger>
+      <DropdownMenuSubContent className="max-w-80">
+        <DropdownMenuRadioGroup
+          value={selected || allItems}
+          onValueChange={(id) => choose(id === allItems ? '' : id)}
         >
-          {error && <TriangleAlert className="tracker-saved-view-error" aria-hidden="true" />}
-          <span className="text-muted-foreground" aria-hidden="true">
-            View:
-          </span>
-          <SelectValue />
-        </SelectTrigger>
-        <SelectContent align="start" className="max-w-[calc(100vw-2rem)]">
-          {error && (
-            <SelectItem value={retryItem} className="tracker-saved-view-retry">
-              Could not load views. Try again
-            </SelectItem>
-          )}
-          <SelectItem value={allItems}>All project items</SelectItem>
+          <DropdownMenuRadioItem value={allItems}>All tasks</DropdownMenuRadioItem>
           {views.map((view) => (
-            <SelectItem key={view.id} value={view.id}>
-              {view.name}
-            </SelectItem>
+            <DropdownMenuRadioItem key={view.id} value={view.id}>
+              <span className="truncate">{view.name}</span>
+            </DropdownMenuRadioItem>
           ))}
-        </SelectContent>
-      </Select>
-      <span className="sr-only" role="status">
-        {busy ? 'Loading GitHub view…' : error ? 'Could not load the GitHub views.' : ''}
-      </span>
-    </div>
+        </DropdownMenuRadioGroup>
+      </DropdownMenuSubContent>
+    </DropdownMenuSub>
   );
 }

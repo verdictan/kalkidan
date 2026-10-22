@@ -90,7 +90,7 @@ export function appMenuTemplate({
             submenu: [
               { role: 'about', label: `About ${appName}` },
               separator,
-              { label: 'Settings…', accelerator: 'Cmd+,', click: command('settings') },
+              { label: 'Preferences…', accelerator: 'Cmd+,', click: command('settings') },
               { label: 'Sign in to Verdictan…', click: command('sign-in') },
               separator,
               { role: 'services', label: 'Services' },
@@ -129,7 +129,7 @@ export function appMenuTemplate({
         ...(mac
           ? []
           : ([
-              { label: 'Settings', accelerator: 'Ctrl+,', click: command('settings') },
+              { label: 'Preferences…', accelerator: 'Ctrl+,', click: command('settings') },
               { label: 'Sign in to Verdictan…', click: command('sign-in') },
               separator,
             ] satisfies MenuItemConstructorOptions[])),
@@ -186,11 +186,10 @@ export function appMenuTemplate({
         { label: 'Overview', accelerator: 'CmdOrCtrl+1', click: command('go-overview') },
         { label: 'Tasks', accelerator: 'CmdOrCtrl+2', click: command('go-tasks') },
         { label: 'Chats', accelerator: 'CmdOrCtrl+3', click: command('go-chats') },
-        { label: 'Docs', accelerator: 'CmdOrCtrl+4', click: command('go-docs') },
-        { label: 'Memory', accelerator: 'CmdOrCtrl+5', click: command('go-memory') },
-        { label: 'Insights', accelerator: 'CmdOrCtrl+6', click: command('go-insights') },
+        { label: 'Knowledge', accelerator: 'CmdOrCtrl+4', click: command('go-knowledge') },
         separator,
         { label: 'All chats', accelerator: 'CmdOrCtrl+Shift+L', click: command('all-sessions') },
+        { label: 'Computers', click: command('go-computers') },
       ],
     },
     {

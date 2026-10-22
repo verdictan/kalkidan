@@ -35,6 +35,8 @@ import {
 } from './storage/project-location';
 import { memoryDirectory, readProjectMemory } from './storage/project-memory';
 import { projectMemory } from './storage/managed-memory';
+import { contextUsage, readCounts } from './storage/context-usage';
+import type { ContextUsage } from '../src/domain/memory';
 import { resourceRevision } from './storage/resource-revision';
 import { ProjectDocs } from './storage/project-docs';
 import { dataDirectory } from './storage/data-directory';
@@ -62,7 +64,7 @@ import type { MenuCommand, Session } from '../src/types';
 import { PtyTerminal } from './pty-terminal';
 import { RemoteHosts } from './remote-hosts';
 import { CommandTerminal, repositoryDiff } from './conversation-tools';
-import { AnnotationBrowser } from './annotation-browser';
+import { AnnotationBrowser, previewPartition } from './annotation-browser';
 import {
   app,
   BrowserWindow,
@@ -74,7 +76,10 @@ import {
   nativeTheme,
   powerMonitor,
   Notification,
+  session,
 } from 'electron';
+import { LocalData } from './storage/local-data';
+import { localDataCheckIntervalMs } from '../src/domain/data-policy';
 import { existsSync } from 'node:fs';
 import { readFile, writeFile, stat, realpath, rm } from 'node:fs/promises';
 import { join, basename } from 'node:path';
@@ -552,6 +557,8 @@ app.whenReady().then(async () => {
   );
   handle('first-run-state', () => preferences.firstRun());
   handle('set-welcome-done', () => preferences.setWelcomeDone());
+  handle('data-notice-state', () => preferences.dataNotice());
+  handle('set-data-notice-seen', () => preferences.setDataNoticeSeen());
   handle('notification-preferences', () => preferences.notifications());
   handle('set-notification-preferences', (value: unknown) => preferences.setNotifications(value));
   handle('verdictan-logout', async () => {
@@ -726,6 +733,56 @@ app.whenReady().then(async () => {
     join(app.getPath('userData'), 'sessions.json'),
     chatOutcomes,
   );
+  // The disk limit, export, and deletion of the data folder. Chromium owns its cache files
+  // while the app runs, so the caches clear through the Electron sessions.
+  const localData = new LocalData({
+    root: dataRoot,
+    clearBrowserCaches: async () => {
+      for (const target of [session.defaultSession, session.fromPartition(previewPartition)]) {
+        await target.clearCache();
+        await target.clearCodeCaches({});
+      }
+    },
+  });
+  const checkLimit = () =>
+    void localData.enforceLimit().catch((error) => console.warn('Disk limit not applied', error));
+  setTimeout(checkLimit, 60_000).unref();
+  setInterval(checkLimit, localDataCheckIntervalMs).unref();
+  handle('local-data-usage', () => localData.usage());
+  handle('local-data-enforce-limit', () => localData.enforceLimit());
+  handle('local-data-export', async () => {
+    const parent = BrowserWindow.getFocusedWindow() || undefined;
+    const options = {
+      title: 'Export Kalkidan data',
+      buttonLabel: 'Export',
+      properties: ['openDirectory', 'createDirectory'] as ('openDirectory' | 'createDirectory')[],
+    };
+    const result = parent
+      ? await dialog.showOpenDialog(parent, options)
+      : await dialog.showOpenDialog(options);
+    if (result.canceled || !result.filePaths[0]) return null;
+    const exported = await localData.export(result.filePaths[0]);
+    shell.showItemInFolder(exported.path);
+    return exported;
+  });
+  handle('local-data-delete', async (kind: unknown) => {
+    if (kind !== 'chat-history' && kind !== 'caches-and-logs')
+      throw new Error('Invalid data deletion request.');
+    if (kind === 'chat-history') {
+      if (
+        chatRunner.runningCount() > 0 ||
+        remote.list().some((host) => host.status === 'connected')
+      )
+        throw new Error('Stop the running agents and disconnect the SSH hosts first.');
+      await verdictan!.managed.stopAll();
+      await Promise.all([
+        sessionLibrary.clear(),
+        chatOutcomes.clear(),
+        verdictan!.bindings.clearConversations(),
+      ]);
+    }
+    return localData.delete(kind);
+  });
   await chatOutcomes.load().catch((error) => console.warn('Chat outcomes not loaded', error));
   try {
     await sessionLibrary.load();
@@ -870,10 +927,29 @@ app.whenReady().then(async () => {
   handle('remote-install', (id) => remote.install(id));
   handle('remote-connect', (id) => remote.connect(id));
   handle('remote-disconnect', (id) => remote.disconnect(id));
-  handle('remote-remove', async (id) => {
+  handle('remote-remove', async (id, options?: { deleteHostData?: unknown }) => {
     if (projectGroups.groups.some((g) => g.hostId === id) || projects.some((p) => p.hostId === id))
       throw new Error('Move or remove the projects on this host first.');
+    // Delete the Kalkidan data on the host first. It needs the connection.
+    if (options?.deleteHostData === true) {
+      if (remote.list().find((item) => item.id === id)?.status !== 'connected')
+        throw new Error('Connect the host to delete its Kalkidan data, or remove it without.');
+      await remote.call(id, 'kalkidan-data-remove', []).catch((error: Error) => {
+        // An older helper does not have the operation. Nothing on the host changed.
+        if (/unknown|unsupported/i.test(error?.message || ''))
+          throw new Error('Update the helper on this host first, or remove it without its data.');
+        throw error;
+      });
+    }
+    // Revoke the host identity in Verdictan, so that its credentials stop working. A host
+    // that never ran managed work has no identity.
+    const identity = await verdictan?.bindings.knownIdentities(id);
+    if (identity && verdictan?.account.status()?.phase === 'authenticated')
+      await verdictan.managed
+        .revokeHost(identity.installationId, identity.hostId)
+        .catch((error) => console.warn('Host revocation failed', error));
     await remote.remove(id);
+    if (identity) await verdictan?.bindings.forgetHost(id);
   });
   handle('directory-list', (path, hostId) =>
     hostId ? remote.call(hostId, 'directory-list', [path]) : listDirectory(path),
@@ -939,7 +1015,7 @@ app.whenReady().then(async () => {
     if (method === 'chatCreate') {
       taskCwd = args[0];
       args[5] = await memoryContext(args[0], args[2], hostId);
-      args[2] = await projectPrompt(args[0], args[2], args[4], hostId);
+      args[2] = await projectPrompt(args[0], args[2], args[4], hostId, args[5]?.read);
     }
     if (method === 'chatStart') {
       const h = await remote.call(hostId, 'snapshot', []);
@@ -947,7 +1023,7 @@ app.whenReady().then(async () => {
       if (!session) throw new Error('Remote session not found');
       taskCwd = session.cwd;
       args[5] = await memoryContext(session.cwd, args[2], hostId);
-      args[2] = await projectPrompt(session.cwd, args[2], args[4], hostId);
+      args[2] = await projectPrompt(session.cwd, args[2], args[4], hostId, args[5]?.read);
     }
     if (taskCwd) args[6] = await resolveManagedScope(taskCwd, args[4]?.taskId, hostId);
     if (taskCwd)
@@ -1128,6 +1204,33 @@ app.whenReady().then(async () => {
       ? remote.call(group.hostId, 'project-memory', [id, root, 'entries']).catch(helperTooOld)
       : projectMemory(root).list();
   });
+  // An older helper cannot report what agents read. Show nothing rather than an error.
+  const olderHelper = (empty: unknown) => (error: any) => {
+    if (/^(Unknown memory operation|Unsupported remote operation)/.test(error?.message))
+      return empty;
+    throw error;
+  };
+  handle('context-usage', async (id, agent, sessionId) => {
+    if (!isAgent(agent) || typeof sessionId !== 'string') throw new Error('Invalid session');
+    const { group, root } = await memoryGroup(id);
+    if (!group.hostId) return contextUsage(root, agent, sessionId);
+    return remote
+      .call(group.hostId, 'project-memory', [
+        id,
+        root,
+        'usage',
+        [agent, providerSessionId(group.hostId, sessionId)],
+      ])
+      .catch(olderHelper({ memory: [], docs: [] }));
+  });
+  handle('read-counts', async (id) => {
+    const { group, root } = await memoryGroup(id);
+    return group.hostId
+      ? remote
+          .call(group.hostId, 'project-memory', [id, root, 'counts'])
+          .catch(olderHelper({ memory: {}, docs: {} }))
+      : readCounts(root);
+  });
   handle('memory-forget', async (id, entryId, revision) => {
     const { group, root } = await memoryGroup(id);
     if (group.hostId)
@@ -1173,6 +1276,7 @@ app.whenReady().then(async () => {
       root: await projectRoot(group.id),
       groupId: group.id,
       prompt,
+      read: { memory: [], docs: [] } as ContextUsage,
       changed: hostId
         ? undefined
         : () => {
@@ -1357,8 +1461,9 @@ app.whenReady().then(async () => {
       agentStarts.run(
         options?.operationId,
         [projectId, agent, prompt, allowEdits, options],
-        async () =>
-          chatRunner.start(
+        async () => {
+          const context = await memoryContext(p.path, prompt);
+          return chatRunner.start(
             {
               id: randomUUID(),
               agent,
@@ -1367,13 +1472,14 @@ app.whenReady().then(async () => {
               organization: options?.taskId ? { taskId: options.taskId } : undefined,
               updatedAt: new Date().toISOString(),
             },
-            await projectPrompt(p.path, prompt, options),
+            await projectPrompt(p.path, prompt, options, undefined, context?.read),
             allowEdits,
             true,
             options?.model,
             options?.forkFrom,
-            await memoryContext(p.path, prompt),
-          ),
+            context,
+          );
+        },
       ),
     );
   }
@@ -1383,17 +1489,18 @@ app.whenReady().then(async () => {
     if (!(await stat(session.cwd)).isDirectory())
       throw new Error('The session project folder is no longer available.');
     return startAgentTask(session.cwd, undefined, options, () =>
-      agentStarts.run(options?.operationId, [agent, id, prompt, allowEdits, options], async () =>
-        chatRunner.start(
+      agentStarts.run(options?.operationId, [agent, id, prompt, allowEdits, options], async () => {
+        const context = await memoryContext(session.cwd, prompt);
+        return chatRunner.start(
           session,
-          await projectPrompt(session.cwd, prompt, options),
+          await projectPrompt(session.cwd, prompt, options, undefined, context?.read),
           allowEdits,
           false,
           options?.model,
           undefined,
-          await memoryContext(session.cwd, prompt),
-        ),
-      ),
+          context,
+        );
+      }),
     );
   });
   handle('chat-status', (id) => taskExecutions.observe(chatRunner.status(id)));
@@ -2191,7 +2298,7 @@ app.whenReady().then(async () => {
   function windowColors() {
     return nativeTheme.shouldUseDarkColors
       ? { chrome: '#15191c', symbol: '#e1e4e7', background: '#101316' }
-      : { chrome: '#f6f8fa', symbol: '#1f2328', background: '#fbfbfc' };
+      : { chrome: '#f3f5f7', symbol: '#1f2328', background: '#fbfbfc' };
   }
   function titleBarOverlay() {
     const colors = windowColors();

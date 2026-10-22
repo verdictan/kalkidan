@@ -1,8 +1,9 @@
 import {
   StatusIcon,
-  TaskChats,
   TaskCheckbox,
+  TaskChip,
   TaskStartButton,
+  chatsActivity,
   linkedChats,
   selectionClick,
   selectionKeys,
@@ -25,8 +26,9 @@ import type { TrackerBoard, TrackerItem, Session } from '../types';
 import { cn } from '../lib/utils';
 import { Card, CardContent } from './ui/card';
 import { Button } from './ui/button';
-import { EmptyState } from './ui/empty-state';
+import { Input } from './ui/input';
 import { MoreButton } from './ui/more-button';
+import { menuShortcutClass } from './ui/menu-styles';
 import {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -35,6 +37,47 @@ import {
   DropdownMenuItem,
   DropdownMenuSeparator,
 } from './ui/dropdown-menu';
+
+/** The title field that the column "+" adds: Enter creates the task, Escape cancels. */
+function InlineTaskField({
+  column,
+  onCreate,
+  onCancel,
+}: {
+  column: string;
+  onCreate: (title: string) => Promise<boolean>;
+  onCancel: () => void;
+}) {
+  const [title, setTitle] = useState('');
+  const [busy, setBusy] = useState(false);
+  return (
+    <Input
+      autoFocus
+      maxLength={256}
+      className="tracker-inline-add"
+      aria-label={`New task in ${column}`}
+      placeholder="Task title"
+      value={title}
+      disabled={busy}
+      onChange={(event) => setTitle(event.target.value)}
+      onBlur={() => !title.trim() && !busy && onCancel()}
+      onKeyDown={(event) => {
+        event.stopPropagation();
+        if (event.key === 'Escape') {
+          event.preventDefault();
+          onCancel();
+        } else if (event.key === 'Enter' && !event.nativeEvent.isComposing && title.trim()) {
+          event.preventDefault();
+          setBusy(true);
+          void onCreate(title.trim()).then((ok) => {
+            setBusy(false);
+            if (ok) setTitle('');
+          });
+        }
+      }}
+    />
+  );
+}
 
 /** The heading of a board column: status icon, name, task count and an optional action. */
 export function BoardColumnHeading({
@@ -114,9 +157,11 @@ export function TrackerBoard({
   busy: boolean;
   sessions: Session[];
   onOpen: (item: TrackerItem) => void;
-  onCreate?: (status: string) => void;
+  /** Creates a task with this title in a column. The column "+" shows a title field. */
+  onCreate?: (status: string, title: string) => Promise<boolean>;
   onStatus: (item: TrackerItem, status: string) => void;
 } & TaskWorkProps) {
+  const [adding, setAdding] = useState<string | null>(null);
   const [dragged, setDragged] = useState<string | null>(null);
   const [over, setOver] = useState<string | null>(null);
   const [announcement, setAnnouncement] = useState('');
@@ -134,6 +179,8 @@ export function TrackerBoard({
     ),
   );
   const flat = grid.flat();
+  // The first Todo card always shows Start, so that the action is easy to find.
+  const firstTodo = grid[0]?.[0]?.id;
   // The card that has the tab stop: the last focused card, else the first card.
   const current = flat.some((item) => item.id === activeId) ? activeId : flat[0]?.id;
   function focusCard(id: string) {
@@ -195,7 +242,7 @@ export function TrackerBoard({
           <section
             key={column.id}
             onDragOver={(event) => {
-              if (!busy && dragged && column.id) {
+              if (!busy && !work.readOnly && dragged && column.id) {
                 event.preventDefault();
                 event.dataTransfer.dropEffect = 'move';
                 setOver(column.id);
@@ -209,7 +256,7 @@ export function TrackerBoard({
               const item = items.find((i) => i.id === dragged);
               setDragged(null);
               setOver(null);
-              if (!busy && item && column.id && item.statusId !== column.id) {
+              if (!busy && !work.readOnly && item && column.id && item.statusId !== column.id) {
                 setAnnouncement(`Moving ${item.title} to ${column.name}`);
                 onStatus(item, column.id);
               }
@@ -223,7 +270,8 @@ export function TrackerBoard({
               name={column.name}
               count={tasks.length}
               action={
-                onCreate && (
+                onCreate &&
+                column.id && (
                   <Button
                     variant="ghost"
                     size="icon-xs"
@@ -231,9 +279,9 @@ export function TrackerBoard({
                     aria-label={`New task in ${column.name}`}
                     tabIndex={-1}
                     disabled={busy}
-                    onClick={() => onCreate(column.id)}
+                    onClick={() => setAdding(column.id)}
                   >
-                    <Plus size={14} />
+                    <Plus size={16} />
                   </Button>
                 )
               }
@@ -243,6 +291,17 @@ export function TrackerBoard({
               role={tasks.length ? 'list' : undefined}
               aria-label={tasks.length ? `${column.name} tasks` : undefined}
             >
+              {onCreate && adding === column.id && (
+                <InlineTaskField
+                  column={column.name}
+                  onCancel={() => setAdding(null)}
+                  onCreate={async (title) => {
+                    const ok = await onCreate(column.id, title);
+                    if (ok) setAdding(null);
+                    return ok;
+                  }}
+                />
+              )}
               {tasks.map((item) => {
                 const chats = linkedChats(sessions, item.id);
                 const selected = !!selection?.ids.has(item.id);
@@ -271,7 +330,7 @@ export function TrackerBoard({
                       event.preventDefault();
                       setMenuId(item.id);
                     }}
-                    draggable={!busy && !!board.statusField}
+                    draggable={!busy && !work.readOnly && !!board.statusField}
                     onDragStart={(event) => {
                       if ((event.target as HTMLElement).closest('button, a, input')) {
                         event.preventDefault();
@@ -322,10 +381,11 @@ export function TrackerBoard({
                           {item.repository ? pathBasename(item.repository) : 'No repository'}
                           {item.number ? ` #${item.number}` : ''}
                         </span>
-                        <TaskChats
+                        <TaskChip
                           chats={chats}
                           activity={work.activity}
                           onOpenChat={work.onOpenChat}
+                          starting={work.startingId === item.id}
                           tabIndex={-1}
                         />
                         <span className="tracker-task-actions">
@@ -364,16 +424,21 @@ export function TrackerBoard({
                                 <DropdownMenuItem onSelect={() => selection.toggle(item, false)}>
                                   <SquareCheck className="size-4" />
                                   {selected ? 'Clear selection' : 'Select'}
+                                  <span className={menuShortcutClass}>Space</span>
                                 </DropdownMenuItem>
                               )}
                               {board.statusField && (
                                 <>
                                   <DropdownMenuSeparator />
-                                  <DropdownMenuLabel>Move to</DropdownMenuLabel>
+                                  <DropdownMenuLabel>
+                                    {work.readOnly ? `Move to · ${work.readOnly}` : 'Move to'}
+                                  </DropdownMenuLabel>
                                   {options.map((option) => (
                                     <DropdownMenuItem
                                       key={option.id}
-                                      disabled={busy || option.id === item.statusId}
+                                      disabled={
+                                        busy || !!work.readOnly || option.id === item.statusId
+                                      }
                                       onSelect={() => move(option.id, option.name)}
                                     >
                                       <StatusIcon name={option.name} size={16} />
@@ -384,24 +449,22 @@ export function TrackerBoard({
                               )}
                             </DropdownMenuContent>
                           </DropdownMenu>
-                          {work.onStart && (
-                            <TaskStartButton
-                              item={item}
-                              tabIndex={-1}
-                              onStart={() => work.onStart?.(item)}
-                            />
-                          )}
+                          {work.onStart &&
+                            !chatsActivity(chats, work.activity) &&
+                            work.startingId !== item.id && (
+                              <TaskStartButton
+                                item={item}
+                                tabIndex={-1}
+                                always={item.id === firstTodo}
+                                onStart={() => work.onStart?.(item)}
+                              />
+                            )}
                         </span>
                       </div>
                     </CardContent>
                   </Card>
                 );
               })}
-              {!tasks.length && (
-                <EmptyState compact className="tracker-column-empty">
-                  No tasks
-                </EmptyState>
-              )}
             </div>
           </section>
         );

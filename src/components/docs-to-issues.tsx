@@ -76,6 +76,31 @@ export function headingTaskCount(markdown: string) {
   return entries.length === 1 && entries[0].title === marker ? 0 : entries.length;
 }
 
+/**
+ * The tasks of a page: one task for each ## heading. A page without ## headings gives one task
+ * for each top-level list item, or one task for the whole page.
+ */
+export function pageTasks(markdown: string, title: string) {
+  return headingTaskCount(markdown)
+    ? splitDocPlan(markdown, title)
+    : splitListItems(markdown, title);
+}
+
+/** True when the page has top-level list items. */
+export function hasListItems(markdown: string) {
+  return listItemCount(markdown) > 0;
+}
+
+function listItemCount(markdown: string) {
+  let fence = false;
+  let count = 0;
+  for (const line of markdown.split('\n')) {
+    if (/^ {0,3}(`{3,}|~{3,})/.test(line)) fence = !fence;
+    else if (!fence && /^ {0,3}(?:[-*+]|\d+[.)])\s+\S/.test(line)) count++;
+  }
+  return count;
+}
+
 /** Removes entry `index` and moves the parent and blocker numbers of the later entries. */
 function removeEntry(entries: Entry[], index: number): Entry[] {
   const move = (value: number) => (value > index ? value - 1 : value);
@@ -139,7 +164,6 @@ export function DocsToIssuesDialog({
     [repository, setRepository] = useState(''),
     [custom, setCustom] = useState(false),
     [reference, setReference] = useState(false),
-    [review, setReview] = useState(false),
     [busy, setBusy] = useState(false),
     [error, setError] = useState(''),
     [result, setResult] = useState<DocsIssuePlanResult>(),
@@ -159,9 +183,8 @@ export function DocsToIssuesDialog({
       const value = await api.docsRead(group.id, id);
       setDoc(value);
       setEntries(
-        (byListItem ? splitListItems : splitDocPlan)(value.markdown, value.title || 'Untitled'),
+        (byListItem ? splitListItems : pageTasks)(value.markdown, value.title || 'Untitled'),
       );
-      setReview(false);
     } catch (failure) {
       setError(errorMessage(failure));
     } finally {
@@ -212,9 +235,7 @@ export function DocsToIssuesDialog({
   function splitBy(listItems: boolean) {
     setByListItem(listItems);
     if (doc)
-      setEntries(
-        (listItems ? splitListItems : splitDocPlan)(doc.markdown, doc.title || 'Untitled'),
-      );
+      setEntries((listItems ? splitListItems : pageTasks)(doc.markdown, doc.title || 'Untitled'));
   }
   const headings = doc ? headingTaskCount(doc.markdown) : 0;
   const repositories = [
@@ -245,7 +266,6 @@ export function DocsToIssuesDialog({
       localStorage.setItem(key, JSON.stringify(next));
       if (doc) localStorage.setItem(`${key}:doc`, JSON.stringify({ id: doc.id, title: doc.title }));
       setRequest(next);
-      setReview(false);
     } catch {
       setError('Kalkidan cannot save a recovery record. Turn on local storage, then try again.');
     }
@@ -259,10 +279,9 @@ export function DocsToIssuesDialog({
     }
     setRequest(undefined);
     setResult(undefined);
-    setReview(false);
   }
   async function publish() {
-    if (!request || !review || pending.current) return;
+    if (!request || pending.current) return;
     pending.current = true;
     setBusy(true);
     setError('');
@@ -301,7 +320,7 @@ export function DocsToIssuesDialog({
   }
   const finished = !!result?.rows.every((row) => row.state === 'complete');
   const state = (index: number) => result?.rows.find((row) => row.index === index)?.state;
-  const readOnly = !!board && !board.writable;
+  const readOnly = board?.writable === false;
   return (
     <Dialog open={open} onOpenChange={(value) => !busy && onOpenChange(value)}>
       <DialogContent
@@ -312,9 +331,7 @@ export function DocsToIssuesDialog({
       >
         <DialogHeader>
           <DialogTitle>Create tasks from a doc page</DialogTitle>
-          <DialogDescription>
-            Each ## heading becomes a task. Edit the tasks, then add them to the board.
-          </DialogDescription>
+          <DialogDescription>Each list item or heading becomes a task.</DialogDescription>
         </DialogHeader>
         <DialogBody ref={form} className="grid content-start gap-4">
           {readOnly && (
@@ -347,23 +364,10 @@ export function DocsToIssuesDialog({
                   {doc ? 'Change page' : 'Choose a page'}
                 </Button>
               </div>
-              {doc && (
+              {doc && headings > 0 && hasListItems(doc.markdown) && (
                 <div className="docs-plan-split">
-                  <p className="text-sm" role="status">
-                    {byListItem
-                      ? `${plural(entries.length, 'task')} from list items`
-                      : headings
-                        ? `${plural(entries.length, 'task')} from ## headings`
-                        : '1 task: the page has no ## headings'}
-                  </p>
-                  {!byListItem && !headings && (
-                    <p className="form-help m-0">
-                      Tip: Add ## headings to the page to split it into tasks.
-                    </p>
-                  )}
                   <CheckboxRow
-                    label="One task per list item"
-                    description="Use the top-level list items of the page, not the ## headings."
+                    label="Use the list items, not the headings"
                     checked={byListItem}
                     disabled={busy}
                     onChange={(event) => splitBy(event.target.checked)}
@@ -544,20 +548,11 @@ export function DocsToIssuesDialog({
                   );
                 })}
               </div>
-              {!finished && (
+              {result && !finished && (
                 <p className="form-help">
-                  Kalkidan adds each task to the board as a GitHub issue. If a task fails, the tasks
-                  that Kalkidan created stay. "Try again" continues with those tasks. It does not
-                  create them again.
+                  Some tasks were not created. "Try again" continues. It does not create the other
+                  tasks again.
                 </p>
-              )}
-              {!finished && (
-                <CheckboxRow
-                  label="I checked the descriptions, the repository and the links"
-                  checked={review}
-                  disabled={busy}
-                  onChange={(event) => setReview(event.target.checked)}
-                />
               )}
             </>
           )}
@@ -572,14 +567,17 @@ export function DocsToIssuesDialog({
               <Button
                 disabled={
                   busy ||
-                  !board?.writable ||
+                  !doc ||
+                  board?.writable === false ||
                   !validRepository ||
                   !entries.length ||
                   entries.some((entry) => !entry.title.trim())
                 }
                 onClick={preview}
               >
-                Review {plural(entries.length || 1, 'task')}
+                {doc && entries.length
+                  ? `Review ${plural(entries.length, 'task')}`
+                  : 'Review tasks'}
               </Button>
             </>
           ) : (
@@ -590,10 +588,7 @@ export function DocsToIssuesDialog({
               {finished ? (
                 <Button onClick={() => onOpenChange(false)}>Done</Button>
               ) : (
-                <Button
-                  disabled={busy || !review || !board?.writable}
-                  onClick={() => void publish()}
-                >
+                <Button disabled={busy || board?.writable === false} onClick={() => void publish()}>
                   {busy
                     ? 'Creating tasks…'
                     : result

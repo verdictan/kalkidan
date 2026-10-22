@@ -1,23 +1,30 @@
 import { useRef, type KeyboardEvent } from 'react';
-import type { ProjectPage } from '../domain/workspace-route';
+import type { KnowledgeSection, LegacyProjectPage, ProjectPage } from '../domain/workspace-route';
 import { isMac, shortcutLabel } from '../lib/platform';
 import { Hint } from './hint';
 
-/** The pages of a project, in the order of the tab bar. Mod+1 to Mod+6 open them in this order. */
+/** The pages of a project, in the order of the tab bar. Mod+1 to Mod+4 open them in this order. */
 export const projectTabs: { page: ProjectPage; label: string }[] = [
   { page: 'board', label: 'Overview' },
   { page: 'tasks', label: 'Tasks' },
   { page: 'chats', label: 'Chats' },
-  { page: 'docs', label: 'Docs' },
-  { page: 'memory', label: 'Memory' },
-  { page: 'insights', label: 'Insights' },
+  { page: 'knowledge', label: 'Knowledge' },
 ];
 
-/** Opens a page of a project. The shell listens for this event and changes the route. */
+/**
+ * Opens a page of a project. The shell listens for this event and changes the route. The older
+ * names 'docs', 'memory' and 'insights' open Knowledge at that section.
+ */
 export function openProjectPage(
   groupId: string,
-  page: ProjectPage,
-  extra?: { docId?: string; topic?: string },
+  page: ProjectPage | LegacyProjectPage,
+  extra?: {
+    docId?: string;
+    topic?: string;
+    heading?: string;
+    taskId?: string;
+    section?: KnowledgeSection;
+  },
 ) {
   window.dispatchEvent(
     new CustomEvent('kalkidan-open-project-page', { detail: { groupId, page, ...extra } }),
@@ -25,7 +32,7 @@ export function openProjectPage(
 }
 
 /**
- * One tab bar for the pages of a project: Overview, Tasks, Chats, Docs, Memory and Insights.
+ * One tab bar for the pages of a project: Overview, Tasks, Chats and Knowledge.
  * Each tab is a link to a page, so the bar is a navigation landmark. The current page has
  * aria-current. The arrow keys, Home and End move the focus between the tabs.
  */
@@ -36,7 +43,7 @@ export function ProjectTabs({
   className,
   checks = 0,
 }: {
-  /** GitHub changes whose result is not known. The Insights tab shows the count. */
+  /** GitHub changes whose result is not known. The Knowledge tab shows the count. */
   checks?: number;
   groupId: string;
   /** The page that shows now. */
@@ -74,7 +81,7 @@ export function ProjectTabs({
           const current = tab.page === page;
           const keys = shortcutLabel(['mod'], String(index + 1));
           const check =
-            tab.page === 'insights' && checks > 0
+            tab.page === 'knowledge' && checks > 0
               ? `${checks} GitHub ${checks === 1 ? 'change needs' : 'changes need'} a check`
               : '';
           return (

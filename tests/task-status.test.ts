@@ -44,6 +44,7 @@ test('missing tasks, missing status options and disconnected projects never writ
   await assert.rejects(changeTaskStatus(api, undefined, 'task', 'progress'), /Connect/);
   await assert.rejects(changeTaskStatus(api, group, 'removed', 'progress'), /removed or archived/);
   board.statusField!.options = [{ id: 'custom', name: 'In review' }];
-  await assert.rejects(changeTaskStatus(api, group, 'task', 'progress'), /no “In progress” status/);
+  // No saved status and no status of the default name: the step is "Don't move".
+  assert.equal(await changeTaskStatus(api, group, 'task', 'progress'), 'Build it');
   assert.deepEqual(calls, []);
 });

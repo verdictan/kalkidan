@@ -5,6 +5,7 @@ import {
   managedErrorInfo,
   managedOnlyNotice,
   managedRefusal,
+  managedSetupStep,
   managedSetupTargets,
   versionAgent,
   type ManagedSetupStep,
@@ -72,49 +73,54 @@ const changeAgentCodes = new Set([
   'desktop.runtime_binding_mismatch',
 ]);
 
-// Codes of a first setup that is not complete.
-const setUpCodes = new Set([
-  'desktop.runtime_missing',
-  'desktop.runtime_not_found',
-  'desktop.region_required',
-]);
+// Codes of a first setup that is not complete. A missing region is a setup step only while
+// no region is saved.
+const setUpCodes = new Set(['desktop.runtime_missing', 'desktop.runtime_not_found']);
+/** What Kalkidan knows about the account. A saved region changes some fixes to Sign in. */
+export interface AgentErrorContext {
+  regionSaved?: boolean;
+}
 
 // Codes of a check, a gateway or a lock that did not become ready. They are not setup steps.
 const refusalCodes =
   /^desktop\.(readiness_\w+|evidence_unavailable|event_authority_unavailable|operation_in_progress|secure_storage_unavailable)$/;
 
 /** Plain words and one action for a managed agent code. Uses the backend's code list. */
-function managedError(code: string): AgentError {
+function managedError(code: string, context: AgentErrorContext = {}): AgentError {
   const signInFix = signInError(code);
   if (signInFix) return signInFix;
-  const info = managedErrorInfo(code);
+  const { regionSaved } = context;
+  const info = managedErrorInfo(code, { regionSaved });
   // A launch refusal code has its own words and step. Only a step that can help shows.
-  const refusal = refusalCodes.test(code) ? managedRefusal(code) : undefined;
+  const refusal = refusalCodes.test(code) ? managedRefusal(code, { regionSaved }) : undefined;
   if (refusal)
     return {
       message: refusal.message,
-      action: refusal.step ? stepAction(refusal.step) : refusal.retry ? retry : undefined,
+      action: refusal.step ? stepAction(refusal.step, context) : refusal.retry ? retry : undefined,
       retryFirst: refusal.retry,
       code,
     };
-  const action = changeAgentCodes.has(code)
-    ? changeAgent
-    : setUpCodes.has(code)
-      ? setUp
-      : code === 'desktop.agent_version_unsupported'
-        ? install
-        : info.section
-          ? sectionActions[info.section]
-          : info.retry
-            ? retry
-            : undefined;
+  const action = info.signIn
+    ? signIn
+    : changeAgentCodes.has(code)
+      ? changeAgent
+      : setUpCodes.has(code) || (code === 'desktop.region_required' && !regionSaved)
+        ? setUp
+        : code === 'desktop.agent_version_unsupported'
+          ? install
+          : info.section
+            ? sectionActions[info.section]
+            : info.retry
+              ? retry
+              : undefined;
   return { message: info.message, action, code };
 }
 
 /** The Settings action for a setup step. */
-function stepAction(step: ManagedSetupStep): AgentErrorAction {
-  if (step === 'sign-in') return signIn;
-  const target = managedSetupTargets[step] || managedSetupTargets.status;
+function stepAction(step: ManagedSetupStep, context: AgentErrorContext = {}): AgentErrorAction {
+  const fixed = managedSetupStep(step, { regionSaved: context.regionSaved });
+  if (fixed === 'sign-in') return signIn;
+  const target = managedSetupTargets[fixed] || managedSetupTargets.status;
   return { label: target.label, section: target.section, anchor: target.anchor, kind: 'settings' };
 }
 
@@ -144,6 +150,7 @@ export function managedLaunchError(
     const signInFix = signInError(failure.code);
     if (signInFix) return { ...signInFix, note: managedOnlyNotice };
     const { hostId, ...words } = context;
+    const regionContext = { regionSaved: context.regionSaved };
     const refusal = managedRefusal(failure.code, {
       ...words,
       remote: !!hostId,
@@ -164,7 +171,7 @@ export function managedLaunchError(
             kind: 'settings',
           }
         : refusal.step
-          ? stepAction(refusal.step)
+          ? stepAction(refusal.step, regionContext)
           : undefined,
       retryFirst: refusal.retry,
     };
@@ -176,7 +183,7 @@ export function managedLaunchError(
   return {
     message: message || 'The managed launch checks did not pass.',
     note: managedOnlyNotice,
-    action: stepAction(failure.step || 'status'),
+    action: stepAction(failure.step || 'status', { regionSaved: context.regionSaved }),
   };
 }
 
@@ -186,13 +193,17 @@ const agentNames: Record<string, string> = { codex: 'Codex', claude: 'Claude Cod
  * Returns plain words and one action for an error from a chat. Desktop codes look like
  * `desktop.runtime_missing`. `agent` is the agent ID, for the messages about installs.
  */
-export function agentErrorMessage(error: unknown, agent?: string): AgentError {
+export function agentErrorMessage(
+  error: unknown,
+  agent?: string,
+  context: AgentErrorContext = {},
+): AgentError {
   const text = errorMessage(error).trim();
   const name = (agent && agentNames[agent]) || 'The agent';
   // A blocked managed launch already has plain words. Keep them and link to the setup.
-  if (text.startsWith(managedOnlyNotice)) return managedLaunchError({ message: text });
+  if (text.startsWith(managedOnlyNotice)) return managedLaunchError({ message: text }, context);
   const code = managedErrorCode(text);
-  if (code) return managedError(code);
+  if (code) return managedError(code, context);
   if (/verdictan is not ready|managed agents? (are|is) not (ready|set up)/i.test(text))
     return {
       message: 'Managed agents are not set up. Set them up to start this chat.',
