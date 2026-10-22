@@ -1,6 +1,6 @@
 import { interfaceConfig } from '../config/interface';
 import { trackerConnection } from '../domain/tracker';
-import { managedOnlyNotice } from '../domain/verdictan';
+import { keychainWaitingMessage, managedOnlyNotice } from '../domain/verdictan';
 import { trackerClient } from '../lib/tracker-client';
 import {
   ConversationTools,
@@ -1188,10 +1188,13 @@ export function Conversation({
     timer = setTimeout(attempt, 0);
     return () => clearTimeout(timer);
   }, [empty, open, titlebarVisible]);
+  // A start can wait for a keychain prompt, for example while the runtime saves its access.
   const nextActivity =
-    run?.activity && !run.activity.startsWith('message:')
-      ? run.activity
-      : `${agentName} is responding…`;
+    starting && account?.keychainWaiting
+      ? keychainWaitingMessage
+      : run?.activity && !run.activity.startsWith('message:')
+        ? run.activity
+        : `${agentName} is responding…`;
   // The status poll runs every 400 ms. Keep the announced text until it really changes.
   const [activityText, setActivityText] = useState(nextActivity);
   if (active && activityText !== nextActivity) setActivityText(nextActivity);

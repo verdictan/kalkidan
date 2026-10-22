@@ -4,6 +4,7 @@ import type { API } from '../api/contracts';
 import type { AgentInstallation } from '../domain/conversation';
 import {
   computerAgentIssue,
+  keychainWaitingMessage,
   localComputer,
   selectionIssue,
   withoutManagedCode,
@@ -15,6 +16,7 @@ import type { ComponentUpdateStatus } from '../domain/updates';
 import { checkAgentVersion, nativeAgentKind } from '../domain/agent-version';
 import { agentProgramAnchor } from '../domain/agent-programs';
 import { useRefreshTriggers } from '../hooks/use-refresh-triggers';
+import { useVerdictanStatus } from '../hooks/use-verdictan-status';
 import {
   accountChanging,
   displayVersion,
@@ -339,6 +341,8 @@ export function RuntimeExtra({ runtime }: { runtime: RuntimeState }) {
 /** The row of this computer in Settings › Computers. */
 export function ThisComputerRow({ api, runtime }: { api: API; runtime: RuntimeState }) {
   const view = runtimeView(runtime);
+  // The account broadcasts a change when a request starts or stops to wait for the keychain.
+  const { status: account } = useVerdictanStatus(api);
   // After an install finishes, the account check finds the new runtime.
   const busy = runtimeBusy(runtime.status);
   const operation = runtime.status?.operation;
@@ -365,7 +369,15 @@ export function ThisComputerRow({ api, runtime }: { api: API; runtime: RuntimeSt
         </EntityIcon>
       }
       label="Managed agents"
-      help={view.help}
+      help={
+        account?.keychainWaiting ? (
+          <span role="status" data-testid="keychain-waiting">
+            {keychainWaitingMessage}
+          </span>
+        ) : (
+          view.help
+        )
+      }
       extra={runtimeExtraShown(runtime) ? <RuntimeExtra runtime={runtime} /> : undefined}
     >
       <RuntimeControl runtime={runtime} name="this computer" />

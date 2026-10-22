@@ -75,6 +75,18 @@ export function DiagnosticsSection({ api, open = true }: { api: API; open?: bool
       );
   }
   useRefreshTriggers(api, open, read);
+  // Checks the account again first, so a connection that works again shows as ready.
+  const [checking, setChecking] = useState(false);
+  function checkAgain() {
+    setChecking(true);
+    void Promise.resolve()
+      .then(() => (typeof api.verdictanCheck === 'function' ? api.verdictanCheck() : undefined))
+      .catch(() => undefined)
+      .finally(() => {
+        setChecking(false);
+        read();
+      });
+  }
   async function showPreview() {
     setBusy('preview');
     try {
@@ -113,8 +125,8 @@ export function DiagnosticsSection({ api, open = true }: { api: API; open?: bool
       <DiagnosticsGroup
         title="Versions"
         actions={
-          <Button variant="ghost" size="sm" onClick={read}>
-            Check again
+          <Button variant="ghost" size="sm" onClick={checkAgain} disabled={checking}>
+            {checking ? 'Checking…' : 'Check again'}
           </Button>
         }
       >
@@ -198,6 +210,11 @@ export function DiagnosticsSection({ api, open = true }: { api: API; open?: bool
                   {record.durationMs !== undefined ? ` · ${duration(record.durationMs)}` : ''}
                   {' · '}
                   <CopyValue value={record.id} name="Correlation ID" />
+                  {record.detail && (
+                    <span className="block whitespace-pre-wrap break-words pt-1 font-mono text-xs">
+                      {record.detail}
+                    </span>
+                  )}
                 </>
               }
             />

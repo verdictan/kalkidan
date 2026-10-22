@@ -433,6 +433,19 @@ test('protected export accepts either pipe ordering and keeps secrets off stdout
     f.client.close();
   }
 });
+test('protected export waits for a keychain prompt after a waiting event', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const f = fixture();
+  t.after(() => f.client.close());
+  const result = f.client.exportRuntime(runtimeId);
+  f.reply('secure_storage.waiting', { operation: 'read', elapsed_ms: 2000 });
+  t.mock.timers.tick(60_000);
+  assert.equal(f.kills(), 0);
+  f.reply('runtime.exported', { runtime_id: runtimeId, credentials_exported: true });
+  const frame = secretFrame(f.requests[0].correlation_id);
+  f.child.stdio[3].write(Buffer.from(JSON.stringify(frame) + '\n'));
+  assert.deepEqual(await result, frame);
+});
 test('protected export rejects wrong scope, correlation, oversized frames, expiry and duplicate frames', async () => {
   for (const mode of ['scope', 'correlation', 'oversize', 'expiry', 'duplicate', 'stdout']) {
     const f = fixture();

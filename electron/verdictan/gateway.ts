@@ -7,12 +7,23 @@ import { DesktopProtocolError } from './protocol';
 import { eventBufferEnvironment } from './event-buffer';
 import { claudeSubscriptionRecovery } from '../../src/domain/verdictan';
 import { agentVersionErrorCode, checkAgentVersion } from '../../src/domain/agent-version';
+import { StderrTail, logGatewayFailure, readinessReason } from './gateway-log';
 
 class ReadinessError extends Error {
-  constructor(public readonly code?: string) {
+  constructor(
+    public readonly code?: string,
+    public readonly reason = '',
+  ) {
     super('readiness');
   }
 }
+/**
+ * In Codex subscription mode, the gateway proves the ChatGPT access of the native Codex login
+ * only when Codex reads its model catalog through the gateway. Until then, readiness replies
+ * with this code. Each Codex request through the gateway does the same proof before it goes to
+ * the provider, so the code does not block the start of Codex.
+ */
+const providerProbeRequired = 'desktop.provider_probe_required';
 /**
  * Readiness codes from the gateway that Kalkidan relays, so that the UI shows the exact cause.
  * Other codes become `desktop.readiness_failed`. The gateway's message text is never relayed.
@@ -95,6 +106,7 @@ export class ManagedGateway {
   private startupTimer?: ReturnType<typeof setTimeout>;
   private expiryTimer: ReturnType<typeof setTimeout>;
   private stopTask?: Promise<void>;
+  private stderr = new StderrTail();
   constructor(private options: GatewayOptions) {
     this.credentials = parseRuntimeCredentials(options.credentials, this.now());
     this.listening = new Promise((resolve, reject) => {
@@ -147,7 +159,7 @@ export class ManagedGateway {
     const pipe = child.stdio[3] as Writable;
     pipe.on('error', () => this.fail('desktop.credential_delivery_failed'));
     pipe.end(JSON.stringify(this.credentials) + '\n');
-    child.stderr?.on('data', () => {});
+    child.stderr?.on('data', (bytes: Buffer) => this.stderr.push(bytes));
     let buffer = '';
     const decoder = new StringDecoder('utf8');
     child.stdout?.on('data', (bytes: Buffer) => {
@@ -249,6 +261,8 @@ export class ManagedGateway {
   }
   private fail(code: string, revocation?: GatewayRevocation) {
     if (this.closed) return;
+    // Keep why the process stopped, before its credentials leave memory.
+    if (!this.stopping && this.child) logGatewayFailure('gateway.process', code, this.stderrText());
     this.closed = true;
     // A stopped gateway never uses its credentials again. Do not keep the secrets in memory.
     this.credentials = { ...this.credentials, runtime_credential: '', inference_credential: '' };
@@ -275,12 +289,21 @@ export class ManagedGateway {
       agent_version: agent.version,
     }).toString();
     try {
-      const result = await this.readJSON(url, undefined, true);
+      const { ok, status, body: result } = await this.fetchJSON(url);
+      const reason = readinessReason(status, result);
+      // A Codex subscription runtime that is ready except for the proof of Codex itself.
+      const probePending =
+        !ok &&
+        this.credentials.provider_access_mode === 'codex_subscription' &&
+        result?.ready === false &&
+        result?.provider_authentication === 'probe_required' &&
+        replyCode(result) === providerProbeRequired;
+      if (!ok && !probePending) throw new ReadinessError(replyCode(result), reason);
       if (
         this.closed ||
         this.stopping ||
         result.schema_version !== 1 ||
-        result.ready !== true ||
+        (result.ready !== true && !probePending) ||
         result.dispatch_authorized !== false ||
         result.runtime_id !== this.credentials.runtime_id ||
         result.session_id !== this.credentials.session_id ||
@@ -293,19 +316,30 @@ export class ManagedGateway {
         result.control_plane?.session_id !== this.credentials.session_id ||
         !this.billingMatches(result.control_plane?.billing)
       )
-        throw new ReadinessError(replyCode(result));
+        throw new ReadinessError(replyCode(result), reason);
     } catch (error) {
       // Fail closed. Relay only known safe codes, so that the user gets the exact cause and a
       // recovery action. Claude subscription codes apply only to a Claude subscription runtime.
       const code = error instanceof ReadinessError ? error.code : undefined;
-      throw new DesktopProtocolError(
+      const relayed =
         code &&
-          (relayedReadinessCodes.has(code) ||
-            (this.credentials.provider_access_mode === 'claude_subscription' &&
-              claudeSubscriptionRecovery(code)))
+        (relayedReadinessCodes.has(code) ||
+          (this.credentials.provider_access_mode === 'claude_subscription' &&
+            claudeSubscriptionRecovery(code)))
           ? code
-          : 'desktop.readiness_failed',
+          : 'desktop.readiness_failed';
+      const reason =
+        error instanceof ReadinessError
+          ? error.reason
+          : error instanceof DesktopProtocolError
+            ? error.code
+            : 'no reply';
+      logGatewayFailure(
+        'gateway.readiness',
+        relayed,
+        [reason, this.stderrText()].filter(Boolean).join('\n'),
       );
+      throw new DesktopProtocolError(relayed);
     }
   }
   /** Claude subscription readiness must not report an organization payer or a currency. */
@@ -321,11 +355,34 @@ export class ManagedGateway {
         billing.provider_access_mode === 'claude_subscription')
     );
   }
+  /** The redacted end of the stderr of this gateway process. Empty for a shared instance. */
+  private stderrText() {
+    return this.stderr.text([
+      this.credentials.runtime_credential,
+      this.credentials.inference_credential,
+    ]);
+  }
   /**
-   * Reads a JSON reply. With `errorCode`, a reply that is not OK throws a ReadinessError with
-   * the safe `error.code` of its body. The body is read with the same size limit.
+   * Reads a JSON reply, also when it is not OK. The body is read with the same size limit. A
+   * reply that is not JSON has no body.
    */
-  private async readJSON(url: URL, signal?: AbortSignal, errorCode = false): Promise<any> {
+  private async fetchJSON(url: URL): Promise<{ ok: boolean; status: number; body: any }> {
+    if (this.closed || this.stopping) throw new DesktopProtocolError('desktop.gateway_unavailable');
+    const response = await (this.options.request || fetch)(url, {
+      redirect: 'error',
+      headers: { authorization: 'Bearer ' + this.credentials.inference_credential },
+      signal: AbortSignal.any([this.controller.signal, AbortSignal.timeout(10000)]),
+    });
+    const body = response.body
+      ? await this.readBody(response.body).catch((error) => {
+          if (response.ok) throw error;
+          return undefined;
+        })
+      : undefined;
+    return { ok: response.ok, status: response.status, body };
+  }
+  /** Reads a JSON reply that must be OK. */
+  private async readJSON(url: URL, signal?: AbortSignal): Promise<any> {
     if (this.closed || this.stopping) throw new DesktopProtocolError('desktop.gateway_unavailable');
     const response = await (this.options.request || fetch)(url, {
       redirect: 'error',
@@ -336,10 +393,6 @@ export class ManagedGateway {
         ...(signal ? [signal] : []),
       ]),
     });
-    if (!response.ok && errorCode && response.body) {
-      const reply = await this.readBody(response.body).catch(() => undefined);
-      throw new ReadinessError(replyCode(reply));
-    }
     if (!response.ok || !response.body)
       throw new DesktopProtocolError('desktop.evidence_unavailable');
     return this.readBody(response.body);
