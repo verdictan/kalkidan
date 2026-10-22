@@ -30,6 +30,7 @@ test('repository dialog contains long names, scrolls results, and keeps actions 
         platform: 'darwin',
       }),
       githubAuthStart: async () => ({ status: 'ready' }),
+      githubCliCheck: async () => ({ status: 'ready' }),
       githubAuthCancel: async () => ({}),
       githubOwners: async () => [],
       githubRepositories: async () =>
@@ -49,34 +50,24 @@ test('repository dialog contains long names, scrolls results, and keeps actions 
     page,
     'Customer platform and shared infrastructure across multiple repositories',
   );
-  const dialog = page.getByRole('dialog');
-  await dialog.getByRole('combobox', { name: 'Add to project' }).click();
-  await page
-    .getByRole('option', {
-      name: 'Customer platform and shared infrastructure across multiple repositories',
-    })
-    .click();
+  const dialog = page.getByRole('dialog', { name: 'Add code folder', exact: true });
+  // The dialog knows the project. Its description wraps the long project name.
+  await expect(dialog).toContainText(
+    'Adds a Git repository to Customer platform and shared infrastructure across multiple repositories.',
+  );
   await dialog.getByRole('button', { name: 'Clone from GitHub', exact: true }).click();
   const last = dialog.getByRole('radio', { name: /repository-39/ });
   await last.scrollIntoViewIfNeeded();
   await last.click();
-  await expect(
-    dialog.getByRole('button', { name: 'Clone into project', exact: true }),
-  ).toBeInViewport();
+  await expect(dialog.getByRole('button', { name: 'Clone', exact: true })).toBeInViewport();
   await expect(dialog.getByRole('button', { name: 'Cancel', exact: true })).toBeInViewport();
   expect(await dialog.evaluate((el) => el.scrollWidth <= el.clientWidth + 1)).toBe(true);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.screenshot({ path: 'test-results/repository-dialog-spacing.png', fullPage: true });
-  await dialog.getByRole('button', { name: 'Create a new project', exact: true }).click();
-  const create = page.getByRole('dialog', { name: 'New project', exact: true });
-  await create.getByLabel('Project name', { exact: true }).fill('New project');
-  await expect(create.getByRole('button', { name: 'Create project', exact: true })).toBeEnabled();
-  await create.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await dialog.getByRole('button', { name: 'Local', exact: true }).click();
   await expect(
-    dialog.getByRole('button', { name: 'Clone into project', exact: true }),
+    dialog.getByRole('button', { name: 'Choose folder…', exact: true }),
   ).toBeInViewport();
-  await dialog.getByRole('button', { name: 'Local folder', exact: true }).click();
-  await expect(dialog.getByRole('button', { name: 'Choose folder', exact: true })).toBeInViewport();
 });
 
 test('notifications and a long draft do not push the composer outside the window', async ({

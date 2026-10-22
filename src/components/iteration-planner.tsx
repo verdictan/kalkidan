@@ -43,6 +43,7 @@ export function IterationTool({
   board,
   items,
   onRemove,
+  allTasks,
   onOpenTask,
   onClose,
   onSaved,
@@ -220,7 +221,7 @@ export function IterationTool({
         </DialogBody>
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>
-            Close
+            Cancel
           </Button>
           <Button asChild>
             <a href={board.project.url} target="_blank" rel="noreferrer">
@@ -235,7 +236,12 @@ export function IterationTool({
       <DialogBody className="grid content-start gap-4">
         {form && (
           <>
-            <SelectedTasks items={items} onRemove={onRemove} limit={iterationLimit} />
+            <SelectedTasks
+              all={allTasks}
+              items={items}
+              onRemove={onRemove}
+              limit={iterationLimit}
+            />
             <div className="planning-form-grid">
               {field(
                 'Iteration field',
@@ -260,7 +266,6 @@ export function IterationTool({
                 Remaining capacity
                 <Input
                   aria-label="Remaining capacity"
-                  className="w-[120px]"
                   type="number"
                   min="0"
                   value={capacity}

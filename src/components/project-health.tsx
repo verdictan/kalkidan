@@ -9,6 +9,7 @@ import {
   type HealthStatus,
 } from '../domain/project-health';
 import { Button } from './ui/button';
+import { StatusDot } from './ui/status-dot';
 import { SegmentedControl } from './ui/segmented-control';
 import { Textarea } from './ui/textarea';
 import { showToast } from './ui/toast';
@@ -113,18 +114,13 @@ export function ProjectHealth({
           label="Project health"
           value={status}
           onChange={setStatus}
+          size="sm"
           className="w-fit max-w-full flex-wrap"
           options={healthStatuses.map((option) => ({
             value: option.value,
             label: option.label,
             disabled: busy || published,
-            icon: (
-              <span
-                aria-hidden="true"
-                className="health-dot"
-                style={{ background: option.color }}
-              />
-            ),
+            icon: <StatusDot tone={option.tone} />,
           }))}
         />
         {!body && (

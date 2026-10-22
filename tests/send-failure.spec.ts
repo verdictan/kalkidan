@@ -105,12 +105,14 @@ for (const remote of [false, true])
       const message = page.locator('.chat-message.user');
       await expect(message).toHaveCount(1);
       await expect(message).toContainText('Reply OK.');
-      await expect(message.getByRole('button', { name: 'Try again', exact: true })).toBeVisible();
+      // The failure is a card in the column under the message, not in the bubble.
+      const card = page.locator('.chat-message.user + .chat-card');
+      await expect(card.getByRole('button', { name: 'Try again', exact: true })).toBeVisible();
       await expect(
-        message.getByRole('button', { name: 'Use another agent', exact: true }),
+        card.getByRole('button', { name: 'Use another agent', exact: true }),
       ).toBeVisible();
       // The agent did not start, so the chat has no session. The card says that it is not saved.
-      const unsaved = message.getByText('This chat is saved after the agent starts.', {
+      const unsaved = card.getByText('This chat is saved after the agent starts.', {
         exact: false,
       });
       await expect(unsaved).toBeVisible();
@@ -119,10 +121,10 @@ for (const remote of [false, true])
       ).toEqual([]);
       // The message is in the transcript. It is not in the composer too.
       await expect(composer).toHaveValue('');
-      await message.getByRole('button', { name: 'Try again', exact: true }).click();
+      await card.getByRole('button', { name: 'Try again', exact: true }).click();
       await expect(page.getByText('OK.', { exact: true })).toBeVisible();
       await expect(message).toHaveCount(1);
-      await expect(message.getByRole('button', { name: 'Try again' })).toHaveCount(0);
+      await expect(card).toHaveCount(0);
       await expect(unsaved).toHaveCount(0);
       await expect(composer).toHaveValue('');
       expect(await page.evaluate(() => (window as any).calls.map((c: any) => c.prompt))).toEqual([

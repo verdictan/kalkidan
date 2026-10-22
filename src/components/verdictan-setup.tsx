@@ -310,9 +310,9 @@ export function VerdictanSetupForm({
           <Alert size="sm" variant="destructive">
             <AlertDescription className="text-xs leading-4">
               {error}{' '}
-              <button type="button" className="text-link" onClick={() => void load()}>
+              <Button type="button" variant="link" onClick={() => void load()}>
                 Try again
-              </button>
+              </Button>
             </AlertDescription>
           </Alert>
         ) : (
@@ -328,7 +328,7 @@ export function VerdictanSetupForm({
           </p>
         )}
         {setup && (
-          <div className="grid gap-3 sm:grid-cols-2">
+          <div className="grid gap-3">
             {showTeam && (
               <Field label="Team">
                 <Choice

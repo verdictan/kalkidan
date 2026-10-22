@@ -58,7 +58,9 @@ export async function openAccountMenuItem(page: Page, name: string | RegExp) {
   const footer = sidebar(page).locator('.account-menu');
   // The footer shows "Preferences and help" until the account status loads, then the account
   // button. Try again when the button changes during the click.
-  const trigger = footer.getByRole('button', { name: /^(Account: .*|Preferences and help)$/ });
+  const trigger = footer.getByRole('button', {
+    name: /^(Account: .*|Preferences and help|Sign in, Preferences and help)$/,
+  });
   const item = page.getByRole('menuitem', { name });
   await expect(async () => {
     if (!(await item.isVisible())) await trigger.first().click({ timeout: 2000 });

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { ExternalLink } from 'lucide-react';
 import type { API } from '../types';
 import type { AppVersion } from '../domain/updates';
@@ -29,9 +29,9 @@ export function useAppVersion(api: API, open = true) {
 }
 
 /**
- * The version row of Preferences: "Kalkidan 0.1.0", the build and the update command in one
- * line, and "Check for updates ↗". Kalkidan does not update itself. The link opens the release
- * page, where the user gets the new installer.
+ * The version row of Preferences: "Kalkidan 0.1.0", the build, and "Check for updates ↗".
+ * Kalkidan does not update itself. The link opens the release page, where the user gets the
+ * new installer and the update command.
  */
 export function VersionRow({ api, open = true }: { api: API; open?: boolean }) {
   const app = useAppVersion(api, open);
@@ -41,31 +41,18 @@ export function VersionRow({ api, open = true }: { api: API; open?: boolean }) {
       : `Kalkidan ${app.version}`
     : 'Kalkidan';
   const build = app?.build && app.build !== 'unknown' ? `Build ${shortId(app.build)}` : '';
-  const help = [build, app && !app.packaged ? 'Development build' : '', updateCommand]
-    .filter(Boolean)
-    .join(' · ');
   return (
     <SettingsRow
       id={settingsAnchors.about}
       label={<span data-testid="settings-version">{version}</span>}
-      help={help}
+      help={build || undefined}
     >
-      <ExternalButton href={releasesUrl}>Check for updates</ExternalButton>
+      <Button asChild variant="outline" size="sm">
+        <a href={releasesUrl} target="_blank" rel="noreferrer">
+          Check for updates
+          <ExternalLink aria-label="Opens in the browser" />
+        </a>
+      </Button>
     </SettingsRow>
-  );
-}
-
-/** The command that updates a Homebrew install. */
-export const updateCommand = 'brew upgrade --cask kalkidan';
-
-/** An external link in the control column of a row: a ghost button with ↗. */
-export function ExternalButton({ href, children }: { href: string; children: ReactNode }) {
-  return (
-    <Button asChild variant="ghost" size="sm">
-      <a href={href} target="_blank" rel="noreferrer">
-        {children}
-        <ExternalLink aria-label="Opens in the browser" />
-      </a>
-    </Button>
   );
 }

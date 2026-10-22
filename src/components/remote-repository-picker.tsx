@@ -126,7 +126,7 @@ export function RemoteRepositoryPicker({
       >
         <button
           type="button"
-          className="list-box-row text-sm disabled:opacity-50"
+          className="list-box-row"
           disabled={busy || !parent || parent === path}
           onClick={() => parent && void browse(parent)}
         >
@@ -135,7 +135,7 @@ export function RemoteRepositoryPicker({
         </button>
         <button
           type="button"
-          className="list-box-row text-sm disabled:opacity-50"
+          className="list-box-row"
           disabled={busy}
           onClick={() => void browse('~')}
         >
@@ -151,7 +151,7 @@ export function RemoteRepositoryPicker({
           folders?.folders.map((folder) => (
             <button
               type="button"
-              className="list-box-row text-sm disabled:opacity-50"
+              className="list-box-row"
               disabled={busy}
               key={folder.path}
               title={folder.name}

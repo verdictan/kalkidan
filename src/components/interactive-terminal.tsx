@@ -3,7 +3,9 @@ import { Terminal, type ITheme } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import '@xterm/xterm/css/xterm.css';
 import type { API } from '../types';
+import { Paperclip, RotateCcw } from 'lucide-react';
 import { Button } from './ui/button';
+import { PaneMessage } from './pane-message';
 import { ConfirmDialog } from './confirm-dialog';
 import { AttachHint } from './diff-review';
 import { errorMessage } from '../lib/errors';
@@ -14,32 +16,38 @@ function terminalFont() {
   return value || 'monospace';
 }
 
-// The light terminal colors. They agree with src/styles/theme.css: the Console white surface,
-// near-black text and the brand color for the cursor. Each ANSI color has a contrast ratio of
-// at least 4.5:1 on white, so "white" and "bright white" are gray.
-const terminalTheme: ITheme = {
-  background: '#ffffff',
-  foreground: '#0a0a0a',
-  cursor: '#9a4600',
-  cursorAccent: '#ffffff',
-  selectionBackground: '#9a460033',
-  black: '#24292f',
-  red: '#cf222e',
-  green: '#047857',
-  yellow: '#92600e',
-  blue: '#0969da',
-  magenta: '#8250df',
-  cyan: '#1b7c83',
-  white: '#6e7781',
-  brightBlack: '#57606a',
-  brightRed: '#a40e26',
-  brightGreen: '#065f46',
-  brightYellow: '#7d4e00',
-  brightBlue: '#0550ae',
-  brightMagenta: '#6639ba',
-  brightCyan: '#136061',
-  brightWhite: '#424a53',
-};
+// The light terminal colors. The surface, text, cursor, green and yellow come from the theme
+// tokens in src/styles/theme.css. Each other ANSI color has a contrast ratio of at least 4.5:1 on
+// white, so "white" and "bright white" are gray.
+function terminalTheme(): ITheme {
+  const style = getComputedStyle(document.documentElement);
+  const token = (name: string, fallback: string) => style.getPropertyValue(name).trim() || fallback;
+  const background = token('--background', '#ffffff');
+  const primary = token('--primary', '#9a4600');
+  return {
+    background,
+    foreground: token('--foreground', '#0a0a0a'),
+    cursor: primary,
+    cursorAccent: background,
+    selectionBackground: primary.startsWith('#') ? primary + '33' : primary,
+    black: '#24292f',
+    red: '#cf222e',
+    green: token('--success', '#047857'),
+    yellow: token('--warning', '#b45309'),
+    blue: '#0969da',
+    magenta: '#8250df',
+    cyan: '#1b7c83',
+    white: '#6e7781',
+    brightBlack: '#57606a',
+    brightRed: '#a40e26',
+    brightGreen: '#065f46',
+    brightYellow: '#7d4e00',
+    brightBlue: '#0550ae',
+    brightMagenta: '#6639ba',
+    brightCyan: '#136061',
+    brightWhite: '#424a53',
+  };
+}
 
 export function InteractiveTerminal({
   api,
@@ -83,7 +91,7 @@ export function InteractiveTerminal({
       // A blinking cursor is motion. Keep it still when the user asks for reduced motion.
       cursorBlink: !window.matchMedia?.('(prefers-reduced-motion: reduce)').matches,
       scrollback: 3000,
-      theme: terminalTheme,
+      theme: terminalTheme(),
     });
     // The shell needs Tab for completion. F6 gives keyboard users a way out.
     term.attachCustomKeyEventHandler((event) => {
@@ -202,48 +210,58 @@ export function InteractiveTerminal({
       lines.push(buffer.getLine(i)?.translateToString(true) || '');
     onAttach(lines.join('\n').trim().slice(-28000));
   }
+  const restart = () => (exited ? setGeneration((n) => n + 1) : setConfirmRestart(true));
   return (
     <div hidden={!visible} className="terminal-pane">
+      <div className="tool-toolbar">
+        <span className="tool-toolbar-status" title={exited ? undefined : cwd}>
+          {exited ? 'Shell exited' : cwd}
+        </span>
+        <AttachHint reason={disabledReason}>
+          <Button size="sm" variant="ghost" disabled={disabled} onClick={attach}>
+            <Paperclip aria-hidden="true" />
+            Attach output
+          </Button>
+        </AttachHint>
+        <Button size="sm" variant="ghost" onClick={restart}>
+          <RotateCcw aria-hidden="true" />
+          {exited ? 'Restart terminal' : 'New shell'}
+        </Button>
+      </div>
       <div
         ref={element}
         className="terminal-emulator"
         role="group"
         aria-label="Interactive terminal"
         aria-description="Press F6 to move focus out of the terminal."
+        hidden={exited && !!error}
       />
-      <div className="tool-toolbar tool-toolbar-footer">
-        <span className="min-w-0 flex-1 truncate" title={exited ? undefined : cwd}>
-          {exited ? 'Shell exited' : cwd}
-        </span>
-        <div className="flex gap-1">
-          <AttachHint reason={disabledReason}>
-            <Button size="sm" variant="ghost" disabled={disabled} onClick={attach}>
-              Attach output
+      {exited && error && (
+        <PaneMessage
+          tone="danger"
+          title="The terminal stopped"
+          action={
+            <Button size="sm" variant="outline" onClick={restart}>
+              Restart terminal
             </Button>
-          </AttachHint>
-          <Button
-            size="sm"
-            variant="ghost"
-            onClick={() => (exited ? setGeneration((n) => n + 1) : setConfirmRestart(true))}
-          >
-            {exited ? 'Restart terminal' : 'New shell'}
-          </Button>
-        </div>
-      </div>
-      {hostLost && !exited && (
-        <p role="status" className="form-help shrink-0 px-3 py-1">
-          The connection to the SSH host stopped. The shell continues on the host. Kalkidan shows it
-          again when the host connects.
+          }
+        >
+          {error}
+        </PaneMessage>
+      )}
+      {!exited && error && (
+        <p role="alert" className="tool-statusbar">
+          {error}
         </p>
       )}
-      {error && (
-        <p role="alert" className="field-error max-h-16 shrink-0 overflow-auto px-3 py-1">
-          {error}
+      {hostLost && !exited && (
+        <p role="status" className="tool-statusbar">
+          The SSH host is not connected. The shell continues on the host.
         </p>
       )}
       <ConfirmDialog
         open={confirmRestart}
-        title="Start a new shell?"
+        title="New shell"
         description="The shell and any running command stop."
         confirmLabel="New shell"
         destructive

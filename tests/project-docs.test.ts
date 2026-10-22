@@ -218,3 +218,23 @@ test('a page without ## headings makes one task per list item, and pages move by
   );
   assert.equal(placedSiblings(pages, 'a', 'c', 'before'), null);
 });
+
+test('"[[" and "@" open the page menu, and empty paragraphs are not saved', async () => {
+  const { pageLinkTrigger, withoutEmptyParagraphs } = await import('../src/components/wiki-editor');
+  assert.deepEqual(pageLinkTrigger('See [[log'), { start: 4, query: 'log' });
+  assert.deepEqual(pageLinkTrigger('@'), { start: 0, query: '' });
+  assert.deepEqual(pageLinkTrigger('Ask @dana'), { start: 4, query: 'dana' });
+  assert.equal(pageLinkTrigger('mail me@example.com'), null);
+  assert.equal(pageLinkTrigger('[[done]] and'), null);
+  assert.equal(withoutEmptyParagraphs('Intro\n\n&nbsp;\n\n&nbsp;\n\n- one\n'), 'Intro\n\n- one\n');
+  // Code blocks keep their text and their empty lines.
+  assert.equal(withoutEmptyParagraphs('```\n&nbsp;\n\n\nx\n```\n'), '```\n&nbsp;\n\n\nx\n```\n');
+  assert.equal(withoutEmptyParagraphs('&nbsp;\n'), '');
+});
+
+test('Make tasks uses the repository of most board tasks', async () => {
+  const { mainRepository } = await import('../src/components/docs-to-issues');
+  assert.equal(mainRepository(['a/web', 'a/api', undefined, 'a/api']), 'a/api');
+  assert.equal(mainRepository(['a/web', 'a/api']), 'a/api');
+  assert.equal(mainRepository([undefined]), '');
+});

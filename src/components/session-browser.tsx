@@ -1,10 +1,4 @@
-import {
-  activityKey,
-  useActivityState,
-  useChatStatus,
-  waitsForUser,
-  type SessionActivityState,
-} from './activity-dot';
+import { activityKey, useChatStatus, type SessionActivityState } from './activity-dot';
 import { useEffect, useState, type ReactNode } from 'react';
 import {
   ArchiveRestore,
@@ -19,6 +13,7 @@ import { fullTime, relativeTime } from '../lib/relative-time';
 import { ChatRow } from './chat-row';
 import { ChatActionsDropdown, ChatContextMenu } from './chat-action-menu';
 import { useChatListActions } from './chat-list-actions';
+import { MenuChoiceItem } from './action-menu';
 import { Button } from './ui/button';
 import {
   DropdownMenu,
@@ -26,7 +21,6 @@ import {
   DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuRadioGroup,
-  DropdownMenuRadioItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from './ui/dropdown-menu';
@@ -103,7 +97,7 @@ function readView(key: string | undefined): SavedView {
 }
 /** The storage key of the saved view for one list. */
 export const sessionViewKey = (key: string) => `kalkidan.sessionView.${key}`;
-/** Shows one view of a list, such as 'waiting' or 'archived', also before the list opens. */
+/** Shows one view of a list, such as 'archived', also before the list opens. */
 export function showSessionScope(key: string, scope: string) {
   try {
     localStorage.setItem(
@@ -145,14 +139,9 @@ export function SessionBrowser({
     const place = placeOf?.(session);
     return filterBy === 'folder' ? place?.folder : place?.project;
   };
-  const { finished } = useActivityState();
   const chatStatus = useChatStatus();
   const statusOf = (session: Session) =>
     chatStatus(session, activity[activityKey(session.agent, session.id)]);
-  /** True when the chat waits for an approval or an answer, or finished and is not seen. */
-  const waiting = (session: Session) =>
-    waitsForUser(activity[activityKey(session.agent, session.id)]) ||
-    finished.some((item) => item.agent === session.agent && item.id === session.id);
   const listKey = storageKey ?? sessions[0]?.projectId;
   const repositoryKey = listKey ? sessionViewKey(listKey) : undefined;
   const [loadedKey, setLoadedKey] = useState(repositoryKey);
@@ -162,7 +151,9 @@ export function SessionBrowser({
     setLoadedKey(repositoryKey);
     setView(readView(repositoryKey));
   }
-  const { agent, scope, project, task } = view;
+  const { agent, project, task } = view;
+  // "Waiting for you" has its own page. An older saved view with it shows the active chats.
+  const scope = view.scope === 'waiting' ? 'active' : view.scope;
   useEffect(() => {
     if (!loadedKey) return;
     try {
@@ -185,7 +176,6 @@ export function SessionBrowser({
   const setProject = (value: string) => setView((previous) => ({ ...previous, project: value }));
   const setTask = (value: string) => setView((previous) => ({ ...previous, task: value }));
   const linkedCount = taskOf ? sessions.filter((s) => !!taskOf(s)).length : 0;
-  const waitingCount = sessions.filter((s) => !s.organization?.archived && waiting(s)).length;
   // Chats whose latest run failed or was refused. A running chat shows its live state instead.
   const outcomeCount = (kind: 'failed' | 'refused') =>
     sessions.filter((s) => !s.organization?.archived && statusOf(s)?.state === kind).length;
@@ -232,7 +222,6 @@ export function SessionBrowser({
       agents.size > 1 ||
       projects.length > 1 ||
       linkedCount > 0 ||
-      waitingCount > 0 ||
       failedCount > 0 ||
       refusedCount > 0 ||
       archivedCount > 0 ||
@@ -251,7 +240,6 @@ export function SessionBrowser({
               ? org.archived
               : !org.archived &&
                 (scope !== 'pinned' || org.pinned) &&
-                (scope !== 'waiting' || waiting(session)) &&
                 (scope !== 'failed' || statusOf(session)?.state === 'failed') &&
                 (scope !== 'refused' || statusOf(session)?.state === 'refused')) &&
             (project === 'all' || placeName(session) === project) &&
@@ -296,16 +284,16 @@ export function SessionBrowser({
           <ChevronDown />
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="min-w-56">
+      <DropdownMenuContent align="start">
         {(agents.size > 1 || agent !== 'all') && (
           <>
             <DropdownMenuLabel>Agent</DropdownMenuLabel>
             <DropdownMenuRadioGroup value={agent} onValueChange={setAgent}>
-              <DropdownMenuRadioItem value="all">All agents</DropdownMenuRadioItem>
+              <MenuChoiceItem value="all">All agents</MenuChoiceItem>
               {agentCatalog.map((item) => (
-                <DropdownMenuRadioItem key={item.id} value={item.id}>
+                <MenuChoiceItem key={item.id} value={item.id}>
                   {item.name}
-                </DropdownMenuRadioItem>
+                </MenuChoiceItem>
               ))}
             </DropdownMenuRadioGroup>
             <DropdownMenuSeparator />
@@ -315,13 +303,13 @@ export function SessionBrowser({
           <>
             <DropdownMenuLabel>{placeLabel}</DropdownMenuLabel>
             <DropdownMenuRadioGroup value={project} onValueChange={setProject}>
-              <DropdownMenuRadioItem value="all">
+              <MenuChoiceItem value="all">
                 {filterBy === 'folder' ? 'All code folders' : 'All projects'}
-              </DropdownMenuRadioItem>
+              </MenuChoiceItem>
               {projects.map((name) => (
-                <DropdownMenuRadioItem key={name} value={name}>
+                <MenuChoiceItem key={name} value={name}>
                   {name}
-                </DropdownMenuRadioItem>
+                </MenuChoiceItem>
               ))}
             </DropdownMenuRadioGroup>
             <DropdownMenuSeparator />
@@ -331,9 +319,9 @@ export function SessionBrowser({
           <>
             <DropdownMenuLabel>Task</DropdownMenuLabel>
             <DropdownMenuRadioGroup value={task} onValueChange={setTask}>
-              <DropdownMenuRadioItem value="all">All chats</DropdownMenuRadioItem>
-              <DropdownMenuRadioItem value="linked">Linked to a task</DropdownMenuRadioItem>
-              <DropdownMenuRadioItem value="unlinked">No task</DropdownMenuRadioItem>
+              <MenuChoiceItem value="all">All chats</MenuChoiceItem>
+              <MenuChoiceItem value="linked">Linked to a task</MenuChoiceItem>
+              <MenuChoiceItem value="unlinked">No task</MenuChoiceItem>
             </DropdownMenuRadioGroup>
             <DropdownMenuSeparator />
           </>
@@ -341,9 +329,9 @@ export function SessionBrowser({
         <DropdownMenuLabel>Show</DropdownMenuLabel>
         <DropdownMenuRadioGroup value={scope} onValueChange={setScope}>
           {otherViews.map((option) => (
-            <DropdownMenuRadioItem key={option.value} value={option.value}>
+            <MenuChoiceItem key={option.value} value={option.value}>
               {option.label}
-            </DropdownMenuRadioItem>
+            </MenuChoiceItem>
           ))}
         </DropdownMenuRadioGroup>
         {filterCount > 0 && (
@@ -377,10 +365,6 @@ export function SessionBrowser({
               onChange={setScope}
               options={[
                 { value: 'active', label: 'Active' },
-                {
-                  value: 'waiting',
-                  label: waitingCount ? `Waiting for you (${waitingCount})` : 'Waiting for you',
-                },
                 { value: 'pinned', label: 'Pinned' },
               ]}
             />
@@ -487,15 +471,13 @@ export function SessionBrowser({
               ? 'No archived chats'
               : scope === 'pinned' && !compact
                 ? 'No pinned chats'
-                : scope === 'waiting' && !compact
-                  ? 'Nothing waits for you'
-                  : scope === 'failed' && !compact
-                    ? 'No failed chats'
-                    : scope === 'refused' && !compact
-                      ? 'No refused chats'
-                      : sessions.length
-                        ? 'No chats found'
-                        : 'No chats yet'
+                : scope === 'failed' && !compact
+                  ? 'No failed chats'
+                  : scope === 'refused' && !compact
+                    ? 'No refused chats'
+                    : sessions.length
+                      ? 'No chats found'
+                      : 'No chats yet'
           }
         />
       )}

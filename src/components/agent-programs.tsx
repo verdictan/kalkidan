@@ -28,10 +28,10 @@ import {
   DialogBody,
   DialogContent,
   DialogDescription,
-  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from './ui/dialog';
+import { Hint } from './hint';
 
 /** How to install each agent CLI. */
 const agentInstall: Record<string, { command: string; href: string }> = {
@@ -76,6 +76,7 @@ const sourceLabel: Record<NonNullable<AgentInstallation['source']>, string> = {
 export function AgentProgramsDialog({
   api,
   host,
+  agent,
   open,
   onOpenChange,
   onChecked,
@@ -83,6 +84,8 @@ export function AgentProgramsDialog({
   api: API;
   /** The SSH host. No host means this computer. */
   host?: RemoteHost;
+  /** Shows only this agent, for example from the Codex row. Without it, both agents show. */
+  agent?: string;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   /** The result of each check, for the Settings rows. */
@@ -131,14 +134,21 @@ export function AgentProgramsDialog({
     : checkedAt
       ? `Checked ${relativeTime(new Date(checkedAt).toISOString())}`
       : '';
+  const shown = agent ? agentCatalog.filter((item) => item.id === agent) : agentCatalog;
+  const only = agent ? shown[0] : undefined;
+  const minimum = (id: string) =>
+    id === 'codex' ? agentMinimumVersions.codex : agentMinimumVersions.claude_code;
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent size="md" layout="scroll">
         <DialogHeader>
-          <DialogTitle>Coding agent programs on {where}</DialogTitle>
+          <DialogTitle>
+            {only ? `${only.name} on ${where}` : `Coding agent programs on ${where}`}
+          </DialogTitle>
           <DialogDescription>
-            Kalkidan needs Codex {agentMinimumVersions.codex} or later and Claude Code{' '}
-            {agentMinimumVersions.claude_code} or later.
+            {only
+              ? `Kalkidan needs ${only.name} ${minimum(only.id)} or later.`
+              : `Kalkidan needs Codex ${agentMinimumVersions.codex} or later and Claude Code ${agentMinimumVersions.claude_code} or later.`}
           </DialogDescription>
         </DialogHeader>
         <DialogBody
@@ -155,7 +165,7 @@ export function AgentProgramsDialog({
           )}
           {(agents || !host) && (
             <ul className="settings-rows" aria-label={`Coding agents on ${where}`}>
-              {agentCatalog.map(({ id, name, vendor }) => (
+              {shown.map(({ id, name, vendor }) => (
                 <ProgramRow
                   key={id}
                   api={api}
@@ -178,17 +188,18 @@ export function AgentProgramsDialog({
               {error}
             </p>
           )}
+          {checkedText && (
+            <p role="status" className="form-help mt-0">
+              {checkedAt && !checking ? (
+                <Hint label={fullTime(new Date(checkedAt).toISOString())}>
+                  <span tabIndex={0}>{checkedText}</span>
+                </Hint>
+              ) : (
+                checkedText
+              )}
+            </p>
+          )}
         </DialogBody>
-        <DialogFooter className="items-center">
-          <span role="status" className="mr-auto text-xs leading-4 text-muted-foreground">
-            {checkedText && checkedAt ? (
-              <span title={fullTime(new Date(checkedAt).toISOString())}>{checkedText}</span>
-            ) : (
-              checkedText
-            )}
-          </span>
-          <Button onClick={() => onOpenChange(false)}>Done</Button>
-        </DialogFooter>
       </DialogContent>
     </Dialog>
   );

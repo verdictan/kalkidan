@@ -344,7 +344,7 @@ export function CreateProject({
                     disabled={busy}
                     onClick={() => void chooseFolder()}
                   >
-                    <FolderOpen /> Choose code folder
+                    <FolderOpen /> Add code folder…
                   </Button>
                 )}
               </div>

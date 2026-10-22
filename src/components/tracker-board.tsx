@@ -1,6 +1,8 @@
 import {
   StatusIcon,
   TaskCheckbox,
+  isDoneStatus,
+  taskMeta,
   TaskChip,
   TaskStartButton,
   chatsActivity,
@@ -17,16 +19,18 @@ import {
   useEffect,
   useRef,
   useState,
+  type ComponentProps,
   type KeyboardEvent,
   type ReactNode,
   type RefObject,
 } from 'react';
-import { pathBasename, plural } from '../lib/platform';
+import { plural } from '../lib/platform';
 import type { TrackerBoard, TrackerItem, Session } from '../types';
 import { cn } from '../lib/utils';
 import { Card, CardContent } from './ui/card';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
+import { Count } from './ui/count';
 import { MoreButton } from './ui/more-button';
 import { menuShortcutClass } from './ui/menu-styles';
 import {
@@ -54,7 +58,8 @@ function InlineTaskField({
     <Input
       autoFocus
       maxLength={256}
-      className="tracker-inline-add"
+      // Card-shaped, so the new task takes the place of the card that it makes.
+      className="tracker-inline-add h-auto min-h-11 rounded-lg p-3 font-medium"
       aria-label={`New task in ${column}`}
       placeholder="Task title"
       value={title}
@@ -97,12 +102,57 @@ export function BoardColumnHeading({
       <h4 className="truncate" title={name}>
         {name}
       </h4>
-      <span>
+      <Count>
         <span aria-hidden="true">{count}</span>
         <span className="sr-only">{plural(count, 'task')}</span>
-      </span>
+      </Count>
       {action}
     </div>
+  );
+}
+
+/**
+ * One task card: the title button (the one focus stop of the card), then the content of the
+ * board or the saved view. `top` is for the select box. The board and saved views use it.
+ */
+export function TaskCard({
+  item,
+  titleProps,
+  top,
+  children,
+  className,
+  ...props
+}: ComponentProps<typeof Card> & {
+  item: TrackerItem;
+  titleProps?: ComponentProps<typeof Button>;
+  top?: ReactNode;
+}) {
+  return (
+    <Card
+      role="listitem"
+      {...props}
+      className={cn(
+        'tracker-task gap-0 has-[.tracker-task-title:focus-visible]:shadow-[var(--focus-ring)] data-[selected]:bg-[var(--surface-selected)]',
+        className,
+      )}
+    >
+      <CardContent className="flex flex-col items-stretch gap-1 p-0">
+        {top}
+        <Button
+          variant="bare"
+          data-task-focus={item.id}
+          {...titleProps}
+          className={cn(
+            // The card ring is the one focus mark. The title draws no ring of its own.
+            'tracker-task-title max-w-full self-start px-0 text-left text-sm leading-5 font-medium whitespace-normal break-words focus-visible:ring-0 focus-visible:ring-offset-0 focus-visible:outline-none',
+            titleProps?.className,
+          )}
+        >
+          {item.title}
+        </Button>
+        {children}
+      </CardContent>
+    </Card>
   );
 }
 
@@ -179,8 +229,6 @@ export function TrackerBoard({
     ),
   );
   const flat = grid.flat();
-  // The first Todo card always shows Start, so that the action is easy to find.
-  const firstTodo = grid[0]?.[0]?.id;
   // The card that has the tab stop: the last focused card, else the first card.
   const current = flat.some((item) => item.id === activeId) ? activeId : flat[0]?.id;
   function focusCard(id: string) {
@@ -226,6 +274,8 @@ export function TrackerBoard({
       ref={scroller}
       className="tracker-board"
       {...shadow}
+      // Up to four columns share the width. More columns keep 260 to 360px and scroll.
+      data-many={columns.length > 4 || undefined}
       data-selecting={selection?.ids.size ? true : undefined}
       role="region"
       aria-label="Tracker board"
@@ -291,6 +341,13 @@ export function TrackerBoard({
               role={tasks.length ? 'list' : undefined}
               aria-label={tasks.length ? `${column.name} tasks` : undefined}
             >
+              {!tasks.length && adding !== column.id && (
+                <p className="tracker-column-empty">
+                  {columnIndex === 0 && !flat.length && onCreate
+                    ? 'No tasks yet. Use + or New task.'
+                    : 'No tasks'}
+                </p>
+              )}
               {onCreate && adding === column.id && (
                 <InlineTaskField
                   column={column.name}
@@ -309,12 +366,16 @@ export function TrackerBoard({
                   setAnnouncement(`Moving ${item.title} to ${name}`);
                   onStatus(item, status);
                 };
+                const meta = taskMeta(item);
+                const done = isDoneStatus(
+                  options.find((option) => option.id === item.statusId)?.name || '',
+                );
                 return (
                   // The title button is the one focus stop of the card. A pointer click on the
                   // card body also opens the task. Shift or ⌘ with a click selects.
-                  <Card
+                  <TaskCard
                     key={item.id}
-                    role="listitem"
+                    item={item}
                     data-selected={selected || undefined}
                     onKeyDown={taskKeys(item, work)}
                     onKeyUp={taskKeyUp(work)}
@@ -345,124 +406,111 @@ export function TrackerBoard({
                       setOver(null);
                     }}
                     data-dragging={dragged === item.id || undefined}
-                    className="tracker-task gap-0 has-[.tracker-task-title:focus-visible]:shadow-[var(--focus-ring)]"
-                  >
-                    <CardContent className="flex flex-col items-stretch gap-1 p-0">
-                      {selection && (
+                    top={
+                      selection && (
                         <TaskCheckbox
                           item={item}
                           selection={selection}
                           tabIndex={-1}
                           className="absolute top-3 right-3"
                         />
-                      )}
-                      <Button
-                        variant="bare"
-                        className={cn(
-                          'tracker-task-title max-w-full self-start px-0 text-left text-sm leading-5 font-medium whitespace-normal break-words focus-visible:ring-0',
-                          selection && 'pr-6',
-                        )}
-                        data-task-focus={item.id}
-                        tabIndex={item.id === current ? 0 : -1}
-                        aria-keyshortcuts={
-                          [work.onStart && 'S', selection && 'Space', 'Shift+F10']
-                            .filter(Boolean)
-                            .join(' ') || undefined
-                        }
-                        onFocus={() => setActiveId(item.id)}
-                        onClick={(event) => {
-                          if (!selectionClick(event, item, selection)) onOpen(item);
-                        }}
-                      >
-                        {item.title}
-                      </Button>
-                      <div className="tracker-task-footer">
-                        <span className="tracker-task-meta truncate" title={item.repository}>
-                          {item.repository ? pathBasename(item.repository) : 'No repository'}
-                          {item.number ? ` #${item.number}` : ''}
-                        </span>
-                        <TaskChip
-                          chats={chats}
-                          activity={work.activity}
-                          onOpenChat={work.onOpenChat}
-                          starting={work.startingId === item.id}
-                          tabIndex={-1}
-                        />
-                        <span className="tracker-task-actions">
-                          <DropdownMenu
-                            open={menuId === item.id}
-                            onOpenChange={(open) => setMenuId(open ? item.id : '')}
+                      )
+                    }
+                    titleProps={{
+                      className: selection ? 'pr-6' : undefined,
+                      tabIndex: item.id === current ? 0 : -1,
+                      'aria-keyshortcuts':
+                        [work.onStart && !done && 'S', selection && 'Space', 'Shift+F10']
+                          .filter(Boolean)
+                          .join(' ') || undefined,
+                      onFocus: () => setActiveId(item.id),
+                      onClick: (event) => {
+                        if (!selectionClick(event, item, selection)) onOpen(item);
+                      },
+                    }}
+                  >
+                    <div className="tracker-task-footer">
+                      {meta && <span className="tracker-task-meta truncate">{meta}</span>}
+                      <TaskChip
+                        chats={chats}
+                        activity={work.activity}
+                        onOpenChat={work.onOpenChat}
+                        starting={work.startingId === item.id}
+                        tabIndex={-1}
+                      />
+                      <span className="tracker-task-actions">
+                        <DropdownMenu
+                          open={menuId === item.id}
+                          onOpenChange={(open) => setMenuId(open ? item.id : '')}
+                        >
+                          <DropdownMenuTrigger asChild>
+                            <MoreButton
+                              size="xs"
+                              className="tracker-task-menu"
+                              label={`Task menu: ${item.title}`}
+                              tabIndex={-1}
+                            />
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent
+                            align="end"
+                            onCloseAutoFocus={(event) => {
+                              // The focus goes back to the card, not to the hidden menu button.
+                              event.preventDefault();
+                              focusCard(item.id);
+                            }}
                           >
-                            <DropdownMenuTrigger asChild>
-                              <MoreButton
-                                size="xs"
-                                className="tracker-task-menu"
-                                label={`Task menu: ${item.title}`}
-                                tabIndex={-1}
-                              />
-                            </DropdownMenuTrigger>
-                            <DropdownMenuContent
-                              align="end"
-                              className="min-w-48"
-                              onCloseAutoFocus={(event) => {
-                                // The focus goes back to the card, not to the hidden menu button.
-                                event.preventDefault();
-                                focusCard(item.id);
-                              }}
-                            >
-                              <DropdownMenuItem onSelect={() => onOpen(item)}>
-                                <PanelRight className="size-4" />
-                                Open task
+                            <DropdownMenuItem onSelect={() => onOpen(item)}>
+                              <PanelRight className="size-4" />
+                              Open task
+                            </DropdownMenuItem>
+                            {work.onStart && (
+                              <DropdownMenuItem onSelect={() => work.onStart?.(item)}>
+                                <Play className="size-4" />
+                                Start task
                               </DropdownMenuItem>
-                              {work.onStart && (
-                                <DropdownMenuItem onSelect={() => work.onStart?.(item)}>
-                                  <Play className="size-4" />
-                                  Start task
-                                </DropdownMenuItem>
-                              )}
-                              {selection && (
-                                <DropdownMenuItem onSelect={() => selection.toggle(item, false)}>
-                                  <SquareCheck className="size-4" />
-                                  {selected ? 'Clear selection' : 'Select'}
-                                  <span className={menuShortcutClass}>Space</span>
-                                </DropdownMenuItem>
-                              )}
-                              {board.statusField && (
-                                <>
-                                  <DropdownMenuSeparator />
-                                  <DropdownMenuLabel>
-                                    {work.readOnly ? `Move to · ${work.readOnly}` : 'Move to'}
-                                  </DropdownMenuLabel>
-                                  {options.map((option) => (
-                                    <DropdownMenuItem
-                                      key={option.id}
-                                      disabled={
-                                        busy || !!work.readOnly || option.id === item.statusId
-                                      }
-                                      onSelect={() => move(option.id, option.name)}
-                                    >
-                                      <StatusIcon name={option.name} size={16} />
-                                      {option.name}
-                                    </DropdownMenuItem>
-                                  ))}
-                                </>
-                              )}
-                            </DropdownMenuContent>
-                          </DropdownMenu>
-                          {work.onStart &&
-                            !chatsActivity(chats, work.activity) &&
-                            work.startingId !== item.id && (
-                              <TaskStartButton
-                                item={item}
-                                tabIndex={-1}
-                                always={item.id === firstTodo}
-                                onStart={() => work.onStart?.(item)}
-                              />
                             )}
-                        </span>
-                      </div>
-                    </CardContent>
-                  </Card>
+                            {selection && (
+                              <DropdownMenuItem onSelect={() => selection.toggle(item, false)}>
+                                <SquareCheck className="size-4" />
+                                {selected ? 'Clear selection' : 'Select'}
+                                <span className={menuShortcutClass}>Space</span>
+                              </DropdownMenuItem>
+                            )}
+                            {board.statusField && (
+                              <>
+                                <DropdownMenuSeparator />
+                                <DropdownMenuLabel>
+                                  {work.readOnly ? `Move to · ${work.readOnly}` : 'Move to'}
+                                </DropdownMenuLabel>
+                                {options.map((option) => (
+                                  <DropdownMenuItem
+                                    key={option.id}
+                                    disabled={
+                                      busy || !!work.readOnly || option.id === item.statusId
+                                    }
+                                    onSelect={() => move(option.id, option.name)}
+                                  >
+                                    <StatusIcon name={option.name} size={16} />
+                                    {option.name}
+                                  </DropdownMenuItem>
+                                ))}
+                              </>
+                            )}
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                        {work.onStart &&
+                          !done &&
+                          !chatsActivity(chats, work.activity) &&
+                          work.startingId !== item.id && (
+                            <TaskStartButton
+                              item={item}
+                              tabIndex={-1}
+                              onStart={() => work.onStart?.(item)}
+                            />
+                          )}
+                      </span>
+                    </div>
+                  </TaskCard>
                 );
               })}
             </div>

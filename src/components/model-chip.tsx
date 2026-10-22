@@ -228,7 +228,7 @@ export function ModelChip({
           </Button>
         </DropdownMenuTrigger>
       </Hint>
-      <DropdownMenuContent align="start" className="max-h-96 w-64">
+      <DropdownMenuContent align="start" width="wide">
         {agents.length > 1 && (
           <>
             <DropdownMenuLabel>Agent</DropdownMenuLabel>
@@ -252,13 +252,11 @@ export function ModelChip({
           onValueChange={(next) => onChange(next === defaultValue ? '' : next)}
         >
           {!choice.managed && (
-            <DropdownMenuRadioItem value={defaultValue}>
-              <span className="truncate">Default</span>
-            </DropdownMenuRadioItem>
+            <DropdownMenuRadioItem value={defaultValue}>Default</DropdownMenuRadioItem>
           )}
           {choice.options.map((option) => (
-            <DropdownMenuRadioItem key={option.id} value={option.id} title={option.name}>
-              <span className="truncate">{option.name}</span>
+            <DropdownMenuRadioItem key={option.id} value={option.id}>
+              {option.name}
               {option.isDefault && (
                 <span className="ml-auto text-xs text-muted-foreground">Default</span>
               )}

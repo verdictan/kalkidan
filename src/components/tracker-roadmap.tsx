@@ -27,8 +27,7 @@ const longDate = new Intl.DateTimeFormat('en-GB', {
 export function statusColor(name: string) {
   if (/done|complete|closed/i.test(name)) return 'var(--success)';
   if (/progress|doing|review/i.test(name)) return 'var(--warning)';
-  if (/backlog|no status/i.test(name)) return 'var(--muted-foreground)';
-  return 'var(--link)';
+  return 'var(--muted-foreground)';
 }
 
 /** The Mondays from the week of `min` to `max`. These are the ticks of the axis. */
@@ -87,9 +86,10 @@ export function TrackerRoadmap({
     );
   return (
     <section aria-label="Project roadmap" className="tracker-roadmap">
-      <div className="tracker-roadmap-fields" role="group" aria-label="Roadmap dates">
-        <span className="tracker-roadmap-field">
-          <span aria-hidden="true">Start</span>
+      {/* With exactly two date fields there is nothing to choose. */}
+      {dates.length > 2 && (
+        <div className="tracker-roadmap-fields" role="group" aria-label="Roadmap dates">
+          <span aria-hidden="true">Dates</span>
           <Choice
             size="sm"
             variant="filled"
@@ -98,9 +98,7 @@ export function TrackerRoadmap({
             onChange={setStart}
             options={fieldOptions}
           />
-        </span>
-        <span className="tracker-roadmap-field">
-          <span aria-hidden="true">End</span>
+          <span aria-hidden="true">→</span>
           <Choice
             size="sm"
             variant="filled"
@@ -109,8 +107,8 @@ export function TrackerRoadmap({
             onChange={setEnd}
             options={fieldOptions}
           />
-        </span>
-      </div>
+        </div>
+      )}
       {dated.length > 0 ? (
         <div className="tracker-roadmap-chart">
           <div className="tracker-roadmap-row tracker-roadmap-axis" aria-hidden="true">
@@ -173,17 +171,18 @@ export function TrackerRoadmap({
       {undated.length > 0 && (
         <section className="tracker-roadmap-undated" aria-label="Tasks without dates">
           <SectionHeader size="sm" title="No dates" count={undated.length} />
-          <ul className="list-box">
+          {/* The same unboxed 32px rows as the dated tasks. */}
+          <ul className="tracker-roadmap-rows">
             {undated.map((row) => (
-              <li key={row.item.id}>
+              <li key={row.item.id} className="tracker-roadmap-row">
                 <button
                   type="button"
-                  className="list-box-row"
+                  className="tracker-roadmap-label tracker-roadmap-title"
                   data-task-focus={row.item.id}
                   onClick={() => onOpen(row.item)}
                 >
                   <StatusIcon name={statusName(row.item)} />
-                  <span className="min-w-0 flex-1 truncate text-left">{row.item.title}</span>
+                  <span className="truncate">{row.item.title}</span>
                 </button>
               </li>
             ))}

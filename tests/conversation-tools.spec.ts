@@ -8,7 +8,9 @@ import { openTool } from './helpers/tools';
  * bar does not show the Changes button.
  */
 async function openChanges(page: Page) {
-  await page.getByLabel('Message agent').click();
+  // Below 980px the tool pane is a sheet over the chat, so the test focuses the composer
+  // without a click.
+  await page.getByLabel('Message agent').focus();
   await page.keyboard.press('ControlOrMeta+Shift+G');
   await expect(
     page
@@ -130,6 +132,12 @@ test('conversation tools preview evidence, attach it to the draft, and send it o
   expect(await page.evaluate(() => (window as any).sent)).toEqual([]);
   await page.getByLabel('Message agent').fill('Review these changes and fix the annotated button.');
   await page.screenshot({ path: 'test-results/conversation-tools-attached.png' });
+  // Below 980px the tool pane is a sheet over the chat. The selected tool button hides it.
+  const browser = page
+    .getByRole('group', { name: 'Tools', exact: true })
+    .getByRole('button', { name: 'Browser', exact: true });
+  await browser.click();
+  await expect(browser).toHaveAttribute('aria-pressed', 'false');
   await page.getByRole('button', { name: 'Send', exact: true }).click();
   await expect(page.getByText('Reviewed context.', { exact: true })).toBeVisible();
   const sent = await page.evaluate(() => (window as any).sent[0]);

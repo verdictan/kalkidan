@@ -1,7 +1,6 @@
 import {
   Check,
   FilePlus2,
-  FolderGit2,
   FolderPlus,
   ListPlus,
   MessageSquarePlus,
@@ -133,8 +132,8 @@ export interface ProjectMenuHandlers {
   onNewChat(): void;
   onNewTask(): void;
   onNewPage(): void;
+  /** Opens the one Add code folder dialog. It has the Local and Clone from GitHub sources. */
   onAddFolder(): void;
-  onCloneFromGitHub(): void;
   onRename(): void;
   onSettings(): void;
   /** Shows "Reconnect to host" for a remote project whose host is not connected. */
@@ -144,8 +143,8 @@ export interface ProjectMenuHandlers {
 
 /**
  * The items of the one project menu, in this order: New chat, New task, New page — Add code
- * folder, Clone from GitHub — Rename, Color — Project settings. Give the color choice to the
- * menu as `folderColor`. The Color submenu then shows after "Rename".
+ * folder — Rename, Color — Project settings. Give the color choice to the menu as
+ * `folderColor`. The Color submenu then shows after "Rename".
  */
 export function projectMenuActions(handlers: ProjectMenuHandlers): TreeAction[] {
   const icon = (Icon: typeof Palette) => <Icon className="size-4" />;
@@ -159,12 +158,6 @@ export function projectMenuActions(handlers: ProjectMenuHandlers): TreeAction[] 
       separator: true,
       disabled: handlers.busy,
       action: handlers.onAddFolder,
-    },
-    {
-      label: 'Clone from GitHub…',
-      icon: icon(FolderGit2),
-      disabled: handlers.busy,
-      action: handlers.onCloneFromGitHub,
     },
     ...(handlers.reconnect
       ? [

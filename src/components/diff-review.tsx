@@ -6,6 +6,7 @@ import { pathBasename, plural } from '../lib/platform';
 import { Button } from './ui/button';
 import { EmptyState } from './ui/empty-state';
 import { Hint } from './hint';
+import { cn } from '../lib/utils';
 
 /** The folder part of a path, without the file name. Empty for a file at the root. */
 function folderOf(path: string) {
@@ -61,6 +62,51 @@ const lineClass: Record<DiffLineKind, string> = {
   remove: 'diff-line diff-deletion',
   context: 'diff-line',
 };
+
+/**
+ * One diff block for steps, approvals and the Changes pane: line numbers, and green and red
+ * lines. `framed` draws the 10px frame of a code block. The Changes pane fills its edges.
+ */
+export function DiffBlock({
+  patch,
+  label = 'Git diff',
+  framed = true,
+  className,
+}: {
+  patch: string;
+  label?: string;
+  framed?: boolean;
+  className?: string;
+}) {
+  return (
+    <pre
+      role="region"
+      tabIndex={0}
+      aria-label={label}
+      className={cn('diff-block', framed && 'diff-block-framed', className)}
+    >
+      {patch
+        ? numberLines(patch).map((line, index) => (
+            <span key={index} className={lineClass[line.kind]}>
+              <span className="diff-gutter" aria-hidden="true">
+                {line.oldNumber ?? ''}
+              </span>
+              <span className="diff-gutter" aria-hidden="true">
+                {line.newNumber ?? ''}
+              </span>
+              <span className="diff-text">{line.text}</span>
+              {'\n'}
+            </span>
+          ))
+        : 'No text preview available.'}
+    </pre>
+  );
+}
+
+/** True when a step output or an approval detail is a patch. */
+export function isPatch(text: string) {
+  return /^(diff --git|@@ -\d|--- |\+\+\+ )/m.test(text) && /^[+-][^+-]/m.test(text);
+}
 
 export function DiffReview({
   diff,
@@ -196,28 +242,7 @@ export function DiffReview({
         <span className="text-diff-remove">−{current.removed}</span>
       </div>
       {current.note && <p className="shrink-0 text-xs text-muted-foreground">{current.note}</p>}
-      <pre
-        key={current.key}
-        role="region"
-        tabIndex={0}
-        aria-label="Git diff"
-        className="tool-output diff-output"
-      >
-        {current.patch
-          ? numberLines(current.patch).map((line, index) => (
-              <span key={index} className={lineClass[line.kind]}>
-                <span className="diff-gutter" aria-hidden="true">
-                  {line.oldNumber ?? ''}
-                </span>
-                <span className="diff-gutter" aria-hidden="true">
-                  {line.newNumber ?? ''}
-                </span>
-                <span className="diff-text">{line.text}</span>
-                {'\n'}
-              </span>
-            ))
-          : 'No text preview available.'}
-      </pre>
+      <DiffBlock key={current.key} patch={current.patch} framed={false} />
       <AttachHint reason={current.patch ? disabledReason : ''}>
         <Button
           size="sm"

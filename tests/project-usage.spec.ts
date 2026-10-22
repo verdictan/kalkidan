@@ -2,7 +2,7 @@ import { type Page } from '@playwright/test';
 import { test, expect } from './helpers/app';
 
 /** Opens a view of Knowledge › Insights of the Atlas project from the sidebar. */
-async function openAtlas(page: Page, view: 'Agent usage' | 'Board') {
+async function openAtlas(page: Page, view: 'Agent usage') {
   await page.locator('.project-tree').getByRole('button', { name: 'Atlas', exact: true }).click();
   await page
     .getByRole('navigation', { name: 'Project page', exact: true })
@@ -169,9 +169,11 @@ test('Insights without a board show the managed-agent usage of the project chats
     fresh: true,
   });
   await expect(usage.getByLabel('Usage totals')).toContainText('Requests3');
-  // The usage needs no board. The Board view offers to connect one.
-  await openAtlas(page, 'Board');
-  await expect(page.getByRole('button', { name: 'Connect a board', exact: true })).toBeVisible();
+  // The usage needs no board. Without a board, Insights has no Board or GitHub checks view.
+  const insights = page
+    .getByRole('complementary', { name: 'Knowledge sections' })
+    .getByRole('region', { name: 'Insights', exact: true });
+  await expect(insights.getByRole('button')).toHaveText(['Agent usage', 'Agent knowledge']);
 });
 
 test('Insights tell when the usage history is unavailable or empty', async ({ page }) => {

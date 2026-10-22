@@ -8,14 +8,13 @@ import {
   type KeyboardEvent,
   type ReactNode,
 } from 'react';
-import { LogIn, Plus, RefreshCw } from 'lucide-react';
+import { LoaderCircle, LogIn, Plus, RefreshCw } from 'lucide-react';
 import type { API, GitHubRepository, ProjectGroup, Snapshot } from '../types';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { SearchInput } from './ui/search-input';
 import { Badge } from './ui/badge';
 import { EmptyState } from './ui/empty-state';
-import { Alert, AlertDescription } from './ui/alert';
 import { SegmentedControl } from './ui/segmented-control';
 import { Choice } from './choice';
 import { Hint } from './hint';
@@ -33,7 +32,7 @@ import {
   DialogFooter,
 } from './ui/dialog';
 
-type Source = 'github' | 'local' | 'library';
+type Source = 'local' | 'github';
 
 export function AddRepository({
   api,
@@ -51,8 +50,8 @@ export function AddRepository({
   initialSource,
 }: {
   /**
-   * The source that the dialog opens on. "Clone from GitHub" opens on the GitHub source, also
-   * when the GitHub CLI is signed out: the dialog then shows "Sign in to GitHub" at the top.
+   * The source that the dialog opens on. Without it, the dialog opens on Local. Clone from
+   * GitHub shows "Connect GitHub" in place of the list when the GitHub CLI is signed out.
    */
   initialSource?: 'github' | 'local';
   /** False hides the button. The caller then opens the dialog with `openRequest`. */
@@ -77,7 +76,7 @@ export function AddRepository({
   size?: ComponentProps<typeof Button>['size'];
 }) {
   const [open, setOpen] = useState(false);
-  const [mode, setMode] = useState<Source>('github');
+  const [mode, setMode] = useState<Source>('local');
   // True after the first list of GitHub repositories loads or fails for this dialog.
   const [reposLoaded, setReposLoaded] = useState(false);
   // False while the dialog checks which source to show first.
@@ -130,14 +129,13 @@ export function AddRepository({
     setRepos([]);
     setReposLoaded(false);
     setSourceReady(false);
-    // Start with GitHub only when the GitHub CLI is ready. Otherwise local folders work first.
+    // The dialog opens on Local, or on the source that the caller asks for.
     const [projects, gh] = await Promise.allSettled([
       Promise.resolve().then(() => api.snapshot()),
       Promise.resolve().then(() => api.githubCliCheck()),
     ]);
-    const ready = gh.status === 'fulfilled' && gh.value.status === 'ready';
-    setGithubReady(ready);
-    setMode(initialSource || (ready ? 'github' : 'local'));
+    setGithubReady(gh.status === 'fulfilled' && gh.value.status === 'ready');
+    setMode(initialSource || 'local');
     if (projects.status === 'fulfilled') setSnapshot(projects.value);
     else setError('Could not load your projects. Close this dialog and try again.');
     setSourceReady(true);
@@ -181,12 +179,6 @@ export function AddRepository({
           setOpen(false);
           return `Added ${codeFolders(added)} to ${projectName}.`;
         }
-      } else if (mode === 'library') {
-        const name = snapshot.projects.find((p) => p.id === selected)?.name || 'The code folder';
-        await api.moveRepo(selected, target);
-        await onRefresh();
-        setOpen(false);
-        return `Moved ${name} to ${projectName}.`;
       } else return clone(manual.trim() || selected);
     });
   }
@@ -221,6 +213,10 @@ export function AddRepository({
     if (openRequest > 0) void show();
   }, [openRequest]);
   const shown = repos.filter((r) => r.nameWithOwner.toLowerCase().includes(query.toLowerCase()));
+  // A caller with a project hides the Project field. The description names the project.
+  const known = !!groupId && !!snapshot?.groups?.some((g) => g.id === groupId);
+  const ready =
+    !!target && !!snapshot && sourceReady && (mode === 'local' || !!selected || !!manual.trim());
   return (
     <>
       {trigger && (
@@ -233,45 +229,63 @@ export function AddRepository({
         >
           {children || (
             <>
-              <Plus /> Add code folder
+              <Plus /> Add code folder…
             </>
           )}
         </Button>
       )}
       {/* The dialog hides while the Create project dialog that it opens shows. */}
       <Dialog open={open && !creatingProject} onOpenChange={(value) => !value && close()}>
-        <DialogContent size="lg" layout="scroll">
+        <DialogContent
+          size="md"
+          layout="scroll"
+          onOpenAutoFocus={(event) => {
+            // The title gets the focus, so no ring shows on a field or a link.
+            event.preventDefault();
+            (event.currentTarget as HTMLElement | null)
+              ?.querySelector<HTMLElement>('[data-slot="dialog-title"]')
+              ?.focus();
+          }}
+        >
           <DialogHeader>
-            <DialogTitle>Add code folders</DialogTitle>
+            <DialogTitle tabIndex={-1} className="outline-none">
+              Add code folder
+            </DialogTitle>
             <DialogDescription>
-              A code folder is a Git repository that agents can work in.
+              {known
+                ? `Adds a Git repository to ${projectName}. Agents can work in it.`
+                : 'A code folder is a Git repository that agents can work in.'}
             </DialogDescription>
           </DialogHeader>
           <DialogBody className="grid content-start gap-4">
-            <div className="form-label">
-              <div className="flex items-center justify-between gap-2">
+            {!known && (
+              <div className="form-label">
                 <span>Project</span>
-                <Button
-                  variant="bare"
-                  className="text-xs text-link hover:underline"
+                <Choice
+                  className="w-full"
+                  label="Add to project"
+                  value={target}
                   disabled={busy}
-                  onClick={() => setCreatingProject(true)}
-                >
-                  Create a new project
-                </Button>
+                  onChange={setTarget}
+                  options={[
+                    { value: '', label: 'Choose a project' },
+                    ...(snapshot?.groups || []).map((g) => ({ value: g.id, label: g.name })),
+                  ]}
+                />
+                <span className="form-help mt-0">
+                  Or{' '}
+                  <Button
+                    type="button"
+                    variant="link"
+                    className="text-foreground underline"
+                    disabled={busy}
+                    onClick={() => setCreatingProject(true)}
+                  >
+                    create a new project
+                  </Button>
+                </span>
               </div>
-              <Choice
-                className="w-full"
-                label="Add to project"
-                value={target}
-                disabled={busy}
-                onChange={setTarget}
-                options={[
-                  { value: '', label: 'Choose a project' },
-                  ...(snapshot?.groups || []).map((g) => ({ value: g.id, label: g.name })),
-                ]}
-              />
-            </div>
+            )}
             {remoteGroup ? (
               <RemoteRepositoryPicker
                 key={remoteGroup.id}
@@ -288,59 +302,58 @@ export function AddRepository({
             ) : (
               sourceReady && (
                 <>
-                  <div className="form-label">
-                    <span>Source</span>
-                    <SegmentedControl
-                      className="justify-self-start"
-                      label="Source"
-                      value={mode}
-                      onChange={(value) => {
-                        setMode(value);
-                        setSelected('');
-                        setError('');
-                      }}
-                      options={[
-                        { value: 'github', label: 'Clone from GitHub', disabled: busy },
-                        { value: 'local', label: 'Local folder', disabled: busy },
-                        { value: 'library', label: 'Already in Kalkidan', disabled: busy },
-                      ]}
-                    />
-                  </div>
-                  {mode === 'github' && (
-                    <>
-                      {!githubReady && (
-                        <Alert size="sm">
-                          <AlertDescription className="flex flex-wrap items-center justify-between gap-2">
-                            <span>Sign in to GitHub to see your repositories.</span>
-                            <Button variant="outline" size="sm" onClick={openAccountSettings}>
-                              <LogIn />
-                              Sign in to GitHub
-                            </Button>
-                          </AlertDescription>
-                        </Alert>
-                      )}
-                      <div className="flex gap-2">
-                        <SearchInput
-                          className="flex-1"
-                          aria-label="Search GitHub repositories"
-                          placeholder="Search owner or repository…"
-                          value={query}
-                          disabled={busy}
-                          onChange={(e) => setQuery(e.target.value)}
-                        />
-                        <Hint label="Refresh repositories">
-                          <Button
-                            variant="outline"
-                            size="icon"
-                            aria-label="Refresh repositories"
-                            disabled={busy || loading}
-                            onClick={() => void loadRepos()}
-                          >
-                            <RefreshCw className={loading ? 'animate-spin' : ''} />
+                  <SegmentedControl
+                    size="sm"
+                    className="justify-self-start"
+                    label="Source"
+                    value={mode}
+                    onChange={(value) => {
+                      setMode(value);
+                      setSelected('');
+                      setError('');
+                    }}
+                    options={[
+                      { value: 'local', label: 'Local', disabled: busy },
+                      { value: 'github', label: 'Clone from GitHub', disabled: busy },
+                    ]}
+                  />
+                  {mode === 'github' &&
+                    (!githubReady ? (
+                      <EmptyState
+                        compact
+                        className="rounded-lg border"
+                        title="Connect GitHub to see your repositories"
+                        action={
+                          <Button variant="outline" size="sm" onClick={openAccountSettings}>
+                            <LogIn />
+                            Connect GitHub…
                           </Button>
-                        </Hint>
-                      </div>
-                      <div className="grid gap-2">
+                        }
+                      />
+                    ) : (
+                      <>
+                        <div className="flex gap-2">
+                          <SearchInput
+                            variant="outline"
+                            className="flex-1"
+                            aria-label="Search GitHub repositories"
+                            placeholder="Search owner or repository…"
+                            value={query}
+                            disabled={busy}
+                            onChange={(e) => setQuery(e.target.value)}
+                          />
+                          <Hint label="Refresh repositories">
+                            <Button
+                              variant="outline"
+                              size="icon"
+                              aria-label="Refresh repositories"
+                              disabled={busy || loading}
+                              onClick={() => void loadRepos()}
+                            >
+                              <RefreshCw className={loading ? 'animate-spin' : ''} />
+                            </Button>
+                          </Hint>
+                        </div>
                         {loading ? (
                           <div className="list-box min-h-20 content-start" aria-busy="true">
                             <p role="status" className="px-2 py-1.5 text-sm text-muted-foreground">
@@ -350,7 +363,7 @@ export function AddRepository({
                         ) : shown.length ? (
                           <RadioList
                             label="Available repositories"
-                            className="min-h-20"
+                            className="max-h-64 min-h-20 overflow-y-auto"
                             value={selected}
                             disabled={busy}
                             onChange={(value) => {
@@ -373,16 +386,8 @@ export function AddRepository({
                             compact
                             className="rounded-lg border"
                             title={repos.length ? 'No matching repositories' : 'No repositories'}
-                          >
-                            Enter owner/repository below, or sign in to GitHub in Settings.
-                          </EmptyState>
+                          />
                         )}
-                        <p className="text-xs text-muted-foreground">
-                          {repos.length} repositories ·{' '}
-                          {repos.filter((repo) => repo.isPrivate).length} private
-                        </p>
-                      </div>
-                      <div className="grid gap-2">
                         <Input
                           aria-label="GitHub repository name"
                           placeholder="Or enter owner/repository"
@@ -393,49 +398,13 @@ export function AddRepository({
                             setSelected('');
                           }}
                         />
-                        <p className="text-xs text-muted-foreground">
-                          Is a repository missing?{' '}
-                          <Button
-                            variant="bare"
-                            className="text-xs text-link hover:underline"
-                            onClick={openAccountSettings}
-                          >
-                            Check your GitHub account in Preferences
-                          </Button>
-                        </p>
-                      </div>
-                      <p className="text-xs text-muted-foreground">
-                        Kalkidan clones the repository into the project folder and adds it to the
-                        project.
-                      </p>
-                    </>
-                  )}
+                      </>
+                    ))}
                   {mode === 'local' && (
                     <p className="text-sm text-muted-foreground">
                       Choose a folder on this computer. If it holds more than one Git repository,
                       Kalkidan finds each one and asks which to add.
                     </p>
-                  )}
-                  {mode === 'library' && (
-                    <label className="form-label">
-                      Code folder
-                      <span className="form-help">
-                        Move a folder you added before into this project.
-                      </span>
-                      <Choice
-                        className="w-full"
-                        label="Code folder already in Kalkidan"
-                        value={selected}
-                        disabled={busy}
-                        onChange={setSelected}
-                        options={[
-                          { value: '', label: 'Choose a code folder' },
-                          ...(snapshot?.projects || [])
-                            .filter((p) => !p.hostId)
-                            .map((p) => ({ value: p.id, label: p.name + ' · ' + p.path })),
-                        ]}
-                      />
-                    </label>
                   )}
                 </>
               )
@@ -446,38 +415,30 @@ export function AddRepository({
               </p>
             )}
             {busy && (
-              <p role="status" className="text-sm text-muted-foreground">
+              <p role="status" className="flex items-center gap-2 text-sm text-muted-foreground">
+                <LoaderCircle className="size-4 animate-spin" aria-hidden="true" />
                 {mode === 'github'
-                  ? 'Cloning… A large repository can take some minutes. You can close this dialog. The sidebar shows the progress.'
-                  : 'Working…'}
+                  ? 'Cloning… You can close this dialog. The sidebar shows the progress.'
+                  : 'Adding…'}
               </p>
             )}
           </DialogBody>
-          <DialogFooter>
-            {/* While a clone runs, the X closes the dialog. The clone continues. */}
-            {!busy && (
+          {!remoteGroup && (
+            <DialogFooter>
+              {/* While a clone runs, Close keeps it running. */}
               <Button variant="outline" onClick={close}>
-                Cancel
+                {busy ? 'Close' : 'Cancel'}
               </Button>
-            )}
-            <Button
-              hidden={!!remoteGroup}
-              disabled={
-                busy ||
-                !target ||
-                !snapshot ||
-                !sourceReady ||
-                (mode !== 'local' && !selected && !(mode === 'github' && manual.trim()))
-              }
-              onClick={() => void add()}
-            >
-              {mode === 'github'
-                ? 'Clone into project'
-                : mode === 'local'
-                  ? 'Choose folder'
-                  : 'Move to project'}
-            </Button>
-          </DialogFooter>
+              {!busy && (
+                <Button
+                  disabled={!ready || (mode === 'github' && !githubReady && !manual.trim())}
+                  onClick={() => void add()}
+                >
+                  {mode === 'github' ? 'Clone' : 'Choose folder…'}
+                </Button>
+              )}
+            </DialogFooter>
+          )}
         </DialogContent>
       </Dialog>
       {folderImport.dialog}
@@ -567,10 +528,7 @@ function RadioList({
             tabIndex={option.value === focusable ? 0 : -1}
             disabled={disabled}
             title={option.label}
-            className={cn(
-              'list-box-row text-sm disabled:opacity-50',
-              option.description && 'items-start py-1.5',
-            )}
+            className={cn('list-box-row', option.description && 'items-start py-1.5')}
             onClick={() => onChange(option.value)}
             onKeyDown={(event) => move(event, index)}
           >
@@ -578,7 +536,7 @@ function RadioList({
             <span
               aria-hidden="true"
               className={cn(
-                'flex size-4 shrink-0 items-center justify-center rounded-full border border-[var(--border-strong,var(--border))] bg-background',
+                'flex size-4 shrink-0 items-center justify-center rounded-full border border-[var(--border-strong)] bg-background',
                 option.description && 'mt-0.5',
                 checked && 'border-primary bg-primary',
               )}

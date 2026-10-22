@@ -36,7 +36,7 @@ const itemClass = menuItemClass;
 // menuContentClass includes the shared menu motion (menuMotionClass).
 const menuClass = cn(
   menuContentClass,
-  'z-[70] max-h-[var(--radix-context-menu-content-available-height)]',
+  'max-h-[var(--radix-context-menu-content-available-height)]',
 );
 
 export function WikiContextMenu({

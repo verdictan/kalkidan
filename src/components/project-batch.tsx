@@ -135,6 +135,7 @@ export function FieldsTool({
   board,
   items,
   onRemove,
+  allTasks,
   onOpenTask,
   onClose,
   onSaved,
@@ -217,7 +218,7 @@ export function FieldsTool({
       <DialogBody className="grid content-start gap-4">
         {!request ? (
           <>
-            <SelectedTasks items={items} onRemove={onRemove} limit={batchLimit} />
+            <SelectedTasks all={allTasks} items={items} onRemove={onRemove} limit={batchLimit} />
             <div className="planning-form-grid">
               <label className="form-label">
                 Field

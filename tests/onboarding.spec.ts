@@ -32,9 +32,9 @@ test('an empty workspace asks for a code folder, and Get started opens from sear
     };
   });
   await page.goto('/');
-  // Get started does not open by itself. The empty state asks for a code folder.
+  // Get started does not open by itself. The empty state asks for a first project.
   await expect(
-    page.getByRole('main').getByRole('heading', { name: 'Open a code folder' }),
+    page.getByRole('main').getByRole('heading', { name: 'Add your first project' }),
   ).toBeVisible();
   await expect(page.getByRole('dialog')).toHaveCount(0);
   // With no project, the sidebar does not show Get started: the empty state asks.
@@ -49,7 +49,7 @@ test('an empty workspace asks for a code folder, and Get started opens from sear
   await expect(dialog.getByRole('button', { name: /^Say hello/ })).toBeDisabled();
   await expect(dialog.getByRole('button', { name: 'Open first chat' })).toHaveCount(0);
   // An empty project is the other way to start. Cancel returns to the steps.
-  await dialog.getByRole('button', { name: 'Start with an empty project', exact: true }).click();
+  await dialog.getByRole('button', { name: 'start with an empty project', exact: true }).click();
   await expect(page.getByRole('dialog')).toContainText('Project name');
   await page.getByRole('button', { name: 'Cancel', exact: true }).click();
   await expect(getStarted(page)).toBeVisible();
@@ -57,7 +57,7 @@ test('an empty workspace asks for a code folder, and Get started opens from sear
   await expect(page.getByRole('dialog')).toHaveCount(0);
   await page.reload();
   await expect(
-    page.getByRole('main').getByRole('heading', { name: 'Open a code folder' }),
+    page.getByRole('main').getByRole('heading', { name: 'Add your first project' }),
   ).toBeVisible();
   await expect(page.getByRole('dialog')).toHaveCount(0);
   await openSetup(page);
@@ -137,10 +137,12 @@ test('project and repository setup return to the steps', async ({ page }) => {
   await page.getByRole('button', { name: /^Open a code folder/ }).click();
   await expect(getStarted(page).getByRole('heading', { name: 'Open a code folder' })).toBeVisible();
   // The folder of the first chat is in step 3. Step 2 adds a folder to that project.
-  await page.getByRole('button', { name: 'Add code folder', exact: true }).click();
-  // The demo has no GitHub CLI, so the dialog starts with a local folder.
-  await expect(page.getByRole('dialog').last()).toContainText('Choose folder');
-  await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await getStarted(page).getByRole('button', { name: 'Add code folder…', exact: true }).click();
+  // The dialog opens on the Local tab.
+  const add = page.getByRole('dialog', { name: 'Add code folder', exact: true });
+  await expect(add.getByRole('button', { name: 'Choose folder…' })).toBeVisible();
+  await add.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await expect(add).toHaveCount(0);
   await expect(getStarted(page).getByRole('heading', { name: 'Open a code folder' })).toBeVisible();
 });
 
@@ -187,11 +189,11 @@ test('an empty overview has one action of each kind', async ({ page }) => {
     };
   });
   await page.goto('/');
-  // Get started does not open by itself. The empty overview asks for a code folder.
+  // Get started does not open by itself. The empty overview asks for a first project.
   await expect(page.getByRole('dialog')).toHaveCount(0);
   // The empty overview opens a code folder or makes an empty project. Each action shows once.
   const main = page.getByRole('main');
-  await expect(main.getByRole('heading', { name: 'Open a code folder' })).toBeVisible();
+  await expect(main.getByRole('heading', { name: 'Add your first project' })).toBeVisible();
   await expect(main.getByRole('button', { name: 'Open a folder…', exact: true })).toHaveCount(1);
   await expect(main.getByRole('button', { name: 'New empty project', exact: true })).toHaveCount(1);
   expect(errors).toEqual([]);
@@ -319,10 +321,10 @@ test('a true first run shows Welcome, signs in, and opens the empty workspace', 
   await expect(page.getByRole('heading', { name: 'Welcome to Kalkidan' })).toBeVisible();
   await expect(page.getByRole('navigation', { name: 'Projects and repositories' })).toHaveCount(0);
   // The region is a menu in the card. The user chooses it before the sign-in.
-  const region = page.getByRole('group', { name: 'Region' });
-  await region.getByRole('button').click();
+  const region = page.getByRole('button', { name: /^Region: / });
+  await region.click();
   await page.getByRole('menuitemradio', { name: /^European Union/ }).click();
-  await expect(region).toContainText('European Union');
+  await expect(region).toHaveAccessibleName('Region: European Union');
   await page.getByRole('button', { name: 'Sign in with Verdictan', exact: true }).click();
   await expect(
     page.getByRole('heading', { name: 'Finish signing in in your browser' }),
@@ -331,9 +333,9 @@ test('a true first run shows Welcome, signs in, and opens the empty workspace', 
   // After the sign-in, Welcome sets up the agents by itself and opens the workspace.
   await expect(page.getByRole('navigation', { name: 'Projects and repositories' })).toBeVisible();
   expect(await page.evaluate(() => (window as any).welcomeDone)).toBe(true);
-  // The empty workspace asks for a code folder. Get started does not open.
+  // The empty workspace asks for a first project. Get started does not open.
   await expect(
-    page.getByRole('main').getByRole('heading', { name: 'Open a code folder' }),
+    page.getByRole('main').getByRole('heading', { name: 'Add your first project' }),
   ).toBeVisible();
   await expect(page.getByRole('dialog')).toHaveCount(0);
   // The sidebar shows the signed-in account.

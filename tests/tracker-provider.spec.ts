@@ -106,7 +106,7 @@ test('project workflow mappings can be configured and reopened', async ({ page }
     .getByRole('navigation', { name: 'Project page', exact: true })
     .getByRole('button', { name: 'Tasks', exact: true })
     .click();
-  await page.getByRole('button', { name: 'Connect a board', exact: true }).click();
+  await page.getByRole('button', { name: 'Connect board', exact: true }).click();
   const connect = page.getByRole('dialog');
   await connect.getByRole('button', { name: 'Atlas roadmap #1', exact: true }).click();
   await connect.getByRole('button', { name: 'Connect board', exact: true }).click();
@@ -115,7 +115,7 @@ test('project workflow mappings can be configured and reopened', async ({ page }
   await openProjectSettings(page);
   const workflow = page.getByRole('dialog', { name: 'Project settings: Atlas', exact: true });
   await workflow.getByRole('tab', { name: 'Board', exact: true }).click();
-  const changes = workflow.getByRole('region', { name: 'Automatic status changes' });
+  const changes = workflow.getByRole('list', { name: 'Automatic status changes' });
   // A step with no saved status and no status of the default name does not move the task.
   const opened = changes.getByRole('combobox', { name: 'When a pull request opens' });
   await expect(opened).toContainText("Don't move");
@@ -200,10 +200,15 @@ test('board state is scoped to each project and survives panel remounts', async 
     (window as any).failBoard = true;
   });
   await refreshBoard(page);
-  await expect(page.getByRole('alert')).toContainText('Board unavailable');
+  // A failed sync shows in the toolbar. The tooltip gives the reason.
+  const tools = page.getByRole('toolbar', { name: 'Task tools', exact: true });
+  await expect(tools.getByRole('status')).toHaveText('Could not sync with GitHub');
+  await tools.getByText('Could not sync', { exact: true }).hover();
+  await expect(page.getByRole('tooltip')).toContainText('Board unavailable');
   await page.evaluate(() => {
     (window as any).failBoard = false;
   });
-  await refreshBoard(page);
-  await expect(page.getByRole('alert')).toHaveCount(0);
+  await tools.getByRole('button', { name: 'Try again', exact: true }).click();
+  await expect(tools.getByRole('status')).toHaveText('Synced just now');
+  await expect(tools.getByRole('button', { name: 'Try again', exact: true })).toHaveCount(0);
 });

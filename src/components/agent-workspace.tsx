@@ -11,6 +11,8 @@ import type { ChatLink } from '../domain/chat-fork';
 import { Conversation, type ConversationDraft } from './conversation';
 import type { MentionChat } from '../lib/mention-sections';
 import { Button } from './ui/button';
+import { AgentIcon } from './ui/agent-icon';
+import { Hint } from './hint';
 import { showToast } from './ui/toast';
 import { agentLabel, isAgent } from '../config/agents';
 import type { SessionActivity, SessionActivityState } from './activity-dot';
@@ -504,17 +506,28 @@ export function AgentWorkspace({
                   hidden={key !== selectedKey && key !== sideKey}
                 >
                   {key === sideKey && (
-                    <div className="tool-toolbar justify-between">
-                      <span className="pl-1">Side chat</span>
-                      <Button
-                        size="icon-sm"
-                        variant="ghost"
-                        aria-label="Close side chat"
+                    <div className="tool-toolbar" role="group" aria-label="Side chat">
+                      <AgentIcon agent={session.agent} className="size-4 shrink-0" />
+                      <span className="side-chat-title">
+                        {/^New( .*)? (session|chat)$/.test(titleOf(session))
+                          ? 'New chat'
+                          : titleOf(session)}
+                      </span>
+                      <span className="side-chat-agent">{agentLabel(session.agent)}</span>
+                      <Hint
+                        label={running[key] ? 'Wait for the response' : 'Close side chat'}
                         disabled={!!running[key]}
-                        onClick={() => setSideKey(null)}
                       >
-                        <X />
-                      </Button>
+                        <Button
+                          size="icon-sm"
+                          variant="ghost"
+                          aria-label="Close side chat"
+                          disabled={!!running[key]}
+                          onClick={() => setSideKey(null)}
+                        >
+                          <X />
+                        </Button>
+                      </Hint>
                     </div>
                   )}
                   <Conversation

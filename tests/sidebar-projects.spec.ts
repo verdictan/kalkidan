@@ -24,7 +24,6 @@ test('a project row shows its recent chats, not code folders or docs', async ({ 
   );
   // The sidebar has no Docs rows. Pages are in the Knowledge tab of the project.
   await expect(atlas.getByRole('button', { name: 'Docs of Atlas', exact: true })).toHaveCount(0);
-  await expect(atlas.locator('.tree-doc-row')).toHaveCount(0);
   for (const name of ['atlas-web', 'design-system', 'api-service', 'Tasks', 'Docs', 'Memory'])
     await expect(tree(page).getByRole('button', { name, exact: true })).toHaveCount(0);
   await expect(tree(page).getByText('Insights', { exact: true })).toHaveCount(0);
@@ -36,7 +35,7 @@ test('a project row shows its recent chats, not code folders or docs', async ({ 
   await expect(tree(page).getByRole('button', { name: 'New project', exact: true })).toHaveCount(1);
   await page.getByRole('button', { name: 'Manage project Atlas', exact: true }).click();
   await page.getByRole('menuitem', { name: 'Add code folder…', exact: true }).click();
-  await expect(page.getByRole('dialog', { name: 'Add code folders', exact: true })).toBeVisible();
+  await expect(page.getByRole('dialog', { name: 'Add code folder', exact: true })).toBeVisible();
   await page.keyboard.press('Escape');
   // An open chat does not show a second time in an "Open chats" section.
   await chat.click();

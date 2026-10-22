@@ -53,6 +53,7 @@ export function DispatchTool({
   board,
   items,
   onRemove,
+  allTasks,
   onOpenTask,
   onClose,
   repos,
@@ -181,6 +182,7 @@ export function DispatchTool({
         {!loading && !plan && (
           <>
             <SelectedTasks
+              all={allTasks}
               items={issues}
               onRemove={onRemove}
               limit={dispatchLimit}

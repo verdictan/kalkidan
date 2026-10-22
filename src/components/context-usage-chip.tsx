@@ -61,8 +61,9 @@ const openKnowledge = (detail: Record<string, string>) =>
   window.dispatchEvent(new CustomEvent('kalkidan-open-project-page', { detail }));
 
 /**
- * The facts and pages that the agent read in one chat. It shows in the chat header. A click
- * lists them; an item opens it in the Knowledge tab. Nothing shows when the agent read nothing.
+ * The facts and pages that the agent read in one chat. It shows under the last answer, with
+ * its text on the edge of the message column. A click lists them; an item opens it in the
+ * Knowledge tab. Nothing shows when the agent read nothing.
  */
 export function ContextUsageChip({
   api,
@@ -88,54 +89,54 @@ export function ContextUsageChip({
   const label = contextUsageLabel(usage);
   if (!usage || !label) return null;
   return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <Button variant="chip" size="sm" aria-label={`${label}. Show what the agent read`}>
-          <BookOpen aria-hidden="true" />
-          {label}
-        </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="max-w-80">
-        {usage.memory.length > 0 && <DropdownMenuLabel>Facts</DropdownMenuLabel>}
-        {usage.memory.map((fact) => (
-          <DropdownMenuItem
-            key={fact.id}
-            onSelect={() =>
-              openKnowledge({
-                groupId,
-                page: 'knowledge',
-                section: 'memory',
-                topic: fact.topic,
-                factId: fact.id,
-              })
-            }
-          >
-            <Lightbulb className="size-4" aria-hidden="true" />
-            <span className="truncate">{fact.title || fact.topic}</span>
-          </DropdownMenuItem>
-        ))}
-        {usage.docs.length > 0 && <DropdownMenuLabel>Pages</DropdownMenuLabel>}
-        {usage.docs.map((doc) => (
-          <DropdownMenuItem
-            key={doc.docId + (doc.heading || '')}
-            onSelect={() =>
-              openKnowledge({
-                groupId,
-                page: 'knowledge',
-                section: 'pages',
-                docId: doc.docId,
-                ...(doc.heading ? { heading: doc.heading } : {}),
-              })
-            }
-          >
-            <FileText className="size-4" aria-hidden="true" />
-            <span className="truncate">
+    <div className="context-usage">
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button variant="chip" aria-label={`${label}. Show what the agent read`}>
+            <BookOpen aria-hidden="true" />
+            {label}
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="start" width="wide">
+          {usage.memory.length > 0 && <DropdownMenuLabel>Facts</DropdownMenuLabel>}
+          {usage.memory.map((fact) => (
+            <DropdownMenuItem
+              key={fact.id}
+              onSelect={() =>
+                openKnowledge({
+                  groupId,
+                  page: 'knowledge',
+                  section: 'memory',
+                  topic: fact.topic,
+                  factId: fact.id,
+                })
+              }
+            >
+              <Lightbulb aria-hidden="true" />
+              {fact.title || fact.topic}
+            </DropdownMenuItem>
+          ))}
+          {usage.docs.length > 0 && <DropdownMenuLabel>Pages</DropdownMenuLabel>}
+          {usage.docs.map((doc) => (
+            <DropdownMenuItem
+              key={doc.docId + (doc.heading || '')}
+              onSelect={() =>
+                openKnowledge({
+                  groupId,
+                  page: 'knowledge',
+                  section: 'pages',
+                  docId: doc.docId,
+                  ...(doc.heading ? { heading: doc.heading } : {}),
+                })
+              }
+            >
+              <FileText aria-hidden="true" />
               {doc.title || 'Untitled'}
               {doc.heading ? ` › ${doc.heading}` : ''}
-            </span>
-          </DropdownMenuItem>
-        ))}
-      </DropdownMenuContent>
-    </DropdownMenu>
+            </DropdownMenuItem>
+          ))}
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </div>
   );
 }

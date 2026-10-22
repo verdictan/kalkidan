@@ -5,7 +5,6 @@ import {
   useRef,
   useState,
   type ComponentProps,
-  type FormEvent,
   type RefObject,
   type KeyboardEvent as ReactKeyboardEvent,
   type MouseEvent as ReactMouseEvent,
@@ -61,14 +60,16 @@ import { EmptyState } from './ui/empty-state';
 import type { TrackerItem } from '../domain/tracker';
 import type { API } from '../types';
 import { showToast } from './ui/toast';
-import { DocPagePicker } from './doc-page-picker';
+import { DocPagePicker, loadDocPages, matchingPageRows } from './doc-page-picker';
+import type { ProjectDocMetadata } from '../domain/docs';
 import { WikiContextMenu } from './wiki-context-menu';
 import { hasPrimaryModifier } from '../lib/platform';
 import { menuLabelClass } from './ui/menu-styles';
 
+/** An open menu at the caret: the typed text from `from` to `to`, and the menu position. */
 type Slash = { from: number; to: number; query: string; left: number; top: number };
-type CommandGroup = 'Ask and plan' | 'Blocks' | 'Links';
-const commandGroups: CommandGroup[] = ['Ask and plan', 'Blocks', 'Links'];
+type CommandGroup = 'Blocks' | 'Links';
+const commandGroups: CommandGroup[] = ['Blocks', 'Links'];
 export type Command = {
   label: string;
   /** The 16px icon on the left of the item. */
@@ -83,6 +84,49 @@ export type Command = {
 
 /** The slash menu height: the most rows that show, the group labels and the padding. */
 const slashHeight = 400;
+
+/** The position of a menu at the caret: under the line when there is space, else above it. */
+function menuPosition(rect: { left: number; top: number; bottom: number }) {
+  return {
+    left: Math.max(8, Math.min(rect.left, window.innerWidth - 328)),
+    top:
+      rect.bottom + 8 + slashHeight <= window.innerHeight - 8
+        ? rect.bottom + 8
+        : Math.max(8, rect.top - 8 - slashHeight),
+  };
+}
+
+/**
+ * The page link that the user types before the caret: "[[" or "@" at the start of a word, then
+ * the search text. Returns the position of "[[" or "@" in the text, or null.
+ */
+export function pageLinkTrigger(before: string) {
+  const link = /\[\[([^[\]\n]{0,60})$/.exec(before);
+  if (link) return { start: link.index, query: link[1] };
+  const at = /(^|\s)@([^\s@[\]]{0,40})$/.exec(before);
+  if (at) return { start: at.index + at[1].length, query: at[2] };
+  return null;
+}
+
+/**
+ * The Markdown of the editor without empty paragraphs ("&nbsp;" lines) and without more than
+ * one empty line in a row. Code blocks do not change.
+ */
+export function withoutEmptyParagraphs(markdown: string) {
+  const lines: string[] = [];
+  let fence = '';
+  for (const line of markdown.split('\n')) {
+    const marker = /^ {0,3}(`{3,}|~{3,})/.exec(line)?.[1];
+    if (marker && (!fence || (marker[0] === fence[0] && marker.length >= fence.length)))
+      fence = fence ? '' : marker;
+    else if (!fence) {
+      if (line.trim() === '&nbsp;') continue;
+      if (!line.trim() && !lines[lines.length - 1]?.trim()) continue;
+    }
+    lines.push(line);
+  }
+  return lines.join('\n').trim() ? lines.join('\n').replace(/^\n+/, '') : '';
+}
 
 /** True when the command label or one of its keywords contains the typed text. */
 export function commandMatches(command: Pick<Command, 'label' | 'keywords'>, query: string) {
@@ -209,7 +253,7 @@ export function TaskPicker({
                     {taskText(task)}
                   </span>
                   {task.status && (
-                    <span className="text-subtle max-w-[35%] shrink-0 truncate text-xs">
+                    <span className="text-muted-foreground max-w-[35%] shrink-0 truncate text-xs">
                       {task.status}
                     </span>
                   )}
@@ -452,12 +496,8 @@ export function checklistMarker(before: string) {
   return match ? { checked: match[1].toLowerCase() === 'x' } : null;
 }
 
-/** The page and task actions of the editor: in "/" and in the selection toolbar. */
+/** The task actions of the editor: "Link a task" in "/", and the selection toolbar. */
 export interface WikiEditorActions {
-  /** The number of tasks that the page makes. It shows on "Make this list into tasks". */
-  taskCount: number;
-  onMakeTasks: () => void;
-  onAskAgent: () => void;
   /** Links a task to the page. The editor also adds a link to the task in the text. */
   onLinkTask: (task: TrackerItem) => void;
   /** Opens the task picker when the project has no board yet: connect a board first. */
@@ -499,9 +539,11 @@ export function WikiEditor({
   const [linkOpen, setLinkOpen] = useState(false);
   const [url, setUrl] = useState('');
   const [editingLink, setEditingLink] = useState(false);
+  // The page picker of the Link dialog. It links the selected text to a page.
   const [pickerOpen, setPickerOpen] = useState(false);
-  // The text that opened the page picker ("[[" or "@"). It comes back when no page is picked.
-  const pickerTrigger = useRef('');
+  // "[[" or "@" opens a page menu at the caret. The typed text after it filters the pages.
+  const [mention, setMention] = useState<Slash | null>(null);
+  const [mentionPages, setMentionPages] = useState<ProjectDocMetadata[] | null>(null);
   const [taskPickerOpen, setTaskPickerOpen] = useState(false);
   // The format toolbar and the table toolbar each have one tab stop. Arrow keys move between
   // the buttons.
@@ -515,25 +557,38 @@ export function WikiEditor({
   const slashId = useId();
   const editorRef = useRef<Editor | null>(null);
   const keyHandler = useRef<(event: KeyboardEvent) => boolean>(() => false);
+  /** The page menu for "[[" or "@" before the caret, or null. Not in code. */
+  function mentionAt(editor: Editor): Slash | null {
+    const { $from, empty } = editor.state.selection;
+    if (!groupId || !empty || $from.parent.type.name === 'codeBlock') return null;
+    if (editor.state.schema.marks.code?.isInSet($from.marks())) return null;
+    const before = $from.parent.textBetween(0, $from.parentOffset, undefined, '\ufffc');
+    const trigger = pageLinkTrigger(before);
+    if (!trigger) return null;
+    const from = $from.pos - (before.length - trigger.start);
+    return {
+      from,
+      to: $from.pos,
+      query: trigger.query,
+      ...menuPosition(editor.view.coordsAtPos(from)),
+    };
+  }
   function detect(editor: Editor) {
     const { $from, empty } = editor.state.selection;
     const prefix = $from.parent.textBetween(0, $from.parentOffset);
     const match = empty && $from.parent.type.name === 'paragraph' && /^\/([\w ]*)$/.exec(prefix);
+    const nextMention = match ? null : mentionAt(editor);
+    setMention(nextMention);
     if (!match) {
       setSlash(null);
+      if (nextMention) setIndex(0);
       return;
     }
-    const rect = editor.view.coordsAtPos($from.pos);
     setSlash({
       from: $from.start(),
       to: $from.pos,
       query: match[1],
-      left: Math.max(8, Math.min(rect.left, window.innerWidth - 328)),
-      // Below the line when there is space, else above it.
-      top:
-        rect.bottom + 8 + slashHeight <= window.innerHeight - 8
-          ? rect.bottom + 8
-          : Math.max(8, rect.top - 8 - slashHeight),
+      ...menuPosition(editor.view.coordsAtPos($from.pos)),
     });
     setIndex(0);
   }
@@ -563,21 +618,6 @@ export function WikiEditor({
       // already a list item. Without this, the list shortcut puts a second list in the item,
       // and literal text "- " would load again as a nested list. Use Tab to make a nested list.
       handleTextInput: (view, from, to, text) => {
-        // "[[" and "@" open the page picker. A page link goes in place of the typed text.
-        if (groupId && (text === '[' || text === '@') && view.state.selection.empty) {
-          const { $from } = view.state.selection;
-          const before = $from.parent.textBetween(0, $from.parentOffset);
-          const opens =
-            $from.parent.type.name !== 'codeBlock' &&
-            !view.state.schema.marks.code?.isInSet($from.marks()) &&
-            (text === '[' ? before.endsWith('[') : !before || /\s$/.test(before));
-          if (opens) {
-            if (text === '[') view.dispatch(view.state.tr.delete(from - 1, to));
-            pickerTrigger.current = text === '[' ? '[[' : '@';
-            setPickerOpen(true);
-            return true;
-          }
-        }
         if (text !== ' ') return false;
         const { $from } = view.state.selection;
         const inList = $from.depth >= 2 ? $from.node(-1).type.name : '';
@@ -606,7 +646,7 @@ export function WikiEditor({
       },
     },
     onUpdate: ({ editor }) => {
-      onChange(editor.getMarkdown());
+      onChange(withoutEmptyParagraphs(editor.getMarkdown()));
       detect(editor);
     },
     onSelectionUpdate: ({ editor }) => {
@@ -618,67 +658,63 @@ export function WikiEditor({
   useEffect(() => {
     if (editor && editor.isEditable === readOnly) editor.setEditable(!readOnly, false);
   }, [editor, readOnly]);
-  const planCommands: Command[] = actions
-    ? [
-        {
-          label: actions.taskCount
-            ? `Make this list into tasks (${actions.taskCount})`
-            : 'Make this list into tasks',
-          icon: ListChecks,
-          keywords: ['tasks', 'issues', 'plan', 'board', 'create'],
-          group: 'Ask and plan',
-          run: () => actions.onMakeTasks(),
-        },
-        {
-          label: 'Link a task',
-          icon: CircleDot,
-          keywords: ['link', 'task', 'issue', 'board'],
-          group: 'Ask and plan',
-          run: () =>
-            tasks === undefined && actions.onConnectBoard
-              ? actions.onConnectBoard()
-              : setTaskPickerOpen(true),
-        },
-        {
-          label: 'Ask an agent about this page',
-          icon: MessageSquare,
-          keywords: ['agent', 'chat', 'ask', 'codex', 'claude'],
-          group: 'Ask and plan',
-          run: () => actions.onAskAgent(),
-        },
-      ]
-    : tasks !== undefined
+  // The whole-page actions (Ask agent, Make tasks) are in the document bar. "/" only links.
+  const linkCommands: Command[] = [
+    ...(groupId
+      ? [
+          {
+            label: 'Link to page',
+            icon: FileText,
+            shortcut: '[[',
+            keywords: ['link', 'page', 'doc', 'wiki'],
+            group: 'Links' as const,
+            // "[[" opens the page menu at the caret.
+            run: (e: Editor) => e.chain().focus().insertContent('[[').run(),
+          },
+        ]
+      : []),
+    ...(actions || tasks !== undefined
       ? [
           {
             label: 'Link a task',
             icon: CircleDot,
             keywords: ['link', 'task', 'issue', 'board'],
-            group: 'Links',
-            run: () => setTaskPickerOpen(true),
+            group: 'Links' as const,
+            run: () =>
+              tasks === undefined && actions?.onConnectBoard
+                ? actions.onConnectBoard()
+                : setTaskPickerOpen(true),
           },
         ]
-      : [];
-  const linkCommands: Command[] = groupId
-    ? [
-        {
-          label: 'Link to page',
-          icon: FileText,
-          shortcut: '[[',
-          keywords: ['link', 'page', 'doc', 'wiki'],
-          group: 'Links',
-          run: () => setPickerOpen(true),
-        },
-      ]
-    : [];
-  const allCommands: Command[] = [...planCommands, ...commands, ...linkCommands];
+      : []),
+  ];
+  const allCommands: Command[] = [...commands, ...linkCommands];
   const filtered = allCommands.filter((c) => commandMatches(c, slash?.query || ''));
-  const activeOption = slash && !readOnly && filtered[index] ? `${slashId}-${index}` : '';
-  // Focus stays in the editor while the slash menu is open. Point assistive
+  // The pages of the "[[" menu. They load each time the menu opens.
+  const mentionOpen = !!mention && !readOnly;
+  useEffect(() => {
+    if (!mentionOpen || !groupId) return;
+    let live = true;
+    setMentionPages(null);
+    loadDocPages(groupId, api)
+      .then((value) => live && setMentionPages(value))
+      .catch(() => live && setMentionPages([]));
+    return () => {
+      live = false;
+    };
+  }, [mentionOpen, groupId, api]);
+  const mentionRows = mention
+    ? matchingPageRows(mentionPages || [], mention.query).slice(0, 8)
+    : [];
+  const menuOpen = (!!slash || !!mention) && !readOnly;
+  const optionCount = slash ? filtered.length : mentionRows.length;
+  const activeOption = menuOpen && index < optionCount ? `${slashId}-${index}` : '';
+  // Focus stays in the editor while the slash menu or the page menu is open. Point assistive
   // technology at the highlighted option.
   useEffect(() => {
     const dom = editor?.view.dom;
     if (!dom) return;
-    if (slash && !readOnly) {
+    if (menuOpen) {
       dom.setAttribute('aria-controls', `${slashId}-list`);
       dom.setAttribute('aria-autocomplete', 'list');
     } else {
@@ -696,7 +732,7 @@ export function WikiEditor({
           list.scrollTop = option.offsetTop + option.offsetHeight - list.clientHeight + 4;
       }
     } else dom.removeAttribute('aria-activedescendant');
-  }, [editor, slash, readOnly, activeOption, slashId]);
+  }, [editor, menuOpen, activeOption, slashId]);
   function openLink() {
     if (!editor) return;
     const href = editor.getAttributes('link').href || '';
@@ -705,8 +741,7 @@ export function WikiEditor({
     setLinkOpen(true);
   }
   const validUrl = /^(https?:\/\/|mailto:|#)/i.test(url.trim()) || !!pageIdFromHref(url);
-  function applyLink(event: FormEvent) {
-    event.preventDefault();
+  function applyLink() {
     if (!validUrl) return;
     editor?.chain().focus().extendMarkRange('link').setLink({ href: url.trim() }).run();
     setLinkOpen(false);
@@ -793,8 +828,16 @@ export function WikiEditor({
   function choose(i: number) {
     if (!editor || !slash || !filtered[i]) return;
     editor.chain().focus().deleteRange({ from: slash.from, to: slash.to }).run();
-    filtered[i].run(editor);
     setSlash(null);
+    filtered[i].run(editor);
+  }
+  /** Puts a link to the page in place of "[[" or "@" and the typed text. */
+  function chooseMention(i: number) {
+    const row = mentionRows[i];
+    if (!editor || !mention || !row) return;
+    editor.chain().focus().deleteRange({ from: mention.from, to: mention.to }).run();
+    setMention(null);
+    linkPage({ id: row.page.id, title: row.page.title });
   }
   /**
    * A click on a docs page link opens that page. A click on a task link opens the task in
@@ -833,20 +876,28 @@ export function WikiEditor({
       (buttons[Math.min(toolIndex, buttons.length - 1)] || buttons[0]).focus();
       return true;
     }
-    if (!slash) return false;
-    if (event.key === 'Escape') {
+    if (mention && editor) {
+      // Escape removes "[[" or "@" and the typed text, so no trigger text stays in the page.
+      if (event.key === 'Escape') {
+        editor.chain().focus().deleteRange({ from: mention.from, to: mention.to }).run();
+        setMention(null);
+        return true;
+      }
+      if ((event.key === 'Enter' || event.key === 'Tab') && mentionRows.length) {
+        chooseMention(Math.min(index, mentionRows.length - 1));
+        return true;
+      }
+    } else if (!slash) return false;
+    if (slash && event.key === 'Escape') {
       setSlash(null);
       return true;
     }
     if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
-      setIndex(
-        (i) =>
-          (i + (event.key === 'ArrowDown' ? 1 : -1) + Math.max(1, filtered.length)) %
-          Math.max(1, filtered.length),
-      );
+      const count = Math.max(1, optionCount);
+      setIndex((i) => (i + (event.key === 'ArrowDown' ? 1 : -1) + count) % count);
       return true;
     }
-    if (event.key === 'Enter' && filtered.length) {
+    if (slash && event.key === 'Enter' && filtered.length) {
       choose(index);
       return true;
     }
@@ -927,7 +978,7 @@ export function WikiEditor({
               <Button
                 variant="ghost"
                 size="xs"
-                className="wiki-bubble-style rounded-sm"
+                className="wiki-bubble-style"
                 aria-label={`Text style: ${textStyle?.label || 'Mixed'}`}
                 aria-haspopup="menu"
                 aria-expanded={textMenu}
@@ -971,7 +1022,6 @@ export function WikiEditor({
                   key={name}
                   variant="ghost"
                   size="icon-xs"
-                  className="rounded-sm"
                   aria-label={name}
                   aria-pressed={editor.isActive(mark)}
                   tabIndex={i + 1 === toolIndex ? 0 : -1}
@@ -985,7 +1035,6 @@ export function WikiEditor({
               <Button
                 variant="ghost"
                 size="icon-xs"
-                className="rounded-sm"
                 aria-label={editor.isActive('link') ? 'Edit link' : 'Add link'}
                 aria-pressed={editor.isActive('link')}
                 tabIndex={toolIndex === 5 ? 0 : -1}
@@ -1001,7 +1050,6 @@ export function WikiEditor({
                   <Button
                     variant="ghost"
                     size="xs"
-                    className="rounded-sm"
                     tabIndex={toolIndex === 6 ? 0 : -1}
                     onFocus={() => setToolIndex(6)}
                     onMouseDown={(e) => e.preventDefault()}
@@ -1016,7 +1064,6 @@ export function WikiEditor({
                   <Button
                     variant="ghost"
                     size="xs"
-                    className="rounded-sm"
                     tabIndex={toolIndex === 7 ? 0 : -1}
                     onFocus={() => setToolIndex(7)}
                     onMouseDown={(e) => e.preventDefault()}
@@ -1184,7 +1231,45 @@ export function WikiEditor({
                 );
               })
             ) : (
-              <p className="wiki-slash-empty">No matching blocks</p>
+              <p className="menu-empty">No matching blocks</p>
+            )}
+          </div>,
+          document.body,
+        )}
+      {mention &&
+        !readOnly &&
+        createPortal(
+          <div
+            id={`${slashId}-list`}
+            className="wiki-slash"
+            role="listbox"
+            aria-label="Link to page"
+            style={{ left: mention.left, top: mention.top }}
+          >
+            <p className={menuLabelClass}>Link to page</p>
+            {mentionPages === null ? (
+              <p className="menu-empty">Loading pages…</p>
+            ) : mentionRows.length ? (
+              mentionRows.map(({ page, path }, i) => (
+                <button
+                  key={page.id}
+                  id={`${slashId}-${i}`}
+                  role="option"
+                  tabIndex={-1}
+                  aria-selected={i === index}
+                  onMouseDown={(e) => e.preventDefault()}
+                  onMouseMove={() => setIndex(i)}
+                  onClick={() => chooseMention(i)}
+                >
+                  <FileText size={16} aria-hidden="true" />
+                  <span>{page.title || 'Untitled'}</span>
+                  {path && <span className="wiki-slash-path">{path}</span>}
+                </button>
+              ))
+            ) : (
+              <p className="menu-empty">
+                {mentionPages.length ? 'No matching pages' : 'No pages yet'}
+              </p>
             )}
           </div>,
           document.body,
@@ -1197,59 +1282,64 @@ export function WikiEditor({
             if (pickerOpen) event.preventDefault();
           }}
         >
-          <form className="contents" onSubmit={applyLink}>
-            <DialogHeader>
-              <DialogTitle>{editingLink ? 'Edit link' : 'Add link'}</DialogTitle>
-              <DialogDescription>
-                Type a web address, an email link, or a heading link.
-                {groupId && ' Or link to a page in these docs.'}
-              </DialogDescription>
-            </DialogHeader>
-            <DialogBody className="grid gap-3">
-              <Input
-                aria-label="Link URL"
-                autoFocus
-                value={url}
-                onChange={(e) => setUrl(e.target.value)}
-                placeholder="https://…"
-              />
-              {groupId && (
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className="justify-self-start"
-                  onClick={() => {
-                    setLinkOpen(false);
-                    setPickerOpen(true);
-                  }}
-                >
-                  <FileText /> Link a page…
-                </Button>
-              )}
-            </DialogBody>
-            <DialogFooter>
-              {editingLink && (
-                <Button
-                  type="button"
-                  variant="ghost"
-                  className="sm:mr-auto"
-                  onClick={() => {
-                    editor?.chain().focus().extendMarkRange('link').unsetLink().run();
-                    setLinkOpen(false);
-                  }}
-                >
-                  Remove link
-                </Button>
-              )}
-              <Button type="button" variant="outline" onClick={() => setLinkOpen(false)}>
-                Cancel
+          {/* No form element: the header, body and footer must be direct children for the
+              dialog padding. Enter in the field applies the link. */}
+          <DialogHeader>
+            <DialogTitle>{editingLink ? 'Edit link' : 'Add link'}</DialogTitle>
+            <DialogDescription>
+              Type a web address, an email link, or a heading link.
+              {groupId && ' Or link to a page in these docs.'}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogBody className="grid gap-3">
+            <Input
+              aria-label="Link URL"
+              autoFocus
+              value={url}
+              onChange={(e) => setUrl(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key !== 'Enter' || e.nativeEvent.isComposing) return;
+                e.preventDefault();
+                applyLink();
+              }}
+              placeholder="https://…"
+            />
+            {groupId && (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="justify-self-start"
+                onClick={() => {
+                  setLinkOpen(false);
+                  setPickerOpen(true);
+                }}
+              >
+                <FileText /> Link a page…
               </Button>
-              <Button type="submit" disabled={!validUrl}>
-                Apply link
+            )}
+          </DialogBody>
+          <DialogFooter>
+            {editingLink && (
+              <Button
+                type="button"
+                variant="ghost"
+                className="sm:mr-auto"
+                onClick={() => {
+                  editor?.chain().focus().extendMarkRange('link').unsetLink().run();
+                  setLinkOpen(false);
+                }}
+              >
+                Remove link
               </Button>
-            </DialogFooter>
-          </form>
+            )}
+            <Button type="button" variant="outline" onClick={() => setLinkOpen(false)}>
+              Cancel
+            </Button>
+            <Button type="button" disabled={!validUrl} onClick={applyLink}>
+              Apply link
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
       {tasks !== undefined && (
@@ -1272,18 +1362,8 @@ export function WikiEditor({
           api={api}
           groupId={groupId}
           open={pickerOpen}
-          onOpenChange={(open) => {
-            setPickerOpen(open);
-            // No page was picked: give back the text that opened the picker.
-            if (!open && pickerTrigger.current) {
-              editor?.chain().focus().insertContent(pickerTrigger.current).run();
-              pickerTrigger.current = '';
-            }
-          }}
-          onPick={(doc) => {
-            pickerTrigger.current = '';
-            linkPage(doc);
-          }}
+          onOpenChange={setPickerOpen}
+          onPick={linkPage}
           title="Link a page"
           onCloseAutoFocus={(event) => {
             event.preventDefault();

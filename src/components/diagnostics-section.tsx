@@ -263,7 +263,7 @@ export function DiagnosticsSection({ api, open = true }: { api: API; open?: bool
                     aria-label="Support bundle preview"
                     data-testid="support-bundle-preview"
                     tabIndex={0}
-                    className="max-h-72 min-w-0 overflow-auto rounded-md border bg-muted/40 p-2 text-[11px] leading-4 break-all whitespace-pre-wrap"
+                    className="max-h-72 min-w-0 overflow-auto rounded-md border bg-muted/40 p-2 text-2xs break-all whitespace-pre-wrap"
                   >
                     {preview.text}
                   </pre>

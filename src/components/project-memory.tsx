@@ -36,6 +36,7 @@ import type {
 import { useProjectResource } from '../hooks/use-project-resource';
 import { errorMessage } from '../lib/errors';
 import { plural } from '../lib/platform';
+import { cn } from '../lib/utils';
 import { fullTime, relativeTime } from '../lib/relative-time';
 import { managedSteps, memoryEmptyAction, type ManagedSteps } from '../lib/verdictan-labels';
 import { managedAgentsChangedEvent } from './verdictan-settings';
@@ -229,16 +230,17 @@ const openSession = (session: Session) =>
     new CustomEvent('kalkidan-open-session', { detail: { agent: session.agent, id: session.id } }),
   );
 
+/** A link to the source chat of a fact. It is meta text: muted, with an underline on hover. */
 function SessionLink({ session }: { session: Session }) {
   return (
-    <button
+    <Button
       type="button"
-      className="text-link max-w-full truncate"
-      title={session.title}
+      variant="link"
+      className="max-w-full text-muted-foreground hover:text-foreground"
       onClick={() => openSession(session)}
     >
-      {session.title || 'Untitled chat'}
-    </button>
+      <span className="truncate">{session.title || 'Untitled chat'}</span>
+    </Button>
   );
 }
 
@@ -307,7 +309,8 @@ export function ProjectMemoryPanel({
   api,
   group,
   sessions: sessionsProp,
-  initialTopic,
+  topic: topicProp = '',
+  onShowAll,
   focus,
   addSerial = 0,
   readCounts,
@@ -317,8 +320,10 @@ export function ProjectMemoryPanel({
   group: ProjectGroup;
   /** The chats of the app. They give the titles of the source chats. */
   sessions?: Session[];
-  /** Scrolls to this topic, for example from a search result or another page. */
-  initialTopic?: string;
+  /** Shows only the facts of this topic. Empty: all facts. */
+  topic?: string;
+  /** Shows all facts again after a topic. */
+  onShowAll?: () => void;
   /** Scrolls to this fact and highlights it. The serial repeats a request. */
   focus?: { id: string; serial: number };
   /** A new value opens the form for a new fact. */
@@ -343,8 +348,12 @@ export function ProjectMemoryPanel({
   const sessions = sessionsProp || loadedSessions;
   const list = useRef<HTMLDivElement>(null);
   const emptyAction = memoryEmptyAction(useManagedSteps(api));
-  const topics = useMemo(() => factTopics(facts), [facts]);
-  const topicNames = topics.map((item) => item.topic);
+  const allTopics = useMemo(() => factTopics(facts), [facts]);
+  const topicNames = allTopics.map((item) => item.topic);
+  // A topic from the rail or a search result shows only its facts.
+  const topicName = topicNames.find((name) => name.toLowerCase() === topicProp.toLowerCase());
+  const topics = topicName ? allTopics.filter((item) => item.topic === topicName) : allTopics;
+  const shown = topics.reduce((total, item) => total + item.facts.length, 0);
 
   // Without the chats from the app, read them once to show the source chat titles.
   useEffect(() => {
@@ -361,12 +370,10 @@ export function ProjectMemoryPanel({
   useEffect(() => {
     if (addSerial) startAdd();
   }, [addSerial]);
-  // Scroll to the requested topic or fact when the facts show.
+  // A new topic starts at the top of the pane.
   useEffect(() => {
-    if (!initialTopic || !facts.length) return;
-    const topic = topicNames.find((name) => name.toLowerCase() === initialTopic.toLowerCase());
-    document.getElementById(topicAnchor(topic || initialTopic))?.scrollIntoView({ block: 'start' });
-  }, [initialTopic, facts.length > 0]);
+    list.current?.closest('.knowledge-pane')?.scrollTo({ top: 0 });
+  }, [topicName]);
   useEffect(() => {
     if (!focus || !facts.length) return;
     setHighlight(focus.id);
@@ -386,7 +393,7 @@ export function ProjectMemoryPanel({
   function startAdd() {
     setActionError('');
     setFormError('');
-    setEditing({ topic: initialTopic || '', content: '' });
+    setEditing({ topic: topicName || '', content: '' });
   }
   async function saveEntry(value: MemoryEntryInput) {
     setBusy(true);
@@ -559,13 +566,19 @@ export function ProjectMemoryPanel({
     <section className="project-memory" aria-label="Memory">
       <div className="knowledge-pane-header">
         {switcher}
-        <h2 className="knowledge-pane-title">Memory</h2>
-        {facts.length > 0 && (
-          <span className="knowledge-pane-count">{plural(facts.length, 'fact')}</span>
-        )}
+        {/* In a narrow window the switcher shows the name, so the title is for screen readers. */}
+        <h2 className={cn('knowledge-pane-title', switcher && '@max-[719px]:sr-only')}>
+          {topicName || 'Memory'}
+        </h2>
+        {shown > 0 && <span className="knowledge-pane-count">{plural(shown, 'fact')}</span>}
         <span className="flex-1" />
-        {memory && (facts.length > 0 || editing) && (
-          <Button size="sm" disabled={busy || (!!editing && !editing.id)} onClick={startAdd}>
+        {topicName && onShowAll && (
+          <Button variant="ghost" size="sm" onClick={onShowAll}>
+            All facts
+          </Button>
+        )}
+        {memory && facts.length > 0 && !(editing && !editing.id) && (
+          <Button variant="outline" size="sm" disabled={busy} onClick={startAdd}>
             <Plus /> Add fact
           </Button>
         )}
@@ -626,13 +639,13 @@ export function ProjectMemoryPanel({
           {topics.map((item) => (
             <section
               key={item.topic}
-              className="memory-topic-group"
-              aria-labelledby={topicAnchor(item.topic)}
+              aria-labelledby={topicName ? undefined : topicAnchor(item.topic)}
             >
-              <h3 id={topicAnchor(item.topic)} className="memory-topic-title">
-                {item.topic}
-                <span className="memory-topic-count">{item.facts.length}</span>
-              </h3>
+              {!topicName && (
+                <h3 id={topicAnchor(item.topic)} className="memory-topic-title">
+                  {item.topic}
+                </h3>
+              )}
               <ul className="memory-facts">
                 {item.facts.map((fact) => {
                   const entry = fact.entry;
@@ -739,7 +752,7 @@ export function ProjectMemoryPanel({
       )}
       <ConfirmDialog
         open={!!forgetting}
-        title="Remove this fact?"
+        title="Remove fact"
         description="Agents stop using this fact. You cannot undo this."
         confirmLabel="Remove fact"
         destructive

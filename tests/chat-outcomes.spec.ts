@@ -160,7 +160,7 @@ test('a refused new chat stays a draft and shows the refused dot', async ({ page
   const composer = page.getByLabel('Message agent');
   await composer.fill('Reply OK.');
   await composer.press('Enter');
-  await expect(page.locator('.chat-message.user .chat-send-failure')).toBeVisible();
+  await expect(page.locator('.chat-message.user + .chat-card')).toBeVisible();
   const dot = tree(page).locator('.session-row .activity-dot[data-state="refused"]');
   await expect(dot).toHaveCount(1);
   await expect(dot).toHaveAttribute('title', refusedWords);

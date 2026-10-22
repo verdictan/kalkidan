@@ -3,14 +3,12 @@ import { trackerConnection, type TrackerBoard } from '../domain/tracker';
 import { CreateProject } from './create-project';
 import { startFirstChat } from './onboarding';
 import { useState } from 'react';
-import { Folder, FolderOpen, FolderPlus, Inbox, Plus } from 'lucide-react';
-import { AgentIcon } from './ui/agent-icon';
+import { Folder, FolderOpen, FolderPlus, Loader2, Plus } from 'lucide-react';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
 import { EmptyState } from './ui/empty-state';
 import { EntityIcon } from './ui/entity-icon';
 import { PageHeader, SectionHeader } from './ui/page-header';
-import { SegmentedControl } from './ui/segmented-control';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table';
 import type { API, ProjectGroup, Project, Session } from '../types';
 import { sessionRepo } from '../lib/session-repository';
@@ -30,10 +28,6 @@ import {
   type SessionActivityState,
 } from './activity-dot';
 import { NodeField } from './node-field';
-
-const recentLimit = 5;
-/** The views of the Projects page. */
-export type OverviewTab = 'projects' | 'waiting';
 
 /** A chat that waits for the user, or a run that finished and is not seen yet. */
 export interface NeedsYouItem {
@@ -71,50 +65,63 @@ export function useNeedsYou(sessions: Session[], repos: Project[]): NeedsYouItem
   return items;
 }
 
-/** The "Needs you" list. Each row opens its chat. */
-export function NeedsYouList({
-  items,
+/**
+ * The one "Waiting for you" page: the chats that wait for an approval or an answer, or that
+ * finished and are not seen yet, then the tasks of the connected boards that are assigned to
+ * the user. The sidebar row opens it.
+ */
+export function WaitingPage({
+  api,
   groups,
-  onOpen,
-  showProject = true,
+  repos,
+  sessions,
+  onResume,
 }: {
-  items: NeedsYouItem[];
+  api: API;
   groups: ProjectGroup[];
-  onOpen: (session: Session) => void;
-  showProject?: boolean;
+  repos: Project[];
+  sessions: Session[];
+  onResume: (session: Session) => void;
 }) {
+  const needsYou = useNeedsYou(sessions, repos);
+  const boards =
+    typeof api.trackerPortfolio === 'function' &&
+    groups.some((group) => trackerConnection(group)?.provider === 'github');
+  const placeOf = (repo: Project) => groups.find((g) => g.repoIds.includes(repo.id))?.name;
   return (
-    <ul className="needs-you-list">
-      {items.map(({ session, repo, reason, state, at }) => {
-        const title = session.organization?.title || session.title;
-        const project = groups.find((g) => g.repoIds.includes(repo.id))?.name;
-        return (
-          <li key={session.agent + ':' + session.id} className="needs-you-row">
-            <EntityIcon>
-              <AgentIcon agent={session.agent} />
-            </EntityIcon>
-            <span className="needs-you-text">
-              <span className="needs-you-title" title={title}>
-                {title}
-              </span>
-              <span className="needs-you-meta">
-                {[reason, showProject ? project : undefined, repo.name].filter(Boolean).join(' · ')}
-                {at && ` · ${relativeTime(at)}`}
-              </span>
-            </span>
-            <ActivityDot state={state} />
-            <Button
-              variant="outline"
-              size="xs"
-              aria-label={`Open ${title}`}
-              onClick={() => onOpen(session)}
-            >
-              Open
-            </Button>
-          </li>
-        );
-      })}
-    </ul>
+    <section className="page" aria-label="Waiting for you">
+      <PageHeader title="Waiting for you" reserveSubtitle />
+      {(needsYou.length > 0 || boards) && (
+        <section className="waiting-section" aria-label="Chats">
+          {/* With tasks below, the chats get their own header. */}
+          {boards && <SectionHeader title="Chats" count={needsYou.length} />}
+          {needsYou.length > 0 ? (
+            <div className="chat-list">
+              {needsYou.map(({ session, repo, reason, state }) => (
+                <ChatRow
+                  key={activityKey(session.agent, session.id)}
+                  session={session}
+                  activity={state}
+                  onOpen={onResume}
+                  meta={[reason, placeOf(repo), repo.name].filter(Boolean).join(' · ')}
+                />
+              ))}
+            </div>
+          ) : (
+            <p className="text-xs text-muted-foreground">No chats wait for you.</p>
+          )}
+        </section>
+      )}
+      {!needsYou.length && !boards && (
+        <p className="text-sm text-muted-foreground">Nothing waits for you.</p>
+      )}
+      {boards && (
+        <section className="waiting-section" aria-label="Tasks">
+          <SectionHeader title="Tasks" />
+          <ProjectPortfolio api={api} groups={groups} />
+        </section>
+      )}
+    </section>
   );
 }
 
@@ -125,30 +132,17 @@ export function ProjectOverview({
   sessions,
   query,
   onSelect,
-  onResume,
   onRefresh,
-  activity = {},
   boards = {},
-  tab = 'projects',
-  onTabChange,
 }: {
-  /** Opens the list of all chats in every project. Not used: the sidebar has All chats. */
-  onAllSessions?: () => void;
-  /** Background state of open chats, by `activityKey`. */
-  activity?: Record<string, SessionActivityState>;
   /** The boards of the connected projects, for the Tasks column. */
   boards?: Record<string, TrackerBoard>;
-  /** "projects" shows the projects. "waiting" shows what waits for the user. */
-  tab?: OverviewTab;
-  onTabChange?: (tab: OverviewTab) => void;
   api: API;
   groups: ProjectGroup[];
   repos: Project[];
   sessions: Session[];
   query: string;
   onSelect: (group: ProjectGroup) => void;
-  /** Opens a chat from the recent chats list. */
-  onResume?: (session: Session) => void;
   onRefresh: () => Promise<void>;
 }) {
   const [open, setOpen] = useState(false);
@@ -158,6 +152,7 @@ export function ProjectOverview({
   /** Chooses a folder, makes a project with its name, and adds the Git repositories in it. */
   async function openCodeFolder() {
     if (!folderImport.supported) return setOpen(true);
+    if (importing) return;
     setImporting(true);
     try {
       const result = await folderImport.choose('Choose a code folder', 'Choose');
@@ -192,8 +187,6 @@ export function ProjectOverview({
     .map((session) => ({ session, repo: sessionRepo(session, repos) }))
     .filter((item): item is { session: Session; repo: Project } => !!item.repo)
     .sort((a, b) => (b.session.updatedAt || '').localeCompare(a.session.updatedAt || ''));
-  const portfolio = typeof api.trackerPortfolio === 'function' && groups.length > 0;
-  const shownTab: OverviewTab = tab === 'waiting' ? 'waiting' : 'projects';
   const rows = visible.map((group) => {
     const members = repos.filter((r) => group.repoIds.includes(r.id));
     const chats = recent.filter(({ repo }) => group.repoIds.includes(repo.id));
@@ -208,13 +201,13 @@ export function ProjectOverview({
   const showTasks = rows.some((row) => row.openTasks !== undefined || trackerConnection(row.group));
   const showFolders = rows.some((row) => row.members.length > 0);
   const muted = <span className="text-muted-foreground">—</span>;
-  const placeOf = (repo: Project) => groups.find((g) => g.repoIds.includes(repo.id))?.name;
   return (
     <section className={'page' + (groups.length ? '' : ' focus-page')} aria-label="Projects">
       {/* The empty page has one job, so it gets the quiet node background. */}
       {!groups.length && <NodeField corners="bottom" />}
       <PageHeader
         title="Projects"
+        reserveSubtitle
         actions={
           // With no projects, the empty state shows the only "New project" action.
           !!groups.length && (
@@ -225,182 +218,118 @@ export function ProjectOverview({
           )
         }
       />
-      {!!groups.length && onTabChange && (
-        <SegmentedControl
-          className="project-overview-tabs"
-          label="Projects view"
-          value={shownTab}
-          onChange={(value) => onTabChange(value)}
-          options={[
-            { value: 'projects', label: 'All projects' },
-            {
-              value: 'waiting',
-              label: needsYou.length ? `Waiting for you (${needsYou.length})` : 'Waiting for you',
-            },
-          ]}
-        />
-      )}
-      {shownTab === 'waiting' && groups.length ? (
-        <>
-          {needsYou.length ? (
-            <div className="chat-list">
-              {needsYou.map(({ session, repo, reason, state }) => (
-                <ChatRow
-                  key={activityKey(session.agent, session.id)}
-                  session={session}
-                  activity={state}
-                  onOpen={(item) => onResume?.(item)}
-                  meta={[reason, placeOf(repo), repo.name].filter(Boolean).join(' · ')}
-                />
-              ))}
-            </div>
-          ) : (
-            !portfolio && <EmptyState icon={<Inbox />} title="Nothing waits for you" />
-          )}
-          {portfolio && (
-            <section className="project-recent" aria-label="Assigned to you">
-              <ProjectPortfolio api={api} groups={groups} />
-            </section>
-          )}
-        </>
-      ) : (
-        <>
-          {!!visible.length && (
-            <div className="project-directory">
-              <Table>
-                <colgroup>
-                  <col className="project-name-column" />
-                  {showFolders && <col className="project-repositories-column" />}
-                  <col className="project-sessions-column" />
-                  {showTasks && <col className="project-tasks-column" />}
-                  <col className="project-waiting-column" />
-                </colgroup>
-                <TableHeader>
-                  <TableRow className="hover:bg-transparent">
-                    <TableHead className="pl-0">Name</TableHead>
-                    {showFolders && <TableHead>Code folders</TableHead>}
-                    <TableHead>Chats</TableHead>
-                    {showTasks && <TableHead>Open tasks</TableHead>}
-                    <TableHead className="pr-0">
-                      <span className="sr-only">Last activity</span>
-                    </TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {rows.map(({ group, members, chats, openTasks, waiting, last }) => (
-                    // The whole row opens the project. The button keeps it reachable by keyboard.
-                    <TableRow
-                      key={group.id}
-                      className="project-row"
-                      onClick={() => onSelect(group)}
+      {!!visible.length && (
+        <div className="project-directory">
+          <Table>
+            <colgroup>
+              <col className="project-name-column" />
+              {showFolders && <col className="project-repositories-column" />}
+              <col className="project-sessions-column" />
+              {showTasks && <col className="project-tasks-column" />}
+              <col className="project-waiting-column" />
+            </colgroup>
+            <TableHeader className="[&_tr]:border-0">
+              <TableRow className="border-0 hover:bg-transparent">
+                <TableHead>Name</TableHead>
+                {showFolders && <TableHead>Code folders</TableHead>}
+                <TableHead>Chats</TableHead>
+                {showTasks && <TableHead>Open tasks</TableHead>}
+                <TableHead className="text-right">Updated</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {rows.map(({ group, members, chats, openTasks, waiting, last }) => (
+                // The whole row opens the project. The button keeps it reachable by keyboard.
+                <TableRow
+                  key={group.id}
+                  className="project-row border-0"
+                  onClick={() => onSelect(group)}
+                >
+                  <TableCell>
+                    <Button
+                      variant="bare"
+                      className="project-open max-w-full justify-start gap-3 text-left whitespace-normal"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        onSelect(group);
+                      }}
                     >
-                      <TableCell className="pl-0">
-                        <Button
-                          variant="bare"
-                          className="project-open max-w-full justify-start gap-3 text-left whitespace-normal"
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            onSelect(group);
-                          }}
-                        >
-                          <EntityIcon
-                            className="project-symbol"
-                            color={group.color ? projectColors[group.color] : undefined}
-                          >
-                            <Folder />
-                          </EntityIcon>
-                          <span className="min-w-0 break-words font-medium">{group.name}</span>
-                          {group.hostId && (
-                            <Badge variant="outline" size="sm">
-                              SSH
-                            </Badge>
-                          )}
-                        </Button>
-                      </TableCell>
-                      {showFolders && (
-                        <TableCell>
-                          <span
-                            className="tabular-nums"
-                            title={members.map((r) => r.name).join(', ')}
-                          >
-                            {members.length || muted}
-                          </span>
-                        </TableCell>
+                      <EntityIcon
+                        className="project-symbol"
+                        color={group.color ? projectColors[group.color] : undefined}
+                      >
+                        <Folder />
+                      </EntityIcon>
+                      <span className="min-w-0 break-words font-medium">{group.name}</span>
+                      {group.hostId && (
+                        <Badge variant="outline" size="sm">
+                          SSH
+                        </Badge>
                       )}
-                      <TableCell>
-                        <span className="inline-flex items-center gap-2 tabular-nums">
-                          {chats.length || muted}
-                          {waiting > 0 && (
-                            <ActivityDot state="approval" label={`${waiting} waiting for you`} />
-                          )}
-                        </span>
-                      </TableCell>
-                      {showTasks && (
-                        <TableCell>
-                          <span className="tabular-nums">
-                            {openTasks === undefined
-                              ? trackerConnection(group)
-                                ? '…'
-                                : muted
-                              : openTasks || muted}
-                          </span>
-                        </TableCell>
+                    </Button>
+                  </TableCell>
+                  {showFolders && (
+                    <TableCell>
+                      <span className="tabular-nums" title={members.map((r) => r.name).join(', ')}>
+                        {members.length || muted}
+                      </span>
+                    </TableCell>
+                  )}
+                  <TableCell>
+                    <span className="inline-flex items-center gap-2 tabular-nums">
+                      {chats.length || muted}
+                      {waiting > 0 && (
+                        <ActivityDot state="approval" label={`${waiting} waiting for you`} />
                       )}
-                      <TableCell className="pr-0 text-right">
-                        {last && (
-                          <time
-                            dateTime={last}
-                            title={fullTime(last)}
-                            className="text-muted-foreground tabular-nums"
-                          >
-                            {relativeTime(last)}
-                          </time>
-                        )}
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
-          )}
-          {!visible.length && (
-            <EmptyState
-              icon={<FolderPlus />}
-              title={groups.length ? 'No matching projects' : 'Open a code folder'}
-              action={
-                !groups.length && (
-                  <div className="flex flex-wrap justify-center gap-2">
-                    <Button disabled={importing} onClick={() => void openCodeFolder()}>
-                      <FolderOpen />
-                      Open a folder…
-                    </Button>
-                    <Button variant="outline" onClick={() => setOpen(true)}>
-                      <Plus />
-                      New empty project
-                    </Button>
-                  </div>
-                )
-              }
-            />
-          )}
-          {!!recent.length && onResume && (
-            <section className="project-recent" aria-label="Recent chats">
-              <SectionHeader title="Recent chats" />
-              <div className="chat-list">
-                {recent.slice(0, recentLimit).map(({ session, repo }) => (
-                  <ChatRow
-                    key={activityKey(session.agent, session.id)}
-                    session={session}
-                    activity={activity[activityKey(session.agent, session.id)]}
-                    project={placeOf(repo)}
-                    folder={repo.name}
-                    onOpen={onResume}
-                  />
-                ))}
+                    </span>
+                  </TableCell>
+                  {showTasks && (
+                    <TableCell>
+                      <span className="tabular-nums">
+                        {openTasks === undefined
+                          ? trackerConnection(group)
+                            ? '…'
+                            : muted
+                          : openTasks || muted}
+                      </span>
+                    </TableCell>
+                  )}
+                  <TableCell className="text-right">
+                    {last && (
+                      <time
+                        dateTime={last}
+                        title={fullTime(last)}
+                        className="text-muted-foreground tabular-nums"
+                      >
+                        {relativeTime(last)}
+                      </time>
+                    )}
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </div>
+      )}
+      {!visible.length && (
+        <EmptyState
+          icon={<FolderPlus />}
+          title={groups.length ? 'No matching projects' : 'Add your first project'}
+          action={
+            !groups.length && (
+              <div className="flex flex-wrap justify-center gap-2">
+                <Button onClick={() => void openCodeFolder()}>
+                  {importing ? <Loader2 className="animate-spin" /> : <FolderOpen />}
+                  Open a folder…
+                </Button>
+                <Button variant="outline" onClick={() => setOpen(true)}>
+                  <Plus />
+                  New empty project
+                </Button>
               </div>
-            </section>
-          )}
-        </>
+            )
+          }
+        />
       )}
       {folderImport.dialog}
       <CreateProject

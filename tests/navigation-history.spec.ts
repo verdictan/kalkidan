@@ -13,7 +13,9 @@ test('titlebar history traverses boards, repositories and chats, preserves draft
   await expect(back).toBeDisabled();
   await expect(forward).toBeDisabled();
   const projects = page.getByRole('region', { name: 'Projects', exact: true });
-  const overview = page.getByRole('main').getByRole('form', { name: 'New chat', exact: true });
+  const overview = page
+    .getByRole('main')
+    .getByRole('textbox', { name: 'Message for a new chat', exact: true });
   const tracker = page.getByRole('region', { name: 'Project tracker', exact: true });
   await expect(projects).toBeVisible();
   await page.locator('.project-tree').getByRole('button', { name: 'Atlas', exact: true }).click();

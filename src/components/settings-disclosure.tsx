@@ -1,8 +1,10 @@
-import { useId, useState, type ReactNode } from 'react';
+import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
+import { Tabs as TabsPrimitive } from 'radix-ui';
 import { ChevronRight, Copy } from 'lucide-react';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from './ui/collapsible';
 import { Badge } from './ui/badge';
 import { Button } from './ui/button';
+import { DialogContent, DialogDescription, DialogTitle } from './ui/dialog';
 import { showToast } from './ui/toast';
 import { cn } from '../lib/utils';
 import type { StatusLabel } from '../lib/verdictan-labels';
@@ -34,32 +36,56 @@ export function SettingsDisclosure({
   );
 }
 
-/** A list of Settings rows with a divider above the first row. */
+/**
+ * A list of Settings rows with dividers between the rows. With `title`, a group label shows
+ * above the rows and names the list.
+ */
 export function SettingsRows({
   label,
+  title,
   children,
   className,
 }: {
+  /** The name of the list for assistive technology. */
   label?: string;
+  /** A visible group label above the rows, for example "Danger zone". */
+  title?: string;
   children: ReactNode;
   className?: string;
 }) {
-  return (
-    <ul aria-label={label} className={cn('settings-rows', className)}>
+  const id = useId();
+  const list = (
+    <ul
+      aria-label={title ? undefined : label}
+      aria-labelledby={title ? id : undefined}
+      className={cn('settings-rows', !title && className)}
+    >
       {children}
     </ul>
+  );
+  if (!title) return list;
+  return (
+    <section className={cn('settings-group', className)}>
+      <h3 id={id} className="group-label">
+        {title}
+      </h3>
+      {list}
+    </section>
   );
 }
 
 /**
- * One Settings row: an optional icon, the label and one line of help, then the control. The
- * row is at least 52px high. `extra` shows under the row, for example an error or a form.
+ * The one Settings row of Preferences, Computers and Project settings: an optional 28px icon,
+ * the label (13/500) and one line of help (12), then the control. The row is at least 48px
+ * high, with 16px between its parts. `extra` shows under the row, for example an error or a
+ * form.
  */
 export function SettingsRow({
   id,
   icon,
   label,
   help,
+  htmlFor,
   children,
   extra,
   className,
@@ -68,12 +94,15 @@ export function SettingsRow({
   icon?: ReactNode;
   label: ReactNode;
   help?: ReactNode;
+  /** The id of the field that the label names. */
+  htmlFor?: string;
   /** The control: a button, a select, a switch, or a status. */
   children?: ReactNode;
   extra?: ReactNode;
   className?: string;
 }) {
   const labelId = useId();
+  const Label = htmlFor ? 'label' : 'span';
   return (
     <>
       <li
@@ -85,9 +114,9 @@ export function SettingsRow({
       >
         {icon}
         <div className="settings-row-text">
-          <span id={labelId} className="settings-row-label">
+          <Label id={labelId} {...(htmlFor ? { htmlFor } : {})} className="settings-row-label">
             {label}
-          </span>
+          </Label>
           {help && <span className="settings-row-help">{help}</span>}
         </div>
         {children && <div className="settings-row-control">{children}</div>}
@@ -98,6 +127,123 @@ export function SettingsRow({
         </li>
       )}
     </>
+  );
+}
+
+export type SettingsSection<T extends string> = { value: T; label: string; icon: ReactNode };
+
+/**
+ * The one settings shell, for Preferences and Project settings: a 720px dialog with the
+ * sections on the left and one section on the right. The height fits the content, from 400px
+ * up to 80% of the window. Each panel mounts the first time that it opens and then stays
+ * mounted. The section title gets the focus when the dialog opens.
+ */
+export function SettingsShell<T extends string>({
+  title,
+  subtitle,
+  description,
+  navLabel,
+  sections,
+  value,
+  onValueChange,
+  panels,
+  className,
+  onOpenAutoFocus,
+  onCloseAutoFocus,
+}: {
+  /** The name of the dialog. The nav shows it above the sections. */
+  title: ReactNode;
+  /** One muted line below the title, for example the computer of a remote project. */
+  subtitle?: ReactNode;
+  /** Text for assistive technology. The shell does not show it. */
+  description: string;
+  /** The name of the section list for assistive technology. */
+  navLabel: string;
+  sections: SettingsSection<T>[];
+  value: T;
+  onValueChange(value: T): void;
+  panels: Partial<Record<T, ReactNode>>;
+  className?: string;
+  /** Without it, the focus goes to the section title. */
+  onOpenAutoFocus?(event: Event): void;
+  onCloseAutoFocus?(event: Event): void;
+}) {
+  const [visited, setVisited] = useState<T[]>([value]);
+  useEffect(() => {
+    setVisited((current) => (current.includes(value) ? current : [...current, value]));
+  }, [value]);
+  const heading = useRef<HTMLHeadingElement>(null);
+  const active = sections.find((item) => item.value === value) || sections[0];
+  return (
+    <DialogContent
+      size="lg"
+      // Utilities, so that they replace the grid and the height of DialogContent.
+      className={cn(
+        'settings-dialog flex max-h-[min(80vh,calc(100dvh-2rem))] min-h-[min(400px,calc(100dvh-2rem))] gap-0 overflow-hidden p-0',
+        className,
+      )}
+      onCloseAutoFocus={onCloseAutoFocus}
+      onOpenAutoFocus={(event) => {
+        onOpenAutoFocus?.(event);
+        if (event.defaultPrevented) return;
+        // The title gets the focus, so no focus ring shows on a row or a field.
+        event.preventDefault();
+        heading.current?.focus();
+      }}
+    >
+      <TabsPrimitive.Root
+        value={active?.value}
+        onValueChange={(next) => onValueChange(next as T)}
+        orientation="vertical"
+        className="contents"
+      >
+        <nav
+          className="settings-nav"
+          // The tabs move the focus by script, so a click can match :focus-visible. A click
+          // shows no ring. A key shows it again.
+          onPointerDown={(event) => (event.currentTarget.dataset.pointer = '')}
+          onKeyDown={(event) => delete event.currentTarget.dataset.pointer}
+        >
+          <DialogTitle className="group-label settings-nav-title truncate py-0 text-2xs leading-4">
+            {title}
+          </DialogTitle>
+          {subtitle && <p className="settings-nav-subtitle">{subtitle}</p>}
+          <DialogDescription className="sr-only">{description}</DialogDescription>
+          <TabsPrimitive.List aria-label={navLabel} loop className="contents">
+            {sections.map((item) => (
+              <TabsPrimitive.Trigger
+                key={item.value}
+                value={item.value}
+                className="settings-nav-item"
+              >
+                {item.icon}
+                <span className="min-w-0 flex-1 truncate">{item.label}</span>
+              </TabsPrimitive.Trigger>
+            ))}
+          </TabsPrimitive.List>
+        </nav>
+        <div className="settings-main">
+          <h2 ref={heading} tabIndex={-1} className="settings-main-title truncate">
+            {active?.label}
+          </h2>
+          <div className="settings-body">
+            {sections.map(
+              (item) =>
+                (visited.includes(item.value) || item.value === active?.value) && (
+                  <TabsPrimitive.Content
+                    key={item.value}
+                    forceMount
+                    value={item.value}
+                    className="settings-panel data-[state=inactive]:hidden"
+                  >
+                    {panels[item.value]}
+                  </TabsPrimitive.Content>
+                ),
+            )}
+          </div>
+        </div>
+      </TabsPrimitive.Root>
+    </DialogContent>
   );
 }
 

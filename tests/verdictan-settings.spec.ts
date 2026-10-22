@@ -104,14 +104,19 @@ test('the Computers page separates account sign-in from execution readiness and 
   });
   await page.goto('/');
   const computers = await openComputersPage(page);
-  // Each agent row asks for the sign-in. The sign-in flow installs the runtime when needed.
+  // Each agent row tells the user to sign in. The rows have no sign-in button.
   const codex = computers.getByRole('group', { name: 'Codex', exact: true });
   await expect(codex.getByRole('status')).toHaveText('Needs sign-in');
-  await expect(codex.getByRole('button', { name: 'Sign in', exact: true })).toBeEnabled();
-  // The sidebar footer has the one sign-in of the app.
+  await expect(codex).toContainText('Sign in to Verdictan to use it');
+  await expect(codex.getByRole('button', { name: /Sign in/ })).toHaveCount(0);
+  // The sidebar footer has the one sign-in of the app: the first item of its menu.
   const footer = sidebar(page).locator('.account-menu');
-  await expect(footer.getByRole('button', { name: 'Sign in', exact: true })).toBeVisible();
-  await codex.getByRole('button', { name: 'Sign in', exact: true }).click();
+  const signedOut = footer.getByRole('button', {
+    name: 'Sign in, Preferences and help',
+    exact: true,
+  });
+  await expect(signedOut).toBeVisible();
+  await openAccountMenuItem(page, 'Sign in');
   // The region is saved, so the sign-in starts at once and the sheet closes when it is done.
   const signIn = page.getByRole('dialog', { name: 'Sign in to Verdictan' });
   await expect(signIn).toHaveCount(0);
@@ -135,10 +140,10 @@ test('the Computers page separates account sign-in from execution readiness and 
       hasText: 'Kalkidan could not confirm that the service removed the access.',
     }),
   ).toBeVisible();
-  await expect(footer.getByRole('button', { name: 'Sign in', exact: true })).toBeVisible();
+  await expect(signedOut).toBeVisible();
   await expect(codex.getByRole('status')).toHaveText('Needs sign-in');
-  // The runtime of this computer is in its row on the Computers page.
-  const runtime = computers.getByRole('group', { name: 'This computer', exact: true });
+  // The runtime of this computer is in its "Managed agents" row on the Computers page.
+  const runtime = computers.getByRole('group', { name: 'Managed agents', exact: true });
   await expect(runtime).toContainText('Not installed');
   await runtime.getByRole('button', { name: 'Install', exact: true }).click();
   await expect(runtime).toContainText('Waiting');
@@ -152,8 +157,9 @@ test('the Computers page separates account sign-in from execution readiness and 
   expect(await page.evaluate(() => (window as any).runtimeFixture.update.operation.phase)).toBe(
     'canceled',
   );
-  // Kalkidan does not update itself. Preferences links to the release page.
+  // Kalkidan does not update itself. Preferences › This app links to the release page.
   const settings = await openPreferences(page);
+  await settings.getByRole('tab', { name: 'This app', exact: true }).click();
   await expect(settings.getByRole('link', { name: /Check for updates/ })).toHaveAttribute(
     'href',
     /verdictan\/packages\/releases/,
@@ -190,9 +196,13 @@ test('Preferences requires an explicit EU or US region before sign-in', async ({
   await page.goto('/');
   // The sidebar footer offers the sign-in.
   await expect(
-    sidebar(page).locator('.account-menu').getByRole('button', { name: 'Sign in', exact: true }),
+    sidebar(page)
+      .locator('.account-menu')
+      .getByRole('button', { name: 'Sign in, Preferences and help', exact: true }),
   ).toBeVisible();
+  // The region is in Preferences › Connections.
   const settings = await openPreferences(page);
+  await settings.getByRole('tab', { name: 'Connections', exact: true }).click();
   const regionRow = settings.getByRole('group', { name: 'Region', exact: true });
   // No region is selected.
   await expect(regionRow).toContainText('Not chosen');
@@ -203,11 +213,11 @@ test('Preferences requires an explicit EU or US region before sign-in', async ({
   // There is no Global choice, and no region is selected.
   await expect(choose.getByRole('radio')).toHaveCount(2);
   await expect(choose.getByRole('radio', { name: /Global/ })).toHaveCount(0);
-  await expect(choose.getByRole('button', { name: 'Use this region' })).toBeDisabled();
+  await expect(choose.getByRole('button', { name: 'Choose region', exact: true })).toBeDisabled();
   // The first choice applies at once. Nothing runs that a region change can stop.
   await choose.getByRole('radio', { name: 'United States' }).check();
   await expect(choose.getByRole('note')).toHaveCount(0);
-  await choose.getByRole('button', { name: 'Use this region' }).click();
+  await choose.getByRole('button', { name: 'Choose region', exact: true }).click();
   await expect(choose).toHaveCount(0);
   await expect(regionRow).toContainText('United States');
   expect(await page.evaluate(() => (window as any).regionFixture.regions)).toEqual(['us']);
@@ -216,7 +226,7 @@ test('Preferences requires an explicit EU or US region before sign-in', async ({
   const change = page.getByRole('dialog', { name: 'Change region' });
   await change.getByRole('radio', { name: 'European Union' }).check();
   await expect(change.getByRole('note')).toContainText('Changing the region stops running agents');
-  await change.getByRole('button', { name: 'Stop work and change' }).click();
+  await change.getByRole('button', { name: 'Change region', exact: true }).click();
   await expect(change).toHaveCount(0);
   await expect(regionRow).toContainText('European Union');
   expect(await page.evaluate(() => (window as any).regionFixture.regions)).toEqual(['us', 'eu']);

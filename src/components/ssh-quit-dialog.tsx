@@ -6,21 +6,12 @@ import {
   type SshQuitChoice,
   type SshQuitRequest,
 } from '../domain/ssh-quit';
-import { Button } from './ui/button';
+import { ConfirmDialog } from './confirm-dialog';
 import { CheckboxRow } from './ui/checkbox';
-import {
-  Dialog,
-  DialogBody,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from './ui/dialog';
 
 /**
  * The question when Kalkidan quits while agent runs or shells work on SSH hosts. The work
- * continues on the hosts without the app. "Keep running" is the default. Escape and closing
+ * continues on the hosts without the app. "Keep running" has the focus. Escape and closing
  * the question also keep the work. "Stop all" stops it. Kalkidan quits after each answer.
  */
 export function SshQuitDialog({ api }: { api: API }) {
@@ -48,58 +39,51 @@ export function SshQuitDialog({ api }: { api: API }) {
   const stoppable = !!request?.hosts.length;
   const note = request ? sshDisconnectedNote(request.disconnected ?? []) : '';
   return (
-    <Dialog open={!!request} onOpenChange={(open) => !open && answer('keep')}>
-      <DialogContent size="sm" layout="scroll">
-        <DialogHeader>
-          <DialogTitle>Work continues on SSH hosts</DialogTitle>
-          <DialogDescription>
-            {stoppable
-              ? `${sshWorkSummary(request!.hosts)} continue after Kalkidan quits. Kalkidan attaches to them again when it opens.`
-              : 'Work may continue on SSH hosts after Kalkidan quits.'}
-          </DialogDescription>
-        </DialogHeader>
-        <DialogBody className="grid gap-3">
-          {request?.hosts.map((host) => (
-            <section key={host.hostId} aria-label={host.hostName} className="grid gap-1">
-              <h3 className="text-sm font-medium">{host.hostName}</h3>
-              <ul className="grid gap-0.5 text-sm text-muted-foreground">
-                {host.runs.map((run) => (
-                  <li key={'run:' + run.id} className="truncate">
-                    Agent run: {run.label}
-                  </li>
-                ))}
-                {host.shells.map((shell) => (
-                  <li key={'shell:' + shell.id} className="truncate">
-                    {shell.label}
-                  </li>
-                ))}
-              </ul>
-            </section>
-          ))}
-          {note && (
-            <p role="note" className="text-sm">
-              {note}
-            </p>
-          )}
-          <CheckboxRow
-            label="Don't ask again"
-            description="Turn the question on again in Preferences › Connections."
-            checked={dontAsk}
-            disabled={busy}
-            onChange={(event) => setDontAsk(event.target.checked)}
-          />
-        </DialogBody>
-        <DialogFooter>
-          {stoppable && (
-            <Button variant="destructive" disabled={busy} onClick={() => answer('stop')}>
-              Stop all
-            </Button>
-          )}
-          <Button autoFocus disabled={busy} onClick={() => answer('keep')}>
-            Keep running
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+    <ConfirmDialog
+      open={!!request}
+      title="Work continues on SSH hosts"
+      description={
+        stoppable
+          ? `${sshWorkSummary(request!.hosts)} continue after Kalkidan quits. Kalkidan attaches to them again when it opens.`
+          : 'Work may continue on SSH hosts after Kalkidan quits.'
+      }
+      // Cancel, Escape and the close button keep the work. Kalkidan quits after each answer.
+      cancelLabel="Keep running"
+      confirmLabel={stoppable ? 'Stop all' : 'Quit'}
+      destructive={stoppable}
+      busy={busy}
+      onCancel={() => answer('keep')}
+      onConfirm={() => answer(stoppable ? 'stop' : 'keep')}
+    >
+      {request?.hosts.map((host) => (
+        <section key={host.hostId} aria-label={host.hostName} className="grid gap-1">
+          <h3 className="text-sm font-medium">{host.hostName}</h3>
+          <ul className="grid gap-0.5 text-sm text-muted-foreground">
+            {host.runs.map((run) => (
+              <li key={'run:' + run.id} className="truncate">
+                Agent run: {run.label}
+              </li>
+            ))}
+            {host.shells.map((shell) => (
+              <li key={'shell:' + shell.id} className="truncate">
+                {shell.label}
+              </li>
+            ))}
+          </ul>
+        </section>
+      ))}
+      {note && (
+        <p role="note" className="text-sm">
+          {note}
+        </p>
+      )}
+      <CheckboxRow
+        label="Don't ask again"
+        description="Turn the question on again in Computers › SSH hosts."
+        checked={dontAsk}
+        disabled={busy}
+        onChange={(event) => setDontAsk(event.target.checked)}
+      />
+    </ConfirmDialog>
   );
 }

@@ -10,7 +10,6 @@ import {
   DialogBody,
   DialogContent,
   DialogDescription,
-  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from './ui/dialog';
@@ -23,6 +22,8 @@ import {
   DropdownMenuShortcut,
 } from './ui/dropdown-menu';
 import { Hint } from './hint';
+import { ConfirmDialog } from './confirm-dialog';
+import { SettingsRow, SettingsRows } from './settings-disclosure';
 import { revealLabel } from '../lib/platform';
 import { cn } from '../lib/utils';
 import { errorMessage } from '../lib/errors';
@@ -100,7 +101,11 @@ export function BrowserMenu({
   const [notice, setNotice] = useState('');
   const [failed, setFailed] = useState(false);
   const [pendingClear, setPendingClear] = useState<ClearOption | null>(null);
-  const [pendingDelete, setPendingDelete] = useState<{ id: string; origin: string } | null>(null);
+  const [pendingDelete, setPendingDelete] = useState<{
+    id: string;
+    origin: string;
+    username?: string;
+  } | null>(null);
   async function attempt(action: string, value?: unknown) {
     setBusy(true);
     setNotice('');
@@ -160,7 +165,7 @@ export function BrowserMenu({
             <MoreButton type="button" label="Browser menu" disabled={!ready} />
           </DropdownMenuTrigger>
         </Hint>
-        <DropdownMenuContent align="end" className="w-64">
+        <DropdownMenuContent align="end" width="wide">
           <DropdownMenuItem onSelect={onFind}>
             Find in page
             {findShortcut && <DropdownMenuShortcut>{findShortcut}</DropdownMenuShortcut>}
@@ -229,7 +234,7 @@ export function BrowserMenu({
           <DropdownMenuSeparator />
           <DropdownMenuItem onSelect={() => setSettingsOpen(true)}>
             <Settings2 aria-hidden="true" />
-            Browser settings…
+            Built-in browser data…
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
@@ -262,51 +267,18 @@ export function BrowserMenu({
           {panel === 'Clear browsing data' && (
             <div className="space-y-3">
               {clearOptions.map((option) => (
-                <div key={option.kind} className="panel space-y-3">
+                <div key={option.kind} className="panel">
                   <div className="flex items-center justify-between gap-4">
                     <span className="text-sm">{option.label}</span>
                     <Button
                       variant="outline"
                       size="sm"
-                      disabled={busy || pendingClear?.kind === option.kind}
+                      disabled={busy}
                       onClick={() => setPendingClear(option)}
                     >
                       {option.button}…
                     </Button>
                   </div>
-                  {pendingClear?.kind === option.kind && (
-                    <div
-                      role="group"
-                      aria-label={`Confirm: ${option.button}`}
-                      className="space-y-2"
-                    >
-                      <p className="text-xs text-muted-foreground">{option.warning}</p>
-                      <div className="flex justify-end gap-2">
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          disabled={busy}
-                          onClick={() => setPendingClear(null)}
-                        >
-                          Cancel
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="destructive"
-                          autoFocus
-                          disabled={busy}
-                          onClick={() =>
-                            void attempt('clear', option.kind).then((outcome) => {
-                              setPendingClear(null);
-                              if (outcome.ok) setNotice(option.label + ' cleared');
-                            })
-                          }
-                        >
-                          {option.button}
-                        </Button>
-                      </div>
-                    </div>
-                  )}
                 </div>
               ))}
             </div>
@@ -416,48 +388,14 @@ export function BrowserMenu({
                     <Button
                       size="sm"
                       variant="outline"
-                      disabled={busy || pendingDelete?.id === c.id}
-                      onClick={() => setPendingDelete({ id: c.id, origin: c.origin })}
+                      disabled={busy}
+                      onClick={() =>
+                        setPendingDelete({ id: c.id, origin: c.origin, username: c.username })
+                      }
                     >
                       Delete…
                     </Button>
                   </div>
-                  {pendingDelete?.id === c.id && (
-                    <div
-                      role="group"
-                      aria-label="Confirm password deletion"
-                      className="mt-3 space-y-2"
-                    >
-                      <p className="text-xs text-muted-foreground">
-                        The saved password for {c.username || 'this account'} on {c.origin} is
-                        permanently deleted.
-                      </p>
-                      <div className="flex justify-end gap-2">
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          disabled={busy}
-                          onClick={() => setPendingDelete(null)}
-                        >
-                          Cancel
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="destructive"
-                          autoFocus
-                          disabled={busy}
-                          onClick={() =>
-                            void attempt('delete-password', c.id).then(async (outcome) => {
-                              setPendingDelete(null);
-                              if (outcome.ok) await refresh();
-                            })
-                          }
-                        >
-                          Delete password
-                        </Button>
-                      </div>
-                    </div>
-                  )}
                 </div>
               ))}
               {!data?.credentials.length && <EmptyState compact title="No saved passwords" />}
@@ -465,6 +403,40 @@ export function BrowserMenu({
           )}
         </DialogContent>
       </Dialog>
+      <ConfirmDialog
+        open={!!pendingClear}
+        title={`${pendingClear?.button || 'Clear'}?`}
+        description={pendingClear?.warning || ''}
+        confirmLabel={pendingClear?.button || 'Clear'}
+        destructive
+        busy={busy}
+        onCancel={() => setPendingClear(null)}
+        onConfirm={() => {
+          const option = pendingClear;
+          if (!option) return;
+          void attempt('clear', option.kind).then((outcome) => {
+            setPendingClear(null);
+            if (outcome.ok) setNotice(option.label + ' cleared');
+          });
+        }}
+      />
+      <ConfirmDialog
+        open={!!pendingDelete}
+        title="Delete password?"
+        description={`The saved password for ${pendingDelete?.username || 'this account'} on ${pendingDelete?.origin || 'this site'} is permanently deleted.`}
+        confirmLabel="Delete password"
+        destructive
+        busy={busy}
+        onCancel={() => setPendingDelete(null)}
+        onConfirm={() => {
+          const target = pendingDelete;
+          if (!target) return;
+          void attempt('delete-password', target.id).then(async (outcome) => {
+            setPendingDelete(null);
+            if (outcome.ok) await refresh();
+          });
+        }}
+      />
     </>
   );
 }
@@ -529,14 +501,26 @@ export function BrowserSettingsDialog({
   }
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent size="md" layout="scroll">
+      <DialogContent
+        size="md"
+        layout="scroll"
+        onOpenAutoFocus={(event) => {
+          // The title gets the focus. The Home page field does not show a ring on open.
+          event.preventDefault();
+          (event.currentTarget as HTMLElement | null)
+            ?.querySelector<HTMLElement>('[data-slot="dialog-title"]')
+            ?.focus();
+        }}
+      >
         <DialogHeader>
-          <DialogTitle>Browser settings</DialogTitle>
+          <DialogTitle tabIndex={-1} className="outline-none">
+            Built-in browser data
+          </DialogTitle>
           <DialogDescription>
             Settings of the Kalkidan browser. Other browsers do not change.
           </DialogDescription>
         </DialogHeader>
-        <DialogBody className="grid content-start gap-4">
+        <DialogBody className="grid content-start gap-6">
           {notice && (
             <p
               role={failed ? 'alert' : 'status'}
@@ -545,83 +529,72 @@ export function BrowserSettingsDialog({
               {notice}
             </p>
           )}
-          <form
-            className="grid gap-2"
-            onSubmit={(e) => {
-              e.preventDefault();
-              e.stopPropagation();
-              void save({ home, rememberHistory: remember }, 'Home page saved');
-            }}
-          >
-            <label className="form-label" htmlFor="browser-home">
-              Home page
-            </label>
-            <div className="flex gap-2">
-              <Input
-                id="browser-home"
-                aria-label="Home page"
-                className="min-w-0 flex-1"
-                value={home}
-                onChange={(e) => setHome(e.target.value)}
+          <SettingsRows label="Browser">
+            <SettingsRow label="Home page" htmlFor="browser-home">
+              <form
+                className="flex gap-2"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  void save({ home, rememberHistory: remember }, 'Home page saved');
+                }}
+              >
+                <Input
+                  id="browser-home"
+                  className="w-56"
+                  value={home}
+                  onChange={(e) => setHome(e.target.value)}
+                />
+                <Button type="submit" variant="outline" disabled={busy || home === savedHome}>
+                  Save
+                </Button>
+              </form>
+            </SettingsRow>
+            <SettingsRow
+              label="Remember browsing history"
+              help="Cookies stay between launches. Camera, microphone, location, and notifications stay blocked."
+            >
+              <Switch
+                aria-label="Remember browsing history"
+                checked={remember}
+                disabled={busy}
+                onCheckedChange={(value) => {
+                  setRemember(value);
+                  void save(
+                    { home: savedHome, rememberHistory: value },
+                    value ? 'History is on' : 'History is off',
+                  ).then((ok) => !ok && setRemember(!value));
+                }}
               />
-              <Button type="submit" variant="outline" disabled={busy || home === savedHome}>
-                Save
-              </Button>
-            </div>
-          </form>
-          <label className="flex items-center justify-between gap-4 text-sm">
-            <span className="grid">
-              Remember browsing history
-              <span className="form-help mt-0">Cookies stay between launches.</span>
-            </span>
-            <Switch
-              checked={remember}
-              disabled={busy}
-              onCheckedChange={(value) => {
-                setRemember(value);
-                void save(
-                  { home: savedHome, rememberHistory: value },
-                  value ? 'History is on' : 'History is off',
-                ).then((ok) => !ok && setRemember(!value));
-              }}
-            />
-          </label>
-          <p className="form-help mt-0">
-            Camera, microphone, location, and notifications stay blocked.
-          </p>
-          <section className="grid gap-2 border-t pt-4" aria-labelledby="browser-import">
-            <h3 id="browser-import" className="text-sm font-semibold">
-              Import sign-in data
-            </h3>
-            <p className="form-help mt-0">
-              Import a JSON cookie array, or a password CSV with url, username, and password
-              columns.
-            </p>
-            <div className="flex flex-wrap gap-2">
+            </SettingsRow>
+          </SettingsRows>
+          <SettingsRows title="Import sign-in data">
+            <SettingsRow label="Cookies" help="A JSON cookie array">
               <Button
                 type="button"
                 size="sm"
                 variant="outline"
                 disabled={busy}
+                aria-label="Import cookies…"
                 onClick={() => void attempt('import', 'cookies')}
               >
-                Import cookies from JSON…
+                Import…
               </Button>
+            </SettingsRow>
+            <SettingsRow label="Passwords" help="A CSV with url, username, and password columns">
               <Button
                 type="button"
                 size="sm"
                 variant="outline"
                 disabled={busy}
+                aria-label="Import passwords…"
                 onClick={() => void attempt('import', 'passwords')}
               >
-                Import passwords from CSV…
+                Import…
               </Button>
-            </div>
-          </section>
+            </SettingsRow>
+          </SettingsRows>
         </DialogBody>
-        <DialogFooter>
-          <Button onClick={() => onOpenChange(false)}>Done</Button>
-        </DialogFooter>
       </DialogContent>
     </Dialog>
   );

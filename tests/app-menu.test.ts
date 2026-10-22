@@ -128,7 +128,7 @@ for (const mac of [true, false])
       ['Chat', 'New chat', 'session-new'],
       ['Chat', 'Terminal', 'session-terminal'],
       ['Chat', 'Changes', 'session-changes'],
-      ['Chat', 'Open a second chat beside this one', 'session-side-chat'],
+      ['Chat', 'Open side chat', 'session-side-chat'],
       ['Chat', 'Rename…', 'session-rename'],
       ['Chat', 'Pin', 'session-pin'],
       ['Chat', 'Link task…', 'link-task'],
@@ -257,7 +257,7 @@ for (const mac of [true, false])
     ]);
     assert.deepEqual(actions, expected);
     assert.deepEqual(actions, [
-      'Open a second chat beside this one',
+      'Open side chat',
       'Open in new window',
       '---',
       'Rename…',
@@ -267,7 +267,6 @@ for (const mac of [true, false])
       '---',
       'Commit changes…',
       'Create pull request…',
-      'Duplicate chat › Continue here, Continue on a new branch…',
       'Fork chat…',
       `Show folder in ${mac ? 'Finder' : 'file manager'}`,
       '---',
@@ -291,10 +290,7 @@ for (const mac of [true, false])
     };
     assert.equal(shortcut('Rename…'), mac ? 'Cmd+Alt+R' : 'Ctrl+Shift+E');
     assert.equal(shortcut('Pin'), mac ? 'Cmd+Alt+P' : 'Ctrl+Shift+P');
-    assert.equal(
-      shortcut('Open a second chat beside this one'),
-      mac ? 'Cmd+Alt+S' : 'Ctrl+Shift+S',
-    );
+    assert.equal(shortcut('Open side chat'), mac ? 'Cmd+Alt+S' : 'Ctrl+Shift+S');
     assert.equal(shortcut('Archive'), mac ? 'Cmd+Shift+A' : 'Ctrl+Shift+A');
   });
 

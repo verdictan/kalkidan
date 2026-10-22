@@ -5,11 +5,10 @@ import type { SavedProjectView } from '../domain/github-resources';
 import { projectFieldText, projectViewRows } from '../domain/project-view';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
-import { Card, CardContent } from './ui/card';
 import { SectionHeader } from './ui/page-header';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table';
 import { Hint } from './hint';
-import { BoardColumnHeading, useScrollShadow } from './tracker-board';
+import { BoardColumnHeading, TaskCard, useScrollShadow } from './tracker-board';
 
 /**
  * The filter of a saved GitHub view as a chip next to the view picker. The tooltip tells that
@@ -87,35 +86,25 @@ export function GitHubViewLayout({
   );
   const column = board.fields?.find((field) => field.id === view.columnFieldIds?.[0]);
   const card = (item: TrackerItem) => (
-    <Card
+    <TaskCard
       key={item.id}
-      role="listitem"
-      className="tracker-task gap-0 has-[.tracker-task-title:focus-visible]:shadow-[var(--focus-ring)]"
+      item={item}
       onClick={(event) => {
         if (!(event.target as HTMLElement).closest('button, a')) onOpen(item);
       }}
+      titleProps={{ onClick: () => onOpen(item) }}
     >
-      <CardContent className="flex flex-col items-start gap-1 p-0">
-        <Button
-          variant="bare"
-          className="tracker-task-title max-w-full px-0 text-left text-sm leading-5 font-medium whitespace-normal break-words focus-visible:ring-0"
-          data-task-focus={item.id}
-          onClick={() => onOpen(item)}
-        >
-          {item.title}
-        </Button>
-        {fields.length > 0 && (
-          <dl className="tracker-view-fields">
-            {fields.map((field) => (
-              <div key={field.id}>
-                <dt>{field.name}</dt>
-                <dd>{projectFieldText(item, field) || '—'}</dd>
-              </div>
-            ))}
-          </dl>
-        )}
-      </CardContent>
-    </Card>
+      {fields.length > 0 && (
+        <dl className="tracker-view-fields">
+          {fields.map((field) => (
+            <div key={field.id}>
+              <dt>{field.name}</dt>
+              <dd>{projectFieldText(item, field) || '—'}</dd>
+            </div>
+          ))}
+        </dl>
+      )}
+    </TaskCard>
   );
   const groups = projectViewRows(board, items, view);
   return (
@@ -148,7 +137,7 @@ export function GitHubViewLayout({
                 </TableHeader>
                 <TableBody>
                   {group.items.map((item) => (
-                    <TableRow key={item.id} className="h-[var(--row-height-lg)]">
+                    <TableRow key={item.id} className="h-10">
                       <TableCell className="whitespace-normal first:pl-0">
                         <Button
                           variant="bare"

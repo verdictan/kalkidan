@@ -1,5 +1,9 @@
 import { test, expect } from './helpers/app';
+import { type Page } from '@playwright/test';
 import { openCodeFolder } from './helpers/navigation';
+
+/** The header subtitle of the code folder page. It starts with the branch of the main folder. */
+const subtitle = (page: Page) => page.getByRole('main').locator('.page-subtitle');
 
 test('overview refreshes only its repository and keeps cached content while revalidating', async ({
   page,
@@ -45,7 +49,7 @@ test('overview refreshes only its repository and keeps cached content while reva
   });
   await page.goto('/');
   await openCodeFolder(page, 'Test repo');
-  await expect(page.locator('.worktree')).toContainText('main');
+  await expect(subtitle(page)).toHaveText(/^main\s*·/);
   const before = await page.evaluate(() => ({ ...(window as any).ioCalls }));
   // "Refresh branch copies" is an item of the code folder menu.
   await page.getByRole('button', { name: 'Repository actions', exact: true }).click();
@@ -102,18 +106,18 @@ test('switching projects reuses details and keeps cached content after a failed 
   });
   await page.goto('/');
   await openCodeFolder(page, 'Alpha');
-  await expect(page.locator('.worktree')).toContainText('Alpha');
+  await expect(subtitle(page)).toHaveText(/^Alpha\s*·/);
   await openCodeFolder(page, 'Beta');
-  await expect(page.locator('.worktree')).toContainText('Beta');
+  await expect(subtitle(page)).toHaveText(/^Beta\s*·/);
   await openCodeFolder(page, 'Alpha');
-  await expect(page.locator('.worktree')).toContainText('Alpha');
+  await expect(subtitle(page)).toHaveText(/^Alpha\s*·/);
   expect(await page.evaluate(() => (window as any).detailCalls)).toEqual({ Alpha: 1, Beta: 1 });
   await page.evaluate(() => {
     (window as any).failDetails = true;
     window.dispatchEvent(new Event('focus'));
   });
   await expect(page.getByText('Host is unavailable', { exact: true })).toBeVisible();
-  await expect(page.locator('.worktree')).toContainText('Alpha');
+  await expect(subtitle(page)).toHaveText(/^Alpha\s*·/);
   await page.evaluate(() => {
     (window as any).failDetails = false;
     window.dispatchEvent(new Event('focus'));

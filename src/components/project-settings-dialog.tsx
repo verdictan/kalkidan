@@ -1,36 +1,33 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { ExternalLink, FolderGit2, Settings2, SquareKanban } from 'lucide-react';
+import { useEffect, useState, type ReactNode } from 'react';
+import { ChevronDown, ExternalLink, FolderGit2, Settings2, SquareKanban } from 'lucide-react';
 import type { API, Project, ProjectGroup, RemoteHost } from '../types';
-import { trackerAuthPending, trackerConnection, type TrackerAuthState } from '../domain/tracker';
+import { trackerConnection } from '../domain/tracker';
 import { useTracker } from '../hooks/use-tracker';
 import { useProjectBoard } from '../hooks/use-project-board';
-import { interfaceConfig } from '../config/interface';
-import { settingsAnchors } from '../domain/settings-route';
 import { errorMessage } from '../lib/errors';
 import { Button } from './ui/button';
-import { Input } from './ui/input';
 import { Alert, AlertDescription } from './ui/alert';
+import { EmptyState } from './ui/empty-state';
+import { EntityIcon } from './ui/entity-icon';
 import { showToast } from './ui/toast';
+import { Dialog } from './ui/dialog';
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from './ui/dialog';
-import { holdDialogFocus } from './dialog-parts';
-import { TrackerProjectPicker, boardLabel } from './tracker-project-picker';
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from './ui/dropdown-menu';
+import { ConfirmDialog } from './confirm-dialog';
+import { ConnectBoardDialog, boardLabel } from './tracker-project-picker';
 import { TrackerWorkflowForm } from './tracker-workflow';
 import { RoadmapDateButton, useRoadmapDateFields } from './github-project-resources';
+import { ProjectCodeFolders, ProjectGeneral } from './project-settings-sections';
 import {
-  ProjectCodeFolders,
-  ProjectGeneral,
-  SettingsDialogFrame,
   SettingsRow,
   SettingsRows,
+  SettingsShell,
   type SettingsSection,
-} from './project-settings-sections';
+} from './settings-disclosure';
 
 export type ProjectSettingsSection = 'general' | 'folders' | 'board';
 /**
@@ -60,8 +57,9 @@ const boardTabs: ProjectSettingsTab[] = [
   'roadmap-dates',
 ];
 
-/** The pages of a GitHub project that the Board section links to. */
+/** The pages of a GitHub project that "Open on GitHub" lists. */
 const githubPages = [
+  { label: 'Board', path: '' },
   { label: 'Fields', path: '/settings' },
   { label: 'Views', path: '' },
   { label: 'Workflows', path: '/workflows' },
@@ -83,13 +81,11 @@ export function ProjectSettingsDialog({
   onOpenChange,
   section,
   tab,
-  focusName = false,
   onConnected,
   onDisconnected,
   onChanged,
   onSaved,
   onAddFolder,
-  onRemoveFolder,
   onRemoveProject,
 }: {
   api: API;
@@ -104,8 +100,6 @@ export function ProjectSettingsDialog({
   section?: ProjectSettingsTab;
   /** The old name of `section`. */
   tab?: ProjectSettingsTab;
-  /** Moves the focus to the project name, for "Rename…". */
-  focusName?: boolean;
   /** Called after the project connects to a board. */
   onConnected?(): void | Promise<void>;
   /** Called after the project disconnects from its board. Without it, onConnected is called. */
@@ -114,10 +108,8 @@ export function ProjectSettingsDialog({
   onChanged?(): void;
   /** Called after the name or the color changes. */
   onSaved?(): void | Promise<void>;
-  /** Opens the Add code folders dialog. Without it, the Code folders section does not show. */
+  /** Opens the Add code folder dialog. Without it, the Code folders section does not show. */
   onAddFolder?(): void;
-  /** Starts the removal of a code folder. It asks for a confirmation. */
-  onRemoveFolder?(repo: Project): void;
   /** Starts the removal of the project. Without it, the Remove project row does not show. */
   onRemoveProject?(): void;
 }) {
@@ -125,7 +117,7 @@ export function ProjectSettingsDialog({
   const requested = (tab && boardTabs.includes(tab) ? tab : section || tab) || 'general';
   const sections: SettingsSection<ProjectSettingsSection>[] = [
     { value: 'general', label: 'General', icon: <Settings2 /> },
-    ...(onAddFolder && onRemoveFolder
+    ...(onAddFolder
       ? [{ value: 'folders' as const, label: 'Code folders', icon: <FolderGit2 /> }]
       : []),
     { value: 'board', label: 'Board', icon: <SquareKanban /> },
@@ -160,7 +152,7 @@ export function ProjectSettingsDialog({
         }
       />
     ),
-    folders: onAddFolder && onRemoveFolder && (
+    folders: onAddFolder && (
       <ProjectCodeFolders
         group={group}
         repos={repos}
@@ -168,9 +160,11 @@ export function ProjectSettingsDialog({
           close();
           onAddFolder();
         }}
-        onRemove={(repo) => {
-          close();
-          onRemoveFolder(repo);
+        onRemove={async (repo) => {
+          // Project settings stays open. The confirmation opens over it.
+          await api.remove(repo.id);
+          showToast(`${repo.name} removed from ${group.name}.`);
+          await onSaved?.();
         }}
       />
     ),
@@ -186,7 +180,6 @@ export function ProjectSettingsDialog({
           await onConnected?.();
         }}
         onDisconnected={async () => {
-          close();
           onChanged?.();
           await (onDisconnected || onConnected)?.();
         }}
@@ -197,7 +190,7 @@ export function ProjectSettingsDialog({
   const remote = group.hostId ? host?.name || host?.target || 'SSH host' : '';
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <SettingsDialogFrame
+      <SettingsShell
         title={
           <>
             <span className="sr-only">Project settings: </span>
@@ -208,28 +201,20 @@ export function ProjectSettingsDialog({
         description={
           connection ? `${group.name} · ${connection.project.title}` : `${group.name} · No board`
         }
+        navLabel="Project settings sections"
         sections={sections}
         value={active}
         onValueChange={setActive}
         panels={panels}
-        onOpenAutoFocus={(event) => {
-          const name = (event.currentTarget as HTMLElement | null)?.querySelector<HTMLInputElement>(
-            '#project-general-form input',
-          );
-          if (!focusName || !name) return holdDialogFocus(event);
-          // "Rename…" opens the dialog with the project name selected.
-          event.preventDefault();
-          name.select();
-        }}
       />
     </Dialog>
   );
 }
 
 /**
- * Project settings › Board: the connected board with Open on GitHub and Change…, the automatic
- * status changes, links to the GitHub side of the board, and Disconnect board…. The picker shows
- * only when there is no board, or after Change….
+ * Project settings › Board: the connected board with "Open on GitHub" and "Change…", the
+ * automatic status changes, and "Disconnect board…" in the Danger zone. Without a board, it
+ * shows "Connect board…". Both open the one Connect board dialog over Project settings.
  */
 function BoardSection({
   api,
@@ -265,10 +250,7 @@ function BoardSection({
     !!connection &&
     descriptor?.capabilities.updateStatus !== false &&
     typeof api.trackerConfigure === 'function';
-  const [picking, setPicking] = useState(!connection);
-  useEffect(() => {
-    if (!connection) setPicking(true);
-  }, [connection]);
+  const [connecting, setConnecting] = useState(false);
   const [confirmUnlink, setConfirmUnlink] = useState(false);
   const [unlinking, setUnlinking] = useState(false);
   const [error, setError] = useState('');
@@ -297,131 +279,140 @@ function BoardSection({
     : '';
   const url = connection?.project.url.replace(/\/+$/, '');
   return (
-    <div className="flex flex-1 flex-col gap-6">
+    <>
       {error && (
         <Alert variant="destructive" size="sm">
           <AlertDescription>{error}</AlertDescription>
         </Alert>
       )}
-      {connection && !picking && (
-        <>
-          <SettingsRows label="Connected board">
-            <SettingsRow
-              icon={<SquareKanban />}
-              label={title}
-              help={[connection.project.owner, boardLabel(providerName)]
-                .filter(Boolean)
-                .join(' · ')}
-            >
-              {url && (
-                <Button variant="ghost" size="sm" asChild>
-                  <a href={url} target="_blank" rel="noreferrer">
-                    Open on {providerName}
-                    <ExternalLink aria-hidden="true" />
-                  </a>
-                </Button>
-              )}
-              <Button variant="outline" size="sm" onClick={() => setPicking(true)}>
-                Change…
-              </Button>
-            </SettingsRow>
-          </SettingsRows>
-          {automation &&
-            (board ? (
-              <TrackerWorkflowForm
-                api={api}
-                groupId={group.id}
-                connection={connection}
-                board={board}
-                defaults={descriptor?.statusNames}
-                onSaved={changed}
-              />
-            ) : boardState.error ? (
-              <Alert variant="destructive" size="sm">
-                <AlertDescription>{boardState.error}</AlertDescription>
-              </Alert>
-            ) : (
-              <p role="status" className="project-settings-value m-0">
-                Loading the board…
-              </p>
-            ))}
-          {github && roadmapDates && (
-            <RoadmapDates api={api} groupId={group.id} onChanged={changed} />
-          )}
-          {github && url && (
-            <section aria-labelledby="project-settings-github" className="project-settings-group">
-              <h3 id="project-settings-github" className="project-settings-group-label">
-                On GitHub
-              </h3>
-              <div className="project-settings-links">
-                {githubPages.map((page) => (
-                  <a
-                    key={page.label}
-                    className="project-settings-link"
-                    href={url + page.path}
-                    target="_blank"
-                    rel="noreferrer"
-                  >
-                    {page.label}
-                    <ExternalLink aria-hidden="true" />
-                  </a>
-                ))}
-              </div>
-            </section>
-          )}
-          <div className="mt-auto flex justify-end">
+      {connection ? (
+        <SettingsRows label="Connected board">
+          <SettingsRow
+            icon={
+              <EntityIcon>
+                <SquareKanban />
+              </EntityIcon>
+            }
+            label={title}
+            help={[connection.project.owner, boardLabel(providerName)].filter(Boolean).join(' · ')}
+          >
+            {url && <OpenOnProvider url={url} name={providerName} github={github} />}
+            <Button variant="outline" size="sm" onClick={() => setConnecting(true)}>
+              Change…
+            </Button>
+          </SettingsRow>
+        </SettingsRows>
+      ) : (
+        <EmptyState
+          compact
+          icon={<SquareKanban />}
+          title="No board"
+          action={
+            <Button variant="outline" size="sm" onClick={() => setConnecting(true)}>
+              Connect board…
+            </Button>
+          }
+        />
+      )}
+      {connection &&
+        automation &&
+        (board ? (
+          <TrackerWorkflowForm
+            api={api}
+            groupId={group.id}
+            connection={connection}
+            board={board}
+            defaults={descriptor?.statusNames}
+            onSaved={changed}
+          />
+        ) : boardState.error ? (
+          <Alert variant="destructive" size="sm">
+            <AlertDescription>{boardState.error}</AlertDescription>
+          </Alert>
+        ) : (
+          <p role="status" className="project-settings-value m-0">
+            Loading the board…
+          </p>
+        ))}
+      {connection && github && roadmapDates && (
+        <RoadmapDates api={api} groupId={group.id} onChanged={changed} />
+      )}
+      {connection && (
+        <SettingsRows title="Danger zone">
+          <SettingsRow
+            label="Disconnect board"
+            help={`Tasks stay on ${providerName}. Chats keep their links.`}
+          >
             <Button
-              variant="ghost"
+              variant="destructive-outline"
               size="sm"
-              className="text-destructive hover:text-destructive"
               disabled={unlinking}
               onClick={() => setConfirmUnlink(true)}
             >
               Disconnect board…
             </Button>
-          </div>
-        </>
+          </SettingsRow>
+        </SettingsRows>
       )}
-      {picking && (
-        <BoardPicker
-          api={api}
-          group={group}
-          provider={provider}
-          onCancel={connection ? () => setPicking(false) : undefined}
-          onConnected={async () => {
-            setPicking(false);
-            changed();
-            await onConnected();
-          }}
+      <ConnectBoardDialog
+        api={api}
+        group={group}
+        open={connecting}
+        onOpenChange={setConnecting}
+        onConnected={async () => {
+          changed();
+          await onConnected();
+        }}
+      />
+      {connection && (
+        <ConfirmDialog
+          open={confirmUnlink}
+          title={`Disconnect ${connection.project.title} from ${group.name}?`}
+          description={`Tasks stay on ${providerName}. Chats keep their links.`}
+          confirmLabel="Disconnect board"
+          destructive
+          busy={unlinking}
+          onCancel={() => setConfirmUnlink(false)}
+          onConfirm={() => void disconnect()}
         />
       )}
-      {connection && (
-        <Dialog open={confirmUnlink} onOpenChange={(next) => !unlinking && setConfirmUnlink(next)}>
-          <DialogContent size="sm">
-            <DialogHeader>
-              <DialogTitle>
-                Disconnect {connection.project.title} from {group.name}?
-              </DialogTitle>
-              <DialogDescription>
-                Tasks stay on {providerName}. Chats keep their links.
-              </DialogDescription>
-            </DialogHeader>
-            <DialogFooter>
-              <Button
-                variant="outline"
-                disabled={unlinking}
-                onClick={() => setConfirmUnlink(false)}
-              >
-                Cancel
-              </Button>
-              <Button variant="destructive" disabled={unlinking} onClick={() => void disconnect()}>
-                {unlinking ? 'Disconnecting…' : 'Disconnect'}
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
-      )}
-    </div>
+    </>
+  );
+}
+
+/**
+ * "Open on GitHub": one menu with the board and the GitHub pages of the board: Fields, Views,
+ * Workflows and Status updates. Other trackers open the board only.
+ */
+function OpenOnProvider({ url, name, github }: { url: string; name: string; github: boolean }) {
+  if (!github)
+    return (
+      <Button variant="ghost" size="sm" asChild>
+        <a href={url} target="_blank" rel="noreferrer">
+          Open on {name}
+          <ExternalLink aria-hidden="true" />
+        </a>
+      </Button>
+    );
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button variant="ghost" size="sm">
+          Open on GitHub
+          <ChevronDown aria-hidden="true" />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end">
+        {githubPages.map((page) => (
+          <DropdownMenuItem key={page.label} asChild>
+            <a href={url + page.path} target="_blank" rel="noreferrer">
+              {page.label}
+              <ExternalLink className="ml-auto" aria-label="Opens in the browser" />
+            </a>
+          </DropdownMenuItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 
@@ -449,175 +440,5 @@ function RoadmapDates({
         </SettingsRow>
       )}
     </SettingsRows>
-  );
-}
-
-/** Checks the tracker access, then shows the picker and Connect board. */
-function BoardPicker({
-  api,
-  group,
-  provider,
-  onCancel,
-  onConnected,
-}: {
-  api: API;
-  group: ProjectGroup;
-  provider: string;
-  /** Closes the picker. Without it, there is no Cancel button. */
-  onCancel?(): void;
-  onConnected(): Promise<void>;
-}) {
-  const connection = trackerConnection(group);
-  const { client, name: providerName } = useTracker(api, provider);
-  const board = boardLabel(providerName);
-  const [auth, setAuth] = useState<TrackerAuthState>({ status: 'idle' });
-  const [url, setUrl] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [pickerBusy, setPickerBusy] = useState(false);
-  const [error, setError] = useState('');
-  const started = useRef(false);
-  async function authorize() {
-    setAuth({ status: 'checking' });
-    try {
-      setAuth(await client.authorize());
-    } catch (failure) {
-      setAuth({
-        status: 'error',
-        message:
-          `Could not check ${providerName} access. ` +
-          `${errorMessage(failure).replace(/\.?$/, '.')} Make sure that you are online, then try again.`,
-      });
-    }
-  }
-  useEffect(() => {
-    if (started.current) return;
-    started.current = true;
-    // Defer so that a remount in development does not start two checks.
-    const timer = setTimeout(() => void authorize(), 0);
-    return () => {
-      clearTimeout(timer);
-      started.current = false;
-    };
-  }, []);
-  useEffect(() => {
-    if (!trackerAuthPending(auth)) return;
-    let live = true;
-    const timer = setInterval(() => {
-      void client.authStatus().then(
-        (value) => live && setAuth(value),
-        () =>
-          live &&
-          setAuth({
-            status: 'error',
-            message: `Lost the connection to ${providerName}. Try again.`,
-          }),
-      );
-    }, interfaceConfig.authPollMs);
-    return () => {
-      live = false;
-      clearInterval(timer);
-    };
-  }, [auth.status, client]);
-  const changed = !!url && url !== connection?.project.url;
-  async function connect() {
-    if (!changed || busy) return;
-    setBusy(true);
-    setError('');
-    try {
-      await client.link(group.id, url);
-      showToast(connection ? 'The project now uses the new board.' : 'Board connected.');
-      setUrl('');
-      await onConnected();
-    } catch (failure) {
-      setError(errorMessage(failure));
-    } finally {
-      setBusy(false);
-    }
-  }
-  return (
-    <section aria-label={connection ? 'Change board' : 'Connect a board'} className="grid gap-3">
-      {['checking', 'verifying', 'idle'].includes(auth.status) && (
-        <p role="status" className="text-sm text-muted-foreground">
-          Checking {providerName} access…
-        </p>
-      )}
-      {auth.status === 'waiting' && (
-        <div className="panel grid gap-3" aria-live="polite">
-          <p className="m-0 text-sm">
-            {auth.code
-              ? `Enter this code on ${providerName} and approve access.`
-              : `Requesting a code from ${providerName}…`}
-          </p>
-          {auth.code && (
-            <div className="flex gap-2">
-              <Input
-                aria-label={`${providerName} device code`}
-                readOnly
-                value={auth.code}
-                className="flex-1 text-center font-mono tracking-widest"
-                onFocus={(event) => event.target.select()}
-              />
-              <Button variant="outline" onClick={() => void client.openAuth()}>
-                Open {providerName}
-                <ExternalLink aria-hidden="true" />
-              </Button>
-            </div>
-          )}
-          <p className="form-help m-0">
-            {auth.message || 'Waiting for approval. This updates automatically.'}
-          </p>
-        </div>
-      )}
-      {!trackerAuthPending(auth) && !['ready', 'idle'].includes(auth.status) && (
-        <Alert variant="destructive" size="sm">
-          <AlertDescription>
-            {auth.message || `Sign in to ${providerName} to choose a ${board}.`}
-            <div className="flex gap-2">
-              <Button variant="outline" size="sm" onClick={() => void authorize()}>
-                Try again
-              </Button>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() =>
-                  window.dispatchEvent(
-                    new CustomEvent('kalkidan-open-settings', {
-                      detail: { section: 'general', anchor: settingsAnchors.github },
-                    }),
-                  )
-                }
-              >
-                Open Preferences
-              </Button>
-            </div>
-          </AlertDescription>
-        </Alert>
-      )}
-      {auth.status === 'ready' && (
-        <TrackerProjectPicker
-          api={api}
-          provider={provider}
-          defaultTitle={group.name}
-          value={url}
-          onChange={setUrl}
-          onBusy={setPickerBusy}
-        />
-      )}
-      {error && (
-        <Alert variant="destructive" size="sm">
-          <AlertDescription>{error}</AlertDescription>
-        </Alert>
-      )}
-      <div className="flex justify-end gap-2">
-        {onCancel && (
-          <Button variant="outline" disabled={busy} onClick={onCancel}>
-            Cancel
-          </Button>
-        )}
-        <Button disabled={!changed || busy || pickerBusy} onClick={() => void connect()}>
-          {busy ? 'Connecting…' : 'Connect board'}
-        </Button>
-      </div>
-    </section>
   );
 }
