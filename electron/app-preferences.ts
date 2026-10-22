@@ -1,14 +1,11 @@
 import { readFile } from 'node:fs/promises';
 import { writeJSON } from './storage/atomic-json';
-import type { DataNoticeState } from '../src/domain/data-policy';
 import type { FirstRunState, NotificationPreferences } from '../src/domain/verdictan';
 
 interface PreferencesFile {
   schema: 1;
   welcomeDone: boolean;
   everSignedIn: boolean;
-  /** True after the user read the data notice once. */
-  dataNoticeSeen: boolean;
   notifications: NotificationPreferences;
   /** True when the app asks before it quits while work runs on SSH hosts. */
   sshQuitPrompt: boolean;
@@ -18,7 +15,6 @@ const defaults = (): PreferencesFile => ({
   schema: 1,
   welcomeDone: false,
   everSignedIn: false,
-  dataNoticeSeen: false,
   notifications: { finished: true, needsInput: true },
   sshQuitPrompt: true,
 });
@@ -45,7 +41,6 @@ export class AppPreferences {
         if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
           value.welcomeDone = raw.welcomeDone === true;
           value.everSignedIn = raw.everSignedIn === true;
-          value.dataNoticeSeen = raw.dataNoticeSeen === true;
           value.sshQuitPrompt = raw.sshQuitPrompt !== false;
           const notifications = raw.notifications;
           if (notifications && typeof notifications === 'object') {
@@ -83,16 +78,6 @@ export class AppPreferences {
   async setSignedIn(): Promise<FirstRunState> {
     if (!(await this.read()).everSignedIn) await this.save((value) => (value.everSignedIn = true));
     return this.firstRun();
-  }
-  /** True after the user read the data notice once. */
-  async dataNotice(): Promise<DataNoticeState> {
-    return { seen: (await this.read()).dataNoticeSeen };
-  }
-  /** Records that the user read the data notice. Writes only once. */
-  async setDataNoticeSeen(): Promise<DataNoticeState> {
-    if (!(await this.read()).dataNoticeSeen)
-      await this.save((value) => (value.dataNoticeSeen = true));
-    return this.dataNotice();
   }
   async notifications(): Promise<NotificationPreferences> {
     return { ...(await this.read()).notifications };

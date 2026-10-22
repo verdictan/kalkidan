@@ -18,7 +18,6 @@ import {
   DialogBody,
   DialogContent,
   DialogDescription,
-  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from './ui/dialog';
@@ -55,66 +54,6 @@ export function DataDisclosure({ headingLevel = 3 }: { headingLevel?: 3 | 4 }) {
         </section>
       ))}
     </div>
-  );
-}
-
-/**
- * The state of the data notice. `show` is true when the user has not read the notice and an
- * account is signed in, so that the notice shows before the first request.
- */
-export function useDataNotice(api: API, signedIn: boolean) {
-  const supported = typeof api.dataNoticeState === 'function';
-  const [seen, setSeen] = useState<boolean>();
-  useEffect(() => {
-    if (!supported || !signedIn || seen !== undefined) return;
-    let current = true;
-    void api.dataNoticeState!().then(
-      (state) => current && setSeen(state.seen),
-      () => current && setSeen(true),
-    );
-    return () => {
-      current = false;
-    };
-  }, [api, supported, signedIn, seen]);
-  return {
-    show: supported && signedIn && seen === false,
-    acknowledge: async () => {
-      setSeen(true);
-      try {
-        await api.setDataNoticeSeen?.();
-      } catch {
-        // The notice shows again at the next launch. Nothing else depends on it.
-      }
-    },
-  };
-}
-
-/** The data notice before the first request. It shows once. Preferences › Your data keeps it. */
-export function DataNoticeDialog({ open, onDone }: { open: boolean; onDone: () => void }) {
-  return (
-    <Dialog open={open}>
-      <DialogContent
-        size="md"
-        aria-describedby="data-notice-description"
-        onEscapeKeyDown={(event) => event.preventDefault()}
-        onPointerDownOutside={(event) => event.preventDefault()}
-        showCloseButton={false}
-      >
-        <DialogHeader>
-          <DialogTitle>Where your data goes</DialogTitle>
-          <DialogDescription id="data-notice-description">
-            Read this before you send the first request. You can read it again in Preferences › Your
-            data.
-          </DialogDescription>
-        </DialogHeader>
-        <DataDisclosure />
-        <DialogFooter>
-          <Button autoFocus onClick={onDone}>
-            Continue
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
   );
 }
 

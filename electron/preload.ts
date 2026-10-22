@@ -46,8 +46,6 @@ const api: API = {
     ipcRenderer.invoke('verdictan-review-decide', id, region, decision, reason, revision),
   firstRunState: () => ipcRenderer.invoke('first-run-state'),
   setWelcomeDone: () => ipcRenderer.invoke('set-welcome-done'),
-  dataNoticeState: () => ipcRenderer.invoke('data-notice-state'),
-  setDataNoticeSeen: () => ipcRenderer.invoke('set-data-notice-seen'),
   localDataUsage: () => ipcRenderer.invoke('local-data-usage'),
   localDataExport: () => ipcRenderer.invoke('local-data-export'),
   localDataDelete: (kind) => ipcRenderer.invoke('local-data-delete', kind),
