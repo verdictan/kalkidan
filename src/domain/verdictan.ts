@@ -41,6 +41,8 @@ export interface VerdictanStatus {
   capabilities?: VerdictanCapabilities;
   error?: string;
   remoteRevocationPending?: boolean;
+  /** The SSH hosts that still have no keychain access after Check status. Names only. */
+  keychainHosts?: string[];
   /** Account authentication alone does not authorize agent dispatch. */
   executionReady: boolean;
   /**
@@ -87,6 +89,12 @@ export interface VerdictanAPI {
   /** Opens the Verdictan console of the saved region ("Manage account"). */
   verdictanOpenConsole(): Promise<void>;
   /**
+   * Opens one account page of the Verdictan console of the saved region: a new verification
+   * email, or account recovery. The console and the account service do the work. Kalkidan
+   * sends no account data in the address.
+   */
+  verdictanOpenAccountPage(page: VerdictanAccountPage): Promise<void>;
+  /**
    * Saves the recommended setup for every agent that has no saved setup yet, with the same
    * preselection that Settings shows. Returns the new setup.
    */
@@ -109,6 +117,19 @@ export interface VerdictanAPI {
   setWelcomeDone(): Promise<FirstRunState>;
   notificationPreferences(): Promise<NotificationPreferences>;
   setNotificationPreferences(value: NotificationPreferences): Promise<NotificationPreferences>;
+}
+
+/** The account pages of the Verdictan console that Kalkidan opens. Fixed paths only. */
+export const verdictanAccountPages = {
+  verify: '/verify-email?resend=1',
+  recover: '/forgot-password',
+} as const;
+export type VerdictanAccountPage = keyof typeof verdictanAccountPages;
+/** The address of an account page. Rejects a page that is not in the fixed list. */
+export function verdictanAccountPageUrl(consoleOrigin: string, page: unknown) {
+  if (typeof page !== 'string' || !Object.hasOwn(verdictanAccountPages, page))
+    throw new Error('Unknown account page.');
+  return new URL(verdictanAccountPages[page as VerdictanAccountPage], consoleOrigin).href;
 }
 
 /** Omitted means organization provider connection (BYOK). Unknown values fail validation. */
@@ -757,9 +778,10 @@ export const managedErrors: Record<string, ManagedErrorInfo> = {
     message: 'Managed agents need a local network connection that is not available.',
     section: 'computers',
   },
+  // Kalkidan does not try again by itself, because each try shows the keychain prompt again.
   'desktop.secure_storage_unavailable': {
     message:
-      'The system keychain is locked or waits for your approval. Unlock it or allow access, then try again.',
+      'Kalkidan did not get access to the system keychain. The access was refused, or the keychain is locked. Select Check status. Then allow access when the system asks.',
     retry: true,
   },
   'desktop.operation_in_progress': {
@@ -1200,7 +1222,6 @@ const transientRefusals = new Set([
   'desktop.runtime_limit',
   'desktop.runtime_already_owned',
   'desktop.connection_limit',
-  'desktop.secure_storage_unavailable',
   'desktop.transport_closed',
   'desktop.transport_lost',
 ]);
@@ -1216,7 +1237,15 @@ const statusRefusals = new Set([
   'desktop.gateway_start_timeout',
   'desktop.gateway_stopped',
   'desktop.runtime_stopped',
+  // A refused keychain prompt. Check status starts the account runtime again, so it asks again.
+  'desktop.secure_storage_unavailable',
 ]);
+export const keychainRefusedCode = 'desktop.secure_storage_unavailable';
+/** The words for SSH hosts that still have no keychain access after Check status. */
+export function keychainHostsMessage(names: string[]) {
+  const hosts = names.join(', ');
+  return `Kalkidan did not get access to the system keychain on ${hosts}. The access was refused, or the keychain is locked. Unlock it or allow access on ${hosts}. Then select Check status again.`;
+}
 // Codes of a computer that cannot isolate agents. No Settings step and no second try helps.
 const platformRefusals = new Set([
   'desktop.process_isolation_unavailable',
@@ -1227,6 +1256,8 @@ const platformRefusals = new Set([
 /** Where the agent runs, for a launch refusal: "this computer" or the name of an SSH host. */
 export interface RefusalContext {
   computer?: string;
+  /** True when the agent runs on an SSH host. The system prompts there, not on this computer. */
+  remote?: boolean;
   /** The agent version that the launch found, when the code is about the version. */
   version?: string;
   /** The path of the agent program that the launch checked, when the code is about the version. */
@@ -1259,6 +1290,7 @@ function refusalWords(
   where: string,
   version?: string,
   path?: string,
+  remote?: boolean,
 ): string | undefined {
   const kind = versionAgent(code);
   if (kind) {
@@ -1286,7 +1318,9 @@ function refusalWords(
     case 'desktop.readiness_required':
       return `The managed agents check on ${where} did not pass. Check the status in Settings › Accounts, then try again.`;
     case 'desktop.secure_storage_unavailable':
-      return `The system keychain on ${where} is locked or waits for your approval. Unlock it or allow access, then try again.`;
+      if (remote)
+        return `Kalkidan did not get access to the system keychain on ${where}. The access was refused, or the keychain on ${where} is locked. Unlock it or allow access on ${where}. Then select Check status, and try again.`;
+      return `Kalkidan did not get access to the system keychain on ${where}. The access was refused, or the keychain is locked. Try again, and allow access when the system asks. If the system does not ask, select Check status.`;
     case 'desktop.event_authority_unavailable':
     case 'desktop.operation_in_progress':
       return managedErrors[code].message;
@@ -1321,7 +1355,7 @@ export function managedRefusal(code: string, context: RefusalContext = {}): Mana
   if (code === 'desktop.region_required' && context.regionSaved)
     return { code, message: signInToStart.message, step: 'sign-in', retry: false };
   const message =
-    refusalWords(code, where, version, safeProgramPath(context.path)) ||
+    refusalWords(code, where, version, safeProgramPath(context.path), context.remote) ||
     managedErrors[code]?.message ||
     launchBlocks[code]?.[1] ||
     'The managed launch checks did not pass. Check the managed agent status in Settings.';

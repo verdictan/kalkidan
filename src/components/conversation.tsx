@@ -50,6 +50,7 @@ import {
 import Markdown, { defaultUrlTransform } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Alert, AlertDescription } from './ui/alert';
+import { ReadOnlyConversation, useConversationOwnership } from './conversation-ownership';
 import { showToast } from './ui/toast';
 import { errorMessage } from '../lib/errors';
 import { agentErrorMessage, managedLaunchError, type AgentError } from '../lib/agent-errors';
@@ -282,6 +283,7 @@ export function Conversation({
   onSessionCreated,
   onTitleChange,
   onAgentChange,
+  onStartNew,
   hostName,
   mentionChats = [],
   folders = [],
@@ -308,9 +310,14 @@ export function Conversation({
   onTitleChange?: (title: string) => void;
   /** Changes the agent of a new chat before its first message. It keeps the linked task. */
   onAgentChange?: (agent: string, taskId?: string) => void;
+  /** Opens a new, empty chat under the active account, in the same code folder. */
+  onStartNew?: () => void;
 }) {
   // The computer where the agent runs, for refusal messages.
   const computer = session.hostId ? hostName || 'the SSH host' : 'this computer';
+  // A chat of another account or organization is read-only. Its context and usage stay there.
+  const ownership = useConversationOwnership(api, session, open);
+  const readOnly = ownership.state === 'other';
   const [toolOpen, setToolOpen] = useState(false);
   const [toolRequest, setToolRequest] = useState<ToolRequest | null>(null);
   const showTool = (kind: ToolRequest['kind']) =>
@@ -848,7 +855,7 @@ export function Conversation({
   async function send(retry?: { allowEdits?: boolean; resend?: { text: string; prompt: string } }) {
     const again = retry ? retry.resend || submitted.current : null;
     if (retry ? !again : !prompt.trim()) return;
-    if (active || taskBusy || startingRef.current || loading) return;
+    if (active || taskBusy || startingRef.current || loading || readOnly) return;
     if (signedOut) {
       sendAfterSignIn.current = true;
       startSignIn();
@@ -1748,6 +1755,7 @@ export function Conversation({
                 {taskNotice}
               </p>
             )}
+            {readOnly && <ReadOnlyConversation ownership={ownership} onStartNew={onStartNew} />}
             {errorInfo && (
               <Alert variant="destructive" size="sm" className="max-h-32 overflow-auto">
                 <AlertDescription className="grid gap-1 text-xs whitespace-pre-wrap">
@@ -1784,6 +1792,7 @@ export function Conversation({
               data-composer=""
               className="max-h-[clamp(80px,20vh,180px)] min-h-8 resize-none rounded-none border-0 bg-transparent px-0 py-0 text-base shadow-none focus-visible:ring-0 dark:bg-transparent"
               aria-label="Message agent"
+              readOnly={readOnly}
               aria-description={
                 (enterToSend
                   ? 'Press Enter to send. Press Shift+Enter for a new line.'
@@ -2040,7 +2049,7 @@ export function Conversation({
                       enterToSend ? 'Enter' : isMac ? 'Meta+Enter' : 'Control+Enter'
                     }
                     size="icon-sm"
-                    disabled={taskBusy || !prompt.trim() || loading}
+                    disabled={taskBusy || !prompt.trim() || loading || readOnly}
                     onClick={() => void send()}
                   >
                     <ArrowUp />

@@ -1,4 +1,9 @@
-import { signOutDetail, type VerdictanStatus } from '../src/domain/verdictan';
+import {
+  keychainRefusedCode,
+  signOutDetail,
+  verdictanAccountPageUrl,
+  type VerdictanStatus,
+} from '../src/domain/verdictan';
 import { identityKey, parseBindingSummary, type BindingSummary } from './verdictan/bindings';
 import {
   savedVerdictanRegion,
@@ -13,6 +18,7 @@ import { DesktopProtocolError } from './verdictan/protocol';
 import { ParallelDispatch } from './operations/parallel-dispatch';
 import { TaskExecutions } from './operations/task-execution';
 import { trackerConnection } from '../src/domain/tracker';
+import { conversationOwnership, remoteOwner } from '../src/domain/conversation-ownership';
 import { WorktreeCreation } from './operations/worktree';
 import { AgentStarts } from './operations/agent-start';
 import { ProjectCreation } from './operations/create-project';
@@ -23,6 +29,7 @@ import { PolicyReviews } from './verdictan/policy-review';
 import { PolicyResults } from './policy-results';
 import { remotePolicyRecords } from '../src/domain/policy-result';
 import { createVerdictanServices } from './verdictan/service';
+import { checkHostRuntimes } from './verdictan/remote-check';
 import { spawn } from 'node:child_process';
 import { appMenuTemplate } from './app-menu';
 import { parseChatActionState, type ChatActionState } from '../src/domain/chat-actions';
@@ -530,7 +537,45 @@ app.whenReady().then(async () => {
     ...(await status),
     region: verdictan!.region,
   });
-  handle('verdictan-check', () => withRegion(verdictan!.account.check()));
+  // The renderer sends only the chat. The binding and the account stay in the main process.
+  // A chat on an SSH host has its binding in the store of that host. The host returns only the
+  // owner IDs. A host that is not connected, or an older host, leaves the chat as it is.
+  handle('conversation-ownership', async (agent: unknown, sessionId: unknown, hostId: unknown) => {
+    const kind = agent === 'codex' ? 'codex' : agent === 'claude' ? 'claude_code' : '';
+    if (!kind || typeof sessionId !== 'string' || !sessionId) return { state: 'unmanaged' };
+    const status = verdictan!.account.status();
+    const account = status.phase === 'authenticated' ? status.account : undefined;
+    if (hostId === undefined || hostId === null || hostId === '')
+      return conversationOwnership({
+        binding: await verdictan!.bindings.read(kind, sessionId),
+        account,
+      });
+    if (
+      typeof hostId !== 'string' ||
+      !remote.list().some((host) => host.id === hostId && host.status === 'connected')
+    )
+      return { state: 'unknown' };
+    try {
+      const owner = await remote.call(hostId, 'conversation-owner', [
+        kind,
+        providerSessionId(hostId, sessionId),
+      ]);
+      return conversationOwnership({ binding: remoteOwner(owner), account });
+    } catch {
+      return { state: 'unknown' };
+    }
+  });
+  handle('verdictan-check', async () => {
+    const status = await withRegion(verdictan!.account.check());
+    // Check status also starts the runtime again on each SSH host. When this computer refused
+    // the keychain, the hosts cannot reach the account, so they wait for the next check.
+    if (status.error === keychainRefusedCode) return status;
+    const keychainHosts = await checkHostRuntimes(
+      remote.list().filter((host) => host.status === 'connected'),
+      (hostId, method, args) => remote.call(hostId, method, args),
+    );
+    return keychainHosts.length ? { ...status, keychainHosts } : status;
+  });
   handle('verdictan-authorize', (intent) => withRegion(verdictan!.account.authorize(intent)));
   handle('verdictan-cancel', () => withRegion(verdictan!.account.cancel()));
   handle('verdictan-renew', () => withRegion(verdictan!.account.renew()));
@@ -539,6 +584,11 @@ app.whenReady().then(async () => {
     const region = verdictan!.region;
     if (!region) throw new DesktopProtocolError('desktop.region_required');
     await shell.openExternal(verdictanRegion(region).consoleOrigin);
+  });
+  handle('verdictan-open-account-page', async (page: unknown) => {
+    const region = verdictan!.region;
+    if (!region) throw new DesktopProtocolError('desktop.region_required');
+    await shell.openExternal(verdictanAccountPageUrl(verdictanRegion(region).consoleOrigin, page));
   });
   // The renderer sends a request ID and a region only. The service reads and checks the link.
   const policyReviews = new PolicyReviews({

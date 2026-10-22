@@ -6,6 +6,7 @@ import { DesktopProtocolError } from './verdictan/protocol';
 import { listDirectory } from './storage/directory-list';
 import { listMentionFiles, readMentionFile } from './projects/mention-files';
 import { createVerdictanServices } from './verdictan/service';
+import { hostCheckMethod } from './verdictan/remote-check';
 import { isVerdictanRegion } from './verdictan/region';
 import { desktopVersion } from './verdictan/release';
 import {
@@ -184,6 +185,12 @@ async function dispatch(method: string, args: any[]): Promise<any> {
       accountProxy.close();
       accountProxy = new RemoteAccountClient(send);
       return true;
+    case hostCheckMethod: {
+      // Check status on the desktop. A host that refused the keychain starts its runtime again.
+      if (!verdictanRuntime) return null;
+      const { phase, error } = await verdictanRuntime.account.check();
+      return { phase, error };
+    }
     case 'runtime-update': {
       if (
         !['status', 'check', 'install', 'cancel'].includes(a) ||
@@ -442,6 +449,15 @@ async function dispatch(method: string, args: any[]): Promise<any> {
       return terminal.input(a, b);
     case 'terminalStop':
       return terminal.stop(a);
+    case 'conversation-owner': {
+      // Only the owner IDs leave this host. The desktop compares them with the active account.
+      if (!['codex', 'claude_code'].includes(a) || typeof b !== 'string' || !b) return null;
+      const store = verdictanRuntime?.bindings ?? new BindingStore(join(homedir(), '.kalkidan'));
+      const binding = await store.read(a, b);
+      return binding
+        ? { organization_id: binding.organization_id, user_id: binding.user_id }
+        : null;
+    }
     case 'models':
       return modelOptions(a, codex);
     case 'transcript': {
