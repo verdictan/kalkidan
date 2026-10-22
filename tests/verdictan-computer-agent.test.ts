@@ -8,6 +8,7 @@ import { VerdictanLaunchService } from '../electron/verdictan/launch';
 import { VerdictanSetupService } from '../electron/verdictan/setup';
 import { RemoteAccountBroker } from '../electron/verdictan/remote-broker';
 import { DesktopProtocolError } from '../electron/verdictan/protocol';
+import { hostDisplayName } from '../electron/verdictan/host-name';
 import {
   computerAgentId,
   computerAgentIssue,
@@ -103,6 +104,17 @@ test('the conflict codes of the older API have clear words', () => {
   }
   assert.match(managedErrorInfo('desktop.resource_conflict').message, /second agent/);
   assert.match(managedErrorInfo('desktop.scope_mismatch').message, /second project/);
+  assert.equal(
+    managedErrorInfo('desktop.gateway_limit').message,
+    'This computer runs chats on 16 agents. Close old chats to use another agent.',
+  );
+  assert.equal(
+    managedLaunchBlock(new DesktopProtocolError('desktop.gateway_limit')).message.includes(
+      'Close old chats to use another agent.',
+    ),
+    true,
+  );
+  assert.match(managedErrorInfo('desktop.gateway_moved').message, /new port/);
 });
 
 test('the first read moves the earlier agents: a shared agent stays, older chats keep theirs', async () => {
@@ -185,11 +197,12 @@ async function fixture(choices: Partial<VerdictanSetup> = {}, hostKey = 'local')
   const store = new BindingStore(root);
   const provisions: any[] = [];
   const starts: any[] = [];
-  const state = { setup: { ...base, ...choices } as VerdictanSetup };
+  const state = { setup: { ...base, ...choices } as VerdictanSetup, refuse: [] as string[] };
   const client: any = {
     request: async (_: string, params: any) => {
       provisions.push(params.parameters);
       const agent = params.parameters.agent_id;
+      if (state.refuse.includes(agent)) throw new DesktopProtocolError('desktop.agent_unavailable');
       return {
         data: {
           ...params.parameters,
@@ -266,6 +279,7 @@ async function fixture(choices: Partial<VerdictanSetup> = {}, hostKey = 'local')
   };
   return {
     root,
+    service,
     store,
     state,
     provisions,
@@ -407,4 +421,62 @@ test('the SSH broker sends the agent of the host and accepts the agent of any ch
     },
   });
   assert.equal(calls.at(-1)?.operation, 'runtime.provision');
+});
+
+test('Verdictan refuses the agent: a new chat changes the computer agent, a chat forks', async () => {
+  const f = await fixture();
+  try {
+    await f.run('first');
+    f.state.refuse = [kalkidanAgent];
+    await assert.rejects(f.run('second'), /setup_agent_unavailable/);
+    await assert.rejects(f.run('first', false), /\[desktop\.agent_unavailable\]/);
+  } finally {
+    await f.cleanup();
+  }
+});
+
+test('the computer name goes to Verdictan only when the runtime accepts it', async () => {
+  assert.equal(hostDisplayName('  MacBook\u0000 Pro\n '), 'MacBook Pro');
+  assert.equal(hostDisplayName('\u0007'), undefined);
+  assert.equal(hostDisplayName(42), undefined);
+  assert.equal(hostDisplayName('x'.repeat(200))?.length, 120);
+  const f = await fixture();
+  try {
+    await f.run('unnamed');
+    assert.equal('host_name' in f.provisions[0], false);
+    f.service.hostName = () => 'MacBook Pro';
+    await f.run('named');
+    assert.equal(f.provisions[1].host_name, 'MacBook Pro');
+  } finally {
+    await f.cleanup();
+  }
+  // The desktop adds the name of an SSH host. The host cannot choose it.
+  const calls: any[] = [];
+  const broker = new RemoteAccountBroker(
+    {
+      inspect: async () => ({
+        client: {
+          request: async (_: string, parameters: any) => {
+            calls.push(parameters.parameters);
+            return { data: { agent_id: reviewAgent, gateway_id: 'gateway' } };
+          },
+        },
+        key: 'account',
+        account: {},
+        setup: base,
+      }),
+    } as any,
+    { identities: async () => ({ installationId: id, hostId: id }) } as any,
+    (host) => (host === 'host-1' ? 'devbox' : undefined),
+  );
+  await broker.request('host-1', 'resources.provision', {
+    parameters: {
+      installation_id: id,
+      host_id: id,
+      team_id: team,
+      agent_id: reviewAgent,
+      host_name: 'chosen by the host',
+    } as any,
+  });
+  assert.equal(calls[0].host_name, 'devbox');
 });

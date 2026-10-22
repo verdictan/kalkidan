@@ -18,6 +18,9 @@ import {
 import { RuntimeInstaller } from './install';
 import { probeRuntime } from './runtime-probe';
 import { proxyConfigured, withReleaseErrors } from './network';
+import { hostDisplayName, hostNameCapability } from './host-name';
+import { GatewayInstances } from './instances';
+import { multiGatewayCapability } from './supervisor';
 
 export function createVerdictanServices(options: {
   root: string;
@@ -31,6 +34,11 @@ export function createVerdictanServices(options: {
   /** On an SSH host: the saved choices that the desktop sends. See `VerdictanChoices`. */
   selections?: () => Promise<unknown>;
   identities?: () => Promise<{ installationId: string; hostId: string }>;
+  /**
+   * The visible name of a computer: 'local' or an SSH host ID. Verdictan names each gateway
+   * "<computer name> · <agent name>". Only the desktop has it.
+   */
+  hostName?: (hostId: string) => string | undefined;
   /**
    * The fetch for release discovery and downloads. The desktop uses the Chromium network stack,
    * which uses the system proxy and certificate settings. An SSH host uses Node.js fetch.
@@ -103,12 +111,21 @@ export function createVerdictanServices(options: {
       return executable ? new DesktopProtocol(executable, args) : null;
     },
   });
+  // Undelivered usage records must survive a restart, so the queue is not in a temporary folder.
+  const eventDirectory = join(options.root, 'runtime', 'verdictan', 'events');
   const managed = new ManagedRuntimes({
     apiOrigin,
-    // Undelivered usage records must survive a restart, so the queue is not in a temporary folder.
-    eventDirectory: join(options.root, 'runtime', 'verdictan', 'events'),
+    eventDirectory,
     client: () => account.runtimeClient(),
     executable: () => installer.executable(),
+    // One supervisor for this computer with one gateway instance for each agent. A runtime
+    // without the multi mode starts one process for each chat runtime.
+    instances: new GatewayInstances({
+      apiOrigin,
+      client: () => account.runtimeClient(),
+      supervisor: { executable: () => installer.executable(), eventDirectory },
+    }),
+    multi: () => !!account.status().capabilities?.capabilities.includes(multiGatewayCapability),
     changed: options.changed,
     // The account session of this device was revoked. Remove the local session at once.
     revoked: (reason) => {
@@ -122,6 +139,11 @@ export function createVerdictanServices(options: {
     apiOrigin,
     options.selections,
   );
+  // The name goes only to a runtime that accepts it. An older runtime refuses unknown fields.
+  const hostName = (hostId: string) =>
+    account.status().capabilities?.capabilities.includes(hostNameCapability)
+      ? hostDisplayName(options.hostName?.(hostId))
+      : undefined;
   const launch = new VerdictanLaunchService(
     bindings,
     setup,
@@ -130,6 +152,7 @@ export function createVerdictanServices(options: {
     options.identities,
   );
   launch.region = region;
-  const remoteBroker = new RemoteAccountBroker(setup, bindings);
+  launch.hostName = () => hostName(options.hostId);
+  const remoteBroker = new RemoteAccountBroker(setup, bindings, hostName);
   return { installer, account, managed, setup, launch, bindings, remoteBroker, region };
 }

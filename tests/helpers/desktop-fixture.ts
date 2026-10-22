@@ -369,6 +369,7 @@ export async function desktopFixture(platform = 'linux', failure = '') {
         stopAll: asyncRecord('managedStopAll'),
         checkExpiry: record('managedCheckExpiry'),
         revokeHost: asyncRecord('managedRevokeHost'),
+        resetSupervisor: record('managedResetSupervisor'),
       },
       bindings: {
         knownIdentities: async (hostKey: string) =>

@@ -46,10 +46,15 @@ export interface GatewayOptions {
   /** The persistent folder of the durable event queue. Without it, Verdictan uses a temporary one. */
   eventDirectory?: string;
   /**
+   * The gateway instance of the agent in the supervisor of this computer. Then no process
+   * starts: the chat sends its own credential to the address of the instance.
+   */
+  instance?: SharedGateway;
+  /**
    * The gateway stopped without a request from Kalkidan. `revocation` is set when Verdictan
    * revoked the runtime. Then the runtime must not start again with the same credentials.
    */
-  lost?(revocation?: GatewayRevocation): void;
+  lost?(revocation?: GatewayRevocation, code?: string): void;
 }
 /** The reasons of a `credential.revoked` event from the supervised gateway. */
 export const gatewayRevocationReasons = [
@@ -63,9 +68,19 @@ export type GatewayRevocation = (typeof gatewayRevocationReasons)[number];
 function isRevocation(value: unknown): value is GatewayRevocation {
   return (gatewayRevocationReasons as readonly unknown[]).includes(value);
 }
+/** One gateway instance that several chat runtimes of the same agent use. */
+export interface SharedGateway {
+  address: string;
+  /**
+   * Calls `lost` when the instance stops, or with `moved` when it restarted on another port.
+   * Returns the function that ends the subscription.
+   */
+  subscribe(lost: (reason?: GatewayRevocation | 'moved') => void): () => void;
+}
 /** Owns one runtime generation. A listening socket never authorizes execution. */
 export class ManagedGateway {
-  private child: ChildProcess;
+  private child?: ChildProcess;
+  private unsubscribe?: () => void;
   private credentials: RuntimeCredentials;
   private address?: string;
   private generation?: string;
@@ -77,7 +92,7 @@ export class ManagedGateway {
   private resolveListening!: () => void;
   private rejectListening!: (error: Error) => void;
   private exited: Promise<void>;
-  private startupTimer: ReturnType<typeof setTimeout>;
+  private startupTimer?: ReturnType<typeof setTimeout>;
   private expiryTimer: ReturnType<typeof setTimeout>;
   private stopTask?: Promise<void>;
   constructor(private options: GatewayOptions) {
@@ -88,7 +103,27 @@ export class ManagedGateway {
     });
     // Observe errors even if the caller has not yet started its preflight.
     void this.listening.catch(() => {});
-    this.child = (options.launch || spawn)(options.executable, ['gateway', 'supervise'], {
+    this.expiryTimer = setTimeout(
+      () => this.fail('desktop.runtime_expired'),
+      Math.max(0, Date.parse(this.credentials.expires_at) - this.now()),
+    );
+    this.expiryTimer.unref?.();
+    if (options.instance) {
+      // The supervisor runs the instance. This chat uses its address with its own credential.
+      this.address = new URL(options.instance.address).origin;
+      this.exited = Promise.resolve();
+      this.resolveListening();
+      this.unsubscribe = options.instance.subscribe((reason) =>
+        reason === 'moved'
+          ? this.fail('desktop.gateway_moved')
+          : this.fail(
+              reason ? 'desktop.credential_revoked' : 'desktop.gateway_unavailable',
+              reason,
+            ),
+      );
+      return;
+    }
+    const child = (options.launch || spawn)(options.executable, ['gateway', 'supervise'], {
       stdio: ['pipe', 'pipe', 'pipe', 'pipe'],
       windowsHide: true,
       env: {
@@ -100,21 +135,22 @@ export class ManagedGateway {
         ...eventBufferEnvironment(options.eventDirectory),
       },
     });
+    this.child = child;
     this.exited = new Promise((resolve) =>
-      this.child.once('close', () => {
+      child.once('close', () => {
         this.fail('desktop.gateway_stopped');
         resolve();
       }),
     );
-    this.child.on('error', () => this.fail('desktop.gateway_failed'));
-    this.child.stdin?.on('error', () => this.fail('desktop.gateway_failed'));
-    const pipe = this.child.stdio[3] as Writable;
+    child.on('error', () => this.fail('desktop.gateway_failed'));
+    child.stdin?.on('error', () => this.fail('desktop.gateway_failed'));
+    const pipe = child.stdio[3] as Writable;
     pipe.on('error', () => this.fail('desktop.credential_delivery_failed'));
     pipe.end(JSON.stringify(this.credentials) + '\n');
-    this.child.stderr?.on('data', () => {});
+    child.stderr?.on('data', () => {});
     let buffer = '';
     const decoder = new StringDecoder('utf8');
-    this.child.stdout?.on('data', (bytes: Buffer) => {
+    child.stdout?.on('data', (bytes: Buffer) => {
       if (this.closed) return;
       buffer += decoder.write(bytes);
       if (Buffer.byteLength(buffer) > 65536) return this.fail('desktop.gateway_protocol_invalid');
@@ -130,12 +166,7 @@ export class ManagedGateway {
       }
     });
     this.startupTimer = setTimeout(() => this.fail('desktop.gateway_start_timeout'), 15000);
-    this.expiryTimer = setTimeout(
-      () => this.fail('desktop.runtime_expired'),
-      Math.max(0, Date.parse(this.credentials.expires_at) - this.now()),
-    );
     this.startupTimer.unref?.();
-    this.expiryTimer.unref?.();
   }
   private now() {
     return (this.options.now || Date.now)();
@@ -203,11 +234,12 @@ export class ManagedGateway {
     this.controller.abort();
     clearTimeout(this.startupTimer);
     clearTimeout(this.expiryTimer);
+    this.unsubscribe?.();
     this.rejectListening(new DesktopProtocolError(code));
     if (!this.stopping) {
       // Fail closed. A dead or invalid supervisor cannot retain agent ownership.
-      this.options.lost?.(revocation);
-      this.child.kill('SIGKILL');
+      this.options.lost?.(revocation, code);
+      this.child?.kill('SIGKILL');
     }
   }
   async readiness(agent: NativeAgent) {
@@ -445,9 +477,17 @@ export class ManagedGateway {
     clearTimeout(this.startupTimer);
     clearTimeout(this.expiryTimer);
     this.rejectListening(new DesktopProtocolError('desktop.gateway_stopped'));
-    if (this.child.exitCode !== null || this.child.signalCode !== null) return;
-    if (this.generation && !this.child.stdin?.destroyed)
-      this.child.stdin?.write(
+    const child = this.child;
+    if (!child) {
+      // A shared instance continues for the other chats of the agent. Only this chat stops.
+      this.unsubscribe?.();
+      this.closed = true;
+      this.credentials = { ...this.credentials, runtime_credential: '', inference_credential: '' };
+      return;
+    }
+    if (child.exitCode !== null || child.signalCode !== null) return;
+    if (this.generation && !child.stdin?.destroyed)
+      child.stdin?.write(
         JSON.stringify({
           schema_version: 1,
           correlation_id: randomUUID(),
@@ -455,8 +495,8 @@ export class ManagedGateway {
           operation: 'gateway.shutdown',
         }) + '\n',
       );
-    this.child.stdin?.end();
-    const kill = setTimeout(() => this.child.kill('SIGKILL'), 15000);
+    child.stdin?.end();
+    const kill = setTimeout(() => child.kill('SIGKILL'), 15000);
     try {
       await this.exited;
     } finally {

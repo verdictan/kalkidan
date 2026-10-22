@@ -5,9 +5,11 @@ import {
   type GatewayOptions,
   type GatewayRevocation,
   type NativeAgent,
+  type SharedGateway,
 } from './gateway';
 import { uuid, type RuntimeCredentials } from './credentials';
 import { prepareEventDirectory } from './event-buffer';
+import type { GatewayInstances } from './instances';
 
 export type RuntimePhase =
   | 'provisioning'
@@ -28,7 +30,11 @@ interface OwnedRuntime {
   runtimeId?: string;
   credentialGeneration?: number;
   gateway?: ManagedGateway;
-  stopAgent(): Promise<void>;
+  /** Ends the use of a shared gateway instance. Missing with one process for each runtime. */
+  release?(): Promise<void>;
+  shared?: SharedGateway;
+  /** Stops the coding agent. `code` says why, when the gateway stopped without a request. */
+  stopAgent(code?: string): Promise<void>;
 }
 interface RuntimeOptions {
   apiOrigin: string;
@@ -40,6 +46,14 @@ interface RuntimeOptions {
   changed?(): void;
   /** Verdictan revoked a runtime. The runtime is already stopped. */
   revoked?(reason: GatewayRevocation): void;
+  /**
+   * One supervisor for this computer, with one gateway instance for each agent. Used when
+   * `multi` is true. Without it, or when the runtime cannot run it, each runtime starts its
+   * own `gateway supervise` process.
+   */
+  instances?: GatewayInstances;
+  /** True when the runtime advertises `gateway.supervise.multi`. */
+  multi?(): boolean;
 }
 /** One backend owner serializes credential mutations. Failed rotation is never retried. */
 export class ManagedRuntimes {
@@ -84,7 +98,11 @@ export class ManagedRuntimes {
       this.operations.delete(sessionId);
     }
   }
-  async start(binding: RuntimeProvision, agent: NativeAgent, stopAgent: () => Promise<void>) {
+  async start(
+    binding: RuntimeProvision,
+    agent: NativeAgent,
+    stopAgent: (code?: string) => Promise<void>,
+  ) {
     return this.exclusive(binding.session_id, async () => {
       if (this.blockedHosts.has(binding.installation_id + ':' + binding.host_id))
         throw new DesktopProtocolError('desktop.host_revoked');
@@ -133,8 +151,7 @@ export class ManagedRuntimes {
       } catch (error) {
         if (item.phase !== 'reconciliation-required' && item.phase !== 'revoked')
           this.set(item, 'failed');
-        await item.gateway?.stop();
-        item.gateway = undefined;
+        await this.drop(item);
         // Keep the ID so callers can revoke an issued runtime after startup failure.
         throw error;
       }
@@ -163,19 +180,24 @@ export class ManagedRuntimes {
       throw new DesktopProtocolError('desktop.runtime_stopped');
     this.set(item, 'starting');
     if (this.options.eventDirectory) await prepareEventDirectory(this.options.eventDirectory);
+    const shared = await this.shared(item);
+    if (this.closing || item.generation !== this.generation)
+      throw new DesktopProtocolError('desktop.runtime_stopped');
     const gateway = (this.options.gateway || ((options) => new ManagedGateway(options)))({
       executable,
       credentials: frame,
       eventDirectory: this.options.eventDirectory,
-      lost: (revocation) => {
+      ...(shared ? { instance: shared } : {}),
+      lost: (revocation, code) => {
         item.gateway = undefined;
+        void this.releaseShared(item);
         if (revocation && revocation !== 'offline_limit') {
           // A revoked host stays blocked until a new host identity is authorized.
           if (revocation === 'host_revoked')
             this.blockedHosts.add(item.binding.installation_id + ':' + item.binding.host_id);
           this.set(item, 'revoked');
         } else this.set(item, 'failed');
-        void item.stopAgent().catch(() => {});
+        void item.stopAgent(code).catch(() => {});
         if (revocation) this.options.revoked?.(revocation);
       },
     });
@@ -184,6 +206,37 @@ export class ManagedRuntimes {
     if (this.closing || item.generation !== this.generation || item.phase !== 'starting')
       throw new DesktopProtocolError('desktop.runtime_stopped');
     this.set(item, 'ready');
+  }
+  /**
+   * The gateway instance of the agent of a runtime, in the supervisor of this computer. Null
+   * when the runtime cannot run the supervisor. Then the runtime starts its own process.
+   */
+  private async shared(item: OwnedRuntime) {
+    const instances = this.options.instances;
+    if (!instances || !this.options.multi?.() || instances.supervisor.unsupported) return null;
+    if (item.release) return item.shared ?? null;
+    try {
+      const shared = await instances.acquire(item.binding);
+      item.release = shared.release;
+      item.shared = shared;
+      return shared;
+    } catch (error) {
+      // A runtime without the multi mode did not start the supervisor. Use one process.
+      if (instances.supervisor.unsupported) return null;
+      throw error;
+    }
+  }
+  private async releaseShared(item: OwnedRuntime) {
+    const release = item.release;
+    item.release = undefined;
+    item.shared = undefined;
+    await release?.().catch(() => {});
+  }
+  /** Stops the gateway of a runtime and ends its use of a shared instance. */
+  private async drop(item: OwnedRuntime) {
+    await item.gateway?.stop();
+    item.gateway = undefined;
+    await this.releaseShared(item);
   }
   async route(
     sessionId: string,
@@ -222,6 +275,10 @@ export class ManagedRuntimes {
       throw new DesktopProtocolError('desktop.gateway_unavailable');
     return item.gateway.endpoint();
   }
+  /** Allows a new supervisor start after repeated crashes, for example on Check status. */
+  resetSupervisor() {
+    this.options.instances?.supervisor.reset();
+  }
   /** Stop each gateway whose credential expired while the computer slept. */
   checkExpiry() {
     for (const item of this.records.values()) item.gateway?.checkExpiry();
@@ -238,7 +295,8 @@ export class ManagedRuntimes {
       const item = this.owned(sessionId);
       if (!['ready', 'stopped'].includes(item.phase))
         throw new DesktopProtocolError('desktop.runtime_reconciliation_required');
-      await this.stopOwned(item);
+      // The shared instance continues. Only the gateway of this runtime stops.
+      await this.stopOwned(item, true);
       this.set(item, 'renewing');
       try {
         const client = await this.options.client();
@@ -256,8 +314,7 @@ export class ManagedRuntimes {
         item.credentialGeneration = Number(data.generation);
         await this.launch(item, client);
       } catch (error) {
-        await item.gateway?.stop();
-        item.gateway = undefined;
+        await this.drop(item);
         this.set(item, 'reconciliation-required');
         throw error;
       }
@@ -283,12 +340,13 @@ export class ManagedRuntimes {
     if (!item?.runtimeId) throw new DesktopProtocolError('desktop.runtime_not_found');
     return item;
   }
-  private async stopOwned(item: OwnedRuntime) {
+  private async stopOwned(item: OwnedRuntime, keepShared = false) {
     const previous = item.phase;
     this.set(item, 'stopping');
     // Both stops must complete before rotation is allowed.
     await Promise.all([item.stopAgent(), item.gateway?.stop()]);
     item.gateway = undefined;
+    if (!keepShared) await this.releaseShared(item);
     this.set(
       item,
       ['revoked', 'revocation-pending', 'reconciliation-required'].includes(previous)
@@ -301,6 +359,7 @@ export class ManagedRuntimes {
     ++this.generation;
     try {
       await Promise.all([...this.records.values()].map((item) => this.stopOwned(item)));
+      await this.options.instances?.stopAll();
     } finally {
       this.closing = false;
     }

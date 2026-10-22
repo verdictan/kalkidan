@@ -775,6 +775,14 @@ export const managedErrors: Record<string, ManagedErrorInfo> = {
       'You cannot read the Kalkidan default policy. Ask an organization administrator for access.',
     section: 'agents',
   },
+  'desktop.gateway_limit': {
+    message: 'This computer runs chats on 16 agents. Close old chats to use another agent.',
+  },
+  'desktop.gateway_moved': {
+    message:
+      'The managed gateway of this agent restarted on a new port. The chat stopped. Send a message to continue the chat.',
+    retry: true,
+  },
   'desktop.runtime_expired': {
     message: 'Managed agents access for this computer expired. Renew it in Settings.',
     section: 'computers',
@@ -1294,6 +1302,10 @@ const launchBlocks: Record<string, [ManagedSetupStep, string]> = {
   'desktop.loopback_required': ['runtime', isolation],
   'desktop.protected_pipe_unavailable': ['runtime', isolation],
   'desktop.gateway_unavailable': ['status', gateway],
+  'desktop.gateway_limit': [
+    'status',
+    'This computer runs chats on 16 agents. Close old chats to use another agent.',
+  ],
   'desktop.gateway_failed': ['status', gateway],
   'desktop.gateway_start_timeout': ['status', gateway],
   'desktop.gateway_stopped': ['status', gateway],
