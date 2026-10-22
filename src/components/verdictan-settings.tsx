@@ -4,6 +4,7 @@ import type { API } from '../api/contracts';
 import type { AgentInstallation } from '../domain/conversation';
 import {
   accountLabel,
+  keychainRefusedCode,
   selectionIssue,
   withoutManagedCode,
   type ManagedAgentKind,
@@ -588,6 +589,19 @@ export function AccountSection({ api, open }: { api: API; open: boolean }) {
         </StepError>
       )}
       {(error || statusError) && <StepError>{error || statusError}</StepError>}
+      {/* After a refused keychain prompt, only this action starts the runtime again. */}
+      {statusError && status?.error === keychainRefusedCode && (
+        <div>
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={busy || phase === 'checking'}
+            onClick={() => void run(() => api.verdictanCheck())}
+          >
+            Check status
+          </Button>
+        </div>
+      )}
       <SettingsGroup id={settingsAnchors.services} title="Connected services">
         <ConnectedServices services={services} />
       </SettingsGroup>

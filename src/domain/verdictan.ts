@@ -729,9 +729,10 @@ export const managedErrors: Record<string, ManagedErrorInfo> = {
     message: 'Managed agents need a local network connection that is not available.',
     section: 'computers',
   },
+  // Kalkidan does not try again by itself, because each try shows the keychain prompt again.
   'desktop.secure_storage_unavailable': {
     message:
-      'The system keychain is locked or waits for your approval. Unlock it or allow access, then try again.',
+      'Kalkidan did not get access to the system keychain. The access was refused, or the keychain is locked. Select Check status in Settings › Accounts. Then allow access when the system asks.',
     retry: true,
   },
   'desktop.operation_in_progress': {
@@ -1142,7 +1143,6 @@ const transientRefusals = new Set([
   'desktop.runtime_limit',
   'desktop.runtime_already_owned',
   'desktop.connection_limit',
-  'desktop.secure_storage_unavailable',
   'desktop.transport_closed',
   'desktop.transport_lost',
 ]);
@@ -1158,7 +1158,10 @@ const statusRefusals = new Set([
   'desktop.gateway_start_timeout',
   'desktop.gateway_stopped',
   'desktop.runtime_stopped',
+  // A refused keychain prompt. Check status starts the account runtime again, so it asks again.
+  'desktop.secure_storage_unavailable',
 ]);
+export const keychainRefusedCode = 'desktop.secure_storage_unavailable';
 // Codes of a computer that cannot isolate agents. No Settings step and no second try helps.
 const platformRefusals = new Set([
   'desktop.process_isolation_unavailable',
@@ -1226,7 +1229,7 @@ function refusalWords(
     case 'desktop.readiness_required':
       return `The managed agents check on ${where} did not pass. Check the status in Settings › Accounts, then try again.`;
     case 'desktop.secure_storage_unavailable':
-      return `The system keychain on ${where} is locked or waits for your approval. Unlock it or allow access, then try again.`;
+      return `Kalkidan did not get access to the system keychain on ${where}. The access was refused, or the keychain is locked. Try again, and allow access when the system asks. If the system does not ask, select Check status in Settings › Accounts.`;
     case 'desktop.event_authority_unavailable':
     case 'desktop.operation_in_progress':
       return managedErrors[code].message;
