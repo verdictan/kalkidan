@@ -19,6 +19,8 @@ export interface AppMenuOptions {
   platform?: ChatActionPlatform;
   /** The state of the open chat in the focused window. Null or missing: no chat is open. */
   chat?: ChatActionState | null;
+  /** True while the Verdictan account is signed in. Then the menu has no Sign in item. */
+  signedIn?: boolean;
 }
 
 /** A state with no open chat. The Chat menu then shows its actions as disabled. */
@@ -80,8 +82,12 @@ export function appMenuTemplate({
   openExternal,
   platform = mac ? 'mac' : 'windows',
   chat,
+  signedIn = false,
 }: AppMenuOptions): MenuItemConstructorOptions[] {
   const separator: MenuItemConstructorOptions = { type: 'separator' };
+  const signIn: MenuItemConstructorOptions[] = signedIn
+    ? []
+    : [{ label: 'Sign in to Verdictan…', click: command('sign-in') }];
   return [
     ...(mac
       ? [
@@ -91,7 +97,7 @@ export function appMenuTemplate({
               { role: 'about', label: `About ${appName}` },
               separator,
               { label: 'Preferences…', accelerator: 'Cmd+,', click: command('settings') },
-              { label: 'Sign in to Verdictan…', click: command('sign-in') },
+              ...signIn,
               separator,
               { role: 'services', label: 'Services' },
               separator,
@@ -130,7 +136,7 @@ export function appMenuTemplate({
           ? []
           : ([
               { label: 'Preferences…', accelerator: 'Ctrl+,', click: command('settings') },
-              { label: 'Sign in to Verdictan…', click: command('sign-in') },
+              ...signIn,
               separator,
             ] satisfies MenuItemConstructorOptions[])),
         // The renderer closes the open tool tab or session. With no session, it closes the window.

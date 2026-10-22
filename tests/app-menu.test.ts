@@ -327,3 +327,22 @@ test('the Chat menu follows the state of the open chat', () => {
   (item(busy, 'Unpin').click as () => void)();
   assert.deepEqual(sent, ['session-export-html', 'session-pin']);
 });
+
+for (const mac of [true, false])
+  test(`${mac ? 'macOS' : 'other'}: the menu has no Sign in item while the account is signed in`, () => {
+    const signedIn = appMenuTemplate({
+      mac,
+      packaged: true,
+      appName: 'Kalkidan',
+      command: () => () => {},
+      openExternal: () => {},
+      signedIn: true,
+    });
+    const where = mac ? submenu(signedIn, 'Kalkidan') : submenu(signedIn, 'File');
+    assert.equal(
+      where.some((entry) => entry.label === 'Sign in to Verdictan…'),
+      false,
+    );
+    // Preferences stays.
+    assert.ok(where.some((entry) => entry.label === 'Preferences…'));
+  });

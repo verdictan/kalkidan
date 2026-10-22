@@ -1,6 +1,15 @@
 // Parts of the chat view that connect a chat to tasks, pull requests, docs and Settings.
 import { useEffect, useState, type ReactNode } from 'react';
-import { CircleAlert, FileText, LogIn, Plus, RefreshCw, Settings, Shuffle } from 'lucide-react';
+import {
+  CircleAlert,
+  FileText,
+  GitFork,
+  LogIn,
+  Plus,
+  RefreshCw,
+  Settings,
+  Shuffle,
+} from 'lucide-react';
 import { trackerConnection } from '../domain/tracker';
 import { trackerClient } from '../lib/tracker-client';
 import { errorMessage } from '../lib/errors';
@@ -66,11 +75,14 @@ export function AgentErrorActions({
   error,
   onRetry,
   onChangeAgent,
+  onFork,
   busy,
 }: {
   error: AgentError;
   onRetry?: () => void;
   onChangeAgent?: () => void;
+  /** Opens the fork dialog of the chat, for an error whose action is Fork. */
+  onFork?: () => void;
   busy?: boolean;
 }) {
   const action = error.action;
@@ -120,6 +132,19 @@ export function AgentErrorActions({
         {action.label}
       </Button>,
     );
+  if (action?.kind === 'fork' && onFork)
+    buttons.push(
+      <Button
+        key="fork"
+        size="sm"
+        variant={buttons.length ? 'outline' : 'default'}
+        disabled={busy}
+        onClick={onFork}
+      >
+        <GitFork aria-hidden="true" />
+        {action.label}
+      </Button>,
+    );
   if (onRetry && !retryFirst) buttons.push(retryButton(!buttons.length));
   if (onChangeAgent)
     buttons.push(
@@ -157,6 +182,7 @@ export function SendFailure({
   error,
   onRetry,
   onChangeAgent,
+  onFork,
   busy,
   unsaved,
 }: {
@@ -165,6 +191,7 @@ export function SendFailure({
   error: AgentError;
   onRetry?: () => void;
   onChangeAgent?: () => void;
+  onFork?: () => void;
   busy?: boolean;
   /** The agent did not start, so the chat has no saved session. It closes when the app quits. */
   unsaved?: boolean;
@@ -185,6 +212,7 @@ export function SendFailure({
         error={error}
         onRetry={onRetry}
         onChangeAgent={onChangeAgent}
+        onFork={onFork}
         busy={busy}
       />
       <AgentErrorNote note={error.note} code={error.code} />

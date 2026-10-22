@@ -675,9 +675,11 @@ export function Conversation({
                 hostId: session.hostId,
                 agent: session.agent,
                 regionSaved: !!account?.region,
+                signedIn: account?.phase === 'authenticated',
               })
             : agentErrorMessage(`${next.error || ''} ${next.errorCode || ''}`, session.agent, {
                 regionSaved: !!account?.region,
+                signedIn: account?.phase === 'authenticated',
               }),
       });
       if (!providerSession.current && !messagesBefore.current)
@@ -934,7 +936,10 @@ export function Conversation({
         messageId,
         text,
         prompt: sentPrompt,
-        error: agentErrorMessage(e, session.agent, { regionSaved: !!account?.region }),
+        error: agentErrorMessage(e, session.agent, {
+          regionSaved: !!account?.region,
+          signedIn: account?.phase === 'authenticated',
+        }),
       });
       clearComposer();
       follow.current = true;
@@ -1042,10 +1047,14 @@ export function Conversation({
           hostId: session.hostId,
           agent: session.agent,
           regionSaved: !!account?.region,
+          signedIn: account?.phase === 'authenticated',
         })
       : /\bdesktop\.[a-z_]+|verdictan is not ready/i.test(error) ||
           error.startsWith(managedOnlyNotice)
-        ? agentErrorMessage(error, session.agent, { regionSaved: !!account?.region })
+        ? agentErrorMessage(error, session.agent, {
+            regionSaved: !!account?.region,
+            signedIn: account?.phase === 'authenticated',
+          })
         : { message: errorMessage(error) }
     : null;
   async function reconnect() {
@@ -1480,6 +1489,7 @@ export function Conversation({
                     busy={!!active}
                     onRetry={retrySend}
                     onChangeAgent={changeAgent}
+                    onFork={session.id.startsWith('draft-') ? undefined : () => forkChat(session)}
                     unsaved={!providerSession.current && session.id.startsWith('draft-')}
                   />
                 )}
@@ -1756,7 +1766,14 @@ export function Conversation({
                     <AlertDescription className="grid gap-1 text-xs whitespace-pre-wrap">
                       {errorInfo.message}
                       <AgentErrorNote note={errorInfo.note} code={errorInfo.code} />
-                      {errorInfo.action && <AgentErrorActions error={errorInfo} />}
+                      {errorInfo.action && (
+                        <AgentErrorActions
+                          error={errorInfo}
+                          onFork={
+                            session.id.startsWith('draft-') ? undefined : () => forkChat(session)
+                          }
+                        />
+                      )}
                       {hostError && (
                         <Button
                           variant="outline"
