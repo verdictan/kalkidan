@@ -21,7 +21,7 @@ export function useConversationOwnership(api: API, session: Session, open: boole
     if (!open || session.id.startsWith('draft-') || typeof api.conversationOwnership !== 'function')
       return;
     let active = true;
-    api.conversationOwnership(session.agent, session.id).then(
+    api.conversationOwnership(session.agent, session.id, session.hostId).then(
       (value) => active && setOwnership(value),
       // A failed read keeps the chat as it is. The launch still checks the binding.
       () => active && setOwnership({ state: 'unknown' }),
@@ -29,7 +29,7 @@ export function useConversationOwnership(api: API, session: Session, open: boole
     return () => {
       active = false;
     };
-  }, [api, session.agent, session.id, open, epoch]);
+  }, [api, session.agent, session.id, session.hostId, open, epoch]);
   return ownership;
 }
 

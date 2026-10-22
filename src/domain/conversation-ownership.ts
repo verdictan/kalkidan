@@ -22,6 +22,27 @@ export interface OwnershipInput {
   account?: { organizationId?: string; userId?: string };
 }
 
+const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Checks the owner IDs that an SSH host returns. Null when the chat has no binding.
+ * Throws for any other shape, so that a bad answer never hides or changes the owner.
+ */
+export function remoteOwner(value: unknown): OwnershipInput['binding'] {
+  if (value === null) return null;
+  const record = value as Record<string, unknown> | undefined;
+  if (
+    !record ||
+    typeof record !== 'object' ||
+    typeof record.organization_id !== 'string' ||
+    typeof record.user_id !== 'string' ||
+    !uuidPattern.test(record.organization_id) ||
+    !uuidPattern.test(record.user_id)
+  )
+    throw new Error('Invalid conversation owner.');
+  return { organization_id: record.organization_id, user_id: record.user_id };
+}
+
 const sameId = (a: string | undefined, b: string | undefined) =>
   !!a && !!b && a.toLowerCase() === b.toLowerCase();
 

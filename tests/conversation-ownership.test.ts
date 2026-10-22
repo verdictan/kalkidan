@@ -4,6 +4,7 @@ import {
   conversationOwnership,
   readOnlyDetail,
   readOnlyReason,
+  remoteOwner,
 } from '../src/domain/conversation-ownership';
 import { verdictanAccountPageUrl } from '../src/domain/verdictan';
 
@@ -50,6 +51,27 @@ test('a chat of another account or organization is read-only and says why', () =
     'This conversation belongs to another account. It is read-only.',
   );
   assert.match(readOnlyDetail, /context and usage stay with that account/);
+});
+
+test('an SSH host answer gives only valid owner IDs', () => {
+  assert.equal(remoteOwner(null), null);
+  assert.deepEqual(remoteOwner({ organization_id: org, user_id: user, cwd: '/secret' }), saved);
+  // A host chat of another organization is read-only, the same as a local chat.
+  assert.deepEqual(
+    conversationOwnership({
+      binding: remoteOwner({ organization_id: otherOrg, user_id: user }),
+      account: { organizationId: org, userId: user },
+    }),
+    { state: 'other', scope: 'organization' },
+  );
+  for (const value of [
+    undefined,
+    'owner',
+    {},
+    { organization_id: org },
+    { organization_id: 'x', user_id: user },
+  ])
+    assert.throws(() => remoteOwner(value), /Invalid conversation owner/);
 });
 
 test('account pages open fixed console paths and nothing else', () => {

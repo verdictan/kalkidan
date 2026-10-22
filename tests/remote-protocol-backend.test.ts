@@ -91,6 +91,15 @@ test('remote RPC validates envelopes, dispatches supported operations, reports f
       [source('storage/project-docs')]: { ProjectDocs: Docs },
       [source('storage/resource-revision')]: { resourceRevision: record('revision') },
       [source('pty-terminal')]: { PtyTerminal: Pty },
+      [source('verdictan/bindings')]: {
+        BindingStore: class {
+          constructor(readonly root: string) {}
+          read = async (agent: string, id: string) =>
+            agent === 'codex' && id === 'owned'
+              ? { organization_id: 'org', user_id: 'user', cwd: '/repo', model: 'secret' }
+              : null;
+        },
+      },
       [source('operations/worktree')]: {
         WorktreeCreation: class {
           async run(cwd: string, branch: string, root: string) {
@@ -201,6 +210,14 @@ test('remote RPC validates envelopes, dispatches supported operations, reports f
   assert.equal(outputs.length, 0);
   assert.equal((await request('hello')).result.protocol, 5);
   assert.match((await request('unsupported')).error, /Unsupported/);
+  // Only the owner IDs of a chat binding leave the host.
+  assert.deepEqual((await request('conversation-owner', ['codex', 'owned'])).result, {
+    organization_id: 'org',
+    user_id: 'user',
+  });
+  assert.equal((await request('conversation-owner', ['codex', 'other'])).result, null);
+  assert.equal((await request('conversation-owner', ['shell', 'owned'])).result, null);
+  assert.equal((await request('conversation-owner', ['codex', ''])).result, null);
   // The agent check and the chosen program run on the host, with the files of the host.
   assert.deepEqual((await request('agent-installations')).result, [
     { agent: 'claude', status: 'installed' },

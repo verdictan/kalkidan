@@ -3,32 +3,59 @@ import { test, expect } from './helpers/app';
 
 const tree = (page: Page) => page.getByRole('navigation', { name: 'Projects and repositories' });
 
-/** A project with one saved chat of another organization. */
-async function withForeignChat(page: Page) {
-  await page.addInitScript(() => {
+/** A project with one saved chat of another organization, on this computer or an SSH host. */
+async function withForeignChat(page: Page, remote = false) {
+  await page.addInitScript((remote) => {
+    const hostId = remote ? 'h' : undefined;
+    const host = {
+      id: 'h',
+      name: 'Development',
+      target: 'dev-server',
+      status: 'connected',
+      version: 'abc',
+      node: 'v22.23.0',
+      platform: 'linux',
+    };
+    const messages = [
+      { id: 'u1', role: 'user', text: 'Check the login flow.' },
+      { id: 'a1', role: 'assistant', text: 'The login flow skips the rate limit.' },
+    ];
+    (window as any).ownershipCalls = [];
     (window as any).workspace = {
       trackerProviders: async () => [],
       git: async () => null,
       models: async () => [],
-      transcript: async () => ({
-        messages: [
-          { id: 'u1', role: 'user', text: 'Check the login flow.' },
-          { id: 'a1', role: 'assistant', text: 'The login flow skips the rate limit.' },
-        ],
-        truncated: false,
-      }),
-      conversationOwnership: async (_agent: string, id: string) =>
-        id === 'foreign' ? { state: 'other', scope: 'organization' } : { state: 'unmanaged' },
+      transcript: async () => ({ messages, truncated: false }),
+      remoteHosts: async () => (remote ? [host] : []),
+      remoteCall: async (_hostId: string, method: string) =>
+        method === 'transcript' ? { messages, truncated: false } : method === 'models' ? [] : null,
+      // The main process reads the binding on the host. The renderer sends the host ID.
+      conversationOwnership: async (agent: string, id: string, host?: string) => {
+        (window as any).ownershipCalls.push([agent, id, host ?? null]);
+        return id === 'foreign' && host === hostId
+          ? { state: 'other', scope: 'organization' }
+          : { state: 'unmanaged' };
+      },
       snapshot: async () => ({
         projects: [
-          { id: 'r', name: 'web', path: '/tmp/web', favorite: false, notes: '', addedAt: '' },
+          {
+            id: 'r',
+            name: 'web',
+            path: remote ? '/home/dev/web' : '/tmp/web',
+            hostId,
+            favorite: false,
+            notes: '',
+            addedAt: '',
+          },
         ],
-        groups: [{ id: 'g', name: 'Accounts', repoIds: ['r'] }],
+        groups: [{ id: 'g', name: 'Accounts', repoIds: ['r'], hostId }],
+        hosts: remote ? [host] : [],
         sessions: [
           {
             id: 'foreign',
             agent: 'codex',
-            cwd: '/tmp/web',
+            cwd: remote ? '/home/dev/web' : '/tmp/web',
+            hostId,
             title: 'Login review',
             updatedAt: new Date(Date.UTC(2026, 9, 1)).toISOString(),
           },
@@ -37,7 +64,7 @@ async function withForeignChat(page: Page) {
         platform: 'darwin',
       }),
     };
-  });
+  }, remote);
   await page.goto('/');
   await tree(page).getByRole('button', { name: 'Chat: Login review' }).click();
 }
@@ -73,4 +100,23 @@ test('a conversation of another organization is read-only and offers a new conve
     'New Codex chat',
   );
   await expect(page.getByRole('status', { name: 'Read-only conversation' })).toBeHidden();
+});
+
+test('a conversation on an SSH host of another organization is read-only too', async ({ page }) => {
+  await withForeignChat(page, true);
+  const notice = page.getByRole('status', { name: 'Read-only conversation' });
+  await expect(notice).toContainText(
+    'This conversation belongs to another organization. It is read-only.',
+  );
+  await expect(page.getByLabel('Message agent')).not.toBeEditable();
+  await expect(page.getByRole('button', { name: 'Send', exact: true })).toBeDisabled();
+  expect(await page.evaluate(() => (window as any).ownershipCalls)).toContainEqual([
+    'codex',
+    'foreign',
+    'h',
+  ]);
+  await notice.getByRole('button', { name: 'Start a new conversation' }).click();
+  const message = page.getByRole('textbox', { name: 'Message agent' });
+  await expect(message).toBeEditable();
+  await expect(message).toHaveValue('');
 });
