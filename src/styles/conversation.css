@@ -379,6 +379,18 @@
   margin: 0 0 8px;
   overflow: auto;
 }
+/* "This conversation belongs to another organization. It is read-only." and a new conversation. */
+.chat-read-only {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 6px 6px 10px;
+  border: 1px solid color-mix(in oklab, var(--warning) 45%, var(--border));
+  border-radius: var(--radius-xl);
+  background: var(--card);
+  color: var(--foreground);
+  line-height: 16px;
+}
 .request-card-approval {
   border-color: color-mix(in oklab, var(--warning) 45%, var(--border));
 }

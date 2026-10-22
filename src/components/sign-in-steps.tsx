@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { ChevronDown, Clock, Copy, ExternalLink, Globe, LoaderCircle, X } from 'lucide-react';
 import type { API } from '../api/contracts';
-import type { VerdictanSetup, VerdictanStatus } from '../domain/verdictan';
+import type { VerdictanAccountPage, VerdictanSetup, VerdictanStatus } from '../domain/verdictan';
 import {
   isSubscriptionMode,
   kalkidanAgentLabel,
@@ -420,7 +420,7 @@ export function SignInSteps({
       },
       cancel: () => setView('start'),
     });
-    return <ErrorView mode={mode} copy={copy} />;
+    return <ErrorView api={api} mode={mode} copy={copy} />;
   }
 
   const waiting = view === 'waiting';
@@ -533,6 +533,7 @@ export function SignInSteps({
           onChange={(value) => void chooseRegion(value)}
         />
       )}
+      {!settingUp && <AccountHelp api={api} />}
     </Screen>
   );
 }
@@ -652,7 +653,16 @@ function WaitingActions({
   );
 }
 
-function ErrorView({ mode, copy }: { mode: 'window' | 'dialog'; copy: ErrorCopy }) {
+function ErrorView({
+  api,
+  mode,
+  copy,
+}: {
+  /** Shows the account help. The setup error of a signed-in account has none. */
+  api?: API;
+  mode: 'window' | 'dialog';
+  copy: ErrorCopy;
+}) {
   return (
     <Screen mode={mode} className="sign-in-error">
       <span className="sign-in-icon" data-tone="warning" aria-hidden="true">
@@ -670,7 +680,38 @@ function ErrorView({ mode, copy }: { mode: 'window' | 'dialog'; copy: ErrorCopy 
           </Button>
         )}
       </div>
+      {api && <AccountHelp api={api} />}
     </Screen>
+  );
+}
+
+/**
+ * Help for an account that cannot finish the sign-in: a new verification email, or account
+ * recovery. The Verdictan console does the work in the browser. Kalkidan never sees a password.
+ */
+function AccountHelp({ api }: { api: API }) {
+  if (typeof api.verdictanOpenAccountPage !== 'function') return null;
+  const open = (page: VerdictanAccountPage) =>
+    void api.verdictanOpenAccountPage(page).then(
+      () => showToast('Kalkidan opened your browser. Continue there.'),
+      () =>
+        showToast({
+          message: 'The browser did not open. Choose a region, then try again.',
+          tone: 'error',
+        }),
+    );
+  return (
+    <p className="sign-in-note sign-in-help" role="group" aria-label="Account help">
+      <span>Did not get the verification email?</span>{' '}
+      <button type="button" className="text-link" onClick={() => open('verify')}>
+        Send it again
+      </button>
+      <span aria-hidden="true"> · </span>
+      <span>Cannot sign in?</span>{' '}
+      <button type="button" className="text-link" onClick={() => open('recover')}>
+        Recover your account
+      </button>
+    </p>
   );
 }
 
@@ -698,8 +739,8 @@ function errorCopy(
   if (code === 'desktop.authorization_timeout' || code === 'desktop.request_timeout')
     return {
       title: 'The sign-in did not finish',
-      body: 'Kalkidan waited 5 minutes. Nothing changed on your account.',
-      primary: retry,
+      body: 'The sign-in link expired after 5 minutes. Nothing changed on your account. Start the sign-in again to get a new link.',
+      primary: { label: 'Start again', run: context.retry },
     };
   if (code === 'desktop.browser_failed')
     return {
