@@ -322,9 +322,8 @@ test('link dialog links to another doc page, and the link opens that page', asyn
   await expect(page.getByRole('dialog', { name: 'Add link', exact: true })).toHaveCount(0);
   await page.keyboard.press('Escape');
   await expect(search).toHaveCount(0);
-  // With selected text, Mod+L adds a link.
-  await editor.click();
-  await editor.press('ControlOrMeta+a');
+  // With selected text, Mod+L adds a link. Wait for the selection of the editor itself.
+  await selectAll(page);
   await editor.press('ControlOrMeta+l');
   await expect(page.getByRole('dialog', { name: 'Add link', exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Link a page…' }).click();
@@ -342,4 +341,62 @@ test('link dialog links to another doc page, and the link opens that page', asyn
   await expectSaved(page, 'Launch plan', /\[See the checklist\]\(\.\/[\w-]+\.md\)/);
   await link.click();
   await expect(page.getByLabel('Page title', { exact: true })).toHaveValue('Release checklist');
+});
+
+/** The text that the browser selection holds now. */
+const selectedText = (page: Page) => page.evaluate(() => window.getSelection()?.toString() ?? '');
+/**
+ * Selects all text of the editor, and waits until the editor has the selection: its format
+ * toolbar shows only for a selection that is not empty.
+ *
+ * The editor gets the focus without a click. A click into selected text makes ProseMirror read
+ * the click position about 30 ms later, so that a drag can start. A Select all in that time
+ * gives the same selection as before, so the page does not change, and the late read then puts
+ * a caret in its place. A person cannot press the keys that fast; a test can.
+ */
+async function selectAll(page: Page) {
+  const editor = page.getByRole('textbox', { name: 'Document content' });
+  await editor.focus();
+  await expect(editor).toBeFocused();
+  await editor.press('ControlOrMeta+a');
+  await expect(page.getByRole('toolbar', { name: 'Text formatting' })).toBeVisible();
+}
+
+test('a link to a page keeps the selected text when the editor gets focus while the picker is open', async ({
+  page,
+}) => {
+  await page.goto('/');
+  await openProjectTab(page, 'Docs');
+  await newPage(page, 'Release checklist');
+  await newPage(page, 'Launch plan');
+  const editor = page.getByRole('textbox', { name: 'Document content' });
+  await editor.click();
+  await editor.pressSequentially('See the checklist');
+  await selectAll(page);
+  await editor.press('ControlOrMeta+l');
+  await page.getByRole('button', { name: 'Link a page…' }).click();
+  const picker = page.getByRole('dialog', { name: 'Link a page' });
+  const search = picker.getByLabel('Search doc pages');
+  await expect(search).toBeFocused();
+  // The race of the dialogs: focus goes back to the editor for a moment, and the browser puts
+  // a caret at the end of the text. The editor takes that caret as its selection.
+  await page.evaluate(() => {
+    const content = document.querySelector<HTMLElement>('[aria-label="Document content"]')!;
+    content.focus();
+    const range = document.createRange();
+    range.selectNodeContents(content);
+    range.collapse(false);
+    window.getSelection()!.removeAllRanges();
+    window.getSelection()!.addRange(range);
+  });
+  await expect.poll(() => selectedText(page)).toBe('');
+  await search.focus();
+  await search.fill('release');
+  await expect(
+    picker.getByRole('option', { name: 'Release checklist', exact: true }),
+  ).toBeVisible();
+  await search.press('Enter');
+  await expect(picker).toHaveCount(0);
+  // The selected text becomes the link. No page title is added after it.
+  await expectSaved(page, 'Launch plan', /^\[See the checklist\]\(\.\/[\w-]+\.md\)\s*$/);
 });
