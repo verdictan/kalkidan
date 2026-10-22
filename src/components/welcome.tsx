@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import type { API } from '../api/contracts';
 import { useFirstRunState, useVerdictanStatus } from '../hooks/use-verdictan-status';
 import { RuntimeReadiness, SignInSteps, type SignInResult } from './sign-in-steps';
+import { NodeField } from './node-field';
 
 /**
  * True when the shell must show the Welcome screen: the user did not finish or skip it yet,
@@ -50,7 +51,8 @@ export function Welcome({ api, onDone }: { api: API; onDone: (result: SignInResu
     onDone(result);
   }
   return (
-    <div className="welcome" data-testid="welcome">
+    <div className="welcome focus-page" data-testid="welcome">
+      <NodeField />
       <header className="welcome-titlebar">
         <RuntimeReadiness api={api} />
       </header>

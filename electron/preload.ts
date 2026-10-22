@@ -222,7 +222,6 @@ const api: API = {
   gitPullRequest: (id, title, body) => ipcRenderer.invoke('git-pull-request', id, title, body),
   showAppMenu: () => ipcRenderer.invoke('app-menu'),
   setChatMenuState: (state) => ipcRenderer.invoke('chat-menu-state', state),
-  setAppearance: (mode) => ipcRenderer.invoke('appearance', mode),
   notify: (input) => ipcRenderer.invoke('notify', input),
   setBadgeCount: (count) => ipcRenderer.invoke('badge-count', count),
   onNotificationClick: (callback) => {

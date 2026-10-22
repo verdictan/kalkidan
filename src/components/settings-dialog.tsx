@@ -32,8 +32,8 @@ export function openAccountMenu() {
 /**
  * Preferences (⌘,): one short sheet with seven rows in three groups. Chats: the access of new
  * chats and Enter to send. Connections: the region and GitHub. This app: the built-in browser,
- * your data, and the version. The agent and the model are in the composer chip, the theme, notifications
- * and sign-out are in the account menu, and the hosts are on the Computers page.
+ * your data, and the version. The agent and the model are in the composer chip, notifications and
+ * sign-out are in the account menu, and the hosts are on the Computers page.
  *
  * Older requests still work. `section` and `anchor` go through `settingsPlace`: a request for
  * Agents or Computers opens the Computers page, a request for notifications opens the account

@@ -62,16 +62,16 @@ A compatible result does not permit dispatch. `electron/verdictan/bindings.ts` s
 
 ## Configuration ownership
 
-| Setting                                       | Location                    | Meaning                                                              |
-| --------------------------------------------- | --------------------------- | -------------------------------------------------------------------- |
-| `KALKIDAN_DEFAULT_TRACKER`                    | Desktop process environment | Registered tracker ID; default `github`; unknown IDs fail at startup |
-| `KALKIDAN_AGENT_REQUEST_TIMEOUT_MS`           | Process environment         | Native agent request timeout, 1,000–300,000 ms; default 60,000       |
-| `KALKIDAN_CODEX_PATH`, `KALKIDAN_CLAUDE_PATH` | Process environment         | Optional absolute executable paths; checked for executable access    |
-| `CODEX_HOME`, `CLAUDE_CONFIG_DIR`             | Process environment         | Existing native history/config roots                                 |
-| Task status mappings                          | Project Workflow dialog     | Actual provider status option IDs                                    |
-| UI limits and tool pane defaults              | `src/config/interface.ts`   | Poll interval, tab/attachment limits, resize defaults                |
-| Agent names/vendor/short label                | `src/config/agents.ts`      | Shared product metadata                                              |
-| Colors, typography, radius tokens             | `src/styles/theme.css`      | Design tokens shared by shadcn and feature styles                    |
+| Setting                                       | Location                    | Meaning                                                                                          |
+| --------------------------------------------- | --------------------------- | ------------------------------------------------------------------------------------------------ |
+| `KALKIDAN_DEFAULT_TRACKER`                    | Desktop process environment | Registered tracker ID; default `github`; unknown IDs fail at startup                             |
+| `KALKIDAN_AGENT_REQUEST_TIMEOUT_MS`           | Process environment         | Native agent request timeout, 1,000–300,000 ms; default 60,000                                   |
+| `KALKIDAN_CODEX_PATH`, `KALKIDAN_CLAUDE_PATH` | Process environment         | Optional absolute executable paths; checked for executable access                                |
+| `CODEX_HOME`, `CLAUDE_CONFIG_DIR`             | Process environment         | Existing native history/config roots                                                             |
+| Task status mappings                          | Project Workflow dialog     | Actual provider status option IDs                                                                |
+| UI limits and tool pane defaults              | `src/config/interface.ts`   | Poll interval, tab/attachment limits, resize defaults                                            |
+| Agent names/vendor/short label                | `src/config/agents.ts`      | Shared product metadata                                                                          |
+| Colors, typography, radius tokens             | `src/styles/theme.css`      | Design tokens shared by shadcn and feature styles. Light only, with the Verdictan Console colors |
 
 Environment overrides apply where the process runs. A remote agent uses its SSH host's environment, not arbitrary environment variables forwarded from the Mac. Changing native configuration requires restarting that process. UI defaults are build-time configuration. Security invariants—sender validation, isolation, SSH host verification, and approval ownership—are not user-disableable feature flags.
 

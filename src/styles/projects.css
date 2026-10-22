@@ -1001,7 +1001,7 @@ thead .tracker-task-select:focus-visible {
   padding: 0 var(--space-2);
   border: 0;
   border-radius: 999px;
-  background: color-mix(in srgb, var(--link) 14%, transparent);
+  background: var(--primary-subtle);
   color: var(--link);
   font: inherit;
   font-size: 11px;
@@ -1012,7 +1012,7 @@ thead .tracker-task-select:focus-visible {
 }
 .tracker-task-chip[data-state='approval'],
 .tracker-task-chip[data-state='question'] {
-  background: color-mix(in srgb, var(--warning) 16%, transparent);
+  background: var(--warning-subtle);
   color: var(--warning);
 }
 button.tracker-task-chip {
@@ -1677,7 +1677,7 @@ button.tracker-context-chip:hover,
 }
 .folder-row:focus-visible {
   outline: none;
-  box-shadow: inset var(--focus-ring);
+  box-shadow: inset 0 0 0 2px var(--focus-color);
 }
 .folder-row svg {
   flex-shrink: 0;
@@ -1721,7 +1721,7 @@ button.tracker-context-chip:hover,
   outline: none;
 }
 .chat-row:has(.chat-row-open:focus-visible) {
-  box-shadow: inset var(--focus-ring);
+  box-shadow: inset 0 0 0 2px var(--focus-color);
 }
 .chat-row-text {
   display: grid;
@@ -2055,7 +2055,7 @@ button.tracker-context-chip:hover,
 }
 .project-recent-row:focus-visible {
   outline: none;
-  box-shadow: inset var(--focus-ring);
+  box-shadow: inset 0 0 0 2px var(--focus-color);
 }
 .project-recent-text {
   flex: 1;
@@ -2239,7 +2239,7 @@ button.wiki-tree-icon:focus-visible {
   outline: none;
 }
 .wiki-tree-row:has(.doc-tree-page:focus-visible) {
-  box-shadow: inset var(--focus-ring);
+  box-shadow: inset 0 0 0 2px var(--focus-color);
 }
 .wiki-tree-row {
   gap: var(--space-2);
@@ -2279,7 +2279,7 @@ button.wiki-tree-icon:focus-visible {
 }
 .docs-trash-row:focus-visible {
   outline: none;
-  box-shadow: inset var(--focus-ring);
+  box-shadow: inset 0 0 0 2px var(--focus-color);
 }
 .docs-trash-row:disabled {
   opacity: 0.5;
@@ -4351,40 +4351,8 @@ button.doc-task-chip[data-add] {
   font-weight: 400;
   letter-spacing: 0;
 }
-.account-menu-theme {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-2);
-  height: 36px;
-  padding: 0 var(--space-1) 0 var(--space-2);
-  font-size: 13px;
-  line-height: 20px;
-}
-.account-menu-theme-group {
-  display: flex;
-  gap: 2px;
-  padding: 2px;
-  border-radius: var(--radius-md);
-  background: var(--muted);
-}
-.account-menu-theme-item {
-  justify-content: center;
-  width: 28px;
-  height: 24px;
-  padding: 0 !important;
-}
-.account-menu-theme-item > span:first-child,
 .account-menu-switch-item > span:first-child {
   display: none !important;
-}
-.account-menu-theme-item[data-state='checked'] {
-  background: var(--background);
-  color: var(--foreground);
-  box-shadow: var(--shadow-xs, 0 1px 2px rgb(0 0 0 / 0.12));
-}
-.account-menu-theme-item[data-state='checked'] svg {
-  color: var(--foreground);
 }
 .account-menu-switch-item {
   height: 32px;
@@ -4523,12 +4491,12 @@ button.doc-task-chip[data-add] {
   right: var(--space-1);
   transform: translateY(-50%);
   border-radius: var(--radius-sm);
-  background: color-mix(in srgb, var(--foreground) 5%, var(--navigation));
-  box-shadow: -8px 0 8px -2px color-mix(in srgb, var(--foreground) 5%, var(--navigation));
+  background: color-mix(in oklch, var(--foreground) 4%, var(--navigation));
+  box-shadow: -8px 0 8px -2px color-mix(in oklch, var(--foreground) 4%, var(--navigation));
 }
 .tree-row.selected .tree-row-overlay {
-  background: color-mix(in srgb, var(--foreground) 9%, var(--navigation));
-  box-shadow: -8px 0 8px -2px color-mix(in srgb, var(--foreground) 9%, var(--navigation));
+  background: color-mix(in oklch, var(--foreground) 7%, var(--navigation));
+  box-shadow: -8px 0 8px -2px color-mix(in oklch, var(--foreground) 7%, var(--navigation));
 }
 /* Docs under a project: one closed row, then its pages one level deeper. */
 .tree-docs-chevron {

@@ -448,7 +448,7 @@ export function SignInSteps({
     <Screen mode={mode} className="sign-in-start">
       {mode === 'window' ? (
         <img
-          src="./brand/kalkidan-icon.svg"
+          src="./brand/kalkidan-mark.svg"
           alt=""
           aria-hidden="true"
           className="sign-in-mark"
@@ -457,7 +457,7 @@ export function SignInSteps({
         />
       ) : (
         <span className="sign-in-icon" aria-hidden="true">
-          <img src="./brand/kalkidan-icon.svg" alt="" width="40" height="40" />
+          <img src="./brand/kalkidan-mark.svg" alt="" width="40" height="40" />
         </span>
       )}
       <h1 className="sign-in-title">

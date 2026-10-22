@@ -410,8 +410,6 @@ export interface MenuAPI {
    * The focused window sends it.
    */
   setChatMenuState?(state: ChatActionState | null): Promise<void>;
-  /** Sets the native light or dark appearance. The window title bar and the page follow it. */
-  setAppearance?(mode: 'system' | 'light' | 'dark'): Promise<void>;
   /** Reports full screen changes. macOS hides the window buttons in full screen. */
   onFullScreenChange?(callback: (fullScreen: boolean) => void): () => void;
   /**
