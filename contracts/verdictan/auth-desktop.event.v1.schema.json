@@ -31,6 +31,7 @@
         "runtime.exported",
         "runtime.revoked",
         "review.inspected",
+        "review.resolved",
         "setup.inspected",
         "setup.default_ensured",
         "setup.bootstrapped",
@@ -744,7 +745,7 @@
             "properties": {
               "escalation_id": {
                 "type": "string",
-                "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+                "pattern": "^(?:esc_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}_[0-9a-f]{32}|[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
               },
               "status": {
                 "type": [
@@ -786,6 +787,138 @@
               },
               "retry_requires_new_evaluation": {
                 "const": true
+              },
+              "policy_version": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "pattern": "^[A-Za-z0-9_.:-]{1,128}$"
+              },
+              "actions": {
+                "type": "array",
+                "uniqueItems": true,
+                "items": {
+                  "enum": [
+                    "approve",
+                    "deny"
+                  ]
+                }
+              },
+              "revision": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{32}$"
+              },
+              "retry": {
+                "enum": [
+                  "allowed",
+                  "denied"
+                ]
+              }
+            },
+            "additionalProperties": true
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "event": {
+            "const": "review.resolved"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "escalation_id",
+              "status",
+              "resolution",
+              "reason_code",
+              "request_id",
+              "console_url",
+              "replays_request",
+              "changes_policy",
+              "retry_requires_new_evaluation",
+              "actions",
+              "revision",
+              "retry"
+            ],
+            "properties": {
+              "escalation_id": {
+                "type": "string",
+                "pattern": "^(?:esc_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}_[0-9a-f]{32}|[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+              },
+              "status": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "pattern": "^[A-Za-z0-9_.:-]{1,128}$"
+              },
+              "resolution": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "pattern": "^[A-Za-z0-9_.:-]{1,128}$"
+              },
+              "reason_code": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "pattern": "^[A-Za-z0-9_.:-]{1,128}$"
+              },
+              "request_id": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "pattern": "^[A-Za-z0-9_.:-]{1,128}$"
+              },
+              "console_url": {
+                "type": "string",
+                "format": "uri"
+              },
+              "replays_request": {
+                "const": false
+              },
+              "changes_policy": {
+                "const": false
+              },
+              "retry_requires_new_evaluation": {
+                "const": true
+              },
+              "policy_version": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "pattern": "^[A-Za-z0-9_.:-]{1,128}$"
+              },
+              "actions": {
+                "type": "array",
+                "uniqueItems": true,
+                "items": {
+                  "enum": [
+                    "approve",
+                    "deny"
+                  ]
+                }
+              },
+              "revision": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{32}$"
+              },
+              "retry": {
+                "enum": [
+                  "allowed",
+                  "denied"
+                ]
               }
             },
             "additionalProperties": true

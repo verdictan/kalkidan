@@ -156,26 +156,28 @@
   },
   "runtime": {
     "policy": "The current release and the two releases before it.",
-    "minimum": "0.6.8",
-    "newest_verified": "0.6.10",
+    "minimum": "0.6.9",
+    "newest_verified": "0.6.11",
     "setup_minimum": "0.6.6",
     "deprecation_notice_days": 90,
     "capabilities_fixture": "fixtures/runtime-capabilities.json",
     "versions": [
       {
-        "version": "0.6.8",
-        "protocol": 1,
-        "contracts_sha256": "3999ff850c3a5b44f57f535cdca5ebf496e482cb3a2046770456e69384a1d303"
-      },
-      {
         "version": "0.6.9",
         "protocol": 1,
-        "contracts_sha256": "3999ff850c3a5b44f57f535cdca5ebf496e482cb3a2046770456e69384a1d303"
+        "contracts_sha256": "3999ff850c3a5b44f57f535cdca5ebf496e482cb3a2046770456e69384a1d303",
+        "snapshot": "releases/0.6.10/"
       },
       {
         "version": "0.6.10",
         "protocol": 1,
-        "contracts_sha256": "3999ff850c3a5b44f57f535cdca5ebf496e482cb3a2046770456e69384a1d303"
+        "contracts_sha256": "3999ff850c3a5b44f57f535cdca5ebf496e482cb3a2046770456e69384a1d303",
+        "snapshot": "releases/0.6.10/"
+      },
+      {
+        "version": "0.6.11",
+        "protocol": 1,
+        "contracts_sha256": "9c36470a0f1bb98e9cc0217fde18a9999450668ffe131bf0a83f46fdb1658f2c"
       }
     ],
     "deprecations": [
@@ -185,7 +187,17 @@
           "maximum": "0.6.7"
         },
         "reason": "These releases are older than the support window. Releases before 0.6.6 cannot run the Kalkidan setup, because they have no setup.bootstrap. 0.6.6 refuses native agent versions that its release evidence did not test.",
-        "replacement": "0.6.8",
+        "replacement": "0.6.9",
+        "deprecated": "2026-10-22",
+        "end_of_support": "2027-01-20"
+      },
+      {
+        "versions": {
+          "minimum": "0.6.8",
+          "maximum": "0.6.8"
+        },
+        "reason": "This release is older than the support window.",
+        "replacement": "0.6.9",
         "deprecated": "2026-10-22",
         "end_of_support": "2027-01-20"
       }

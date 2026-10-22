@@ -15,18 +15,21 @@ const source = resolve(checkout, 'cli/docs/contracts');
 const target = resolve('contracts/verdictan');
 const windowName = 'desktop-support-window.v1.json';
 const window = JSON.parse(await readFile(join(source, windowName), 'utf8'));
-const names = new Set([windowName, 'desktop-support-window.v1.schema.json']);
+const contracts = new Set();
 for (const version of window.protocol.versions)
   for (const contract of version.contracts) {
-    names.add(contract.schema);
-    for (const fixture of contract.fixtures) names.add(fixture.file);
+    contracts.add(contract.schema);
+    for (const fixture of contract.fixtures) contracts.add(fixture.file);
   }
-names.add(window.runtime.capabilities_fixture);
-// A release whose contracts differ from the current files keeps a snapshot directory.
+const names = new Set([
+  windowName,
+  'desktop-support-window.v1.schema.json',
+  window.runtime.capabilities_fixture,
+  ...contracts,
+]);
+// A release whose contracts differ from the current files keeps a snapshot of its contracts.
 for (const entry of window.runtime.versions)
-  if (entry.snapshot)
-    for (const name of [...names].filter((value) => !value.startsWith('desktop-support-window')))
-      names.add(entry.snapshot + name);
+  if (entry.snapshot) for (const name of contracts) names.add(entry.snapshot + name);
 const git = (...args) =>
   execFileSync('git', ['-C', checkout, ...args], { encoding: 'utf8' }).trim();
 if (git('status', '--porcelain', '--', 'cli/docs/contracts'))

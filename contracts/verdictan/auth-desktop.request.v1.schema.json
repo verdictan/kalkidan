@@ -23,6 +23,7 @@
         "runtime.export",
         "runtime.revoke",
         "review.inspect",
+        "review.resolve",
         "setup.inspect",
         "setup.ensure_default",
         "setup.bootstrap",
@@ -61,7 +62,11 @@
     },
     "escalation_id": {
       "type": "string",
-      "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+      "pattern": "^(?:esc_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}_[0-9a-f]{32}|[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+    },
+    "request_id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{32}$"
     },
     "preview_id": {
       "type": "string",
@@ -363,9 +368,67 @@
         }
       },
       "then": {
-        "required": [
-          "escalation_id"
+        "oneOf": [
+          {
+            "required": [
+              "escalation_id"
+            ]
+          },
+          {
+            "required": [
+              "request_id"
+            ]
+          }
         ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "operation": {
+            "const": "review.resolve"
+          }
+        }
+      },
+      "then": {
+        "oneOf": [
+          {
+            "required": [
+              "escalation_id"
+            ]
+          },
+          {
+            "required": [
+              "request_id"
+            ]
+          }
+        ],
+        "required": [
+          "decision",
+          "reason",
+          "expected_revision"
+        ],
+        "properties": {
+          "decision": {
+            "enum": [
+              "approve",
+              "deny"
+            ]
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2000
+          },
+          "expected_revision": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_.:-]{1,128}$"
+          },
+          "operation_id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
       }
     },
     {

@@ -138,7 +138,7 @@ test('a runtime older than the window is refused with plain words after its noti
       error.code === 'desktop.runtime_version_unsupported' &&
       error.version === '0.6.5',
   );
-  assert.match(managedErrorText('desktop.runtime_version_unsupported'), /0\.6\.8 or later/);
+  assert.match(managedErrorText('desktop.runtime_version_unsupported'), /0\.6\.9 or later/);
   for (const version of [...supportWindow.runtime.supported, '0.6.7', '1.0.0'])
     assertRuntimeSupported(
       parseCapabilities({ ...fixture.data, cli_version: version }),
@@ -162,11 +162,11 @@ test('a protocol range without version 1 has its own code', () => {
 });
 
 test('a deprecated runtime gets a warning until its end-of-support date', () => {
-  for (const version of ['0.1.0', '0.6.5', '0.6.6', '0.6.7']) {
+  for (const version of ['0.1.0', '0.6.5', '0.6.6', '0.6.7', '0.6.8']) {
     const during = runtimeCompatibility(version, Date.parse('2027-01-19T23:59:00Z'));
     assert.equal(during.status, 'deprecated', version);
     assert.equal(during.endOfSupport, '2027-01-20');
-    assert.match(during.message, /Support stops on 2027-01-20\. Update the runtime to 0\.6\.8/);
+    assert.match(during.message, /Support stops on 2027-01-20\. Update the runtime to 0\.6\.9/);
     const after = runtimeCompatibility(version, Date.parse('2027-01-20T00:00:00Z'));
     assert.equal(after.status, 'unsupported', version);
     assert.match(after.message, /stopped on 2027-01-20/);
@@ -227,7 +227,7 @@ test('each recorded release before the window still runs, with a warning, until 
   );
   assert.deepEqual(
     older.map((event: any) => event.data.cli_version),
-    ['0.6.5', '0.6.6', '0.6.7'],
+    ['0.6.5', '0.6.6', '0.6.7', '0.6.8'],
   );
   for (const event of older) {
     const capabilities = parseCapabilities(event.data);

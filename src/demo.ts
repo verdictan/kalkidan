@@ -431,7 +431,7 @@ function demoDiagnostics(): DiagnosticsReport {
     platform: 'darwin',
     arch: 'arm64',
     osVersion: '26.7.1',
-    supportWindow: { protocol: 1, runtimeMinimum: '0.6.8', runtimeNewestVerified: '0.6.10' },
+    supportWindow: { protocol: 1, runtimeMinimum: '0.6.9', runtimeNewestVerified: '0.6.11' },
     connection: {
       region: 'eu',
       phase: 'authenticated',
@@ -447,7 +447,7 @@ function demoDiagnostics(): DiagnosticsReport {
         connected: true,
         installed: demoRuntimeRelease.version,
         running: demoRuntimeRelease.version,
-        latest: '0.6.10',
+        latest: '0.6.11',
       }),
       runtimeSupport({
         hostId: 'demo-host',

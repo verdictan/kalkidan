@@ -10,9 +10,9 @@ export const supportWindow = {
   protocol: { current: 1, supported: [1] as readonly number[] },
   runtime: {
     /** The current release and the two releases before it. */
-    supported: ['0.6.8', '0.6.9', '0.6.10'] as readonly string[],
-    minimum: '0.6.8',
-    newestVerified: '0.6.10',
+    supported: ['0.6.9', '0.6.10', '0.6.11'] as readonly string[],
+    minimum: '0.6.9',
+    newestVerified: '0.6.11',
     /** The oldest runtime that can run the one-time Kalkidan setup (`setup.bootstrap`). */
     setupMinimum: '0.6.6',
     noticeDays: 90,
@@ -21,7 +21,14 @@ export const supportWindow = {
         // Each version older than the window, also versions before 0.6.6.
         minimum: '0.0.0',
         maximum: '0.6.7',
-        replacement: '0.6.8',
+        replacement: '0.6.9',
+        deprecated: '2026-10-22',
+        endOfSupport: '2027-01-20',
+      },
+      {
+        minimum: '0.6.8',
+        maximum: '0.6.8',
+        replacement: '0.6.9',
         deprecated: '2026-10-22',
         endOfSupport: '2027-01-20',
       },
