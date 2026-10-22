@@ -122,10 +122,13 @@ test('a keychain refusal in a chat on an SSH host names the host and the fix', (
   const remote = managedLaunchError(failure, { computer: 'build-box', hostId: 'host-1' });
   assert.match(remote.message, /system keychain on build-box\./);
   assert.match(remote.message, /Unlock it or allow access on build-box\./);
-  assert.match(remote.message, /select Check status in Settings › Accounts, and try again/);
-  assert.equal(remote.action?.label, 'Check managed agent status');
+  assert.match(remote.message, /Then select Check status, and try again\./);
+  // The action checks the account again here and on each SSH host.
+  assert.deepEqual(remote.action, { label: 'Check status', kind: 'check-status' });
   assert.equal(remote.retryFirst, true);
   const local = managedLaunchError(failure, { computer: 'this computer' });
   assert.match(local.message, /on this computer\./);
   assert.match(local.message, /allow access when the system asks/);
+  assert.equal(local.action?.kind, 'check-status');
+  assert.equal(local.retryFirst, true);
 });

@@ -747,7 +747,7 @@ export const managedErrors: Record<string, ManagedErrorInfo> = {
   // Kalkidan does not try again by itself, because each try shows the keychain prompt again.
   'desktop.secure_storage_unavailable': {
     message:
-      'Kalkidan did not get access to the system keychain. The access was refused, or the keychain is locked. Select Check status in Settings › Accounts. Then allow access when the system asks.',
+      'Kalkidan did not get access to the system keychain. The access was refused, or the keychain is locked. Select Check status. Then allow access when the system asks.',
     retry: true,
   },
   'desktop.operation_in_progress': {
@@ -1269,8 +1269,8 @@ function refusalWords(
       return `The managed agents check on ${where} did not pass. Check the status in Settings › Accounts, then try again.`;
     case 'desktop.secure_storage_unavailable':
       if (remote)
-        return `Kalkidan did not get access to the system keychain on ${where}. The access was refused, or the keychain on ${where} is locked. Unlock it or allow access on ${where}. Then select Check status in Settings › Accounts, and try again.`;
-      return `Kalkidan did not get access to the system keychain on ${where}. The access was refused, or the keychain is locked. Try again, and allow access when the system asks. If the system does not ask, select Check status in Settings › Accounts.`;
+        return `Kalkidan did not get access to the system keychain on ${where}. The access was refused, or the keychain on ${where} is locked. Unlock it or allow access on ${where}. Then select Check status, and try again.`;
+      return `Kalkidan did not get access to the system keychain on ${where}. The access was refused, or the keychain is locked. Try again, and allow access when the system asks. If the system does not ask, select Check status.`;
     case 'desktop.event_authority_unavailable':
     case 'desktop.operation_in_progress':
       return managedErrors[code].message;

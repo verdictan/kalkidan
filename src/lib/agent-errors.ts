@@ -1,6 +1,7 @@
 // Plain words for errors from agents and from managed agents. The UI never shows a code alone.
 import { errorMessage } from './errors';
 import {
+  keychainRefusedCode,
   managedErrorCode,
   managedErrorInfo,
   managedOnlyNotice,
@@ -13,7 +14,8 @@ import {
 } from '../domain/verdictan';
 import { agentProgramAnchor, chooseProgramLabel } from '../domain/agent-programs';
 
-export type AgentErrorActionKind = 'settings' | 'retry' | 'change-agent' | 'install' | 'sign-in';
+export type AgentErrorActionKind =
+  'settings' | 'retry' | 'change-agent' | 'install' | 'sign-in' | 'check-status';
 
 export interface AgentErrorAction {
   label: string;
@@ -45,6 +47,11 @@ const install: AgentErrorAction = { label: 'How to install', section: 'agents', 
 const changeAgent: AgentErrorAction = { label: 'Use another agent', kind: 'change-agent' };
 /** Starts the Verdictan sign-in. The sign-in flow listens for `kalkidan-sign-in`. */
 const signIn: AgentErrorAction = { label: 'Sign in', kind: 'sign-in' };
+/**
+ * Checks the account again on this computer and on each SSH host. After a refused keychain
+ * prompt, this starts the runtime again, so the system asks again.
+ */
+const checkStatus: AgentErrorAction = { label: 'Check status', kind: 'check-status' };
 const sectionActions: Record<string, AgentErrorAction> = {
   'managed-agents': { label: 'Open account settings', section: 'account', kind: 'settings' },
   account: { label: 'Open account settings', section: 'account', kind: 'settings' },
@@ -96,7 +103,14 @@ function managedError(code: string, context: AgentErrorContext = {}): AgentError
   if (refusal)
     return {
       message: refusal.message,
-      action: refusal.step ? stepAction(refusal.step, context) : refusal.retry ? retry : undefined,
+      action:
+        code === keychainRefusedCode
+          ? checkStatus
+          : refusal.step
+            ? stepAction(refusal.step, context)
+            : refusal.retry
+              ? retry
+              : undefined,
       retryFirst: refusal.retry,
       code,
     };
@@ -170,9 +184,11 @@ export function managedLaunchError(
             anchor: agentProgramAnchor(agent, hostId),
             kind: 'settings',
           }
-        : refusal.step
-          ? stepAction(refusal.step, regionContext)
-          : undefined,
+        : failure.code === keychainRefusedCode
+          ? checkStatus
+          : refusal.step
+            ? stepAction(refusal.step, regionContext)
+            : undefined,
       retryFirst: refusal.retry,
     };
   }

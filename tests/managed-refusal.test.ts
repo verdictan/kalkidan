@@ -61,7 +61,7 @@ test('each refusal code has its own words, step and retry rule', () => {
   assert.equal(evidence.step, 'status');
   const keychain = managedRefusal('desktop.secure_storage_unavailable', where);
   assert.match(keychain.message, /system keychain on build-box\. The access was refused/);
-  assert.match(keychain.message, /select Check status in Settings › Accounts/);
+  assert.match(keychain.message, /If the system does not ask, select Check status\./);
   // A new launch asks again. When the account runtime refused, Check status starts it again.
   assert.equal(keychain.step, 'status');
   assert.equal(keychain.retry, true);
