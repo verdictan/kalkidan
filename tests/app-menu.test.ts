@@ -268,6 +268,7 @@ for (const mac of [true, false])
       'Commit changes…',
       'Create pull request…',
       'Duplicate chat › Continue here, Continue on a new branch…',
+      'Fork chat…',
       `Show folder in ${mac ? 'Finder' : 'file manager'}`,
       '---',
       'Share › Export Markdown…, Export HTML…, ---, Save to Docs…',

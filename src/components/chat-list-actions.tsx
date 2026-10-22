@@ -1,3 +1,4 @@
+import { forkChat } from './chat-links';
 import { useState } from 'react';
 import {
   chatActionMenu,
@@ -107,6 +108,7 @@ export function useChatListActions(options: ChatListActionOptions) {
           })
           .catch(failed),
       notes: () => setNotes(session),
+      fork: () => forkChat(session),
       ...(options.onOpenTask ? { 'open-linked-task': () => options.onOpenTask!(session) } : {}),
       ...(organization.pullRequest?.url
         ? {

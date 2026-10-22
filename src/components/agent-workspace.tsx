@@ -3,10 +3,11 @@ import { SessionMenu, sendSessionCommand } from './session-menu';
 import { viewArchivedSessions } from './session-browser';
 import { sessionAPI } from '../lib/remote-api';
 import { useEffect, useRef, useState } from 'react';
-import { ChevronRight, NotebookPen, X } from 'lucide-react';
+import { ChevronRight, GitFork, NotebookPen, X } from 'lucide-react';
 import { pathBasename } from '../lib/platform';
 import { sessionRepo } from '../lib/session-repository';
 import { trackerConnection } from '../domain/tracker';
+import type { ChatLink } from '../domain/chat-fork';
 import { Conversation, type ConversationDraft } from './conversation';
 import type { MentionChat } from '../lib/mention-sections';
 import { Button } from './ui/button';
@@ -20,6 +21,11 @@ const timestamp = () => new Date().toISOString();
 // approval stays mounted until it finishes.
 const mountedLimit = 5;
 const titleOf = (session: Session) => session.organization?.title || session.title;
+/** Opens a linked chat. The app shell finds it in the open chats and the chat list. */
+const openLink = (link: ChatLink) =>
+  window.dispatchEvent(
+    new CustomEvent('kalkidan-open-session', { detail: { agent: link.agent, id: link.id } }),
+  );
 /** The time now, as the `updatedAt` text of a new draft. */
 const nowText = () => new Date().toISOString();
 // The picker offers the most recent chats only.
@@ -231,6 +237,8 @@ export function AgentWorkspace({
     reportActivity.current?.(activity);
   }, [running, tabs, created]);
   const live = liveSession(selectedTab);
+  const forkedFrom = live.organization?.forkedFrom || live.forkOf;
+  const forks = live.organization?.forks || [];
   const resolvedId = created[selectedKey]?.id;
   const saved = !!resolvedId || !selectedTab.projectId;
   const repository = sessionRepo(live, projects);
@@ -438,6 +446,31 @@ export function AgentWorkspace({
                   <span className="truncate">{live.organization.notes.split('\n')[0]}</span>
                 </button>
               )}
+              {forkedFrom && (
+                <button
+                  type="button"
+                  className="conversation-note"
+                  title={`Forked from ${forkedFrom.title}`}
+                  onClick={() => openLink(forkedFrom)}
+                >
+                  <GitFork aria-hidden="true" className="size-3 shrink-0" />
+                  <span className="truncate">Forked from {forkedFrom.title}</span>
+                </button>
+              )}
+              {forks.length ? (
+                <button
+                  type="button"
+                  className="conversation-note"
+                  title={forks.map((fork) => fork.title).join('\n')}
+                  onClick={() => openLink(forks.at(-1)!)}
+                >
+                  <GitFork aria-hidden="true" className="size-3 shrink-0" />
+                  <span className="truncate">
+                    Forked to {forks.at(-1)!.title}
+                    {forks.length > 1 && ` and ${forks.length - 1} more`}
+                  </span>
+                </button>
+              ) : null}
             </nav>
           </div>,
           document.getElementById('conversation-titlebar-heading')!,

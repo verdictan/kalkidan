@@ -76,6 +76,7 @@ export type ChatActionId =
   | 'duplicate'
   | 'duplicate-here'
   | 'duplicate-branch'
+  | 'fork'
   | 'show-folder'
   | 'share'
   | 'export-markdown'
@@ -319,6 +320,15 @@ export const chatActions: readonly ChatActionDefinition[] = [
     ],
   }),
   define({
+    id: 'fork',
+    label: 'Fork chat…',
+    group: 'work',
+    keywords: 'fork continue copy agent computer host',
+    command: 'session-fork',
+    // A read-only chat of another account can also fork. The fork is a new chat.
+    enabled: all(checks.saved),
+  }),
+  define({
     id: 'show-folder',
     label: (_state, platform) =>
       `Show folder in ${platform === 'mac' ? 'Finder' : platform === 'windows' ? 'File Explorer' : 'file manager'}`,
@@ -443,6 +453,7 @@ export const chatCommands = [
   'open-pull-request',
   'session-duplicate',
   'session-duplicate-branch',
+  'session-fork',
   'session-show-folder',
   'session-export-markdown',
   'session-export-html',
@@ -536,7 +547,7 @@ function resolve(
 }
 
 /**
- * The layout of the chat row menu and the Chat actions menu: nine items, two levels. Commit and
+ * The layout of the chat row menu and the Chat actions menu: ten items, two levels. Commit and
  * the pull request are not in these menus: the changes row of the chat shows them.
  */
 type MenuEntry =
@@ -548,6 +559,7 @@ const chatMenuLayout: { group: ChatActionGroup; items: MenuEntry[] }[] = [
     group: 'work',
     items: [
       'duplicate',
+      'fork',
       {
         id: 'open-in',
         label: 'Open in',
@@ -590,7 +602,7 @@ function menuItem(
 
 /**
  * The actions that one surface shows for a chat, in groups and in menu order. The chat row menu
- * and the Chat actions menu show nine items in two levels. The menu bar and the palette show
+ * and the Chat actions menu show ten items in two levels. The menu bar and the palette show
  * all actions.
  */
 export function chatActionMenu(

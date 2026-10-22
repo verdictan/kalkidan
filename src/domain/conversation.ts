@@ -3,9 +3,17 @@ import type { TrackerItem } from './tracker';
 import type { ManagedSetupStep } from './verdictan';
 import type { ChatOutcome } from './chat-outcome';
 import type { PolicyRecord } from './policy-result';
+import type { ChatLink } from './chat-fork';
 export interface ChatOptions {
   operationId?: string;
   forkFrom?: string;
+  /**
+   * The chat that this new chat forks. Kalkidan gives its history to the agent as context with
+   * the first message. The source can be on another computer or use another agent.
+   */
+  forkOf?: ChatLink;
+  /** The last message of `forkOf` when the user forked. Later messages are not history. */
+  forkUntil?: string;
   model?: string;
   taskId?: string;
 }
@@ -24,10 +32,17 @@ export interface SessionOrganization {
   taskId?: string;
   /** The pull request opened from this session. */
   pullRequest?: { url: string; number?: number; state?: 'open' | 'merged' | 'closed' };
+  /** The chat that this chat is a fork of. */
+  forkedFrom?: ChatLink;
+  /** The forks of this chat, oldest first. */
+  forks?: ChatLink[];
 }
 export interface Session {
   governanceScope?: { projectId: string; taskId?: string };
   forkFrom?: string;
+  /** For a new fork before its first message: the source chat. See ChatOptions.forkOf. */
+  forkOf?: ChatLink;
+  forkUntil?: string;
   hostId?: string;
   id: string;
   agent: Agent;
