@@ -52,6 +52,7 @@ import type {
   TrackerDescriptor,
   TrackerConnection,
 } from '../domain/tracker';
+import type { DataControlAPI } from '../domain/data-policy';
 export type {
   TrackerProject,
   TrackerItem,
@@ -184,7 +185,11 @@ export interface RemoteAPI {
   remoteConnect(id: string): Promise<RemoteHost>;
   remoteDisconnect(id: string): Promise<void>;
   /** Removes a saved host. Rejects when a project still runs on it. */
-  remoteRemove(id: string): Promise<void>;
+  /**
+   * Revokes the host in Verdictan and forgets it. With `deleteHostData`, Kalkidan first deletes
+   * its own data on the connected host. Project folders on the host stay.
+   */
+  remoteRemove(id: string, options?: { deleteHostData?: boolean }): Promise<void>;
   remoteCall<M extends SessionHostMethod>(
     hostId: string,
     method: M,
@@ -431,6 +436,7 @@ export interface MemoryAPI {
 }
 export interface API
   extends
+    DataControlAPI,
     ProjectServicesAPI,
     ParallelDispatchAPI,
     PublishAPI,

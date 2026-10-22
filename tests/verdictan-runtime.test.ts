@@ -24,7 +24,7 @@ function deferred<T>() {
 async function drain() {
   for (let i = 0; i < 30; i++) await Promise.resolve();
 }
-function fixture() {
+function fixture(revoked: string[] = []) {
   const calls: string[] = [];
   const requests: any[] = [];
   const gateways: any[] = [];
@@ -80,6 +80,7 @@ function fixture() {
     apiOrigin: 'https://api.verdictan.com',
     client: async () => client,
     executable: async () => '/fixture/verdictan',
+    revoked: (reason) => revoked.push(reason),
     gateway(options) {
       const gateway: any = {
         async readiness() {
@@ -227,6 +228,37 @@ test('gateway loss stops its native agent and clears readiness', async () => {
   await drain();
   assert.equal(f.owner.status()[0].phase, 'failed');
   assert.ok(f.calls.includes('stop-agent'));
+  await f.owner.revoke(id);
+});
+test('a revoked runtime stops its agent, keeps the revoked phase and reports the reason', async () => {
+  const revoked: string[] = [];
+  const f = fixture(revoked);
+  await f.start();
+  f.gateways[0].lost('runtime_revoked');
+  await drain();
+  assert.equal(f.owner.status()[0].phase, 'revoked');
+  assert.ok(f.calls.includes('stop-agent'));
+  assert.deepEqual(revoked, ['runtime_revoked']);
+  assert.equal(f.owner.busy(), false);
+});
+test('a revoked host blocks new runtimes on the same host identity', async () => {
+  const revoked: string[] = [];
+  const f = fixture(revoked);
+  await f.start();
+  f.gateways[0].lost('host_revoked');
+  await drain();
+  assert.deepEqual(revoked, ['host_revoked']);
+  await f.owner.release(id);
+  await assert.rejects(f.start(), /host_revoked/);
+});
+test('the offline limit fails the runtime without a revocation', async () => {
+  const revoked: string[] = [];
+  const f = fixture(revoked);
+  await f.start();
+  f.gateways[0].lost('offline_limit');
+  await drain();
+  assert.equal(f.owner.status()[0].phase, 'failed');
+  assert.deepEqual(revoked, ['offline_limit']);
   await f.owner.revoke(id);
 });
 test('host inventory follows opaque cursors and rejects repeated or missing cursors', async () => {

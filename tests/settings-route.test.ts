@@ -115,6 +115,10 @@ test('settings requests go to Preferences, the Computers page, or the account me
     place: 'preferences',
     anchor: 'settings-github',
   });
+  assert.deepEqual(settingsPlace(undefined, 'settings-data'), {
+    place: 'preferences',
+    anchor: 'settings-data',
+  });
   assert.deepEqual(settingsPlace('agents'), { place: 'computers', anchor: undefined });
   assert.deepEqual(settingsPlace('managed-agents'), {
     place: 'computers',
