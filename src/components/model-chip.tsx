@@ -197,7 +197,7 @@ export function ModelChip({
           tabIndex={0}
           role="note"
           aria-label={`Agent and model: ${label}. ${fixedModelHint}`}
-          className="model-chip-label inline-flex h-7 max-w-[220px] min-w-0 shrink items-center gap-1.5 rounded-full px-2.5 text-xs font-medium text-muted-foreground outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-color)]"
+          className="model-chip-label inline-flex h-7 max-w-[220px] min-w-0 shrink items-center gap-1.5 rounded-full px-2.5 text-xs font-medium text-muted-foreground outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-color)] focus-visible:ring-offset-2 focus-visible:ring-offset-background"
         >
           <AgentIcon agent={agent} className="size-3.5" />
           <span className="truncate">{label}</span>

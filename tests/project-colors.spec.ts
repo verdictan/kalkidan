@@ -10,8 +10,8 @@ test('right click sets matching project folder colors and resets them', async ({
     await expect(page.getByRole('menuitemradio', { name, exact: true })).toBeVisible();
   await page.getByRole('menuitemradio', { name: 'Violet', exact: true }).click();
   const icon = page.locator('.project-tree .project-folder-icon').first();
-  await expect(icon).toHaveCSS('color', 'rgb(192, 132, 252)');
-  await expect(page.locator('.project-symbol')).toHaveCSS('color', 'rgb(192, 132, 252)');
+  await expect(icon).toHaveCSS('color', 'rgb(147, 51, 234)');
+  await expect(page.locator('.project-symbol')).toHaveCSS('color', 'rgb(147, 51, 234)');
   await project.click({ button: 'right' });
   await page.getByRole('menuitem', { name: 'Color', exact: true }).click();
   await expect(page.getByRole('menuitemradio', { name: 'Violet', exact: true })).toHaveAttribute(
@@ -19,6 +19,6 @@ test('right click sets matching project folder colors and resets them', async ({
     'true',
   );
   await page.getByRole('menuitemradio', { name: 'Default', exact: true }).click();
-  await expect(icon).not.toHaveCSS('color', 'rgb(192, 132, 252)');
+  await expect(icon).not.toHaveCSS('color', 'rgb(147, 51, 234)');
   await page.screenshot({ path: 'test-results/project-overview-spacing.png' });
 });

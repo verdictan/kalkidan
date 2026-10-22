@@ -7,11 +7,8 @@ import {
   Laptop,
   LogIn,
   LogOut,
-  Monitor,
-  Moon,
   MoreHorizontal,
   Settings2,
-  Sun,
   UserRound,
   BellRing,
 } from 'lucide-react';
@@ -19,12 +16,6 @@ import type { API } from '../api/contracts';
 import type { NotificationPreferences } from '../domain/verdictan';
 import { accountNames } from '../lib/verdictan-labels';
 import { regionNames } from '../lib/region-suggestion';
-import {
-  applyAppearance,
-  readAppearance,
-  saveAppearance,
-  type Appearance,
-} from '../lib/appearance';
 import { shortcutLabel } from '../lib/platform';
 import { cn } from '../lib/utils';
 import { useVerdictanStatus } from '../hooks/use-verdictan-status';
@@ -40,8 +31,6 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuLabel,
-  DropdownMenuRadioGroup,
-  DropdownMenuRadioItem,
   DropdownMenuSeparator,
   DropdownMenuShortcut,
   DropdownMenuTrigger,
@@ -67,52 +56,6 @@ function Avatar({ text, className }: { text: string; className?: string }) {
     <span className={cn('account-menu-avatar', className)} aria-hidden="true">
       {text || <UserRound />}
     </span>
-  );
-}
-
-const themes: { value: Appearance; label: string; icon: typeof Sun }[] = [
-  { value: 'system', label: 'System', icon: Monitor },
-  { value: 'light', label: 'Light', icon: Sun },
-  { value: 'dark', label: 'Dark', icon: Moon },
-];
-
-/**
- * The theme row of the account menu: "Theme" and three icon items (System, Light, Dark). The
- * items are radio items, so ↑ and ↓ reach them. A choice keeps the menu open.
- */
-function ThemeItems({ api }: { api: API }) {
-  const [appearance, setAppearance] = useState<Appearance>(readAppearance);
-  function choose(mode: Appearance) {
-    setAppearance(mode);
-    saveAppearance(mode);
-    void api.setAppearance?.(mode);
-    applyAppearance(mode);
-  }
-  return (
-    <div className="account-menu-theme">
-      <span className="account-menu-theme-label" id="account-menu-theme">
-        Theme
-      </span>
-      <DropdownMenuRadioGroup
-        value={appearance}
-        onValueChange={(value) => choose(value as Appearance)}
-        className="account-menu-theme-group"
-        aria-labelledby="account-menu-theme"
-      >
-        {themes.map((theme) => (
-          <DropdownMenuRadioItem
-            key={theme.value}
-            value={theme.value}
-            aria-label={theme.label}
-            title={theme.label}
-            className="account-menu-theme-item"
-            onSelect={(event) => event.preventDefault()}
-          >
-            <theme.icon className="size-4" aria-hidden="true" />
-          </DropdownMenuRadioItem>
-        ))}
-      </DropdownMenuRadioGroup>
-    </div>
   );
 }
 
@@ -204,7 +147,7 @@ function useMenuOpen() {
 
 /**
  * The account row in the sidebar footer: one 48px trigger that fills the row. Signed in, it
- * shows the initials, the name and the organization, and opens the account menu: theme,
+ * shows the initials, the name and the organization, and opens the account menu:
  * notifications, Computers, Preferences, help, and Sign out. Signed out, it is the
  * one "Sign in" of the app, with a "…" menu for the same app items.
  */
@@ -265,7 +208,6 @@ export function AccountMenu({ api }: { api: API }) {
             </DropdownMenuTrigger>
           </Hint>
           <DropdownMenuContent side="top" align="end" className="account-menu-content w-72">
-            <ThemeItems api={api} />
             <NotificationItem api={api} open={open} />
             <DropdownMenuSeparator />
             <AppItems />
@@ -309,7 +251,6 @@ export function AccountMenu({ api }: { api: API }) {
             </span>
           </DropdownMenuLabel>
           <DropdownMenuSeparator />
-          <ThemeItems api={api} />
           <NotificationItem api={api} open={open} />
           <DropdownMenuSeparator />
           <AppItems />

@@ -1,12 +1,14 @@
 import { test, expect, newChat, openSettings, settingsDialog } from './helpers/app';
 import { openCodeFolder } from './helpers/navigation';
-test('dark desktop workflow preserves drafts across the title bar tools and resizable panes', async ({
+test('desktop workflow preserves drafts across the title bar tools and resizable panes', async ({
   page,
 }) => {
   await page.goto('/');
   await page.setViewportSize({ width: 1440, height: 1000 });
   await expect(page.getByRole('heading', { name: 'Projects', level: 1 })).toBeVisible();
-  await expect(page.locator('html')).toHaveClass('dark');
+  // Kalkidan is light only.
+  await expect(page.locator('html')).not.toHaveClass(/dark/);
+  await expect(page.locator('html')).toHaveCSS('color-scheme', 'light');
   await page.screenshot({ animations: 'disabled', path: 'test-results/reference-projects.png' });
   await openSettings(page);
   await page.screenshot({ animations: 'disabled', path: 'test-results/reference-settings.png' });

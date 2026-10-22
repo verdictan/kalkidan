@@ -119,8 +119,8 @@ export function settingsTarget(
  *   built-in browser, your data, and the version.
  * - 'computers': the Computers page. It has this computer, the agents with their programs and
  *   organization setup, and the SSH hosts.
- * - 'account-menu': the account menu in the sidebar footer. It has the theme, the
- *   notifications, and sign-out.
+ * - 'account-menu': the account menu in the sidebar footer. It has the notifications and
+ *   sign-out.
  */
 export type SettingsPlace = 'preferences' | 'computers' | 'account-menu';
 

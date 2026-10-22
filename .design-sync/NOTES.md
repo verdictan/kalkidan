@@ -16,7 +16,7 @@ The app components in `src/components/` are not synced. They need Electron IPC.
   (`[CSS_FROM_STORYBOOK]`). Only utilities used somewhere in `src/` are in that CSS.
 - [GENERAL] `.storybook/preview.tsx` imports the Tailwind source, so the decorator bundle fails
   (`Could not resolve "tailwindcss"`). `cfg.provider` sets `TooltipProvider` instead. The theme is
-  light by default: the dark theme needs the `dark` class on the root element.
+  light only.
 
 ## Previews
 
@@ -47,4 +47,4 @@ The app components in `src/components/` are not synced. They need Electron IPC.
   story changes. A stale `dist-ui/` ships old components.
 - Dialog stories depend on the `min-h-[640px]` frame. A smaller frame crops the reference.
 - Toolchain at first sync: Storybook 10.6.3, Vite 8, Tailwind 4.3, React 19.3, Node 22.23.
-- Only the light theme is verified. The dark theme ships in the CSS but no story renders it.
+- The kit has only a light theme (the Verdictan Console colors). There is no dark theme.

@@ -1758,7 +1758,7 @@ export function Conversation({
             <Textarea
               ref={textarea}
               data-composer=""
-              className="max-h-[clamp(80px,20vh,180px)] min-h-8 resize-none rounded-none border-0 bg-transparent px-0 py-0 text-base shadow-none focus-visible:ring-0 dark:bg-transparent"
+              className="max-h-[clamp(80px,20vh,180px)] min-h-8 resize-none rounded-none border-0 bg-transparent px-0 py-0 text-base shadow-none focus-visible:ring-0"
               aria-label="Message agent"
               readOnly={readOnly}
               aria-description={

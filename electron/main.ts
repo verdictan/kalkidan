@@ -53,12 +53,6 @@ import { createProjectPrompt } from './projects/prompt';
 import { listMentionFiles, readMentionFile } from './projects/mention-files';
 import { providerSessionId, sessionHostMethods } from '../src/domain/host';
 import { writeJSON } from './storage/atomic-json';
-import {
-  isAppearanceMode,
-  readAppearanceMode,
-  saveAppearanceMode,
-  withScheme,
-} from './storage/appearance';
 import { runtimeConfig } from './config/runtime';
 import { TrackerRegistry } from './trackers/registry';
 import { githubTracker } from './trackers/github';
@@ -442,7 +436,6 @@ async function git(path: string, args: string[]) {
   return (await exec('git', ['-C', path, ...args], { timeout: 15000, maxBuffer: 2 * 1024 * 1024 }))
     .stdout;
 }
-const appearanceFile = join(dataRoot, 'appearance.json');
 app.whenReady().then(async () => {
   powerMonitor.on('resume', () => {
     void remote?.reconcile().catch(() => {});
@@ -674,8 +667,8 @@ app.whenReady().then(async () => {
     });
   }
   if (!app.isPackaged && existsSync(appIcon)) app.dock?.setIcon(appIcon);
-  // Apply the saved appearance before the first window opens, so it opens in the right colors.
-  nativeTheme.themeSource = await readAppearanceMode(appearanceFile);
+  // Kalkidan has only a light theme. Native menus, dialogs and the title bar use light colors.
+  nativeTheme.themeSource = 'light';
   const browserProfile = new BrowserProfile();
   await browserProfile.load();
   const projectGroups = new ProjectGroups(join(app.getPath('userData'), 'project-groups.json'));
@@ -1212,14 +1205,6 @@ app.whenReady().then(async () => {
     return githubAuth.cancel(typeof attemptId === 'string' ? attemptId : '');
   });
   handle('github-auth-open', () => shell.openExternal('https://github.com/login/device'));
-  // The saved appearance sets the native theme, so the page and the title bar overlay follow it.
-  // The choice is also saved for the next start.
-  handle('appearance', async (mode) => {
-    if (!isAppearanceMode(mode)) throw new Error('Invalid appearance');
-    if (nativeTheme.themeSource === mode) return;
-    nativeTheme.themeSource = mode;
-    await saveAppearanceMode(appearanceFile, mode);
-  });
   handle('app-menu', () => {
     const window = BrowserWindow.getFocusedWindow() ?? win;
     if (window) Menu.getApplicationMenu()?.popup({ window, x: 8, y: 48 });
@@ -2362,24 +2347,14 @@ app.whenReady().then(async () => {
     taskExecutions.suspend();
   });
 
-  // The window chrome follows the light or dark appearance of the system.
-  // The title bar overlay (chrome) uses --navigation from src/styles/theme.css.
-  function windowColors() {
-    return nativeTheme.shouldUseDarkColors
-      ? { chrome: '#15191c', symbol: '#e1e4e7', background: '#101316' }
-      : { chrome: '#f3f5f7', symbol: '#1f2328', background: '#fbfbfc' };
-  }
-  function titleBarOverlay() {
-    const colors = windowColors();
-    return { color: colors.chrome, symbolColor: colors.symbol, height: 48 };
-  }
-  nativeTheme.on('updated', () => {
-    for (const window of windows) {
-      if (window.isDestroyed()) continue;
-      window.setBackgroundColor(windowColors().background);
-      if (process.platform !== 'darwin') window.setTitleBarOverlay(titleBarOverlay());
-    }
-  });
+  // The window colors. They agree with src/styles/theme.css: the title bar overlay uses
+  // --navigation and --foreground, and the window background uses --background.
+  const windowColors = { chrome: '#fafafa', symbol: '#0a0a0a', background: '#ffffff' };
+  const titleBarOverlay = {
+    color: windowColors.chrome,
+    symbolColor: windowColors.symbol,
+    height: 48,
+  };
   // Electron can release a notification that has no reference, and then a click does nothing.
   const notifications = new Set<Notification>();
   ipcMain.handle(
@@ -2451,10 +2426,10 @@ app.whenReady().then(async () => {
       minHeight: 680,
       title: 'Kalkidan',
       icon: appIcon,
-      backgroundColor: windowColors().background,
+      backgroundColor: windowColors.background,
       ...(process.platform === 'darwin'
         ? { titleBarStyle: 'hiddenInset', trafficLightPosition: { x: 22, y: 17 } }
-        : { titleBarStyle: 'hidden', titleBarOverlay: titleBarOverlay() }),
+        : { titleBarStyle: 'hidden', titleBarOverlay }),
       webPreferences: {
         preload: join(__dirname, 'preload.cjs'),
         contextIsolation: true,
@@ -2469,13 +2444,11 @@ app.whenReady().then(async () => {
     const base = dev
       ? 'http://127.0.0.1:5173'
       : pathToFileURL(join(__dirname, '../dist/index.html')).href;
-    const url = withScheme(
-      base,
-      nativeTheme.shouldUseDarkColors,
-      session
+    const url =
+      base +
+      (session
         ? '#session=' + encodeURIComponent(JSON.stringify({ agent: session.agent, id: session.id }))
-        : '',
-    );
+        : '');
     // The app never opens its own windows from links. Web and mail links open in the
     // default application of the system.
     window.webContents.setWindowOpenHandler(({ url }) => {
