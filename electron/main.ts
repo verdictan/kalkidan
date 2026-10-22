@@ -769,6 +769,15 @@ app.whenReady().then(async () => {
   );
   await remote.load();
   remote.onRunEnded(keepOutcome);
+  // A host checks its managed runtime as soon as it connects, so a newer signed release
+  // installs without a chat or a visit to Settings. The check is the same status call that a
+  // chat start makes. A host with no region yet, or no runtime, only reports its status.
+  remote.onConnected((hostId) => {
+    if (!verdictan) return;
+    void remote
+      .call(hostId, 'runtime-update', ['status', app.getVersion(), hostId, verdictan.region])
+      .catch(() => {});
+  });
   handle('remote-hosts', () => remote.list());
   handle('remote-add', (name, target) => remote.add(name, target));
   handle('remote-check', (id) => remote.check(id));

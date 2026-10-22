@@ -68,6 +68,24 @@ export class RemoteHosts {
   onRunEnded(listener: NonNullable<RemoteHosts['runEnded']>) {
     this.runEnded = listener;
   }
+  /** Called once each time a host becomes connected, for example to check its runtime. */
+  private connected?: (hostId: string) => void;
+  onConnected(listener: (hostId: string) => void) {
+    this.connected = listener;
+  }
+  /** Marks a host connected, and tells the listener when it was not connected before. */
+  private markConnected(host: RemoteHost) {
+    const before = host.status;
+    host.status = 'connected';
+    delete host.error;
+    if (before !== 'connected') {
+      try {
+        this.connected?.(host.id);
+      } catch {
+        // A listener error must not break the connection.
+      }
+    }
+  }
   private reportRun(entry: {
     hostId: string;
     state: ChatRun;
@@ -525,8 +543,7 @@ export class RemoteHosts {
       }
       if (this.connections.get(id) !== existing || this.closing)
         throw new Error('Connection canceled.');
-      host.status = 'connected';
-      delete host.error;
+      this.markConnected(host);
       return { ...host };
     }
     if (!host.version || !/^[a-f0-9]{20}$/.test(host.version)) {
@@ -631,8 +648,6 @@ export class RemoteHosts {
       if (this.connections.get(id) !== connection) throw new Error('Connection canceled.');
       if (info.protocol !== remoteProtocolVersion)
         throw new Error('Agent version mismatch. Update the Kalkidan helper in Settings.');
-      host.status = 'connected';
-      delete host.error;
       host.node = info.node;
       host.platform = info.platform;
       host.runningDigest = /^[a-f0-9]{64}$/.test(info.bundleDigest || '')
@@ -647,6 +662,7 @@ export class RemoteHosts {
         host.setup.error = undefined;
         host.setup.updatedAt = Date.now();
       }
+      this.markConnected(host);
       await this.save();
       return { ...host };
     } catch (e: any) {
