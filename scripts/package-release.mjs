@@ -1,5 +1,5 @@
-import { execFileSync } from 'node:child_process';
-import { readFileSync, readdirSync, writeFileSync } from 'node:fs';
+import { execFileSync, spawnSync } from 'node:child_process';
+import { readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 
 const platform = process.platform;
@@ -31,22 +31,57 @@ for (const key of [
   'APPLE_TEAM_ID',
 ])
   delete env[key];
+// The NSIS target writes a stub installer to the final path, runs it to make the
+// uninstaller, and then writes the final installer to the same path. On Windows the
+// stub can stay locked for a short time after it runs (for example, by a malware
+// scan), and makensis then stops with "Can't open output file". Try again for that
+// error only.
+const lockedOutput = "Can't open output file";
+const windowsAttempts = 3;
+const lockWaitMs = 15_000;
+const wait = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+const removeWindowsOutput = () => {
+  for (const name of readdirSync('release'))
+    if (name.startsWith(`Kalkidan-${version}-win-`) && name.endsWith('.exe'))
+      rmSync(`release/${name}`, { force: true });
+};
+const build = (args) => {
+  if (platform !== 'win32') {
+    execFileSync(process.execPath, args, { stdio: 'inherit', env });
+    return;
+  }
+  for (let attempt = 1; ; attempt += 1) {
+    const result = spawnSync(process.execPath, args, {
+      stdio: ['inherit', 'pipe', 'pipe'],
+      env,
+      maxBuffer: 256 * 1024 * 1024,
+    });
+    process.stdout.write(result.stdout ?? '');
+    process.stderr.write(result.stderr ?? '');
+    if (result.error) throw result.error;
+    if (result.status === 0) return;
+    const output = `${result.stdout ?? ''}${result.stderr ?? ''}`;
+    if (!output.includes(lockedOutput) || attempt === windowsAttempts)
+      throw new Error(`electron-builder failed with exit code ${result.status}`);
+    console.error(
+      `The installer file was locked (attempt ${attempt} of ${windowsAttempts}). Trying again in ${lockWaitMs / 1000} s.`,
+    );
+    removeWindowsOutput();
+    wait(lockWaitMs);
+  }
+};
 const architectures = platform === 'darwin' ? ['arm64', 'x64'] : ['x64'];
 for (const arch of architectures) {
-  execFileSync(
-    process.execPath,
-    [
-      'node_modules/electron-builder/cli.js',
-      `--${target}`,
-      `--${arch}`,
-      '--publish',
-      'never',
-      `-c.extraMetadata.version=${version}`,
-      ...(platform === 'win32' ? ['-c.npmRebuild=false'] : []),
-      ...(platform === 'darwin' ? ['-c.mac.identity=null', '-c.mac.notarize=false'] : []),
-    ],
-    { stdio: 'inherit', env },
-  );
+  build([
+    'node_modules/electron-builder/cli.js',
+    `--${target}`,
+    `--${arch}`,
+    '--publish',
+    'never',
+    `-c.extraMetadata.version=${version}`,
+    ...(platform === 'win32' ? ['-c.npmRebuild=false'] : []),
+    ...(platform === 'darwin' ? ['-c.mac.identity=null', '-c.mac.notarize=false'] : []),
+  ]);
 }
 const files = readdirSync('release')
   .filter(
