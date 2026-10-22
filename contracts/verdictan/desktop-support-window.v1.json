@@ -156,18 +156,12 @@
   },
   "runtime": {
     "policy": "The current release and the two releases before it.",
-    "minimum": "0.6.9",
-    "newest_verified": "0.6.11",
+    "minimum": "0.6.10",
+    "newest_verified": "0.6.12",
     "setup_minimum": "0.6.6",
     "deprecation_notice_days": 90,
     "capabilities_fixture": "fixtures/runtime-capabilities.json",
     "versions": [
-      {
-        "version": "0.6.9",
-        "protocol": 1,
-        "contracts_sha256": "3999ff850c3a5b44f57f535cdca5ebf496e482cb3a2046770456e69384a1d303",
-        "snapshot": "releases/0.6.10/"
-      },
       {
         "version": "0.6.10",
         "protocol": 1,
@@ -177,7 +171,13 @@
       {
         "version": "0.6.11",
         "protocol": 1,
-        "contracts_sha256": "55f202c8f27ef7d8c12222d4f46cb68a4c2f5ea140e3b3b909d2503b59bb9dd8"
+        "contracts_sha256": "55f202c8f27ef7d8c12222d4f46cb68a4c2f5ea140e3b3b909d2503b59bb9dd8",
+        "snapshot": "releases/0.6.11/"
+      },
+      {
+        "version": "0.6.12",
+        "protocol": 1,
+        "contracts_sha256": "39d97656cc9b150be2c940718cc01a62c6133ad9ee9255e91851ef61da5e222b"
       }
     ],
     "deprecations": [
@@ -187,7 +187,7 @@
           "maximum": "0.6.7"
         },
         "reason": "These releases are older than the support window. Releases before 0.6.6 cannot run the Kalkidan setup, because they have no setup.bootstrap. 0.6.6 refuses native agent versions that its release evidence did not test.",
-        "replacement": "0.6.9",
+        "replacement": "0.6.12",
         "deprecated": "2026-10-22",
         "end_of_support": "2027-01-20"
       },
@@ -197,9 +197,29 @@
           "maximum": "0.6.8"
         },
         "reason": "This release is older than the support window.",
-        "replacement": "0.6.9",
+        "replacement": "0.6.12",
         "deprecated": "2026-10-22",
         "end_of_support": "2027-01-20"
+      },
+      {
+        "versions": {
+          "minimum": "0.6.9",
+          "maximum": "0.6.9"
+        },
+        "reason": "This release is older than the support window.",
+        "replacement": "0.6.12",
+        "deprecated": "2026-10-22",
+        "end_of_support": "2027-01-20"
+      }
+    ],
+    "known_broken": [
+      {
+        "version": "0.6.11",
+        "components": [
+          "desktop_gateway"
+        ],
+        "reason": "verdictan gateway supervise stops at startup with \"Internal error: builder error\", because the revocation check client has a total timeout and no connect timeout.",
+        "fixed_in": "0.6.12"
       }
     ]
   },

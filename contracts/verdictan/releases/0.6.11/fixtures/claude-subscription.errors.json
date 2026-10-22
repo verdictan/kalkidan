@@ -1,0 +1,118 @@
+{
+  "schema_version": 1,
+  "fixture_kind": "sanitized_contract_examples",
+  "errors": [
+    {
+      "schema_version": 1,
+      "correlation_id": "claude-error-1",
+      "sequence": 1,
+      "event": "error",
+      "data": {
+        "code": "desktop.claude_subscription_unsupported",
+        "category": "compatibility",
+        "message": "Claude subscription access is unavailable in this runtime. Preserve your work and check compatible releases.",
+        "retryable": false,
+        "recovery_action": "update_runtime",
+        "correlation_id": "claude-error-1"
+      }
+    },
+    {
+      "schema_version": 1,
+      "correlation_id": "claude-error-2",
+      "sequence": 2,
+      "event": "error",
+      "data": {
+        "code": "desktop.claude_subscription_login_required",
+        "category": "authentication",
+        "message": "Sign in to Claude Code on this execution host before explicitly retrying.",
+        "retryable": false,
+        "recovery_action": "sign_in_native_claude_on_execution_host",
+        "correlation_id": "claude-error-2"
+      }
+    },
+    {
+      "schema_version": 1,
+      "correlation_id": "claude-error-3",
+      "sequence": 3,
+      "event": "error",
+      "data": {
+        "code": "desktop.claude_subscription_identity_unavailable",
+        "category": "outage",
+        "message": "Claude account verification is unavailable. Inspect the runtime before explicitly retrying.",
+        "retryable": false,
+        "recovery_action": "inspect_runtime",
+        "correlation_id": "claude-error-3"
+      }
+    },
+    {
+      "schema_version": 1,
+      "correlation_id": "claude-error-4",
+      "sequence": 4,
+      "event": "error",
+      "data": {
+        "code": "desktop.claude_subscription_route_unsupported",
+        "category": "compatibility",
+        "message": "This Claude request route is unsupported. Preserve your work and check native compatibility.",
+        "retryable": false,
+        "recovery_action": "check_native_compatibility",
+        "correlation_id": "claude-error-4"
+      }
+    },
+    {
+      "schema_version": 1,
+      "correlation_id": "claude-error-5",
+      "sequence": 5,
+      "event": "error",
+      "data": {
+        "code": "desktop.subscription_account_mismatch",
+        "category": "identity",
+        "message": "The provider account changed. Stop this session and authorize a new session.",
+        "retryable": false,
+        "recovery_action": "reauthorize_new_session",
+        "correlation_id": "claude-error-5"
+      }
+    },
+    {
+      "schema_version": 1,
+      "correlation_id": "claude-error-6",
+      "sequence": 6,
+      "event": "error",
+      "data": {
+        "code": "desktop.subscription_account_required",
+        "category": "authentication",
+        "message": "Verify the native provider account before starting this session.",
+        "retryable": false,
+        "recovery_action": "verify_native_account",
+        "correlation_id": "claude-error-6"
+      }
+    },
+    {
+      "schema_version": 1,
+      "correlation_id": "claude-error-7",
+      "sequence": 7,
+      "event": "error",
+      "data": {
+        "code": "desktop.subscription_credentials_invalid",
+        "category": "authentication",
+        "message": "The native and gateway credentials are invalid or mixed. Repair the managed launch configuration.",
+        "retryable": false,
+        "recovery_action": "repair_managed_launch",
+        "correlation_id": "claude-error-7"
+      }
+    },
+    {
+      "schema_version": 1,
+      "correlation_id": "claude-error-8",
+      "sequence": 8,
+      "event": "error",
+      "data": {
+        "code": "desktop.subscription_target_required",
+        "category": "setup",
+        "message": "Ask your organization administrator to deploy a native provider target that permits the selected subscription model.",
+        "retryable": false,
+        "recovery_action": "open_authorized_setup",
+        "correlation_id": "claude-error-8"
+      }
+    }
+  ]
+}

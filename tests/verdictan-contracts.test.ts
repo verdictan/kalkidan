@@ -10,7 +10,11 @@ import addFormatsModule from 'ajv-formats';
 import { assertRuntimeSupported, parseCapabilities } from '../electron/verdictan/account';
 import { DesktopProtocol, DesktopProtocolError } from '../electron/verdictan/protocol';
 import { agentMinimumVersions, compareVersionCores } from '../src/domain/agent-version';
-import { runtimeCompatibility, supportWindow } from '../src/domain/compatibility';
+import {
+  knownBrokenRuntime,
+  runtimeCompatibility,
+  supportWindow,
+} from '../src/domain/compatibility';
 import { managedErrorText } from '../src/domain/verdictan';
 
 // Verdictan cli/docs/contracts is the source of truth. contracts/verdictan is a pinned byte copy.
@@ -64,6 +68,14 @@ test('the support window agrees with its schema and with the Kalkidan rules', ()
   );
   assert.equal(window.runtime.deprecation_notice_days, supportWindow.runtime.noticeDays);
   assert.equal(window.runtime.setup_minimum, supportWindow.runtime.setupMinimum);
+  assert.deepEqual(
+    (window.runtime.known_broken ?? []).map((entry: any) => ({
+      version: entry.version,
+      components: entry.components,
+      fixedIn: entry.fixed_in,
+    })),
+    supportWindow.runtime.knownBroken,
+  );
   assert.equal(window.runtime.newest_verified, supportWindow.runtime.newestVerified);
   assert.deepEqual(
     window.runtime.deprecations.map((entry: any) => ({
@@ -138,7 +150,7 @@ test('a runtime older than the window is refused with plain words after its noti
       error.code === 'desktop.runtime_version_unsupported' &&
       error.version === '0.6.5',
   );
-  assert.match(managedErrorText('desktop.runtime_version_unsupported'), /0\.6\.9 or later/);
+  assert.match(managedErrorText('desktop.runtime_version_unsupported'), /0\.6\.10 or later/);
   for (const version of [...supportWindow.runtime.supported, '0.6.7', '1.0.0'])
     assertRuntimeSupported(
       parseCapabilities({ ...fixture.data, cli_version: version }),
@@ -162,11 +174,11 @@ test('a protocol range without version 1 has its own code', () => {
 });
 
 test('a deprecated runtime gets a warning until its end-of-support date', () => {
-  for (const version of ['0.1.0', '0.6.5', '0.6.6', '0.6.7', '0.6.8']) {
+  for (const version of ['0.1.0', '0.6.5', '0.6.6', '0.6.7', '0.6.8', '0.6.9']) {
     const during = runtimeCompatibility(version, Date.parse('2027-01-19T23:59:00Z'));
     assert.equal(during.status, 'deprecated', version);
     assert.equal(during.endOfSupport, '2027-01-20');
-    assert.match(during.message, /Support stops on 2027-01-20\. Update the runtime to 0\.6\.9/);
+    assert.match(during.message, /Support stops on 2027-01-20\. Update the runtime to 0\.6\.12/);
     const after = runtimeCompatibility(version, Date.parse('2027-01-20T00:00:00Z'));
     assert.equal(after.status, 'unsupported', version);
     assert.match(after.message, /stopped on 2027-01-20/);
@@ -216,7 +228,11 @@ for (const entry of window.runtime.versions)
     const validate = compile('auth-desktop.event.v1.schema.json');
     assert.equal(validate(events[0]), true, JSON.stringify(validate.errors));
     const capabilities = parseCapabilities(events[0].data);
-    assert.equal(runtimeCompatibility(capabilities.cliVersion).status, 'supported');
+    // A known-broken release keeps its broker. Only its managed gateways cannot start.
+    assert.equal(
+      runtimeCompatibility(capabilities.cliVersion).status,
+      knownBrokenRuntime(capabilities.cliVersion) ? 'broken' : 'supported',
+    );
     assertRuntimeSupported(capabilities);
   });
 
@@ -227,7 +243,7 @@ test('each recorded release before the window still runs, with a warning, until 
   );
   assert.deepEqual(
     older.map((event: any) => event.data.cli_version),
-    ['0.6.5', '0.6.6', '0.6.7', '0.6.8'],
+    ['0.6.5', '0.6.6', '0.6.7', '0.6.8', '0.6.9'],
   );
   for (const event of older) {
     const capabilities = parseCapabilities(event.data);
@@ -262,3 +278,16 @@ async function written(requests: [string, Record<string, unknown>][]) {
   await Promise.all(pending);
   return lines;
 }
+
+test('a known-broken release keeps its account, and names the release that fixes it', () => {
+  const result = runtimeCompatibility('0.6.11');
+  assert.equal(result.status, 'broken');
+  assert.equal(result.replacement, '0.6.12');
+  assert.match(result.message, /cannot start managed gateways.*0\.6\.12 or later/);
+  assert.equal(knownBrokenRuntime('0.6.12'), undefined);
+  assert.equal(knownBrokenRuntime('0.6.11')?.fixedIn, '0.6.12');
+  for (const entry of supportWindow.runtime.knownBroken) {
+    assert.ok(supportWindow.runtime.supported.includes(entry.fixedIn));
+    assert.notEqual(entry.version, supportWindow.runtime.newestVerified);
+  }
+});

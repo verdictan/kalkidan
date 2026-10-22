@@ -235,6 +235,44 @@
         },
         "setup_minimum": {
           "$ref": "#/$defs/version"
+        },
+        "known_broken": {
+          "type": "array",
+          "description": "Releases with a defect that stops a component. Kalkidan never installs them for that component and moves to the fixed release.",
+          "items": {
+            "type": "object",
+            "properties": {
+              "version": {
+                "$ref": "#/$defs/version"
+              },
+              "components": {
+                "type": "array",
+                "minItems": 1,
+                "uniqueItems": true,
+                "items": {
+                  "enum": [
+                    "desktop_gateway",
+                    "desktop_broker"
+                  ]
+                }
+              },
+              "reason": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 300
+              },
+              "fixed_in": {
+                "$ref": "#/$defs/version"
+              }
+            },
+            "required": [
+              "version",
+              "components",
+              "reason",
+              "fixed_in"
+            ],
+            "additionalProperties": false
+          }
         }
       },
       "required": [

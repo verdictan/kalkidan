@@ -10,9 +10,9 @@ export const supportWindow = {
   protocol: { current: 1, supported: [1] as readonly number[] },
   runtime: {
     /** The current release and the two releases before it. */
-    supported: ['0.6.9', '0.6.10', '0.6.11'] as readonly string[],
-    minimum: '0.6.9',
-    newestVerified: '0.6.11',
+    supported: ['0.6.10', '0.6.11', '0.6.12'] as readonly string[],
+    minimum: '0.6.10',
+    newestVerified: '0.6.12',
     /** The oldest runtime that can run the one-time Kalkidan setup (`setup.bootstrap`). */
     setupMinimum: '0.6.6',
     noticeDays: 90,
@@ -21,16 +21,34 @@ export const supportWindow = {
         // Each version older than the window, also versions before 0.6.6.
         minimum: '0.0.0',
         maximum: '0.6.7',
-        replacement: '0.6.9',
+        replacement: '0.6.12',
         deprecated: '2026-10-22',
         endOfSupport: '2027-01-20',
       },
       {
         minimum: '0.6.8',
         maximum: '0.6.8',
-        replacement: '0.6.9',
+        replacement: '0.6.12',
         deprecated: '2026-10-22',
         endOfSupport: '2027-01-20',
+      },
+      {
+        minimum: '0.6.9',
+        maximum: '0.6.9',
+        replacement: '0.6.12',
+        deprecated: '2026-10-22',
+        endOfSupport: '2027-01-20',
+      },
+    ],
+    /**
+     * Releases with a defect that stops a component. Kalkidan never installs them, and moves a
+     * computer that has one to `fixedIn` or later.
+     */
+    knownBroken: [
+      {
+        version: '0.6.11',
+        components: ['desktop_gateway'] as readonly string[],
+        fixedIn: '0.6.12',
       },
     ],
   },
@@ -38,7 +56,7 @@ export const supportWindow = {
   agents: agentMinimumVersions,
 } as const;
 
-export type RuntimeSupport = 'supported' | 'deprecated' | 'unsupported' | 'unknown';
+export type RuntimeSupport = 'supported' | 'deprecated' | 'broken' | 'unsupported' | 'unknown';
 export interface RuntimeCompatibility {
   status: RuntimeSupport;
   version?: string;
@@ -67,6 +85,15 @@ export function runtimeCompatibility(version: unknown, now = Date.now()): Runtim
       message: 'Kalkidan cannot read the version of the Verdictan runtime.',
     };
   const value = version as string;
+  const broken = knownBrokenRuntime(value);
+  if (broken)
+    return {
+      status: 'broken',
+      version: value,
+      minimum,
+      replacement: broken.fixedIn,
+      message: `Verdictan runtime ${value} cannot start managed gateways. Kalkidan updates it to ${broken.fixedIn} or later when that release is available.`,
+    };
   if (order >= 0) return { status: 'supported', version: value, minimum, message: '' };
   const today = day(now);
   for (const entry of supportWindow.runtime.deprecations) {
@@ -106,3 +133,10 @@ export function protocolSupported(min: number, max: number) {
 
 /** The Settings text when the runtime is too old to run the Kalkidan setup. */
 export const runtimeSetupNotice = `This Verdictan runtime cannot finish the Kalkidan setup. The setup needs runtime ${supportWindow.runtime.setupMinimum} or later. Update the runtime in Settings › Computers, then open this window again.`;
+
+/** The known-broken entry of a runtime version, or undefined. A prerelease counts by its core. */
+export function knownBrokenRuntime(version: unknown) {
+  return supportWindow.runtime.knownBroken.find(
+    (entry) => compareVersionCores(version, entry.version) === 0,
+  );
+}

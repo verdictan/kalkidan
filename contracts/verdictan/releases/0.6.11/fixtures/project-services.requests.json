@@ -1,0 +1,126 @@
+[
+  {
+    "schema_version": 1,
+    "correlation_id": "fixture_0",
+    "operation": "project.permissions",
+    "project_scope": {
+      "organization_id": "11111111-1111-4111-8111-111111111111",
+      "project_id": "PVT_project_fixture"
+    }
+  },
+  {
+    "schema_version": 1,
+    "correlation_id": "fixture_1",
+    "operation": "history.list",
+    "history_scope": {
+      "organization_id": "11111111-1111-4111-8111-111111111111",
+      "conversation_id": "conversation_fixture",
+      "task_id": "task_fixture"
+    },
+    "limit": 25
+  },
+  {
+    "schema_version": 1,
+    "correlation_id": "fixture_3",
+    "operation": "review.list",
+    "project_scope": {
+      "organization_id": "11111111-1111-4111-8111-111111111111",
+      "project_id": "PVT_project_fixture"
+    }
+  },
+  {
+    "schema_version": 1,
+    "correlation_id": "fixture_4",
+    "operation": "review.decide",
+    "project_scope": {
+      "organization_id": "11111111-1111-4111-8111-111111111111",
+      "project_id": "PVT_project_fixture"
+    },
+    "escalation_id": "33333333-3333-4333-8333-333333333333",
+    "decision": "approve",
+    "reason": "Reviewed current policy.",
+    "operation_id": "33333333-3333-4333-8333-333333333333",
+    "expected_revision": "7"
+  },
+  {
+    "schema_version": 1,
+    "correlation_id": "fixture_5",
+    "operation": "context.settings",
+    "project_scope": {
+      "organization_id": "11111111-1111-4111-8111-111111111111",
+      "project_id": "PVT_project_fixture"
+    }
+  },
+  {
+    "schema_version": 1,
+    "correlation_id": "fixture_6",
+    "operation": "context.configure",
+    "project_scope": {
+      "organization_id": "11111111-1111-4111-8111-111111111111",
+      "project_id": "PVT_project_fixture"
+    },
+    "enabled": true,
+    "operation_id": "33333333-3333-4333-8333-333333333333",
+    "expected_revision": "7"
+  },
+  {
+    "schema_version": 1,
+    "correlation_id": "fixture_7",
+    "operation": "context.search",
+    "project_scope": {
+      "organization_id": "11111111-1111-4111-8111-111111111111",
+      "project_id": "PVT_project_fixture"
+    },
+    "query": "reference",
+    "limit": 2,
+    "max_characters": 1000
+  },
+  {
+    "schema_version": 1,
+    "correlation_id": "fixture_8",
+    "operation": "context.list",
+    "project_scope": {
+      "organization_id": "11111111-1111-4111-8111-111111111111",
+      "project_id": "PVT_project_fixture"
+    }
+  },
+  {
+    "schema_version": 1,
+    "correlation_id": "fixture_9",
+    "operation": "context.publish",
+    "project_scope": {
+      "organization_id": "11111111-1111-4111-8111-111111111111",
+      "project_id": "PVT_project_fixture"
+    },
+    "source": {
+      "kind": "manual",
+      "id": "note_fixture",
+      "revision": "1"
+    },
+    "content": "Explicitly published reference data.",
+    "operation_id": "33333333-3333-4333-8333-333333333333",
+    "expected_revision": "7"
+  },
+  {
+    "schema_version": 1,
+    "correlation_id": "fixture_10",
+    "operation": "context.delete",
+    "project_scope": {
+      "organization_id": "11111111-1111-4111-8111-111111111111",
+      "project_id": "PVT_project_fixture"
+    },
+    "knowledge_id": "33333333-3333-4333-8333-333333333333",
+    "operation_id": "33333333-3333-4333-8333-333333333333",
+    "expected_revision": "7"
+  },
+  {
+    "schema_version": 1,
+    "correlation_id": "fixture_11",
+    "operation": "operation.inspect",
+    "project_scope": {
+      "organization_id": "11111111-1111-4111-8111-111111111111",
+      "project_id": "PVT_project_fixture"
+    },
+    "operation_id": "33333333-3333-4333-8333-333333333333"
+  }
+]

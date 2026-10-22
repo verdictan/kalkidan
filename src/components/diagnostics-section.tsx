@@ -20,6 +20,7 @@ import { showToast } from './ui/toast';
 const runtimeLabels: Record<RuntimeDiagnostics['support'], StatusLabel> = {
   supported: { label: 'Supported', tone: 'success' },
   deprecated: { label: 'Deprecated', tone: 'warning' },
+  broken: { label: 'Known problem', tone: 'destructive' },
   unsupported: { label: 'Not supported', tone: 'destructive' },
   unknown: { label: 'Not known', tone: 'muted' },
 };
