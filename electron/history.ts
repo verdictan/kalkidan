@@ -1,7 +1,7 @@
 import { createReadStream } from 'node:fs';
 import { createInterface } from 'node:readline';
 import { codexIndex } from './codex-store';
-import { contentText, visibleUserText } from './transcript';
+import { contentText, hasHiddenContext, visibleUserText } from './transcript';
 import { readdir, stat, realpath } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { Session } from '../src/types';
@@ -25,6 +25,55 @@ async function files(root: string): Promise<string[]> {
 function injectedContext(text: string) {
   return text.startsWith('<') || text.startsWith('# AGENTS.md instructions');
 }
+/** The user text of one JSONL record, without context that Kalkidan or the agent added. */
+function recordUserText(row: any, agent: 'codex' | 'claude') {
+  // Codex writes the prompt as a user response item and, in newer
+  // versions, also as a user_message event.
+  const content =
+    agent === 'claude' && row.type === 'user'
+      ? row.message?.content
+      : row.type === 'event_msg' && row.payload?.type === 'user_message'
+        ? row.payload.message
+        : agent === 'codex' &&
+            row.type === 'response_item' &&
+            row.payload?.type === 'message' &&
+            row.payload.role === 'user'
+          ? row.payload.content
+          : null;
+  const text = visibleUserText(contentText(content));
+  return text && !injectedContext(text) && !hasHiddenContext(text)
+    ? text.replace(/\s+/g, ' ').slice(0, 120)
+    : '';
+}
+/** The first user text of a session file, for its title. Empty when it has none. */
+async function firstUserTitle(path: string, agent: 'codex' | 'claude') {
+  const stream = createReadStream(path, { encoding: 'utf8' });
+  try {
+    for await (const line of createInterface({ input: stream, crlfDelay: Infinity })) {
+      try {
+        const title = recordUserText(JSON.parse(line), agent);
+        if (title) return title;
+      } catch {
+        /* Truncated or unsupported lines are skipped. */
+      }
+    }
+  } catch {
+    /* A file that cannot be read has no title. */
+  } finally {
+    stream.destroy();
+  }
+  return '';
+}
+/**
+ * The title of a Codex thread from its index. Codex names a thread after its first message. In
+ * a project chat, that message starts with the hidden project context, and Codex cuts the name
+ * short. Then the title comes from the first user text of the session file.
+ */
+async function codexTitle(title: string, path: string) {
+  const visible = visibleUserText(title);
+  if (!hasHiddenContext(visible)) return visible || 'Agent session';
+  return (path && (await firstUserTitle(path, 'codex'))) || 'Agent session';
+}
 const parsedFiles = new Map<string, { stamp: string; cwd: string; id: string; title: string }>();
 export const historyMetrics = { parsedFiles: 0, cacheHits: 0 };
 async function scanHistory(codexRoot: string, claudeRoot: string, sources?: Map<string, string>) {
@@ -37,6 +86,7 @@ async function scanHistory(codexRoot: string, claudeRoot: string, sources?: Map<
       indexed.add(entry.session.id);
       if (entry.archived) continue;
       entry.session.cwd = await realpath(entry.session.cwd).catch(() => entry.session.cwd);
+      entry.session.title = await codexTitle(entry.session.title, entry.path);
       sessions.push(entry.session);
       seen.add(entry.session.agent + ':' + entry.session.id);
       if (entry.path) sources?.set(`codex:${entry.session.id}`, entry.path);
@@ -94,22 +144,7 @@ async function scanHistory(codexRoot: string, claudeRoot: string, sources?: Map<
                   cwd ||= row.cwd;
                   id ||= row.sessionId;
                 }
-                // Codex writes the prompt as a user response item and, in newer
-                // versions, also as a user_message event.
-                const content =
-                  agent === 'claude' && row.type === 'user'
-                    ? row.message?.content
-                    : row.type === 'event_msg' && row.payload?.type === 'user_message'
-                      ? row.payload.message
-                      : agent === 'codex' &&
-                          row.type === 'response_item' &&
-                          row.payload?.type === 'message' &&
-                          row.payload.role === 'user'
-                        ? row.payload.content
-                        : null;
-                const text = visibleUserText(contentText(content));
-                if (!title && text && !injectedContext(text))
-                  title = text.replace(/\s+/g, ' ').slice(0, 120);
+                title ||= recordUserText(row, agent);
                 if (cwd && id && title) break;
               } catch {
                 /* Truncated or unsupported lines are skipped. */

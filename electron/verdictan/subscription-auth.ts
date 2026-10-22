@@ -68,6 +68,7 @@ export async function readCodexSubscriptionLogin(
 export async function prepareSubscriptionAuth(
   home: string,
   login: CodexSubscriptionLogin | string = codexLoginFile(),
+  now = Date.now,
 ) {
   const value = typeof login === 'string' ? await readCodexSubscriptionLogin(login) : login;
   await writeJSON(join(home, 'auth.json'), {
@@ -77,6 +78,12 @@ export async function prepareSubscriptionAuth(
       access_token: value.accessToken,
       account_id: value.accountId,
       ...(value.idToken ? { id_token: value.idToken } : {}),
+      // Codex loads a ChatGPT login only with this field. Without it, Codex sends no
+      // Authorization and no account header, and the gateway refuses each request. The value is
+      // empty: the refresh token stays in the native login only, and native Codex renews it.
+      refresh_token: '',
     },
+    // The access token is current now, so Codex does not try a refresh with the empty token.
+    last_refresh: new Date(now()).toISOString(),
   });
 }

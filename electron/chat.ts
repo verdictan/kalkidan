@@ -42,12 +42,24 @@ export function chatArgs(
     id,
   ];
 }
+/** The gateway refused a Codex subscription request without the ChatGPT login headers. */
+export const codexGatewayAuthMissing = 'desktop.codex_gateway_auth_missing';
 export function normalizeChatFailure(run: ChatRun, stderr = '') {
   const detail = stripVTControlCharacters([run.error, stderr].filter(Boolean).join('\n')).trim();
   if (run.agent === 'codex' && /already has an active writer/i.test(detail)) {
     run.errorCode = 'session_busy';
     run.error =
       'This Codex session is already open in another client. Finish or stop its current task, then close the session in VS Code, the Codex app, or the other CLI. If the lock remains, quit the owning client. Return here and send your message again. Kalkidan cannot take over a session while another client owns it.';
+  } else if (
+    run.agent === 'codex' &&
+    /subscription and gateway authentication are required|desktop\.subscription_credentials_required/i.test(
+      detail,
+    )
+  ) {
+    // The gateway refused a Codex request without the ChatGPT login headers. This is not a
+    // missing sign-in of the user, so it must not read as one.
+    run.errorCode = codexGatewayAuthMissing;
+    run.error = managedErrorText(codexGatewayAuthMissing);
   } else if (run.error) run.error = stripVTControlCharacters(run.error);
   else if (detail) run.error = detail;
   // A managed agent code alone becomes plain words. The code stays for the renderer.

@@ -2,7 +2,7 @@ import { readdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import type { Session, Transcript } from '../src/types';
-import { contentText } from './transcript';
+import { contentText, visibleUserText } from './transcript';
 
 async function latestDatabase(root: string, prefix: string) {
   const names = await readdir(root).catch((error: NodeJS.ErrnoException) => {
@@ -52,7 +52,9 @@ export async function codexTranscript(root: string, id: string): Promise<Transcr
       .reverse()
       .flatMap((row) => {
         const item = JSON.parse(String(row.item_json));
-        const text = item.type === 'userMessage' ? contentText(item.content) : item.text;
+        // A user message shows only the user's text, never the hidden project context.
+        const text =
+          item.type === 'userMessage' ? visibleUserText(contentText(item.content)) : item.text;
         return typeof text === 'string' && text
           ? [
               {

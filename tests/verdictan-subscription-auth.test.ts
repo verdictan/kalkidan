@@ -21,13 +21,22 @@ test('managed subscription login copies only host-local session fields and prese
     unrelated: 'private',
   });
   await writeFile(source, original);
-  await prepareSubscriptionAuth(home, source);
+  await prepareSubscriptionAuth(home, source, () => Date.parse('2026-10-23T00:00:00Z'));
   const auth = JSON.parse(await readFile(join(home, 'auth.json'), 'utf8'));
+  // Codex needs the refresh token field to load the login. It stays empty: the native refresh
+  // token never leaves the native login.
   assert.deepEqual(auth, {
     auth_mode: 'chatgpt',
     OPENAI_API_KEY: null,
-    tokens: { access_token: 'test-access', account_id: 'test-account', id_token: 'test-id' },
+    tokens: {
+      access_token: 'test-access',
+      account_id: 'test-account',
+      id_token: 'test-id',
+      refresh_token: '',
+    },
+    last_refresh: '2026-10-23T00:00:00.000Z',
   });
+  assert.doesNotMatch(JSON.stringify(auth), /test-refresh/);
   assert.equal(await readFile(source, 'utf8'), original);
   const link = join(root, 'linked.json');
   await symlink(source, link);

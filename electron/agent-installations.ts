@@ -10,12 +10,24 @@ import { validExecutablePath, writeChosenExecutable } from './agents/executable-
 import { installedAgentVersion, type InstalledAgentVersion } from './agents/installed-version';
 import type { AgentCandidate, AgentInstallation } from '../src/types';
 import type { NativeAgentKind } from '../src/domain/agent-version';
-import { codexLoginRequired, readCodexSubscriptionLogin } from './verdictan/subscription-auth';
+import {
+  codexLoginInvalid,
+  codexLoginRequired,
+  readCodexSubscriptionLogin,
+} from './verdictan/subscription-auth';
 import { checkNativeClaudeLogin } from './verdictan/claude-subscription-auth';
 import { DesktopProtocolError } from './verdictan/protocol';
 
-/** Codes that mean "not signed in". Other failures leave the sign-in unknown. */
-const signedOutCodes = new Set([codexLoginRequired, 'desktop.claude_subscription_login_required']);
+/**
+ * Codes that mean "not signed in". These are the codes with which the launch check refuses a
+ * managed chat, so Settings › Computers and the chat agree. Other failures leave the sign-in
+ * unknown.
+ */
+const signedOutCodes = new Set([
+  codexLoginRequired,
+  codexLoginInvalid,
+  'desktop.claude_subscription_login_required',
+]);
 
 /**
  * The subscription sign-in of a coding agent on this host. It never returns a token. On macOS
