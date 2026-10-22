@@ -33,7 +33,8 @@ interface OwnedRuntime {
   /** Ends the use of a shared gateway instance. Missing with one process for each runtime. */
   release?(): Promise<void>;
   shared?: SharedGateway;
-  stopAgent(): Promise<void>;
+  /** Stops the coding agent. `code` says why, when the gateway stopped without a request. */
+  stopAgent(code?: string): Promise<void>;
 }
 interface RuntimeOptions {
   apiOrigin: string;
@@ -97,7 +98,11 @@ export class ManagedRuntimes {
       this.operations.delete(sessionId);
     }
   }
-  async start(binding: RuntimeProvision, agent: NativeAgent, stopAgent: () => Promise<void>) {
+  async start(
+    binding: RuntimeProvision,
+    agent: NativeAgent,
+    stopAgent: (code?: string) => Promise<void>,
+  ) {
     return this.exclusive(binding.session_id, async () => {
       if (this.blockedHosts.has(binding.installation_id + ':' + binding.host_id))
         throw new DesktopProtocolError('desktop.host_revoked');
@@ -183,7 +188,7 @@ export class ManagedRuntimes {
       credentials: frame,
       eventDirectory: this.options.eventDirectory,
       ...(shared ? { instance: shared } : {}),
-      lost: (revocation) => {
+      lost: (revocation, code) => {
         item.gateway = undefined;
         void this.releaseShared(item);
         if (revocation && revocation !== 'offline_limit') {
@@ -192,7 +197,7 @@ export class ManagedRuntimes {
             this.blockedHosts.add(item.binding.installation_id + ':' + item.binding.host_id);
           this.set(item, 'revoked');
         } else this.set(item, 'failed');
-        void item.stopAgent().catch(() => {});
+        void item.stopAgent(code).catch(() => {});
         if (revocation) this.options.revoked?.(revocation);
       },
     });

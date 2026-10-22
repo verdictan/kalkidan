@@ -54,7 +54,7 @@ export interface GatewayOptions {
    * The gateway stopped without a request from Kalkidan. `revocation` is set when Verdictan
    * revoked the runtime. Then the runtime must not start again with the same credentials.
    */
-  lost?(revocation?: GatewayRevocation): void;
+  lost?(revocation?: GatewayRevocation, code?: string): void;
 }
 /** The reasons of a `credential.revoked` event from the supervised gateway. */
 export const gatewayRevocationReasons = [
@@ -71,8 +71,11 @@ function isRevocation(value: unknown): value is GatewayRevocation {
 /** One gateway instance that several chat runtimes of the same agent use. */
 export interface SharedGateway {
   address: string;
-  /** Calls `lost` when the instance stops. Returns the function that ends the subscription. */
-  subscribe(lost: (revocation?: GatewayRevocation) => void): () => void;
+  /**
+   * Calls `lost` when the instance stops, or with `moved` when it restarted on another port.
+   * Returns the function that ends the subscription.
+   */
+  subscribe(lost: (reason?: GatewayRevocation | 'moved') => void): () => void;
 }
 /** Owns one runtime generation. A listening socket never authorizes execution. */
 export class ManagedGateway {
@@ -110,11 +113,13 @@ export class ManagedGateway {
       this.address = new URL(options.instance.address).origin;
       this.exited = Promise.resolve();
       this.resolveListening();
-      this.unsubscribe = options.instance.subscribe((revocation) =>
-        this.fail(
-          revocation ? 'desktop.credential_revoked' : 'desktop.gateway_unavailable',
-          revocation,
-        ),
+      this.unsubscribe = options.instance.subscribe((reason) =>
+        reason === 'moved'
+          ? this.fail('desktop.gateway_moved')
+          : this.fail(
+              reason ? 'desktop.credential_revoked' : 'desktop.gateway_unavailable',
+              reason,
+            ),
       );
       return;
     }
@@ -233,7 +238,7 @@ export class ManagedGateway {
     this.rejectListening(new DesktopProtocolError(code));
     if (!this.stopping) {
       // Fail closed. A dead or invalid supervisor cannot retain agent ownership.
-      this.options.lost?.(revocation);
+      this.options.lost?.(revocation, code);
       this.child?.kill('SIGKILL');
     }
   }

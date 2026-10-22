@@ -104,6 +104,17 @@ test('the conflict codes of the older API have clear words', () => {
   }
   assert.match(managedErrorInfo('desktop.resource_conflict').message, /second agent/);
   assert.match(managedErrorInfo('desktop.scope_mismatch').message, /second project/);
+  assert.equal(
+    managedErrorInfo('desktop.gateway_limit').message,
+    'This computer runs chats on 16 agents. Close old chats to use another agent.',
+  );
+  assert.equal(
+    managedLaunchBlock(new DesktopProtocolError('desktop.gateway_limit')).message.includes(
+      'Close old chats to use another agent.',
+    ),
+    true,
+  );
+  assert.match(managedErrorInfo('desktop.gateway_moved').message, /new port/);
 });
 
 test('the first read moves the earlier agents: a shared agent stays, older chats keep theirs', async () => {

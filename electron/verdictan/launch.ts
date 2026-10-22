@@ -26,6 +26,8 @@ import { installedAgentVersion, type InstalledAgentVersion } from '../agents/ins
 import type { NativeAgent } from './gateway';
 import {
   claudeSubscriptionRecovery,
+  managedErrorText,
+  withoutManagedCode,
   computerAgentId,
   computerAgentIssue,
   findAgent,
@@ -303,7 +305,12 @@ export class VerdictanLaunchService {
             : { provider_connection_id: binding.provider_connection_id }),
         },
         agent,
-        request.stop,
+        async (code) => {
+          // The chat shows why it stopped. A moved gateway never replays the request.
+          if (code === 'desktop.gateway_moved' && observed)
+            observed.error = withoutManagedCode(managedErrorText(code));
+          await request.stop();
+        },
       );
       started = true;
       request.signal.throwIfAborted();

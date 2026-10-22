@@ -39,6 +39,8 @@ export function fakeSupervisor(reply: (request: any, frame: any) => any[] = () =
       child.killed = true;
       setImmediate(() => child.emit('close'));
     };
+    // A closed stdin stops the process, as the real supervisor does.
+    stdin.on('finish', () => setImmediate(() => child.emit('close')));
     fd3.on('data', (bytes: Buffer) => child.frames.push(JSON.parse(bytes.toString())));
     stdin.on('data', (bytes: Buffer) => {
       for (const line of bytes.toString().split('\n').filter(Boolean)) {

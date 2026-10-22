@@ -6,6 +6,11 @@ import { GatewaySupervisor, type GatewayEvent, type SupervisorOptions } from './
 
 /** Renew the credential of an instance this long before it expires. */
 const renewMarginMs = 120000;
+/**
+ * An instance without chats stops after this time. Each turn of a chat has its own runtime,
+ * so the next turn of the same chats uses the instance again without a new start.
+ */
+export const instanceIdleMs = 300000;
 
 interface Instance {
   gatewayId: string;
@@ -14,10 +19,11 @@ interface Instance {
   runtimeId?: string;
   generation?: number;
   address?: string;
-  /** The chat runtimes that use the instance, by session ID. */
+  /** The chat runtimes that use the instance now, by session ID. */
   users: Set<string>;
-  listeners: Set<(revocation?: GatewayRevocation) => void>;
+  listeners: Set<(reason?: GatewayRevocation | 'moved') => void>;
   renewal?: ReturnType<typeof setTimeout>;
+  idle?: ReturnType<typeof setTimeout>;
   ready?: Promise<void>;
 }
 export interface InstanceOptions {
@@ -26,6 +32,8 @@ export interface InstanceOptions {
   supervisor: Omit<SupervisorOptions, 'lost'>;
   /** An instance stopped with a revocation. */
   revoked?(reason: GatewayRevocation): void;
+  /** How long an instance without chats waits before it stops. */
+  idleMs?: number;
   /** The supervisor stopped twice in one minute. The chats stop with an error. */
   failed?(): void;
 }
@@ -70,6 +78,7 @@ export class GatewayInstances {
       this.instances.set(binding.gateway_id, instance);
     }
     instance.users.add(binding.session_id);
+    clearTimeout(instance.idle);
     try {
       await (instance.ready ??= this.start(instance));
     } catch (error) {
@@ -156,6 +165,7 @@ export class GatewayInstances {
     if (this.instances.get(instance.gatewayId) !== instance) return;
     this.instances.delete(instance.gatewayId);
     clearTimeout(instance.renewal);
+    clearTimeout(instance.idle);
     for (const lost of [...instance.listeners]) lost(revocation);
     instance.listeners.clear();
     void this.supervisor.detach(instance.gatewayId).catch(() => {});
@@ -164,8 +174,21 @@ export class GatewayInstances {
   private async release(instance: Instance, sessionId: string) {
     instance.users.delete(sessionId);
     if (instance.users.size || this.instances.get(instance.gatewayId) !== instance) return;
+    // A failed start leaves nothing to keep.
+    if (!instance.address) return this.stop(instance);
+    clearTimeout(instance.idle);
+    instance.idle = setTimeout(
+      () => void this.stop(instance),
+      this.options.idleMs ?? instanceIdleMs,
+    );
+    instance.idle.unref?.();
+  }
+  /** Detaches an instance without chats and revokes its runtime. */
+  private async stop(instance: Instance) {
+    if (instance.users.size || this.instances.get(instance.gatewayId) !== instance) return;
     this.instances.delete(instance.gatewayId);
     clearTimeout(instance.renewal);
+    clearTimeout(instance.idle);
     await this.supervisor.detach(instance.gatewayId).catch(() => {});
     await this.revoke(instance);
   }
@@ -196,8 +219,13 @@ export class GatewayInstances {
       const address = instance.address;
       instance.ready = this.start(instance).then(
         () => {
-          // The chats keep their address. When the port was not free, they must start again.
-          if (instance.address !== address) this.lose(instance);
+          // The chats keep their address. When the old port was not free, the instance has a
+          // new port. The coding agents of its chats stop, and each chat continues on the new
+          // port with its next turn. Kalkidan never sends a request again by itself.
+          if (instance.address === address) return;
+          const moved = [...instance.listeners];
+          instance.listeners.clear();
+          for (const lost of moved) lost('moved');
         },
         () => this.lose(instance),
       );
@@ -207,7 +235,10 @@ export class GatewayInstances {
   async stopAll() {
     const instances = [...this.instances.values()];
     this.instances.clear();
-    for (const instance of instances) clearTimeout(instance.renewal);
+    for (const instance of instances) {
+      clearTimeout(instance.renewal);
+      clearTimeout(instance.idle);
+    }
     await this.supervisor.shutdown();
     await Promise.all(instances.map((instance) => this.revoke(instance)));
   }

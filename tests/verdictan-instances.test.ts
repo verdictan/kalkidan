@@ -12,7 +12,8 @@ const agentB = '55555555-5555-4555-8555-555555555555';
 const apiOrigin = 'https://api.eu.verdictan.com';
 const agent = { kind: 'codex' as const, version: '0.163.0-alpha.10.2' };
 
-function fixture(supported = true) {
+function fixture(supported = true, idleMs = 0) {
+  const ports = { a: 47011 };
   const requests: { operation: string; parameters: any }[] = [];
   const provisioned = new Map<string, RuntimeProvision>();
   const client: any = {
@@ -54,12 +55,14 @@ function fixture(supported = true) {
     request.operation === 'gateway.attach'
       ? attached(
           request,
-          `http://127.0.0.1:${request.agent_id === agentA ? 47011 : 47012}`,
+          `http://127.0.0.1:${request.agent_id === agentA ? ports.a : 47012}`,
           frame.runtime_id,
         )
       : request.operation === 'gateway.detach'
         ? [['gateway.stopping', {}, { gateway_id: request.gateway_id }]]
-        : [],
+        : request.operation === 'supervisor.shutdown'
+          ? [['supervisor.stopping', {}, {}]]
+          : [],
   );
   const launch: any = supported
     ? process.launch
@@ -74,6 +77,7 @@ function fixture(supported = true) {
     apiOrigin,
     client: async () => client,
     supervisor: { executable: async () => '/verdictan', launch },
+    idleMs,
   });
   const gateways: any[] = [];
   const runtimes = new ManagedRuntimes({
@@ -89,9 +93,11 @@ function fixture(supported = true) {
         stop: async () => {},
         endpoint: () => options.instance?.address ?? 'http://127.0.0.1:1',
       };
-      options.instance?.subscribe((revocation) => {
-        gateway.lost = revocation ?? 'stopped';
-        options.lost?.(revocation);
+      // As the real gateway: a moved instance stops the chat with its own code.
+      options.instance?.subscribe((reason) => {
+        gateway.lost = reason ?? 'stopped';
+        if (reason === 'moved') options.lost?.(undefined, 'desktop.gateway_moved');
+        else options.lost?.(reason);
       });
       gateways.push(gateway);
       return gateway;
@@ -108,7 +114,7 @@ function fixture(supported = true) {
     model: 'gpt-5',
     provider_connection_id: id,
   });
-  return { requests, provisioned, runtimes, instances, gateways, process, chat };
+  return { requests, provisioned, runtimes, instances, gateways, process, chat, ports };
 }
 
 test('chats of one agent share one gateway instance with its own runtime', async () => {
@@ -147,6 +153,8 @@ test('chats of one agent share one gateway instance with its own runtime', async
   await f.runtimes.release(first.session_id);
   assert.equal(f.instances.size(), 2);
   await f.runtimes.release(second.session_id);
+  // The instance waits for the next turn, then stops.
+  await new Promise((resolve) => setTimeout(resolve, 10));
   assert.equal(f.instances.size(), 1);
   const detaches = f.process.children[0].requests.filter(
     (r: any) => r.operation === 'gateway.detach',
@@ -217,4 +225,48 @@ test('a supervisor crash attaches each instance again, and a second crash stops 
   assert.equal(f.instances.supervisor.failed, true);
   f.runtimes.resetSupervisor();
   assert.equal(f.instances.supervisor.failed, false);
+});
+
+test('a restore on a new port stops the coding agents, and the next turn continues there', async () => {
+  const f = fixture(true, 60000);
+  const stops: (string | undefined)[] = [];
+  const a = f.chat(agentA, 'gw-a');
+  await f.runtimes.start(a, agent, async (code) => {
+    stops.push(code);
+  });
+  const provisions = () => f.requests.filter((r) => r.operation === 'runtime.provision').length;
+  assert.equal(provisions(), 2);
+  // The old port is not free after the crash. The supervisor gives a new one.
+  f.ports.a = 47020;
+  f.process.children[0].emit('close');
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  // The coding agent of the chat stops with the reason. No request is sent again.
+  assert.equal(f.gateways[0].lost, 'moved');
+  assert.deepEqual(stops, ['desktop.gateway_moved']);
+  // The instance stays on the new port, with the same runtime.
+  assert.equal(f.instances.size(), 1);
+  assert.equal(provisions(), 2);
+  // The next turn of the chat uses the new address. The instance does not start again.
+  await f.runtimes.release(a.session_id);
+  const next = { ...f.chat(agentA, 'gw-a'), session_id: randomUUID() };
+  await f.runtimes.start(next, agent, async () => {});
+  assert.equal(f.runtimes.endpoint(next.session_id), 'http://127.0.0.1:47020');
+  assert.equal(provisions(), 3);
+  assert.equal(
+    f.process.children[1].requests.filter((r: any) => r.operation === 'gateway.attach').length,
+    1,
+  );
+});
+
+test('an idle instance waits for the next turn of its chats', async () => {
+  const f = fixture(true, 60000);
+  const a = f.chat(agentA, 'gw-a');
+  await f.runtimes.start(a, agent, async () => {});
+  await f.runtimes.release(a.session_id);
+  assert.equal(f.instances.size(), 1);
+  await f.runtimes.start(f.chat(agentA, 'gw-a'), agent, async () => {});
+  // Two chat runtimes and one instance runtime. One attach.
+  assert.equal(f.requests.filter((r) => r.operation === 'runtime.provision').length, 3);
+  await f.runtimes.stopAll();
+  assert.equal(f.instances.size(), 0);
 });
