@@ -87,6 +87,12 @@ export interface VerdictanAPI {
   /** Opens the Verdictan console of the saved region ("Manage account"). */
   verdictanOpenConsole(): Promise<void>;
   /**
+   * Opens one account page of the Verdictan console of the saved region: a new verification
+   * email, or account recovery. The console and the account service do the work. Kalkidan
+   * sends no account data in the address.
+   */
+  verdictanOpenAccountPage(page: VerdictanAccountPage): Promise<void>;
+  /**
    * Saves the recommended setup for every agent that has no saved setup yet, with the same
    * preselection that Settings shows. Returns the new setup.
    */
@@ -109,6 +115,19 @@ export interface VerdictanAPI {
   setWelcomeDone(): Promise<FirstRunState>;
   notificationPreferences(): Promise<NotificationPreferences>;
   setNotificationPreferences(value: NotificationPreferences): Promise<NotificationPreferences>;
+}
+
+/** The account pages of the Verdictan console that Kalkidan opens. Fixed paths only. */
+export const verdictanAccountPages = {
+  verify: '/verify-email?resend=1',
+  recover: '/forgot-password',
+} as const;
+export type VerdictanAccountPage = keyof typeof verdictanAccountPages;
+/** The address of an account page. Rejects a page that is not in the fixed list. */
+export function verdictanAccountPageUrl(consoleOrigin: string, page: unknown) {
+  if (typeof page !== 'string' || !Object.hasOwn(verdictanAccountPages, page))
+    throw new Error('Unknown account page.');
+  return new URL(verdictanAccountPages[page as VerdictanAccountPage], consoleOrigin).href;
 }
 
 /** Omitted means organization provider connection (BYOK). Unknown values fail validation. */
