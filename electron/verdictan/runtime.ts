@@ -30,9 +30,9 @@ interface OwnedRuntime {
   runtimeId?: string;
   credentialGeneration?: number;
   gateway?: ManagedGateway;
-  /** Ends the use of a shared gateway instance. Missing with one process for each runtime. */
+  /** Ends the use of a shared gateway. Missing with one process for each runtime. */
   release?(): Promise<void>;
-  shared?: SharedGateway;
+  shared?: SharedGateway & { renew(next: RuntimeCredentials): Promise<void> };
   /** Stops the coding agent. `code` says why, when the gateway stopped without a request. */
   stopAgent(code?: string): Promise<void>;
 }
@@ -54,6 +54,8 @@ interface RuntimeOptions {
   instances?: GatewayInstances;
   /** True when the runtime advertises `gateway.supervise.multi`. */
   multi?(): boolean;
+  /** True when the runtime advertises `runtime.renew.in_place`. */
+  inPlaceRenewal?(): boolean;
 }
 /** One backend owner serializes credential mutations. Failed rotation is never retried. */
 export class ManagedRuntimes {
@@ -180,7 +182,7 @@ export class ManagedRuntimes {
       throw new DesktopProtocolError('desktop.runtime_stopped');
     this.set(item, 'starting');
     if (this.options.eventDirectory) await prepareEventDirectory(this.options.eventDirectory);
-    const shared = await this.shared(item);
+    const shared = await this.shared(item, frame);
     if (this.closing || item.generation !== this.generation)
       throw new DesktopProtocolError('desktop.runtime_stopped');
     const gateway = (this.options.gateway || ((options) => new ManagedGateway(options)))({
@@ -211,12 +213,12 @@ export class ManagedRuntimes {
    * The gateway instance of the agent of a runtime, in the supervisor of this computer. Null
    * when the runtime cannot run the supervisor. Then the runtime starts its own process.
    */
-  private async shared(item: OwnedRuntime) {
+  private async shared(item: OwnedRuntime, frame: RuntimeCredentials) {
     const instances = this.options.instances;
     if (!instances || !this.options.multi?.() || instances.supervisor.unsupported) return null;
     if (item.release) return item.shared ?? null;
     try {
-      const shared = await instances.acquire(item.binding);
+      const shared = await instances.acquire(frame);
       item.release = shared.release;
       item.shared = shared;
       return shared;
@@ -295,7 +297,8 @@ export class ManagedRuntimes {
       const item = this.owned(sessionId);
       if (!['ready', 'stopped'].includes(item.phase))
         throw new DesktopProtocolError('desktop.runtime_reconciliation_required');
-      // The shared instance continues. Only the gateway of this runtime stops.
+      // In a shared gateway, the renewal is in place: the coding agent continues.
+      if (item.shared && item.gateway && item.phase === 'ready') return this.renewShared(item);
       await this.stopOwned(item, true);
       this.set(item, 'renewing');
       try {
@@ -319,6 +322,24 @@ export class ManagedRuntimes {
         throw error;
       }
     });
+  }
+  private async renewShared(item: OwnedRuntime) {
+    const client = await this.options.client();
+    // In a shared gateway, only the credential changes. Older runtimes ask for the stop
+    // confirmation instead. They have no shared gateway, so this is only for safety.
+    const data = (
+      await client.request('runtime.renew', {
+        runtime_id: item.runtimeId,
+        ...(this.options.inPlaceRenewal?.() ? { renewal: 'in_place' } : { gateway_stopped: true }),
+      })
+    ).data;
+    if (data.runtime_id !== item.runtimeId || data.generation !== item.credentialGeneration! + 1)
+      throw new DesktopProtocolError('desktop.runtime_binding_mismatch');
+    item.credentialGeneration = Number(data.generation);
+    const frame = await client.exportRuntime(item.runtimeId!);
+    this.validateBinding(item, frame);
+    await item.shared!.renew(frame);
+    item.gateway!.renewed(frame);
   }
   async revoke(sessionId: string) {
     return this.exclusive(sessionId, async () => {

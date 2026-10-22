@@ -121,11 +121,12 @@ export function createVerdictanServices(options: {
     // One supervisor for this computer with one gateway instance for each agent. A runtime
     // without the multi mode starts one process for each chat runtime.
     instances: new GatewayInstances({
-      apiOrigin,
       client: () => account.runtimeClient(),
       supervisor: { executable: () => installer.executable(), eventDirectory },
     }),
     multi: () => !!account.status().capabilities?.capabilities.includes(multiGatewayCapability),
+    inPlaceRenewal: () =>
+      !!account.status().capabilities?.capabilities.includes('runtime.renew.in_place'),
     changed: options.changed,
     // The account session of this device was revoked. Remove the local session at once.
     revoked: (reason) => {

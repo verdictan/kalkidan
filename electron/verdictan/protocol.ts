@@ -77,6 +77,8 @@ export interface DesktopParameters {
   limit?: number;
   runtime_id?: string;
   gateway_stopped?: true;
+  /** `in_place` renews a runtime in a shared gateway. Then `gateway_stopped` is missing. */
+  renewal?: 'in_place';
   cursor?: string;
   installation_id?: string;
   host_id?: string;

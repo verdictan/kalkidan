@@ -177,11 +177,13 @@ export class RemoteAccountBroker {
         return event;
       }
       if (operation === 'runtime.renew') {
-        if (input.gateway_stopped !== true)
+        // A runtime in a shared gateway renews in place. Any other renewal stops the gateway.
+        const inPlace = input.renewal === 'in_place';
+        if (!inPlace && input.gateway_stopped !== true)
           throw new DesktopProtocolError('desktop.gateway_must_stop');
         const event = await client.request(operation, {
           runtime_id: input.runtime_id,
-          gateway_stopped: true,
+          ...(inPlace ? { renewal: 'in_place' } : { gateway_stopped: true }),
         });
         if (epoch !== this.epoch) {
           await client.request('runtime.revoke', { runtime_id: input.runtime_id });

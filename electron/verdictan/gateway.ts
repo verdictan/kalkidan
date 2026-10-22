@@ -219,6 +219,27 @@ export class ManagedGateway {
     } else if (!['gateway.status', 'gateway.stopping'].includes(event.event)) throw new Error();
   }
   /**
+   * Takes the renewed credential of a runtime in a shared gateway. The gateway does not
+   * restart. New requests use the new credential, and the expiry follows it.
+   */
+  renewed(value: RuntimeCredentials) {
+    if (this.closed || this.stopping || this.child) return;
+    const next = parseRuntimeCredentials(value, this.now());
+    if (
+      next.runtime_id !== this.credentials.runtime_id ||
+      next.session_id !== this.credentials.session_id ||
+      next.generation <= this.credentials.generation
+    )
+      throw new DesktopProtocolError('desktop.runtime_binding_mismatch');
+    this.credentials = next;
+    clearTimeout(this.expiryTimer);
+    this.expiryTimer = setTimeout(
+      () => this.fail('desktop.runtime_expired'),
+      Math.max(0, Date.parse(next.expires_at) - this.now()),
+    );
+    this.expiryTimer.unref?.();
+  }
+  /**
    * Stop this generation when its credential expired. Timers do not count the time while the
    * computer sleeps, so the expiry timer can fire late. The app calls this after a wake.
    */
