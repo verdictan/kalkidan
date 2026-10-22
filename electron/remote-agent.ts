@@ -6,6 +6,7 @@ import { DesktopProtocolError } from './verdictan/protocol';
 import { listDirectory } from './storage/directory-list';
 import { listMentionFiles, readMentionFile } from './projects/mention-files';
 import { createVerdictanServices } from './verdictan/service';
+import { hostCheckMethod } from './verdictan/remote-check';
 import { isVerdictanRegion } from './verdictan/region';
 import { desktopVersion } from './verdictan/release';
 import {
@@ -119,6 +120,12 @@ async function dispatch(method: string, args: any[]): Promise<any> {
         process.stdout.write(JSON.stringify(frame) + '\n'),
       );
       return true;
+    case hostCheckMethod: {
+      // Check status on the desktop. A host that refused the keychain starts its runtime again.
+      if (!verdictanRuntime) return null;
+      const { phase, error } = await verdictanRuntime.account.check();
+      return { phase, error };
+    }
     case 'runtime-update': {
       if (
         !['status', 'check', 'install', 'cancel'].includes(a) ||

@@ -146,6 +146,7 @@ export function managedLaunchError(
     const { hostId, ...words } = context;
     const refusal = managedRefusal(failure.code, {
       ...words,
+      remote: !!hostId,
       version: failure.version,
       path: failure.path,
     });

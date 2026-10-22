@@ -4,6 +4,7 @@ import type { API } from '../api/contracts';
 import type { AgentInstallation } from '../domain/conversation';
 import {
   accountLabel,
+  keychainHostsMessage,
   keychainRefusedCode,
   selectionIssue,
   withoutManagedCode,
@@ -589,6 +590,9 @@ export function AccountSection({ api, open }: { api: API; open: boolean }) {
         </StepError>
       )}
       {(error || statusError) && <StepError>{error || statusError}</StepError>}
+      {!!status?.keychainHosts?.length && (
+        <StepError>{keychainHostsMessage(status.keychainHosts)}</StepError>
+      )}
       {/* After a refused keychain prompt, only this action starts the runtime again. */}
       {statusError && status?.error === keychainRefusedCode && (
         <div>

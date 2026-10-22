@@ -403,6 +403,8 @@ export class VerdictanAccountService {
     this.detach = undefined;
     this.client?.close();
     this.client = undefined;
+    // A reset starts with a new runtime, for example after an update or a new SSH connection.
+    this.keychainRefused = false;
     this.set({ phase: 'missing', executionReady: false });
   }
 }
