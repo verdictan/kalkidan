@@ -37,7 +37,7 @@ export const releaseDownloadOrigins = [
   'https://github.com',
   'https://release-assets.githubusercontent.com',
 ];
-/** Proposal: a release can be this many seconds newer than the clock of the computer. */
+/** User decision: a release can be up to 5 minutes newer than the clock of the computer. */
 export const releaseClockSkewSeconds = 300;
 export const releaseManifestName = 'desktop-release-manifest.v1.json';
 const releaseDownloadBase = 'https://github.com/verdictan/packages/releases/download';

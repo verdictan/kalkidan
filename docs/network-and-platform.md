@@ -65,7 +65,7 @@ seconds, because Electron has no event for a network change in the main process.
 ## Clock difference
 
 Kalkidan accepts a clock that is up to 5 minutes slow for runtime credentials and release
-manifests. This value is a **proposal**. A larger difference shows: "The clock of this computer
+manifests. This value is a user decision. A larger difference shows: "The clock of this computer
 is wrong. Set the date and time to update automatically, then try again." The runtime still
 expires at the time that Verdictan sets.
 

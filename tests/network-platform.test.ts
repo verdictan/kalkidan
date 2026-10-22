@@ -379,13 +379,23 @@ test('after a wake, a gateway whose credential expired during sleep stops at onc
     child.emit('close', 0);
   };
   let lost = 0;
+  let environment: Record<string, string> = {};
   const gateway = new ManagedGateway({
     executable: '/fixture/verdictan',
     credentials: credentials(start + 10 * 60000),
     now: () => now,
-    launch: (() => child) as any,
+    eventDirectory: '/home/u/.kalkidan/runtime/verdictan/events',
+    launch: ((_file: string, _args: string[], options: { env: Record<string, string> }) => {
+      environment = options.env;
+      return child;
+    }) as any,
     lost: () => lost++,
   });
+  // The event queue is in a folder that survives a restart, not in the temporary folder.
+  assert.equal(
+    environment.VERDICTAN_EVENT_WAL_DATA_DIR,
+    '/home/u/.kalkidan/runtime/verdictan/events',
+  );
   const listening = gateway.readiness({ kind: 'codex', version: '1.0.0' });
   gateway.checkExpiry();
   assert.equal(killed, 0, 'a valid credential keeps running');

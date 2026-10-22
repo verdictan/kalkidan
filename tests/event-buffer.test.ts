@@ -48,6 +48,12 @@ test('the event buffer limits are defined, and the disk limit goes to each gatew
     diskExpirySeconds: 2_592_000,
     fullPolicy: 'drop_oldest_non_usage',
   });
+  // The queue folder comes first, so that undelivered usage records survive a restart.
+  assert.equal(
+    eventBufferEnvironment('/home/u/.kalkidan/runtime/verdictan/events')
+      .VERDICTAN_EVENT_WAL_DATA_DIR,
+    '/home/u/.kalkidan/runtime/verdictan/events',
+  );
   assert.deepEqual(eventBufferEnvironment(), {
     VERDICTAN_EVENT_WAL_MAX_BYTES: '200000000',
     VERDICTAN_EVENT_WAL_FULL_POLICY: 'drop_oldest_non_usage',

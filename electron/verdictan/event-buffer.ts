@@ -1,3 +1,5 @@
+import { mkdir } from 'node:fs/promises';
+
 /**
  * The limits of the event buffer of a managed runtime. See docs/event-buffer.md.
  *
@@ -31,13 +33,23 @@ export const eventBufferLimits = {
   fullPolicy: 'drop_oldest_non_usage',
 } as const;
 
-/** The environment that sets the limits of the durable event queue of a gateway. */
-export function eventBufferEnvironment() {
+/** The environment that sets the folder and the limits of the durable event queue of a gateway. */
+export function eventBufferEnvironment(directory?: string): Record<string, string> {
   return {
+    ...(directory ? { VERDICTAN_EVENT_WAL_DATA_DIR: directory } : {}),
     VERDICTAN_EVENT_WAL_MAX_BYTES: String(eventBufferLimits.diskBytes),
     VERDICTAN_EVENT_WAL_FULL_POLICY: eventBufferLimits.fullPolicy,
     VERDICTAN_EVENT_WAL_MAX_AGE_SECONDS: String(eventBufferLimits.diskExpirySeconds),
   };
+}
+
+/**
+ * Make the private folder of the event queue. Kalkidan does not move a queue from the temporary
+ * folder of an earlier version: a Verdictan gateway outside Kalkidan can use that queue too, and
+ * its events must not leave with the credentials of Kalkidan.
+ */
+export async function prepareEventDirectory(directory: string) {
+  await mkdir(directory, { recursive: true, mode: 0o700 });
 }
 
 /** The removed-event counts of the durable event queue in an evidence poll reply. */

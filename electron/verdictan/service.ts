@@ -98,6 +98,8 @@ export function createVerdictanServices(options: {
   });
   const managed = new ManagedRuntimes({
     apiOrigin,
+    // Undelivered usage records must survive a restart, so the queue is not in a temporary folder.
+    eventDirectory: join(options.root, 'runtime', 'verdictan', 'events'),
     client: () => account.runtimeClient(),
     executable: () => installer.executable(),
     changed: options.changed,

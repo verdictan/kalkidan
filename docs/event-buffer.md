@@ -32,12 +32,17 @@ The buffer has two parts:
 Kalkidan sets these values for each gateway that it starts, on this computer and on each SSH
 host:
 
+- `VERDICTAN_EVENT_WAL_DATA_DIR=~/.kalkidan/runtime/verdictan/events` (a private folder). Undelivered
+  usage records then survive a restart. Without it, Verdictan keeps the queue in the temporary
+  folder of the system, which the system can clear. Kalkidan does not move a queue from the
+  temporary folder, because a Verdictan gateway outside Kalkidan can use it too.
 - `VERDICTAN_EVENT_WAL_MAX_BYTES=200000000`
 - `VERDICTAN_EVENT_WAL_FULL_POLICY=drop_oldest_non_usage`
 - `VERDICTAN_EVENT_WAL_MAX_AGE_SECONDS=2592000`
 
 Change `eventBufferLimits` and this table together. A Verdictan CLI of version 0.6.10 or earlier
-does not read the policy or the age. It keeps every event and refuses requests when full.
+does not read the folder, the policy, or the age. It keeps every event in the temporary folder and
+refuses requests when full. CLI 0.6.11 reads all of them.
 
 ## Behavior when a part is full
 

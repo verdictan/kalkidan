@@ -19,8 +19,8 @@ export interface RuntimeCredentials {
 /** The longest life of a runtime credential from the Verdictan API. */
 export const credentialLifetimeMs = 900000;
 /**
- * Proposal: the clock difference that Kalkidan accepts between this computer and Verdictan. The
- * runtime itself still expires at the time that Verdictan sets.
+ * User decision: Kalkidan accepts 5 minutes of clock difference between this computer and
+ * Verdictan. The runtime itself still expires at the time that Verdictan sets.
  */
 export const clockSkewMs = 300000;
 export const uuid = (value: unknown): value is string =>

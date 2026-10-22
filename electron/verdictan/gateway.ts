@@ -43,6 +43,8 @@ export interface GatewayOptions {
   launch?: typeof spawn;
   request?: typeof fetch;
   now?: () => number;
+  /** The persistent folder of the durable event queue. Without it, Verdictan uses a temporary one. */
+  eventDirectory?: string;
   /**
    * The gateway stopped without a request from Kalkidan. `revocation` is set when Verdictan
    * revoked the runtime. Then the runtime must not start again with the same credentials.
@@ -95,7 +97,7 @@ export class ManagedGateway {
             ([key]) => !/^(?:VERDICTAN_|OPENAI_|ANTHROPIC_|NODE_OPTIONS$)/i.test(key),
           ),
         ),
-        ...eventBufferEnvironment(),
+        ...eventBufferEnvironment(options.eventDirectory),
       },
     });
     this.exited = new Promise((resolve) =>
