@@ -103,7 +103,7 @@ test('Computers asks for Keychain access on this computer while a request waits'
   await installWorkspace(page);
   await page.goto('/');
   const computers = await openComputersPage(page);
-  const row = computers.getByRole('group', { name: 'This computer', exact: true });
+  const row = computers.getByRole('group', { name: 'Managed agents', exact: true });
   await expect(row).not.toContainText(waitingText);
   await page.evaluate(() => (window as any).wait());
   await expect(row.getByTestId('keychain-waiting')).toHaveText(waitingText);
