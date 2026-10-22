@@ -248,6 +248,8 @@ When you quit Kalkidan, or close its last window, while agent runs or shells wor
 - **Keep running** leaves the work on the hosts. This is the default. Escape does the same.
 - **Stop all** stops the runs and closes the shells, then Kalkidan quits.
 
+The question also names the SSH hosts that are not connected now, but had runs or shells that Kalkidan knows. Work can still run on them. You can stop it after they connect again. When only such hosts have work, **Keep running** is the only action.
+
 Select **Don't ask again** to quit without this question. To see the question again, turn on **Ask before quitting while SSH work runs** in **Preferences › Connections**.
 
 The repository's **Terminal** shortcut opens macOS Terminal. Agent sessions run inside Kalkidan.

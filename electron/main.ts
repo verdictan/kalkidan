@@ -129,7 +129,12 @@ import { SessionLibrary } from './session-library';
 import { ChatOutcomes } from './chat-outcomes';
 import { AppPreferences, notificationKind } from './app-preferences';
 import { decideSshQuit } from './ssh-quit';
-import { parseSshQuitAnswer, sshWorkSummary, type SshQuitAnswer } from '../src/domain/ssh-quit';
+import {
+  parseSshQuitAnswer,
+  sshDisconnectedNote,
+  sshWorkSummary,
+  type SshQuitAnswer,
+} from '../src/domain/ssh-quit';
 import { readTranscript } from './transcript';
 import { listRepositories, cloneRepository, repositoryName } from './repositories';
 import { GitHubAuth } from './github-auth';
@@ -258,6 +263,15 @@ let stopAgentsConfirmed = false;
 // it. `sshQuit` asks and stops the work when the user chooses "Stop all".
 let sshQuit: ((window?: BrowserWindow) => Promise<unknown>) | undefined;
 let sshQuitDecided = false;
+// The SSH hosts where the app knows of a shell, from an open, an attach or the last list. A shell
+// continues on its host when the connection stops.
+const sshShellHosts = new Set<string>();
+/** Keeps whether the last list of the shells of a host had a shell. */
+function seeShells(hostId: string, shells: unknown) {
+  if (!Array.isArray(shells)) return;
+  if (shells.length) sshShellHosts.add(hostId);
+  else sshShellHosts.delete(hostId);
+}
 let sshQuitPending: Promise<unknown> | undefined;
 /**
  * Starts the question about the work on SSH hosts, when it was not answered for this quit.
@@ -1245,6 +1259,7 @@ app.whenReady().then(async () => {
       // A shell of this folder that continues on the host, and that no window owns. The newest
       // shell comes first.
       const shells = await remote.call(hostId, 'ptyList', []).catch(() => []);
+      seeShells(hostId, shells);
       const free = (Array.isArray(shells) ? shells : [])
         .filter(
           (shell: { id?: unknown; cwd?: unknown }) =>
@@ -1294,6 +1309,7 @@ app.whenReady().then(async () => {
         await startAgentTask(taskCwd, hostId, args[4], () => remote.call(hostId, method, args)),
       );
     const result = await remote.call(hostId, method, args);
+    if (method === 'ptyOpen' && result?.id) sshShellHosts.add(hostId);
     return method === 'chatStatus' ? localPolicies(taskExecutions.observe(result, hostId)) : result;
   }
   handle('remote-call', remoteHostCall);
@@ -1652,7 +1668,21 @@ app.whenReady().then(async () => {
           .list()
           .filter((host) => host.status === 'connected')
           .map((host) => ({ id: host.id, name: host.name })),
-      call: (hostId, method, args) => remote.call(hostId, method, args),
+      call: async (hostId, method, args) => {
+        const result = await remote.call(hostId, method, args);
+        if (method === 'ptyList') seeShells(hostId, result);
+        return result;
+      },
+      // A host that is not connected now, with a run that continued on it or a known shell.
+      disconnected: () =>
+        remote
+          .list()
+          .filter(
+            (host) =>
+              host.status !== 'connected' &&
+              (remote.liveRuns(host.id).size > 0 || sshShellHosts.has(host.id)),
+          )
+          .map((host) => host.name),
       title: (hostId, agent, sessionId) =>
         remoteSnapshots
           .peek(hostId)
@@ -1688,11 +1718,16 @@ app.whenReady().then(async () => {
             ].join('\n'),
           )
           .join('\n');
+        // With work only on disconnected hosts, nothing can stop now.
+        const stoppable = request.hosts.length > 0;
+        const note = sshDisconnectedNote(request.disconnected);
         const options = {
           type: 'question' as const,
-          message: `${sshWorkSummary(request.hosts)} continue after Kalkidan quits`,
-          detail,
-          buttons: ['Keep running', 'Stop all'],
+          message: stoppable
+            ? `${sshWorkSummary(request.hosts)} continue after Kalkidan quits`
+            : 'Work may continue on SSH hosts after Kalkidan quits',
+          detail: [detail, note].filter(Boolean).join('\n\n'),
+          buttons: stoppable ? ['Keep running', 'Stop all'] : ['Keep running'],
           defaultId: 0,
           cancelId: 0,
           checkboxLabel: "Don't ask again",

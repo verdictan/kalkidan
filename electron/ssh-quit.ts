@@ -15,6 +15,11 @@ export interface SshQuitSource {
   /** The SSH hosts that are connected now. Only they can list and stop their work. */
   hosts(): { id: string; name: string }[];
   call(hostId: string, method: string, args: unknown[]): Promise<unknown>;
+  /**
+   * The names of the hosts that are not connected now, but had runs or shells that the app
+   * knows, for example from the last list or from a reattach.
+   */
+  disconnected?(): string[];
   /** The title of a chat on a host, when the app knows it. */
   title?(hostId: string, agent: string, sessionId: string): string | undefined;
   /** True when the user wants the question. "Don't ask again" sets it to false. */
@@ -92,18 +97,24 @@ export async function stopSshWork(source: SshQuitSource, hosts: SshHostWork[]) {
 /**
  * Asks what to do with the work on the SSH hosts when the app quits. Without work, or after
  * "Don't ask again", the work continues and nothing shows. "Stop all" stops the work first.
- * The app always quits after the answer: Escape and closing the question keep the work.
+ * The app always quits after the answer: Escape and closing the question keep the work. The
+ * question also names the disconnected hosts whose work can still run. With only such hosts,
+ * "Keep running" is the only choice.
  */
 export async function decideSshQuit(source: SshQuitSource): Promise<SshQuitChoice> {
   if (!(await source.asks().catch(() => true))) return 'keep';
   const hosts = await collectSshWork(source);
-  if (!hasSshWork(hosts)) return 'keep';
+  const disconnected = [...new Set(source.disconnected?.() ?? [])].slice(0, 50);
+  if (!hasSshWork(hosts) && !disconnected.length) return 'keep';
   const request: SshQuitRequest = {
     id: randomUUID(),
     hosts: hosts.filter((host) => host.runs.length + host.shells.length > 0),
+    disconnected,
   };
   const answer = (await source.askWindow(request)) ?? (await source.askSystem(request));
   if (answer.dontAsk) await source.setAsks(false).catch(() => {});
-  if (answer.choice === 'stop') await stopSshWork(source, request.hosts);
-  return answer.choice;
+  // Without work on a connected host, there is nothing to stop.
+  const choice = hasSshWork(request.hosts) ? answer.choice : 'keep';
+  if (choice === 'stop') await stopSshWork(source, request.hosts);
+  return choice;
 }

@@ -68,9 +68,10 @@ const request = (id: string) => ({
       shells: [],
     },
   ],
+  disconnected: [] as string[],
 });
-const ask = (page: Page, id: string) =>
-  page.evaluate((value) => (window as any).ask(value), request(id));
+const ask = (page: Page, id: string, change: Partial<ReturnType<typeof request>> = {}) =>
+  page.evaluate((value) => (window as any).ask(value), { ...request(id), ...change });
 const answers = (page: Page) => page.evaluate(() => (window as any).answers);
 const question = (page: Page) => page.getByRole('dialog', { name: 'Work continues on SSH hosts' });
 
@@ -121,4 +122,29 @@ test('Stop all with "Don\'t ask again" answers once, and Preferences turns the q
   await expect(question(page).getByRole('checkbox', { name: "Don't ask again" })).not.toBeChecked();
   await question(page).getByRole('button', { name: 'Keep running' }).click();
   expect((await answers(page)).at(-1)).toEqual({ id: 'q3', choice: 'keep', dontAsk: false });
+});
+
+test('the question names the disconnected hosts whose work can still run', async ({ page }) => {
+  await fixture(page);
+  const note =
+    'Work may still run on these disconnected computers: Old box, Lab 2. You can stop it after they connect again.';
+  // With work on connected hosts, the note shows below the list, and Stop all stays.
+  await ask(page, 'q4', { disconnected: ['Old box', 'Lab 2'] });
+  const dialog = question(page);
+  await expect(dialog.getByRole('note')).toHaveText(note);
+  await expect(dialog.getByRole('button', { name: 'Stop all' })).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(dialog).toBeHidden();
+  // With only disconnected hosts, Keep running is the only action.
+  await ask(page, 'q5', { hosts: [], disconnected: ['Old box', 'Lab 2'] });
+  await expect(dialog).toContainText('Work may continue on SSH hosts after Kalkidan quits.');
+  await expect(dialog.getByRole('note')).toHaveText(note);
+  await expect(dialog.getByRole('button', { name: 'Stop all' })).toHaveCount(0);
+  await expect(dialog.getByRole('button', { name: 'Keep running' })).toBeFocused();
+  await dialog.getByRole('checkbox', { name: "Don't ask again" }).check();
+  await dialog.getByRole('button', { name: 'Keep running' }).click();
+  expect((await answers(page)).at(-1)).toEqual({ id: 'q5', choice: 'keep', dontAsk: true });
+  // Without disconnected hosts, there is no note.
+  await ask(page, 'q6');
+  await expect(dialog.getByRole('note')).toHaveCount(0);
 });

@@ -13,6 +13,7 @@ import { AppPreferences } from '../electron/app-preferences';
 import {
   hasSshWork,
   parseSshQuitAnswer,
+  sshDisconnectedNote,
   sshWorkSummary,
   type SshHostWork,
 } from '../src/domain/ssh-quit';
@@ -37,6 +38,14 @@ test('the summary counts the runs, the shells and the hosts with work', () => {
   );
   assert.equal(hasSshWork([host(0, 0)]), false);
   assert.equal(hasSshWork([host(0, 0), host(0, 1, 'Lab')]), true);
+});
+
+test('the note names the disconnected hosts whose work can still run', () => {
+  assert.equal(sshDisconnectedNote([]), '');
+  assert.equal(
+    sshDisconnectedNote(['Build', 'Lab']),
+    'Work may still run on these disconnected computers: Build, Lab. You can stop it after they connect again.',
+  );
 });
 
 test('an answer from a window must be valid', () => {
@@ -268,4 +277,69 @@ test('without a window that can ask, a system dialog asks', async () => {
   assert.equal(box.checkboxLabel, "Don't ask again");
   assert.match(box.detail, /Host\n {2}Shell in \/remote/);
   assert.ok(f.calls.some((call) => call[0] === 'remote' && call[2] === 'ptyClose'));
+});
+
+test('disconnected hosts with work get a note, and alone they allow only Keep running', async () => {
+  // Only disconnected hosts: the question shows, but nothing stops, also after Stop all.
+  let asked: any;
+  const only = source({
+    hosts: () => [{ id: 'h2', name: 'Lab' }],
+    disconnected: () => ['Build', 'Build', 'Lab 2'],
+    askWindow: async (request) => {
+      asked = request;
+      return { id: request.id, choice: 'stop', dontAsk: true };
+    },
+  });
+  assert.equal(await decideSshQuit(only.value), 'keep');
+  assert.deepEqual([asked.hosts, asked.disconnected], [[], ['Build', 'Lab 2']]);
+  assert.equal(only.calls.filter(([, method]) => method === 'chatStop').length, 0);
+  assert.equal(only.asks(), false);
+  // Work on a connected host and on a disconnected host: both show.
+  const both = source({
+    disconnected: () => ['Lab 2'],
+    askWindow: async (request) => {
+      asked = request;
+      return { id: request.id, choice: 'keep', dontAsk: false };
+    },
+  });
+  await decideSshQuit(both.value);
+  assert.deepEqual(
+    [asked.hosts.map((host: SshHostWork) => host.hostId), asked.disconnected],
+    [['h1'], ['Lab 2']],
+  );
+  // Without work and without disconnected hosts, nothing shows.
+  const none = source({ hosts: () => [], disconnected: () => [] });
+  assert.equal(await decideSshQuit(none.value), 'keep');
+  assert.deepEqual(none.answers, []);
+});
+
+test('a disconnected host with a run or a known shell is in the note', async () => {
+  const f = await desktopFixture();
+  // The fixture host had a shell, then its connection stopped. Its run continues on it.
+  f.state.ptyShells = [{ id: 'shell-1', cwd: '/remote' }];
+  await f.invoke('remote-call', 'host', 'ptyAttach', ['/other']);
+  const [host] = await f.invoke('remote-hosts');
+  host.status = 'disconnected';
+  f.app.emit('before-quit', { preventDefault: () => {} });
+  await new Promise((done) => setTimeout(done, 20));
+  const request = f.calls.filter(
+    (call) => call[0] === 'send' && call[1] === 'ssh-quit-request',
+  )[0][2];
+  assert.deepEqual([request.hosts, request.disconnected], [[], ['Host']]);
+  host.status = 'connected';
+});
+
+test('the system dialog shows the note, and only Keep running without connected work', async () => {
+  const f = await desktopFixture();
+  const [host] = await f.invoke('remote-hosts');
+  host.status = 'disconnected';
+  f.windows[0].webContents.isLoading = () => true;
+  f.state.choice = 0;
+  f.app.emit('before-quit', { preventDefault: () => {} });
+  await new Promise((done) => setTimeout(done, 20));
+  const box = f.calls.filter((call) => call[0] === 'messageBox').at(-1)![1];
+  assert.deepEqual(box.buttons, ['Keep running']);
+  assert.equal(box.message, 'Work may continue on SSH hosts after Kalkidan quits');
+  assert.match(box.detail, /disconnected computers: Host\. You can stop it/);
+  host.status = 'connected';
 });

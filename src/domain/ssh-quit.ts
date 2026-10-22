@@ -19,6 +19,11 @@ export interface SshHostWork {
 export interface SshQuitRequest {
   id: string;
   hosts: SshHostWork[];
+  /**
+   * The names of SSH hosts that are not connected now, but had runs or shells that the app
+   * knows. Their work can still run. The app cannot list or stop it now.
+   */
+  disconnected: string[];
 }
 
 /** "Keep running" leaves the work on the hosts. "Stop all" stops it, then the app quits. */
@@ -48,6 +53,12 @@ export function sshWorkSummary(hosts: SshHostWork[]) {
     ...(shells ? [count(shells, 'shell')] : []),
   ];
   return `${parts.join(' and ')} on ${count(busy.length, 'SSH host')}`;
+}
+
+/** The note about the work on disconnected hosts, or an empty text when there are none. */
+export function sshDisconnectedNote(names: string[]) {
+  if (!names.length) return '';
+  return `Work may still run on these disconnected computers: ${names.join(', ')}. You can stop it after they connect again.`;
 }
 
 /** Reads an answer from a window. A value that is not valid gives null. */

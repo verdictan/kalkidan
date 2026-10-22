@@ -1,6 +1,11 @@
 import { useEffect, useState } from 'react';
 import type { API } from '../types';
-import { sshWorkSummary, type SshQuitChoice, type SshQuitRequest } from '../domain/ssh-quit';
+import {
+  sshDisconnectedNote,
+  sshWorkSummary,
+  type SshQuitChoice,
+  type SshQuitRequest,
+} from '../domain/ssh-quit';
 import { Button } from './ui/button';
 import { CheckboxRow } from './ui/checkbox';
 import {
@@ -39,14 +44,18 @@ export function SshQuitDialog({ api }: { api: API }) {
       .catch(() => {})
       .finally(() => setRequest(undefined));
   }
+  // With work only on disconnected hosts, nothing can stop now.
+  const stoppable = !!request?.hosts.length;
+  const note = request ? sshDisconnectedNote(request.disconnected ?? []) : '';
   return (
     <Dialog open={!!request} onOpenChange={(open) => !open && answer('keep')}>
       <DialogContent size="sm" layout="scroll">
         <DialogHeader>
           <DialogTitle>Work continues on SSH hosts</DialogTitle>
           <DialogDescription>
-            {request ? `${sshWorkSummary(request.hosts)} continue after Kalkidan quits. ` : ''}
-            Kalkidan attaches to them again when it opens.
+            {stoppable
+              ? `${sshWorkSummary(request!.hosts)} continue after Kalkidan quits. Kalkidan attaches to them again when it opens.`
+              : 'Work may continue on SSH hosts after Kalkidan quits.'}
           </DialogDescription>
         </DialogHeader>
         <DialogBody className="grid gap-3">
@@ -67,6 +76,11 @@ export function SshQuitDialog({ api }: { api: API }) {
               </ul>
             </section>
           ))}
+          {note && (
+            <p role="note" className="text-sm">
+              {note}
+            </p>
+          )}
           <CheckboxRow
             label="Don't ask again"
             description="Turn the question on again in Preferences › Connections."
@@ -76,9 +90,11 @@ export function SshQuitDialog({ api }: { api: API }) {
           />
         </DialogBody>
         <DialogFooter>
-          <Button variant="destructive" disabled={busy} onClick={() => answer('stop')}>
-            Stop all
-          </Button>
+          {stoppable && (
+            <Button variant="destructive" disabled={busy} onClick={() => answer('stop')}>
+              Stop all
+            </Button>
+          )}
           <Button autoFocus disabled={busy} onClick={() => answer('keep')}>
             Keep running
           </Button>
