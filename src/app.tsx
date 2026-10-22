@@ -57,7 +57,6 @@ import { useTracker } from './hooks/use-tracker';
 import { SettingsDialog } from './components/settings-dialog';
 import { Welcome, useWelcomeGate } from './components/welcome';
 import { hideSplash } from './lib/splash';
-import { DataNoticeDialog, useDataNotice } from './components/data-settings';
 import { ProxySignInDialog } from './components/proxy-sign-in';
 import { AccountMenu, SessionBanner, SignInFlow } from './components/account-menu';
 import { BoardSettingsHost } from './components/board-settings-dialog';
@@ -336,7 +335,6 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
     };
   }, [api]);
   // The data notice: once, after the first sign-in and before the first request.
-  const dataNotice = useDataNotice(api, signedIn && !preview);
 
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
@@ -3002,7 +3000,6 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
         }}
       />
       <DiagnosticsDialog api={api} />
-      <DataNoticeDialog open={dataNotice.show} onDone={() => void dataNotice.acknowledge()} />
       <ProxySignInDialog api={api} />
       <ForkChatDialog
         api={api}

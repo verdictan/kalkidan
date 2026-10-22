@@ -244,16 +244,8 @@ export const lifecycleEffects: { action: string; effect: string }[] = [
   },
 ];
 
-/** The state of the data notice. */
-export interface DataNoticeState {
-  /** True after the user read the data notice once. */
-  seen: boolean;
-}
-
 /** The IPC methods of local data control. Each is absent in the browser preview. */
 export interface DataControlAPI {
-  dataNoticeState?(): Promise<DataNoticeState>;
-  setDataNoticeSeen?(): Promise<DataNoticeState>;
   localDataUsage?(): Promise<LocalDataUsage>;
   /** Asks for a folder and exports to it. Null when the user cancels. */
   localDataExport?(): Promise<LocalDataExport | null>;
