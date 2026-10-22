@@ -150,9 +150,6 @@ test('desktop routes project, docs, agent, terminal and remote handlers to the e
   );
   for (const method of ['ptyOpen', 'terminalStart'])
     await call('remote-call', 'host', method, ['/remote']);
-  await call('appearance', 'light');
-  await call('appearance', 'light');
-  await assert.rejects(call('appearance', 'bad'), /Invalid appearance/);
   await assert.rejects(call('github-link', 'missing', 'url'), /not found/);
   await assert.rejects(call('github-board', 'empty'), /Connect a GitHub/);
   const initial = await call('snapshot');
@@ -266,6 +263,14 @@ test('desktop routes project, docs, agent, terminal and remote handlers to the e
   f.windows[0].emit('closed');
   assert.ok(f.calls.some((c) => c[0] === 'dispose') === false);
   assert.ok(f.calls.some((c) => c[0] === 'chatStop'));
+  // With a connected SSH host, the quit waits for the list of its work. Without work, the app
+  // asks nothing and quits.
+  let waited = 0;
+  f.app.emit('before-quit', { preventDefault: () => waited++ });
+  assert.equal(waited, 1);
+  await new Promise((done) => setTimeout(done, 20));
+  assert.ok(!f.calls.some((c) => c[0] === 'send' && c[1] === 'ssh-quit-request'));
+  assert.ok(f.calls.some((c) => c[0] === 'quit'));
   f.app.emit('before-quit', {
     preventDefault() {
       throw Error('should not prevent');
@@ -291,10 +296,6 @@ test('desktop window lifecycle and session export preserve security on each plat
     w.webContents.emit('did-finish-load');
     w.emit('enter-full-screen');
     w.emit('leave-full-screen');
-    f.theme.emit('updated');
-    f.state.destroyed = true;
-    f.theme.emit('updated');
-    f.state.destroyed = false;
     f.state.running = 1;
     w.emit('close', event);
     f.app.emit('before-quit', event);
@@ -302,6 +303,12 @@ test('desktop window lifecycle and session export preserve security on each plat
     f.state.running = 2;
     f.state.choice = 0;
     f.app.emit('before-quit', event);
+    // The quit waits for the list of the work on the connected SSH host, then quits again.
+    assert.equal(prevented, 4);
+    await new Promise((done) => setTimeout(done, 20));
+    assert.ok(f.calls.some((c) => c[0] === 'quit'));
+    f.app.emit('before-quit', event);
+    assert.equal(prevented, 4);
     assert.ok(f.calls.some((c) => c[0] === 'dispose'));
     for (const action of [
       'copy-id',
@@ -378,8 +385,11 @@ test('desktop recovers discovery errors, migrates remote docs and releases late 
   const remote = await desktopFixture('linux', 'remoteMigration');
   await remote.invoke('docs-list', 'remote');
   assert.ok(remote.calls.some((c) => c[0] === 'remote' && c[2] === 'project-import-docs'));
-  const light = await desktopFixture('win32', 'light');
-  assert.equal(light.windows[0].options.backgroundColor, '#fbfbfc');
+  const windows = await desktopFixture('win32');
+  // Kalkidan is light only: the native theme, the window and the title bar use light colors.
+  assert.equal(windows.theme.themeSource, 'light');
+  assert.equal(windows.windows[0].options.backgroundColor, '#ffffff');
+  assert.equal(windows.windows[0].options.titleBarOverlay.color, '#fafafa');
   const dev = await desktopFixture('linux', 'dev');
   assert.ok(dev.calls.some((c) => c[0] === 'loadURL' && c[1].startsWith('http://127.0.0.1:5173')));
 });

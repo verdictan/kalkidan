@@ -3,6 +3,8 @@ import { Laptop } from 'lucide-react';
 import type { API } from '../api/contracts';
 import type { AgentInstallation } from '../domain/conversation';
 import {
+  computerAgentIssue,
+  localComputer,
   selectionIssue,
   withoutManagedCode,
   type ManagedAgentKind,
@@ -324,7 +326,9 @@ export function RuntimeExtra({ runtime }: { runtime: RuntimeState }) {
         />
       )}
       {view.waitingForIdle && (
-        <p className="form-help mt-0">Stop the agents that run now. Then select Finish install.</p>
+        <p className="form-help mt-0">
+          Stop the coding agents that run now. Then select Finish install.
+        </p>
       )}
       {view.reason && <p className="form-help mt-0">{view.reason}</p>}
       {view.failure && <StepError>{view.failure}</StepError>}
@@ -616,7 +620,8 @@ export function agentRowState(
   if (!setup)
     return { status: { label: 'Checking…', tone: 'secondary' }, help: version, action: 'none' };
   const saved = setup.selections[agent];
-  if (!saved || selectionIssue(setup, saved))
+  // The agent of this computer is for both coding agents. Its row shows the cause.
+  if (!saved || selectionIssue(setup, saved) || computerAgentIssue(setup, localComputer))
     return {
       status: { label: 'Needs setup', tone: 'warning' },
       help: version,
@@ -638,7 +643,7 @@ function setupLine(setup: VerdictanSetup, agent: ManagedAgentKind) {
 }
 
 /**
- * The agent rows of the Computers page: one row for Codex and one for Claude Code with the
+ * The coding agent rows of the Computers page: one row for Codex and one for Claude Code with the
  * program version, the default model, and the state. A warning shows only when the agent
  * cannot run, with one outline action. "Choose…" picks the program on this computer. Under
  * each row, "Organization setup" opens the team, policy and connection choices in place.

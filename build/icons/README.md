@@ -1,14 +1,14 @@
 # Kalkidan identity
 
-An original vector interpretation of the supplied ornamental shield: antique gold,
-radial leaf forms, concentric rings, and a central K on a charcoal-green shield, set on a white app-icon tile. The photograph
-and its watermark are not embedded in any asset.
+The Brackets mark: two square brackets in ink (#171717) hold one point in Verdictan brown
+(#9a4600). A promise is a boundary you keep, and brackets are where code keeps its scope. The
+app icon sets the mark on a white tile. The colors match the light theme of the app.
 
 ## Assets
 
 - `public/brand/kalkidan-icon.svg`: scalable full-detail app icon master.
-- `public/brand/kalkidan-mark.svg`: transparent standalone shield.
-- `public/brand/kalkidan-compact.svg`: simplified ornament for medium sizes.
+- `public/brand/kalkidan-mark.svg`: transparent standalone mark.
+- `public/brand/kalkidan-compact.svg`: heavier strokes for medium sizes.
 - `public/brand/favicon.svg`: optically adjusted small icon.
 - `public/brand/kalkidan-monochrome.svg`: single-color `currentColor` mark; inline the SVG to inherit the surrounding text color.
 - `public/brand/icon-*.png`: 26 lossless RGBA exports, from 16 through 4096 pixels.

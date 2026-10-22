@@ -246,14 +246,15 @@ test('Preferences, the account menu and the Computers page show their content', 
   await page.screenshot({ path: 'test-results/settings-preferences.png', fullPage: true });
   await close(page);
 
-  // The account menu: the organization and region, the theme, help, and Sign out.
+  // The account menu: the organization and region, help, and Sign out. Kalkidan is light only,
+  // so the menu has no theme items.
   await sidebar(page)
     .getByRole('button', { name: /^Account: / })
     .click();
   const menu = page.getByRole('menu');
   await expect(menu).toContainText('Acme Corp · European Union');
-  for (const theme of ['System', 'Light', 'Dark'])
-    await expect(menu.getByRole('menuitemradio', { name: theme, exact: true })).toBeVisible();
+  await expect(menu.getByRole('menuitemradio')).toHaveCount(0);
+  await expect(menu).not.toContainText('Theme');
   await expect(menu.getByRole('menuitem', { name: /Help and feedback/ })).toBeVisible();
   await expect(menu.getByRole('menuitem', { name: /Sign out/ })).toBeVisible();
   // Keyboard shortcuts open with ⌘/ and from ⌘K, not from the account menu.
@@ -302,8 +303,8 @@ test('the menu of a host opens its agent programs', async ({ page }) => {
     .getByRole('group', { name: 'devbox', exact: true })
     .getByRole('button', { name: 'Actions for devbox' })
     .click();
-  await page.getByRole('menuitem', { name: 'Agent programs…' }).click();
-  const programs = page.getByRole('dialog', { name: 'Agent programs on devbox' });
+  await page.getByRole('menuitem', { name: 'Coding agent programs…' }).click();
+  const programs = page.getByRole('dialog', { name: 'Coding agent programs on devbox' });
   await expect(programs.getByRole('list', { name: 'Agents on devbox' })).toBeVisible();
   await programs.getByRole('button', { name: 'Done', exact: true }).click();
   await expect(programs).toHaveCount(0);

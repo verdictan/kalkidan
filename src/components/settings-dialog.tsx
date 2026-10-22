@@ -32,8 +32,8 @@ export function openAccountMenu() {
 /**
  * Preferences (⌘,): one short sheet with seven rows in three groups. Chats: the access of new
  * chats and Enter to send. Connections: the region and GitHub. This app: the built-in browser,
- * your data, and the version. The agent and the model are in the composer chip, the theme, notifications
- * and sign-out are in the account menu, and the hosts are on the Computers page.
+ * your data, and the version. The agent and the model are in the composer chip, notifications and
+ * sign-out are in the account menu, and the hosts are on the Computers page.
  *
  * Older requests still work. `section` and `anchor` go through `settingsPlace`: a request for
  * Agents or Computers opens the Computers page, a request for notifications opens the account
@@ -130,6 +130,44 @@ function PreferenceGroup({ label, children }: { label: string; children: ReactNo
   );
 }
 
+/**
+ * Asks before Kalkidan quits while agent runs or shells work on SSH hosts. "Don't ask again" in
+ * the question turns it off. This switch turns it on again.
+ */
+function SshQuitRow({ api, open }: { api: API; open: boolean }) {
+  const [ask, setAsk] = useState<boolean>();
+  useEffect(() => {
+    if (!open || typeof api.sshQuitPrompt !== 'function') return;
+    void Promise.resolve()
+      .then(() => api.sshQuitPrompt!())
+      .then(setAsk, () => {});
+  }, [api, open]);
+  if (ask === undefined || typeof api.setSshQuitPrompt !== 'function') return null;
+  async function choose(next: boolean) {
+    const before = ask;
+    setAsk(next);
+    try {
+      setAsk(await api.setSshQuitPrompt!(next));
+    } catch {
+      setAsk(before);
+      showToast({ message: 'Could not save the quit question setting.', tone: 'error' });
+    }
+  }
+  return (
+    <SettingsRow
+      id="ssh-quit-prompt"
+      label="Ask before quitting while SSH work runs"
+      help="Agent runs and shells on SSH hosts continue after Kalkidan quits."
+    >
+      <Switch
+        aria-label="Ask before quitting while SSH work runs"
+        checked={ask}
+        onCheckedChange={(next) => void choose(next)}
+      />
+    </SettingsRow>
+  );
+}
+
 /** Shows that a choice was saved, with Undo. */
 function savedToast(message: string, undo: () => void) {
   showToast({ message, actions: [{ label: 'Undo', onClick: undo }] });
@@ -221,6 +259,7 @@ function PreferenceRows({
           </Button>
         </SettingsRow>
         <GitHubRow services={services} />
+        <SshQuitRow api={api} open={open} />
       </PreferenceGroup>
       {error && <StepError>{error}</StepError>}
       <PreferenceGroup label="This app">

@@ -381,10 +381,12 @@ function demoStopAuthorization() {
 }
 const demoTeam = '00000000-0000-4000-8000-00000000a001';
 const demoAgent = '00000000-0000-4000-8000-00000000a002';
+const demoReviewAgent = '00000000-0000-4000-8000-00000000a003';
 let demoSelections: VerdictanSetup['selections'] = demoRead(
   'kalkidan-demo-selections',
   {} as VerdictanSetup['selections'],
 );
+let demoComputerAgents: Record<string, string> = demoRead('kalkidan-demo-computer-agents', {});
 function demoSetup(): VerdictanSetup {
   if (!demoAccount.signedIn || demoAccount.expired)
     return {
@@ -409,6 +411,14 @@ function demoSetup(): VerdictanSetup {
         configuration_name: 'Kalkidan default',
         default: true,
       },
+      {
+        agent_id: demoReviewAgent,
+        team_id: demoTeam,
+        name: 'Review agent',
+        configuration_id: 'cfg_demo_review',
+        configuration_version_id: 'cfv_demo_review',
+        configuration_name: 'Strict review',
+      },
     ],
     teams: [{ team_id: demoTeam, name: 'Platform team' }],
     policies: [],
@@ -418,6 +428,7 @@ function demoSetup(): VerdictanSetup {
     ],
     allowedModels: { codex: ['gpt-5.1-codex'], claude: ['sonnet', 'opus'] },
     selections: structuredClone(demoSelections),
+    computerAgents: structuredClone(demoComputerAgents),
   };
 }
 /** The demo runtime: a fresh demo installs it in about 3 s, as the first launch does. */
@@ -550,6 +561,12 @@ export const demo: API = {
     if (!demoAccount.signedIn) throw new Error(managedErrorText('desktop.auth_required'));
     demoSelections = { ...demoSelections, [agent]: selection };
     demoWrite('kalkidan-demo-selections', demoSelections);
+    return demoSetup();
+  },
+  verdictanSetComputerAgent: async (computer, agentId) => {
+    if (!demoAccount.signedIn) throw new Error(managedErrorText('desktop.auth_required'));
+    demoComputerAgents = { ...demoComputerAgents, [computer]: agentId };
+    demoWrite('kalkidan-demo-computer-agents', demoComputerAgents);
     return demoSetup();
   },
   verdictanApplyRecommended: async () => {

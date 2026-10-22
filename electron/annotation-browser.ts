@@ -21,8 +21,8 @@ export function selectElement() {
       position: 'fixed',
       pointerEvents: 'none',
       zIndex: '2147483647',
-      border: '2px solid #6366f1',
-      background: '#6366f11a',
+      border: '2px solid #9a4600',
+      background: '#9a46001a',
     });
     document.documentElement.append(overlay);
     const banner = document.createElement('div');
@@ -35,7 +35,7 @@ export function selectElement() {
       zIndex: '2147483647',
       pointerEvents: 'none',
       padding: '10px 16px',
-      background: '#18181b',
+      background: '#0a0a0a',
       color: 'white',
       borderRadius: '8px',
       font: '13px system-ui',

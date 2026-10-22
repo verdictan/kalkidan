@@ -3,8 +3,9 @@ import { ChevronDown, Clock, Copy, ExternalLink, Globe, LoaderCircle, X } from '
 import type { API } from '../api/contracts';
 import type { VerdictanAccountPage, VerdictanSetup, VerdictanStatus } from '../domain/verdictan';
 import {
+  computerAgentLabel,
   isSubscriptionMode,
-  kalkidanAgentLabel,
+  localComputer,
   managedErrorCode,
   managedErrorInfo,
 } from '../domain/verdictan';
@@ -87,10 +88,8 @@ const accessNames: Record<string, string> = {
 export function setupSummary(setup: VerdictanSetup | undefined, agent: 'codex' | 'claude') {
   const selection = setup?.selections[agent];
   if (!setup || !selection) return undefined;
-  const named = selection.agentId
-    ? setup.agents?.find((item) => item.agent_id === selection.agentId)
-    : undefined;
-  const who = named?.name || (selection.agentId ? kalkidanAgentLabel : undefined);
+  // Codex and Claude Code on this computer both use the agent of this computer.
+  const who = computerAgentLabel(setup, localComputer);
   const connection = setup.providerConnections.find(
     (item) => item.provider_connection_id === selection.providerConnectionId,
   );
@@ -448,7 +447,7 @@ export function SignInSteps({
     <Screen mode={mode} className="sign-in-start">
       {mode === 'window' ? (
         <img
-          src="./brand/kalkidan-icon.svg"
+          src="./brand/kalkidan-mark.svg"
           alt=""
           aria-hidden="true"
           className="sign-in-mark"
@@ -457,7 +456,7 @@ export function SignInSteps({
         />
       ) : (
         <span className="sign-in-icon" aria-hidden="true">
-          <img src="./brand/kalkidan-icon.svg" alt="" width="40" height="40" />
+          <img src="./brand/kalkidan-mark.svg" alt="" width="40" height="40" />
         </span>
       )}
       <h1 className="sign-in-title">

@@ -1,10 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import { parseWorkingStatus, parseWorkingFiles } from '../electron/git-working';
-import { readAppearanceMode, saveAppearanceMode, withScheme } from '../electron/storage/appearance';
 
 test('parses porcelain v2 status with renames, conflicts, and untracked files', () => {
   const output = [
@@ -29,26 +25,6 @@ test('parses porcelain v2 status with renames, conflicts, and untracked files', 
     untracked: 2,
   });
   assert.equal(parseWorkingStatus('# branch.head (detached)\0').branch, 'HEAD');
-});
-
-test('appearance persists for the next start and sets the scheme of the start URL', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'appearance-'));
-  try {
-    const file = join(root, 'appearance.json');
-    assert.equal(await readAppearanceMode(file), 'system');
-    await saveAppearanceMode(file, 'dark');
-    assert.equal(await readAppearanceMode(file), 'dark');
-    await writeFile(file, '{"mode":"sepia"}');
-    assert.equal(await readAppearanceMode(file), 'system');
-    await assert.rejects(saveAppearanceMode(file, 'sepia' as never), /Invalid appearance/);
-    assert.equal(withScheme('http://127.0.0.1:5173', true), 'http://127.0.0.1:5173?scheme=dark');
-    assert.equal(
-      withScheme('file:///app/index.html', false, '#session=x'),
-      'file:///app/index.html?scheme=light#session=x',
-    );
-  } finally {
-    await rm(root, { recursive: true, force: true });
-  }
 });
 
 test('parses porcelain v1 file entries with renames, conflicts and untracked files', () => {

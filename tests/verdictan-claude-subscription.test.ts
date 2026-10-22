@@ -299,6 +299,7 @@ test('the SSH broker forwards the Claude subscription mode and rejects a connect
         setup: { selections: { claude: subscription } },
       }),
       validate: () => {},
+      validateSaved: () => {},
     } as any,
     { identities: async () => ({ installationId: id, hostId: id }) } as any,
   );
@@ -772,6 +773,7 @@ async function launchFixture(
         setup: { selections: { claude: subscription } },
       }),
       validate: (_: unknown, _agent: unknown, s: unknown) => s,
+      validateSaved: (_: unknown, _agent: unknown, s: unknown) => s,
     } as any,
     runtime,
     'local',

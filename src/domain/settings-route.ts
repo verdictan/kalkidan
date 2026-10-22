@@ -40,6 +40,11 @@ export function computerAnchor(hostId?: string) {
   return `computer-${hostId || 'local'}`;
 }
 
+/** The element ID of the agent row of one computer in Settings › Computers. */
+export function computerAgentAnchor(hostId?: string) {
+  return `agent-${hostId || 'local'}`;
+}
+
 /** The element ID of the managed runtime of one computer in Settings › Computers. */
 export function runtimeAnchor(hostId?: string) {
   return `runtime-${hostId || 'local'}`;
@@ -119,8 +124,8 @@ export function settingsTarget(
  *   built-in browser, your data, and the version.
  * - 'computers': the Computers page. It has this computer, the agents with their programs and
  *   organization setup, and the SSH hosts.
- * - 'account-menu': the account menu in the sidebar footer. It has the theme, the
- *   notifications, and sign-out.
+ * - 'account-menu': the account menu in the sidebar footer. It has the notifications and
+ *   sign-out.
  */
 export type SettingsPlace = 'preferences' | 'computers' | 'account-menu';
 

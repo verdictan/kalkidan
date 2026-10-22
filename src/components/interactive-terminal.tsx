@@ -14,61 +14,32 @@ function terminalFont() {
   return value || 'monospace';
 }
 
-// ANSI colors for each scheme. Each color has good contrast on the background of
-// its scheme. On the light background, "white" and "bright white" are gray, so
-// that the text stays readable.
-const darkPalette: ITheme = {
-  black: '#484f58',
-  red: '#ff7b72',
-  green: '#3fb950',
-  yellow: '#d29922',
-  blue: '#58a6ff',
-  magenta: '#bc8cff',
-  cyan: '#39c5cf',
-  white: '#b1bac4',
-  brightBlack: '#8b949e',
-  brightRed: '#ffa198',
-  brightGreen: '#56d364',
-  brightYellow: '#e3b341',
-  brightBlue: '#79c0ff',
-  brightMagenta: '#d2a8ff',
-  brightCyan: '#56d4dd',
-  brightWhite: '#f0f6fc',
-};
-
-const lightPalette: ITheme = {
+// The light terminal colors. They agree with src/styles/theme.css: the Console white surface,
+// near-black text and the brand color for the cursor. Each ANSI color has a contrast ratio of
+// at least 4.5:1 on white, so "white" and "bright white" are gray.
+const terminalTheme: ITheme = {
+  background: '#ffffff',
+  foreground: '#0a0a0a',
+  cursor: '#9a4600',
+  cursorAccent: '#ffffff',
+  selectionBackground: '#9a460033',
   black: '#24292f',
   red: '#cf222e',
-  green: '#116329',
-  yellow: '#9a6700',
+  green: '#047857',
+  yellow: '#92600e',
   blue: '#0969da',
   magenta: '#8250df',
   cyan: '#1b7c83',
   white: '#6e7781',
   brightBlack: '#57606a',
   brightRed: '#a40e26',
-  brightGreen: '#1a7f37',
+  brightGreen: '#065f46',
   brightYellow: '#7d4e00',
   brightBlue: '#0550ae',
   brightMagenta: '#6639ba',
   brightCyan: '#136061',
   brightWhite: '#424a53',
 };
-
-/** Reads the terminal colors from the theme tokens and the current scheme. */
-function terminalTheme(): ITheme {
-  const dark = document.documentElement.classList.contains('dark');
-  const style = getComputedStyle(document.documentElement);
-  // theme.css sets each token. If a token is empty, xterm uses its own default color.
-  const token = (name: string) => style.getPropertyValue(name).trim() || undefined;
-  return {
-    ...(dark ? darkPalette : lightPalette),
-    background: token('--background'),
-    foreground: token('--foreground'),
-    cursor: token('--muted-foreground'),
-    selectionBackground: token('--accent'),
-  };
-}
 
 export function InteractiveTerminal({
   api,
@@ -112,7 +83,7 @@ export function InteractiveTerminal({
       // A blinking cursor is motion. Keep it still when the user asks for reduced motion.
       cursorBlink: !window.matchMedia?.('(prefers-reduced-motion: reduce)').matches,
       scrollback: 3000,
-      theme: terminalTheme(),
+      theme: terminalTheme,
     });
     // The shell needs Tab for completion. F6 gives keyboard users a way out.
     term.attachCustomKeyEventHandler((event) => {
@@ -148,11 +119,6 @@ export function InteractiveTerminal({
     };
     const observer = new ResizeObserver(resize);
     observer.observe(element.current!);
-    // src/main.tsx changes the `dark` class when the system scheme changes.
-    const scheme = new MutationObserver(() => {
-      term.options.theme = terminalTheme();
-    });
-    scheme.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] });
     void (async () => {
       try {
         addon.fit();
@@ -213,7 +179,6 @@ export function InteractiveTerminal({
       disposed = true;
       clearTimeout(timer);
       observer.disconnect();
-      scheme.disconnect();
       input.dispose();
       term.dispose();
       terminal.current = null;

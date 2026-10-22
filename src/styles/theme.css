@@ -1,4 +1,11 @@
-@custom-variant dark (&:where(.dark, .dark *));
+/*
+ * The colors of the Verdictan Console (console/src/app/styles/theme.css): the shadcn/ui base-vega
+ * theme with the neutral base color and the Verdictan brand color #9a4600 on the primary roles.
+ * Kalkidan keeps its own token names, so the components do not change.
+ *
+ * Light only. Kalkidan has no dark theme: no `.dark` token block, no `dark:` classes and no
+ * color-scheme media query.
+ */
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
@@ -9,19 +16,34 @@
   --color-primary: var(--primary);
   --color-primary-foreground: var(--primary-foreground);
   --color-secondary: var(--secondary);
-  --color-secondary-foreground: var(--foreground);
+  --color-secondary-foreground: var(--secondary-foreground);
   --color-muted: var(--muted);
   --color-muted-foreground: var(--muted-foreground);
   --color-subtle-foreground: var(--subtle-foreground);
   --color-accent: var(--accent);
-  --color-accent-foreground: var(--foreground);
+  --color-accent-foreground: var(--accent-foreground);
   --color-destructive: var(--destructive);
   --color-border: var(--border);
-  --color-input: var(--border);
+  --color-input: var(--input);
   --color-ring: var(--ring);
   --color-success: var(--success);
   --color-warning: var(--warning);
   --color-link: var(--link);
+  --color-info: var(--info);
+  --color-primary-subtle: var(--primary-subtle);
+  --color-success-subtle: var(--success-subtle);
+  --color-warning-subtle: var(--warning-subtle);
+  --color-info-subtle: var(--primary-subtle);
+  --color-destructive-subtle: var(--destructive-subtle);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --color-chart-6: var(--chart-6);
+  --color-chart-7: var(--chart-7);
+  --color-chart-8: var(--chart-8);
+  --color-chart-9: var(--chart-9);
   --color-diff-add: var(--diff-add);
   --color-diff-remove: var(--diff-remove);
   /* Type scale. text-sm is the one UI size. */
@@ -41,15 +63,19 @@
   --text-2xl--line-height: 32px;
   --text-3xl: 32px;
   --text-3xl--line-height: 40px;
-  --font-mono: 'SF Mono', Menlo, Consolas, 'DejaVu Sans Mono', monospace;
+  /* The Console fonts: Inter and Geist Mono. Kalkidan works offline and loads no web fonts, so
+     each stack falls back to the system font when the font is not installed. */
+  --font-sans: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-mono: 'Geist Mono', 'SF Mono', Menlo, Consolas, 'DejaVu Sans Mono', monospace;
   --color-destructive-foreground: var(--destructive-foreground);
-  /* Radius scale: 4 small parts, 6 controls and rows, 8 cards and menus, 12 dialogs. */
+  /* The Console radius scale from --radius (10px): 6 small parts, 8 controls and rows, 10 cards
+     and menus, 14 dialogs. */
   --radius-xs: 4px;
-  --radius-sm: 4px;
-  --radius-md: 6px;
-  --radius-lg: 8px;
-  --radius-xl: 12px;
-  --radius-2xl: 16px;
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
   --shadow-xs: var(--shadow-subtle);
   --shadow-sm: var(--shadow-raised);
   --shadow-md: var(--shadow-popover);
@@ -57,30 +83,58 @@
 }
 
 :root {
-  color-scheme: dark;
-  --background: #101316;
-  --foreground: #e1e4e7;
-  --card: #1a1e22;
-  --primary: #e6eaed;
-  --primary-foreground: #13171b;
-  --secondary: #252a2f;
-  --muted: #1f2428;
-  --muted-foreground: #92999f;
-  --accent: #2a3035;
-  --border: #282e33;
-  --ring: #87939d;
-  --destructive: #f28b82;
-  --navigation: #15191c;
+  color-scheme: light;
+  --background: oklch(1 0 0);
+  --foreground: oklch(0.145 0 0);
+  --card: oklch(1 0 0);
+  --popover: oklch(1 0 0);
+  /* The Verdictan brand color. White on #9a4600 is 6.5:1 (WCAG AA). */
+  --primary: #9a4600;
+  --primary-foreground: oklch(1 0 0);
+  --secondary: oklch(0.97 0 0);
+  --secondary-foreground: oklch(0.205 0 0);
+  --muted: oklch(0.97 0 0);
+  /* 5.3:1 on white and 4.8:1 on the muted surface. */
+  --muted-foreground: oklch(0.53 0 0);
+  --accent: oklch(0.97 0 0);
+  --accent-foreground: oklch(0.205 0 0);
+  --border: oklch(0.922 0 0);
+  --input: oklch(0.922 0 0);
+  --ring: #9a4600;
+  --radius: 0.625rem;
+  /* 6.1:1 on white. */
+  --destructive: oklch(0.52 0.21 27.325);
+  --destructive-foreground: oklch(1 0 0);
+  /* The sidebar surface of the Console. */
+  --navigation: oklch(0.985 0 0);
   /* The title bar uses the sidebar surface, so the window chrome is one surface. */
   --chrome: var(--navigation);
-  --subtle-foreground: #6f777e;
-  --success: #71c78a;
-  --warning: #e3b341;
-  --link: #82baff;
-  --diff-add: #8fd3a3;
-  --diff-add-surface: #1a3225;
-  --diff-remove: #f2a3a3;
-  --diff-remove-surface: #392326;
+  /* Secondary text, for example hints. The same as --muted-foreground, so it reaches 4.5:1. */
+  --subtle-foreground: var(--muted-foreground);
+  /* The Console status colors. Each reaches 4.5:1 on white. Info is the primary color. */
+  --success: #047857;
+  --warning: #92600e;
+  --info: var(--primary);
+  --link: var(--primary);
+  /* A tint is 8% of its color on the background. */
+  --primary-subtle: color-mix(in oklch, var(--primary) 8%, var(--background));
+  --success-subtle: color-mix(in oklch, var(--success) 8%, var(--background));
+  --warning-subtle: color-mix(in oklch, var(--warning) 8%, var(--background));
+  --destructive-subtle: color-mix(in oklch, var(--destructive) 8%, var(--background));
+  --diff-add: var(--success);
+  --diff-add-surface: var(--success-subtle);
+  --diff-remove: var(--destructive);
+  --diff-remove-surface: var(--destructive-subtle);
+  /* The Console chart series colors. Charts use them in this order: 1, 9, 8, 6, 7, 4, 5, 2, 3. */
+  --chart-1: #9a4600;
+  --chart-2: #047857;
+  --chart-3: #92600e;
+  --chart-4: #5f6b2d;
+  --chart-5: #b4632a;
+  --chart-6: #2f6f5e;
+  --chart-7: #7a5c3e;
+  --chart-8: #b07d38;
+  --chart-9: #2e4a5e;
   --navigation-width: 260px;
 
   /* Spacing uses a 4px grid. 6px is only for icon and label gaps. */
@@ -113,59 +167,28 @@
   --dialog-md: 560px;
   --dialog-lg: 720px;
   /* States and elevation */
-  --surface-hover: color-mix(in srgb, var(--foreground) 5%, transparent);
-  --surface-selected: color-mix(in srgb, var(--foreground) 9%, transparent);
+  --surface-hover: color-mix(in oklch, var(--foreground) 4%, transparent);
+  --surface-selected: color-mix(in oklch, var(--foreground) 7%, transparent);
   /* Elevation ladder: page < sidebar and title bar < card < menus and dialogs. */
-  --popover: #1e2226;
-  --focus-color: color-mix(in srgb, var(--ring) 70%, transparent);
-  --focus-ring: 0 0 0 2px var(--focus-color);
-  --overlay: rgb(0 0 0 / 0.5);
-  --shadow-subtle: 0 1px 1px rgb(0 0 0 / 0.2);
-  --destructive-foreground: #1a0f0e;
+  /* The Console keyboard focus: a 2px ring in the brand color, 2px from the control. */
+  --focus-color: var(--ring);
+  --focus-ring: 0 0 0 2px var(--background), 0 0 0 4px var(--ring);
+  --overlay: rgb(0 0 0 / 0.32);
+  --shadow-subtle: 0 1px 2px rgb(0 0 0 / 0.04);
+  --shadow-raised: 0 1px 2px rgb(0 0 0 / 0.08);
+  --shadow-popover: 0 4px 16px rgb(0 0 0 / 0.12);
+  --shadow-dialog: 0 16px 48px rgb(0 0 0 / 0.18);
   /* Motion. Wrapped by a reduced-motion rule in components.css. */
   --motion-fast: 120ms;
   --motion-base: 200ms;
   --ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
-  --shadow-raised: 0 1px 2px rgb(0 0 0 / 0.3);
-  --shadow-popover: 0 4px 16px rgb(0 0 0 / 0.32);
-  --shadow-dialog: 0 16px 48px rgb(0 0 0 / 0.45);
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-family: var(--font-sans);
   font-synthesis: none;
 }
-/* Light theme. src/main.tsx removes the dark class when the system uses light colors. */
-:root:not(.dark) {
-  color-scheme: light;
-  --background: #fbfbfc;
-  --foreground: #1f2328;
-  --card: #ffffff;
-  --primary: #1f2328;
-  --primary-foreground: #ffffff;
-  --secondary: #eaeef2;
-  --muted: #f3f5f7;
-  --muted-foreground: #59636e;
-  --accent: #e6eaef;
-  --border: #d8dee4;
-  --ring: #8c959f;
-  --destructive: #cf222e;
-  /* A little darker than the frame, so the two separate without a heavy border. */
-  --navigation: #f3f5f7;
-  --subtle-foreground: #6e7781;
-  --popover: #ffffff;
-  --success: #1a7f37;
-  --warning: #9a6700;
-  --link: #0969da;
-  --diff-add: #1a7f37;
-  --diff-add-surface: #dafbe1;
-  --diff-remove: #cf222e;
-  --diff-remove-surface: #ffebe9;
-  --overlay: rgb(15 20 25 / 0.32);
-  --shadow-subtle: 0 1px 2px rgb(15 20 25 / 0.04);
-  --destructive-foreground: #ffffff;
-  --shadow-raised: 0 1px 2px rgb(15 20 25 / 0.08);
-  --shadow-popover: 0 4px 16px rgb(15 20 25 / 0.12);
-  --shadow-dialog: 0 16px 48px rgb(15 20 25 / 0.18);
-}
 @layer base {
+  html {
+    color-scheme: light;
+  }
   body {
     margin: 0;
     background: var(--background);
@@ -177,6 +200,11 @@
   * {
     box-sizing: border-box;
     border-color: var(--border);
+  }
+  /* The Console keyboard focus outline. Controls with their own focus style replace it. */
+  :focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
   }
 }
 button,

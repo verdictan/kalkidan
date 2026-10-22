@@ -6,14 +6,13 @@ Controls are 32px high by default.
 
 ## Setup
 
-- Link `styles.css`. It holds the tokens, the light and dark themes, and all component styles.
+- Link `styles.css`. It holds the tokens, the light theme, and all component styles.
 - Wrap the app in `TooltipProvider`. A `Tooltip` outside it throws
   "`Tooltip` must be used within `TooltipProvider`".
-- Light theme is the default. For the dark theme, add the class `dark` to the `<html>` element.
+- The theme is light only. It uses the colors of the Verdictan Console.
 
 ```jsx
 const { TooltipProvider } = window.KalkidanUI;
-document.documentElement.classList.add('dark'); // optional
 <TooltipProvider delayDuration={350}>
   <App />
 </TooltipProvider>;

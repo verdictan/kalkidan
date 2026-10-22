@@ -35,6 +35,10 @@ export class RemoteSnapshotCache<T> {
     }
     return { value: entry.value, error: entry.error };
   }
+  /** The last value of a host, without a new scan. */
+  peek(id: string) {
+    return this.entries.get(id)?.value;
+  }
   retain(ids: Set<string>) {
     for (const id of this.entries.keys()) if (!ids.has(id)) this.entries.delete(id);
   }

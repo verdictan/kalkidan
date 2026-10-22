@@ -196,6 +196,7 @@ async function fixture(
       },
     }),
     validate: (_: unknown, _agent: unknown, s: unknown) => s,
+    validateSaved: (_: unknown, _agent: unknown, s: unknown) => s,
   };
   let sessionId = '';
   const runtime: any = {

@@ -117,8 +117,9 @@ export function AgentProgramsDialog({
           if (id !== request.current) return;
           setError(
             host
-              ? errorMessage(failure) || 'Could not check the agents on this host. Try again.'
-              : 'Could not check the agents. Try again.',
+              ? errorMessage(failure) ||
+                  'Could not check the coding agents on this host. Try again.'
+              : 'Could not check the coding agents. Try again.',
           );
         },
       )
@@ -134,7 +135,7 @@ export function AgentProgramsDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent size="md" layout="scroll">
         <DialogHeader>
-          <DialogTitle>Agent programs on {where}</DialogTitle>
+          <DialogTitle>Coding agent programs on {where}</DialogTitle>
           <DialogDescription>
             Kalkidan needs Codex {agentMinimumVersions.codex} or later and Claude Code{' '}
             {agentMinimumVersions.claude_code} or later.
@@ -149,11 +150,11 @@ export function AgentProgramsDialog({
             <p className="form-help mt-0">
               {agents
                 ? 'This host is not connected. This is the last result.'
-                : 'Connect the host to check its agents.'}
+                : 'Connect the host to check its coding agents.'}
             </p>
           )}
           {(agents || !host) && (
-            <ul className="settings-rows" aria-label={`Agents on ${where}`}>
+            <ul className="settings-rows" aria-label={`Coding agents on ${where}`}>
               {agentCatalog.map(({ id, name, vendor }) => (
                 <ProgramRow
                   key={id}

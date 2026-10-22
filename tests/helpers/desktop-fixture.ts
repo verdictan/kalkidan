@@ -81,10 +81,7 @@ export async function desktopFixture(platform = 'linux', failure = '') {
     }),
     dock: { setIcon: record('icon') },
   });
-  const theme = Object.assign(new EventEmitter(), {
-    themeSource: 'system',
-    shouldUseDarkColors: true,
-  });
+  const theme = { themeSource: 'system' };
   class Window extends EventEmitter {
     webContents = Object.assign(new EventEmitter(), {
       mainFrame: {},
@@ -93,8 +90,13 @@ export async function desktopFixture(platform = 'linux', failure = '') {
         this.popup = fn;
       },
       focus: record('focus'),
+      isLoading: () => false,
     });
     popup!: Function;
+    isMinimized = () => false;
+    restore = record('restore');
+    show = record('show');
+    focus = record('windowFocus');
     contentView = { addChildView: record('addView'), removeChildView: record('removeView') };
     constructor(public options: any) {
       super();
@@ -109,8 +111,6 @@ export async function desktopFixture(platform = 'linux', failure = '') {
     loadURL = asyncRecord('loadURL');
     isDestroyed = () => state.destroyed;
     isFullScreen = () => false;
-    setBackgroundColor = record('background');
-    setTitleBarOverlay = record('overlay');
   }
   class Groups {
     groups = groups;
@@ -425,6 +425,7 @@ export async function desktopFixture(platform = 'linux', failure = '') {
         }),
         status: asyncRecord('verdictanSetup'),
         select: asyncRecord('verdictanSelect'),
+        setComputerAgent: asyncRecord('verdictanSetComputerAgent'),
         applyRecommended: asyncRecord('verdictanApplyRecommended'),
       },
       launch: { prepare: asyncRecord('managedPrepare') },
@@ -441,12 +442,6 @@ export async function desktopFixture(platform = 'linux', failure = '') {
     },
   });
   stub('storage/data-directory', { dataDirectory: () => '/fixture' });
-  stub('storage/appearance', {
-    isAppearanceMode: (m: string) => ['system', 'light', 'dark'].includes(m),
-    readAppearanceMode: async () => 'system',
-    saveAppearanceMode: asyncRecord('appearance'),
-    withScheme: (url: string, _dark: boolean, hash = '') => url + hash,
-  });
   stub('project-groups', { ProjectGroups: Groups });
   stub('operations/create-project', {
     ProjectCreation: class {
@@ -583,7 +578,6 @@ export async function desktopFixture(platform = 'linux', failure = '') {
   if (failure === 'remoteMigration') {
     delete groups[1].rootPath;
   }
-  if (failure === 'light') theme.shouldUseDarkColors = false;
   if (failure === 'remoteMigration')
     stub('storage/project-location', {
       ProjectLocationCache: Locations,

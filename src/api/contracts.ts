@@ -188,6 +188,17 @@ export interface TerminalAPI {
 }
 export interface RemoteAPI {
   onRemoteHostsChange?(callback: () => void): () => void;
+  /**
+   * The app quits while agent runs or shells work on SSH hosts. The window shows the question
+   * and sends the answer with `sshQuitAnswer`.
+   */
+  onSshQuitRequest?(
+    callback: (request: import('../domain/ssh-quit').SshQuitRequest) => void,
+  ): () => void;
+  sshQuitAnswer?(answer: import('../domain/ssh-quit').SshQuitAnswer): Promise<void>;
+  /** True when the app asks before it quits while work runs on SSH hosts. */
+  sshQuitPrompt?(): Promise<boolean>;
+  setSshQuitPrompt?(ask: boolean): Promise<boolean>;
   onTrackerChange?(callback: () => void): () => void;
   onProjectResourceChange?(
     callback: (event: { groupId: string; resource: 'docs' | 'memory' }) => void,
@@ -399,8 +410,6 @@ export interface MenuAPI {
    * The focused window sends it.
    */
   setChatMenuState?(state: ChatActionState | null): Promise<void>;
-  /** Sets the native light or dark appearance. The window title bar and the page follow it. */
-  setAppearance?(mode: 'system' | 'light' | 'dark'): Promise<void>;
   /** Reports full screen changes. macOS hides the window buttons in full screen. */
   onFullScreenChange?(callback: (fullScreen: boolean) => void): () => void;
   /**

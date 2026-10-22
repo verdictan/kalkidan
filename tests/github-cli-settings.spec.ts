@@ -27,7 +27,7 @@ test('Preferences checks GitHub CLI and retries without hiding agent status', as
   await expect(claude).toContainText('Not installed');
   await expect(claude).toContainText('Not found on this computer');
   await claude.getByRole('button', { name: 'Choose the Claude Code program' }).click();
-  const programs = page.getByRole('dialog', { name: 'Agent programs on this computer' });
+  const programs = page.getByRole('dialog', { name: 'Coding agent programs on this computer' });
   await expect(programs.getByRole('listitem', { name: 'Codex on this computer' })).toContainText(
     'Meets the minimum',
   );

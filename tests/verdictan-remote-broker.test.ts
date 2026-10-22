@@ -35,6 +35,7 @@ function fixture(fallback = false) {
       },
     }),
     validate: () => {},
+    validateSaved: () => {},
   };
   const bindings: any = {
     identities: async (host: string) => ({
@@ -201,6 +202,7 @@ test('SSH broker provisions a chosen agent with agent_id and no policy IDs', asy
       },
     }),
     validate: () => {},
+    validateSaved: () => {},
   };
   const bindings: any = { identities: async () => ({ installationId: id, hostId: id }) };
   const broker = new RemoteAccountBroker(setup, bindings);

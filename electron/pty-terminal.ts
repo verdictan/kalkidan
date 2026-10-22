@@ -52,8 +52,8 @@ finally:
     os.close(fd)
 `;
 /**
- * PROPOSAL: the recent output that a shell keeps, in characters. An app that attaches to the
- * shell again gets this output first. Older output is removed.
+ * The recent output that a shell keeps, in characters. The user decided this size. An app that
+ * attaches to the shell again gets this output first. Older output is removed.
  */
 export const ptyScrollbackChars = 1_000_000;
 interface Shell {

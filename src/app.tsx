@@ -1,3 +1,4 @@
+import { SshQuitDialog } from './components/ssh-quit-dialog';
 import {
   routeKey,
   reconcileRoute,
@@ -33,7 +34,6 @@ import { branchCopyHelp } from './components/session-menu';
 import { useSidebarOpen, useSidebarWidth } from './hooks/use-sidebar-width';
 import { useProjectBoards, sessionTask } from './hooks/use-project-boards';
 import { setPendingDraft } from './lib/pending-draft';
-import { applyAppearance, saveAppearance, type Appearance } from './lib/appearance';
 import { ProjectFrame } from './components/project-header';
 import { ProjectChats } from './components/project-chats';
 import { SidebarResizer } from './components/sidebar-resizer';
@@ -66,6 +66,7 @@ import {
 import { useTracker } from './hooks/use-tracker';
 import { SettingsDialog } from './components/settings-dialog';
 import { Welcome, useWelcomeGate } from './components/welcome';
+import { hideSplash } from './lib/splash';
 import { DataNoticeDialog, useDataNotice } from './components/data-settings';
 import { ProxySignInDialog } from './components/proxy-sign-in';
 import { AccountMenu, SessionBanner, SignInFlow } from './components/account-menu';
@@ -127,9 +128,6 @@ import {
   LogIn,
   UserPlus,
   Monitor,
-  Sun,
-  Moon,
-  SunMoon,
   PanelLeftClose,
   Sparkles,
   Folder,
@@ -327,6 +325,10 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
   }
   // The first-run Welcome screen: before the workspace, until the user signs in or skips it.
   const welcome = useWelcomeGate(api, preview);
+  // The launch splash stays until the app knows which page to show: Welcome or the workspace.
+  useEffect(() => {
+    if (welcome.show !== undefined) hideSplash();
+  }, [welcome.show]);
   // True when a Verdictan account is signed in. Search hides "Sign in" then.
   const [signedIn, setSignedIn] = useState(false);
   const signedInRef = useRef(signedIn);
@@ -1593,11 +1595,6 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
   function planningTool(group: ProjectGroup, tool: string) {
     openPageThen(group, 'tasks', 'kalkidan-planning-tool', { groupId: group.id, tool });
   }
-  function setTheme(mode: Appearance) {
-    saveAppearance(mode);
-    applyAppearance(mode);
-    void api.setAppearance?.(mode);
-  }
   async function newDocPage(group: ProjectGroup) {
     try {
       const page = await api.docsCreate(group.id, 'Untitled', null);
@@ -2000,19 +1997,6 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
       icon: <FolderGit2 />,
       run: () => openSettings('account'),
     },
-    ...(
-      [
-        ['light', Sun],
-        ['dark', Moon],
-        ['system', SunMoon],
-      ] as [Appearance, LucideIcon][]
-    ).map(([mode, Icon]) => ({
-      key: 'theme-' + mode,
-      label: `Theme: ${mode[0].toUpperCase() + mode.slice(1)}`,
-      keywords: 'appearance color dark light mode',
-      icon: <Icon />,
-      run: () => setTheme(mode),
-    })),
     {
       key: 'shortcuts',
       label: 'Keyboard shortcuts',
@@ -2308,6 +2292,7 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
           }}
         />
         <Toaster />
+        <SshQuitDialog api={api} />
       </>
     );
   return (
@@ -2950,6 +2935,7 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
         </div>
       </main>
       <Toaster />
+      <SshQuitDialog api={api} />
       <SignInFlow api={api} />
       <SettingsDialog
         api={api}

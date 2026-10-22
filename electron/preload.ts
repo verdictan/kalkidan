@@ -23,6 +23,8 @@ const api: API = {
     ipcRenderer.invoke('project-services-request', id, request),
   verdictanSetup: () => ipcRenderer.invoke('verdictan-setup'),
   verdictanSelect: (agent, selection) => ipcRenderer.invoke('verdictan-select', agent, selection),
+  verdictanSetComputerAgent: (computer, agentId) =>
+    ipcRenderer.invoke('verdictan-set-computer-agent', computer, agentId),
   verdictanStatus: () => ipcRenderer.invoke('verdictan-status'),
   verdictanCheck: () => ipcRenderer.invoke('verdictan-check'),
   verdictanAuthorize: (intent) => ipcRenderer.invoke('verdictan-authorize', intent),
@@ -222,7 +224,6 @@ const api: API = {
   gitPullRequest: (id, title, body) => ipcRenderer.invoke('git-pull-request', id, title, body),
   showAppMenu: () => ipcRenderer.invoke('app-menu'),
   setChatMenuState: (state) => ipcRenderer.invoke('chat-menu-state', state),
-  setAppearance: (mode) => ipcRenderer.invoke('appearance', mode),
   notify: (input) => ipcRenderer.invoke('notify', input),
   setBadgeCount: (count) => ipcRenderer.invoke('badge-count', count),
   onNotificationClick: (callback) => {
@@ -234,6 +235,15 @@ const api: API = {
       ipcRenderer.removeListener('notification-click', listener);
     };
   },
+  onSshQuitRequest: (callback) => {
+    const listener = (_event: unknown, request: Parameters<typeof callback>[0]) =>
+      callback(request);
+    ipcRenderer.on('ssh-quit-request', listener);
+    return () => ipcRenderer.removeListener('ssh-quit-request', listener);
+  },
+  sshQuitAnswer: (answer) => ipcRenderer.invoke('ssh-quit-answer', answer),
+  sshQuitPrompt: () => ipcRenderer.invoke('ssh-quit-prompt'),
+  setSshQuitPrompt: (ask) => ipcRenderer.invoke('set-ssh-quit-prompt', ask),
   onRemoteHostsChange: (callback) => {
     const listener = () => callback();
     ipcRenderer.on('remote-hosts-changed', listener);
