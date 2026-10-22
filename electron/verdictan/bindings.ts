@@ -154,6 +154,28 @@ export class BindingStore {
       return { installationId: value.installationId, hostId: value.hosts[key] };
     });
   }
+  /** The identities of a host, or null when Kalkidan never gave the host an identity. */
+  knownIdentities(hostKey: string) {
+    return this.transaction((value) => {
+      const hostId = value.hosts[identityKey(hostKey)];
+      return hostId ? { installationId: value.installationId, hostId } : null;
+    }, false);
+  }
+  /** Forgets the identity of a removed host. A new connection gets a new identity. */
+  forgetHost(hostKey: string) {
+    return this.transaction((value) => {
+      delete value.hosts[identityKey(hostKey)];
+    });
+  }
+  /**
+   * Removes all conversation links. The installation identity, the host identities, and the
+   * agent selections stay, so that a revoked host stays revoked.
+   */
+  clearConversations() {
+    return this.transaction((value) => {
+      value.bindings = {};
+    });
+  }
   selections(account: string) {
     return this.transaction((v) => v.selections[account] || {}, false);
   }

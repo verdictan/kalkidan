@@ -144,12 +144,12 @@ export function useHostSetup(
     if (host && host.status !== 'connected')
       await act('Connecting…', () => api.remoteConnect(start.id), 'connect');
   }
-  async function remove(host: RemoteHost) {
+  async function remove(host: RemoteHost, options?: { deleteHostData?: boolean }) {
     setBusy('Removing host…');
     onBusy?.(true);
     setRemoveError('');
     try {
-      await api.remoteRemove(host.id);
+      await api.remoteRemove(host.id, options);
       onRemoved(host.id);
       return true;
     } catch (e) {
@@ -392,7 +392,7 @@ export function HostSetup({
       <ConfirmDialog
         open={confirmRemove}
         title={`Remove ${host.name}?`}
-        description="Kalkidan forgets this host. Files on the host do not change. You cannot remove a host while a project uses it."
+        description="Kalkidan revokes this host in Verdictan and forgets it. Files on the host do not change. You cannot remove a host while a project uses it."
         confirmLabel="Remove host"
         destructive
         busy={busy === 'Removing host…'}

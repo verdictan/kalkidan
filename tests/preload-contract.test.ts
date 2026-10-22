@@ -10,6 +10,7 @@ const contractFiles = [
   'src/domain/parallel-dispatch.ts',
   'src/domain/publish.ts',
   'src/domain/verdictan.ts',
+  'src/domain/data-policy.ts',
   'src/domain/updates.ts',
   'src/domain/docs.ts',
   'src/domain/github-content.ts',

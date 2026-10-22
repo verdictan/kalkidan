@@ -18,6 +18,7 @@ import { AgentProgramsDialog } from './agent-programs';
 import { ConfirmDialog } from './confirm-dialog';
 import { CopyValue, SettingsRow, StatusBadge } from './settings-disclosure';
 import { Button } from './ui/button';
+import { CheckboxRow } from './ui/checkbox';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -213,6 +214,7 @@ export function HostRow({
   const runtime = useRuntimeStatus(api, open && ready, host.id);
   const view = runtimeView(runtime);
   const [confirm, setConfirm] = useState<'disconnect' | 'update' | 'remove'>();
+  const [deleteHostData, setDeleteHostData] = useState(false);
   const [programs, setPrograms] = useState(false);
   const offline = ['retry-wait', 'error', 'disconnected', 'checked'].includes(host.status);
   const helperUpdate = helper?.discovery === 'available';
@@ -310,6 +312,7 @@ export function HostRow({
               className={menuDestructiveClass}
               onSelect={() => {
                 setup.setRemoveError('');
+                setDeleteHostData(false);
                 setConfirm('remove');
               }}
             >
@@ -349,15 +352,28 @@ export function HostRow({
       <ConfirmDialog
         open={confirm === 'remove'}
         title={`Remove ${host.name}?`}
-        description="Kalkidan forgets this host. Files on the host do not change. You cannot remove a host while a project uses it."
+        description="Kalkidan revokes this host in Verdictan and forgets it. You cannot remove a host while a project uses it."
         confirmLabel="Remove host"
         destructive
         busy={setup.busy === 'Removing host…'}
         onCancel={() => setConfirm(undefined)}
         onConfirm={() =>
-          void setup.remove(host).then((removed) => removed && setConfirm(undefined))
+          void setup
+            .remove(host, { deleteHostData })
+            .then((removed) => removed && setConfirm(undefined))
         }
       >
+        <CheckboxRow
+          label="Also delete the Kalkidan data on this host"
+          description={
+            host.status === 'connected'
+              ? 'Deletes the helper, the runtime, and the agent conversations that Kalkidan saved on the host. Project folders stay.'
+              : 'Connect the host first. Without a connection, the files on the host do not change.'
+          }
+          disabled={host.status !== 'connected'}
+          checked={deleteHostData && host.status === 'connected'}
+          onChange={(event) => setDeleteHostData(event.target.checked)}
+        />
         {setup.removeError && (
           <p role="alert" className="field-error whitespace-pre-wrap break-words">
             {setup.removeError}

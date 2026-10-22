@@ -89,6 +89,10 @@ export function createVerdictanServices(options: {
     client: () => account.runtimeClient(),
     executable: () => installer.executable(),
     changed: options.changed,
+    // The account session of this device was revoked. Remove the local session at once.
+    revoked: (reason) => {
+      if (reason === 'session_revoked') void account.revokedRemotely();
+    },
   });
   const bindings = new BindingStore(options.root);
   const setup = new VerdictanSetupService(
