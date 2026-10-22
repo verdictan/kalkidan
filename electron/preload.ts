@@ -49,6 +49,14 @@ const api: API = {
   runtimeUpdateInstall: (hostId) => ipcRenderer.invoke('runtime-update-install', hostId),
   runtimeUpdateCancel: (hostId) => ipcRenderer.invoke('runtime-update-cancel', hostId),
   runtimeUpdateTransfer: (hostId) => ipcRenderer.invoke('runtime-update-transfer', hostId),
+  onProxyLogin: (listener) => {
+    const notify = (_event: unknown, request: any) => listener(request);
+    ipcRenderer.on('proxy-login', notify);
+    return () => ipcRenderer.removeListener('proxy-login', notify);
+  },
+  proxyLoginAnswer: (id, answer) => ipcRenderer.invoke('proxy-login-answer', id, answer),
+  proxySignIns: () => ipcRenderer.invoke('proxy-sign-ins'),
+  proxySignInRemove: (proxy) => ipcRenderer.invoke('proxy-sign-in-remove', proxy),
   memoryList: (group) => ipcRenderer.invoke('memory-list', group),
   projectResourceRevision: (group, kind) =>
     ipcRenderer.invoke('project-resource-revision', group, kind),

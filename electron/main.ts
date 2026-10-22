@@ -76,8 +76,10 @@ import {
   powerMonitor,
   Notification,
   net,
+  safeStorage,
   session,
 } from 'electron';
+import { ProxyAuthenticator, ProxyCredentialStore, ProxyPrompts } from './proxy-credentials';
 import { chromiumFetch, withReleaseErrors } from './verdictan/network';
 import { transferRuntime } from './verdictan/transfer';
 import type { RuntimeTransferProgress } from '../src/domain/updates';
@@ -454,8 +456,36 @@ app.whenReady().then(async () => {
   );
   network.start();
   app.on('will-quit', () => network.close());
+  // A proxy that asks for a sign-in gets the saved one, or the user gets a prompt in the window.
+  // The password goes only through IPC and the OS secret store. TLS verification does not change.
+  const proxyCredentials = new ProxyCredentialStore(
+    join(dataRoot, 'proxy-credentials.json'),
+    safeStorage,
+  );
+  const proxyPrompts = new ProxyPrompts((request) => {
+    const window = [...windows].find((item) => !item.isDestroyed());
+    if (!window) return false;
+    window.webContents.send('proxy-login', request);
+    return true;
+  });
+  const proxyAuthenticator = new ProxyAuthenticator(
+    proxyCredentials,
+    (challenge, canSave) => proxyPrompts.ask(challenge, canSave),
+    broadcastVerdictanChanged,
+  );
+  handle('proxy-login-answer', (id: unknown, answer: unknown) => proxyPrompts.answer(id, answer));
+  handle('proxy-sign-ins', () => proxyCredentials.list());
+  handle('proxy-sign-in-remove', async (proxy: unknown) => {
+    if (typeof proxy !== 'string' || proxy.length > 300) throw new Error('Invalid proxy.');
+    proxyAuthenticator.forget(proxy);
+    await proxyCredentials.remove(proxy);
+  });
   // Release requests use the Chromium network stack, with the system proxy and certificates.
-  const releaseRequest = withReleaseErrors(chromiumFetch(net));
+  const releaseRequest = withReleaseErrors(
+    chromiumFetch(net, {
+      proxyLogin: (challenge, retry) => proxyAuthenticator.login(challenge, retry),
+    }),
+  );
   const makeVerdictan = (region: VerdictanRegion | undefined) =>
     createVerdictanServices({
       region,

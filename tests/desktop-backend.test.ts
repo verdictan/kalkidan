@@ -486,3 +486,14 @@ test('the runtime copy reaches only a known SSH host and uses its helper', async
   assert.deepEqual(copy?.[3].slice(0, 1), ['begin']);
   assert.deepEqual(copy?.[3].slice(-2), ['discovered', 'files']);
 });
+
+test('proxy sign-in handlers list no password and check their input', async () => {
+  const f = await desktopFixture();
+  assert.deepEqual(await f.invoke('proxy-sign-ins'), []);
+  await assert.rejects(f.invoke('proxy-sign-in-remove', 42), /Invalid proxy/);
+  await f.invoke('proxy-sign-in-remove', 'proxy.corp.example:3128');
+  assert.equal(
+    await f.invoke('proxy-login-answer', 'unknown', { username: 'u', password: 'p' }),
+    undefined,
+  );
+});

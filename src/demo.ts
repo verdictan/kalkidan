@@ -574,6 +574,7 @@ export const demo: API = {
   runtimeUpdateTransfer: async () => {
     throw new Error('Runtime installation requires the desktop application.');
   },
+  proxySignIns: async () => [],
   memoryList: async () => ({
     pages: demoMemory.map((entry) => ({
       topic: entry.topic,

@@ -451,3 +451,57 @@ test('a small clock difference does not block credentials or releases, and a lar
   assert.throws(() => verify(issued - releaseClockSkewSeconds - 1), /system clock is behind/);
   assert.throws(() => verify(issued - 86400), /Set the date and time/);
 });
+
+test('a proxy that asks for a sign-in gets an answer, and a server gets none', async () => {
+  const { net, requests } = fakeNet();
+  const asked: [string, boolean][] = [];
+  let answer: { username: string; password: string } | null = { username: 'dev', password: 'pw' };
+  const request = chromiumFetch(net, {
+    proxyLogin: async (challenge, retry) => {
+      asked.push([`${challenge.host}:${challenge.port}`, retry]);
+      return answer;
+    },
+  });
+  const reply = (index: number) =>
+    new Promise<unknown[]>((resolve) =>
+      requests[index].emit(
+        'login',
+        { isProxy: true, scheme: 'basic', host: 'proxy', port: 3128, realm: 'Corp' },
+        (...args: unknown[]) => resolve(args),
+      ),
+    );
+  void request('https://github.com/a').catch(() => {});
+  assert.deepEqual(await reply(0), ['dev', 'pw']);
+  // The proxy refused the answer, so the second challenge of the request is a retry.
+  answer = null;
+  assert.deepEqual(await reply(0), []);
+  assert.deepEqual(asked, [
+    ['proxy:3128', false],
+    ['proxy:3128', true],
+  ]);
+  // After three challenges, the request stops asking.
+  answer = { username: 'dev', password: 'pw' };
+  assert.deepEqual(await reply(0), ['dev', 'pw']);
+  assert.deepEqual(await reply(0), []);
+  // A server (not a proxy) that asks for a sign-in gets no answer.
+  void request('https://github.com/b').catch(() => {});
+  const server = await new Promise<unknown[]>((resolve) =>
+    requests[1].emit(
+      'login',
+      { isProxy: false, scheme: 'basic', host: 'github.com', port: 443, realm: 'x' },
+      (...args: unknown[]) => resolve(args),
+    ),
+  );
+  assert.deepEqual(server, []);
+  assert.equal(asked.length, 3);
+  // Without a sign-in source, a proxy challenge also gets no answer.
+  void chromiumFetch(net)('https://github.com/c').catch(() => {});
+  const none = await new Promise<unknown[]>((resolve) =>
+    requests[2].emit(
+      'login',
+      { isProxy: true, scheme: 'basic', host: 'proxy', port: 3128, realm: 'Corp' },
+      (...args: unknown[]) => resolve(args),
+    ),
+  );
+  assert.deepEqual(none, []);
+});

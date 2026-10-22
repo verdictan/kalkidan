@@ -1,3 +1,4 @@
+import { constants } from 'node:fs';
 import { EventEmitter } from 'node:events';
 import { resolve } from 'node:path';
 import { backendLoader } from './backend-loader';
@@ -297,7 +298,7 @@ export async function desktopFixture(platform = 'linux', failure = '') {
       },
       clipboard: { writeText: record('clipboard') },
     },
-    'node:fs': { existsSync: () => true },
+    'node:fs': { existsSync: () => true, constants },
     'node:fs/promises': {
       readFile: async (path: string) => {
         if (path.endsWith('verdictan-region.json')) return JSON.stringify({ region: 'eu' });
@@ -310,6 +311,10 @@ export async function desktopFixture(platform = 'linux', failure = '') {
         return '[projects."/discovered"]';
       },
       writeFile: asyncRecord('writeFile'),
+      // No saved proxy sign-in exists.
+      open: async () => {
+        throw Object.assign(new Error('missing'), { code: 'ENOENT' });
+      },
       rm: asyncRecord('rm'),
       stat: async () => ({ isDirectory: () => state.directory }),
       realpath: async (path: string) => {

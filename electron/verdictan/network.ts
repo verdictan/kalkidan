@@ -134,6 +134,13 @@ export interface ChromiumNet {
       ) => void,
     ): unknown;
     on(event: 'error', listener: (error: Error) => void): unknown;
+    on(
+      event: 'login',
+      listener: (
+        authInfo: { isProxy: boolean; scheme: string; host: string; port: number; realm: string },
+        callback: (username?: string, password?: string) => void,
+      ) => void,
+    ): unknown;
     abort(): void;
     end(): void;
   };
@@ -144,7 +151,19 @@ export interface ChromiumNet {
  * including PAC files, and the certificate store of the system. Unlike `net.fetch`, it returns a
  * redirect with `redirect: 'manual'`, so that the caller can check each redirect.
  */
-export function chromiumFetch(net: ChromiumNet): typeof fetch {
+export function chromiumFetch(
+  net: ChromiumNet,
+  options: {
+    /**
+     * Gives the user name and password for a proxy that asks for them. `retry` is true when the
+     * proxy refused the last answer of this request. Null cancels the sign-in.
+     */
+    proxyLogin?(
+      challenge: { host: string; port: number; scheme: string; realm: string },
+      retry: boolean,
+    ): Promise<{ username: string; password: string } | null>;
+  } = {},
+): typeof fetch {
   return ((input: string | URL, init: RequestInit = {}) =>
     new Promise<Response>((resolve, reject) => {
       const signal = init.signal;
@@ -175,6 +194,26 @@ export function chromiumFetch(net: ChromiumNet): typeof fetch {
           // Chromium sets some headers itself, for example Accept-Encoding.
         }
       }
+      // Only a proxy gets an answer. A server that asks for a sign-in gets none.
+      let challenges = 0;
+      request.on('login', (authInfo, callback) => {
+        challenges++;
+        if (!authInfo?.isProxy || !options.proxyLogin || challenges > 3) return callback();
+        options
+          .proxyLogin(
+            {
+              host: authInfo.host,
+              port: authInfo.port,
+              scheme: authInfo.scheme,
+              realm: authInfo.realm,
+            },
+            challenges > 1,
+          )
+          .then(
+            (answer) => (answer ? callback(answer.username, answer.password) : callback()),
+            () => callback(),
+          );
+      });
       request.on('redirect', (status, _method, location) => {
         request.abort();
         signal?.removeEventListener('abort', abort);
