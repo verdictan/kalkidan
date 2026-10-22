@@ -1,5 +1,14 @@
 import type { ComponentProps, KeyboardEvent, ReactNode, Ref } from 'react';
-import { ArrowUp, Check, ChevronDown, Folder, FolderPlus, Lock, PencilLine } from 'lucide-react';
+import {
+  ArrowUp,
+  Check,
+  ChevronDown,
+  Folder,
+  FolderPlus,
+  Lock,
+  PencilLine,
+  Plus,
+} from 'lucide-react';
 import { newChatAccessKey } from '../lib/chat-preferences';
 import { cn } from '../lib/utils';
 import { hasPrimaryModifier, isMac, shortcutLabel } from '../lib/platform';
@@ -10,12 +19,30 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuSeparator,
+  DropdownMenuShortcut,
   DropdownMenuTrigger,
 } from './ui/dropdown-menu';
 import { Textarea } from './ui/textarea';
 
-/** The one placeholder of the composer, in a chat and on the project Overview. */
-export const composerPlaceholder = 'Ask anything. Type @ to add a file, doc or task.';
+/** The placeholder of a composer that does not know its agent or folder. */
+export const composerPlaceholder = 'Ask anything';
+
+/** The placeholder of the composer: "Ask Codex to change atlas-web". */
+export function composerPlaceholderFor(agentName: string, folderName?: string) {
+  return folderName ? `Ask ${agentName} to change ${folderName}` : `Ask ${agentName}`;
+}
+
+/**
+ * True when the chat works in a branch copy that Kalkidan made: a folder in the project
+ * "worktrees" folder, on a branch other than the default branch.
+ */
+export function isOwnBranchCopy(
+  cwd: string | undefined,
+  working?: { branch: string; defaultBranch: string } | null,
+) {
+  if (!cwd || !working || working.branch === working.defaultBranch) return false;
+  return /[\\/]worktrees[\\/][^\\/]+[\\/]?$/.test(cwd);
+}
 
 export type ChatAccess = 'read' | 'edit';
 
@@ -68,13 +95,10 @@ export function takeNextChatModel(agent: string) {
 
 const accessModes: Record<ChatAccess, { label: string; description: string }> = {
   read: { label: 'Read only', description: 'The agent reads files and does not change them.' },
-  edit: { label: 'Can edit files', description: 'The agent can change files in the folder.' },
+  edit: { label: 'Can edit', description: 'The agent can change files in the folder.' },
 };
 
-/**
- * The access pill: a menu with "Read only" and "Can edit files". A warning dot shows when the
- * agent can change files.
- */
+/** The access pill: a menu with "Read only" and "Can edit". */
 export function AccessPill({
   value,
   onChange,
@@ -95,11 +119,7 @@ export function AccessPill({
             aria-label={`Access: ${mode.label}`}
             disabled={disabled}
           >
-            {value === 'read' ? (
-              <Lock aria-hidden="true" />
-            ) : (
-              <span className="composer-access-dot" aria-hidden="true" />
-            )}
+            {value === 'read' ? <Lock aria-hidden="true" /> : <PencilLine aria-hidden="true" />}
             {mode.label}
             <ChevronDown aria-hidden="true" />
           </Button>
@@ -187,6 +207,59 @@ export function FolderPill({
             </DropdownMenuItem>
           </>
         )}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+/** One item of the "+" menu of the composer. */
+export interface ComposerAddItem {
+  label: string;
+  icon: ReactNode;
+  onSelect: () => void;
+  /** A key hint on the right, for example "@". */
+  shortcut?: string;
+}
+
+/** The round "+" pill at the left of the composer bar. Its menu adds context to the message. */
+export function ComposerAddMenu({
+  items,
+  disabled,
+  reason,
+  onOpenChange,
+  children,
+}: {
+  items: ComposerAddItem[];
+  disabled?: boolean;
+  /** Why the pill is disabled. The tooltip shows it. */
+  reason?: string;
+  onOpenChange?: (open: boolean) => void;
+  /** More menu content before the items, for example a submenu. */
+  children?: ReactNode;
+}) {
+  return (
+    <DropdownMenu onOpenChange={onOpenChange}>
+      <Hint label={reason || 'Add context'} disabled={disabled}>
+        <DropdownMenuTrigger asChild>
+          <Button
+            variant="chip"
+            className="composer-add"
+            aria-label="Add context"
+            disabled={disabled}
+          >
+            <Plus />
+          </Button>
+        </DropdownMenuTrigger>
+      </Hint>
+      <DropdownMenuContent align="start" width="wide">
+        {children}
+        {items.map((item) => (
+          <DropdownMenuItem key={item.label} onSelect={item.onSelect}>
+            {item.icon}
+            {item.label}
+            {item.shortcut && <DropdownMenuShortcut>{item.shortcut}</DropdownMenuShortcut>}
+          </DropdownMenuItem>
+        ))}
       </DropdownMenuContent>
     </DropdownMenu>
   );

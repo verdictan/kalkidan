@@ -6,23 +6,23 @@ import {
   ConversationTools,
   noChangesToCommit,
   type ConversationContext,
+  type ToolKind,
   type ToolRequest,
 } from './conversation-tools';
 import { PolicyResultCard } from './policy-result';
 import { addPolicyRecords, chatPolicyLimit, type PolicyRecord } from '../domain/policy-result';
 import { AgentActivity, RunRequests, runLineCounts } from './agent-activity';
-import { ContextUsageChip } from './context-usage-chip';
+import { useContextUsage } from './context-usage-chip';
 import { useVerdictanStatus } from '../hooks/use-verdictan-status';
 import { changeTaskStatus } from '../lib/task-status';
 import { agentCatalog, agentLabel } from '../config/agents';
 import { ConfirmDialog } from './confirm-dialog';
-import { CommitDialog } from './session-menu';
+import { CommitDialog, reportChatMenuState } from './session-menu';
 import { ModelChip, useModelChoice } from './model-chip';
 import { chosenModel } from '../domain/model-choice';
 import { Fragment, useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import {
   AtSign,
-  Ellipsis,
   FileDiff,
   FileText,
   ListTodo,
@@ -30,7 +30,6 @@ import {
   Lock,
   LogIn,
   Paperclip,
-  Plus,
   Search,
   Square,
   X,
@@ -57,10 +56,8 @@ import type { DocPassage } from '../domain/docs';
 import {
   AgentErrorActions,
   AgentErrorNote,
-  PullRequestChip,
   SaveToDocsDialog,
   SendFailure,
-  TaskChip,
   TaskLinkDialog,
   dispatchApp,
   forkChat,
@@ -70,15 +67,11 @@ import {
   takeQueuedSessionCommand,
 } from './chat-links';
 import {
-  DropdownMenu,
-  DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuSeparator,
-  DropdownMenuShortcut,
   DropdownMenuSub,
   DropdownMenuSubContent,
   DropdownMenuSubTrigger,
-  DropdownMenuTrigger,
 } from './ui/dropdown-menu';
 import { Hint } from './hint';
 import { DocPagePicker } from './doc-page-picker';
@@ -97,9 +90,11 @@ import { onChatPreferencesChange, readEnterToSend } from '../lib/chat-preference
 import {
   AccessPill,
   Composer,
+  ComposerAddMenu,
   FolderPill,
-  composerPlaceholder,
+  composerPlaceholderFor,
   defaultAccess,
+  isOwnBranchCopy,
   readAccess,
   saveAccess,
   takeNextChatModel,
@@ -126,25 +121,6 @@ export type ConversationDraft = { prompt: string; contexts: ConversationContext[
 const sendShortcut = shortcutLabel(['mod'], 'Enter');
 // The "+" menu offers this many doc pages. "All pages…" opens the page picker.
 const recentPageLimit = 6;
-
-// Starter prompts for an empty session. A click puts the text in the composer.
-const starterPrompts = [
-  {
-    label: 'Explain this code',
-    prompt:
-      'Explore this repository and explain its architecture, main entry points, and how to run and test it. Do not change files yet.',
-  },
-  {
-    label: 'Plan a change',
-    prompt:
-      'Help me plan a change in this repository. First read the project conventions and tests, then ask me what I want to build.',
-  },
-  {
-    label: 'Find an improvement',
-    prompt:
-      'Find one concrete reliability or performance improvement in this repository. Explain the evidence and how to verify it before you change files.',
-  },
-];
 
 // The words that agents use when a read-only run cannot change a file: Codex reports the
 // read-only sandbox, Claude Code reports plan mode or a permission denial.
@@ -280,17 +256,15 @@ export function Conversation({
   // A chat of another account or organization is read-only. Its context and usage stay there.
   const ownership = useConversationOwnership(api, session, open);
   const readOnly = isReadOnly(ownership);
-  const [toolOpen, setToolOpen] = useState(false);
+  const [toolOpen, setToolOpen] = useState<ToolKind | null>(null);
   const [toolRequest, setToolRequest] = useState<ToolRequest | null>(null);
-  const showTool = (kind: ToolRequest['kind']) =>
-    setToolRequest((previous) => ({ kind, n: (previous?.n || 0) + 1 }));
+  const showTool = (kind: ToolRequest['kind'], toggle = false) =>
+    setToolRequest((previous) => ({ kind, n: (previous?.n || 0) + 1, toggle }));
   const [docPickerOpen, setDocPickerOpen] = useState(false);
   const [recentPages, setRecentPages] = useState<ProjectDocMetadata[] | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   const [working, setWorking] = useState<WorkingStatus | null>(null);
   const [runsFinished, setRunsFinished] = useState(0);
-  // "Hide" in the changes row hides it until the changes are different.
-  const [changesHidden, setChangesHidden] = useState('');
   const [editsRefused, setEditsRefused] = useState(false);
   const runEdits = useRef(false);
   const permissionTouched = useRef(false);
@@ -331,7 +305,6 @@ export function Conversation({
   const modelAgent = useRef(session.agent);
   const [models, setModels] = useState<ModelOption[]>([]);
   const [modelsFailed, setModelsFailed] = useState(false);
-  const [unlinkOpen, setUnlinkOpen] = useState(false);
   // The linked task is Done. The changes row then shows only for new changes.
   const [taskDone, setTaskDone] = useState(false);
   const [reviewChanges, setReviewChanges] = useState(0);
@@ -572,20 +545,22 @@ export function Conversation({
       current = false;
     };
   }, [api, session.agent]);
-  // A new chat uses the last choice in its code folder. Without a choice, a chat in a branch
-  // copy (any branch other than the default branch) can edit files. On the default branch it
-  // starts as Read only, so the main checkout stays clean.
-  // The choice in Settings › General ("New chats start as") applies when the user made one.
+  // Access default: a chat that works in its own branch copy (a separate folder that Kalkidan
+  // made, on its own branch) can edit files, because its changes stay apart from the user's
+  // checkout. Every other chat starts as Read only, also on a feature branch in the main
+  // checkout, so the user's own work stays safe. The last choice in the code folder and the
+  // choice in Settings › General ("New chats start as") apply when the user made one.
   const storedPermission = session.projectId ? readAccess(repositoryId) || defaultAccess() : null;
   const [allowEdits, setAllowEdits] = useState(() => storedPermission === 'edit');
   const onDefaultBranch = !!working && working.branch === working.defaultBranch;
   const onBranchCopy = !!working && !onDefaultBranch;
+  const ownBranchCopy = isOwnBranchCopy(session.cwd, working);
   useEffect(() => {
     if (storedPermission || permissionTouched.current || startedTasks.current.size) return;
     // A chat that already sent a message keeps its access.
     if (messages.length) return;
-    setAllowEdits(onBranchCopy);
-  }, [onBranchCopy]);
+    setAllowEdits(ownBranchCopy);
+  }, [ownBranchCopy]);
   function choosePermission(value: ChatAccess) {
     permissionTouched.current = true;
     setAllowEdits(value === 'edit');
@@ -827,6 +802,21 @@ export function Conversation({
       return;
     }
     if (retry ? !again : !prompt.trim()) return;
+    // A message while an approval waits is the answer "do this instead": deny the request,
+    // stop the turn, then send the message.
+    if (!retry && run && active && approvalsPending && !readOnly) {
+      const id = run.id;
+      sendWhenIdle.current = true;
+      await Promise.all(
+        (run.approvals || [])
+          .filter((approval) => approval.status === 'pending')
+          .map((approval) => api.chatApprove(id, approval.id, false)),
+      ).catch((e) => setError(errorMessage(e)));
+      await api.chatStop(id).catch(() => {
+        /* The turn can end by itself after the denial. */
+      });
+      return;
+    }
     if (active || taskBusy || startingRef.current || loading || readOnly) return;
     if (signedOut) {
       sendAfterSignIn.current = true;
@@ -955,6 +945,13 @@ export function Conversation({
       setStarting(false);
     }
   }
+  // Send the message that answered a waiting approval, after the turn ends.
+  const sendWhenIdle = useRef(false);
+  useEffect(() => {
+    if (active || !sendWhenIdle.current) return;
+    sendWhenIdle.current = false;
+    void send();
+  }, [active]);
   // Send the kept draft after the sign-in.
   useEffect(() => {
     if (account?.phase !== 'authenticated' || !sendAfterSignIn.current) return;
@@ -1199,7 +1196,6 @@ export function Conversation({
   const [activityText, setActivityText] = useState(nextActivity);
   if (active && activityText !== nextActivity) setActivityText(nextActivity);
   const linkedTask = linkItems.find((i) => i.id === taskId) || session.task;
-  const taskTitle = linkedTask?.title || 'Linked task';
   // A new task chat takes the title of its task, not "New … chat".
   const knownTaskTitle = linkedTask?.title;
   linkedTaskTitle.current = knownTaskTitle;
@@ -1214,16 +1210,7 @@ export function Conversation({
     : contexts.length >= interfaceConfig.maxAttachments
       ? 'Remove an attachment first'
       : '';
-  function unlinkTask() {
-    setUnlinkOpen(false);
-    const previous = taskId;
-    setTaskId('');
-    void saveOrganization({ taskId: '' }).catch((e) => {
-      // Show the link again when the change was not saved.
-      setTaskId(previous);
-      setError(errorMessage(e));
-    });
-  }
+  const canMarkDoneRef = useRef(false);
   // The application menu and the chat menu send these commands to the visible chat.
   const commands = useRef<(name: string) => boolean>(() => false);
   commands.current = (name) => {
@@ -1233,6 +1220,7 @@ export function Conversation({
     else if (name === 'link-task' && trackerConnection(projectGroup) && !active)
       void openTaskLink();
     else if (name === 'open-pull-request' && pullRequest) openExternal(pullRequest.url);
+    else if (name === 'session-mark-task-done' && canMarkDoneRef.current) void requestDone();
     // The task sheet sends "create-pull-request". The chat menus send the session command.
     else if (
       (name === 'session-create-pull-request' || name === 'create-pull-request') &&
@@ -1272,6 +1260,7 @@ export function Conversation({
   // The activity of each run goes right after the last message of that run. A run without a
   // message in this view shows after the messages.
   const runs = [...pastActivity, ...(run ? [run] : [])];
+  const answered = runsFinished > 0 || messages.some((message) => message.role === 'assistant');
   const activityAfter = new Map<string, ChatRun[]>();
   const unplaced: ChatRun[] = [];
   for (const entry of runs) {
@@ -1281,6 +1270,16 @@ export function Conversation({
     if (last) activityAfter.set(last.id, [...(activityAfter.get(last.id) || []), entry]);
     else unplaced.push(entry);
   }
+  // The facts and pages that the chat read. They go behind the line of the last run.
+  const contextUsage = useContextUsage(
+    api,
+    projectGroup?.id,
+    session.agent,
+    providerSession.current || (session.projectId ? '' : session.id),
+    runsFinished,
+  );
+  const showContext = !!contextUsage && answered && !active;
+  const lastRun = runs.at(-1);
   const activityOf = (entry: ChatRun) => (
     <AgentActivity
       key={'activity:' + entry.id}
@@ -1288,6 +1287,7 @@ export function Conversation({
       groupId={projectGroup?.id}
       taskId={taskId || undefined}
       docPassages={docPassages[entry.id]}
+      context={showContext && entry === lastRun ? contextUsage : undefined}
     />
   );
   const lastAnswer =
@@ -1334,25 +1334,34 @@ export function Conversation({
   const linkTaskAvailable = !!trackerConnection(projectGroup) && !taskId;
   // An approval or a question docks above the composer.
   const waiting = !!run && run.status === 'running' && !!(approvalsPending || questionsPending);
-  // One changes row after a run: "3 files changed on main · +70 −2", Review, one primary
-  // action and ⋯. It stays until the task is done. A branch with commits and no pull request
-  // also offers the pull request.
+  // One changes row after a run: "3 files +70 −2", Review and one action. It is the one way to
+  // the Changes pane. A branch with commits and no pull request also offers the pull request.
+  // Commit only and Mark task done are in the chat menu.
   const unsharedCommits =
     onBranchCopy && !pullRequest && !!working && working.ahead > 0 ? working.ahead : 0;
   const lines = runLineCounts(runs);
-  const answered = runsFinished > 0 || messages.some((message) => message.role === 'assistant');
-  const changesKey = `${chatChanges}:${unsharedCommits}:${pullRequest?.state || ''}`;
   // A task is done only after a run that finished, or when it has a pull request. A run that
   // failed or was stopped does not offer "Mark task done".
   const canMarkDone =
     !!taskId && !taskDone && (!!pullRequest || runs.at(-1)?.status === 'completed');
+  canMarkDoneRef.current = canMarkDone && !taskBusy;
   const showChanges =
     !active &&
     !!repositoryId &&
-    changesHidden !== changesKey &&
-    (chatChanges > 0 ||
-      unsharedCommits > 0 ||
-      (canMarkDone && answered && (!!pullRequest || runsFinished > 0)));
+    (chatChanges > 0 || unsharedCommits > 0 || (!!pullRequest && pullRequest.state !== 'merged'));
+  // The chat menu shows "Mark task done" only when the chat can mark it.
+  useEffect(() => {
+    if (!visible) return;
+    reportChatMenuState({ canMarkDone: canMarkDone && !taskBusy });
+  }, [visible, canMarkDone, taskBusy]);
+  // A merged pull request finishes the linked task.
+  const closedOnMerge = useRef('');
+  useEffect(() => {
+    if (pullRequest?.state !== 'merged' || !taskId || taskDone) return;
+    if (closedOnMerge.current === pullRequest.url) return;
+    closedOnMerge.current = pullRequest.url;
+    void markDone();
+  }, [pullRequest?.state, pullRequest?.url, taskId, taskDone]);
   // A new chat shows its code folder and branch. Another folder starts a new chat there.
   const folderPill =
     !!session.projectId && !messages.length && !run && !providerSession.current && !!repositoryId;
@@ -1388,12 +1397,7 @@ export function Conversation({
       reviewRequest={reviewChanges}
       reviewPath={reviewPath}
       toolRequest={toolRequest}
-      changeCount={repositoryId ? chatChanges : null}
-      changeHint={
-        repositoryId && changedFiles
-          ? `${plural(changedFiles, 'uncommitted file')} in ${folderName}`
-          : undefined
-      }
+      branch={working ? { name: working.branch, base: working.defaultBranch } : undefined}
       runsFinished={runsFinished}
       onChangesRead={() => readWorking.current()}
       onToolChange={setToolOpen}
@@ -1424,34 +1428,10 @@ export function Conversation({
               <LoaderCircle className="size-3.5 animate-spin" aria-hidden="true" /> Loading chat…
             </div>
           )}
-          {truncated && (
-            <p className="chat-context-note">
-              Showing the most recent messages. {agentName} resumes the original session with its
-              saved context.
-            </p>
-          )}
+          {truncated && <p className="chat-context-note">Recent messages</p>}
           {!loading && !messages.length && (
             <div className="conversation-welcome">
               <h3>{session.projectId ? 'What are we working on?' : 'Resume your chat'}</h3>
-              {/* The starters stay while the user types, so the composer does not move. */}
-              {session.projectId && (
-                <div className="conversation-starters" role="group" aria-label="Starter prompts">
-                  {starterPrompts.map((starter) => (
-                    <Hint key={starter.label} label={starter.prompt}>
-                      <Button
-                        variant="chip"
-                        onClick={() => {
-                          setPrompt(starter.prompt);
-                          // The caret goes after the prompt, so the user can add to it.
-                          placeCaret(starter.prompt.length);
-                        }}
-                      >
-                        {starter.label}
-                      </Button>
-                    </Hint>
-                  ))}
-                </div>
-              )}
             </div>
           )}
           <div
@@ -1508,25 +1488,33 @@ export function Conversation({
             ))}
           </div>
           {unplaced.map(activityOf)}
-          {/* The live step already shows under the steps fold. Else one line says what runs. */}
-          {active && !liveStep && (
-            <div className="chat-activity">
-              <LoaderCircle className="size-3.5 animate-spin" aria-hidden="true" />
-              <span role="status">{activityText}</span>
+          {/* The run without an answer in this view: the context line shows alone. */}
+          {showContext && !runs.length && (
+            <AgentActivity groupId={projectGroup?.id} context={contextUsage} />
+          )}
+          {/* One status line: waiting for the user, or what runs now. The live step already
+              shows under the run line. */}
+          {waiting ? (
+            <div className="chat-activity" data-waiting="">
+              <span className="chat-activity-dot" aria-hidden="true" />
+              <span role="status">
+                {run?.hostDetached
+                  ? 'Waiting on SSH host'
+                  : approvalsPending
+                    ? 'Waiting for your approval'
+                    : 'Waiting for your answer'}
+              </span>
             </div>
-          )}
-          {active && run?.hostDetached && (
-            <p className="chat-context-note" role="status">
-              The connection to the SSH host stopped. The run continues on the host. Kalkidan
-              connects again and then shows the run here.
-            </p>
-          )}
-          {session.hostId && approvalsPending + questionsPending > 0 && (
-            <p className="chat-context-note" role="status">
-              {run?.hostDetached
-                ? 'The run waits on the SSH host for your answer. Connect the host again to answer. Kalkidan never answers for you.'
-                : 'The run waits on the SSH host for your answer. It continues only after you answer. Kalkidan never answers for you.'}
-            </p>
+          ) : (
+            active &&
+            (!liveStep || run?.hostDetached) && (
+              <div className="chat-activity">
+                <LoaderCircle className="size-3.5 animate-spin" aria-hidden="true" />
+                <span role="status">
+                  {run?.hostDetached ? 'Waiting on SSH host' : activityText}
+                </span>
+              </div>
+            )
           )}
           {shownPolicies.map((policy) => (
             <PolicyResultCard
@@ -1542,22 +1530,9 @@ export function Conversation({
               }
             />
           ))}
-          {run?.status === 'stopped' && (
-            <p className="chat-context-note">Response stopped. Send another message to continue.</p>
+          {run?.status === 'stopped' && !sendWhenIdle.current && (
+            <p className="chat-context-note">Stopped</p>
           )}
-          {projectGroup &&
-            answered &&
-            !active &&
-            (providerSession.current || !session.projectId) && (
-              <ContextUsageChip
-                // A finished run can read more. A new key reads the usage again.
-                key={runsFinished}
-                api={api}
-                groupId={projectGroup.id}
-                agent={session.agent}
-                sessionId={providerSession.current || session.id}
-              />
-            )}
         </div>
         <div className="composer-dock">
           {run && waiting && (
@@ -1565,7 +1540,6 @@ export function Conversation({
               <RunRequests
                 api={api}
                 run={run}
-                onInstead={() => requestAnimationFrame(() => textarea.current?.focus())}
                 onUpdate={(next) => {
                   if (runRef.current?.id !== next.id) return;
                   runRef.current = next;
@@ -1579,27 +1553,29 @@ export function Conversation({
             <div className="run-changes" role="group" aria-label="Changes from this chat">
               <FileDiff className="size-4 shrink-0" aria-hidden="true" />
               <span role="status" className="run-changes-text">
-                {/* The count never shortens. Only the branch shortens, then hides. */}
+                {/* The count never shortens. */}
                 <span className="run-changes-count">
                   {chatChanges > 0
-                    ? `${plural(chatChanges, 'file')} changed`
+                    ? plural(chatChanges, 'file')
                     : unsharedCommits > 0
                       ? `${plural(unsharedCommits, 'commit')} not in a pull request`
-                      : pullRequest
-                        ? pullRequestLabelText(pullRequest)
-                        : 'No file changes'}
+                      : pullRequestLabelText(pullRequest!)}
                 </span>
-                {(!!lines.added || !!lines.removed) && (
+                {chatChanges > 0 && (!!lines.added || !!lines.removed) && (
                   <span className="run-changes-lines">
                     <span className="diff-count-add">+{lines.added}</span>{' '}
                     <span className="diff-count-remove">−{lines.removed}</span>
                   </span>
                 )}
-                {working && <span className="run-changes-branch">on {working.branch}</span>}
               </span>
               <span className="run-changes-actions">
                 {chatChanges > 0 && (
-                  <Button size="sm" variant="ghost" onClick={() => review()}>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    aria-pressed={toolOpen === 'diff'}
+                    onClick={() => showTool('diff', true)}
+                  >
                     Review
                   </Button>
                 )}
@@ -1607,51 +1583,16 @@ export function Conversation({
                   <Button size="sm" variant="outline" onClick={() => openExternal(pullRequest.url)}>
                     {pullRequestActionLabel(pullRequest)}
                   </Button>
-                ) : chatChanges > 0 || unsharedCommits > 0 ? (
-                  <Button size="sm" variant="outline" onClick={createPullRequest}>
-                    <span className="run-changes-long">Create pull request…</span>
-                    <span className="run-changes-short" aria-hidden="true">
-                      Create PR…
-                    </span>
-                  </Button>
                 ) : (
-                  canMarkDone && (
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      disabled={taskBusy}
-                      onClick={() => void requestDone()}
-                    >
-                      {taskBusy && <LoaderCircle className="animate-spin" aria-hidden="true" />}
-                      Mark task done
-                    </Button>
-                  )
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="run-changes-primary"
+                    onClick={createPullRequest}
+                  >
+                    <span className="truncate">Create pull request</span>
+                  </Button>
                 )}
-                <DropdownMenu>
-                  <Hint label="More actions">
-                    <DropdownMenuTrigger asChild>
-                      <Button variant="ghost" size="icon-sm" aria-label="More change actions">
-                        <Ellipsis />
-                      </Button>
-                    </DropdownMenuTrigger>
-                  </Hint>
-                  <DropdownMenuContent align="end">
-                    {chatChanges > 0 && (
-                      <DropdownMenuItem onSelect={openCommit}>Commit only…</DropdownMenuItem>
-                    )}
-                    {canMarkDone && (chatChanges > 0 || unsharedCommits > 0 || pullRequest) && (
-                      <DropdownMenuItem disabled={taskBusy} onSelect={() => void requestDone()}>
-                        Mark task done
-                      </DropdownMenuItem>
-                    )}
-                    {(chatChanges > 0 || (canMarkDone && (unsharedCommits > 0 || pullRequest))) && (
-                      <DropdownMenuSeparator />
-                    )}
-                    <DropdownMenuItem onSelect={() => setChangesHidden(changesKey)}>
-                      Hide until the next change
-                    </DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
               </span>
             </div>
           )}
@@ -1666,7 +1607,15 @@ export function Conversation({
             onSend={() => void send()}
             canSend={!!prompt.trim() && !taskBusy && !loading && !readOnly}
             enterToSend={enterToSend}
-            placeholder={waiting ? `${agentName} is waiting for you…` : composerPlaceholder}
+            placeholder={
+              approvalsPending && waiting
+                ? `Or tell ${agentName} what to do instead`
+                : waiting
+                  ? `${agentName} is waiting for you…`
+                  : messages.length || run
+                    ? 'Ask for a change'
+                    : composerPlaceholderFor(agentName, session.projectId ? folderName : undefined)
+            }
             inputProps={{
               readOnly,
               maxLength: 100000,
@@ -1838,67 +1787,65 @@ export function Conversation({
             }
             controls={
               <>
-                <DropdownMenu onOpenChange={(value) => value && void loadRecentPages()}>
-                  <Hint label={attachReason || 'Add context'} disabled={!!attachReason}>
-                    <DropdownMenuTrigger asChild>
-                      <Button
-                        variant="chip"
-                        className="composer-add"
-                        aria-label="Add context"
-                        disabled={!!attachReason}
-                      >
-                        <Plus />
-                      </Button>
-                    </DropdownMenuTrigger>
-                  </Hint>
-                  <DropdownMenuContent align="start" width="wide">
-                    {projectGroup && (
-                      <DropdownMenuSub>
-                        <DropdownMenuSubTrigger>
-                          <FileText />
-                          Doc page
-                        </DropdownMenuSubTrigger>
-                        <DropdownMenuSubContent>
-                          {recentPages?.map((page) => (
-                            <DropdownMenuItem key={page.id} onSelect={() => void attachDoc(page)}>
-                              <FileText />
-                              {page.title || 'Untitled'}
-                            </DropdownMenuItem>
-                          ))}
-                          {!!recentPages?.length && <DropdownMenuSeparator />}
-                          <DropdownMenuItem onSelect={() => setDocPickerOpen(true)}>
-                            <Search />
-                            All pages…
+                <ComposerAddMenu
+                  disabled={!!attachReason}
+                  reason={attachReason}
+                  onOpenChange={(value) => value && void loadRecentPages()}
+                  items={[
+                    ...(projectGroup
+                      ? [
+                          {
+                            label: 'Search docs',
+                            icon: <Search />,
+                            shortcut: '@docs',
+                            onSelect: searchDocs,
+                          },
+                          {
+                            label: 'File or folder',
+                            icon: <AtSign />,
+                            shortcut: '@',
+                            onSelect: startMention,
+                          },
+                        ]
+                      : []),
+                    {
+                      label: 'Text file…',
+                      icon: <Paperclip />,
+                      onSelect: () => fileInput.current?.click(),
+                    },
+                    ...(linkTaskAvailable
+                      ? [
+                          {
+                            label: 'Link a task…',
+                            icon: <ListTodo />,
+                            onSelect: () => void openTaskLink(),
+                          },
+                        ]
+                      : []),
+                  ]}
+                >
+                  {projectGroup && (
+                    <DropdownMenuSub>
+                      <DropdownMenuSubTrigger>
+                        <FileText />
+                        Doc page
+                      </DropdownMenuSubTrigger>
+                      <DropdownMenuSubContent>
+                        {recentPages?.map((page) => (
+                          <DropdownMenuItem key={page.id} onSelect={() => void attachDoc(page)}>
+                            <FileText />
+                            {page.title || 'Untitled'}
                           </DropdownMenuItem>
-                        </DropdownMenuSubContent>
-                      </DropdownMenuSub>
-                    )}
-                    {projectGroup && (
-                      <DropdownMenuItem onSelect={searchDocs}>
-                        <Search />
-                        Search docs
-                        <DropdownMenuShortcut>@docs</DropdownMenuShortcut>
-                      </DropdownMenuItem>
-                    )}
-                    {projectGroup && (
-                      <DropdownMenuItem onSelect={startMention}>
-                        <AtSign />
-                        File or folder
-                        <DropdownMenuShortcut>@</DropdownMenuShortcut>
-                      </DropdownMenuItem>
-                    )}
-                    <DropdownMenuItem onSelect={() => fileInput.current?.click()}>
-                      <Paperclip />
-                      Text file…
-                    </DropdownMenuItem>
-                    {linkTaskAvailable && (
-                      <DropdownMenuItem onSelect={() => void openTaskLink()}>
-                        <ListTodo />
-                        Link a task…
-                      </DropdownMenuItem>
-                    )}
-                  </DropdownMenuContent>
-                </DropdownMenu>
+                        ))}
+                        {!!recentPages?.length && <DropdownMenuSeparator />}
+                        <DropdownMenuItem onSelect={() => setDocPickerOpen(true)}>
+                          <Search />
+                          All pages…
+                        </DropdownMenuItem>
+                      </DropdownMenuSubContent>
+                    </DropdownMenuSub>
+                  )}
+                </ComposerAddMenu>
                 <input
                   ref={fileInput}
                   type="file"
@@ -1936,18 +1883,6 @@ export function Conversation({
                       : undefined
                   }
                 />
-                {taskId && (
-                  <TaskChip
-                    title={taskTitle}
-                    disabled={!!active}
-                    onOpen={projectGroup ? openLinkedTask : undefined}
-                    onChange={
-                      trackerConnection(projectGroup) ? () => void openTaskLink() : undefined
-                    }
-                    onUnlink={() => setUnlinkOpen(true)}
-                  />
-                )}
-                {pullRequest && <PullRequestChip pr={pullRequest} />}
               </>
             }
             action={
@@ -2056,6 +1991,7 @@ export function Conversation({
             }}
             message={sessionTitle}
             sessionTitle={sessionTitle}
+            summary={lastAnswer.slice(0, 2000)}
             task={taskId ? linkedTask : undefined}
             group={projectGroup}
             onTaskChange={(item) =>
@@ -2088,14 +2024,6 @@ export function Conversation({
             lastAnswer={lastAnswer}
           />
         )}
-        <ConfirmDialog
-          open={unlinkOpen}
-          title="Unlink task"
-          description="The agent no longer gets this task as context. The task stays on the board. You can link it again later."
-          confirmLabel="Unlink task"
-          onCancel={() => setUnlinkOpen(false)}
-          onConfirm={unlinkTask}
-        />
       </section>
     </ConversationTools>
   );

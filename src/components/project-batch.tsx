@@ -1,5 +1,6 @@
 import { useRef, useState } from 'react';
 import type { TrackerField } from '../domain/tracker';
+import type { API, TrackerItem } from '../types';
 import {
   projectFieldValue,
   type ProjectBatchRequest,
@@ -333,4 +334,47 @@ export function FieldsTool({
       </DialogFooter>
     </>
   );
+}
+
+/**
+ * Writes one choice of a single select or an iteration field to many tasks, without a review
+ * step: the choice in the menu is the review. Returns the toast text. Tasks that have the value
+ * already are left out.
+ */
+export async function setFieldOnTasks(
+  api: API,
+  groupId: string,
+  field: TrackerField,
+  choice: { id: string; name: string },
+  items: TrackerItem[],
+) {
+  const value: ProjectFieldValue =
+    field.dataType === 'ITERATION'
+      ? { iterationId: choice.id }
+      : { singleSelectOptionId: choice.id };
+  const changes = items
+    .slice(0, batchLimit)
+    .map((item) => ({
+      itemId: item.id,
+      fieldId: field.id,
+      before: projectFieldValue(item, field.id),
+      value,
+    }))
+    .filter((change) => JSON.stringify(change.before) !== JSON.stringify(value));
+  if (!changes.length) return `${plural(items.length, 'task')} already have ${choice.name}.`;
+  const result = await api.trackerBatch(groupId, { id: crypto.randomUUID(), changes });
+  const saved = result.rows.filter((row) => row.state === 'confirmed').length;
+  const unknown = result.rows.filter((row) => row.state === 'unknown-outcome').length;
+  const failed = result.rows.length - saved - unknown;
+  if (unknown) notifyGitHubWrites(groupId, unknown);
+  if (!saved && failed)
+    throw new Error(
+      result.rows.find((row) => row.message)?.message || 'GitHub refused the change.',
+    );
+  return [
+    `Set ${field.name} to ${choice.name} on ${plural(saved, 'task')}.`,
+    failed ? `${plural(failed, 'task')} changed on GitHub first. Try again.` : '',
+  ]
+    .filter(Boolean)
+    .join(' ');
 }

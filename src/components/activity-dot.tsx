@@ -56,6 +56,48 @@ export function ActivityDot({ state, label }: { state?: ChatStatus; label?: stri
   );
 }
 
+/**
+ * The status mark of a sidebar row, in a 12px slot before the title: an amber dot when the
+ * chat waits for the user, a turning ring while the agent works, and the ActivityDot shapes for
+ * the other states. A draft that was not sent yet gets a hollow grey dot. Without a state, the
+ * slot stays empty, so every title starts at the same x.
+ */
+export function StatusMark({
+  state,
+  label,
+  draft = false,
+}: {
+  state?: ChatStatus;
+  label?: string;
+  draft?: boolean;
+}) {
+  if (state === 'running') {
+    const text = label || statusLabels.running;
+    return (
+      <span className="status-mark">
+        <span className="status-ring" role="img" aria-label={text} title={text} />
+      </span>
+    );
+  }
+  if (!state && draft)
+    return (
+      <span className="status-mark">
+        <span
+          className="activity-dot"
+          data-state="draft"
+          role="img"
+          aria-label="Draft: not sent yet"
+          title="Draft: not sent yet"
+        />
+      </span>
+    );
+  return (
+    <span className="status-mark">
+      <ActivityDot state={state} label={label} />
+    </span>
+  );
+}
+
 /** A finished run that the user did not open yet. */
 export interface FinishedRun {
   agent: string;

@@ -1,15 +1,21 @@
 import type { ReactNode } from 'react';
 import { cn } from '@/lib/utils';
 
-/** One empty state for pages, panels and columns. Compact for small areas. */
+/**
+ * The one empty state: one quiet sentence that says what is missing, with the action on the
+ * same line. It is left-aligned on the content edge of its area. The title is in the
+ * foreground and the text after it is muted. Compact uses 12/16 text for small areas.
+ *
+ * `icon` is not drawn. Lists are text first, so an empty state has no tile.
+ */
 export function EmptyState({
-  icon,
   title,
   children,
   action,
   compact = false,
   className,
 }: {
+  /** Not drawn. Kept so that older call sites compile. */
   icon?: ReactNode;
   title?: ReactNode;
   children?: ReactNode;
@@ -19,13 +25,20 @@ export function EmptyState({
 }) {
   return (
     <div className={cn('empty-state', className)} data-compact={compact || undefined}>
-      {icon && (
-        <span className="empty-state-icon" aria-hidden="true">
-          {icon}
-        </span>
+      {(title || children) && (
+        <div className="empty-state-text">
+          {title && (
+            <span className="empty-state-title">
+              {/* The title and the text read as one sentence or two, never as a run-on. */}
+              {typeof title === 'string' && children && !/[.!?…]$/.test(title)
+                ? title + '.'
+                : title}
+            </span>
+          )}
+          {title && children && ' '}
+          {children && <span className="empty-state-body">{children}</span>}
+        </div>
       )}
-      {title && <h3 className="empty-state-title">{title}</h3>}
-      {children && <div className="empty-state-body">{children}</div>}
       {action && <div className="empty-state-action">{action}</div>}
     </div>
   );

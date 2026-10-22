@@ -4,8 +4,9 @@ import { Count } from './count';
 
 /**
  * The header of a page. The title row is 32px high, so the 20/28 title is at the same y on
- * every page, and the actions align with it. An optional 28px entity tile goes before the
- * title: use it on entity pages, not on list pages. The 12/16 subtitle line is under the title.
+ * every page, and the actions align with it. Every title starts at the same x, so use the
+ * optional 28px tile only when the icon carries meaning (an agent), never for a project or a
+ * list page. The 12/16 subtitle line is under the title.
  * Set `reserveSubtitle` to keep its space when the subtitle is empty, so that the content
  * below does not move. The header is 16px above the tabs or the content.
  */

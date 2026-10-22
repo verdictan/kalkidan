@@ -10,7 +10,7 @@ import {
 } from '../domain/project-batch';
 import type { PlanningLabel } from '../domain/planning-labels';
 import { fullTime, relativeTime } from '../lib/relative-time';
-import { History } from 'lucide-react';
+import { History, TriangleAlert } from 'lucide-react';
 import { Button } from './ui/button';
 import { EmptyState } from './ui/empty-state';
 import { SectionHeader } from './ui/page-header';
@@ -204,6 +204,40 @@ export function UncertainWritesPopover({
   );
 }
 
+/** "1 change not confirmed", the short text of the Tasks header chip. */
+export function unconfirmedWritesText(count: number) {
+  return count === 1 ? '1 change not confirmed' : `${count} changes not confirmed`;
+}
+
+/**
+ * The GitHub check of the Tasks header: an amber chip "1 change not confirmed" that opens the
+ * changes to check. It shows nothing when every change is confirmed.
+ */
+export function UncertainWritesChip({
+  rows,
+  open,
+  onOpenChange,
+  ...props
+}: Omit<Parameters<typeof UncertainWritesPopover>[0], 'children'>) {
+  if (!rows.length) return null;
+  return (
+    <UncertainWritesPopover rows={rows} open={open} onOpenChange={onOpenChange} {...props}>
+      <Button
+        variant="ghost"
+        size="sm"
+        className="uncertain-writes-chip"
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        aria-label={`${uncertainWritesText(rows.length)}. Check`}
+        onClick={() => onOpenChange(!open)}
+      >
+        <TriangleAlert aria-hidden="true" />
+        {unconfirmedWritesText(rows.length)}
+      </Button>
+    </UncertainWritesPopover>
+  );
+}
+
 const stateTones: Record<GitHubMutationRow['state'], PlanningLabel['tone']> = {
   writing: 'secondary',
   confirmed: 'success',
@@ -344,7 +378,7 @@ export function GitHubWriteHistory({
                     {canRevertMutation(row) && typeof api.trackerMutationRevert === 'function' && (
                       <Button
                         size="xs"
-                        variant="outline"
+                        variant="ghost"
                         disabled={busy || !board.writable}
                         onClick={() =>
                           void run(

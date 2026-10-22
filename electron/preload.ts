@@ -1,7 +1,9 @@
-import { contextBridge, ipcRenderer } from 'electron';
+import { contextBridge, ipcRenderer, webUtils } from 'electron';
 import type { API, MenuCommand } from '../src/types';
 import { menuCommands } from '../src/api/contracts';
 const api: API = {
+  // A dropped folder carries no path in the page. Electron reads it from the file object.
+  pathForFile: (file) => webUtils.getPathForFile(file),
   verdictanSetRegion: (region) => ipcRenderer.invoke('verdictan-set-region', region),
   onVerdictanChanged: (listener) => {
     const notify = () => listener();

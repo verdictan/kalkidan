@@ -84,8 +84,11 @@ const defaultView: SavedView = {
   project: 'all',
   task: 'all',
 };
-/** Filters show only for longer lists, or when more than one agent made the sessions. */
-const filterThreshold = 8;
+/**
+ * Search and the view switch show only for long lists. A short list needs no tools: ⌘K finds a
+ * chat by its title or its messages.
+ */
+const filterThreshold = 20;
 function readView(key: string | undefined): SavedView {
   if (!key) return defaultView;
   try {
@@ -215,20 +218,15 @@ export function SessionBrowser({
     : [];
   const agents = new Set(sessions.map((s) => s.agent));
   const archivedCount = sessions.filter((s) => s.organization?.archived).length;
-  // A short list from one agent needs no filters. A saved filter keeps them visible.
-  const showFilters =
-    !compact &&
-    (sessions.length >= filterThreshold ||
-      agents.size > 1 ||
-      projects.length > 1 ||
-      linkedCount > 0 ||
-      failedCount > 0 ||
-      refusedCount > 0 ||
-      archivedCount > 0 ||
-      scope !== 'active' ||
-      agent !== 'all' ||
-      project !== 'all' ||
-      task !== 'all');
+  // A short list needs no tools. A long list gets the search, the view switch and the filter
+  // menu. A short list with archived, failed or refused chats, or with a saved filter, gets
+  // only the filter menu, so the user can still reach those chats.
+  const long = !compact && sessions.length >= filterThreshold;
+  const filtered = scope !== 'active' || agent !== 'all' || project !== 'all' || task !== 'all';
+  const showFilters = long || (!compact && scope === 'pinned');
+  const showFilterMenu =
+    long || (!compact && (filtered || archivedCount > 0 || failedCount > 0 || refusedCount > 0));
+  const showSearch = !!onQueryChange && (long || !!query);
   const list = sessions
     .filter((session) => {
       const org = session.organization || {};
@@ -345,9 +343,9 @@ export function SessionBrowser({
   );
   return (
     <>
-      {(showFilters || onQueryChange || actions) && !compact && (
+      {(showFilterMenu || showSearch || actions) && !compact && (
         <div className="session-filters">
-          {onQueryChange && (
+          {showSearch && onQueryChange && (
             <SearchInput
               size="sm"
               className="repository-session-filter"
@@ -369,7 +367,7 @@ export function SessionBrowser({
               ]}
             />
           )}
-          {showFilters && filterMenu}
+          {showFilterMenu && filterMenu}
           {actions && <div className="session-filters-end">{actions}</div>}
         </div>
       )}

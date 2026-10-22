@@ -1,27 +1,14 @@
-// Planning tools for a project: the tool dialog for selected tasks, the Insights page body, the
-// docs-to-tasks dialog and the portfolio for the Projects overview.
+// Planning tools for a project: the tool dialog for selected tasks (⌘K), the docs-to-tasks
+// dialog and the portfolio for the Projects overview.
 import { useEffect, useState } from 'react';
-import { BarChart3, RefreshCw } from 'lucide-react';
 import type { API, Project, ProjectGroup, Session, TrackerBoard } from '../types';
-import { trackerConnection } from '../domain/tracker';
 import { plural } from '../domain/planning-labels';
-import { Button } from './ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from './ui/dialog';
-import { EmptyState } from './ui/empty-state';
-import { Hint } from './hint';
 import { FieldsTool } from './project-batch';
 import { IterationTool } from './iteration-planner';
-import { ReadinessOverview, ReadinessTool } from './project-readiness';
+import { ReadinessTool } from './project-readiness';
 import { DispatchTool } from './parallel-dispatch';
-import { ProjectHealth } from './project-health';
-import { GitHubWriteHistory } from './github-write-history';
-import { TaskUsageHistoryPanel } from './task-usage-history';
-import { ProjectServicesPanel } from './project-services';
-import { ProjectUsageInsights } from './project-usage';
-import { sessionRepo } from '../lib/session-repository';
 import { ErrorAlert, githubWritesEvent } from './planning-kit';
-import { openConnectBoard } from './tracker-project-picker';
-import { errorMessage } from '../lib/errors';
 
 export { DocsToIssuesDialog } from './docs-to-issues';
 export { ProjectPortfolio } from './project-portfolio';
@@ -218,156 +205,5 @@ export function PlanningToolDialog({
         )}
       </DialogContent>
     </Dialog>
-  );
-}
-
-/**
- * The body of the Insights page of a project: health, readiness, GitHub changes, usage and
- * managed-agent services. Counts open the Tasks page with a filter.
- */
-export function ProjectInsights({
-  api,
-  group,
-  sessions: givenSessions,
-  board: givenBoard,
-  onOpenTask,
-  onFilter,
-  initialTaskId,
-}: {
-  api: API;
-  group: ProjectGroup;
-  /** The chats of the project. Without them, the page reads the chats itself. */
-  sessions?: Session[];
-  board?: TrackerBoard;
-  /** Selects this task in the Usage section and scrolls the section into view. */
-  initialTaskId?: string;
-  onOpenTask: (itemId: string) => void;
-  onFilter: (filter: TaskFilter) => void;
-}) {
-  const connection = trackerConnection(group);
-  const [loaded, setLoaded] = useState<TrackerBoard>();
-  const [error, setError] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [tool, setTool] = useState<{ ids: string[] }>();
-  const board = givenBoard || loaded;
-  const context = useProjectContext(api, group, !!connection || !givenSessions);
-  const projectSessions =
-    givenSessions || context.sessions.filter((session) => !!sessionRepo(session, context.repos));
-  const usage = <ProjectUsageInsights api={api} groupId={group.id} sessions={projectSessions} />;
-  async function load(force = false) {
-    if (!connection) return;
-    setBusy(true);
-    setError('');
-    try {
-      setLoaded(await api.trackerBoard(group.id, force));
-    } catch (failure) {
-      setError(errorMessage(failure));
-    } finally {
-      setBusy(false);
-    }
-  }
-  useEffect(() => {
-    if (!givenBoard) void load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [group.id, !!givenBoard, !!connection]);
-  const github = connection?.provider === 'github';
-  return (
-    <section className="project-insights" aria-label="Project insights">
-      {connection && board && (
-        <div className="flex items-center justify-between gap-2 pb-4">
-          <p className="form-help m-0">
-            {plural(board.items.length, 'task')} on {board.project.title}. Counts open the Tasks
-            page with a filter.
-          </p>
-          {!givenBoard && (
-            <Hint label="Load the board again">
-              <Button
-                variant="ghost"
-                size="icon-sm"
-                aria-label="Load the board again"
-                disabled={busy}
-                onClick={() => void load(true)}
-              >
-                <RefreshCw size={16} className={busy ? 'animate-spin' : undefined} />
-              </Button>
-            </Hint>
-          )}
-        </div>
-      )}
-      {!connection ? (
-        <div className="project-insights-sections">
-          {usage}
-          <EmptyState
-            compact
-            icon={<BarChart3 />}
-            title="Task insights"
-            action={
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => openConnectBoard({ groupId: group.id })}
-              >
-                Connect board
-              </Button>
-            }
-          >
-            Health, readiness and GitHub changes use the tasks of a GitHub Projects board.
-          </EmptyState>
-        </div>
-      ) : !board ? (
-        error ? (
-          <ErrorAlert>{error}</ErrorAlert>
-        ) : (
-          <EmptyState compact>Loading the board…</EmptyState>
-        )
-      ) : (
-        <div className="project-insights-sections">
-          <ErrorAlert>{error}</ErrorAlert>
-          {github && typeof api.trackerResources === 'function' ? (
-            <ProjectHealth api={api} groupId={group.id} board={board} onFilter={onFilter} />
-          ) : null}
-          {typeof api.trackerContent === 'function' && (
-            <ReadinessOverview
-              board={board}
-              sessions={context.sessions}
-              onFilter={onFilter}
-              onCheck={(ids) => setTool({ ids })}
-            />
-          )}
-          {github && typeof api.trackerMutationHistory === 'function' && (
-            <GitHubWriteHistory
-              api={api}
-              groupId={group.id}
-              board={board}
-              onOpenTask={onOpenTask}
-            />
-          )}
-          {typeof api.taskUsageHistory === 'function' && (
-            <TaskUsageHistoryPanel
-              api={api}
-              groupId={group.id}
-              board={board}
-              initialTaskId={initialTaskId}
-            />
-          )}
-          {typeof api.projectServicesStatus === 'function' && (
-            <ProjectServicesPanel api={api} groupId={group.id} board={board} />
-          )}
-          {usage}
-        </div>
-      )}
-      {board && (
-        <PlanningToolDialog
-          tool="readiness"
-          open={!!tool}
-          onOpenChange={(open) => !open && setTool(undefined)}
-          api={api}
-          group={group}
-          board={board}
-          selectedIds={tool?.ids || []}
-          onOpenTask={onOpenTask}
-        />
-      )}
-    </section>
   );
 }

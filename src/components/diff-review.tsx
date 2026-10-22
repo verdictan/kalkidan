@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState, type ReactElement } from 'react';
-import { ChevronLeft, ChevronRight, FileCheck, Paperclip } from 'lucide-react';
+import { FileCheck, Paperclip } from 'lucide-react';
 import type { RepositoryDiff } from '../types';
 import { diffFiles } from '../lib/diff-files';
-import { pathBasename, plural } from '../lib/platform';
+import { pathBasename } from '../lib/platform';
 import { Button } from './ui/button';
 import { EmptyState } from './ui/empty-state';
 import { Hint } from './hint';
@@ -110,7 +110,6 @@ export function isPatch(text: string) {
 
 export function DiffReview({
   diff,
-  scope,
   onAttach,
   disabled,
   disabledReason = '',
@@ -118,7 +117,6 @@ export function DiffReview({
   focusRequest = 0,
 }: {
   diff: RepositoryDiff;
-  scope: string;
   onAttach: (label: string, text: string) => void;
   disabled: boolean;
   /** Why the attach button is disabled. */
@@ -129,38 +127,37 @@ export function DiffReview({
   focusRequest?: number;
 }) {
   const [selection, setSelection] = useState('');
-  const changed = diffFiles(scope === 'staged' ? diff.staged : diff.unstaged).map(
-    (file, index) => ({ ...file, key: `tracked:${index}:${file.path}`, note: '' }),
-  );
+  // Staged and unstaged changes show together. A file with both shows its two parts.
+  const changed = [diff.staged, diff.unstaged]
+    .flatMap((patch) => (patch.trim() ? diffFiles(patch) : []))
+    .map((file, index) => ({ ...file, key: `tracked:${index}:${file.path}`, note: '' }));
   const files = [
     ...changed,
-    ...(scope === 'unstaged'
-      ? diff.untracked.map((path) => {
-          const preview = diff.newFiles?.find((file) => file.path === path);
-          const text = preview?.text;
-          return {
-            key: `new:${path}`,
-            path,
-            added: text ? text.split('\n').length - (text.endsWith('\n') ? 1 : 0) : 0,
-            removed: 0,
-            patch:
-              text !== undefined
-                ? text
-                    .replace(/\n$/, '')
-                    .split('\n')
-                    .map((line) => '+' + line)
-                    .join('\n')
-                : '',
-            note:
-              preview?.reason ||
-              (text === undefined
-                ? 'Content is unavailable. Refresh with the updated desktop app.'
-                : preview?.truncated
-                  ? 'New file preview truncated.'
-                  : 'New, untracked file'),
-          };
-        })
-      : []),
+    ...diff.untracked.map((path) => {
+      const preview = diff.newFiles?.find((file) => file.path === path);
+      const text = preview?.text;
+      return {
+        key: `new:${path}`,
+        path,
+        added: text ? text.split('\n').length - (text.endsWith('\n') ? 1 : 0) : 0,
+        removed: 0,
+        patch:
+          text !== undefined
+            ? text
+                .replace(/\n$/, '')
+                .split('\n')
+                .map((line) => '+' + line)
+                .join('\n')
+            : '',
+        note:
+          preview?.reason ||
+          (text === undefined
+            ? 'Content is unavailable. Refresh with the updated desktop app.'
+            : preview?.truncated
+              ? 'New file preview truncated.'
+              : 'New, untracked file'),
+      };
+    }),
   ];
   // Show the requested file once for each request, when the diff has it.
   const focused = useRef(0);
@@ -182,42 +179,9 @@ export function DiffReview({
     files.findIndex((file) => file.key === selection),
   );
   const current = files[index];
-  if (!current)
-    return (
-      <EmptyState compact icon={<FileCheck />} title="No changes here">
-        {scope === 'staged'
-          ? 'No staged changes. Select Uncommitted changes to see all changes.'
-          : 'This folder has no uncommitted changes.'}
-      </EmptyState>
-    );
+  if (!current) return <EmptyState compact icon={<FileCheck />} title="No changes" />;
   return (
     <section aria-label="File change review" className="diff-review">
-      <div className="flex shrink-0 flex-wrap items-center gap-2">
-        <span className="mr-auto text-xs text-muted-foreground">
-          {plural(files.length, 'changed file')}
-        </span>
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          aria-label="Previous changed file"
-          disabled={index === 0}
-          onClick={() => setSelection(files[index - 1].key)}
-        >
-          <ChevronLeft />
-        </Button>
-        <span className="text-xs tabular-nums">
-          {index + 1} / {files.length}
-        </span>
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          aria-label="Next changed file"
-          disabled={index === files.length - 1}
-          onClick={() => setSelection(files[index + 1].key)}
-        >
-          <ChevronRight />
-        </Button>
-      </div>
       <ul className="diff-file-list" aria-label="Changed files">
         {files.map((file) => (
           <li key={file.key}>
@@ -236,11 +200,6 @@ export function DiffReview({
           </li>
         ))}
       </ul>
-      <div className="flex shrink-0 flex-wrap gap-2 text-xs">
-        <span className="min-w-0 flex-1 font-mono break-all">{current.path}</span>
-        <span className="text-diff-add">+{current.added}</span>
-        <span className="text-diff-remove">−{current.removed}</span>
-      </div>
       {current.note && <p className="shrink-0 text-xs text-muted-foreground">{current.note}</p>}
       <DiffBlock key={current.key} patch={current.patch} framed={false} />
       <AttachHint reason={current.patch ? disabledReason : ''}>

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import type { Agent, Project, TrackerItem } from '../types';
+import type { API, Agent, Project, ProjectGroup, Session, TrackerItem } from '../types';
 import type { DispatchPlan } from '../domain/parallel-dispatch';
 import { agentCatalog } from '../config/agents';
 import { dispatchRowStateLabel, dispatchStateLabel, plural } from '../domain/planning-labels';
@@ -33,6 +33,88 @@ export function repoForTask(item: Pick<TrackerItem, 'repository'>, repos: Projec
   return repos.find(
     (repo) => repo.name.toLowerCase() === name || pathBasename(repo.path).toLowerCase() === name,
   );
+}
+
+/** Tasks that start at the same time when the user starts several tasks at once. */
+export const safeWave = 3;
+
+export interface WaveStart {
+  /** The run. Undefined when no task could start. */
+  plan?: DispatchPlan;
+  started: TrackerItem[];
+  /** The tasks that did not start, each with one short reason. */
+  skipped: { item: TrackerItem; reason: string }[];
+}
+
+/**
+ * Starts several tasks without a dialog. It checks each task first: only open issues with a
+ * code folder start, and a task that a chat works on or that other issues block waits. The
+ * others start in waves of `safeWave`, each in its own branch copy with its own chat.
+ */
+export async function startTasksInWaves({
+  api,
+  group,
+  items,
+  repos,
+  sessions,
+  agent,
+  folderFor,
+}: {
+  api: API;
+  group: ProjectGroup;
+  items: TrackerItem[];
+  repos: Project[];
+  sessions: Session[];
+  agent: Agent;
+  /** The code folder of a task when its repository does not match a folder name. */
+  folderFor?: (item: TrackerItem) => string;
+}): Promise<WaveStart> {
+  const skipped: WaveStart['skipped'] = [];
+  const ready: { item: TrackerItem; repositoryId: string }[] = [];
+  for (const item of items) {
+    const repositoryId =
+      repoForTask(item, repos)?.id || folderFor?.(item) || (repos.length === 1 ? repos[0].id : '');
+    const chat = sessions.some(
+      (session) => !session.organization?.archived && session.organization?.taskId === item.id,
+    );
+    if (item.kind !== 'Issue') skipped.push({ item, reason: 'Only issues can start' });
+    else if (!repositoryId) skipped.push({ item, reason: 'No code folder' });
+    else if (chat) skipped.push({ item, reason: 'A chat works on it' });
+    else ready.push({ item, repositoryId });
+  }
+  // Blocked issues wait. A failed read does not stop the start: GitHub shows the blockers.
+  if (typeof api.trackerRelations === 'function') {
+    const checks = await Promise.all(
+      ready.map(({ item }) =>
+        api
+          .trackerRelations(group.id, item.id)
+          .then((relations) => relations.blockedBy.some((issue) => issue.state !== 'CLOSED'))
+          .catch(() => false),
+      ),
+    );
+    for (let index = ready.length - 1; index >= 0; index--)
+      if (checks[index]) {
+        skipped.unshift({ item: ready[index].item, reason: 'Other issues block it' });
+        ready.splice(index, 1);
+      }
+  }
+  for (const entry of ready.splice(dispatchLimit))
+    skipped.push({ item: entry.item, reason: `More than ${dispatchLimit} tasks` });
+  if (!ready.length) return { started: [], skipped };
+  const prepared = await api.dispatchPrepare({
+    id: crypto.randomUUID(),
+    groupId: group.id,
+    agent,
+    concurrency: Math.min(safeWave, ready.length),
+    tasks: ready.map(({ item, repositoryId }) => ({ taskId: item.id, repositoryId })),
+  });
+  try {
+    localStorage.setItem(storageKey(group.id), prepared.id);
+  } catch {
+    // Storage can be unavailable. The run then does not show after a restart.
+  }
+  const plan = await api.dispatchStart(prepared.id);
+  return { plan, started: ready.map(({ item }) => item), skipped };
 }
 
 function readSaved(groupId: string) {

@@ -1,8 +1,14 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { History } from 'lucide-react';
-import type { API, TrackerBoard } from '../types';
+import type { API, Session, TrackerBoard } from '../types';
+import {
+  addDecimal,
+  projectUsageLimits,
+  summarizeProjectUsage,
+  type ProjectUsage,
+} from '../domain/project-usage';
 import type { TaskUsageHistory } from '../domain/conversation';
-import { evidenceStateLabel, runPhaseLabel } from '../domain/planning-labels';
+import { evidenceStateLabel, plural, runPhaseLabel } from '../domain/planning-labels';
 import { fullTime } from '../lib/relative-time';
 import { Button } from './ui/button';
 import { EmptyState } from './ui/empty-state';
@@ -147,4 +153,87 @@ export function TaskUsageHistoryPanel({
       )}
     </section>
   );
+}
+
+/** "$6.10" for US dollars, else "6.10 EUR". Several currencies join with " + ". */
+function costText(cost: Record<string, string>) {
+  return Object.entries(cost)
+    .filter(([, amount]) => Number(amount) > 0)
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([currency, amount]) => {
+      const [whole, fraction = ''] = amount.split('.');
+      // Two decimals at least, as on an invoice. Longer fractions stay as they are.
+      const value = `${whole}.${fraction.padEnd(2, '0')}`;
+      return currency.toUpperCase() === 'USD' ? `$${value}` : `${value} ${currency}`;
+    })
+    .join(' + ');
+}
+
+export interface TaskUsage {
+  requests: number;
+  /** "19 requests · $6.10", or "3 requests" when the cost is not known. */
+  text: string;
+}
+
+/**
+ * The managed-agent usage of each task, by task ID: the requests and the cost of the chats that
+ * are linked to the task. One `projectUsage` read for the project; it reads again when the
+ * linked chats change. A task without usage is not in the result.
+ */
+export function useTaskUsage(api: API, groupId: string, sessions: Session[]) {
+  const linked = sessions
+    .filter((session) => session.organization?.taskId && !session.organization.archived)
+    .slice(0, projectUsageLimits.chats);
+  const key = linked.map((session) => `${session.agent}:${session.id}`).join(',');
+  const [usage, setUsage] = useState<ProjectUsage>();
+  useEffect(() => {
+    if (!linked.length || typeof api.projectUsage !== 'function') {
+      setUsage(undefined);
+      return;
+    }
+    let live = true;
+    api
+      .projectUsage(
+        groupId,
+        linked.map((session) => ({ agent: session.agent, sessionId: session.id })),
+      )
+      .then((value) => {
+        if (live) setUsage(value);
+      })
+      .catch(() => {
+        // Usage is extra information on a card. Without it, the card shows no usage.
+        if (live) setUsage(undefined);
+      });
+    return () => {
+      live = false;
+    };
+    // The key holds the linked chats.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [api, groupId, key]);
+  return useMemo(() => {
+    const result: Record<string, TaskUsage> = {};
+    if (!usage) return result;
+    const summary = summarizeProjectUsage(usage, Date.now());
+    const totals: Record<string, { requests: number; cost: Record<string, string> }> = {};
+    for (const chat of summary.chats) {
+      const taskId = linked.find(
+        (session) => session.agent === chat.agent && session.id === chat.sessionId,
+      )?.organization?.taskId;
+      if (!taskId) continue;
+      const total = (totals[taskId] ||= { requests: 0, cost: {} });
+      total.requests += chat.requests;
+      for (const [currency, amount] of Object.entries(chat.cost))
+        total.cost[currency] = addDecimal(total.cost[currency] ?? '0', amount);
+    }
+    for (const [taskId, total] of Object.entries(totals)) {
+      if (!total.requests) continue;
+      const cost = costText(total.cost);
+      result[taskId] = {
+        requests: total.requests,
+        text: [plural(total.requests, 'request'), cost].filter(Boolean).join(' · '),
+      };
+    }
+    return result;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [usage, key]);
 }

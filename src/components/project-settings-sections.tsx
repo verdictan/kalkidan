@@ -1,5 +1,5 @@
 import { useEffect, useId, useState } from 'react';
-import { Folder, FolderGit2, FolderPlus, GitBranch, Trash2 } from 'lucide-react';
+import { Folder, FolderPlus, Trash2 } from 'lucide-react';
 import type { API, Project, ProjectGroup } from '../types';
 import { projectColors, type ProjectColor } from '../domain/project-colors';
 import { worktreeParent } from '../lib/worktree-sessions';
@@ -9,7 +9,6 @@ import { Input } from './ui/input';
 import { Alert, AlertDescription } from './ui/alert';
 import { EmptyState } from './ui/empty-state';
 import { showToast } from './ui/toast';
-import { EntityIcon } from './ui/entity-icon';
 import { ConfirmDialog } from './confirm-dialog';
 import { Hint } from './hint';
 import { SettingsRow, SettingsRows } from './settings-disclosure';
@@ -27,11 +26,14 @@ const colorName = (value: ProjectColor | null) =>
 export function ProjectGeneral({
   api,
   group,
+  location,
   onSaved,
   onRemove,
 }: {
   api: API;
   group: ProjectGroup;
+  /** Where the project is, for example the SSH host. It shows under the name. */
+  location?: string;
   onSaved(): void | Promise<void>;
   /** Starts the removal of the project. Without it, the Remove project row does not show. */
   onRemove?(): void;
@@ -77,7 +79,7 @@ export function ProjectGeneral({
       await api.setGroupColor(group.id, next);
       await onSaved();
       showToast({
-        message: `Folder color changed to ${colorName(next).toLowerCase()}.`,
+        message: `Color changed to ${colorName(next).toLowerCase()}.`,
         actions: [
           {
             label: 'Undo',
@@ -113,16 +115,16 @@ export function ProjectGeneral({
       )}
       <SettingsRows label="Project">
         <SettingsRow
-          label="Project name"
+          label="Name"
           htmlFor={nameId}
-          help={nameState && <span role="status">{nameState}</span>}
+          help={nameState ? <span role="status">{nameState}</span> : location}
         >
           <Input
             id={nameId}
             className="w-60"
             value={name}
             maxLength={150}
-            placeholder="e.g. Customer platform"
+            aria-label="Project name"
             onChange={(event) => {
               setName(event.target.value);
               if (state === 'saved') setState('idle');
@@ -135,8 +137,8 @@ export function ProjectGeneral({
             }}
           />
         </SettingsRow>
-        <SettingsRow label="Folder color">
-          <div role="group" aria-label="Folder color" className="project-settings-colors">
+        <SettingsRow label="Color">
+          <div role="group" aria-label="Color" className="project-settings-colors">
             {([null, ...Object.keys(projectColors)] as (ProjectColor | null)[]).map((value) => (
               <Hint key={value || 'default'} label={colorName(value)}>
                 <Button
@@ -156,7 +158,7 @@ export function ProjectGeneral({
         </SettingsRow>
       </SettingsRows>
       {onRemove && (
-        <SettingsRows title="Danger zone">
+        <SettingsRows label="Remove project">
           <SettingsRow
             label="Remove project"
             help={`Kalkidan stops showing ${group.name}. All files stay on disk.`}
@@ -206,13 +208,21 @@ export function ProjectCodeFolders({
     }
   }
   const add = (
-    <Button variant="outline" size="sm" className="justify-self-start" onClick={onAdd}>
+    <Button variant="ghost" size="sm" className="-ml-2 justify-self-start" onClick={onAdd}>
       <FolderPlus />
       Add code folder…
     </Button>
   );
   return (
-    <section aria-label="Code folders" className="contents">
+    <section
+      id="project-folders"
+      tabIndex={-1}
+      aria-labelledby="project-folders-label"
+      className="settings-group outline-none"
+    >
+      <h3 id="project-folders-label" className="group-label">
+        Code folders
+      </h3>
       {members.length ? (
         <div className="grid gap-2">
           <SettingsRows label="Code folders">
@@ -221,7 +231,6 @@ export function ProjectCodeFolders({
               return (
                 <SettingsRow
                   key={repo.id}
-                  icon={<EntityIcon>{copy ? <GitBranch /> : <FolderGit2 />}</EntityIcon>}
                   label={repo.name}
                   help={
                     <Hint label={repo.path}>
@@ -253,7 +262,7 @@ export function ProjectCodeFolders({
           {add}
         </div>
       ) : (
-        <EmptyState compact icon={<FolderGit2 />} title="No code folders" action={add} />
+        <EmptyState compact title="No code folders." action={add} />
       )}
       <ConfirmDialog
         open={!!removing}

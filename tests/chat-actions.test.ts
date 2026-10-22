@@ -68,10 +68,10 @@ test('the actions keep the fixed groups and order', () => {
 });
 
 test('the chat menus show their items in two levels', () => {
+  // Notes, side chat, export and usage history are in the menu bar and the palette only.
   assert.deepEqual(ids(ready), [
-    ['organize', ['rename', 'pin', 'link-task', 'notes']],
-    ['work', ['fork', 'open-beside', 'open-in']],
-    ['share', ['export', 'usage-history']],
+    ['organize', ['rename', 'pin', 'link-task']],
+    ['work', ['fork', 'open-in']],
     ['archive', ['archive']],
   ]);
   assert.deepEqual(submenuIds('open-in', ready), [
@@ -80,15 +80,14 @@ test('the chat menus show their items in two levels', () => {
     'open-cursor',
     'open-window',
   ]);
-  assert.deepEqual(submenuIds('export', ready), [
-    'export-markdown',
-    'export-html',
-    'copy-markdown',
-    'save-to-docs',
-  ]);
-  // Commit and the pull request are in the changes row of the chat, not in these menus.
+  // The pull request is in the changes row of the chat, not in these menus. Commit and Mark task
+  // done show only when they can run.
   const all = chatActionMenu('list', ready, 'mac').flatMap((group) => group.items);
   assert.ok(!all.some((item) => ['commit', 'create-pull-request'].includes(item.id)));
+  assert.deepEqual(ids({ ...ready, noChanges: false, canMarkDone: true })[1], [
+    'work',
+    ['commit', 'mark-task-done', 'fork', 'open-in'],
+  ]);
   // No submenu has a third level.
   for (const item of all)
     for (const child of item.children || []) assert.equal(child.children, undefined);
@@ -109,16 +108,16 @@ test('the chat row menu and the chat header menu show the same actions', () => {
 
 test('actions hide only when they cannot apply', () => {
   const linked = ids({ ...ready, linkedTask: true });
-  assert.deepEqual(linked[0], ['organize', ['rename', 'pin', 'open-linked-task', 'notes']]);
+  assert.deepEqual(linked[0], ['organize', ['rename', 'pin', 'open-linked-task']]);
   // Without a board, there is no task to link.
-  assert.deepEqual(ids({ ...ready, board: false })[0], ['organize', ['rename', 'pin', 'notes']]);
+  assert.deepEqual(ids({ ...ready, board: false })[0], ['organize', ['rename', 'pin']]);
   assert.ok(
     !chatActionMenu('menu-bar', { ...ready, open: true, board: false }, 'mac')
       .flatMap((group) => group.items)
       .some((item) => item.id === 'link-task'),
   );
   // Without managed agents there is no usage history. A chat on an SSH host has one.
-  const allIds = (state: typeof ready) => ids(state).flatMap(([, items]) => items);
+  const allIds = (state: typeof ready) => ids({ ...state, open: true }, 'palette').flat(2);
   assert.ok(!allIds({ ...ready, usageHistory: false }).includes('usage-history'));
   assert.ok(allIds({ ...ready, remote: true }).includes('usage-history'));
   // With a pull request, View pull request #N replaces Create pull request.
@@ -143,12 +142,11 @@ test('actions hide only when they cannot apply', () => {
 
 test('a blocked submenu item keeps its reason in the chat menus', () => {
   const draft = sessionActionState({ ...session, id: 'draft-1' }, { repository: true });
-  const exportMenu = chatActionMenu('list', draft, 'mac')
+  const openIn = chatActionMenu('list', draft, 'mac')
     .flatMap((group) => group.items)
-    .find((item) => item.id === 'export')!;
-  assert.equal(exportMenu.disabled, true);
+    .find((item) => item.id === 'open-in')!;
   assert.equal(
-    exportMenu.children!.find((item) => item.id === 'export-html')!.reason,
+    openIn.children!.find((item) => item.id === 'open-window')!.reason,
     reasons.firstMessage,
   );
 });

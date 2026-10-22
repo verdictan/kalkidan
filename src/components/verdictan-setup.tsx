@@ -155,8 +155,8 @@ function setupNotice(
  * The organization setup of one coding agent, inline under its row on the Computers page: the
  * team and policy (older runtimes only), the model access, the connection, and the default
  * model. The agent is not here: each computer has one agent for Codex and Claude Code.
- * A list with only one choice does not show. A complete selection saves at once, with Undo in
- * the toast. The choices load on open and when the window gets focus.
+ * A list with only one choice does not show. Each complete selection saves at once, with Undo in
+ * the toast; there is no Save button. The choices load on open and when the window gets focus.
  */
 export function VerdictanSetupForm({
   api,
@@ -303,6 +303,14 @@ export function VerdictanSetupForm({
   const showConnection = !subscription && connections.length !== 1;
   const showModel = modelOptions.length !== 1 || selection.model !== modelOptions[0]?.value;
   const pending = complete(selection) && changedFrom(selection);
+  // One save model: each choice saves at once. A complete selection that Kalkidan chose when
+  // the setup opened also saves at once, so there is no Save button. Undo is in the toast.
+  const autoSaved = useRef(false);
+  useEffect(() => {
+    if (autoSaved.current || touched.current || busy || error || !pending) return;
+    autoSaved.current = true;
+    void save(selection);
+  }, [pending, busy, error]);
   return (
     <>
       <div className="grid content-start gap-3" aria-busy={loading}>
@@ -310,7 +318,11 @@ export function VerdictanSetupForm({
           <Alert size="sm" variant="destructive">
             <AlertDescription className="text-xs leading-4">
               {error}{' '}
-              <Button type="button" variant="link" onClick={() => void load()}>
+              <Button
+                type="button"
+                variant="link"
+                onClick={() => void (setup && pending ? save(selection) : load())}
+              >
                 Try again
               </Button>
             </AlertDescription>
@@ -464,23 +476,10 @@ export function VerdictanSetupForm({
             )}
           </div>
         )}
-        {(saving || pending) && (
-          <div className="flex items-center justify-end gap-2">
-            <span role="status" className="mr-auto text-xs leading-4 text-muted-foreground">
-              {saving ? 'Saving…' : ''}
-            </span>
-            {pending && (
-              // A selection that Kalkidan chose, or a save that failed. The user confirms it.
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={busy}
-                onClick={() => void save(selection)}
-              >
-                Save
-              </Button>
-            )}
-          </div>
+        {saving && (
+          <p role="status" className="form-help mt-0">
+            Saving…
+          </p>
         )}
       </div>
     </>

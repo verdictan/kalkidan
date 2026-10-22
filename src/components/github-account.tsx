@@ -5,7 +5,7 @@ import { trackerAuthPending } from '../domain/tracker';
 import { interfaceConfig } from '../config/interface';
 import { useRefreshTriggers } from '../hooks/use-refresh-triggers';
 import { settingsAnchors } from '../domain/settings-route';
-import { SettingsRow, SettingsRows, StatusBadge } from './settings-disclosure';
+import { SettingsRow, SettingsRows, StatusText } from './settings-disclosure';
 import { Button } from './ui/button';
 import {
   Dialog,
@@ -19,7 +19,7 @@ import { Input } from './ui/input';
 import { showToast } from './ui/toast';
 import type { StatusLabel } from '../lib/verdictan-labels';
 
-/** Opens Preferences at the GitHub row. Every GitHub sign-in outside Preferences uses this. */
+/** Opens Settings › Account at the GitHub row. Every GitHub sign-in outside Settings uses this. */
 export function openAccountSettings() {
   window.dispatchEvent(
     new CustomEvent('kalkidan-open-settings', {
@@ -193,7 +193,7 @@ export function GitHubRow({ services }: { services: GitHubServices }) {
         label="GitHub and boards"
         help={connected && login ? `@${login}` : 'Repositories and boards'}
       >
-        <StatusBadge status={status} />
+        <StatusText status={status} />
         {!checking && !connected && gh?.status !== 'unavailable' && (
           <Button size="sm" variant="outline" onClick={start}>
             Connect…
@@ -260,7 +260,7 @@ function GitHubConnectDialog({
                     : 'The GitHub CLI on this computer'
               }
             >
-              {gh && <StatusBadge status={ghStatus[gh.status]} />}
+              {gh && <StatusText status={ghStatus[gh.status]} />}
               {gh?.status === 'signed-out' && (
                 <Button variant="outline" size="sm" onClick={() => copyCommand('gh auth login')}>
                   <Copy /> Copy command
@@ -290,7 +290,7 @@ function GitHubConnectDialog({
               }
             >
               {boardsReady ? (
-                <StatusBadge status={{ label: 'Allowed', tone: 'success' }} />
+                <StatusText status={{ label: 'Allowed', tone: 'success' }} />
               ) : auth.status === 'waiting' && auth.code ? (
                 <Button size="sm" onClick={openGitHub}>
                   Open GitHub

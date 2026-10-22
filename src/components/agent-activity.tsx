@@ -4,22 +4,21 @@ import {
   ChevronRight,
   FilePen,
   FileText,
-  Gauge,
+  Lightbulb,
   LoaderCircle,
   Save,
   Search,
   ShieldAlert,
-  ShieldCheck,
   SquareTerminal,
   Wrench,
 } from 'lucide-react';
 import type { API, ChatRun, GovernanceEvidence, ToolActivity } from '../types';
 import type { DocPassage } from '../domain/docs';
+import type { ContextUsage } from '../domain/memory';
 import { eventBufferWarning } from '../domain/conversation';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from './ui/collapsible';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
-import { agentLabel } from '../config/agents';
 import { errorMessage } from '../lib/errors';
 import { diffFiles } from '../lib/diff-files';
 import { plural } from '../lib/platform';
@@ -28,6 +27,7 @@ import { ChatCard } from './chat-card';
 import { DiffBlock, isPatch } from './diff-review';
 import { Hint } from './hint';
 import { openProjectPage } from './chat-links';
+import { openProjectUsage } from './project-usage';
 
 // Approval details, tool output and diffs use the shared .prose-ui code block and one
 // maximum height.
@@ -91,8 +91,8 @@ function governanceHeadline(evidence: GovernanceEvidence) {
     : 'Waiting for policy records';
 }
 
-/** One line with Details. Values that are not known do not show. */
-function ManagedRun({
+/** The policy and usage rows of a managed run, behind the summary line. */
+function ManagedRunDetails({
   evidence,
   groupId,
   taskId,
@@ -107,90 +107,45 @@ function ManagedRun({
     return Number.isFinite(value) ? sum + value : sum;
   }, 0);
   const usageKnown = requests.some((request) => request.usage || request.tokens);
-  const usageLabel = tokens ? `Usage · ${tokens.toLocaleString()} tokens` : 'Usage';
-  const rows = requests
-    .map(
-      (request) =>
-        [
-          request.policy && ['Policy', words(request.policy)],
-          request.usage && ['Usage', words(request.usage)],
-          request.tokens && ['Tokens', Number(request.tokens).toLocaleString()],
-          request.billing === 'subscription'
-            ? ['Paid by', 'Your Claude subscription. The provider charge is not known.']
-            : request.actualCost !== null && [
-                'Recorded cost',
-                `${request.actualCost} ${request.currency || ''}`.trim(),
-              ],
-          request.audit && ['Audit', words(request.audit)],
-        ].filter(Boolean) as [string, string][],
-    )
-    .filter((row) => row.length);
+  const last = requests.at(-1);
+  const rows: [string, string][] = [
+    ['Policy', last?.policy ? words(last.policy) : governanceHeadline(evidence)],
+  ];
+  if (last?.billing === 'subscription') rows.push(['Paid by', 'Your Claude subscription']);
+  else if (last && last.actualCost !== null && last.actualCost !== undefined)
+    rows.push(['Cost', `${last.actualCost} ${last.currency || ''}`.trim()]);
+  if (tokens) rows.push(['Tokens', tokens.toLocaleString()]);
+  if (last?.audit) rows.push(['Audit', words(last.audit)]);
   return (
-    <section aria-label="Managed run" className="managed-run">
-      <Collapsible>
-        <div className="flex min-h-7 flex-wrap items-center gap-2 text-xs text-muted-foreground">
-          <ShieldCheck className="size-3.5 shrink-0" aria-hidden="true" />
-          <span>Managed run · {governanceHeadline(evidence)}</span>
-          {usageKnown &&
-            (groupId ? (
-              <Hint label="Open the task usage history">
-                <Button
-                  variant="chip"
-                  size="xs"
-                  onClick={() =>
-                    openProjectPage(groupId, 'knowledge', {
-                      section: 'insights',
-                      ...(taskId ? { taskId } : {}),
-                    })
-                  }
-                >
-                  <Gauge aria-hidden="true" />
-                  {usageLabel}
-                </Button>
-              </Hint>
-            ) : (
-              <Badge variant="muted" size="sm">
-                {usageLabel}
-              </Badge>
-            ))}
-          {!!rows.length && (
-            <CollapsibleTrigger asChild>
-              <Button variant="ghost" size="xs" className="group gap-1 text-muted-foreground">
-                <ChevronRight
-                  aria-hidden="true"
-                  className="size-3.5 transition-transform group-data-[state=open]:rotate-90"
-                />
-                Details
+    <section aria-label="Managed run" className="agent-detail">
+      <dl className="meta-list">
+        {rows.map(([label, value]) => (
+          <Fragment key={label}>
+            <dt>{label}</dt>
+            <dd>{value}</dd>
+          </Fragment>
+        ))}
+        {usageKnown && groupId && (
+          <>
+            <dt>Usage</dt>
+            <dd>
+              <Button variant="link" onClick={() => openProjectUsage(groupId, taskId)}>
+                Show usage
               </Button>
-            </CollapsibleTrigger>
-          )}
-        </div>
-        {evidence.bufferWarning && (
-          <p role="status" className="form-help mt-1 pl-5.5 text-warning">
-            {eventBufferWarning(evidence.bufferWarning)}
-          </p>
+            </dd>
+          </>
         )}
-        <CollapsibleContent className="grid gap-2 pt-2 pl-5.5">
-          {rows.map((row, index) => (
-            <dl key={index} className="meta-list">
-              {row.map(([label, value]) => (
-                <Fragment key={label}>
-                  <dt>{label}</dt>
-                  <dd>{value}</dd>
-                </Fragment>
-              ))}
-            </dl>
-          ))}
-          <p className="form-help">
-            Usage comes from the managed agent records. Provider charges are not included.
-          </p>
-        </CollapsibleContent>
-      </Collapsible>
+      </dl>
+      {evidence.bufferWarning && (
+        <p role="status" className="form-help text-warning">
+          {eventBufferWarning(evidence.bufferWarning)}
+        </p>
+      )}
     </section>
   );
 }
 
-/** "Memory: read 2 · saved 1" and one chip for each topic. A chip opens the Memory page. */
+/** The memory topics that a run read or saved. A chip opens the topic in Knowledge. */
 function MemoryUse({ tools, groupId }: { tools: ToolActivity[]; groupId?: string }) {
   const used = tools
     .map((tool) => ({ tool, kind: memoryKind(tool) }))
@@ -198,38 +153,19 @@ function MemoryUse({ tools, groupId }: { tools: ToolActivity[]; groupId?: string
       (entry): entry is { tool: ToolActivity; kind: MemoryKind } =>
         !!entry.kind && entry.kind !== 'sources' && entry.tool.status !== 'failed',
     );
-  const read = used.filter((entry) => entry.kind !== 'remember');
-  const saved = used.filter(
-    (entry) => entry.kind === 'remember' && entry.tool.status === 'completed',
-  );
-  if (!read.length && !saved.length) return null;
   const topics = new Map<string, 'read' | 'saved'>();
-  for (const entry of [...saved, ...read]) {
+  for (const entry of used) {
+    if (entry.kind === 'remember' && entry.tool.status !== 'completed') continue;
     const topic = memoryTopic(entry.tool);
-    if (topic && !topics.has(topic))
+    if (topic && topics.get(topic) !== 'saved')
       topics.set(topic, entry.kind === 'remember' ? 'saved' : 'read');
   }
-  const summary = [read.length && `read ${read.length}`, saved.length && `saved ${saved.length}`]
-    .filter(Boolean)
-    .join(' · ');
+  if (!topics.size) return null;
   return (
     <div className="chat-sources" role="group" aria-label="Project memory used">
-      {groupId ? (
-        <Button
-          variant="chip"
-          size="xs"
-          aria-label={`Memory: ${summary}. Open Memory`}
-          onClick={() => openProjectPage(groupId, 'knowledge', { section: 'memory' })}
-        >
-          <BookOpen aria-hidden="true" />
-          Memory: {summary}
-        </Button>
-      ) : (
-        <span className="chat-sources-label">Memory: {summary}</span>
-      )}
-      {groupId &&
-        [...topics].slice(0, 4).map(([topic, kind]) => (
-          <Hint key={topic} label={`Open the memory topic “${topic}”`}>
+      {[...topics].slice(0, 6).map(([topic, kind]) =>
+        groupId ? (
+          <Hint key={topic} label={kind === 'saved' ? 'Saved to memory' : 'Read from memory'}>
             <Button
               variant="chip"
               size="xs"
@@ -240,37 +176,40 @@ function MemoryUse({ tools, groupId }: { tools: ToolActivity[]; groupId?: string
               <span className="truncate">{topic}</span>
             </Button>
           </Hint>
-        ))}
+        ) : (
+          <Badge key={topic} variant="muted" size="sm">
+            {topic}
+          </Badge>
+        ),
+      )}
     </div>
   );
 }
 
-/** "Used 3 doc passages" and one chip for each passage. A chip opens the page at its heading. */
+/** The doc passages that "@docs" gave to the agent. A chip opens the page at its heading. */
 function DocsUse({ passages, groupId }: { passages: DocPassage[]; groupId?: string }) {
   if (!passages.length) return null;
   return (
     <div className="chat-sources" role="group" aria-label="Doc passages used">
-      <span className="chat-sources-label">Used {plural(passages.length, 'doc passage')}</span>
       {passages.map((passage) => {
         const label = passage.heading ? `${passage.title} › ${passage.heading}` : passage.title;
         return groupId ? (
-          <Hint key={passage.id + passage.heading} label={`Open ${label}`}>
-            <Button
-              variant="chip"
-              size="xs"
-              className="max-w-64"
-              onClick={() =>
-                openProjectPage(groupId, 'knowledge', {
-                  section: 'pages',
-                  docId: passage.id,
-                  heading: passage.heading || undefined,
-                })
-              }
-            >
-              <FileText aria-hidden="true" />
-              <span className="truncate">{label}</span>
-            </Button>
-          </Hint>
+          <Button
+            key={passage.id + passage.heading}
+            variant="chip"
+            size="xs"
+            className="max-w-64"
+            onClick={() =>
+              openProjectPage(groupId, 'knowledge', {
+                section: 'pages',
+                docId: passage.id,
+                heading: passage.heading || undefined,
+              })
+            }
+          >
+            <FileText aria-hidden="true" />
+            <span className="truncate">{label}</span>
+          </Button>
         ) : (
           <Badge key={passage.id + passage.heading} variant="muted" size="sm">
             {label}
@@ -279,6 +218,66 @@ function DocsUse({ passages, groupId }: { passages: DocPassage[]; groupId?: stri
       })}
     </div>
   );
+}
+
+/** The facts and pages that the chat read. An item opens it in Knowledge. */
+function ContextUse({ usage, groupId }: { usage: ContextUsage; groupId?: string }) {
+  if (!usage.memory.length && !usage.docs.length) return null;
+  const open = (detail: Record<string, string>) =>
+    groupId &&
+    window.dispatchEvent(
+      new CustomEvent('kalkidan-open-project-page', {
+        detail: { groupId, page: 'knowledge', ...detail },
+      }),
+    );
+  return (
+    <div className="chat-sources" role="group" aria-label="Context the agent read">
+      {usage.memory.map((fact) => (
+        <Button
+          key={fact.id}
+          variant="chip"
+          size="xs"
+          className="max-w-56"
+          onClick={() => open({ section: 'memory', topic: fact.topic, factId: fact.id })}
+        >
+          <Lightbulb aria-hidden="true" />
+          <span className="truncate">{fact.title || fact.topic}</span>
+        </Button>
+      ))}
+      {usage.docs.map((doc) => (
+        <Button
+          key={doc.docId + (doc.heading || '')}
+          variant="chip"
+          size="xs"
+          className="max-w-64"
+          onClick={() =>
+            open({
+              section: 'pages',
+              docId: doc.docId,
+              ...(doc.heading ? { heading: doc.heading } : {}),
+            })
+          }
+        >
+          <FileText aria-hidden="true" />
+          <span className="truncate">
+            {doc.title || 'Untitled'}
+            {doc.heading ? ` › ${doc.heading}` : ''}
+          </span>
+        </Button>
+      ))}
+    </div>
+  );
+}
+
+/** "2 facts · 1 page", or an empty text when the agent read nothing. */
+export function contextUsageText(usage: ContextUsage | undefined) {
+  if (!usage) return '';
+  return [
+    usage.memory.length ? plural(usage.memory.length, 'fact') : '',
+    usage.docs.length ? plural(usage.docs.length, 'page') : '',
+  ]
+    .filter(Boolean)
+    .join(' · ');
 }
 
 /** The added and removed line counts of a diff, for the right side of a step. */
@@ -374,85 +373,94 @@ function StepLine({ tool }: { tool: ToolActivity }) {
 }
 
 /**
- * The activity of one run, under the answer it belongs to: the managed run line, the docs and
- * memory that the agent used, and the steps folded to "N steps · M files edited". The live step
- * always shows.
+ * The activity of one run, under the answer it belongs to: one quiet line,
+ * "23 steps · 3 files edited". The steps, the policy and usage, and the memory, docs and
+ * context that the agent used are behind it. The live step always shows. Without a run, the
+ * line shows only the context that the chat read.
  */
 export function AgentActivity({
   run,
   groupId,
   taskId,
   docPassages = [],
+  context,
 }: {
-  run: ChatRun;
-  /** The project of the chat. Memory, docs and usage chips open its pages. */
+  run?: ChatRun;
+  /** The project of the chat. Memory, docs and usage open its pages. */
   groupId?: string;
-  /** The linked task. The usage chip opens its history. */
+  /** The linked task. Usage opens its history. */
   taskId?: string;
   /** The doc passages that Kalkidan gave to the agent for "@docs". */
   docPassages?: DocPassage[];
+  /** The facts and pages that the chat read. The last run of the chat shows them. */
+  context?: ContextUsage;
 }) {
-  const tools = run.tools || [];
-  const paths = run.diff || tools.some((tool) => tool.diff) ? changedPaths(run) : [];
-  const live = run.status === 'running' ? tools.filter((tool) => tool.status === 'inProgress') : [];
-  const summary = [
-    plural(tools.length, 'step'),
-    paths.length && `${plural(paths.length, 'file')} edited`,
-  ]
-    .filter(Boolean)
-    .join(' · ');
-  if (!run.governance && !docPassages.length && !tools.length) return null;
+  const tools = run?.tools || [];
+  const paths = run && (run.diff || tools.some((tool) => tool.diff)) ? changedPaths(run) : [];
+  const live =
+    run?.status === 'running' ? tools.filter((tool) => tool.status === 'inProgress') : [];
+  const contextText = contextUsageText(context);
+  const summary = tools.length
+    ? [plural(tools.length, 'step'), paths.length && `${plural(paths.length, 'file')} edited`]
+        .filter(Boolean)
+        .join(' · ')
+    : contextText
+      ? `Read ${contextText}`
+      : run?.governance
+        ? governanceHeadline(run.governance)
+        : docPassages.length
+          ? `Read ${plural(docPassages.length, 'doc passage')}`
+          : '';
+  if (!summary) return null;
   return (
-    <div className="agent-activity">
-      {run.governance && <ManagedRun evidence={run.governance} groupId={groupId} taskId={taskId} />}
-      {(!!docPassages.length || !!tools.length) && (
-        <>
-          <DocsUse passages={docPassages} groupId={groupId} />
-          <MemoryUse tools={tools} groupId={groupId} />
-        </>
-      )}
-      {!!tools.length && (
-        <Collapsible className="agent-steps">
-          <CollapsibleTrigger className="agent-steps-fold group">
-            <ChevronRight
-              aria-hidden="true"
-              className="size-3.5 transition-transform group-data-[state=open]:rotate-90"
-            />
-            {summary}
-          </CollapsibleTrigger>
-          <CollapsibleContent className="agent-step-list">
+    <Collapsible className="agent-activity agent-steps">
+      <CollapsibleTrigger className="agent-steps-fold group">
+        <ChevronRight
+          aria-hidden="true"
+          className="size-3.5 transition-transform group-data-[state=open]:rotate-90"
+        />
+        {summary}
+      </CollapsibleTrigger>
+      <CollapsibleContent className="agent-activity-detail">
+        {!!tools.length && (
+          <div className="agent-step-list">
             {tools.map((tool) => (
               <StepLine key={tool.id} tool={tool} />
             ))}
-          </CollapsibleContent>
-          {/* The live step shows also while the steps are folded. */}
-          <div className="agent-step-list agent-step-live" aria-live="polite">
-            {live.map((tool) => (
-              <StepLine key={tool.id} tool={tool} />
-            ))}
           </div>
-        </Collapsible>
+        )}
+        <DocsUse passages={docPassages} groupId={groupId} />
+        <MemoryUse tools={tools} groupId={groupId} />
+        {context && <ContextUse usage={context} groupId={groupId} />}
+        {run?.governance && (
+          <ManagedRunDetails evidence={run.governance} groupId={groupId} taskId={taskId} />
+        )}
+      </CollapsibleContent>
+      {/* The live step shows also while the line is folded. */}
+      {!!live.length && (
+        <div className="agent-step-list agent-step-live" aria-live="polite">
+          {live.map((tool) => (
+            <StepLine key={tool.id} tool={tool} />
+          ))}
+        </div>
       )}
-    </div>
+    </Collapsible>
   );
 }
 
 /**
  * The approval and question cards of a run. They dock above the composer, so they never scroll
- * away. "Tell {agent} what to do instead" denies the request and puts the cursor in the
- * composer.
+ * away. An approval has two buttons: Deny and Allow. To tell the agent what to do instead, the
+ * user types in the composer.
  */
 export function RunRequests({
   api,
   run,
   onUpdate,
-  onInstead,
 }: {
   api: API;
   run: ChatRun;
   onUpdate: (run: ChatRun) => void;
-  /** Moves the cursor to the composer after "Tell {agent} what to do instead". */
-  onInstead: () => void;
 }) {
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState('');
@@ -482,7 +490,6 @@ export function RunRequests({
       setBusy(null);
     }
   }
-  const agent = agentLabel(run.agent);
   const running = run.status === 'running';
   return (
     <>
@@ -502,28 +509,21 @@ export function RunRequests({
               <>
                 <Button
                   size="sm"
-                  variant="ghost"
-                  className="mr-auto"
-                  disabled={!!busy}
-                  onClick={() =>
-                    void answer(approval.id, false).then((done) => {
-                      if (done) onInstead();
-                    })
-                  }
-                >
-                  Tell {agent} what to do instead
-                </Button>
-                <Button
-                  size="sm"
                   variant="outline"
                   disabled={!!busy}
                   onClick={() => void answer(approval.id, false)}
                 >
                   Deny
                 </Button>
-                <Button size="sm" disabled={!!busy} onClick={() => void answer(approval.id, true)}>
-                  {approval.scope === 'turn' ? 'Allow for this turn' : 'Allow once'}
-                </Button>
+                <Hint label={approval.scope === 'turn' ? 'For this turn' : 'Once'}>
+                  <Button
+                    size="sm"
+                    disabled={!!busy}
+                    onClick={() => void answer(approval.id, true)}
+                  >
+                    Allow
+                  </Button>
+                </Hint>
               </>
             }
           >

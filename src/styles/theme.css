@@ -107,10 +107,10 @@
   --warning: #b45309;
   --link: var(--primary);
   /* A tint is 8% of its color on the background. */
-  --primary-subtle: color-mix(in oklch, var(--primary) 8%, var(--background));
-  --success-subtle: color-mix(in oklch, var(--success) 8%, var(--background));
-  --warning-subtle: color-mix(in oklch, var(--warning) 8%, var(--background));
-  --destructive-subtle: color-mix(in oklch, var(--destructive) 8%, var(--background));
+  --primary-subtle: color-mix(in oklab, var(--primary) 8%, var(--background));
+  --success-subtle: color-mix(in oklab, var(--success) 8%, var(--background));
+  --warning-subtle: color-mix(in oklab, var(--warning) 8%, var(--background));
+  --destructive-subtle: color-mix(in oklab, var(--destructive) 8%, var(--background));
   --diff-add: var(--success);
   --diff-add-surface: var(--success-subtle);
   --diff-remove: var(--destructive);
@@ -136,6 +136,14 @@
   --control-lg: 36px;
   --row-height: 32px;
   --row-height-lg: 48px;
+  /* Every control in the title bar: toggle, history, tools and menus. */
+  --titlebar-control: var(--control-sm);
+  /* Icon slots: 16 by default, 14 in menus, chips and small buttons. Derive offsets from
+     them, for example a line centered under an icon. */
+  --icon-size: 16px;
+  --icon-size-sm: 14px;
+  /* The side padding of a chip (Button variant chip), so text can align with the edge. */
+  --chip-padding-x: 10px;
   /* Menu widths: 224 by default, 256 for menus with shortcuts or long names. */
   --menu-width: 224px;
   --menu-width-wide: 256px;
@@ -167,7 +175,7 @@
      ring at 20%. Rows in clipped containers: an inset ring. */
   --focus-color: var(--ring);
   --focus-ring: 0 0 0 2px var(--background), 0 0 0 4px var(--ring);
-  --focus-ring-field: 0 0 0 3px color-mix(in oklch, var(--ring) 20%, transparent);
+  --focus-ring-field: 0 0 0 3px color-mix(in oklab, var(--ring) 20%, transparent);
   --focus-ring-inset: inset 0 0 0 2px var(--ring);
   --overlay: rgb(0 0 0 / 0.32);
   /* Motion. Wrapped by a reduced-motion rule in components.css. */

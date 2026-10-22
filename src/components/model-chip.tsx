@@ -151,7 +151,8 @@ function usePreferredAgent() {
 }
 
 /**
- * The "Agent · Model" picker of the composer. It shows the agent and the active model. Before
+ * The agent picker of the composer. It shows the agent, and the model when the chat does not
+ * use the default model. Before
  * the first message, it can also change the agent. With one model and no agent choice, it is a
  * label with a tooltip and no arrow.
  *
@@ -182,8 +183,9 @@ export function ModelChip({
 }) {
   const preferred = usePreferredAgent();
   const current = choice.options.find((option) => option.id === value);
-  const modelName = current?.name || (choice.managed ? choice.defaultName : 'Default');
-  const label = `${agentName} · ${modelName}`;
+  const modelName = current?.name || (choice.managed ? choice.defaultName : '');
+  // The chip names the model only when the chat uses another model than the default.
+  const label = current && !current.isDefault ? `${agentName} · ${current.name}` : agentName;
   const agents = onAgentChange ? agentCatalog : [];
   if (choice.fixed && agents.length < 2)
     return (
@@ -212,7 +214,13 @@ export function ModelChip({
   return (
     <DropdownMenu>
       <Hint
-        label={onAgentChange ? 'Change the agent or the model' : `Model: ${modelName}`}
+        label={
+          onAgentChange
+            ? 'Change the agent or the model'
+            : modelName
+              ? `Model: ${modelName}`
+              : 'Change the model'
+        }
         disabled={disabled}
       >
         <DropdownMenuTrigger asChild>

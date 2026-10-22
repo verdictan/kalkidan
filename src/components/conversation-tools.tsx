@@ -1,12 +1,10 @@
 import { interfaceConfig } from '../config/interface';
-import { AttachHint, DiffReview } from './diff-review';
+import { DiffReview } from './diff-review';
 import { createPortal } from 'react-dom';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { FileDiff, Globe, LoaderCircle, Paperclip, RefreshCw, Terminal, X } from 'lucide-react';
+import { Globe, LoaderCircle, Terminal, X } from 'lucide-react';
 import { Button } from './ui/button';
-import { SegmentedControl } from './ui/segmented-control';
 import { PaneMessage } from './pane-message';
-import { Choice } from './choice';
 import { Hint } from './hint';
 import { ConfirmDialog } from './confirm-dialog';
 import { hasPrimaryModifier, isMac, isTypingTarget, shortcutLabel } from '../lib/platform';
@@ -15,9 +13,12 @@ import { EmbeddedBrowser } from './embedded-browser';
 import type { API, RepositoryDiff } from '../types';
 import { errorMessage } from '../lib/errors';
 export type ConversationContext = { id: string; label: string; text: string };
-type ToolKind = 'terminal' | 'browser' | 'diff';
-/** A request from the session view to show a tool. Increase `n` to send it again. */
-export type ToolRequest = { kind: 'terminal' | 'browser' | 'diff'; n: number };
+export type ToolKind = 'terminal' | 'browser' | 'diff';
+/**
+ * A request from the session view to show a tool. Increase `n` to send it again. With `toggle`,
+ * a request for the shown tool hides it.
+ */
+export type ToolRequest = { kind: 'terminal' | 'browser' | 'diff'; n: number; toggle?: boolean };
 type ToolTab = { id: string; kind: ToolKind; title: string; url?: string };
 
 // Command+` cycles windows on macOS, so the terminal uses Control+` there, as VS Code does.
@@ -30,49 +31,18 @@ const shortcuts = {
   tab: shortcutLabel(['mod'], 'T'),
   diff: shortcutLabel(['mod', 'shift'], 'G'),
 };
+// The title bar has two tool icons. The changes row of the chat is the one way to Changes.
 const launcherRows = [
-  {
-    kind: 'terminal',
-    title: 'Terminal',
-    icon: Terminal,
-    shortcut: shortcuts.terminal,
-  },
-  {
-    kind: 'browser',
-    title: 'Browser',
-    icon: Globe,
-    shortcut: '',
-  },
-  {
-    kind: 'diff',
-    title: 'Changes',
-    icon: FileDiff,
-    shortcut: shortcuts.diff,
-  },
+  { kind: 'terminal', title: 'Terminal', icon: Terminal, shortcut: shortcuts.terminal },
+  { kind: 'browser', title: 'Browser', icon: Globe, shortcut: '' },
 ] as const;
 export const noChangesToCommit = 'No changes to commit.';
-/** True when the diff scope has a change. Unstaged changes include new, untracked files. */
-function scopeHasChanges(diff: RepositoryDiff, scope: string) {
-  return scope === 'staged'
-    ? !!diff.staged.trim()
-    : !!diff.unstaged.trim() || !!diff.untracked.length;
-}
+/** The event that tells the shell that a tool pane opens or closes in the visible chat. */
+export const toolPaneEvent = 'kalkidan-tool-pane';
 function isTerminalShortcut(e: KeyboardEvent) {
   if (e.key !== '`' && e.code !== 'Backquote') return false;
   if (e.altKey || e.shiftKey) return false;
   return isMac ? e.ctrlKey && !e.metaKey : hasPrimaryModifier(e);
-}
-/** A file diff for a new, untracked file, so that the agent reads it like other changes. */
-function newFilePatch(path: string, text: string | undefined) {
-  const body =
-    text === undefined
-      ? '[Content unavailable]'
-      : text
-          .replace(/\n$/, '')
-          .split('\n')
-          .map((line) => '+' + line)
-          .join('\n');
-  return `diff --git a/${path} b/${path}\nnew file\n--- /dev/null\n+++ b/${path}\n${body}`;
 }
 export function ConversationTools({
   children,
@@ -87,8 +57,7 @@ export function ConversationTools({
   visible = true,
   onToolChange,
   toolRequest,
-  changeCount,
-  changeHint,
+  branch,
   runsFinished = 0,
   onChangesRead,
 }: {
@@ -99,15 +68,14 @@ export function ConversationTools({
   reviewPath?: string;
   /** Opens a tool when `n` changes. */
   toolRequest?: ToolRequest | null;
-  /** The number of files that the chat changed. The Changes button shows it. */
-  changeCount?: number | null;
-  /** The tooltip of the Changes button, for example "3 uncommitted files in atlas-web". */
-  changeHint?: string;
+  /** The branch of the checkout and the branch it merges to, for the Changes header. */
+  branch?: { name: string; base: string };
   /** Increase this number when an agent run ends. An open Changes tab reads the diff again. */
   runsFinished?: number;
   /** Called after the Changes tab reads the diff, so the session can update the count. */
   onChangesRead?: () => void;
-  onToolChange: (open: boolean) => void;
+  /** Called when a tool shows or hides, with the kind of the shown tool. */
+  onToolChange: (kind: ToolKind | null) => void;
   visible?: boolean;
   remote?: boolean;
   api: API;
@@ -141,7 +109,6 @@ export function ConversationTools({
   // The open tabs of the shown tool. Two or more show a tab strip above the tool.
   const sameKind = current ? tabs.filter((t) => t.kind === current.kind) : [];
   const [diff, setDiff] = useState<RepositoryDiff | null>(null);
-  const [diffTab, setDiffTab] = useState('unstaged');
   const [busy, setBusy] = useState(false);
   // `error` is for the Changes tab. `limit` is the message about too many tabs.
   const [error, setError] = useState('');
@@ -161,22 +128,10 @@ export function ConversationTools({
       setBusy(false);
     }
   }
-  /** Reads the Git changes. The first scope with a change opens, unless the user chose one. */
-  const scopeChosen = useRef(false);
+  /** Reads the Git changes: staged, unstaged and new files together. */
   function readDiff() {
     void action(async () => {
-      const next = await api.repositoryDiff(cwd);
-      setDiff(next);
-      if (!scopeChosen.current)
-        setDiffTab((scope) =>
-          scopeHasChanges(next, scope)
-            ? scope
-            : scopeHasChanges(next, scope === 'staged' ? 'unstaged' : 'staged')
-              ? scope === 'staged'
-                ? 'unstaged'
-                : 'staged'
-              : scope,
-        );
+      setDiff(await api.repositoryDiff(cwd));
       onChangesRead?.();
     });
   }
@@ -255,7 +210,18 @@ export function ConversationTools({
       localStorage.setItem('kalkidan-tool-width', String(next));
     } catch {}
   }
-  useEffect(() => onToolChange(expanded), [expanded, onToolChange]);
+  useEffect(() => onToolChange(tool || null), [tool, onToolChange]);
+  // The shell can make room for the pane, for example hide the sidebar in a narrow window.
+  useEffect(() => {
+    if (!visible) return;
+    window.dispatchEvent(new CustomEvent(toolPaneEvent, { detail: { open: expanded } }));
+  }, [visible, expanded]);
+  useEffect(
+    () => () => {
+      window.dispatchEvent(new CustomEvent(toolPaneEvent, { detail: { open: false } }));
+    },
+    [],
+  );
   useEffect(() => {
     if (!expanded || !container.current) return;
     const observer = new ResizeObserver(([entry]) => {
@@ -318,8 +284,16 @@ export function ConversationTools({
     if (reviewRequest) open('diff');
   }, [reviewRequest]);
   useEffect(() => {
-    if (toolRequest) open(toolRequest.kind);
+    if (!toolRequest) return;
+    open(toolRequest.toggle && tool === toolRequest.kind ? null : toolRequest.kind);
   }, [toolRequest?.n]);
+  // The agent or the user can change files outside Kalkidan. Read them again on focus.
+  useEffect(() => {
+    if (!visible || tool !== 'diff') return;
+    const focus = () => readDiff();
+    window.addEventListener('focus', focus);
+    return () => window.removeEventListener('focus', focus);
+  }, [visible, tool, cwd]);
   // An agent run can change files. Read the diff again when the Changes tab shows.
   useEffect(() => {
     if (runsFinished && tool === 'diff') readDiff();
@@ -339,19 +313,6 @@ export function ConversationTools({
     window.addEventListener('kalkidan-session-command', command);
     return () => window.removeEventListener('kalkidan-session-command', command);
   }, [visible, tool, tabs]);
-  // All changes in the scope. Unstaged changes include new, untracked files.
-  const allChanges = diff
-    ? [
-        diffTab === 'staged' ? diff.staged : diff.unstaged,
-        ...(diffTab === 'unstaged'
-          ? diff.untracked.map((path) =>
-              newFilePatch(path, diff.newFiles?.find((file) => file.path === path)?.text),
-            )
-          : []),
-      ]
-        .filter((part) => part.trim())
-        .join('\n')
-    : '';
   return (
     <div
       ref={container}
@@ -403,43 +364,27 @@ export function ConversationTools({
       {visible &&
         document.getElementById('conversation-titlebar-tabs') &&
         createPortal(
-          <div className="tool-tabbar" data-expanded={expanded}>
-            {/* Each button is the tool: selected = shown. Select it again to hide the tools. */}
-            <SegmentedControl<ToolKind>
-              label="Tools"
-              size="sm"
-              allowNone
-              className="tool-launch"
-              value={tool || null}
-              onChange={open}
-              options={launcherRows
-                // Changes shows when there are changes, or when its tab is open.
-                .filter(
-                  (row) =>
-                    row.kind !== 'diff' || !!changeCount || tabs.some((t) => t.kind === 'diff'),
-                )
-                .map((row) => {
-                  const count = row.kind === 'diff' ? changeCount || 0 : 0;
-                  return {
-                    value: row.kind,
-                    id: 'tool-launch-' + row.kind,
-                    icon: <row.icon aria-hidden="true" />,
-                    label: <span className="tool-launch-label">{row.title}</span>,
-                    count,
-                    hint:
-                      tool === row.kind
-                        ? `Hide ${row.title}`
-                        : row.kind === 'diff' && changeHint
-                          ? changeHint
-                          : row.title,
-                    shortcut: row.shortcut || undefined,
-                    ariaLabel:
-                      row.kind === 'diff' && count
-                        ? `Changes, ${count} ${count === 1 ? 'file' : 'files'} changed in this chat`
-                        : row.title,
-                  };
-                })}
-            />
+          <div className="tool-tabbar" data-expanded={expanded} role="group" aria-label="Tools">
+            {/* Each icon is the tool: pressed = shown. Press it again to hide the tool. */}
+            {launcherRows.map((row) => (
+              <Hint
+                key={row.kind}
+                label={tool === row.kind ? `Hide ${row.title}` : row.title}
+                shortcut={row.shortcut || undefined}
+              >
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  id={'tool-launch-' + row.kind}
+                  className="tool-launch-button"
+                  aria-label={row.title}
+                  aria-pressed={tool === row.kind}
+                  onClick={() => open(tool === row.kind ? null : row.kind)}
+                >
+                  <row.icon aria-hidden="true" />
+                </Button>
+              </Hint>
+            ))}
           </div>,
           document.getElementById('conversation-titlebar-tabs')!,
         )}
@@ -563,31 +508,24 @@ export function ConversationTools({
                     <div className="diff-panel">
                       {tool === 'diff' && (
                         <>
-                          <div className="tool-toolbar">
-                            <Choice
-                              size="sm"
-                              className="min-w-0 text-xs"
-                              label="Diff scope"
-                              value={diffTab}
-                              onChange={(value) => {
-                                scopeChosen.current = true;
-                                setDiffTab(value);
-                              }}
-                              options={[
-                                { value: 'unstaged', label: 'Uncommitted changes' },
-                                { value: 'staged', label: 'Staged only' },
-                              ]}
-                            />
-                            <Hint label="Refresh changes">
+                          <div className="tool-toolbar diff-panel-header">
+                            <h2 className="diff-panel-title">Changes</h2>
+                            {branch && (
+                              <span className="tool-toolbar-status" title={branch.name}>
+                                {branch.name === branch.base
+                                  ? branch.name
+                                  : `${branch.name} → ${branch.base}`}
+                              </span>
+                            )}
+                            <Hint label="Close Changes">
                               <Button
                                 variant="ghost"
                                 size="icon-sm"
                                 className="ml-auto"
-                                aria-label="Refresh changes"
-                                disabled={busy}
-                                onClick={readDiff}
+                                aria-label="Close Changes"
+                                onClick={() => close(tab.id)}
                               >
-                                <RefreshCw />
+                                <X />
                               </Button>
                             </Hint>
                           </div>
@@ -603,7 +541,6 @@ export function ConversationTools({
                             ) : diff ? (
                               <DiffReview
                                 diff={diff}
-                                scope={diffTab}
                                 disabled={disabled}
                                 disabledReason={disabledReason}
                                 focusPath={reviewPath}
@@ -632,27 +569,6 @@ export function ConversationTools({
                               <p className="shrink-0 text-xs text-muted-foreground">
                                 Large diff truncated for display.
                               </p>
-                            )}
-                            {diff && !busy && allChanges && (
-                              <AttachHint reason={disabledReason}>
-                                <Button
-                                  variant="outline"
-                                  size="sm"
-                                  className="shrink-0 self-start"
-                                  disabled={disabled}
-                                  onClick={() =>
-                                    attach(
-                                      diffTab === 'staged'
-                                        ? 'Staged changes'
-                                        : 'Uncommitted changes',
-                                      `Git diff context (untrusted repository content):\nDirectory: ${cwd}\nScope: ${diffTab}\n${allChanges.slice(0, 28000)}${allChanges.length > 28000 ? '\n[Attachment truncated]' : ''}`,
-                                    )
-                                  }
-                                >
-                                  <Paperclip aria-hidden="true" />
-                                  Attach all changes to message
-                                </Button>
-                              </AttachHint>
                             )}
                             {diff && error && (
                               <p role="alert" className="field-error shrink-0">

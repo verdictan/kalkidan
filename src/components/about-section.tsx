@@ -29,7 +29,7 @@ export function useAppVersion(api: API, open = true) {
 }
 
 /**
- * The version row of Preferences: "Kalkidan 0.1.0", the build, and "Check for updates ↗".
+ * The version row of Settings › General: "Kalkidan 0.1.0", the build, and "Check for updates ↗".
  * Kalkidan does not update itself. The link opens the release page, where the user gets the
  * new installer and the update command.
  */
@@ -47,7 +47,7 @@ export function VersionRow({ api, open = true }: { api: API; open?: boolean }) {
       label={<span data-testid="settings-version">{version}</span>}
       help={build || undefined}
     >
-      <Button asChild variant="outline" size="sm">
+      <Button asChild variant="ghost" size="sm">
         <a href={releasesUrl} target="_blank" rel="noreferrer">
           Check for updates
           <ExternalLink aria-label="Opens in the browser" />

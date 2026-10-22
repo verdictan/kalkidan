@@ -1,20 +1,21 @@
 import {
   StatusIcon,
   TaskCheckbox,
+  TaskPullRequest,
+  TaskStateLine,
   isDoneStatus,
-  taskMeta,
-  TaskChip,
   TaskStartButton,
   chatsActivity,
   linkedChats,
   selectionClick,
   selectionKeys,
+  taskFolderName,
   taskKeyUp,
   taskKeys,
   trackerColumns,
   type TaskWorkProps,
 } from './tracker-list';
-import { PanelRight, Play, Plus, SquareCheck } from 'lucide-react';
+import { Folder, PanelRight, Play, SquareCheck } from 'lucide-react';
 import {
   useEffect,
   useRef,
@@ -29,9 +30,8 @@ import type { TrackerBoard, TrackerItem, Session } from '../types';
 import { cn } from '../lib/utils';
 import { Card, CardContent } from './ui/card';
 import { Button } from './ui/button';
-import { Input } from './ui/input';
 import { Count } from './ui/count';
-import { MoreButton } from './ui/more-button';
+import { EmptyState } from './ui/empty-state';
 import { menuShortcutClass } from './ui/menu-styles';
 import {
   DropdownMenu,
@@ -42,49 +42,85 @@ import {
   DropdownMenuSeparator,
 } from './ui/dropdown-menu';
 
-/** The title field that the column "+" adds: Enter creates the task, Escape cancels. */
+/** True for the URL of a GitHub issue or pull request. Such a title adds that item. */
+export function itemUrl(text: string) {
+  return /^https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/(issues|pull)\/\d+\/?$/i.test(text.trim());
+}
+
+/**
+ * New task: a card-shaped title field at the top of the first column. Enter adds the task,
+ * ⌘Enter adds it and starts a chat, Escape cancels. A pasted issue or pull request URL adds that
+ * item to the board.
+ */
 function InlineTaskField({
-  column,
+  folder,
+  canStart,
   onCreate,
   onCancel,
 }: {
-  column: string;
-  onCreate: (title: string) => Promise<boolean>;
+  /** The code folder where a started task works, for the line under the title. */
+  folder?: string;
+  canStart: boolean;
+  onCreate: (title: string, start: boolean) => Promise<boolean>;
   onCancel: () => void;
 }) {
   const [title, setTitle] = useState('');
   const [busy, setBusy] = useState(false);
+  const field = useRef<HTMLTextAreaElement>(null);
+  function submit(start: boolean) {
+    const value = title.trim();
+    if (!value || busy) return;
+    setBusy(true);
+    void onCreate(value, start && !itemUrl(value)).then((ok) => {
+      setBusy(false);
+      if (ok) {
+        setTitle('');
+        field.current?.focus();
+      }
+    });
+  }
   return (
-    <Input
-      autoFocus
-      maxLength={256}
-      // Card-shaped, so the new task takes the place of the card that it makes.
-      className="tracker-inline-add h-auto min-h-11 rounded-lg p-3 font-medium"
-      aria-label={`New task in ${column}`}
-      placeholder="Task title"
-      value={title}
-      disabled={busy}
-      onChange={(event) => setTitle(event.target.value)}
-      onBlur={() => !title.trim() && !busy && onCancel()}
-      onKeyDown={(event) => {
-        event.stopPropagation();
-        if (event.key === 'Escape') {
-          event.preventDefault();
-          onCancel();
-        } else if (event.key === 'Enter' && !event.nativeEvent.isComposing && title.trim()) {
-          event.preventDefault();
-          setBusy(true);
-          void onCreate(title.trim()).then((ok) => {
-            setBusy(false);
-            if (ok) setTitle('');
-          });
-        }
-      }}
-    />
+    <div className="tracker-quick-add" data-busy={busy || undefined}>
+      <textarea
+        ref={field}
+        autoFocus
+        rows={1}
+        maxLength={256}
+        className="tracker-quick-title"
+        aria-label="New task title"
+        aria-keyshortcuts="Enter Meta+Enter Escape"
+        placeholder="Task title"
+        value={title}
+        readOnly={busy}
+        onChange={(event) => setTitle(event.target.value.replace(/\n/g, ' '))}
+        onBlur={() => !title.trim() && !busy && onCancel()}
+        onKeyDown={(event) => {
+          event.stopPropagation();
+          if (event.key === 'Escape') {
+            event.preventDefault();
+            onCancel();
+          } else if (event.key === 'Enter' && !event.nativeEvent.isComposing) {
+            event.preventDefault();
+            submit(event.metaKey || event.ctrlKey);
+          }
+        }}
+      />
+      <div className="tracker-quick-meta">
+        {folder && (
+          <span className="tracker-quick-folder">
+            <Folder aria-hidden="true" />
+            <span className="truncate">{folder}</span>
+          </span>
+        )}
+        <kbd className="tracker-quick-keys">
+          {busy ? 'Adding…' : canStart ? '⏎ add · ⌘⏎ start' : '⏎ add'}
+        </kbd>
+      </div>
+    </div>
   );
 }
 
-/** The heading of a board column: status icon, name, task count and an optional action. */
+/** The heading of a board column: name, task count and an optional action. */
 export function BoardColumnHeading({
   name,
   count,
@@ -98,7 +134,7 @@ export function BoardColumnHeading({
 }) {
   return (
     <div className="tracker-column-heading">
-      {icon ?? <StatusIcon name={name} />}
+      {icon}
       <h4 className="truncate" title={name}>
         {name}
       </h4>
@@ -132,7 +168,11 @@ export function TaskCard({
       role="listitem"
       {...props}
       className={cn(
-        'tracker-task gap-0 has-[.tracker-task-title:focus-visible]:shadow-[var(--focus-ring)] data-[selected]:bg-[var(--surface-selected)]',
+        // Borderless: the fill marks the card. A selected card is white with a brown ring. The
+        // focus ring is inset, so the scrolling column does not clip it.
+        'tracker-task gap-0 border-transparent bg-secondary hover:bg-[color-mix(in_oklch,var(--foreground)_6%,var(--background))]',
+        'data-[selected]:border-primary data-[selected]:bg-background data-[selected]:shadow-[0_0_0_3px_color-mix(in_oklch,var(--primary)_14%,transparent)]',
+        'has-[.tracker-task-title:focus-visible]:shadow-[var(--focus-ring-inset)]',
         className,
       )}
     >
@@ -190,7 +230,8 @@ export function useScrollShadow(scroller: RefObject<HTMLElement | null>, key: un
 /**
  * The board columns. The board is one tab stop: the arrow keys move between the cards (up and
  * down in a column, left and right between columns), Enter opens a task, Space selects it, S
- * starts a chat and Shift+F10 opens the card menu with "Move to".
+ * starts a chat and Shift+F10 opens the card menu with "Move to". A right click opens the same
+ * menu. ⌘-click or Shift-click selects.
  */
 export function TrackerBoard({
   board,
@@ -200,6 +241,10 @@ export function TrackerBoard({
   onOpen,
   onCreate,
   onStatus,
+  adding,
+  onAddingChange,
+  addFolder,
+  usage,
   ...work
 }: {
   board: TrackerBoard;
@@ -207,11 +252,20 @@ export function TrackerBoard({
   busy: boolean;
   sessions: Session[];
   onOpen: (item: TrackerItem) => void;
-  /** Creates a task with this title in a column. The column "+" shows a title field. */
-  onCreate?: (status: string, title: string) => Promise<boolean>;
+  /**
+   * Creates a task with this title in a column. With `start`, a chat starts on it. Returns false
+   * when it fails, so the title stays.
+   */
+  onCreate?: (status: string, title: string, start: boolean) => Promise<boolean>;
   onStatus: (item: TrackerItem, status: string) => void;
+  /** The column that shows the New task field, or null. */
+  adding?: string | null;
+  onAddingChange?: (column: string | null) => void;
+  /** The code folder of a new task, for the line under the New task field. */
+  addFolder?: string;
+  /** The usage text of each task, by task ID: "19 requests · $6.10". */
+  usage?: Record<string, { text: string }>;
 } & TaskWorkProps) {
-  const [adding, setAdding] = useState<string | null>(null);
   const [dragged, setDragged] = useState<string | null>(null);
   const [over, setOver] = useState<string | null>(null);
   const [announcement, setAnnouncement] = useState('');
@@ -222,6 +276,7 @@ export function TrackerBoard({
   const scroller = useRef<HTMLDivElement>(null);
   const shadow = useScrollShadow(scroller, columns.length);
   const { selection } = work;
+  const selecting = !!selection?.ids.size;
   const grid = columns.map((column) =>
     items.filter(
       (item) =>
@@ -274,9 +329,9 @@ export function TrackerBoard({
       ref={scroller}
       className="tracker-board"
       {...shadow}
-      // Up to four columns share the width. More columns keep 260 to 360px and scroll.
+      // Up to four columns share the width. More columns keep 224 to 360px and scroll.
       data-many={columns.length > 4 || undefined}
-      data-selecting={selection?.ids.size ? true : undefined}
+      data-selecting={selecting || undefined}
       role="region"
       aria-label="Tracker board"
       aria-busy={busy}
@@ -288,6 +343,7 @@ export function TrackerBoard({
       </span>
       {columns.map((column, columnIndex) => {
         const tasks = grid[columnIndex];
+        const addingHere = !!onCreate && adding === column.id;
         return (
           <section
             key={column.id}
@@ -316,48 +372,24 @@ export function TrackerBoard({
             aria-label={`${column.name} column`}
             className="tracker-column"
           >
-            <BoardColumnHeading
-              name={column.name}
-              count={tasks.length}
-              action={
-                onCreate &&
-                column.id && (
-                  <Button
-                    variant="ghost"
-                    size="icon-xs"
-                    className="tracker-column-add"
-                    aria-label={`New task in ${column.name}`}
-                    tabIndex={-1}
-                    disabled={busy}
-                    onClick={() => setAdding(column.id)}
-                  >
-                    <Plus size={16} />
-                  </Button>
-                )
-              }
-            />
+            <BoardColumnHeading name={column.name} count={tasks.length} />
             <div
               className="tracker-column-items"
               role={tasks.length ? 'list' : undefined}
               aria-label={tasks.length ? `${column.name} tasks` : undefined}
             >
-              {!tasks.length && adding !== column.id && (
-                <p className="tracker-column-empty">
-                  {columnIndex === 0 && !flat.length && onCreate
-                    ? 'No tasks yet. Use + or New task.'
-                    : 'No tasks'}
-                </p>
-              )}
-              {onCreate && adding === column.id && (
+              {addingHere && (
                 <InlineTaskField
-                  column={column.name}
-                  onCancel={() => setAdding(null)}
-                  onCreate={async (title) => {
-                    const ok = await onCreate(column.id, title);
-                    if (ok) setAdding(null);
-                    return ok;
-                  }}
+                  folder={addFolder}
+                  canStart={!!work.onStart}
+                  onCancel={() => onAddingChange?.(null)}
+                  onCreate={(title, start) => onCreate(column.id, title, start)}
                 />
+              )}
+              {!tasks.length && !addingHere && (
+                <EmptyState compact className="tracker-column-empty">
+                  No tasks.
+                </EmptyState>
               )}
               {tasks.map((item) => {
                 const chats = linkedChats(sessions, item.id);
@@ -366,10 +398,12 @@ export function TrackerBoard({
                   setAnnouncement(`Moving ${item.title} to ${name}`);
                   onStatus(item, status);
                 };
-                const meta = taskMeta(item);
+                const folder = taskFolderName(item);
                 const done = isDoneStatus(
                   options.find((option) => option.id === item.statusId)?.name || '',
                 );
+                const working = !!chatsActivity(chats, work.activity);
+                const usageText = usage?.[item.id]?.text;
                 return (
                   // The title button is the one focus stop of the card. A pointer click on the
                   // card body also opens the task. Shift or ⌘ with a click selects.
@@ -407,7 +441,9 @@ export function TrackerBoard({
                     }}
                     data-dragging={dragged === item.id || undefined}
                     top={
-                      selection && (
+                      // The select box shows only while the user selects (⌘-click or Space).
+                      selection &&
+                      selecting && (
                         <TaskCheckbox
                           item={item}
                           selection={selection}
@@ -417,7 +453,7 @@ export function TrackerBoard({
                       )
                     }
                     titleProps={{
-                      className: selection ? 'pr-6' : undefined,
+                      className: selecting ? 'pr-6' : undefined,
                       tabIndex: item.id === current ? 0 : -1,
                       'aria-keyshortcuts':
                         [work.onStart && !done && 'S', selection && 'Space', 'Shift+F10']
@@ -430,31 +466,31 @@ export function TrackerBoard({
                     }}
                   >
                     <div className="tracker-task-footer">
-                      {meta && <span className="tracker-task-meta truncate">{meta}</span>}
-                      <TaskChip
-                        chats={chats}
-                        activity={work.activity}
-                        onOpenChat={work.onOpenChat}
-                        starting={work.startingId === item.id}
-                        tabIndex={-1}
-                      />
+                      <span className="tracker-task-meta">
+                        {folder && <span className="truncate">{folder}</span>}
+                        <TaskPullRequest chats={chats} tabIndex={-1} short separator={!!folder} />
+                        {usageText && (
+                          <span className="tracker-task-usage">
+                            {(folder || chats.some((s) => s.organization?.pullRequest)) && (
+                              <span aria-hidden="true">·</span>
+                            )}
+                            {usageText}
+                          </span>
+                        )}
+                      </span>
                       <span className="tracker-task-actions">
+                        {/* The card menu opens on a right click or Shift+F10. It has no button. */}
                         <DropdownMenu
                           open={menuId === item.id}
                           onOpenChange={(open) => setMenuId(open ? item.id : '')}
                         >
                           <DropdownMenuTrigger asChild>
-                            <MoreButton
-                              size="xs"
-                              className="tracker-task-menu"
-                              label={`Task menu: ${item.title}`}
-                              tabIndex={-1}
-                            />
+                            <span className="tracker-task-menu-anchor" aria-hidden="true" />
                           </DropdownMenuTrigger>
                           <DropdownMenuContent
                             align="end"
                             onCloseAutoFocus={(event) => {
-                              // The focus goes back to the card, not to the hidden menu button.
+                              // The focus goes back to the card.
                               event.preventDefault();
                               focusCard(item.id);
                             }}
@@ -463,10 +499,11 @@ export function TrackerBoard({
                               <PanelRight className="size-4" />
                               Open task
                             </DropdownMenuItem>
-                            {work.onStart && (
+                            {work.onStart && !done && (
                               <DropdownMenuItem onSelect={() => work.onStart?.(item)}>
                                 <Play className="size-4" />
                                 Start task
+                                <span className={menuShortcutClass}>S</span>
                               </DropdownMenuItem>
                             )}
                             {selection && (
@@ -498,18 +535,22 @@ export function TrackerBoard({
                             )}
                           </DropdownMenuContent>
                         </DropdownMenu>
-                        {work.onStart &&
-                          !done &&
-                          !chatsActivity(chats, work.activity) &&
-                          work.startingId !== item.id && (
-                            <TaskStartButton
-                              item={item}
-                              tabIndex={-1}
-                              onStart={() => work.onStart?.(item)}
-                            />
-                          )}
+                        {work.onStart && !done && !working && work.startingId !== item.id && (
+                          <TaskStartButton
+                            item={item}
+                            tabIndex={-1}
+                            onStart={() => work.onStart?.(item)}
+                          />
+                        )}
                       </span>
                     </div>
+                    <TaskStateLine
+                      chats={chats}
+                      activity={work.activity}
+                      onOpenChat={work.onOpenChat}
+                      starting={work.startingId === item.id}
+                      tabIndex={-1}
+                    />
                   </TaskCard>
                 );
               })}

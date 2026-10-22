@@ -57,6 +57,11 @@ export function taskMeta(item: TrackerItem) {
     return `${pathBasename(item.repository)}${item.number ? ` #${item.number}` : ''}`;
   return item.kind === 'DraftIssue' ? 'Draft' : '';
 }
+/** The code folder line of a card: "atlas-web", "Draft" for a draft, else nothing. */
+export function taskFolderName(item: TrackerItem) {
+  if (item.repository) return pathBasename(item.repository);
+  return item.kind === 'DraftIssue' ? 'Draft' : '';
+}
 export function trackerColumns(board: TrackerBoard) {
   const options = board.statusField?.options || [];
   return [
@@ -99,7 +104,7 @@ export function linkedChats(sessions: Session[], itemId: string) {
 }
 
 const activityWords: Record<SessionActivityState, string> = {
-  approval: 'Needs approval',
+  approval: 'Needs your approval',
   question: 'Needs your answer',
   running: 'Agent working',
 };
@@ -110,9 +115,9 @@ export function chatsActivity(
 ) {
   return strongestActivity(chats.map((s) => activity[activityKey(s.agent, s.id)]));
 }
-/** "Codex working", "Needs your answer" or "Needs approval". */
+/** "Codex · working", "Needs your answer" or "Needs your approval". */
 export function activityText(state: SessionActivityState, agent?: Agent) {
-  return state === 'running' && agent ? `${agentLabel(agent)} working` : activityWords[state];
+  return state === 'running' && agent ? `${agentLabel(agent)} · working` : activityWords[state];
 }
 /** The chat of a task that has the given state. */
 function chatWithState(
@@ -231,33 +236,88 @@ export function TaskPullRequest({
   chats,
   tabIndex,
   short = false,
+  separator = false,
 }: {
   chats: Session[];
   tabIndex?: number;
   /** Shows only "#41", for a card. */
   short?: boolean;
+  /** Puts a "·" before the link, for the meta line of a card. */
+  separator?: boolean;
 }) {
   const pullRequest = taskPullRequest(chats);
   if (!pullRequest) return null;
   return (
-    <Button asChild variant="ghost" size="xs" className="tracker-task-pr">
-      <a
-        href={pullRequest.url}
-        target="_blank"
-        rel="noreferrer"
-        tabIndex={tabIndex}
-        aria-label={
-          `Pull request${pullRequest.number ? ` #${pullRequest.number}` : ''}` +
-          `${pullRequest.state ? `, ${pullRequestWords[pullRequest.state].toLowerCase()}` : ''}` +
-          '. Opens on GitHub'
-        }
-        data-state={pullRequest.state}
-      >
-        <GitPullRequest aria-hidden="true" />
-        {pullRequest.number ? `#${pullRequest.number}` : 'PR'}
-        {!short && pullRequest.state ? ` · ${pullRequestWords[pullRequest.state]}` : ''}
-      </a>
-    </Button>
+    <>
+      {separator && <span aria-hidden="true">·</span>}
+      <Button asChild variant="ghost" size="xs" className="tracker-task-pr">
+        <a
+          href={pullRequest.url}
+          target="_blank"
+          rel="noreferrer"
+          tabIndex={tabIndex}
+          aria-label={
+            `Pull request${pullRequest.number ? ` #${pullRequest.number}` : ''}` +
+            `${pullRequest.state ? `, ${pullRequestWords[pullRequest.state].toLowerCase()}` : ''}` +
+            '. Opens on GitHub'
+          }
+          data-state={pullRequest.state}
+        >
+          <GitPullRequest aria-hidden="true" />
+          {pullRequest.number ? `#${pullRequest.number}` : 'PR'}
+          {!short && pullRequest.state ? ` · ${pullRequestWords[pullRequest.state]}` : ''}
+        </a>
+      </Button>
+    </>
+  );
+}
+
+/**
+ * The agent line of a card: "● Codex · working", "● Needs your approval" or "● Starting…".
+ * It opens the chat. It shows nothing when no chat works on the task.
+ */
+export function TaskStateLine({
+  chats,
+  activity,
+  onOpenChat,
+  starting,
+  tabIndex,
+}: {
+  chats: Session[];
+  activity?: Record<string, SessionActivityState>;
+  onOpenChat?: (session: Session) => void;
+  starting?: boolean;
+  tabIndex?: number;
+}) {
+  if (starting)
+    return (
+      <span className="tracker-task-state" data-state="running" role="status">
+        <ActivityDot state="running" />
+        Starting…
+      </span>
+    );
+  const state = chatsActivity(chats, activity);
+  const chat = chatWithState(chats, state, activity);
+  if (!state || !chat) return null;
+  const label = activityText(state, chat.agent);
+  const name = chat.organization?.title || chat.title;
+  return onOpenChat ? (
+    <button
+      type="button"
+      className="tracker-task-state"
+      data-state={state}
+      tabIndex={tabIndex}
+      aria-label={`${label}. Open chat: ${name}`}
+      onClick={() => onOpenChat(chat)}
+    >
+      <ActivityDot state={state} />
+      <span className="truncate">{label}</span>
+    </button>
+  ) : (
+    <span className="tracker-task-state" data-state={state}>
+      <ActivityDot state={state} />
+      <span className="truncate">{label}</span>
+    </span>
   );
 }
 
@@ -469,7 +529,7 @@ export function TrackerList({
   const showRepository = items.some((item) => taskMeta(item));
   const showChats = items.some((item) => chatsOf.get(item.id)?.length) || !!work.startingId;
   const options = board.statusField?.options || [];
-  const columnCount = 2 + (showRepository ? 1 : 0) + (showChats ? 1 : 0);
+  const columnCount = 2 + (selection ? 1 : 0) + (showRepository ? 1 : 0) + (showChats ? 1 : 0);
   return (
     <Table
       className="tracker-list table-fixed"
@@ -478,11 +538,11 @@ export function TrackerList({
     >
       <TableHeader>
         <TableRow className="hover:bg-transparent">
-          {/* The select boxes sit in the gutter left of the titles, so titles line up. */}
-          <TableHead className="tracker-list-title first:pl-0">
-            {selection && (
+          {/* The select boxes have their own column inside the content edge. */}
+          {selection && (
+            <TableHead className="tracker-list-select first:pl-0">
               <Checkbox
-                className="tracker-task-select absolute top-1/2 -left-5 -translate-y-1/2"
+                className="tracker-task-select"
                 aria-label="Select all tasks"
                 checked={allSelected}
                 ref={(element) => {
@@ -490,10 +550,10 @@ export function TrackerList({
                 }}
                 onChange={() => (allSelected ? selection.clear() : selection.selectAll())}
               />
-            )}
-            Title
-          </TableHead>
-          {showRepository && <TableHead className="w-[22%]">Repository</TableHead>}
+            </TableHead>
+          )}
+          <TableHead className="tracker-list-title first:pl-0">Title</TableHead>
+          {showRepository && <TableHead className="w-[22%]">Code folder</TableHead>}
           {showChats && <TableHead className="w-44">Chat</TableHead>}
           <TableHead className="tracker-list-start">
             <span className="sr-only">Actions</span>
@@ -508,10 +568,15 @@ export function TrackerList({
         return (
           <TableBody key={column.id}>
             <TableRow className="tracker-list-group border-b-0 hover:bg-transparent">
-              <th scope="rowgroup" colSpan={columnCount} className="h-8 pl-0 text-left font-normal">
+              {/* A 12px muted label, so a group does not read as a task row. */}
+              <th
+                scope="rowgroup"
+                colSpan={columnCount}
+                className="tracker-list-group-label h-8 pl-0 text-left"
+              >
                 <span className="flex items-center gap-2">
                   <StatusIcon name={column.name} />
-                  <span className="text-sm font-semibold">{column.name}</span>
+                  {column.name}
                   <Count>{tasks.length}</Count>
                 </span>
               </th>
@@ -535,14 +600,12 @@ export function TrackerList({
                     selectionClick(event, item, selection);
                   }}
                 >
+                  {selection && (
+                    <TableCell className="tracker-list-select first:pl-0">
+                      <TaskCheckbox item={item} selection={selection} />
+                    </TableCell>
+                  )}
                   <TableCell className="tracker-list-title whitespace-normal first:pl-0">
-                    {selection && (
-                      <TaskCheckbox
-                        item={item}
-                        selection={selection}
-                        className="absolute top-1/2 -left-5 -translate-y-1/2"
-                      />
-                    )}
                     <Button
                       variant="bare"
                       className="min-w-0 px-0 text-left font-medium whitespace-normal break-words hover:underline"

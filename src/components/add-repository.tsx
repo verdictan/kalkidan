@@ -15,13 +15,12 @@ import { Input } from './ui/input';
 import { SearchInput } from './ui/search-input';
 import { Badge } from './ui/badge';
 import { EmptyState } from './ui/empty-state';
-import { SegmentedControl } from './ui/segmented-control';
 import { Choice } from './choice';
 import { Hint } from './hint';
 import { showToast } from './ui/toast';
 import { cn } from '../lib/utils';
 import { openAccountSettings } from './github-account';
-import { codeFolders, useFolderImport } from './repository-import';
+import { useFolderImport } from './repository-import';
 import {
   Dialog,
   DialogBody,
@@ -140,6 +139,32 @@ export function AddRepository({
     else setError('Could not load your projects. Close this dialog and try again.');
     setSourceReady(true);
   }
+  /**
+   * "Add code folder…" for a local project opens the system folder picker at once, with no
+   * dialog first. All Git repositories in the folder are added. A project on an SSH host, a
+   * clone, or no project yet opens the dialog.
+   */
+  async function start() {
+    if (initialSource !== 'github' && groupId && folderImport.supported) {
+      const projects = await Promise.resolve()
+        .then(() => api.snapshot())
+        .catch(() => undefined);
+      const group = projects?.groups?.find((g) => g.id === groupId);
+      if (group && !group.hostId) {
+        try {
+          const result = await folderImport.choose('Add code folder', 'Add');
+          if (!result) return;
+          const { added } = await api.addRepositories(group.id, result.paths);
+          await onRefresh();
+          if (!added) report('Kalkidan could not add the code folders. Try again.', true);
+        } catch (failure) {
+          report(failure instanceof Error ? failure.message : String(failure), true);
+        }
+        return;
+      }
+    }
+    await show();
+  }
   // Work in progress continues after the dialog closes. `perform` reports its result.
   function close() {
     setOpen(false);
@@ -172,12 +197,14 @@ export function AddRepository({
           setOpen(false);
           return;
         } else {
-          const result = await folderImport.choose('Choose a code folder', 'Choose');
+          const result = await folderImport.choose('Add code folder', 'Add');
           if (!result) return;
           const { added } = await api.addRepositories(target, result.paths);
           await onRefresh();
           setOpen(false);
-          return `Added ${codeFolders(added)} to ${projectName}.`;
+          // The sidebar shows the new code folders. Only a failure needs a message.
+          if (!added) throw new Error('Kalkidan could not add the code folders. Try again.');
+          return;
         }
       } else return clone(manual.trim() || selected);
     });
@@ -210,7 +237,7 @@ export function AddRepository({
     return `Cloned ${short} into ${projectName}.`;
   }
   useEffect(() => {
-    if (openRequest > 0) void show();
+    if (openRequest > 0) void start();
   }, [openRequest]);
   const shown = repos.filter((r) => r.nameWithOwner.toLowerCase().includes(query.toLowerCase()));
   // A caller with a project hides the Project field. The description names the project.
@@ -225,7 +252,7 @@ export function AddRepository({
           size={size}
           disabled={disabled}
           className={className}
-          onClick={() => void show()}
+          onClick={() => void start()}
         >
           {children || (
             <>
@@ -249,12 +276,10 @@ export function AddRepository({
         >
           <DialogHeader>
             <DialogTitle tabIndex={-1} className="outline-none">
-              Add code folder
+              {mode === 'github' ? 'Clone from GitHub' : 'Add code folder'}
             </DialogTitle>
-            <DialogDescription>
-              {known
-                ? `Adds a Git repository to ${projectName}. Agents can work in it.`
-                : 'A code folder is a Git repository that agents can work in.'}
+            <DialogDescription className={known ? undefined : 'sr-only'}>
+              {known ? projectName : 'Choose the project of the code folder.'}
             </DialogDescription>
           </DialogHeader>
           <DialogBody className="grid content-start gap-4">
@@ -300,114 +325,88 @@ export function AddRepository({
                 }}
               />
             ) : (
-              sourceReady && (
+              sourceReady &&
+              mode === 'github' &&
+              (!githubReady ? (
+                <EmptyState
+                  compact
+                  title="GitHub is not connected."
+                  action={
+                    <Button variant="outline" size="sm" onClick={openAccountSettings}>
+                      <LogIn />
+                      Connect GitHub…
+                    </Button>
+                  }
+                />
+              ) : (
                 <>
-                  <SegmentedControl
-                    size="sm"
-                    className="justify-self-start"
-                    label="Source"
-                    value={mode}
-                    onChange={(value) => {
-                      setMode(value);
-                      setSelected('');
-                      setError('');
-                    }}
-                    options={[
-                      { value: 'local', label: 'Local', disabled: busy },
-                      { value: 'github', label: 'Clone from GitHub', disabled: busy },
-                    ]}
-                  />
-                  {mode === 'github' &&
-                    (!githubReady ? (
-                      <EmptyState
-                        compact
-                        className="rounded-lg border"
-                        title="Connect GitHub to see your repositories"
-                        action={
-                          <Button variant="outline" size="sm" onClick={openAccountSettings}>
-                            <LogIn />
-                            Connect GitHub…
-                          </Button>
-                        }
-                      />
-                    ) : (
-                      <>
-                        <div className="flex gap-2">
-                          <SearchInput
-                            variant="outline"
-                            className="flex-1"
-                            aria-label="Search GitHub repositories"
-                            placeholder="Search owner or repository…"
-                            value={query}
-                            disabled={busy}
-                            onChange={(e) => setQuery(e.target.value)}
-                          />
-                          <Hint label="Refresh repositories">
-                            <Button
-                              variant="outline"
-                              size="icon"
-                              aria-label="Refresh repositories"
-                              disabled={busy || loading}
-                              onClick={() => void loadRepos()}
-                            >
-                              <RefreshCw className={loading ? 'animate-spin' : ''} />
-                            </Button>
-                          </Hint>
-                        </div>
-                        {loading ? (
-                          <div className="list-box min-h-20 content-start" aria-busy="true">
-                            <p role="status" className="px-2 py-1.5 text-sm text-muted-foreground">
-                              Loading repositories…
-                            </p>
-                          </div>
-                        ) : shown.length ? (
-                          <RadioList
-                            label="Available repositories"
-                            className="max-h-64 min-h-20 overflow-y-auto"
-                            value={selected}
-                            disabled={busy}
-                            onChange={(value) => {
-                              setSelected(value);
-                              setManual('');
-                            }}
-                            options={shown.map((repo) => ({
-                              value: repo.nameWithOwner,
-                              label: repo.nameWithOwner,
-                              description: repo.description || undefined,
-                              badge: repo.isArchived
-                                ? 'Archived'
-                                : repo.isPrivate
-                                  ? 'Private'
-                                  : undefined,
-                            }))}
-                          />
-                        ) : (
-                          <EmptyState
-                            compact
-                            className="rounded-lg border"
-                            title={repos.length ? 'No matching repositories' : 'No repositories'}
-                          />
-                        )}
-                        <Input
-                          aria-label="GitHub repository name"
-                          placeholder="Or enter owner/repository"
-                          disabled={busy}
-                          value={manual}
-                          onChange={(e) => {
-                            setManual(e.target.value);
-                            setSelected('');
-                          }}
-                        />
-                      </>
-                    ))}
-                  {mode === 'local' && (
-                    <p className="text-sm text-muted-foreground">
-                      Choose a folder on this computer. If it holds more than one Git repository,
-                      Kalkidan finds each one and asks which to add.
-                    </p>
+                  <div className="flex gap-2">
+                    <SearchInput
+                      variant="outline"
+                      className="flex-1"
+                      aria-label="Search GitHub repositories"
+                      placeholder="Search owner or repository…"
+                      value={query}
+                      disabled={busy}
+                      onChange={(e) => setQuery(e.target.value)}
+                    />
+                    <Hint label="Refresh repositories">
+                      <Button
+                        variant="outline"
+                        size="icon"
+                        aria-label="Refresh repositories"
+                        disabled={busy || loading}
+                        onClick={() => void loadRepos()}
+                      >
+                        <RefreshCw className={loading ? 'animate-spin' : ''} />
+                      </Button>
+                    </Hint>
+                  </div>
+                  {loading ? (
+                    <div className="list-box min-h-20 content-start" aria-busy="true">
+                      <p role="status" className="px-2 py-1.5 text-sm text-muted-foreground">
+                        Loading repositories…
+                      </p>
+                    </div>
+                  ) : shown.length ? (
+                    <RadioList
+                      label="Available repositories"
+                      className="max-h-64 min-h-20 overflow-y-auto"
+                      value={selected}
+                      disabled={busy}
+                      onChange={(value) => {
+                        setSelected(value);
+                        setManual('');
+                      }}
+                      options={shown.map((repo) => ({
+                        value: repo.nameWithOwner,
+                        label: repo.nameWithOwner,
+                        description: repo.description || undefined,
+                        badge: repo.isArchived
+                          ? 'Archived'
+                          : repo.isPrivate
+                            ? 'Private'
+                            : undefined,
+                      }))}
+                    />
+                  ) : (
+                    <EmptyState
+                      compact
+                      title={repos.length ? 'No matching repositories.' : 'No repositories.'}
+                    />
                   )}
+                  <Input
+                    aria-label="GitHub repository name"
+                    placeholder="Or enter owner/repository"
+                    disabled={busy}
+                    value={manual}
+                    onChange={(e) => {
+                      setManual(e.target.value);
+                      setSelected('');
+                    }}
+                  />
                 </>
-              )
+              ))
             )}
             {error && (
               <p role="alert" className="field-error">

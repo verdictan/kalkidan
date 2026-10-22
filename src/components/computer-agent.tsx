@@ -28,7 +28,8 @@ export const agentChangeNote = 'New chats use the new agent. Existing chats keep
 /**
  * The agent of one computer: 'local' or an SSH host ID. Codex and Claude Code on the computer
  * both use it for new chats. "Change agent" sets another agent. Existing chats keep their
- * agent. The row shows only when the runtime sends agents and the account is signed in.
+ * agent. The row shows only when the runtime sends two or more agents, or when the agent of the
+ * computer has a problem, and the account is signed in.
  */
 export function ComputerAgentRow({
   api,
@@ -59,6 +60,8 @@ export function ComputerAgentRow({
   const current = computerAgentId(setup, computer);
   const agent = findAgent(setup, current);
   const issue = computerAgentIssue(setup, computer);
+  // With one agent there is nothing to choose. The row shows only with a choice or a problem.
+  if (agents.length < 2 && !issue) return null;
   const label = agent ? labels[agents.indexOf(agent)] : 'No agent';
   const policy = agent && agentConfigurationLabel(agent);
   async function save() {
@@ -87,27 +90,25 @@ export function ComputerAgentRow({
             <Bot />
           </EntityIcon>
         }
-        label={`Agent: ${label}`}
+        label={`Runs as ${label}`}
         help={
           issue
             ? withoutManagedCode(managedErrorText(issue))
-            : `${policy ? `${policy} · ` : ''}Codex and Claude Code on ${name} use it for new chats.`
+            : [policy, 'For new chats'].filter(Boolean).join(' · ')
         }
       >
-        {(agents.length > 1 || issue) && (
-          <Button
-            variant="outline"
-            size="sm"
-            aria-label={`Change agent for ${name}`}
-            onClick={() => {
-              setValue(agent ? current : '');
-              setError('');
-              setChoosing(true);
-            }}
-          >
-            Change agent
-          </Button>
-        )}
+        <Button
+          variant="outline"
+          size="sm"
+          aria-label={`Change agent for ${name}`}
+          onClick={() => {
+            setValue(agent ? current : '');
+            setError('');
+            setChoosing(true);
+          }}
+        >
+          Change…
+        </Button>
       </SettingsRow>
       <ConfirmDialog
         open={choosing}
