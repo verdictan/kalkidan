@@ -477,12 +477,17 @@ async function dispatch(method: string, args: any[]): Promise<any> {
     case 'terminalStop':
       return terminal.stop(a);
     case 'conversation-owner': {
-      // Only the owner IDs leave this host. The desktop compares them with the active account.
+      // Only the owner and agent IDs leave this host. The desktop compares them with the active
+      // account and the agents that the user can use.
       if (!['codex', 'claude_code'].includes(a) || typeof b !== 'string' || !b) return null;
       const store = verdictanRuntime?.bindings ?? new BindingStore(join(homedir(), '.kalkidan'));
       const binding = await store.read(a, b);
       return binding
-        ? { organization_id: binding.organization_id, user_id: binding.user_id }
+        ? {
+            organization_id: binding.organization_id,
+            user_id: binding.user_id,
+            ...(binding.agent_id ? { agent_id: binding.agent_id } : {}),
+          }
         : null;
     }
     case 'models':

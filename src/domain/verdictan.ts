@@ -740,13 +740,13 @@ export const managedErrors: Record<string, ManagedErrorInfo> = {
       'The agent of this computer is not available now. Change the agent in Settings › Computers.',
     section: 'computers',
   },
-  'desktop.chat_agent_unavailable': {
+  'desktop.agent_unavailable': {
     message:
-      'The agent of this chat is not available now. Start a new chat. It uses the agent of this computer.',
+      "This chat's agent is no longer available. Fork the chat to continue it with the agent of this computer.",
   },
   'desktop.resource_conflict': {
     message:
-      'Verdictan cannot run a second agent on this computer yet. Use the same agent as the other chats on this computer, or ask an administrator to update Verdictan.',
+      'Verdictan cannot use the gateway of this agent on this computer. An administrator removed it, or Verdictan cannot run a second agent on this computer yet. Ask an organization administrator for help.',
     section: 'computers',
   },
   'desktop.scope_mismatch': {
@@ -1259,13 +1259,13 @@ const launchBlocks: Record<string, [ManagedSetupStep, string]> = {
     'agent-setup',
     'The agent of this computer is not available now. Change the agent in Settings › Computers.',
   ],
-  'desktop.chat_agent_unavailable': [
+  'desktop.agent_unavailable': [
     'agent-setup',
-    'The agent of this chat is not available now. Start a new chat. It uses the agent of this computer.',
+    "This chat's agent is no longer available. Fork the chat to continue it with the agent of this computer.",
   ],
   'desktop.resource_conflict': [
     'agent-setup',
-    'Verdictan cannot run a second agent on this computer yet. Use the same agent as the other chats on this computer, or ask an administrator to update Verdictan.',
+    'Verdictan cannot use the gateway of this agent on this computer. An administrator removed it, or Verdictan cannot run a second agent on this computer yet. Ask an organization administrator for help.',
   ],
   'desktop.scope_mismatch': [
     'status',

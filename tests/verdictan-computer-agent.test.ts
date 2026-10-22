@@ -94,7 +94,7 @@ test('the conflict codes of the older API have clear words', () => {
   for (const code of [
     'desktop.resource_conflict',
     'desktop.scope_mismatch',
-    'desktop.chat_agent_unavailable',
+    'desktop.agent_unavailable',
   ]) {
     const text = managedErrorInfo(code).message;
     assert.doesNotMatch(text, /could not complete this operation/, code);
@@ -299,7 +299,7 @@ test('a chat keeps its agent after the computer changes its agent', async () => 
 
     // A chat whose agent is gone cannot resume. A new chat still starts.
     f.state.setup = { ...f.state.setup, agents: [base.agents![1]] };
-    await assert.rejects(f.run('first', false), /chat_agent_unavailable/);
+    await assert.rejects(f.run('first', false), /agent_unavailable/);
     await f.run('third');
   } finally {
     await f.cleanup();

@@ -3,7 +3,8 @@ import { Lock, SquarePen } from 'lucide-react';
 import type { API } from '../api/contracts';
 import type { Session } from '../domain/conversation';
 import {
-  readOnlyDetail,
+  isReadOnly,
+  readOnlyHelp,
   readOnlyReason,
   type ConversationOwnership,
 } from '../domain/conversation-ownership';
@@ -34,8 +35,9 @@ export function useConversationOwnership(api: API, session: Session, open: boole
 }
 
 /**
- * Says why a chat of another account or organization is read-only, and offers a new
- * conversation under the active account. Nothing of this chat moves to the new one.
+ * Says why a chat is read-only: another account or organization owns it, or its agent is gone.
+ * It offers a new conversation under the active account. Nothing of this chat moves to the new
+ * one.
  */
 export function ReadOnlyConversation({
   ownership,
@@ -44,13 +46,13 @@ export function ReadOnlyConversation({
   ownership: ConversationOwnership;
   onStartNew?: () => void;
 }) {
-  if (ownership.state !== 'other') return null;
+  if (!isReadOnly(ownership)) return null;
   return (
     <div className="chat-read-only" role="status" aria-label="Read-only conversation">
       <Lock className="size-3.5 shrink-0" aria-hidden="true" />
       <div className="grid min-w-0 flex-1 gap-0.5 text-xs">
         <span className="font-medium">{readOnlyReason(ownership)}</span>
-        <span className="text-muted-foreground">{readOnlyDetail}</span>
+        <span className="text-muted-foreground">{readOnlyHelp(ownership)}</span>
       </div>
       {onStartNew && (
         <Button size="sm" variant="outline" onClick={onStartNew}>

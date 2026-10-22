@@ -125,7 +125,7 @@ export class VerdictanLaunchService {
     const own = previous ? previous.agent_id || setup.legacyAgents?.[agent] : undefined;
     if (own) {
       const chosen = findAgent(setup, own);
-      if (!chosen) throw new DesktopProtocolError('desktop.chat_agent_unavailable');
+      if (!chosen) throw new DesktopProtocolError('desktop.agent_unavailable');
       return this.setup.validate(setup, agent, withAgent(saved, chosen));
     }
     const issue = computerAgentIssue(setup, this.hostKey);

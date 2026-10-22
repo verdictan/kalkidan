@@ -2,7 +2,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   conversationOwnership,
+  isReadOnly,
   readOnlyDetail,
+  readOnlyHelp,
   readOnlyReason,
   remoteOwner,
 } from '../src/domain/conversation-ownership';
@@ -86,4 +88,42 @@ test('account pages open fixed console paths and nothing else', () => {
   );
   for (const page of ['register', '//evil.example', 'toString', undefined, 1])
     assert.throws(() => verdictanAccountPageUrl(origin, page), /Unknown account page/);
+});
+
+test('a chat of the active account whose agent is gone is read-only', () => {
+  const account = { organizationId: org, userId: user };
+  const agent = '66666666-6666-4666-8666-666666666666';
+  const other = '77777777-7777-4777-8777-777777777777';
+  const chat = { ...saved, agent_id: agent };
+  assert.deepEqual(conversationOwnership({ binding: chat, account, agents: [agent, other] }), {
+    state: 'current',
+  });
+  const gone = conversationOwnership({ binding: chat, account, agents: [other] });
+  assert.deepEqual(gone, { state: 'agent_unavailable' });
+  assert.equal(isReadOnly(gone), true);
+  assert.match(readOnlyReason(gone), /agent is no longer available/);
+  assert.match(readOnlyHelp(gone), /Fork the chat/);
+  // A chat from an older version uses the agent of its coding agent.
+  assert.deepEqual(
+    conversationOwnership({ binding: saved, account, agents: [other], legacyAgent: agent }),
+    { state: 'agent_unavailable' },
+  );
+  // Without the agent list, or without an agent, the chat stays usable.
+  assert.deepEqual(conversationOwnership({ binding: chat, account }), { state: 'current' });
+  assert.deepEqual(conversationOwnership({ binding: saved, account, agents: [other] }), {
+    state: 'current',
+  });
+  // The agent of another account does not matter. That chat is read-only for its owner.
+  assert.equal(
+    conversationOwnership({
+      binding: { ...chat, user_id: otherUser },
+      account,
+      agents: [other],
+    }).state,
+    'other',
+  );
+  // The host sends the agent ID. A value that is not an ID is refused.
+  assert.deepEqual(remoteOwner(chat), chat);
+  assert.throws(() => remoteOwner({ ...saved, agent_id: '../x' }), /Invalid conversation owner/);
+  assert.equal(readOnlyHelp({ state: 'other', scope: 'user' }), readOnlyDetail);
 });

@@ -51,6 +51,7 @@ import Markdown, { defaultUrlTransform } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Alert, AlertDescription } from './ui/alert';
 import { ReadOnlyConversation, useConversationOwnership } from './conversation-ownership';
+import { isReadOnly } from '../domain/conversation-ownership';
 import { showToast } from './ui/toast';
 import { errorMessage } from '../lib/errors';
 import { agentErrorMessage, managedLaunchError, type AgentError } from '../lib/agent-errors';
@@ -317,7 +318,7 @@ export function Conversation({
   const computer = session.hostId ? hostName || 'the SSH host' : 'this computer';
   // A chat of another account or organization is read-only. Its context and usage stay there.
   const ownership = useConversationOwnership(api, session, open);
-  const readOnly = ownership.state === 'other';
+  const readOnly = isReadOnly(ownership);
   const [toolOpen, setToolOpen] = useState(false);
   const [toolRequest, setToolRequest] = useState<ToolRequest | null>(null);
   const showTool = (kind: ToolRequest['kind']) =>
