@@ -13,6 +13,8 @@ import { DesktopProtocol, DesktopProtocolError } from './protocol';
 import { desktopVersion } from './release';
 import { VerdictanAccountService, parseCapabilities } from './account';
 import { RuntimeInstaller } from './install';
+import { probeRuntime } from './runtime-probe';
+import { proxyConfigured, withReleaseErrors } from './network';
 
 export function createVerdictanServices(options: {
   root: string;
@@ -25,7 +27,15 @@ export function createVerdictanServices(options: {
   client?: () => Promise<DesktopClient>;
   selections?: () => Promise<VerdictanSetup['selections']>;
   identities?: () => Promise<{ installationId: string; hostId: string }>;
+  /**
+   * The fetch for release discovery and downloads. The desktop uses the Chromium network stack,
+   * which uses the system proxy and certificate settings. An SSH host uses Node.js fetch.
+   */
+  request?: typeof fetch;
+  /** True on an SSH host. A host that cannot reach the release server can get a copy. */
+  transferable?: boolean;
 }) {
+  const request = options.request ?? withReleaseErrors(fetch, proxyConfigured());
   const selected = options.region === undefined ? undefined : verdictanRegion(options.region);
   const region = selected ? (options.region as VerdictanRegion) : undefined;
   // Without a selected region, no account client starts. The EU origins then only configure
@@ -52,7 +62,9 @@ export function createVerdictanServices(options: {
     os: process.platform,
     arch: process.arch,
     systemVersion: hostSystemVersion(),
-    discover: () => discoverRuntime(process.platform, process.arch),
+    discover: () => discoverRuntime(process.platform, process.arch, request),
+    request,
+    transferable: options.transferable,
     busy: () => options.busy() || managed.busy() || account.status().phase === 'authorizing',
     beforeActivate: async () => {
       account.reset();
@@ -64,9 +76,9 @@ export function createVerdictanServices(options: {
       // capabilities, such as project services, come from the account profile.
       const client = new DesktopProtocol(executable, [...args.slice(0, -1), `${profile}-probe`]);
       try {
-        const capabilities = parseCapabilities((await client.request('capabilities')).data);
-        if (capabilities.cliVersion !== version)
-          throw new Error('Runtime executable version does not match the signed release.');
+        await probeRuntime(executable, version, {
+          capabilities: async () => parseCapabilities((await client.request('capabilities')).data),
+        });
       } finally {
         client.close();
       }
@@ -86,6 +98,8 @@ export function createVerdictanServices(options: {
   });
   const managed = new ManagedRuntimes({
     apiOrigin,
+    // Undelivered usage records must survive a restart, so the queue is not in a temporary folder.
+    eventDirectory: join(options.root, 'runtime', 'verdictan', 'events'),
     client: () => account.runtimeClient(),
     executable: () => installer.executable(),
     changed: options.changed,

@@ -63,6 +63,7 @@ import { useTracker } from './hooks/use-tracker';
 import { SettingsDialog } from './components/settings-dialog';
 import { Welcome, useWelcomeGate } from './components/welcome';
 import { DataNoticeDialog, useDataNotice } from './components/data-settings';
+import { ProxySignInDialog } from './components/proxy-sign-in';
 import { AccountMenu, SessionBanner, SignInFlow } from './components/account-menu';
 import { BoardSettingsHost } from './components/board-settings-dialog';
 import { NewChatButton, recentRepo } from './components/new-chat-button';
@@ -2917,6 +2918,7 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
         }}
       />
       <DataNoticeDialog open={dataNotice.show} onDone={() => void dataNotice.acknowledge()} />
+      <ProxySignInDialog api={api} />
       {onboardingOpen && !dataNotice.show && (
         <Onboarding
           api={api}

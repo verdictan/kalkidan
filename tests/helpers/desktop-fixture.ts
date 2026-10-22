@@ -1,3 +1,4 @@
+import { constants } from 'node:fs';
 import { EventEmitter } from 'node:events';
 import { resolve } from 'node:path';
 import { backendLoader } from './backend-loader';
@@ -212,10 +213,12 @@ export async function desktopFixture(platform = 'linux', failure = '') {
     onConnected = record('remoteConnected');
     agentInstallations = asyncRecord('remoteAgentInstallations');
     chooseAgentExecutable = asyncRecord('remoteAgentChoice');
+    reconcile = asyncRecord('remoteReconcile');
     call = async (host: string, method: string, args: any[]) => {
       calls.push(['remote', host, method, args]);
       if (state.remoteError) throw Error(state.remoteError);
       if (method === 'transcript') return { messages: [] };
+      if (method === 'hello') return { platform: 'linux', arch: 'x64', systemVersion: '6.12.0' };
       if (method === 'snapshot')
         return { sessions: [{ ...sessions[0], cwd: '/remote' }], warnings: ['warning'] };
       if (method === 'project-prepare') return '/remote-new';
@@ -279,12 +282,19 @@ export async function desktopFixture(platform = 'linux', failure = '') {
       if (request.path) await this.options.add(request.path, request.groupId);
     };
   }
+  const power = new EventEmitter();
   const stubs: Record<string, unknown> = {
     electron: {
       app,
       BrowserWindow: Window,
       nativeTheme: theme,
-      powerMonitor: new EventEmitter(),
+      powerMonitor: power,
+      net: {
+        isOnline: () => true,
+        request: () => {
+          throw new Error('No network in desktop backend tests.');
+        },
+      },
       ipcMain: { handle: (name: string, fn: Function) => handlers.set(name, fn) },
       dialog: {
         showErrorBox: record('errorBox'),
@@ -304,7 +314,7 @@ export async function desktopFixture(platform = 'linux', failure = '') {
       },
       clipboard: { writeText: record('clipboard') },
     },
-    'node:fs': { existsSync: () => true },
+    'node:fs': { existsSync: () => true, constants },
     'node:fs/promises': {
       readFile: async (path: string) => {
         if (path.endsWith('verdictan-region.json')) return JSON.stringify({ region: 'eu' });
@@ -317,6 +327,10 @@ export async function desktopFixture(platform = 'linux', failure = '') {
         return '[projects."/discovered"]';
       },
       writeFile: asyncRecord('writeFile'),
+      // No saved proxy sign-in exists.
+      open: async () => {
+        throw Object.assign(new Error('missing'), { code: 'ENOENT' });
+      },
       rm: asyncRecord('rm'),
       stat: async () => ({ isDirectory: () => state.directory }),
       realpath: async (path: string) => {
@@ -353,6 +367,7 @@ export async function desktopFixture(platform = 'linux', failure = '') {
       },
       managed: {
         stopAll: asyncRecord('managedStopAll'),
+        checkExpiry: record('managedCheckExpiry'),
         revokeHost: asyncRecord('managedRevokeHost'),
       },
       bindings: {
@@ -415,6 +430,15 @@ export async function desktopFixture(platform = 'linux', failure = '') {
       launch: { prepare: asyncRecord('managedPrepare') },
       remoteBroker: { reset: record('brokerReset'), request: asyncRecord('brokerRequest') },
     }),
+  });
+  stub('verdictan/transfer', {
+    transferRuntime: async (options: any) => {
+      calls.push(['runtimeTransfer', options.host, options.desktopVersion]);
+      options.progress?.({ phase: 'copying', bytes: 5, totalBytes: 10 });
+      await (state as any).duringCopy?.();
+      await options.call('begin', ['discovered', 'files']);
+      return { hostId: 'copied' };
+    },
   });
   stub('storage/data-directory', { dataDirectory: () => '/fixture' });
   stub('storage/appearance', {
@@ -582,5 +606,5 @@ export async function desktopFixture(platform = 'linux', failure = '') {
       handlers.get(name)!({ sender: w.webContents, senderFrame: w.webContents.mainFrame }, ...args),
     );
   }
-  return { calls, windows, handlers, state, groups, sessions, app, theme, invoke, account };
+  return { calls, windows, handlers, state, groups, sessions, app, theme, invoke, account, power };
 }

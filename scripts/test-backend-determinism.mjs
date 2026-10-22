@@ -18,6 +18,8 @@ const nativeTests = new Set([
   'mention-files.test.ts',
   'agent-programs-backend.test.ts',
   'agent-version.test.ts',
+  // This starts a local HTTPS server, a proxy, OpenSSL, and Node.js child processes.
+  'network-proxy-native.test.ts',
 ]);
 const files = readdirSync('tests')
   .filter((name) => name.endsWith('.test.ts') && !nativeTests.has(name))

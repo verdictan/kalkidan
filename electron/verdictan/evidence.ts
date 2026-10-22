@@ -1,6 +1,7 @@
 import type { GovernanceEvidence } from '../../src/domain/conversation';
 import { DesktopProtocolError } from './protocol';
 import { isSubscriptionBilling } from '../../src/domain/verdictan';
+import { eventBufferLimits, parseEventBuffer } from './event-buffer';
 const safe = (v: unknown): v is string =>
   typeof v === 'string' && /^[A-Za-z0-9][A-Za-z0-9._:/-]{0,255}$/.test(v);
 const measurement = (v: unknown) =>
@@ -22,6 +23,8 @@ export class RuntimeEvidence {
   private generation?: string;
   private sequence = 0n;
   private cursor?: string;
+  /** The removed-event counts of the first poll. A warning shows only for later removals. */
+  private bufferBaseline?: { dropped: number; expired: number };
   private operation?: Promise<void>;
   private timer?: ReturnType<typeof setTimeout>;
   private stopped = false;
@@ -55,7 +58,9 @@ export class RuntimeEvidence {
   private row(id: string) {
     let row = this.state.requests.find((r) => r.id === id);
     if (!row) {
-      if (this.state.requests.length >= 300) this.state.requests.shift();
+      // The list is full. The oldest row goes first, and the newest rows stay.
+      if (this.state.requests.length >= eventBufferLimits.rowsPerConversation)
+        this.state.requests.shift();
       row = {
         id,
         policy: null,
@@ -156,11 +161,12 @@ export class RuntimeEvidence {
         typeof data.gap !== 'boolean' ||
         typeof data.reconciliation_required !== 'boolean' ||
         typeof data.has_more !== 'boolean' ||
-        data.retention_seconds !== 900 ||
+        data.retention_seconds !== eventBufferLimits.expirySeconds ||
         !Array.isArray(data.events) ||
-        data.events.length > 100
+        data.events.length > eventBufferLimits.eventsPerPage
       )
         throw new DesktopProtocolError('desktop.events_invalid');
+      this.bufferWarning(data.event_buffer);
       const reset =
         !this.generation ||
         data.generation_id !== this.generation ||
@@ -214,6 +220,14 @@ export class RuntimeEvidence {
       seen.add(data.cursor);
     }
     throw new DesktopProtocolError('desktop.events_limit');
+  }
+  private bufferWarning(value: unknown) {
+    const counts = parseEventBuffer(value);
+    if (!counts) return;
+    this.bufferBaseline ??= counts;
+    const droppedEvents = Math.max(0, counts.dropped - this.bufferBaseline.dropped),
+      expiredEvents = Math.max(0, counts.expired - this.bufferBaseline.expired);
+    if (droppedEvents || expiredEvents) this.state.bufferWarning = { droppedEvents, expiredEvents };
   }
   start() {
     if (this.started || this.stopped) return;

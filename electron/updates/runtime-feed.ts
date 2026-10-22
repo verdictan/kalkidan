@@ -1,4 +1,5 @@
 import { downloadReleaseFile, releaseFileSize } from '../verdictan/download';
+import { releaseNetworkMessages } from '../verdictan/network';
 import {
   releaseAssetURL,
   releaseDownloadOrigins,
@@ -71,17 +72,28 @@ async function discoverLatest(
   return { version, releaseId: `tag:v${version}`, sha256: line[1], size };
 }
 
+/**
+ * Each release lists about 90 assets, so 100 releases are more than 4 MiB. A page of 30 releases
+ * is about 2.5 MiB. Kalkidan reads at most 300 releases.
+ */
+const releasesPerPage = 30;
+
 async function discoverFromAPI(name: string, request: typeof fetch): Promise<RuntimeDiscovery> {
-  const signal = AbortSignal.timeout(15000);
-  for (let page = 1; page <= 5; page++) {
+  const signal = AbortSignal.timeout(30000);
+  for (let page = 1; page <= 10; page++) {
     const response = await request(
-      `https://api.github.com/repos/verdictan/packages/releases?per_page=100&page=${page}`,
+      `https://api.github.com/repos/verdictan/packages/releases?per_page=${releasesPerPage}&page=${page}`,
       {
         signal,
         redirect: 'error',
         headers: { accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2026-03-10' },
       },
     );
+    // GitHub allows 60 requests each hour for each IP address. A shared network can use them all.
+    if ([403, 429].includes(response.status)) {
+      await response.body?.cancel();
+      throw new Error(releaseNetworkMessages.rateLimited);
+    }
     if (!response.ok || !response.body)
       throw new Error('Runtime release discovery is unavailable.');
     const chunks: Uint8Array[] = [];
@@ -92,7 +104,7 @@ async function discoverFromAPI(name: string, request: typeof fetch): Promise<Run
       chunks.push(chunk);
     }
     const records = JSON.parse(Buffer.concat(chunks).toString('utf8'));
-    if (!Array.isArray(records) || records.length > 100)
+    if (!Array.isArray(records) || records.length > releasesPerPage)
       throw new Error('Invalid runtime release metadata.');
     for (const row of records) {
       if (
@@ -121,7 +133,7 @@ async function discoverFromAPI(name: string, request: typeof fetch): Promise<Run
         size: asset.size,
       };
     }
-    if (records.length < 100) break;
+    if (records.length < releasesPerPage) break;
   }
   throw new Error('No compatible runtime release was found within the release history limit.');
 }

@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import type { API, ChatRun, GovernanceEvidence, ToolActivity } from '../types';
 import type { DocPassage } from '../domain/docs';
+import { eventBufferWarning } from '../domain/conversation';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from './ui/collapsible';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
@@ -162,6 +163,11 @@ function ManagedRun({
             </CollapsibleTrigger>
           )}
         </div>
+        {evidence.bufferWarning && (
+          <p role="status" className="form-help mt-1 pl-5.5 text-warning">
+            {eventBufferWarning(evidence.bufferWarning)}
+          </p>
+        )}
         <CollapsibleContent className="grid gap-2 pt-2 pl-5.5">
           {rows.map((row, index) => (
             <dl key={index} className="meta-list">

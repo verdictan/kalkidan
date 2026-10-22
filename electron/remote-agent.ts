@@ -9,6 +9,9 @@ import { createVerdictanServices } from './verdictan/service';
 import { hostCheckMethod } from './verdictan/remote-check';
 import { isVerdictanRegion } from './verdictan/region';
 import { desktopVersion } from './verdictan/release';
+import { trustSystemCertificates } from './verdictan/network';
+import { hostSystemVersion } from './verdictan/system-version';
+import { RuntimeTransferReceiver } from './verdictan/transfer';
 import {
   ProjectLocationCache,
   prepareProjectLocation,
@@ -68,6 +71,9 @@ import {
 import { scanRepositories } from './repository-scan';
 import { LocalData, removeHostData } from './storage/local-data';
 import { existsSync } from 'node:fs';
+// Release downloads on this host trust the system certificate store, as well as the bundled
+// authorities and NODE_EXTRA_CA_CERTS. Certificate checks always stay on.
+trustSystemCertificates();
 const publishOperations = new PublishOperations(
   join(homedir(), '.kalkidan', 'operations', 'publish'),
   publishEffects(() => executable('gh')),
@@ -150,6 +156,56 @@ const agentStarts = new AgentStarts(
   join(homedir(), '.kalkidan', 'operations', 'agent-start'),
   (id) => chats.status(id),
 );
+/** Start the Verdictan services of this host once, for the first runtime request. */
+async function runtimeServices(version: unknown, hostId: unknown, regionValue: unknown) {
+  if (
+    !desktopVersion(version) ||
+    (regionValue != null && !isVerdictanRegion(regionValue)) ||
+    typeof hostId !== 'string' ||
+    !/^[A-Za-z0-9_-]{1,128}$/.test(hostId)
+  )
+    throw new Error('Invalid runtime update request.');
+  // No region means that the desktop has no selected account region yet.
+  const region = (regionValue ?? undefined) as string | undefined;
+  // The helper outlives a connection. A different app or region can take the runtime only when
+  // no run uses it.
+  if (verdictanRuntime && (verdictanOwner !== hostId || verdictanRuntime.region !== region)) {
+    if (chats.runningCount() > 0)
+      throw new Error(
+        verdictanOwner !== hostId
+          ? 'Runtime host identity changed. Wait for the runs on this host to finish.'
+          : 'Wait for the runs on this host to finish before changing the Verdictan region.',
+      );
+    await verdictanRuntime.managed.stopAll();
+    verdictanRuntime.account.dispose();
+    verdictanRuntime = undefined;
+  }
+  if (!verdictanRuntime) {
+    verdictanOwner = hostId;
+    verdictanRuntime = createVerdictanServices({
+      root: join(homedir(), '.kalkidan'),
+      client: async () => {
+        if (accountProxy.isClosed()) accountProxy = new RemoteAccountClient(send);
+        return accountProxy;
+      },
+      selections: () => accountProxy.query('setup.selection'),
+      identities: () => accountProxy.query('host.identity'),
+      hostId,
+      region,
+      desktopVersion: version,
+      busy: () => chats.runningCount() > 0,
+      openBrowser: async () => {
+        throw new Error('Account authorization belongs to the desktop.');
+      },
+      transferable: true,
+    });
+  }
+  return verdictanRuntime;
+}
+const runtimeTransfer = new RuntimeTransferReceiver(
+  join(homedir(), '.kalkidan', 'runtime', 'verdictan'),
+  () => verdictanRuntime!.installer,
+);
 async function dispatch(method: string, args: any[]): Promise<any> {
   const [a, b, c, d, e, f] = args;
   switch (method) {
@@ -192,51 +248,21 @@ async function dispatch(method: string, args: any[]): Promise<any> {
       return { phase, error };
     }
     case 'runtime-update': {
-      if (
-        !['status', 'check', 'install', 'cancel'].includes(a) ||
-        !desktopVersion(b) ||
-        (d != null && !isVerdictanRegion(d)) ||
-        typeof c !== 'string' ||
-        !/^[A-Za-z0-9_-]{1,128}$/.test(c)
-      )
+      if (!['status', 'check', 'install', 'cancel'].includes(a))
         throw new Error('Invalid runtime update request.');
-      // No region means that the desktop has no selected account region yet.
-      const region = d ?? undefined;
-      // The helper outlives a connection. A different app or region can take the runtime only
-      // when no run uses it.
-      if (verdictanRuntime && (verdictanOwner !== c || verdictanRuntime.region !== region)) {
-        if (chats.runningCount() > 0)
-          throw new Error(
-            verdictanOwner !== c
-              ? 'Runtime host identity changed. Wait for the runs on this host to finish.'
-              : 'Wait for the runs on this host to finish before changing the Verdictan region.',
-          );
-        await verdictanRuntime.managed.stopAll();
-        verdictanRuntime.account.dispose();
-        verdictanRuntime = undefined;
-      }
-      if (!verdictanRuntime) {
-        verdictanOwner = c;
-        verdictanRuntime = createVerdictanServices({
-          root: join(homedir(), '.kalkidan'),
-          client: async () => {
-            if (accountProxy.isClosed()) accountProxy = new RemoteAccountClient(send);
-            return accountProxy;
-          },
-          selections: () => accountProxy.query('setup.selection'),
-          identities: () => accountProxy.query('host.identity'),
-          hostId: c,
-          region,
-          desktopVersion: b,
-          busy: () => chats.runningCount() > 0,
-          openBrowser: async () => {
-            throw new Error('Account authorization belongs to the desktop.');
-          },
-        });
-      }
-      if (a === 'install') return verdictanRuntime.installer.start();
-      if (a === 'cancel') return verdictanRuntime.installer.cancel();
-      return verdictanRuntime.installer.check(a === 'check');
+      const runtime = await runtimeServices(b, c, d);
+      if (a === 'install') return runtime.installer.start();
+      if (a === 'cancel') return runtime.installer.cancel();
+      return runtime.installer.check(a === 'check');
+    }
+    case 'runtime-transfer': {
+      // The desktop copies a signed release over this SSH connection. See transfer.ts.
+      await runtimeServices(b, c, d);
+      if (a === 'begin') return runtimeTransfer.begin(e, f);
+      if (a === 'chunk') return runtimeTransfer.chunk(e, f, args[6]);
+      if (a === 'commit') return runtimeTransfer.commit(e);
+      if (a === 'abort') return runtimeTransfer.abort(e);
+      throw new Error('Invalid runtime copy request.');
     }
     case 'ptyOpen':
       return pty.open(await folder(a), b, c);
@@ -318,6 +344,7 @@ async function dispatch(method: string, args: any[]): Promise<any> {
         protocol: remoteProtocolVersion,
         platform: process.platform,
         arch: process.arch,
+        systemVersion: hostSystemVersion(),
         node: process.version,
         home: homedir(),
         // The same helper answers after a new connection while it keeps runs.
@@ -608,6 +635,7 @@ function shutdown() {
   helperServer?.close();
   client?.close();
   accountProxy.close();
+  void runtimeTransfer.abort();
   void verdictanRuntime?.managed.stopAll();
   verdictanRuntime?.account.dispose();
   chats.dispose();

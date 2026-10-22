@@ -1,5 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { isReleaseNetworkError, releaseNetworkMessages } from '../electron/verdictan/network';
 import { discoverRuntime } from '../electron/updates/runtime-feed';
 const latest = 'https://github.com/verdictan/packages/releases/latest';
 const base = 'https://github.com/verdictan/packages/releases';
@@ -39,8 +40,10 @@ test('runtime discovery finds the newest published archive and its size', async 
     if (url === latest) return new Response('', { status: 404 });
     pages++;
     assert.equal(new URL(url).searchParams.get('page'), String(pages));
+    // A page of 100 releases is more than the 4 MiB limit, so a page has 30 releases.
+    assert.equal(new URL(url).searchParams.get('per_page'), '30');
     return new Response(
-      JSON.stringify(pages === 1 ? Array(100).fill({ tag_name: 'kalkidan-v0.1.0' }) : [row]),
+      JSON.stringify(pages === 1 ? Array(30).fill({ tag_name: 'kalkidan-v0.1.0' }) : [row]),
     );
   }) as typeof fetch;
   assert.equal((await discoverRuntime('darwin', 'arm64', paginated))?.version, '0.3.0');
@@ -55,6 +58,17 @@ test('runtime discovery finds the newest published archive and its size', async 
     ),
     /unavailable/,
   );
+  // A shared network used all API requests of the hour. A copy from the desktop can help.
+  for (const status of [403, 429])
+    await assert.rejects(
+      discoverRuntime(
+        'darwin',
+        'arm64',
+        (async () => new Response('rate limited', { status })) as typeof fetch,
+      ),
+      { message: releaseNetworkMessages.rateLimited },
+    );
+  assert.ok(isReleaseNetworkError(releaseNetworkMessages.rateLimited));
 });
 
 test('runtime discovery uses the latest release redirect before the GitHub API', async () => {

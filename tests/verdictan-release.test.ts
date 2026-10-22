@@ -25,7 +25,9 @@ test('a signed manifest must match the published release and keep the checkpoint
   assert.deepEqual(verify({ checkpoint: accepted.checkpoint }), accepted);
   // Kalkidan accepts an out-of-date manifest. The signature and the checkpoint prevent replay.
   assert.equal(verify({ now: f.manifest.expires_at + 30 * 86400 }).version, '0.2.1');
-  assert.throws(() => verify({ now: f.manifest.issued_at - 1 }), /system clock/);
+  // A clock that is up to 5 minutes slow accepts the release. More is an error.
+  assert.equal(verify({ now: f.manifest.issued_at - 300 }).version, '0.2.1');
+  assert.throws(() => verify({ now: f.manifest.issued_at - 301 }), /system clock/);
   assert.throws(() => verify({ os: 'win32' }), /supports/);
   assert.throws(() => verify({ desktopVersion: '0.0.9' }), /Update Kalkidan/);
   assert.throws(

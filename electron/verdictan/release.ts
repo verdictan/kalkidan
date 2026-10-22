@@ -37,6 +37,8 @@ export const releaseDownloadOrigins = [
   'https://github.com',
   'https://release-assets.githubusercontent.com',
 ];
+/** User decision: a release can be up to 5 minutes newer than the clock of the computer. */
+export const releaseClockSkewSeconds = 300;
 export const releaseManifestName = 'desktop-release-manifest.v1.json';
 const releaseDownloadBase = 'https://github.com/verdictan/packages/releases/download';
 const runtimeTargets: Record<string, string> = {
@@ -122,6 +124,7 @@ export function verifyRuntimeRelease(
   // release, so the manifest of the newest release is out of date when no release comes for a
   // week. The signature and the checkpoint below prevent the replay of an older release, so
   // Kalkidan does not reject an out-of-date manifest. It rejects a manifest from the future.
+  // A small clock difference is accepted (see releaseClockSkewSeconds).
   if (
     !Number.isSafeInteger(options.now) ||
     !Number.isSafeInteger(manifest.sequence) ||
@@ -129,11 +132,15 @@ export function verifyRuntimeRelease(
     !Number.isSafeInteger(manifest.issued_at) ||
     !Number.isSafeInteger(manifest.expires_at) ||
     manifest.issued_at < 0 ||
-    manifest.issued_at > options.now ||
     manifest.expires_at <= manifest.issued_at ||
     manifest.expires_at - manifest.issued_at > 604800
   )
     throw new Error('Release metadata is not valid, or the system clock is incorrect.');
+  // A clock that is slightly slow still accepts a new release. More difference is an error.
+  if (manifest.issued_at > options.now + releaseClockSkewSeconds)
+    throw new Error(
+      'The system clock is behind the release time. Set the date and time to update automatically, then try again.',
+    );
   const checkpoint = options.checkpoint;
   if (
     checkpoint &&

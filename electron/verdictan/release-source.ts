@@ -18,23 +18,29 @@ export interface SignedRuntimeRelease extends VerifiedRuntimeRelease {
   archiveSignature: ReleaseSignature;
 }
 
-/**
- * Download the signed manifest and the archive signature of a discovered release, and verify
- * them with the Verdictan release key. The archive itself downloads later.
- */
-export async function fetchRuntimeRelease(
-  discovered: RuntimeDiscovery,
-  options: {
-    now: number;
-    desktopVersion: string;
-    os: string;
-    arch: string;
-    systemVersion: string;
-    checkpoint?: ReleaseCheckpoint;
-    key?: KeyObject;
-    request?: typeof fetch;
-  },
-): Promise<SignedRuntimeRelease> {
+/** The signed release files that prove a runtime archive. Each is small. */
+export interface ReleaseFiles {
+  manifest: Buffer;
+  manifestSignature: Buffer;
+  archiveSignature: Buffer;
+}
+export const releaseFileLimits = {
+  manifest: 262144,
+  manifestSignature: 65536,
+  archiveSignature: 65536,
+} as const;
+
+interface ReleaseOptions {
+  now: number;
+  desktopVersion: string;
+  os: string;
+  arch: string;
+  systemVersion: string;
+  checkpoint?: ReleaseCheckpoint;
+  key?: KeyObject;
+}
+
+function checkDiscovery(discovered: RuntimeDiscovery, options: ReleaseOptions) {
   const target = runtimeTarget(options.os, options.arch);
   if (!target) throw new Error('No runtime release supports this execution host.');
   if (
@@ -44,18 +50,24 @@ export async function fetchRuntimeRelease(
     !/^[a-f0-9]{64}$/.test(discovered.sha256)
   )
     throw new Error('Invalid runtime release from discovery.');
+  return target;
+}
+
+/**
+ * Verify the signed manifest and the archive signature of a release with the Verdictan release
+ * key. This uses no network. An SSH host verifies the files that the desktop copies to it.
+ */
+export function verifyReleaseFiles(
+  discovered: RuntimeDiscovery,
+  files: ReleaseFiles,
+  options: ReleaseOptions,
+): SignedRuntimeRelease {
+  checkDiscovery(discovered, options);
+  for (const name of Object.keys(releaseFileLimits) as (keyof ReleaseFiles)[])
+    if (!Buffer.isBuffer(files?.[name]) || files[name].length > releaseFileLimits[name])
+      throw new Error('Invalid release file.');
   const key = options.key ?? releasePublicKey();
-  const manifestURL = releaseAssetURL(discovered.version, releaseManifestName);
-  const archiveURL = releaseAssetURL(discovered.version, runtimeArchiveName(target));
-  const signal = AbortSignal.timeout(30000);
-  const get = (url: string, limit: number) =>
-    downloadReleaseFile(url, releaseDownloadOrigins, limit, signal, options.request);
-  const [manifest, manifestSignature, archiveBundle] = await Promise.all([
-    get(manifestURL, 262144),
-    get(`${manifestURL}.sigstore.json`, 65536),
-    get(`${archiveURL}.sigstore.json`, 65536),
-  ]);
-  const release = verifyRuntimeRelease(manifest, manifestSignature, discovered, {
+  const release = verifyRuntimeRelease(files.manifest, files.manifestSignature, discovered, {
     now: options.now,
     desktopVersion: options.desktopVersion,
     os: options.os,
@@ -64,8 +76,31 @@ export async function fetchRuntimeRelease(
     checkpoint: options.checkpoint,
     key,
   });
-  const archiveSignature = parseReleaseSignature(archiveBundle, key);
+  const archiveSignature = parseReleaseSignature(files.archiveSignature, key);
   if (Buffer.from(release.artifact.sha256, 'hex').toString('base64') !== archiveSignature.digest)
     throw new Error('Release signature does not match the published archive.');
   return { ...release, archiveSignature };
+}
+
+/**
+ * Download the signed manifest and the archive signature of a discovered release, and verify
+ * them with the Verdictan release key. The archive itself downloads later.
+ */
+export async function fetchRuntimeRelease(
+  discovered: RuntimeDiscovery,
+  options: ReleaseOptions & { request?: typeof fetch },
+): Promise<SignedRuntimeRelease & { files: ReleaseFiles }> {
+  const target = checkDiscovery(discovered, options);
+  const manifestURL = releaseAssetURL(discovered.version, releaseManifestName);
+  const archiveURL = releaseAssetURL(discovered.version, runtimeArchiveName(target));
+  const signal = AbortSignal.timeout(30000);
+  const get = (url: string, limit: number) =>
+    downloadReleaseFile(url, releaseDownloadOrigins, limit, signal, options.request);
+  const [manifest, manifestSignature, archiveSignature] = await Promise.all([
+    get(manifestURL, releaseFileLimits.manifest),
+    get(`${manifestURL}.sigstore.json`, releaseFileLimits.manifestSignature),
+    get(`${archiveURL}.sigstore.json`, releaseFileLimits.archiveSignature),
+  ]);
+  const files = { manifest, manifestSignature, archiveSignature };
+  return { ...verifyReleaseFiles(discovered, files, options), files };
 }
