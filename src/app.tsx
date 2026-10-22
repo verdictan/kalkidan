@@ -2113,8 +2113,13 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
           api={api}
           onDone={(result) => {
             welcome.hide();
-            // After a sign-in, onboarding continues at the code folder step.
+            // After a sign-in, onboarding continues at the code folder step. "Set up later"
+            // skips it too; "Get started" in the sidebar opens it again.
             if (result.signedIn) setOnboardingOpen(true);
+            else {
+              dismissOnboarding();
+              setOnboardingOpen(false);
+            }
           }}
         />
         <Toaster />

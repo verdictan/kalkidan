@@ -521,11 +521,7 @@ export function SignInSteps({
           )}
         </div>
       )}
-      {mode === 'dialog' && (
-        <p className="sign-in-note">
-          Kalkidan opens your browser to sign in. Kalkidan never sees your password.
-        </p>
-      )}
+      {mode === 'dialog' && <p className="sign-in-note">Kalkidan never sees your password.</p>}
     </Screen>
   );
 }
