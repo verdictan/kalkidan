@@ -8,8 +8,11 @@ const dialog = (page: Page) => page.getByRole('dialog', { name: 'Fork chat', exa
  * A Mac chat in the Atlas project. The SSH host Development has a code folder of the same
  * project. The SSH host Empty has no code folder.
  */
-async function withChat(page: Page, options: { messages?: number; readOnly?: boolean } = {}) {
-  await page.addInitScript(({ messages: count = 2, readOnly = false }) => {
+async function withChat(
+  page: Page,
+  options: { messages?: number; readOnly?: 'other' | 'agent_unavailable' } = {},
+) {
+  await page.addInitScript(({ messages: count = 2, readOnly }) => {
     const w = window as any;
     const host = (id: string, name: string) => ({
       id,
@@ -52,10 +55,11 @@ async function withChat(page: Page, options: { messages?: number; readOnly?: boo
       transcript: async () => ({ messages, truncated: false }),
       remoteHosts: async () => hosts,
       conversationOwnership: async (_agent: string, id: string) =>
-        readOnly && id === 'source'
+        readOnly === 'other' && id === 'source'
           ? { state: 'other', scope: 'organization' }
-          : { state: 'unmanaged' },
-      // A new chat of each coding agent uses the agent of its selection.
+          : readOnly && id === 'source'
+            ? { state: readOnly }
+            : { state: 'unmanaged' },
       verdictanSetup: async () => ({
         status: 'ready',
         teams: [],
@@ -77,24 +81,9 @@ async function withChat(page: Page, options: { messages?: number; readOnly?: boo
             configuration_version_id: 'v',
           },
         ],
-        selections: {
-          codex: {
-            teamId: 't',
-            agentId: 'a1',
-            configurationId: '',
-            configurationVersionId: '',
-            providerConnectionId: '',
-            model: '',
-          },
-          claude: {
-            teamId: 't',
-            agentId: 'a2',
-            configurationId: '',
-            configurationVersionId: '',
-            providerConnectionId: '',
-            model: '',
-          },
-        },
+        selections: {},
+        // Each computer has one agent for both coding agents.
+        computerAgents: { local: 'a1', h: 'a2' },
       }),
       remoteCall: async (_hostId: string, method: string, args: any[]) => {
         if (method === 'models') return [];
@@ -235,7 +224,7 @@ test('a chat forks to another coding agent on an SSH host with its full history'
 test('a read-only chat with a long history forks from the header and the notice', async ({
   page,
 }) => {
-  await withChat(page, { messages: 60, readOnly: true });
+  await withChat(page, { messages: 60, readOnly: 'other' });
   await tree(page).getByRole('button', { name: 'Chat: Login review', exact: true }).click();
   await expect(page.getByRole('status', { name: 'Read-only conversation' })).toBeVisible();
   await page.getByRole('button', { name: 'Chat actions', exact: true }).click();
@@ -254,4 +243,17 @@ test('a read-only chat with a long history forks from the header and the notice'
   await expect(fork.getByRole('button', { name: 'Fork chat', exact: true })).toBeEnabled();
   await fork.getByRole('button', { name: 'Cancel', exact: true }).click();
   await expect(fork).toHaveCount(0);
+});
+
+test('a chat whose agent is gone offers Fork as the main action', async ({ page }) => {
+  await withChat(page, { readOnly: 'agent_unavailable' });
+  await tree(page).getByRole('button', { name: 'Chat: Login review', exact: true }).click();
+  const notice = page.getByRole('status', { name: 'Read-only conversation' });
+  await expect(notice).toContainText("This chat's agent is no longer available.");
+  const fork = notice.getByRole('button', { name: 'Fork chat', exact: true });
+  await expect(fork).toHaveAttribute('data-variant', 'default');
+  await fork.click();
+  await expect(dialog(page).getByTestId('fork-agent')).toHaveText(
+    'Verdictan agent: Release bot. The fork uses the current agent of this Mac.',
+  );
 });

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { agentCatalog, agentLabel } from '../config/agents';
 import { forkFolder, packageForkHistory, type ForkHistory } from '../domain/chat-fork';
-import { agentLabels } from '../domain/verdictan';
+import { computerAgentLabel, localComputer, usesAgentChoice } from '../domain/verdictan';
 import { sessionAPI } from '../lib/remote-api';
 import { sessionRepo } from '../lib/session-repository';
 import { errorMessage } from '../lib/errors';
@@ -30,18 +30,14 @@ export interface ForkChoice {
 const thisComputer = 'local';
 
 /**
- * The name of the Verdictan agent that a new chat uses, or undefined when Kalkidan cannot read
- * it. The fork uses the same agent as any new chat on the computer.
- * TODO(#68): use `computerAgentLabel(setup, hostId ?? localComputer)` when one agent for each
- * computer is on main.
+ * The name of the current Verdictan agent of a computer, or undefined when Kalkidan cannot read
+ * it. The fork uses the same agent as any new chat on the computer. Older runtimes have no agent
+ * choice, so the dialog shows no name.
  */
-async function currentAgentName(api: API, agent: Agent) {
+async function currentAgentName(api: API, hostId: string | undefined) {
   if (typeof api.verdictanSetup !== 'function') return undefined;
   const setup = await api.verdictanSetup();
-  const chosen = setup.selections[agent]?.agentId;
-  const agents = setup.agents || [];
-  const index = agents.findIndex((item) => item.agent_id === chosen);
-  return index >= 0 ? agentLabels(agents)[index] : undefined;
+  return usesAgentChoice(setup) ? computerAgentLabel(setup, hostId ?? localComputer) : undefined;
 }
 
 /** A sentence about the history that the fork gives to the agent. */
@@ -118,7 +114,7 @@ export function ForkChatDialog({
     if (!session) return;
     setAgentName(undefined);
     let live = true;
-    currentAgentName(api, agent).then(
+    currentAgentName(api, hostId).then(
       (name) => live && setAgentName(name),
       () => {
         /* The dialog shows the general text. */
@@ -127,7 +123,7 @@ export function ForkChatDialog({
     return () => {
       live = false;
     };
-  }, [sourceId, hostId, agent]);
+  }, [sourceId, hostId]);
   if (!session) return null;
   const source = sessionRepo(session, projects);
   const folder = forkFolder(source, hostId, projects, groups);
