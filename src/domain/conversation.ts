@@ -110,12 +110,7 @@ export interface ChatRun {
   activity: string;
   error?: string;
   /** `desktop.*` codes are managed agent errors. See managedErrors in verdictan.ts. */
-  errorCode?:
-    | 'session_busy'
-    | 'transport_lost'
-    | 'unattended_limit'
-    | 'managed_launch_blocked'
-    | `desktop.${string}`;
+  errorCode?: 'session_busy' | 'transport_lost' | 'managed_launch_blocked' | `desktop.${string}`;
   /**
    * True while the desktop has no connection to the SSH host of a run that continues there.
    * The state is the last state that the desktop received.

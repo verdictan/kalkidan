@@ -323,9 +323,9 @@ function handle(channel: string, fn: (...args: any[]) => any) {
         const remoteMethod = channel === 'remote-call' ? args[1] : '';
         const kind =
           ['chat-create', 'chat-start'].includes(channel) ||
-          ['chatCreate', 'chatStart'].includes(remoteMethod)
+          ['chatCreate', 'chatStart', 'chatStatus'].includes(remoteMethod)
             ? 'chat'
-            : channel === 'pty-open' || remoteMethod === 'ptyOpen'
+            : channel === 'pty-open' || ['ptyOpen', 'ptyAttach'].includes(remoteMethod)
               ? 'pty'
               : channel === 'terminal-start' || remoteMethod === 'terminalStart'
                 ? 'terminal'
@@ -336,19 +336,20 @@ function handle(channel: string, fn: (...args: any[]) => any) {
             id: result.id,
             hostId: remoteMethod ? args[0] : undefined,
           } as const;
-          if (
-            [...owned].some(
-              ([window, resources]) =>
-                window !== owner &&
-                resources.some(
-                  (value) =>
-                    value.kind === resource.kind &&
-                    value.id === resource.id &&
-                    value.hostId === resource.hostId,
-                ),
-            )
-          )
-            throw new Error('This operation belongs to another window.');
+          const elsewhere = [...owned].some(
+            ([window, resources]) =>
+              window !== owner &&
+              resources.some(
+                (value) =>
+                  value.kind === resource.kind &&
+                  value.id === resource.id &&
+                  value.hostId === resource.hostId,
+              ),
+          );
+          // A run on an SSH host continues without its window. The window that reads it next
+          // owns it, so that the user can answer its approvals there.
+          if (remoteMethod === 'chatStatus' && elsewhere) return result;
+          if (elsewhere) throw new Error('This operation belongs to another window.');
           if (windows.has(owner)) {
             if (
               !owned
@@ -399,20 +400,11 @@ function stopResource(resource: {
   id: string;
   hostId?: string;
 }) {
+  // A run, a terminal or a PTY on an SSH host continues when its window closes, also when the
+  // app quits. The next window attaches to it again. Only the user stops it.
+  if (resource.hostId) return;
   try {
-    if (resource.hostId) {
-      void remote
-        .call(
-          resource.hostId,
-          resource.kind === 'chat'
-            ? 'chatStop'
-            : resource.kind === 'pty'
-              ? 'ptyClose'
-              : 'terminalStop',
-          [resource.id],
-        )
-        .catch(() => {});
-    } else if (resource.kind === 'chat') chatRunner.stop(resource.id);
+    if (resource.kind === 'chat') chatRunner.stop(resource.id);
     else if (resource.kind === 'pty') pty.close(resource.id);
     else terminal.stop(resource.id);
   } catch {
@@ -762,6 +754,8 @@ app.whenReady().then(async () => {
   handle('pty-write', (id, input) => pty.write(id, input));
   handle('pty-resize', (id, cols, rows) => pty.resize(id, cols, rows));
   handle('pty-close', (id) => pty.close(id));
+  // A shell on this computer stops with the app, so there is no shell to attach to again.
+  handle('pty-attach', () => null);
   ipcMain.handle('browser-action', (event, id, action, value) => {
     const owner = [...windows].find(
       (w) => w.webContents === event.sender && event.senderFrame === w.webContents.mainFrame,
@@ -924,6 +918,24 @@ app.whenReady().then(async () => {
   async function remoteHostCall(hostId: string, method: string, args: any[]) {
     if (!remoteMethods.has(method) || !Array.isArray(args))
       throw new Error('Unsupported remote operation');
+    if (method === 'ptyAttach') {
+      // A shell of this folder that continues on the host, and that no window owns. The newest
+      // shell comes first.
+      const shells = await remote.call(hostId, 'ptyList', []).catch(() => []);
+      const free = (Array.isArray(shells) ? shells : [])
+        .filter(
+          (shell: { id?: unknown; cwd?: unknown }) =>
+            typeof shell?.id === 'string' &&
+            shell.cwd === args[0] &&
+            ![...owned.values()].some((resources) =>
+              resources.some(
+                (value) => value.kind === 'pty' && value.id === shell.id && value.hostId === hostId,
+              ),
+            ),
+        )
+        .at(-1);
+      return free ? { id: free.id as string } : null;
+    }
     if (['ptyOpen', 'chatCreate', 'terminalStart', 'repositoryDiff'].includes(method)) {
       const path = args[0];
       if (

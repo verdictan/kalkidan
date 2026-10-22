@@ -172,3 +172,60 @@ test('a host connection recovers the run outcomes that the app did not see', asy
   assert.deepEqual(warnings, [['Remote run outcomes not recovered', 'SSH disconnected.']]);
   assert.equal(saved().length, 1);
 });
+
+test('runs and shells on an SSH host continue when their window closes, with one owner', async () => {
+  const f = await desktopFixture();
+  await f.invoke('session-action', f.sessions[0], 'window');
+  const [first, second] = f.windows;
+  const as = (window: any, name: string, ...args: unknown[]) =>
+    Promise.resolve().then(() =>
+      f.handlers.get(name)!(
+        { sender: window.webContents, senderFrame: window.webContents.mainFrame },
+        ...args,
+      ),
+    );
+  const remoteCalls = (method: string) =>
+    f.calls.filter((call) => call[0] === 'remote' && call[2] === method).length;
+  // The first window opens a shell on the host.
+  assert.deepEqual(await as(first, 'remote-call', 'host', 'ptyOpen', ['/remote', 80, 24]), {
+    id: 'ptyOpen',
+  });
+  // Shells of the folder continue on the host. A window attaches to the newest shell that no
+  // window owns. Then that window owns it.
+  f.state.ptyShells = [
+    { id: 'old', cwd: '/remote' },
+    { id: 'ptyOpen', cwd: '/remote' },
+    { id: 'other', cwd: '/remote/other' },
+  ];
+  assert.deepEqual(await as(second, 'remote-call', 'host', 'ptyAttach', ['/remote']), {
+    id: 'old',
+  });
+  assert.equal(await as(first, 'remote-call', 'host', 'ptyAttach', ['/remote']), null);
+  // An older helper without a shell list has no shell to attach to.
+  f.state.ptyShells = undefined;
+  assert.equal(await as(first, 'remote-call', 'host', 'ptyAttach', ['/remote/other']), null);
+  // A shell on this computer stops with the app.
+  assert.equal(await as(first, 'pty-attach', '/repo'), null);
+  // The first window reads a run of the host, so it owns the run and answers its approvals.
+  await as(first, 'remote-call', 'host', 'chatStatus', ['run-1']);
+  await as(first, 'remote-call', 'host', 'chatApprove', ['run-1', 'a', true]);
+  // A second window can read the run, but cannot answer for it.
+  assert.equal((await as(second, 'remote-call', 'host', 'chatStatus', ['run-1'])).id, 'run-1');
+  await assert.rejects(
+    as(second, 'remote-call', 'host', 'chatApprove', ['run-1', 'a', true]),
+    /another window/,
+  );
+  // The first window closes. Its run and shell continue on the host.
+  first.emit('closed');
+  assert.equal(remoteCalls('chatStop'), 0);
+  assert.equal(remoteCalls('ptyClose'), 0);
+  // The window that reads the run next owns it.
+  await as(second, 'remote-call', 'host', 'chatStatus', ['run-1']);
+  await as(second, 'remote-call', 'host', 'chatApprove', ['run-1', 'a', true]);
+  assert.equal(remoteCalls('chatApprove'), 2);
+  // The app quits. The runs and shells on the host continue.
+  second.emit('closed');
+  f.app.emit('before-quit', { preventDefault() {} });
+  assert.equal(remoteCalls('chatStop'), 0);
+  assert.equal(remoteCalls('ptyClose'), 0);
+});

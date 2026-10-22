@@ -47,6 +47,7 @@ test('remote RPC validates envelopes, dispatches supported operations, reports f
     resize = record('ptyResize');
     close = record('ptyClose');
     closeAll = record('ptyCloseAll');
+    list = () => [{ id: 'shell', cwd: '/repo' }];
   }
   class Terminal {
     start = record('terminalStart');
@@ -278,7 +279,8 @@ test('remote RPC validates envelopes, dispatches supported operations, reports f
     'chatRespond',
   ])
     assert.ok((await request(op, ['/repo', 'arg', 'arg'])).result, op);
-  // The helper lists the runs that still work, so that an app can attach to them again.
+  // The helper lists the shells and runs that still work, so that an app attaches again.
+  assert.deepEqual((await request('ptyList')).result, [{ id: 'shell', cwd: '/repo' }]);
   assert.deepEqual((await request('chat-runs')).result, [
     { id: 'run-1', agent: 'codex', sessionId: 'codex', create: false },
   ]);

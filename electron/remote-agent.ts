@@ -81,20 +81,11 @@ const runOutcomes = new RunOutcomeLog(join(homedir(), '.kalkidan', 'operations',
 const bindings = new BindingStore(join(homedir(), '.kalkidan'));
 // True when the helper stops, for example when the host shuts down. Then the open runs stop.
 let shuttingDown = false;
-// The runs that the helper stopped because no app was connected for too long.
-const expired = new Set<string>();
 /** The state of a run that the helper stopped, as the app must see it. */
 function presented(state: ChatRun): ChatRun {
-  if (state?.status !== 'stopped') return state;
-  // The user did not stop these runs.
-  if (expired.has(state.id))
-    return {
-      ...state,
-      status: 'failed',
-      errorCode: 'unattended_limit',
-      error: 'The run stopped on the SSH host because no app was connected for too long.',
-    };
-  if (shuttingDown) return { ...state, status: 'failed', errorCode: 'transport_lost' };
+  // The user did not stop the runs that stop with the helper.
+  if (state?.status === 'stopped' && shuttingDown)
+    return { ...state, status: 'failed', errorCode: 'transport_lost' };
   return state;
 }
 const chats = createAgentRuntimes(
@@ -510,6 +501,9 @@ async function dispatch(method: string, args: any[]): Promise<any> {
     case 'run-outcomes':
       // The host time lets the desktop correct a clock difference between the computers.
       return { now: new Date().toISOString(), outcomes: await runOutcomes.list() };
+    case 'ptyList':
+      // The shells that still work. An app attaches to one again, with its recent output.
+      return pty.list();
     case 'chat-runs':
       // The runs that still work. The app attaches to them when it connects again.
       return chats.running();
@@ -525,9 +519,9 @@ async function dispatch(method: string, args: any[]): Promise<any> {
       throw new Error('Unsupported remote operation');
   }
 }
-/** A time limit of the helper from the environment of the host, or the default. */
-function helperLimit(name: string) {
-  const value = Number(process.env[name]);
+/** The idle time of the helper from the environment of the host, or the default. */
+function helperIdle() {
+  const value = Number(process.env.KALKIDAN_HELPER_IDLE_MS);
   return Number.isSafeInteger(value) && value > 0 ? value : undefined;
 }
 /** Reads the requests of one app connection. The answers go back to the same connection. */
@@ -558,13 +552,14 @@ const socketConnection = (socket: Socket): AppConnection => ({
   closed: () => socket.destroyed,
   close: () => socket.end(),
 });
-const lifecycle = { detachedAt: Date.now() };
-/** The app connection closed. The runs continue. Terminals belong to the connection. */
+const lifecycle = { idleSince: Date.now() };
+/**
+ * The app connection closed. Runs, terminals and PTYs continue. The next app connection
+ * attaches to them again.
+ */
 function detach() {
-  lifecycle.detachedAt = Date.now();
+  lifecycle.idleSince = Date.now();
   accountProxy.close();
-  terminal.stopAll();
-  pty.closeAll();
 }
 let helperServer: Server | undefined;
 /** Stops the helper and the runs that still work. */
@@ -614,19 +609,18 @@ async function serve(path: string) {
   helperServer = server;
   if (!(await listenHelper(server, path))) process.exit(0);
   setInterval(() => {
+    const now = Date.now();
+    const busy = chats.runningCount() + pty.openCount() + terminal.runningCount();
+    if (client || busy > 0) lifecycle.idleSince = now;
     const decision = helperDecision({
       attached: !!client,
-      running: chats.runningCount(),
+      busy,
       releasing: verdictanRuntime?.managed.releasing() ?? 0,
-      detachedAt: lifecycle.detachedAt,
-      now: Date.now(),
-      limit: helperLimit('KALKIDAN_UNATTENDED_RUN_LIMIT_MS'),
-      idle: helperLimit('KALKIDAN_HELPER_IDLE_MS'),
+      idleSince: lifecycle.idleSince,
+      now,
+      idle: helperIdle(),
     });
-    if (decision === 'expire') {
-      for (const run of chats.running()) expired.add(run.id);
-      chats.stopAll();
-    } else if (decision === 'exit') shutdown();
+    if (decision === 'exit') shutdown();
   }, 5000).unref();
 }
 /**

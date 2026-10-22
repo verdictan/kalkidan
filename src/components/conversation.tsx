@@ -1411,6 +1411,13 @@ export function Conversation({
               connects again and then shows the run here.
             </p>
           )}
+          {session.hostId && pendingApprovals > 0 && (
+            <p className="chat-context-note" role="status">
+              {run?.hostDetached
+                ? 'The run waits on the SSH host for your answer. Connect the host again to answer. Kalkidan never answers for you.'
+                : 'The run waits on the SSH host for your answer. It continues only after you answer. Kalkidan never answers for you.'}
+            </p>
+          )}
           {run?.status === 'stopped' && (
             <p className="chat-context-note">Response stopped. Send another message to continue.</p>
           )}

@@ -97,6 +97,8 @@ export function InteractiveTerminal({
   const fit = useRef<FitAddon | null>(null);
   const shell = useRef<string | null>(null);
   const [error, setError] = useState('');
+  // The connection to the SSH host of the shell stopped. The shell continues on the host.
+  const [hostLost, setHostLost] = useState(false);
   const [exited, setExited] = useState(false);
   const [generation, setGeneration] = useState(0);
   const [confirmRestart, setConfirmRestart] = useState(false);
@@ -131,6 +133,7 @@ export function InteractiveTerminal({
       cursor = 0;
     setError('');
     setExited(false);
+    setHostLost(false);
     const report = (e: unknown) => {
       if (!disposed) setError(errorMessage(e));
     };
@@ -153,16 +156,31 @@ export function InteractiveTerminal({
     void (async () => {
       try {
         addon.fit();
-        const result = await api.ptyOpen(cwd, Math.max(2, term.cols), Math.max(2, term.rows));
+        // A shell of this folder that continued on its SSH host. "New shell" always starts a
+        // new shell.
+        const attached =
+          generation === 0
+            ? await Promise.resolve()
+                .then(() => api.ptyAttach(cwd))
+                .catch(() => null)
+            : null;
+        const result =
+          attached ?? (await api.ptyOpen(cwd, Math.max(2, term.cols), Math.max(2, term.rows)));
         if (disposed) {
           await api.ptyClose(result.id);
           return;
         }
         shell.current = result.id;
+        if (attached) {
+          // The recent output of the shell follows, so the user sees where the shell is.
+          term.write('[This shell continued on the SSH host. Recent output follows.]\r\n');
+          resize();
+        }
         const poll = async () => {
           try {
             const next = await api.ptyRead(result.id, cursor);
             if (disposed) return;
+            setHostLost(false);
             cursor = next.cursor;
             if (next.truncated) term.write('\r\n[Earlier output omitted]\r\n');
             term.write(next.data);
@@ -174,6 +192,12 @@ export function InteractiveTerminal({
             timer = setTimeout(poll, 75);
           } catch (e) {
             if (disposed) return;
+            // Without a connection, the shell continues on the host. Read again later.
+            if (/offline|disconnected|timed out|connect the host/i.test(errorMessage(e))) {
+              setHostLost(true);
+              timer = setTimeout(poll, 1000);
+              return;
+            }
             report(e);
             setExited(true);
           }
@@ -241,6 +265,12 @@ export function InteractiveTerminal({
           </Button>
         </div>
       </div>
+      {hostLost && !exited && (
+        <p role="status" className="form-help shrink-0 px-3 py-1">
+          The connection to the SSH host stopped. The shell continues on the host. Kalkidan shows it
+          again when the host connects.
+        </p>
+      )}
       {error && (
         <p role="alert" className="field-error max-h-16 shrink-0 overflow-auto px-3 py-1">
           {error}

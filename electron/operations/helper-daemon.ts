@@ -2,38 +2,37 @@ import { chmod, lstat, mkdir, rm } from 'node:fs/promises';
 import { connect, type Server, type Socket } from 'node:net';
 import { join } from 'node:path';
 
-/**
- * PROPOSAL: the time that a run continues on an SSH host while no app is connected. After this
- * time, the helper stops the run. The outcome is a failure with the reason `unattended_limit`.
- */
-export const unattendedRunLimitMs = 2 * 60 * 60 * 1000;
 /** The time that an idle helper waits for a new connection before it stops. */
 export const helperIdleMs = 60 * 1000;
+/**
+ * The longest life of a runtime credential of a host (900 seconds in the Verdictan runtime
+ * contract). Only an app can revoke a runtime, so a helper waits this long for an app.
+ */
+export const releaseWaitMs = 15 * 60 * 1000;
 
 /** What the helper does next. */
-export type HelperDecision = 'keep' | 'expire' | 'exit';
+export type HelperDecision = 'keep' | 'exit';
 
 /**
- * The next step of a helper. A helper with a connected app continues. Without an app, a helper
- * continues while it has runs, until `limit`. Then it stops the runs ('expire'). A helper also
- * waits until `limit` to release the managed runtimes of runs that ended, because the release
- * needs the app. A helper with no work stops after `idle`.
+ * The next step of a helper. A helper with a connected app, or with work, continues. Work is a
+ * run, a terminal or a PTY: they continue without an app until they end or the user closes
+ * them. There is no time limit. A runtime of a run that ended is released on the host at once,
+ * but only an app can revoke it, so the helper waits up to `releaseWaitMs` for an app. A helper
+ * with no work stops after `idle`. `idleSince` is the last time that the helper had an app or
+ * work.
  */
 export function helperDecision(input: {
   attached: boolean;
-  running: number;
+  busy: number;
   releasing: number;
-  detachedAt: number;
+  idleSince: number;
   now: number;
-  limit?: number;
   idle?: number;
 }): HelperDecision {
-  if (input.attached) return 'keep';
-  const unattended = input.now - input.detachedAt;
-  const limit = input.limit ?? unattendedRunLimitMs;
-  if (input.running > 0) return unattended >= limit ? 'expire' : 'keep';
-  if (input.releasing > 0 && unattended < limit) return 'keep';
-  return unattended >= (input.idle ?? helperIdleMs) ? 'exit' : 'keep';
+  if (input.attached || input.busy > 0) return 'keep';
+  const idle = input.now - input.idleSince;
+  if (input.releasing > 0 && idle < releaseWaitMs) return 'keep';
+  return idle >= (input.idle ?? helperIdleMs) ? 'exit' : 'keep';
 }
 
 /**

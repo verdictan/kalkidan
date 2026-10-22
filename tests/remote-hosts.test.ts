@@ -99,12 +99,34 @@ test('host setup installs the bundled agent and routes RPC through an SSH transp
     const first = await hosts.call(host.id, 'hello', []);
     const { lstat } = await import('node:fs/promises');
     assert.equal((await lstat(join(root, '.kalkidan', 'run'))).mode & 0o777, 0o700);
+    // A shell continues when the connection stops.
+    const repo = await import('node:fs/promises').then((fs) => fs.realpath(join(root, 'repo')));
+    const kept = await hosts.call(host.id, 'ptyOpen', [repo, 80, 24]);
+    await hosts.call(host.id, 'ptyWrite', [kept.id, "printf 'kept-%s\\n' before\r"]);
+    for (let i = 0; i < 100; i++) {
+      if ((await hosts.call(host.id, 'ptyRead', [kept.id, 0])).data.includes('kept-before')) break;
+      await new Promise((r) => setTimeout(r, 20));
+    }
     hosts.disconnect(host.id);
     await assert.rejects(hosts.call(host.id, 'hello', []), /offline/);
-    // The same helper answers the next connection, so its runs continue.
+    await assert.rejects(hosts.call(host.id, 'ptyRead', [kept.id, 0]), /offline/);
+    // The same helper answers the next connection, so its runs and shells continue.
     await hosts.connect(host.id);
     assert.equal((await hosts.call(host.id, 'hello', [])).pid, first.pid);
     assert.deepEqual(await hosts.call(host.id, 'chat-runs', []), []);
+    assert.deepEqual(await hosts.call(host.id, 'ptyList', []), [{ id: kept.id, cwd: repo }]);
+    // The recent output of the shell comes again, and the shell still works.
+    assert.match((await hosts.call(host.id, 'ptyRead', [kept.id, 0])).data, /kept-before/);
+    await hosts.call(host.id, 'ptyWrite', [kept.id, "printf 'kept-%s\\n' after\r"]);
+    let after = '';
+    for (let i = 0; i < 100 && !after.includes('kept-after'); i++) {
+      after = (await hosts.call(host.id, 'ptyRead', [kept.id, 0])).data;
+      await new Promise((r) => setTimeout(r, 20));
+    }
+    assert.match(after, /kept-after/);
+    // The user closes the shell.
+    await hosts.call(host.id, 'ptyClose', [kept.id]);
+    assert.deepEqual(await hosts.call(host.id, 'ptyList', []), []);
     hosts.disconnect(host.id);
     // A failed connection keeps its reason for the UI. Reconnect clears it.
     const broken = join(root, 'broken');

@@ -27,6 +27,7 @@ export async function desktopFixture(platform = 'linux', failure = '') {
     runOutcomes: undefined as unknown,
     remoteBinding: null as unknown,
     localBinding: null as unknown,
+    ptyShells: [] as unknown,
   };
   let sequence = 0;
   const account = {
@@ -219,6 +220,9 @@ export async function desktopFixture(platform = 'linux', failure = '') {
         return { sessions: [{ ...sessions[0], cwd: '/remote' }], warnings: ['warning'] };
       if (method === 'project-prepare') return '/remote-new';
       if (method === 'run-outcomes') return state.runOutcomes;
+      if (method === 'ptyList') return state.ptyShells;
+      if (method === 'chatStatus')
+        return { id: args[0], sessionId: 's', status: 'running', messages: [] };
       if (method === 'conversation-binding') return state.remoteBinding;
       if (method === 'git') return { branch: 'main', changes: 0, worktrees: [] };
       if (method === 'repository-snapshot') return { sessions: [sessions[0]], git: null };

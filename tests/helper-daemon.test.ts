@@ -11,7 +11,7 @@ import {
   helperSocketPath,
   listenHelper,
   prepareHelperDirectory,
-  unattendedRunLimitMs,
+  releaseWaitMs,
 } from '../electron/operations/helper-daemon';
 
 async function temporary(t: test.TestContext) {
@@ -21,19 +21,18 @@ async function temporary(t: test.TestContext) {
   return root;
 }
 
-test('the helper keeps runs without an app until the limit, then stops them and itself', () => {
-  const at = (minutes: number) => ({ detachedAt: 0, now: minutes * 60_000 });
-  const base = { attached: false, running: 0, releasing: 0 };
-  // The proposed default limit is 2 hours.
-  assert.equal(unattendedRunLimitMs, 7_200_000);
+test('the helper keeps work without an app with no time limit, and stops when idle', () => {
+  const at = (minutes: number) => ({ idleSince: 0, now: minutes * 60_000 });
+  const base = { attached: false, busy: 0, releasing: 0 };
   assert.equal(helperIdleMs, 60_000);
-  assert.equal(helperDecision({ ...base, attached: true, running: 1, ...at(500) }), 'keep');
-  assert.equal(helperDecision({ ...base, running: 1, ...at(119) }), 'keep');
-  assert.equal(helperDecision({ ...base, running: 1, ...at(120) }), 'expire');
-  assert.equal(helperDecision({ ...base, running: 1, ...at(2), limit: 60_000 }), 'expire');
-  // A runtime release waits for the app, but not after the limit.
-  assert.equal(helperDecision({ ...base, releasing: 1, ...at(30) }), 'keep');
-  assert.equal(helperDecision({ ...base, releasing: 1, ...at(120) }), 'exit');
+  // The runtime credential of a host lives at most 900 seconds.
+  assert.equal(releaseWaitMs, 900_000);
+  assert.equal(helperDecision({ ...base, attached: true, ...at(500) }), 'keep');
+  // A run, a terminal or a PTY continues without an app, for any time.
+  assert.equal(helperDecision({ ...base, busy: 1, ...at(60 * 24 * 7) }), 'keep');
+  // A runtime that only an app can revoke keeps the helper for the life of its credential.
+  assert.equal(helperDecision({ ...base, releasing: 1, ...at(14) }), 'keep');
+  assert.equal(helperDecision({ ...base, releasing: 1, ...at(15) }), 'exit');
   // An idle helper waits a short time for a new connection.
   assert.equal(helperDecision({ ...base, ...at(0.5) }), 'keep');
   assert.equal(helperDecision({ ...base, ...at(1) }), 'exit');

@@ -164,6 +164,11 @@ export interface TerminalAPI {
   ptyWrite(id: string, input: string): Promise<void>;
   ptyResize(id: string, cols: number, rows: number): Promise<void>;
   ptyClose(id: string): Promise<void>;
+  /**
+   * A shell of this folder that continues on its SSH host, and that no window owns. The window
+   * then owns it. Null when there is no such shell, also on this computer.
+   */
+  ptyAttach(cwd: string): Promise<{ id: string } | null>;
   terminalStart(cwd: string, command: string): Promise<TerminalRun>;
   terminalStatus(id: string): Promise<TerminalRun>;
   terminalInput(id: string, value: string): Promise<void>;

@@ -4,7 +4,6 @@ import { chmod, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promis
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { ChatOutcomes, hostOutcomes } from '../electron/chat-outcomes';
-import { chatOutcomeOf, failureReason, outcomeLabel } from '../src/domain/chat-outcome';
 import { RunOutcomeLog } from '../electron/operations/run-outcomes';
 import type { ChatRun } from '../src/types';
 
@@ -281,17 +280,5 @@ test('recovered outcomes replace a lost run and never a newer outcome', async (t
       ['h1::s1', 'failed', 'r3'],
       ['h1::s2', 'failed', 'r2'],
     ],
-  );
-});
-
-test('a run that the helper stopped without an app has its own reason', () => {
-  assert.equal(failureReason({ errorCode: 'unattended_limit' }), 'unattended_limit');
-  assert.deepEqual(
-    chatOutcomeOf({ status: 'failed', errorCode: 'unattended_limit' }, '2026-10-01T10:00:00.000Z'),
-    { outcome: 'failed', reason: 'unattended_limit', at: '2026-10-01T10:00:00.000Z' },
-  );
-  assert.equal(
-    outcomeLabel({ outcome: 'failed', reason: 'unattended_limit' }),
-    'The last run failed. The run stopped on the SSH host because no app was connected for too long.',
   );
 });
