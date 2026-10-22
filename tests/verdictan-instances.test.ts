@@ -4,24 +4,25 @@ import { randomUUID } from 'node:crypto';
 import { ManagedRuntimes } from '../electron/verdictan/runtime';
 import { GatewayInstances } from '../electron/verdictan/instances';
 import type { RuntimeProvision } from '../electron/verdictan/protocol';
-import { attached, fakeSupervisor } from './helpers/fake-supervisor';
+import { fakeSupervisor, supervisorReplies } from './helpers/fake-supervisor';
 
 const id = '11111111-1111-4111-8111-111111111111';
 const agentA = '44444444-4444-4444-8444-444444444444';
 const agentB = '55555555-5555-4555-8555-555555555555';
 const apiOrigin = 'https://api.eu.verdictan.com';
 const agent = { kind: 'codex' as const, version: '0.163.0-alpha.10.2' };
+const tick = (ms = 20) => new Promise((resolve) => setTimeout(resolve, ms));
 
-function fixture(supported = true, idleMs = 0) {
-  const ports = { a: 47011 };
+function fixture({ supported = true, idleMs = 0 } = {}) {
+  const ports: Record<string, number> = { 'gw-a': 47011, 'gw-b': 47012 };
   const requests: { operation: string; parameters: any }[] = [];
-  const provisioned = new Map<string, RuntimeProvision>();
+  const provisioned = new Map<string, RuntimeProvision & { generation: number }>();
   const client: any = {
     request: async (operation: string, parameters: any) => {
       requests.push({ operation, parameters });
       if (operation === 'runtime.provision') {
         const runtimeId = randomUUID();
-        provisioned.set(runtimeId, parameters.parameters);
+        provisioned.set(runtimeId, { ...parameters.parameters, generation: 1 });
         return {
           data: {
             runtime_id: runtimeId,
@@ -30,6 +31,11 @@ function fixture(supported = true, idleMs = 0) {
             generation: 1,
           },
         };
+      }
+      if (operation === 'runtime.renew') {
+        const binding = provisioned.get(parameters.runtime_id)!;
+        binding.generation++;
+        return { data: { runtime_id: parameters.runtime_id, generation: binding.generation } };
       }
       return { data: { runtime_id: parameters.runtime_id, revoked: true } };
     },
@@ -47,22 +53,12 @@ function fixture(supported = true, idleMs = 0) {
         expires_at: new Date(Date.now() + 600000).toISOString(),
         runtime_credential: 'vdt_' + 'r'.repeat(20),
         inference_credential: 'vdt_' + 'i'.repeat(20),
-        generation: 1,
+        generation: binding.generation,
       };
     },
   };
-  const process = fakeSupervisor((request, frame) =>
-    request.operation === 'gateway.attach'
-      ? attached(
-          request,
-          `http://127.0.0.1:${request.agent_id === agentA ? ports.a : 47012}`,
-          frame.runtime_id,
-        )
-      : request.operation === 'gateway.detach'
-        ? [['gateway.stopping', {}, { gateway_id: request.gateway_id }]]
-        : request.operation === 'supervisor.shutdown'
-          ? [['supervisor.stopping', {}, {}]]
-          : [],
+  const process = fakeSupervisor(
+    supervisorReplies((gatewayId) => `http://127.0.0.1:${ports[gatewayId]}`),
   );
   const launch: any = supported
     ? process.launch
@@ -74,7 +70,6 @@ function fixture(supported = true, idleMs = 0) {
         return child;
       };
   const instances = new GatewayInstances({
-    apiOrigin,
     client: async () => client,
     supervisor: { executable: async () => '/verdictan', launch },
     idleMs,
@@ -89,11 +84,15 @@ function fixture(supported = true, idleMs = 0) {
     gateway: (options) => {
       const gateway: any = {
         options,
+        credentials: options.credentials,
         readiness: async () => {},
         stop: async () => {},
+        renewed: (next: any) => {
+          gateway.credentials = next;
+        },
         endpoint: () => options.instance?.address ?? 'http://127.0.0.1:1',
       };
-      // As the real gateway: a moved instance stops the chat with its own code.
+      // As the real gateway: a moved gateway stops the chat with its own code.
       options.instance?.subscribe((reason) => {
         gateway.lost = reason ?? 'stopped';
         if (reason === 'moved') options.lost?.(undefined, 'desktop.gateway_moved');
@@ -114,113 +113,109 @@ function fixture(supported = true, idleMs = 0) {
     model: 'gpt-5',
     provider_connection_id: id,
   });
-  return { requests, provisioned, runtimes, instances, gateways, process, chat, ports };
+  const sent = (operation: string, child = 0) =>
+    process.children[child].requests.filter((r: any) => r.operation === operation);
+  const provisions = () => requests.filter((r) => r.operation === 'runtime.provision').length;
+  return { requests, runtimes, instances, gateways, process, chat, ports, sent, provisions };
 }
 
-test('chats of one agent share one gateway instance with its own runtime', async () => {
+test('the chats of one agent attach their own runtimes to one gateway', async () => {
   const f = fixture();
   const first = f.chat(agentA, 'gw-a', 'project-1');
   const second = f.chat(agentA, 'gw-a', 'project-2');
   await f.runtimes.start(first, agent, async () => {});
   await f.runtimes.start(second, agent, async () => {});
-  // Two chat runtimes and one instance runtime, with its own session and no project.
-  const provisions = f.requests.filter((r) => r.operation === 'runtime.provision');
-  assert.equal(provisions.length, 3);
-  const instance = provisions[1].parameters.parameters;
-  assert.equal(instance.gateway_id, 'gw-a');
-  assert.equal('project_id' in instance, false);
-  assert.notEqual(instance.session_id, first.session_id);
-  // One supervisor process and one attach. Both chats use the address of the instance.
+  // Only the two chat runtimes. The gateway has no runtime of its own.
+  assert.equal(f.provisions(), 2);
   assert.equal(f.process.launches.length, 1);
-  const attaches = f.process.children[0].requests.filter(
-    (r: any) => r.operation === 'gateway.attach',
-  );
-  assert.equal(attaches.length, 1);
+  assert.equal(f.sent('gateway.attach').length, 1);
   assert.deepEqual(
-    f.gateways.map((g) => g.options.instance?.address),
-    ['http://127.0.0.1:47011', 'http://127.0.0.1:47011'],
+    f.sent('runtime.attach').map((r: any) => r.gateway_id),
+    ['gw-a', 'gw-a'],
   );
-  assert.deepEqual(f.runtimes.endpoint(first.session_id), 'http://127.0.0.1:47011');
-
-  // Another agent gets its own instance in the same supervisor.
+  // Both chats use the shared address with their own credential.
+  assert.equal(f.runtimes.endpoint(first.session_id), 'http://127.0.0.1:47011');
+  assert.equal(f.runtimes.endpoint(second.session_id), 'http://127.0.0.1:47011');
+  assert.deepEqual(
+    f.process.children[0].frames.map((frame: any) => frame.session_id),
+    [first.session_id, second.session_id],
+  );
+  // Another agent gets its own gateway in the same supervisor.
   const other = f.chat(agentB, 'gw-b');
   await f.runtimes.start(other, agent, async () => {});
-  assert.equal(f.process.launches.length, 1);
   assert.equal(f.instances.size(), 2);
   assert.equal(f.runtimes.endpoint(other.session_id), 'http://127.0.0.1:47012');
-
-  // The instance stays while a chat uses it. The last chat detaches it and revokes its runtime.
+  // Each chat that ends detaches its runtime. The last one stops the gateway.
   await f.runtimes.release(first.session_id);
+  assert.equal(f.sent('runtime.detach').length, 1);
   assert.equal(f.instances.size(), 2);
   await f.runtimes.release(second.session_id);
-  // The instance waits for the next turn, then stops.
-  await new Promise((resolve) => setTimeout(resolve, 10));
-  assert.equal(f.instances.size(), 1);
-  const detaches = f.process.children[0].requests.filter(
-    (r: any) => r.operation === 'gateway.detach',
-  );
+  await tick();
   assert.deepEqual(
-    detaches.map((r: any) => r.gateway_id),
+    f.sent('gateway.detach').map((r: any) => r.gateway_id),
     ['gw-a'],
   );
-  const revoked = f.requests
-    .filter((r) => r.operation === 'runtime.revoke')
-    .map((r) => r.parameters.runtime_id);
-  const instanceRuntime = [...f.provisioned].find(
-    ([, b]) => b.session_id === instance.session_id,
-  )![0];
-  assert.ok(revoked.includes(instanceRuntime));
+  assert.equal(f.instances.size(), 1);
 });
 
-test('a revoked instance stops the chats of its agent only', async () => {
+test('a revoked runtime stops its chat only', async () => {
   const f = fixture();
   const a = f.chat(agentA, 'gw-a');
-  const b = f.chat(agentB, 'gw-b');
+  const b = f.chat(agentA, 'gw-a');
   await f.runtimes.start(a, agent, async () => {});
   await f.runtimes.start(b, agent, async () => {});
+  const runtimeId = f.process.children[0].frames[0].runtime_id;
   f.process.children[0].send(
     'credential.revoked',
-    { runtime_id: id, reason: 'runtime_revoked' },
-    {
-      gateway_id: 'gw-a',
-      runtime_generation: 1,
-    },
+    { runtime_id: runtimeId, reason: 'runtime_revoked' },
+    { gateway_id: 'gw-a', runtime_id: runtimeId, runtime_generation: 1 },
   );
-  await new Promise((resolve) => setImmediate(resolve));
+  await tick(5);
   assert.equal(f.gateways[0].lost, 'runtime_revoked');
   assert.equal(f.gateways[1].lost, undefined);
   assert.equal(f.instances.size(), 1);
 });
 
-test('a runtime without the multi mode starts one process for each chat', async () => {
-  const f = fixture(false);
+test('a renewal is in place: the coding agent continues', async () => {
+  const f = fixture();
+  const stops: unknown[] = [];
   const a = f.chat(agentA, 'gw-a');
-  await f.runtimes.start(a, agent, async () => {});
+  await f.runtimes.start(a, agent, async (code) => {
+    stops.push(code);
+  });
+  await f.runtimes.renew(a.session_id);
+  assert.equal(f.sent('credential.renew').length, 1);
+  assert.equal(f.process.children[0].frames.at(-1).generation, 2);
+  assert.equal(f.gateways[0].credentials.generation, 2);
+  assert.deepEqual(stops, []);
+  assert.equal(f.gateways.length, 1);
+});
+
+test('a runtime without the multi mode starts one process for each chat', async () => {
+  const f = fixture({ supported: false });
+  await f.runtimes.start(f.chat(agentA, 'gw-a'), agent, async () => {});
   assert.equal(f.gateways[0].options.instance, undefined);
   assert.equal(f.instances.supervisor.unsupported, true);
-  // Only the chat runtime. The supervisor does not start again.
   await f.runtimes.start(f.chat(agentA, 'gw-a'), agent, async () => {});
   assert.equal(f.process.launches.length, 1);
   assert.equal(f.gateways[1].options.instance, undefined);
 });
 
-test('a supervisor crash attaches each instance again, and a second crash stops the chats', async () => {
+test('a crash attaches each gateway and runtime again on the same port', async () => {
   const f = fixture();
   const a = f.chat(agentA, 'gw-a');
   await f.runtimes.start(a, agent, async () => {});
   f.process.children[0].emit('close');
-  // A new process attaches the instance again with a new export. The chat keeps its address.
-  await new Promise((resolve) => setTimeout(resolve, 20));
+  await tick();
+  // A new process: the gateway, then the runtime with a new export. The chat continues.
   assert.equal(f.process.launches.length, 2);
-  assert.equal(
-    f.process.children[1].requests.filter((r: any) => r.operation === 'gateway.attach').length,
-    1,
-  );
+  assert.equal(f.sent('gateway.attach', 1).length, 1);
+  assert.equal(f.sent('runtime.attach', 1).length, 1);
   assert.equal(f.gateways[0].lost, undefined);
-  assert.equal(f.instances.size(), 1);
+  assert.equal(f.provisions(), 1);
   // A second crash in one minute stops the chats. Check status allows a new start.
   f.process.children[1].emit('close');
-  await new Promise((resolve) => setTimeout(resolve, 20));
+  await tick();
   assert.equal(f.gateways[0].lost, 'stopped');
   assert.equal(f.instances.supervisor.failed, true);
   f.runtimes.resetSupervisor();
@@ -228,45 +223,28 @@ test('a supervisor crash attaches each instance again, and a second crash stops 
 });
 
 test('a restore on a new port stops the coding agents, and the next turn continues there', async () => {
-  const f = fixture(true, 60000);
+  const f = fixture({ idleMs: 60000 });
   const stops: (string | undefined)[] = [];
   const a = f.chat(agentA, 'gw-a');
   await f.runtimes.start(a, agent, async (code) => {
     stops.push(code);
   });
-  const provisions = () => f.requests.filter((r) => r.operation === 'runtime.provision').length;
-  assert.equal(provisions(), 2);
   // The old port is not free after the crash. The supervisor gives a new one.
-  f.ports.a = 47020;
+  f.ports['gw-a'] = 47020;
   f.process.children[0].emit('close');
-  await new Promise((resolve) => setTimeout(resolve, 20));
-  // The coding agent of the chat stops with the reason. No request is sent again.
-  assert.equal(f.gateways[0].lost, 'moved');
+  await tick();
+  // The coding agent stops with the reason. Its runtime is not attached again, and no
+  // request is sent again.
   assert.deepEqual(stops, ['desktop.gateway_moved']);
-  // The instance stays on the new port, with the same runtime.
+  assert.equal(f.sent('runtime.attach', 1).length, 0);
   assert.equal(f.instances.size(), 1);
-  assert.equal(provisions(), 2);
-  // The next turn of the chat uses the new address. The instance does not start again.
+  // The next turn of the chat attaches its new runtime to the gateway on the new port.
   await f.runtimes.release(a.session_id);
-  const next = { ...f.chat(agentA, 'gw-a'), session_id: randomUUID() };
+  const next = f.chat(agentA, 'gw-a');
   await f.runtimes.start(next, agent, async () => {});
   assert.equal(f.runtimes.endpoint(next.session_id), 'http://127.0.0.1:47020');
-  assert.equal(provisions(), 3);
-  assert.equal(
-    f.process.children[1].requests.filter((r: any) => r.operation === 'gateway.attach').length,
-    1,
-  );
-});
-
-test('an idle instance waits for the next turn of its chats', async () => {
-  const f = fixture(true, 60000);
-  const a = f.chat(agentA, 'gw-a');
-  await f.runtimes.start(a, agent, async () => {});
-  await f.runtimes.release(a.session_id);
-  assert.equal(f.instances.size(), 1);
-  await f.runtimes.start(f.chat(agentA, 'gw-a'), agent, async () => {});
-  // Two chat runtimes and one instance runtime. One attach.
-  assert.equal(f.requests.filter((r) => r.operation === 'runtime.provision').length, 3);
+  assert.equal(f.sent('gateway.attach', 1).length, 1);
+  assert.equal(f.sent('runtime.attach', 1).length, 1);
   await f.runtimes.stopAll();
   assert.equal(f.instances.size(), 0);
 });

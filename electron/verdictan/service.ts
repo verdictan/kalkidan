@@ -121,7 +121,6 @@ export function createVerdictanServices(options: {
     // One supervisor for this computer with one gateway instance for each agent. A runtime
     // without the multi mode starts one process for each chat runtime.
     instances: new GatewayInstances({
-      apiOrigin,
       client: () => account.runtimeClient(),
       supervisor: { executable: () => installer.executable(), eventDirectory },
     }),

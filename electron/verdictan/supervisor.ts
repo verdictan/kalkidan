@@ -9,17 +9,24 @@ import { eventBufferEnvironment } from './event-buffer';
 /** The capability of a runtime that runs many gateways in one supervisor process. */
 export const multiGatewayCapability = 'gateway.supervise.multi';
 
-/** The state of one gateway in the supervisor, from `gateway.attached` and the other summaries. */
+/** The state of one gateway in the supervisor, from `gateway.attached`. */
 export interface GatewaySummary {
   gateway_id: string;
   agent_id: string;
-  runtime_id: string;
   state: string;
-  /** The loopback address of the gateway, for example `http://127.0.0.1:47011`. */
-  effective_address: string | null;
+  /** The shared loopback address of the gateway, for example `http://127.0.0.1:47011`. */
+  effective_address: string;
+}
+/** The state of one runtime in a gateway, from `runtime.attached` and `credential.renewed`. */
+export interface RuntimeSummary {
+  gateway_id: string;
+  runtime_id: string;
+  session_id: string;
+  state: string;
+  effective_address: string;
   expires_at: string;
 }
-/** An event that the supervisor sent for one gateway without a request. */
+/** An event that the supervisor sent for one gateway or runtime without a request. */
 export interface GatewayEvent {
   event: string;
   runtimeGeneration: number | null;
@@ -41,22 +48,30 @@ export interface SupervisorOptions {
   timeout?: number;
   now?(): number;
   /**
-   * The process stopped without a request. Kalkidan starts it again at once and attaches each
-   * gateway again with a new credential. `repeated` is true when it stopped twice in one
-   * minute. Then Kalkidan does not start it again, and the gateways stop.
+   * The process stopped without a request. Kalkidan starts it again at once, attaches each
+   * gateway, and then each runtime with a new credential. `repeated` is true when it stopped
+   * twice in one minute. Then Kalkidan does not start it again, and the chats stop.
    */
   lost?(gatewayIds: string[], repeated: boolean): void;
 }
 const correlationPattern = /^[A-Za-z0-9_-]{1,128}$/;
 /** Codes that a second request can fix. */
-const retryable = new Set(['desktop.gateway_busy', 'desktop.supervisor_busy']);
+const retryable = new Set([
+  'desktop.gateway_busy',
+  'desktop.runtime_busy',
+  'desktop.supervisor_busy',
+]);
+const address = /^http:\/\/127\.0\.0\.1:\d{1,5}$/;
+/** The listener key of a runtime. A gateway key has no slash. */
+const runtimeKey = (gatewayId: string, runtimeId: string) => `${gatewayId}/${runtimeId}`;
 /** A crash within this time of the last crash counts as repeated. */
 const crashWindowMs = 60000;
 
 /**
  * One `verdictan gateway supervise --multi` process for each computer. It hosts one gateway for
- * each agent. Requests go on stdin. Each credential goes as one line on descriptor 3, never on
- * stdin, stdout, or argv. Replies and gateway events come on stdout.
+ * each agent, and one runtime in that gateway for each running chat. The runtimes of a gateway
+ * share its loopback port. Requests go on stdin. Each runtime credential goes as one line on
+ * descriptor 3, never on stdin, stdout, or argv. Replies and events come on stdout.
  */
 export class GatewaySupervisor {
   private child?: ChildProcess;
@@ -80,7 +95,7 @@ export class GatewaySupervisor {
   }
   /** The IDs of the gateways that run in the process. */
   gateways() {
-    return [...this.listeners.keys()];
+    return [...this.listeners.keys()].filter((key) => !key.includes('/'));
   }
   /** Starts the process once. Concurrent callers share the start. */
   start(): Promise<void> {
@@ -157,6 +172,7 @@ export class GatewaySupervisor {
       typeof event.event !== 'string' ||
       typeof event.correlation_id !== 'string' ||
       (event.gateway_id !== null && typeof event.gateway_id !== 'string') ||
+      (event.runtime_id != null && !uuid(event.runtime_id)) ||
       !event.data ||
       typeof event.data !== 'object' ||
       Array.isArray(event.data)
@@ -188,7 +204,9 @@ export class GatewaySupervisor {
       return;
     }
     if (typeof event.gateway_id === 'string')
-      this.listeners.get(event.gateway_id)?.({
+      this.listeners.get(
+        event.runtime_id ? runtimeKey(event.gateway_id, event.runtime_id) : event.gateway_id,
+      )?.({
         event: event.event,
         runtimeGeneration:
           typeof event.runtime_generation === 'number' ? event.runtime_generation : null,
@@ -281,63 +299,110 @@ export class GatewaySupervisor {
       }
     }
   }
-  private summary(data: Record<string, unknown>, credentials: RuntimeCredentials): GatewaySummary {
-    const address = data.effective_address;
-    if (
-      data.gateway_id !== credentials.gateway_id ||
-      data.agent_id !== credentials.agent_id ||
-      data.runtime_id !== credentials.runtime_id ||
-      typeof data.state !== 'string' ||
-      (address !== null &&
-        (typeof address !== 'string' || !/^http:\/\/127\.0\.0\.1:\d{1,5}$/.test(address)))
-    )
-      throw new DesktopProtocolError('desktop.gateway_protocol_invalid');
-    return data as unknown as GatewaySummary;
-  }
   /**
-   * Starts the gateway of one agent. `listener` gets the events of the gateway until it stops.
-   * The supervisor refuses a second gateway for the same agent.
+   * Opens the shared port of the gateway of one agent. It takes no credential. `listener` gets
+   * the events of the gateway. The supervisor refuses a second gateway for the same agent.
    */
-  async attach(credentials: RuntimeCredentials, listener: (event: GatewayEvent) => void) {
-    this.listeners.set(credentials.gateway_id, listener);
+  async attachGateway(
+    gatewayId: string,
+    agentId: string,
+    listener: (event: GatewayEvent) => void,
+  ): Promise<GatewaySummary> {
+    this.listeners.set(gatewayId, listener);
     try {
       const { data } = await this.retry(() =>
-        this.request(
-          'gateway.attach',
-          { gateway_id: credentials.gateway_id, agent_id: credentials.agent_id },
-          ['gateway.attached'],
-          credentials,
-        ),
+        this.request('gateway.attach', { gateway_id: gatewayId, agent_id: agentId }, [
+          'gateway.attached',
+        ]),
       );
-      return this.summary(data, credentials);
+      if (
+        data.gateway_id !== gatewayId ||
+        data.agent_id !== agentId ||
+        typeof data.state !== 'string' ||
+        typeof data.effective_address !== 'string' ||
+        !address.test(data.effective_address)
+      )
+        throw new DesktopProtocolError('desktop.gateway_protocol_invalid');
+      return data as unknown as GatewaySummary;
     } catch (error) {
-      if (this.listeners.get(credentials.gateway_id) === listener)
-        this.listeners.delete(credentials.gateway_id);
+      if (this.listeners.get(gatewayId) === listener) this.listeners.delete(gatewayId);
       throw error;
     }
   }
-  /** Gives one gateway its renewed credential. Only that gateway restarts, on the same port. */
+  private runtimeSummary(data: Record<string, unknown>, credentials: RuntimeCredentials) {
+    if (
+      data.gateway_id !== credentials.gateway_id ||
+      data.runtime_id !== credentials.runtime_id ||
+      data.session_id !== credentials.session_id ||
+      typeof data.state !== 'string' ||
+      typeof data.effective_address !== 'string' ||
+      !address.test(data.effective_address)
+    )
+      throw new DesktopProtocolError('desktop.gateway_protocol_invalid');
+    return data as unknown as RuntimeSummary;
+  }
+  /**
+   * Adds the runtime of one chat to its gateway. The credential goes on descriptor 3.
+   * `listener` gets the events of the runtime until it stops.
+   */
+  async attachRuntime(credentials: RuntimeCredentials, listener: (event: GatewayEvent) => void) {
+    const key = runtimeKey(credentials.gateway_id, credentials.runtime_id);
+    this.listeners.set(key, listener);
+    try {
+      const { data } = await this.retry(() =>
+        this.request(
+          'runtime.attach',
+          { gateway_id: credentials.gateway_id, runtime_id: credentials.runtime_id },
+          ['runtime.attached'],
+          credentials,
+        ),
+      );
+      return this.runtimeSummary(data, credentials);
+    } catch (error) {
+      if (this.listeners.get(key) === listener) this.listeners.delete(key);
+      throw error;
+    }
+  }
+  /**
+   * Gives one runtime its renewed credential. The runtime does not restart, and requests in
+   * progress continue.
+   */
   async renew(credentials: RuntimeCredentials) {
     const { data } = await this.retry(() =>
       this.request(
         'credential.renew',
-        { gateway_id: credentials.gateway_id },
+        { gateway_id: credentials.gateway_id, runtime_id: credentials.runtime_id },
         ['credential.renewed'],
         credentials,
       ),
     );
-    return this.summary(data, credentials);
+    return this.runtimeSummary(data, credentials);
   }
-  /** Stops one gateway. The other gateways continue. */
-  async detach(gatewayId: string) {
+  /** Ignores a detach of something that is not attached any more. */
+  private detached(code: string) {
+    return (error: unknown) => {
+      if (!(error instanceof DesktopProtocolError) || error.code !== code) throw error;
+    };
+  }
+  /** Stops the runtime of one chat. The other runtimes of the gateway continue. */
+  async detachRuntime(gatewayId: string, runtimeId: string) {
+    const key = runtimeKey(gatewayId, runtimeId);
+    if (!this.child || !this.listeners.has(key)) return;
+    this.listeners.delete(key);
+    await this.retry(() =>
+      this.request('runtime.detach', { gateway_id: gatewayId, runtime_id: runtimeId }, [
+        'runtime.stopping',
+      ]),
+    ).catch(this.detached('desktop.runtime_not_attached'));
+  }
+  /** Stops one gateway and its runtimes. The other gateways continue. */
+  async detachGateway(gatewayId: string) {
     if (!this.child || !this.listeners.has(gatewayId)) return;
-    this.listeners.delete(gatewayId);
+    for (const key of [...this.listeners.keys()])
+      if (key === gatewayId || key.startsWith(gatewayId + '/')) this.listeners.delete(key);
     await this.retry(() =>
       this.request('gateway.detach', { gateway_id: gatewayId }, ['gateway.stopping']),
-    ).catch((error) => {
-      if (!(error instanceof DesktopProtocolError) || error.code !== 'desktop.gateway_not_attached')
-        throw error;
-    });
+    ).catch(this.detached('desktop.gateway_not_attached'));
   }
   /** Stops all gateways and the process. */
   async shutdown() {

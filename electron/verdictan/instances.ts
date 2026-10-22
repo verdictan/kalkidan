@@ -1,51 +1,41 @@
-import { randomUUID } from 'node:crypto';
-import { DesktopProtocolError, type DesktopClient, type RuntimeProvision } from './protocol';
-import { parseRuntimeCredentials, uuid } from './credentials';
+import { DesktopProtocolError, type DesktopClient } from './protocol';
+import { parseRuntimeCredentials, type RuntimeCredentials } from './credentials';
 import type { GatewayRevocation, SharedGateway } from './gateway';
 import { GatewaySupervisor, type GatewayEvent, type SupervisorOptions } from './supervisor';
 
-/** Renew the credential of an instance this long before it expires. */
-const renewMarginMs = 120000;
 /**
- * An instance without chats stops after this time. Each turn of a chat has its own runtime,
- * so the next turn of the same chats uses the instance again without a new start.
+ * A gateway without runtimes stops after this time. Each turn of a chat has its own runtime,
+ * so the next turn of the chats of the agent uses the gateway again without a new start.
  */
-export const instanceIdleMs = 300000;
+export const gatewayIdleMs = 300000;
 
-interface Instance {
+type Lost = (reason?: GatewayRevocation | 'moved') => void;
+interface Gateway {
   gatewayId: string;
   agentId: string;
-  binding: RuntimeProvision;
-  runtimeId?: string;
-  generation?: number;
   address?: string;
-  /** The chat runtimes that use the instance now, by session ID. */
-  users: Set<string>;
-  listeners: Set<(reason?: GatewayRevocation | 'moved') => void>;
-  renewal?: ReturnType<typeof setTimeout>;
+  /** The runtimes of the chats that use the gateway now, by runtime ID. */
+  runtimes: Map<string, { listeners: Set<Lost> }>;
   idle?: ReturnType<typeof setTimeout>;
   ready?: Promise<void>;
 }
 export interface InstanceOptions {
-  apiOrigin: string;
   client(): Promise<DesktopClient>;
   supervisor: Omit<SupervisorOptions, 'lost'>;
-  /** An instance stopped with a revocation. */
-  revoked?(reason: GatewayRevocation): void;
-  /** How long an instance without chats waits before it stops. */
-  idleMs?: number;
   /** The supervisor stopped twice in one minute. The chats stop with an error. */
   failed?(): void;
+  /** How long a gateway without runtimes waits before it stops. */
+  idleMs?: number;
 }
 
 /**
- * The gateway instances of one computer in its supervisor: one for each agent. Each instance
- * has its own runtime, which gives the gateway its identity. Each chat keeps its own runtime
- * and sends its own credential to the address of the instance. The first chat of an agent
- * starts the instance. It stops, and its runtime is revoked, when the last chat ends.
+ * The gateways of one computer in its supervisor: one for each agent. Each running chat adds
+ * its own runtime, with its own credential, to the gateway of its agent. All runtimes of a
+ * gateway share its loopback port. The first chat of an agent opens the gateway. A gateway
+ * without runtimes stops after `gatewayIdleMs`.
  */
 export class GatewayInstances {
-  private instances = new Map<string, Instance>();
+  private gateways = new Map<string, Gateway>();
   readonly supervisor: GatewaySupervisor;
   constructor(private options: InstanceOptions) {
     this.supervisor = new GatewaySupervisor({
@@ -53,193 +43,159 @@ export class GatewayInstances {
       lost: (gateways, repeated) => void this.restore(gateways, repeated),
     });
   }
-  /** The number of instances that run. */
+  /** The number of gateways that run. */
   size() {
-    return this.instances.size;
+    return this.gateways.size;
   }
   /**
-   * The instance of the gateway of a chat runtime. It starts the instance when it does not
-   * run. `binding` is the provision of the chat. The instance runtime gets the same agent,
-   * gateway, provider and model, with its own session.
+   * Adds the runtime of a chat to the gateway of its agent. It opens the gateway when it does
+   * not run. The chat sends its own credential to the shared address.
    */
-  async acquire(binding: RuntimeProvision): Promise<SharedGateway & { release(): Promise<void> }> {
-    let instance = this.instances.get(binding.gateway_id);
-    if (instance && instance.agentId !== binding.agent_id)
+  async acquire(
+    credentials: RuntimeCredentials,
+  ): Promise<
+    SharedGateway & { release(): Promise<void>; renew(next: RuntimeCredentials): Promise<void> }
+  > {
+    let gateway = this.gateways.get(credentials.gateway_id);
+    if (gateway && gateway.agentId !== credentials.agent_id)
       throw new DesktopProtocolError('desktop.runtime_binding_mismatch');
-    if (!instance) {
-      const { project_id: _project, ...shared } = binding;
-      instance = {
-        gatewayId: binding.gateway_id,
-        agentId: binding.agent_id,
-        binding: { ...shared, session_id: randomUUID() },
-        users: new Set(),
-        listeners: new Set(),
+    if (!gateway) {
+      gateway = {
+        gatewayId: credentials.gateway_id,
+        agentId: credentials.agent_id,
+        runtimes: new Map(),
       };
-      this.instances.set(binding.gateway_id, instance);
+      this.gateways.set(credentials.gateway_id, gateway);
     }
-    instance.users.add(binding.session_id);
-    clearTimeout(instance.idle);
+    clearTimeout(gateway.idle);
+    const runtime = { listeners: new Set<Lost>() };
+    gateway.runtimes.set(credentials.runtime_id, runtime);
+    const current = gateway;
+    const release = () => this.release(current, credentials.runtime_id);
     try {
-      await (instance.ready ??= this.start(instance));
+      await (gateway.ready ??= this.open(gateway));
+      await this.supervisor.attachRuntime(credentials, (event) =>
+        this.runtimeEvent(current, credentials.runtime_id, event),
+      );
     } catch (error) {
-      await this.release(instance, binding.session_id);
+      await release();
       throw error;
     }
-    const current = instance;
     return {
       address: current.address!,
       subscribe: (lost) => {
-        current.listeners.add(lost);
-        return () => current.listeners.delete(lost);
+        runtime.listeners.add(lost);
+        return () => runtime.listeners.delete(lost);
       },
-      release: () => this.release(current, binding.session_id),
+      release,
+      // In place: the runtime does not restart, and requests in progress continue.
+      renew: async (next) => {
+        await this.supervisor.renew(next);
+      },
     };
   }
-  /** Provisions the instance runtime and attaches it to the supervisor. */
-  private async start(instance: Instance) {
-    const client = await this.options.client();
-    if (!instance.runtimeId) {
-      const event = await client.request('runtime.provision', { parameters: instance.binding });
-      const data = event.data;
-      if (!uuid(data.runtime_id))
-        throw new DesktopProtocolError('desktop.invalid_runtime_response');
-      instance.runtimeId = data.runtime_id;
-      if (data.status !== 'provisioned' || data.credentials_stored !== true)
-        throw new DesktopProtocolError('desktop.runtime_reconciliation_required');
-    }
-    const credentials = parseRuntimeCredentials(await client.exportRuntime(instance.runtimeId));
-    if (
-      credentials.api_url !== this.options.apiOrigin ||
-      credentials.runtime_id !== instance.runtimeId ||
-      credentials.gateway_id !== instance.gatewayId ||
-      credentials.agent_id !== instance.agentId
-    )
-      throw new DesktopProtocolError('desktop.runtime_binding_mismatch');
-    const summary = await this.supervisor.attach(credentials, (event) =>
-      this.event(instance, event),
+  /** Opens the shared port of a gateway. It takes no credential. */
+  private async open(gateway: Gateway) {
+    const summary = await this.supervisor.attachGateway(
+      gateway.gatewayId,
+      gateway.agentId,
+      (event) => {
+        if (['gateway.stopped', 'error'].includes(event.event)) this.lose(gateway);
+      },
     );
-    if (!summary.effective_address) throw new DesktopProtocolError('desktop.gateway_unavailable');
-    instance.address = summary.effective_address;
-    instance.generation = credentials.generation;
-    this.schedule(instance, credentials.expires_at);
+    gateway.address = summary.effective_address;
   }
-  /** Renews the instance credential before it expires. Only this instance restarts. */
-  private schedule(instance: Instance, expiresAt: string) {
-    clearTimeout(instance.renewal);
-    const delay = Math.max(0, Date.parse(expiresAt) - Date.now() - renewMarginMs);
-    instance.renewal = setTimeout(() => void this.renew(instance), delay);
-    instance.renewal.unref?.();
+  private runtimeEvent(gateway: Gateway, runtimeId: string, event: GatewayEvent) {
+    const runtime = gateway.runtimes.get(runtimeId);
+    if (!runtime) return;
+    let reason: GatewayRevocation | undefined;
+    if (event.event === 'credential.revoked') reason = event.data.reason as GatewayRevocation;
+    else if (!['credential.expired', 'runtime.stopped', 'error'].includes(event.event)) return;
+    // Only the chat of this runtime stops. The other runtimes of the gateway continue.
+    for (const lost of [...runtime.listeners]) lost(reason);
+    runtime.listeners.clear();
   }
-  private async renew(instance: Instance) {
-    if (this.instances.get(instance.gatewayId) !== instance) return;
-    try {
-      const client = await this.options.client();
-      const data = (
-        await client.request('runtime.renew', {
-          runtime_id: instance.runtimeId,
-          gateway_stopped: true,
-        })
-      ).data;
-      if (data.runtime_id !== instance.runtimeId || data.generation !== instance.generation! + 1)
-        throw new DesktopProtocolError('desktop.runtime_binding_mismatch');
-      const credentials = parseRuntimeCredentials(await client.exportRuntime(instance.runtimeId!));
-      const summary = await this.supervisor.renew(credentials);
-      instance.generation = credentials.generation;
-      if (summary.effective_address) instance.address = summary.effective_address;
-      this.schedule(instance, credentials.expires_at);
-    } catch {
-      // The instance cannot continue. Its chats stop and start again with a new instance.
-      this.lose(instance);
-    }
+  /** Stops the chats of a gateway that stopped. */
+  private lose(gateway: Gateway, reason?: 'moved') {
+    if (this.gateways.get(gateway.gatewayId) !== gateway) return;
+    this.gateways.delete(gateway.gatewayId);
+    clearTimeout(gateway.idle);
+    for (const runtime of gateway.runtimes.values())
+      for (const lost of [...runtime.listeners]) lost(reason);
+    gateway.runtimes.clear();
+    void this.supervisor.detachGateway(gateway.gatewayId).catch(() => {});
   }
-  private event(instance: Instance, event: GatewayEvent) {
-    if (event.event === 'credential.revoked') {
-      const reason = event.data.reason as GatewayRevocation;
-      this.lose(instance, reason);
-      this.options.revoked?.(reason);
-    } else if (['credential.expired', 'gateway.stopped', 'error'].includes(event.event))
-      this.lose(instance);
+  private async release(gateway: Gateway, runtimeId: string) {
+    if (!gateway.runtimes.delete(runtimeId)) return;
+    await this.supervisor.detachRuntime(gateway.gatewayId, runtimeId).catch(() => {});
+    if (gateway.runtimes.size || this.gateways.get(gateway.gatewayId) !== gateway) return;
+    // A gateway that did not open leaves nothing to keep.
+    if (!gateway.address) return this.stop(gateway);
+    clearTimeout(gateway.idle);
+    gateway.idle = setTimeout(() => void this.stop(gateway), this.options.idleMs ?? gatewayIdleMs);
+    gateway.idle.unref?.();
   }
-  /** Stops the chats of an instance that stopped. A revoked instance runtime stays revoked. */
-  private lose(instance: Instance, revocation?: GatewayRevocation) {
-    if (this.instances.get(instance.gatewayId) !== instance) return;
-    this.instances.delete(instance.gatewayId);
-    clearTimeout(instance.renewal);
-    clearTimeout(instance.idle);
-    for (const lost of [...instance.listeners]) lost(revocation);
-    instance.listeners.clear();
-    void this.supervisor.detach(instance.gatewayId).catch(() => {});
-    if (!revocation) void this.revoke(instance);
-  }
-  private async release(instance: Instance, sessionId: string) {
-    instance.users.delete(sessionId);
-    if (instance.users.size || this.instances.get(instance.gatewayId) !== instance) return;
-    // A failed start leaves nothing to keep.
-    if (!instance.address) return this.stop(instance);
-    clearTimeout(instance.idle);
-    instance.idle = setTimeout(
-      () => void this.stop(instance),
-      this.options.idleMs ?? instanceIdleMs,
-    );
-    instance.idle.unref?.();
-  }
-  /** Detaches an instance without chats and revokes its runtime. */
-  private async stop(instance: Instance) {
-    if (instance.users.size || this.instances.get(instance.gatewayId) !== instance) return;
-    this.instances.delete(instance.gatewayId);
-    clearTimeout(instance.renewal);
-    clearTimeout(instance.idle);
-    await this.supervisor.detach(instance.gatewayId).catch(() => {});
-    await this.revoke(instance);
-  }
-  private async revoke(instance: Instance) {
-    if (!instance.runtimeId) return;
-    try {
-      await (
-        await this.options.client()
-      ).request('runtime.revoke', { runtime_id: instance.runtimeId });
-    } catch {
-      // The instance runtime expires by itself. Its credential is not in memory any more.
-    }
+  /** Stops a gateway without runtimes. */
+  private async stop(gateway: Gateway) {
+    if (gateway.runtimes.size || this.gateways.get(gateway.gatewayId) !== gateway) return;
+    this.gateways.delete(gateway.gatewayId);
+    clearTimeout(gateway.idle);
+    await this.supervisor.detachGateway(gateway.gatewayId).catch(() => {});
   }
   /**
-   * The supervisor stopped. Start it again at once and attach each instance with a new
-   * credential export, on the same port. A second stop in one minute stops the chats.
+   * The supervisor stopped. Start it again at once. Attach each gateway, then each runtime
+   * with a new credential export, so that running chats keep their address. When the old port
+   * is not free, the gateway gets a new port: the coding agents of its chats stop, and each chat
+   * continues on the new port with its next turn. Kalkidan never sends a request again by
+   * itself. A second stop in one minute stops the chats.
    */
-  private async restore(gateways: string[], repeated: boolean) {
-    const instances = gateways
-      .map((id) => this.instances.get(id))
-      .filter((item): item is Instance => !!item);
+  private async restore(gatewayIds: string[], repeated: boolean) {
+    const gateways = gatewayIds
+      .map((id) => this.gateways.get(id))
+      .filter((item): item is Gateway => !!item);
     if (repeated) {
-      for (const instance of instances) this.lose(instance);
+      for (const gateway of gateways) this.lose(gateway);
       this.options.failed?.();
       return;
     }
-    for (const instance of instances) {
-      const address = instance.address;
-      instance.ready = this.start(instance).then(
-        () => {
-          // The chats keep their address. When the old port was not free, the instance has a
-          // new port. The coding agents of its chats stop, and each chat continues on the new
-          // port with its next turn. Kalkidan never sends a request again by itself.
-          if (instance.address === address) return;
-          const moved = [...instance.listeners];
-          instance.listeners.clear();
-          for (const lost of moved) lost('moved');
+    for (const gateway of gateways) {
+      const address = gateway.address;
+      gateway.ready = this.open(gateway).then(
+        async () => {
+          if (gateway.address !== address) {
+            const runtimes = [...gateway.runtimes.values()];
+            gateway.runtimes.clear();
+            for (const runtime of runtimes)
+              for (const lost of [...runtime.listeners]) lost('moved');
+            gateway.idle = setTimeout(
+              () => void this.stop(gateway),
+              this.options.idleMs ?? gatewayIdleMs,
+            );
+            gateway.idle.unref?.();
+            return;
+          }
+          const client = await this.options.client();
+          for (const [runtimeId, runtime] of gateway.runtimes)
+            await client
+              .exportRuntime(runtimeId)
+              .then((frame) =>
+                this.supervisor.attachRuntime(parseRuntimeCredentials(frame), (event) =>
+                  this.runtimeEvent(gateway, runtimeId, event),
+                ),
+              )
+              .catch(() => {
+                for (const lost of [...runtime.listeners]) lost();
+                gateway.runtimes.delete(runtimeId);
+              });
         },
-        () => this.lose(instance),
+        () => this.lose(gateway),
       );
     }
   }
-  /** Stops each instance and revokes its runtime, for example when the app quits. */
+  /** Stops each gateway and the supervisor, for example when the app quits. */
   async stopAll() {
-    const instances = [...this.instances.values()];
-    this.instances.clear();
-    for (const instance of instances) {
-      clearTimeout(instance.renewal);
-      clearTimeout(instance.idle);
-    }
+    for (const gateway of this.gateways.values()) clearTimeout(gateway.idle);
+    this.gateways.clear();
     await this.supervisor.shutdown();
-    await Promise.all(instances.map((instance) => this.revoke(instance)));
   }
 }
