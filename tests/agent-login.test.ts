@@ -122,7 +122,8 @@ test('the agent list says signed in, signed out, or nothing when Kalkidan cannot
       codex: fails('desktop.codex_subscription_login_invalid'),
       claude: ok,
     }),
-    undefined,
+    // The launch refuses this login too, so Settings › Computers must not show Ready.
+    'signed-out',
   );
 });
 
