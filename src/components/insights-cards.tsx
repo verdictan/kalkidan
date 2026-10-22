@@ -10,11 +10,14 @@ import { Button } from './ui/button';
 import { EmptyState } from './ui/empty-state';
 import { ProjectHealth } from './project-health';
 import { GitHubWriteHistory } from './github-write-history';
+import { ExternalTextLink } from './planning-kit';
 import { ProjectUsageInsights } from './project-usage';
 import { TaskUsageHistoryPanel } from './task-usage-history';
 import { ProjectServicesPanel } from './project-services';
 import { readinessLimit } from './project-readiness';
 import { ErrorAlert, FormSelect, openTask, openTasksPage } from './planning-kit';
+import { openConnectBoard } from './tracker-project-picker';
+import { cn } from '../lib/utils';
 import { PlanningToolDialog } from './planning-tools';
 
 /** The four insight views, in the fixed order of the Knowledge rail. */
@@ -56,12 +59,10 @@ function showTasks(groupId: string, filter: Record<string, string | undefined>) 
   );
 }
 
-const connectBoard = (groupId: string) =>
-  window.dispatchEvent(
-    new CustomEvent('kalkidan-open-project-settings', { detail: { groupId, section: 'board' } }),
-  );
-
-/** The header of a Knowledge pane: the switcher, a 16px title, a count and actions. */
+/**
+ * The header of a Knowledge pane: the switcher, a 20px title, a count and actions. In a narrow
+ * window the switcher shows the section name, so the title is only for screen readers.
+ */
 export function PaneHeader({
   switcher,
   title,
@@ -76,7 +77,7 @@ export function PaneHeader({
   return (
     <div className="knowledge-pane-header">
       {switcher}
-      <h2 className="knowledge-pane-title">{title}</h2>
+      <h2 className={cn('knowledge-pane-title', switcher && '@max-[719px]:sr-only')}>{title}</h2>
       {count && <span className="knowledge-pane-count">{count}</span>}
       <span className="flex-1" />
       {actions}
@@ -113,8 +114,8 @@ export function InsightsView({
       icon={<BarChart3 />}
       title="No board connected"
       action={
-        <Button variant="outline" onClick={() => connectBoard(group.id)}>
-          Connect a board
+        <Button variant="outline" onClick={() => openConnectBoard({ groupId: group.id })}>
+          Connect board
         </Button>
       }
     />
@@ -153,6 +154,7 @@ export function InsightsView({
         groupId={group.id}
         board={board}
         onOpenTask={(id) => openTask(group.id, id)}
+        embedded
       />
     );
   else if (view === 'usage')
@@ -168,7 +170,7 @@ export function InsightsView({
     <section className="knowledge-insight" aria-label={label}>
       <PaneHeader
         switcher={switcher}
-        title={view === 'github' ? 'Check on GitHub' : label}
+        title={label}
         count={view === 'board' && board ? plural(board.items.length, 'task') : undefined}
         actions={
           view === 'usage' && board?.items.length ? (
@@ -184,6 +186,8 @@ export function InsightsView({
                 ...board.items.map((item) => ({ value: item.id, label: item.title })),
               ]}
             />
+          ) : view === 'github' && board ? (
+            <ExternalTextLink href={board.project.url}>Open board on GitHub</ExternalTextLink>
           ) : undefined
         }
       />

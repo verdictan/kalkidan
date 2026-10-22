@@ -25,6 +25,8 @@ export type WorkspacePage =
   | { kind: 'home' }
   | { kind: 'sessions' }
   | { kind: 'computers' }
+  /** The one "Waiting for you" inbox: chats and assigned tasks. */
+  | { kind: 'waiting' }
   | { kind: 'project'; groupId: string; page: ProjectPage; section?: KnowledgeSection }
   | { kind: 'repository'; repositoryId: string }
   | { kind: 'settings'; tab: SettingsTab };
@@ -36,6 +38,7 @@ export function routeKey(route: WorkspaceRoute): string {
     case 'home':
     case 'sessions':
     case 'computers':
+    case 'waiting':
       return route.kind;
     case 'project':
       return `project:${route.groupId}:${route.page}`;
@@ -87,7 +90,7 @@ export function resolveRouteSession(
 export type SavedRoute =
   | WorkspacePage
   | { kind: 'conversation'; agent: string; id: string; hostId?: string; parent: WorkspacePage };
-const pageKinds = new Set(['home', 'sessions', 'computers', 'project', 'repository']);
+const pageKinds = new Set(['home', 'sessions', 'computers', 'waiting', 'project', 'repository']);
 export function saveableRoute(route: WorkspaceRoute): SavedRoute | null {
   // Settings is not a place to return to after a launch.
   if (route.kind === 'settings') return null;
@@ -123,7 +126,7 @@ function readPage(value: unknown): WorkspacePage | null {
     return typeof page.repositoryId === 'string'
       ? { kind: 'repository', repositoryId: page.repositoryId }
       : null;
-  return { kind: page.kind as 'home' | 'sessions' | 'computers' };
+  return { kind: page.kind as 'home' | 'sessions' | 'computers' | 'waiting' };
 }
 /**
  * The saved route when its project, code folder and chat still exist. Else the nearest page

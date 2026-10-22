@@ -20,6 +20,7 @@ import { ProjectServicesPanel } from './project-services';
 import { ProjectUsageInsights } from './project-usage';
 import { sessionRepo } from '../lib/session-repository';
 import { ErrorAlert, githubWritesEvent } from './planning-kit';
+import { openConnectBoard } from './tracker-project-picker';
 import { errorMessage } from '../lib/errors';
 
 export { DocsToIssuesDialog } from './docs-to-issues';
@@ -104,6 +105,7 @@ export function PlanningToolDialog({
   group,
   board,
   selectedIds,
+  allTasks = false,
   onOpenTask,
   onSaved,
 }: {
@@ -114,6 +116,8 @@ export function PlanningToolDialog({
   group: ProjectGroup;
   board: TrackerBoard;
   selectedIds: string[];
+  /** True when no task was selected, so the tool acts on all visible tasks. */
+  allTasks?: boolean;
   onOpenTask: (itemId: string) => void;
   /** Called after a write to GitHub. Without it, the dialog sends kalkidan-github-writes. */
   onSaved?: () => void;
@@ -138,6 +142,7 @@ export function PlanningToolDialog({
     group,
     board,
     items,
+    allTasks: allTasks && !wave,
     sessions: context.sessions,
     repos: context.repos,
     onRemove: (id: string) => setIds((values) => values.filter((value) => value !== id)),
@@ -160,7 +165,21 @@ export function PlanningToolDialog({
   };
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent size="lg" layout="scroll">
+      <DialogContent
+        size="lg"
+        layout="scroll"
+        onOpenAutoFocus={(event) => {
+          // The first stop is the first real input, never a remove button or a link.
+          const target = (event.currentTarget as HTMLElement).querySelector<HTMLElement>(
+            '[data-slot="dialog-body"] :is(input:not([type="checkbox"]), textarea, ' +
+              'button[role="combobox"], .segmented-item[aria-pressed="true"])',
+          );
+          if (target) {
+            event.preventDefault();
+            target.focus();
+          }
+        }}
+      >
         <DialogHeader>
           <DialogTitle>
             {toolTitle(
@@ -286,15 +305,9 @@ export function ProjectInsights({
               <Button
                 variant="outline"
                 size="sm"
-                onClick={() =>
-                  window.dispatchEvent(
-                    new CustomEvent('kalkidan-open-project-settings', {
-                      detail: { groupId: group.id, section: 'board' },
-                    }),
-                  )
-                }
+                onClick={() => openConnectBoard({ groupId: group.id })}
               >
-                Connect a GitHub Projects board
+                Connect board
               </Button>
             }
           >

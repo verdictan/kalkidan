@@ -206,7 +206,7 @@ export const chatActions: readonly ChatActionDefinition[] = [
   }),
   define({
     id: 'open-beside',
-    label: 'Open a second chat beside this one',
+    label: 'Open side chat',
     group: 'open',
     keywords: 'side split new chat',
     shortcut: sessionShortcut('S', 'S'),
@@ -296,10 +296,13 @@ export const chatActions: readonly ChatActionDefinition[] = [
     command: 'open-pull-request',
     visible: ({ state }) => state.pullRequest,
   }),
+  // "Fork chat…" is the one way to copy a chat. Its dialog offers this folder, a new branch, or
+  // another agent or computer. The duplicate actions stay for old commands but show nowhere.
   define({
     id: 'duplicate',
     label: 'Duplicate chat',
     group: 'work',
+    visible: () => false,
     enabled: all(checks.saved, checks.idle),
     children: [
       {
@@ -323,7 +326,7 @@ export const chatActions: readonly ChatActionDefinition[] = [
     id: 'fork',
     label: 'Fork chat…',
     group: 'work',
-    keywords: 'fork continue copy agent computer host',
+    keywords: 'fork duplicate continue copy branch agent computer host',
     command: 'session-fork',
     // A read-only chat of another account can also fork. The fork is a new chat.
     enabled: all(checks.saved),
@@ -547,23 +550,23 @@ function resolve(
 }
 
 /**
- * The layout of the chat row menu and the Chat actions menu: ten items, two levels. Commit and
- * the pull request are not in these menus: the changes row of the chat shows them.
+ * The layout of the chat row menu and the Chat actions menu: two levels. A click on a row opens
+ * the chat, so the menu has no Open. Commit and the pull request are not in these menus: the
+ * changes row of the chat shows them.
  */
 type MenuEntry =
   ChatActionId | { id: 'open-in' | 'export'; label: string; children: ChatActionId[] };
 const chatMenuLayout: { group: ChatActionGroup; items: MenuEntry[] }[] = [
-  { group: 'open', items: ['open'] },
   { group: 'organize', items: ['rename', 'pin', 'link-task', 'open-linked-task', 'notes'] },
   {
     group: 'work',
     items: [
-      'duplicate',
       'fork',
+      'open-beside',
       {
         id: 'open-in',
         label: 'Open in',
-        children: ['show-folder', 'open-vscode', 'open-cursor', 'open-window', 'open-beside'],
+        children: ['show-folder', 'open-vscode', 'open-cursor', 'open-window'],
       },
     ],
   },
@@ -602,7 +605,7 @@ function menuItem(
 
 /**
  * The actions that one surface shows for a chat, in groups and in menu order. The chat row menu
- * and the Chat actions menu show ten items in two levels. The menu bar and the palette show
+ * and the Chat actions menu show their items in two levels. The menu bar and the palette show
  * all actions.
  */
 export function chatActionMenu(

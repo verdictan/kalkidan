@@ -64,6 +64,7 @@ export function ReadinessTool({
   board,
   items,
   onRemove,
+  allTasks,
   onOpenTask,
   onClose,
   sessions,
@@ -164,6 +165,7 @@ export function ReadinessTool({
     <>
       <DialogBody className="grid content-start gap-4">
         <SelectedTasks
+          all={allTasks}
           items={items}
           onRemove={(id) => {
             setRows([]);
@@ -276,8 +278,9 @@ export function ReadinessTool({
         <ErrorAlert>{error}</ErrorAlert>
       </DialogBody>
       <DialogFooter>
+        {/* Cancel before the check runs, Close after it shows results. */}
         <Button variant="outline" onClick={onClose}>
-          Close
+          {rows.length ? 'Close' : 'Cancel'}
         </Button>
         <Button
           variant={rows.length ? 'outline' : 'default'}

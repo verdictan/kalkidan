@@ -1,182 +1,24 @@
-import { useEffect, useId, useState, type ReactNode } from 'react';
-import { Tabs as TabsPrimitive } from 'radix-ui';
-import { Folder, FolderGit2, FolderPlus, GitBranch, MoreHorizontal, Trash2 } from 'lucide-react';
+import { useEffect, useId, useState } from 'react';
+import { Folder, FolderGit2, FolderPlus, GitBranch, Trash2 } from 'lucide-react';
 import type { API, Project, ProjectGroup } from '../types';
 import { projectColors, type ProjectColor } from '../domain/project-colors';
 import { worktreeParent } from '../lib/worktree-sessions';
 import { errorMessage } from '../lib/errors';
-import { cn } from '../lib/utils';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Alert, AlertDescription } from './ui/alert';
 import { EmptyState } from './ui/empty-state';
 import { showToast } from './ui/toast';
-import { DialogContent, DialogDescription, DialogTitle } from './ui/dialog';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from './ui/dropdown-menu';
-import { menuDestructiveClass } from './ui/menu-styles';
+import { EntityIcon } from './ui/entity-icon';
+import { ConfirmDialog } from './confirm-dialog';
+import { Hint } from './hint';
+import { SettingsRow, SettingsRows } from './settings-disclosure';
+
+// The one SettingsRow. Board settings in other files import it from here too.
+export { SettingsRow, SettingsRows } from './settings-disclosure';
 
 const colorName = (value: ProjectColor | null) =>
   value ? value[0].toUpperCase() + value.slice(1) : 'Default';
-
-export type SettingsSection<T extends string> = { value: T; label: string; icon: ReactNode };
-
-/**
- * The frame of Project settings. It uses the shell of Preferences: a list of sections on the
- * left and one section on the right. The dialog has a fixed height, so it does not move when the
- * section changes. Each panel mounts the first time that it opens and then stays mounted.
- */
-export function SettingsDialogFrame<T extends string>({
-  title,
-  subtitle,
-  description,
-  sections,
-  value,
-  onValueChange,
-  panels,
-  onOpenAutoFocus,
-}: {
-  /** The name of the dialog. The nav shows it above the sections. */
-  title: ReactNode;
-  /** One muted line below the title, for example the computer of a remote project. */
-  subtitle?: ReactNode;
-  /** Text for assistive technology. The frame does not show it. */
-  description: string;
-  sections: SettingsSection<T>[];
-  value: T;
-  onValueChange(value: T): void;
-  panels: Partial<Record<T, ReactNode>>;
-  onOpenAutoFocus?(event: Event): void;
-}) {
-  const [visited, setVisited] = useState<T[]>([value]);
-  useEffect(() => {
-    setVisited((current) => (current.includes(value) ? current : [...current, value]));
-  }, [value]);
-  const active = sections.find((item) => item.value === value) || sections[0];
-  return (
-    <DialogContent
-      size="lg"
-      className="settings-dialog project-settings-dialog gap-0 overflow-hidden p-0"
-      onOpenAutoFocus={onOpenAutoFocus}
-    >
-      <TabsPrimitive.Root
-        value={active?.value}
-        onValueChange={(next) => onValueChange(next as T)}
-        orientation="vertical"
-        className="contents"
-      >
-        <nav className="settings-nav">
-          <DialogTitle className="settings-nav-title truncate text-xs leading-4 font-semibold text-muted-foreground">
-            {title}
-          </DialogTitle>
-          {subtitle && <p className="project-settings-subtitle">{subtitle}</p>}
-          <DialogDescription className="sr-only">{description}</DialogDescription>
-          <TabsPrimitive.List aria-label="Project settings sections" loop className="contents">
-            {sections.map((item) => (
-              <TabsPrimitive.Trigger
-                key={item.value}
-                value={item.value}
-                className="settings-nav-item"
-              >
-                {item.icon}
-                <span className="min-w-0 flex-1 truncate">{item.label}</span>
-              </TabsPrimitive.Trigger>
-            ))}
-          </TabsPrimitive.List>
-        </nav>
-        <div className="settings-main">
-          <h2 className="settings-main-title truncate">{active?.label}</h2>
-          <div className="project-settings-body">
-            {sections.map(
-              (item) =>
-                (visited.includes(item.value) || item.value === active?.value) && (
-                  <TabsPrimitive.Content
-                    key={item.value}
-                    forceMount
-                    value={item.value}
-                    className="flex min-h-full flex-col outline-none data-[state=inactive]:hidden"
-                  >
-                    {panels[item.value]}
-                  </TabsPrimitive.Content>
-                ),
-            )}
-          </div>
-        </div>
-      </TabsPrimitive.Root>
-    </DialogContent>
-  );
-}
-
-/** A group of "Label — control" rows with dividers, with an optional group label above. */
-export function SettingsRows({
-  label,
-  title,
-  className,
-  children,
-}: {
-  /** The name of the group for assistive technology. With it, the group is a region. */
-  label?: string;
-  /** A visible group label above the rows. It also names the group. */
-  title?: string;
-  className?: string;
-  children: ReactNode;
-}) {
-  const id = useId();
-  return (
-    <section
-      aria-label={title ? undefined : label}
-      aria-labelledby={title ? id : undefined}
-      className={cn('project-settings-group', className)}
-    >
-      {title && (
-        <h3 id={id} className="project-settings-group-label">
-          {title}
-        </h3>
-      )}
-      <div className="project-settings-rows">{children}</div>
-    </section>
-  );
-}
-
-/** One row: a label with one short line of help on the left, and the control on the right. */
-export function SettingsRow({
-  label,
-  help,
-  icon,
-  htmlFor,
-  children,
-  className,
-}: {
-  label: ReactNode;
-  help?: ReactNode;
-  icon?: ReactNode;
-  /** The id of the field that the label names. */
-  htmlFor?: string;
-  children?: ReactNode;
-  className?: string;
-}) {
-  const Label = htmlFor ? 'label' : 'div';
-  return (
-    <div className={cn('project-settings-row', className)}>
-      {icon && (
-        <span className="project-settings-row-icon" aria-hidden="true">
-          {icon}
-        </span>
-      )}
-      <div className="project-settings-row-label">
-        <Label {...(htmlFor ? { htmlFor } : {})} className="project-settings-row-name">
-          {label}
-        </Label>
-        {help && <div className="project-settings-row-help">{help}</div>}
-      </div>
-      {children && <div className="project-settings-row-control">{children}</div>}
-    </div>
-  );
-}
 
 /**
  * The name and color of a project, and the removal of the project. The color saves at once with
@@ -263,7 +105,7 @@ export function ProjectGeneral({
           ? 'Press Enter to save.'
           : '';
   return (
-    <div id="project-general-form" className="flex flex-1 flex-col gap-6">
+    <div id="project-general-form" className="contents">
       {error && (
         <Alert variant="destructive" size="sm">
           <AlertDescription>{error}</AlertDescription>
@@ -296,25 +138,25 @@ export function ProjectGeneral({
         <SettingsRow label="Folder color">
           <div role="group" aria-label="Folder color" className="project-settings-colors">
             {([null, ...Object.keys(projectColors)] as (ProjectColor | null)[]).map((value) => (
-              <Button
-                key={value || 'default'}
-                type="button"
-                variant="ghost"
-                size="icon-sm"
-                aria-label={`${colorName(value)} folder`}
-                aria-pressed={color === value}
-                title={colorName(value)}
-                onClick={() => void changeColor(value)}
-                style={{ color: value ? projectColors[value] : 'var(--muted-foreground)' }}
-              >
-                <Folder />
-              </Button>
+              <Hint key={value || 'default'} label={colorName(value)}>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-sm"
+                  aria-label={`${colorName(value)} folder`}
+                  aria-pressed={color === value}
+                  onClick={() => void changeColor(value)}
+                  style={{ color: value ? projectColors[value] : 'var(--muted-foreground)' }}
+                >
+                  <Folder />
+                </Button>
+              </Hint>
             ))}
           </div>
         </SettingsRow>
       </SettingsRows>
       {onRemove && (
-        <SettingsRows title="Danger zone" className="project-settings-danger">
+        <SettingsRows title="Danger zone">
           <SettingsRow
             label="Remove project"
             help={`Kalkidan stops showing ${group.name}. All files stay on disk.`}
@@ -329,7 +171,10 @@ export function ProjectGeneral({
   );
 }
 
-/** The code folders of a project: the list, Add a code folder, and "⋯" › Remove on each row. */
+/**
+ * The code folders of a project: the list, "Add code folder…", and "Remove code folder…" on
+ * each row. The confirmation opens over Project settings, which stays open.
+ */
 export function ProjectCodeFolders({
   group,
   repos,
@@ -340,72 +185,92 @@ export function ProjectCodeFolders({
   /** All code folders. The section shows the code folders of this project. */
   repos: Project[];
   onAdd(): void;
-  onRemove(repo: Project): void;
+  /** Removes a code folder after the user confirms it. */
+  onRemove(repo: Project): Promise<void>;
 }) {
+  const [removing, setRemoving] = useState<Project>();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
   const members = repos.filter((repo) => group.repoIds.includes(repo.id));
-  if (!members.length)
-    return (
-      <section aria-label="Code folders">
-        <EmptyState
-          icon={<FolderGit2 />}
-          title="No code folders"
-          action={
-            <Button variant="outline" onClick={onAdd}>
-              <FolderPlus />
-              Add a code folder…
-            </Button>
-          }
-        />
-      </section>
-    );
+  async function remove() {
+    if (!removing || busy) return;
+    setBusy(true);
+    setError('');
+    try {
+      await onRemove(removing);
+      setRemoving(undefined);
+    } catch (failure) {
+      setError(errorMessage(failure));
+    } finally {
+      setBusy(false);
+    }
+  }
+  const add = (
+    <Button variant="outline" size="sm" className="justify-self-start" onClick={onAdd}>
+      <FolderPlus />
+      Add code folder…
+    </Button>
+  );
   return (
-    <section aria-label="Code folders" className="grid gap-3">
-      <ul className="project-settings-rows m-0 list-none p-0">
-        {members.map((repo) => {
-          const copy = !!worktreeParent(repo, members);
-          return (
-            <li key={repo.id}>
-              <SettingsRow
-                className="project-settings-row-hover"
-                icon={copy ? <GitBranch /> : <FolderGit2 />}
-                label={repo.name}
-                help={
-                  <span className="block truncate" title={repo.path}>
-                    {copy ? 'Branch copy · ' : ''}
-                    {repo.path}
-                  </span>
-                }
-              >
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
+    <section aria-label="Code folders" className="contents">
+      {members.length ? (
+        <div className="grid gap-2">
+          <SettingsRows label="Code folders">
+            {members.map((repo) => {
+              const copy = !!worktreeParent(repo, members);
+              return (
+                <SettingsRow
+                  key={repo.id}
+                  icon={<EntityIcon>{copy ? <GitBranch /> : <FolderGit2 />}</EntityIcon>}
+                  label={repo.name}
+                  help={
+                    <Hint label={repo.path}>
+                      <span className="block truncate">
+                        {copy ? 'Branch copy · ' : ''}
+                        {repo.path}
+                      </span>
+                    </Hint>
+                  }
+                >
+                  <Hint label="Remove code folder…">
                     <Button
                       variant="ghost"
                       size="icon-sm"
-                      className="project-settings-row-menu"
-                      aria-label={`More actions for ${repo.name}`}
-                    >
-                      <MoreHorizontal />
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end">
-                    <DropdownMenuItem
-                      className={menuDestructiveClass}
-                      onSelect={() => onRemove(repo)}
+                      className="settings-row-hover-action"
+                      aria-label={`Remove code folder ${repo.name}…`}
+                      onClick={() => {
+                        setError('');
+                        setRemoving(repo);
+                      }}
                     >
                       <Trash2 />
-                      Remove from project…
-                    </DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
-              </SettingsRow>
-            </li>
-          );
-        })}
-      </ul>
-      <Button variant="ghost" size="sm" className="-ml-2 justify-self-start" onClick={onAdd}>
-        <FolderPlus />
-        Add a code folder…
-      </Button>
+                    </Button>
+                  </Hint>
+                </SettingsRow>
+              );
+            })}
+          </SettingsRows>
+          {add}
+        </div>
+      ) : (
+        <EmptyState compact icon={<FolderGit2 />} title="No code folders" action={add} />
+      )}
+      <ConfirmDialog
+        open={!!removing}
+        title={`Remove ${removing?.name || 'the code folder'} from ${group.name}?`}
+        description="Kalkidan stops showing it. The folder and its files stay on disk."
+        confirmLabel="Remove code folder"
+        destructive
+        busy={busy}
+        onCancel={() => setRemoving(undefined)}
+        onConfirm={() => void remove()}
+      >
+        {error && (
+          <p role="alert" className="field-error">
+            {error}
+          </p>
+        )}
+      </ConfirmDialog>
     </section>
   );
 }

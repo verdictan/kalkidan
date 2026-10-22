@@ -25,13 +25,16 @@ export function projectHealthReport(board: TrackerBoard, now: number): string {
   ].join('\n');
 }
 
-/** The status values of a GitHub project status update, with plain words and a color. */
+/**
+ * The status values of a GitHub project status update, with plain words and a StatusDot tone:
+ * done and on track are green, at risk is amber, off track is red, the others are gray.
+ */
 export const healthStatuses = [
-  { value: 'ON_TRACK', label: 'On track', color: 'var(--success)' },
-  { value: 'AT_RISK', label: 'At risk', color: 'var(--warning)' },
-  { value: 'OFF_TRACK', label: 'Off track', color: 'var(--destructive)' },
-  { value: 'INACTIVE', label: 'Inactive', color: 'var(--muted-foreground)' },
-  { value: 'COMPLETE', label: 'Complete', color: 'var(--link)' },
+  { value: 'ON_TRACK', label: 'On track', tone: 'success' },
+  { value: 'AT_RISK', label: 'At risk', tone: 'warning' },
+  { value: 'OFF_TRACK', label: 'Off track', tone: 'danger' },
+  { value: 'INACTIVE', label: 'Inactive', tone: 'neutral' },
+  { value: 'COMPLETE', label: 'Complete', tone: 'success' },
 ] as const;
 export type HealthStatus = (typeof healthStatuses)[number]['value'];
 

@@ -9,6 +9,7 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import { trackerConnection } from '../domain/tracker';
+import { Tag } from './ui/tag';
 import type { MemoryEntry } from '../domain/memory';
 import { mentionSegments, type MentionKind } from '../domain/mentions';
 import { trackerClient } from '../lib/tracker-client';
@@ -118,9 +119,12 @@ export function MentionPicker({
   index,
   onPick,
   onHover,
+  filtering = false,
 }: {
   id: string;
   sections: MentionSection[];
+  /** True while the user types a query. Sections without matches then do not show. */
+  filtering?: boolean;
   active: number;
   /** The composer textarea. */
   anchor: RefObject<HTMLTextAreaElement | null>;
@@ -151,6 +155,8 @@ export function MentionPicker({
       ?.scrollIntoView({ block: 'nearest' });
   }, [active, id]);
   let count = 0;
+  const shown = filtering ? sections.filter((section) => section.options.length) : sections;
+  const searching = sections.some((section) => section.message === 'Loading…');
   return (
     <div
       ref={list}
@@ -161,7 +167,12 @@ export function MentionPicker({
       style={position ? { left: position.left, bottom: position.bottom } : { visibility: 'hidden' }}
       onMouseDown={(event) => event.preventDefault()}
     >
-      {sections.map((section) => {
+      {!shown.length && (
+        <div className="menu-empty" role="presentation">
+          {searching ? 'Searching…' : 'No matches'}
+        </div>
+      )}
+      {shown.map((section) => {
         const Icon = mentionIcons[section.kind];
         return (
           <div
@@ -170,7 +181,7 @@ export function MentionPicker({
             aria-labelledby={`${id}-${section.kind}`}
             className="mention-picker-section"
           >
-            <div id={`${id}-${section.kind}`} className="mention-picker-heading">
+            <div id={`${id}-${section.kind}`} className="mention-picker-heading group-label">
               {section.title}
             </div>
             {section.options.map((option) => {
@@ -205,23 +216,27 @@ export function MentionPicker({
   );
 }
 
-/** A small chip for a mention, on a sent message or in the composer. */
+/** A mention as a Tag, on a sent message or in the composer. With `onRemove`, it has an X. */
 export function MentionChip({
   kind,
   label,
-  children,
+  onRemove,
 }: {
   kind: MentionKind;
   label: string;
-  children?: React.ReactNode;
+  onRemove?: () => void;
 }) {
   const Icon = mentionIcons[kind];
   return (
-    <span className="mention-chip" data-kind={kind} title={label}>
-      <Icon className="size-3 shrink-0" aria-hidden="true" />
-      <span className="truncate">{label}</span>
-      {children}
-    </span>
+    <Tag
+      className="mention-chip"
+      icon={<Icon aria-hidden="true" />}
+      title={label}
+      onRemove={onRemove}
+      removeLabel={`Remove ${label}`}
+    >
+      {label}
+    </Tag>
   );
 }
 

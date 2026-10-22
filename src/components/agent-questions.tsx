@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { MessageCircleQuestion } from 'lucide-react';
+import { CircleSlash, MessageCircleQuestion } from 'lucide-react';
 import type { API, ChatRun, AgentAnswers, AgentQuestionRequest } from '../types';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
@@ -7,14 +7,7 @@ import { CheckboxRow } from './ui/checkbox';
 import { showToast } from './ui/toast';
 import { agentLabel } from '../config/agents';
 import { errorMessage } from '../lib/errors';
-
-/**
- * One style for approval and question cards above the composer: a card with 12px padding,
- * a 16px icon and a 13/600 title.
- */
-export const requestCardClass =
-  'request-card space-y-3 rounded-xl border bg-card p-3 text-card-foreground shadow-sm focus-visible:shadow-[var(--focus-ring)] focus-visible:outline-none';
-export const requestTitleClass = 'text-sm font-semibold';
+import { ChatCard } from './chat-card';
 
 // Drafts survive panel remounts in this process only. Secret answers are never retained.
 const drafts = new Map<string, AgentAnswers>();
@@ -33,12 +26,16 @@ export function AgentQuestions({
   return (
     <>
       {!!run.unsupportedRequests && (
-        <div role="status" className={requestCardClass}>
-          <h3 className={requestTitleClass}>Kalkidan declined a request it cannot show</h3>
-          <p className="text-xs text-muted-foreground">
+        <ChatCard
+          as="div"
+          role="status"
+          icon={CircleSlash}
+          title="Kalkidan declined a request it cannot show"
+        >
+          <p className="chat-card-body">
             No permission was given. Ask the agent to send its question as a message.
           </p>
-        </div>
+        </ChatCard>
       )}
       {run.requests
         ?.filter((request) => !pendingOnly || request.status === 'pending')
@@ -89,10 +86,23 @@ function QuestionForm({
   const count = request.questions.length;
   const title = count === 1 ? `${agent} asks a question` : `${agent} asks ${count} questions`;
   return (
-    <form
-      aria-label="Agent questions"
+    <ChatCard
+      as="form"
+      label="Agent questions"
       tabIndex={-1}
-      className={requestCardClass}
+      icon={MessageCircleQuestion}
+      title={title}
+      actions={
+        pending && (
+          <Button
+            type="submit"
+            size="sm"
+            disabled={busy || request.questions.some((q) => !answers[q.id]?.length)}
+          >
+            {busy ? 'Sending…' : 'Send answer'}
+          </Button>
+        )
+      }
       onSubmit={async (event) => {
         event.preventDefault();
         if (!pending || submitting.current) return;
@@ -116,12 +126,8 @@ function QuestionForm({
         }
       }}
     >
-      <div className="flex items-center gap-2">
-        <MessageCircleQuestion size={16} className="shrink-0" aria-hidden="true" />
-        <h3 className={requestTitleClass}>{title}</h3>
-      </div>
       {!pending ? (
-        <p role="status" className="text-xs text-muted-foreground">
+        <p role="status" className="chat-card-body">
           {request.status === 'answered' ? 'Answer sent.' : 'This request is no longer active.'}
         </p>
       ) : (
@@ -166,15 +172,6 @@ function QuestionForm({
               </fieldset>
             );
           })}
-          <div className="flex gap-2">
-            <Button
-              type="submit"
-              size="sm"
-              disabled={busy || request.questions.some((q) => !answers[q.id]?.length)}
-            >
-              {busy ? 'Sending…' : 'Send answer'}
-            </Button>
-          </div>
         </>
       )}
       {error && (
@@ -182,6 +179,6 @@ function QuestionForm({
           {error}
         </p>
       )}
-    </form>
+    </ChatCard>
   );
 }

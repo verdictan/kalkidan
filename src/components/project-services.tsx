@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { API, TrackerBoard } from '../types';
 import type { ProjectDoc, ProjectDocMetadata } from '../domain/docs';
 import {
@@ -153,28 +153,30 @@ export function ProjectServicesPanel({
       fields: { ...fields, operation_id: crypto.randomUUID(), expected_revision: revision },
     });
   }
+  async function check() {
+    setStatus(await api.projectServicesStatus(groupId));
+    setResult(undefined);
+    setPending(undefined);
+  }
+  // Check the services when the view opens, so the view shows what agents know at once.
+  useEffect(() => {
+    void run(check);
+  }, [api, groupId]);
   const receipt = (value: ProjectServiceResult) =>
     value.receipt_id
       ? `${operationLabel(pending?.operation)}: ${words(value.state)}.`
       : `${operationLabel(pending?.operation)}: done.`;
   return (
     <section aria-label="Agent services" className="grid gap-3">
-      <div className="flex items-center gap-2">
-        <Button
-          size="sm"
-          variant="outline"
-          disabled={busy}
-          onClick={() =>
-            void run(async () => {
-              setStatus(await api.projectServicesStatus(groupId));
-              setResult(undefined);
-              setPending(undefined);
-            })
-          }
-        >
-          {status ? 'Check again' : 'Check project services'}
+      <div className="flex items-center gap-3">
+        <p className="form-help m-0 flex-1">
+          What managed agents know about this project: its history, reviews and shared knowledge.
+        </p>
+        <Button size="sm" variant="outline" disabled={busy} onClick={() => void run(check)}>
+          Check again
         </Button>
       </div>
+      {!status && !error && <p className="form-help m-0">Checking the project services…</p>}
       {status && !status.available && !status.historyList && (
         <Alert size="sm">
           <AlertDescription>

@@ -21,6 +21,7 @@ import { errorMessage } from '../lib/errors';
 import type { AgentError } from '../lib/agent-errors';
 import { pullRequestLabel, type SessionPullRequest } from '../lib/pull-request';
 import type { API, ProjectGroup, TrackerItem } from '../types';
+import { ChatCard } from './chat-card';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Textarea } from './ui/textarea';
@@ -291,23 +292,25 @@ export function SendFailure({
   unsaved?: boolean;
 }) {
   return (
-    <div className="chat-send-failure" role="alert">
-      <CircleAlert className="chat-send-failure-icon" aria-hidden="true" />
-      <div className="grid min-w-0 gap-2">
-        <p className="chat-send-failure-title">{agentName} could not start</p>
-        <p className="chat-send-failure-body">
-          {error.message}
-          {unsaved && ' This chat is saved after the agent starts.'}
-        </p>
-        <AgentErrorActions
-          error={error}
-          onRetry={onRetry}
-          onChangeAgent={onChangeAgent}
-          busy={busy}
-        />
-        <AgentErrorNote note={error.note} code={error.code} />
-      </div>
-    </div>
+    <ChatCard
+      as="div"
+      role="alert"
+      tone="danger"
+      icon={CircleAlert}
+      title={`${agentName} could not start`}
+    >
+      <p className="chat-card-body">
+        {error.message}
+        {unsaved && ' This chat is saved after the agent starts.'}
+      </p>
+      <AgentErrorActions
+        error={error}
+        onRetry={onRetry}
+        onChangeAgent={onChangeAgent}
+        busy={busy}
+      />
+      <AgentErrorNote note={error.note} code={error.code} />
+    </ChatCard>
   );
 }
 

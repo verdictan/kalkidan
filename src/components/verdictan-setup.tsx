@@ -328,7 +328,7 @@ export function VerdictanSetupForm({
           </p>
         )}
         {setup && (
-          <div className="grid gap-3 sm:grid-cols-2">
+          <div className="grid gap-3">
             {showTeam && (
               <Field label="Team">
                 <Choice

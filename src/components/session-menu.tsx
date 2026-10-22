@@ -1,5 +1,5 @@
 import { forkChat } from './chat-links';
-import { useEffect, useId, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { LoaderCircle, ExternalLink, GitPullRequest } from 'lucide-react';
 import type { API, ProjectGroup, Session, SessionOrganization, TrackerItem } from '../types';
 import type { WorkingFile, WorkingStatus } from '../api/contracts';
@@ -91,7 +91,6 @@ export function SessionMenu({
   inProject,
   board,
   onViewArchived,
-  onReviewChanges,
 }: {
   api: API;
   session: Session;
@@ -108,15 +107,10 @@ export function SessionMenu({
   archive: () => void;
   /** Opens the archived sessions. The archive toast shows View archived when it is set. */
   onViewArchived?: () => void;
-  /** Opens the Changes tool. The commit dialog links to it. */
-  onReviewChanges?: () => void;
 }) {
   const [dialog, setDialog] = useState<
-    'rename' | 'notes' | 'worktree' | 'commit' | 'pull-request' | 'history' | null
+    'rename' | 'notes' | 'commit' | 'pull-request' | 'history' | null
   >(null);
-  const [value, setValue] = useState('');
-  const [preview, setPreview] = useState<{ base: string; path: string } | null>(null);
-  const worktreeForm = useId();
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState('');
   // True when Git reports no changed files. Unknown (undefined) does not block Commit.
@@ -159,25 +153,6 @@ export function SessionMenu({
   };
   // Read again when a run ends, because the agent can change files.
   useEffect(() => readChanges.current(), [api, repositoryId, running]);
-  // Shows where the branch copy starts and where its folder goes.
-  useEffect(() => {
-    const name = value.trim();
-    if (dialog !== 'worktree' || !name || !repositoryId || !api.worktreePreview) {
-      setPreview(null);
-      return;
-    }
-    let current = true;
-    const timer = setTimeout(() => {
-      api
-        .worktreePreview(repositoryId, name)
-        .then((next) => current && setPreview(next))
-        .catch(() => current && setPreview(null));
-    }, 250);
-    return () => {
-      current = false;
-      clearTimeout(timer);
-    };
-  }, [dialog, value, repositoryId, api]);
   const title = session.organization?.title || session.title;
   const state: ChatActionState = sessionActionState(session, {
     open: true,
@@ -198,11 +173,6 @@ export function SessionMenu({
       await archiveSessionWithUndo(session, { save: update, onViewArchived });
       archive();
     });
-  const duplicateOnBranch = () => {
-    setValue('');
-    setPreview(null);
-    setDialog('worktree');
-  };
   /** The code of the actions that this menu runs itself. */
   const local: ChatActionTarget = {
     'open-beside': () => void perform(() => branch(false)),
@@ -210,8 +180,6 @@ export function SessionMenu({
     rename: () => setDialog('rename'),
     pin: () => void perform(() => update({ pinned: !session.organization?.pinned })),
     notes: () => setDialog('notes'),
-    'duplicate-here': () => void perform(() => branch(true)),
-    'duplicate-branch': duplicateOnBranch,
     fork: () => forkChat(session),
     'show-folder': () => action('finder'),
     'export-markdown': () => action('markdown'),
@@ -338,15 +306,6 @@ export function SessionMenu({
           onOpenChange={(open) => !open && setDialog(null)}
           message={title}
           sessionTitle={title}
-          onReview={
-            onReviewChanges ||
-            (() =>
-              window.dispatchEvent(
-                new CustomEvent('kalkidan-session-command', {
-                  detail: { command: 'session-changes' },
-                }),
-              ))
-          }
         />
       )}
       <Dialog open={dialog === 'history'} onOpenChange={(open) => !open && setDialog(null)}>
@@ -379,49 +338,6 @@ export function SessionMenu({
         onOpenChange={(open) => !open && setDialog(null)}
         save={update}
       />
-      <Dialog open={dialog === 'worktree'} onOpenChange={(open) => !open && setDialog(null)}>
-        <DialogContent size="md" layout="scroll">
-          <DialogHeader>
-            <DialogTitle>Continue on a new branch</DialogTitle>
-            <DialogDescription>
-              The duplicate chat keeps this chat’s history and works in a branch copy.{' '}
-              {branchCopyHelp}
-            </DialogDescription>
-          </DialogHeader>
-          <DialogBody>
-            <form
-              id={worktreeForm}
-              className="grid gap-4"
-              onSubmit={(e) => {
-                e.preventDefault();
-                void perform(async () => {
-                  await branch(true, value.trim());
-                  setDialog(null);
-                });
-              }}
-            >
-              <label className="form-label">
-                Branch name
-                <Input
-                  autoFocus
-                  placeholder="feature/new-direction"
-                  value={value}
-                  onChange={(e) => setValue(e.target.value)}
-                />
-              </label>
-              {preview && <p className="form-help break-words">Starts from {preview.base}.</p>}
-            </form>
-          </DialogBody>
-          <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => setDialog(null)}>
-              Cancel
-            </Button>
-            <Button form={worktreeForm} disabled={busy || !value.trim()} type="submit">
-              Duplicate chat
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </>
   );
 }
@@ -451,7 +367,6 @@ export function CommitDialog({
   task,
   group,
   onTaskChange,
-  onReview,
   onCommitted,
   onPullRequest,
   intent = 'commit',
@@ -474,8 +389,6 @@ export function CommitDialog({
   group?: ProjectGroup;
   /** Called with the task after it changed to an issue. */
   onTaskChange?: (task: TrackerItem) => void;
-  /** Opens the Changes tool. The dialog closes first. */
-  onReview?: () => void;
   /** Called after a commit, a branch change or a pull request. */
   onCommitted?: () => void;
   /** Called after a pull request opens. */
@@ -721,32 +634,17 @@ export function CommitDialog({
             <fieldset className="grid gap-1">
               <legend className="mb-1 flex w-full items-center justify-between gap-2 text-sm font-medium">
                 Files to commit
-                <span className="flex items-center gap-1">
-                  {onReview && (
-                    <Button
-                      size="xs"
-                      variant="ghost"
-                      type="button"
-                      onClick={() => {
-                        onOpenChange(false);
-                        onReview();
-                      }}
-                    >
-                      Review changes
-                    </Button>
-                  )}
-                  <Button
-                    size="xs"
-                    variant="ghost"
-                    type="button"
-                    disabled={busy}
-                    onClick={() =>
-                      setSelected(new Set(allSelected ? [] : files.map((file) => file.path)))
-                    }
-                  >
-                    {allSelected ? 'Clear all' : 'Select all'}
-                  </Button>
-                </span>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  type="button"
+                  disabled={busy}
+                  onClick={() =>
+                    setSelected(new Set(allSelected ? [] : files.map((file) => file.path)))
+                  }
+                >
+                  {allSelected ? 'Clear all' : 'Select all'}
+                </Button>
               </legend>
               <ul className="list-box commit-file-list" aria-label="Changed files">
                 {files.map((file) => (
@@ -777,25 +675,18 @@ export function CommitDialog({
               </ul>
             </fieldset>
           )}
-          {!files && onReview && !!changes && (
-            <Button
-              size="sm"
-              variant="outline"
-              className="justify-self-start"
-              onClick={() => {
-                onOpenChange(false);
-                onReview();
-              }}
-            >
-              Review changes
-            </Button>
-          )}
           <label className="form-label">
             Commit message
             <Textarea
               rows={3}
               value={message}
               disabled={busy || !changes}
+              // The message is the first field. The caret goes to its end.
+              autoFocus={!newBranchNeeded}
+              onFocus={(e) => {
+                const end = e.currentTarget.value.length;
+                e.currentTarget.setSelectionRange(end, end);
+              }}
               onChange={(e) => setMessage(e.target.value)}
             />
           </label>
@@ -870,6 +761,12 @@ export function CommitDialog({
               )}
             </p>
           )}
+          {busy && (
+            <p role="status" className="flex items-center gap-2 text-sm text-muted-foreground">
+              <LoaderCircle className="size-3.5 animate-spin" aria-hidden="true" />
+              {pullRequestIntent ? 'Creating the pull request…' : 'Committing…'}
+            </p>
+          )}
           {error && (
             <p role="alert" className="field-error break-words">
               {error}
@@ -901,18 +798,14 @@ export function CommitDialog({
                   onClick={() => void createPullRequest()}
                 >
                   <GitPullRequest aria-hidden="true" />
-                  {busy ? 'Working…' : 'Create pull request'}
+                  Create pull request
                 </Button>
               ) : (
                 <Button
                   disabled={busy || !status || !commitCount || !message.trim() || !!result?.commit}
                   onClick={() => void submit(false)}
                 >
-                  {busy
-                    ? 'Working…'
-                    : files && !allSelected
-                      ? `Commit ${plural(commitCount, 'file')}`
-                      : 'Commit'}
+                  {files && !allSelected ? `Commit ${plural(commitCount, 'file')}` : 'Commit'}
                 </Button>
               )}
             </>

@@ -1,39 +1,43 @@
-import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
-import {
-  ArrowUp,
-  ChevronDown,
-  FileText,
-  FolderGit2,
-  FolderPlus,
-  GitBranch,
-  ListTodo,
-} from 'lucide-react';
+import { useEffect, useState, type ReactNode } from 'react';
+import { FileText, FolderGit2, FolderPlus, ListTodo } from 'lucide-react';
 import { agentCatalog, agentLabel } from '../config/agents';
-import { agentInstalled, agentMenuLabel, savePreferredAgent } from '../lib/agent-preference';
+import { agentInstalled } from '../lib/agent-preference';
+import { onChatPreferencesChange, readEnterToSend } from '../lib/chat-preferences';
+import { chosenModel } from '../domain/model-choice';
 import { fullTime, relativeTime } from '../lib/relative-time';
 import { useRecentItems } from '../lib/recent-items';
 import { sessionRepo } from '../lib/session-repository';
-import { isMac, shortcutLabel } from '../lib/platform';
 import type { ProjectDocMetadata } from '../domain/docs';
-import type { API, Agent, Project, ProjectGroup, Session, TrackerBoard } from '../types';
+import type {
+  API,
+  Agent,
+  ModelOption,
+  Project,
+  ProjectGroup,
+  Session,
+  TrackerBoard,
+} from '../types';
 import { activityKey, useActivityState } from './activity-dot';
 import { ChatRow } from './chat-row';
 import { requestNewChat, usePreferredAgent } from './new-chat-button';
 import { useNeedsYou } from './project-overview';
 import { openProjectPage } from './project-tabs';
-import { Hint } from './hint';
-import { AgentIcon } from './ui/agent-icon';
-import { Button } from './ui/button';
-import { EntityIcon } from './ui/entity-icon';
-import { SectionHeader } from './ui/page-header';
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuRadioGroup,
-  DropdownMenuRadioItem,
-  DropdownMenuTrigger,
-} from './ui/dropdown-menu';
+  AccessPill,
+  Composer,
+  FolderPill,
+  defaultAccess,
+  readAccess,
+  saveAccess,
+  setNextChatModel,
+  type ChatAccess,
+} from './composer';
+import { ModelChip, useModelChoice } from './model-chip';
+import { Button } from './ui/button';
+import { EmptyState } from './ui/empty-state';
+import { EntityIcon } from './ui/entity-icon';
+import { ListRow } from './ui/list-row';
+import { SectionHeader } from './ui/page-header';
 
 const recentLimit = 8;
 
@@ -53,16 +57,6 @@ export function lastUsedRepo(repos: Project[], sessions: Session[], preferredId?
     openSessions(sessions, repos)[0]?.repo ||
     repos[0] ||
     null
-  );
-}
-
-function GitHubMark() {
-  return (
-    <span
-      className="tracker-provider-mark size-4"
-      style={{ maskImage: 'url(./icons/github.svg)' }}
-      aria-hidden="true"
-    />
   );
 }
 
@@ -93,16 +87,22 @@ function ItemRow({
   );
 }
 
+// The unsent text of each project Overview. It stays when the user opens another page.
+const overviewDrafts = new Map<string, string>();
+
 /**
- * The compose box of the project home. Return starts a chat in the chosen code folder with the
- * text as the first message. The folder and agent chips start with the last-used values.
+ * The composer of the project home: the same Composer as a chat. Send starts a chat in the
+ * chosen code folder with the text as the first message. The folder, access and agent·model
+ * pills start with the last-used values.
  */
-function Composer({
+function HomeComposer({
+  api,
   group,
   repos,
   sessions,
   onAddFolder,
 }: {
+  api: API;
   group: ProjectGroup;
   repos: Project[];
   sessions: Session[];
@@ -113,116 +113,79 @@ function Composer({
   useEffect(() => setAgent(preferred), [preferred]);
   const [repoId, setRepoId] = useState('');
   const repo = lastUsedRepo(repos, sessions, repoId);
-  const [text, setText] = useState('');
-  const input = useRef<HTMLTextAreaElement>(null);
-  // The box grows with the text, up to 8 lines.
+  const [text, setText] = useState(() => overviewDrafts.get(group.id) || '');
   useEffect(() => {
-    const element = input.current;
-    if (!element) return;
-    element.style.height = 'auto';
-    element.style.height = `${Math.min(element.scrollHeight, 176)}px`;
-  }, [text]);
+    if (text) overviewDrafts.set(group.id, text);
+    else overviewDrafts.delete(group.id);
+  }, [group.id, text]);
+  const [enterToSend, setEnterToSend] = useState(readEnterToSend);
+  useEffect(() => onChatPreferencesChange(() => setEnterToSend(readEnterToSend())), []);
+  // Access: the last choice in the code folder, else the choice of Settings › General.
+  const [access, setAccess] = useState<ChatAccess | null>(null);
+  const shownAccess = access || readAccess(repo?.id) || defaultAccess() || 'read';
+  // Agent and model, as in the chat composer.
+  const [models, setModels] = useState<ModelOption[]>([]);
+  const [model, setModel] = useState('');
+  useEffect(() => {
+    let live = true;
+    setModels([]);
+    setModel('');
+    Promise.resolve(api.models?.(agent))
+      .then((value) => live && setModels(value || []))
+      .catch(() => {
+        /* The chip offers the default model. */
+      });
+    return () => {
+      live = false;
+    };
+  }, [api, agent]);
+  const choice = useModelChoice(api, agent, models, agentLabel(agent));
   function start() {
     const prompt = text.trim();
     if (!prompt) return;
     if (!repo) return onAddFolder();
+    if (access) saveAccess(repo.id, access);
+    setNextChatModel(agent, chosenModel(choice, model));
     requestNewChat({ groupId: group.id, repoId: repo.id, agent, prompt, send: true });
     setText('');
   }
-  function onKey(event: KeyboardEvent<HTMLTextAreaElement>) {
-    if (event.key !== 'Enter' || event.shiftKey || event.nativeEvent.isComposing) return;
-    event.preventDefault();
-    start();
-  }
-  const keys = shortcutLabel([], '↵');
   return (
-    <form
-      className="home-composer"
-      aria-label="New chat"
-      onSubmit={(event) => {
-        event.preventDefault();
-        start();
-      }}
-    >
-      <textarea
-        ref={input}
-        className="home-composer-input"
-        rows={2}
-        aria-label="Message for a new chat"
-        aria-keyshortcuts={`Enter ${isMac ? 'Meta' : 'Control'}+Enter`}
-        placeholder={`What should an agent do in ${group.name}?`}
-        value={text}
-        onChange={(event) => setText(event.target.value)}
-        onKeyDown={onKey}
-      />
-      <div className="home-composer-bar">
-        {repos.length ? (
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="chip" aria-label={`Code folder: ${repo?.name}`}>
-                <GitBranch />
-                <span className="truncate">{repo?.name}</span>
-                <ChevronDown />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="start">
-              <DropdownMenuRadioGroup value={repo?.id || ''} onValueChange={setRepoId}>
-                {repos.map((item) => (
-                  <DropdownMenuRadioItem key={item.id} value={item.id}>
-                    <FolderGit2 className="size-4" />
-                    <span className="min-w-0 flex-1 truncate">{item.name}</span>
-                  </DropdownMenuRadioItem>
-                ))}
-              </DropdownMenuRadioGroup>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        ) : (
-          <Button variant="chip" onClick={onAddFolder}>
-            <FolderPlus />
-            Add code folder
-          </Button>
-        )}
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button variant="chip" aria-label={`Agent: ${agentLabel(agent)}`}>
-              <AgentIcon agent={agent} />
-              {agentLabel(agent)}
-              <ChevronDown />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="start">
-            <DropdownMenuRadioGroup
-              value={agent}
-              onValueChange={(value) => {
-                const next = agentCatalog.find((item) => item.id === value)?.id;
-                if (!next || !agentInstalled(next)) return;
-                setAgent(next);
-                // The last-used agent is the default of the next chat too.
-                savePreferredAgent(next);
-              }}
-            >
-              {agentCatalog.map(({ id }) => (
-                <DropdownMenuRadioItem key={id} value={id} disabled={!agentInstalled(id)}>
-                  <AgentIcon agent={id} className="size-4" />
-                  {agentMenuLabel(id, agentLabel(id))}
-                </DropdownMenuRadioItem>
-              ))}
-            </DropdownMenuRadioGroup>
-          </DropdownMenuContent>
-        </DropdownMenu>
-        <Hint label="Start the chat" shortcut={keys}>
-          <Button
-            type="submit"
-            size="icon-sm"
-            className="home-composer-send"
-            aria-label="Start the chat"
-            disabled={!text.trim()}
-          >
-            <ArrowUp />
-          </Button>
-        </Hint>
-      </div>
-    </form>
+    <Composer
+      label="New chat"
+      inputLabel="Message for a new chat"
+      sendLabel="Start the chat"
+      value={text}
+      onValueChange={setText}
+      onSend={start}
+      canSend={!!text.trim()}
+      enterToSend={enterToSend}
+      controls={
+        <>
+          <FolderPill
+            label={repo?.name}
+            folders={repos}
+            current={repo?.id}
+            onPick={(id) => {
+              setRepoId(id);
+              setAccess(null);
+            }}
+            onAdd={onAddFolder}
+          />
+          <AccessPill value={shownAccess} onChange={setAccess} />
+          <ModelChip
+            choice={choice}
+            value={model}
+            onChange={setModel}
+            agent={agent}
+            agentName={agentLabel(agent)}
+            onAgentChange={(value) => {
+              const next = agentCatalog.find((item) => item.id === value)?.id;
+              if (next && agentInstalled(next)) setAgent(next);
+            }}
+          />
+        </>
+      }
+    />
   );
 }
 
@@ -239,7 +202,6 @@ export function ProjectHomePage({
   onOpenSession,
   onRepo,
   onAddFolder,
-  onCloneFromGitHub,
 }: {
   api: API;
   group: ProjectGroup;
@@ -251,7 +213,6 @@ export function ProjectHomePage({
   onOpenSession: (session: Session) => void;
   onRepo: (repo: Project) => void;
   onAddFolder: () => void;
-  onCloneFromGitHub: () => void;
 }) {
   const needsYou = useNeedsYou(sessions, repos);
   const { activity } = useActivityState();
@@ -350,7 +311,13 @@ export function ProjectHomePage({
   const recent = [...chats, ...items].sort((a, b) => b.at - a.at).slice(0, recentLimit);
   return (
     <div className="project-home">
-      <Composer group={group} repos={repos} sessions={sessions} onAddFolder={onAddFolder} />
+      <HomeComposer
+        api={api}
+        group={group}
+        repos={repos}
+        sessions={sessions}
+        onAddFolder={onAddFolder}
+      />
       <div className="project-home-lists">
         {!!needsYou.length && (
           <section className="project-home-section" aria-label="Waiting for you">
@@ -392,45 +359,35 @@ export function ProjectHomePage({
       <section className="project-home-section" aria-label="Code folders">
         <SectionHeader
           title="Code folders"
+          count={repos.length || undefined}
           actions={
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="ghost" size="sm">
-                  Add
-                  <ChevronDown />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                <DropdownMenuItem onSelect={onAddFolder}>
-                  <FolderPlus className="size-4" />
-                  Choose a folder…
-                </DropdownMenuItem>
-                <DropdownMenuItem onSelect={onCloneFromGitHub}>
-                  <GitHubMark />
-                  Clone from GitHub…
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
+            <Button variant="ghost" size="sm" onClick={onAddFolder}>
+              <FolderPlus aria-hidden="true" />
+              Add code folder…
+            </Button>
           }
         />
         {repos.length ? (
           <ul className="folder-list">
             {repos.map((repo) => (
-              <li key={repo.id}>
-                <button
-                  type="button"
-                  className="folder-row row-hover"
-                  title={repo.path}
-                  onClick={() => onRepo(repo)}
-                >
-                  <FolderGit2 aria-hidden="true" />
-                  <span className="truncate">{repo.name}</span>
-                </button>
-              </li>
+              <ListRow
+                key={repo.id}
+                as="li"
+                icon={
+                  <EntityIcon>
+                    <FolderGit2 />
+                  </EntityIcon>
+                }
+                title={repo.name}
+                meta={repo.path}
+                onClick={() => onRepo(repo)}
+              />
             ))}
           </ul>
         ) : (
-          <p className="project-home-empty">No code folders yet.</p>
+          <EmptyState compact className="project-home-empty-state">
+            No code folders yet.
+          </EmptyState>
         )}
       </section>
     </div>
@@ -450,7 +407,6 @@ export function ProjectHome({
   onRepo,
   onOpenSession,
   onAddFolder,
-  onCloneFromGitHub,
 }: {
   api: API;
   group: ProjectGroup;
@@ -460,7 +416,6 @@ export function ProjectHome({
   onRepo: (repo: Project) => void;
   onOpenSession?: (session: Session) => void;
   onAddFolder: () => void;
-  onCloneFromGitHub: () => void;
   [legacy: string]: unknown;
 }) {
   return (
@@ -481,7 +436,6 @@ export function ProjectHome({
           ))
       }
       onAddFolder={onAddFolder}
-      onCloneFromGitHub={onCloneFromGitHub}
     />
   );
 }

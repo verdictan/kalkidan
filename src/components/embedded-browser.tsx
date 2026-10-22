@@ -1,7 +1,7 @@
 import { BrowserMenu } from './browser-menu';
 import { Choice } from './choice';
 import { useEffect, useRef, useState } from 'react';
-import { ArrowLeft, ArrowRight, MousePointer2, RefreshCw, X } from 'lucide-react';
+import { ArrowLeft, ArrowRight, CircleAlert, MousePointer2, RefreshCw, X } from 'lucide-react';
 import type { API, BrowserSelection, BrowserState } from '../types';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
@@ -207,12 +207,8 @@ export function EmbeddedBrowser({
   }
   // The go button shows only while the address differs from the open page. Enter also opens it.
   const urlEdited = !ready || url.trim() !== (state?.url || lastURL.current);
-  const statusText = busy
-    ? 'Working…'
-    : state?.url ||
-      (remote
-        ? 'Chromium in Kalkidan · use a reachable URL or SSH-forwarded port'
-        : 'Embedded Chromium · isolated from your desktop bridge');
+  // The status bar shows only while a page loads.
+  const loadingPage = busy || !!state?.loading;
   return (
     <div className="browser-pane" hidden={!visible}>
       <form
@@ -481,31 +477,25 @@ export function EmbeddedBrowser({
       ) : (
         <div ref={viewport} className="browser-viewport" aria-label="Embedded browser">
           {!ready && (
-            <div className="grid max-w-80 gap-2 px-4 text-center">
-              <p className="break-all">
-                {url.trim()
-                  ? `Press Enter to open ${url.trim()}.`
-                  : 'Type a URL to preview it here.'}
-              </p>
-              <p className="form-help">
-                Select{' '}
-                <MousePointer2
-                  className="inline size-3.5 align-[-2px]"
-                  aria-label="Select element"
-                />{' '}
-                then click an element to send feedback about it to the agent.
-              </p>
-            </div>
+            <p className="browser-hint">
+              {remote
+                ? 'Enter a URL that the SSH host can reach.'
+                : 'Enter a URL to preview your app.'}
+            </p>
           )}
         </div>
       )}
-      <div className="tool-statusbar" title={statusText}>
-        {statusText}
-      </div>
-      {error && (
-        <p role="alert" className="field-error max-h-16 shrink-0 overflow-auto px-3 py-1">
-          {error}
+      {error ? (
+        <p role="alert" className="tool-statusbar tool-statusbar-error">
+          <CircleAlert aria-hidden="true" />
+          <span className="truncate">{error}</span>
         </p>
+      ) : (
+        loadingPage && (
+          <p role="status" className="tool-statusbar">
+            Loading…
+          </p>
+        )
       )}
     </div>
   );

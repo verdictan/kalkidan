@@ -25,7 +25,16 @@
   min-height: 0;
 }
 .agent-pane {
+  display: flex;
+  flex-direction: column;
   height: 100%;
+  min-width: 0;
+  min-height: 0;
+  /* Tool panes go side by side or over the chat, by the width of the pane (tools.css). */
+  container: agent-pane / inline-size;
+}
+.agent-pane[hidden] {
+  display: none;
 }
 .conversation-panel {
   height: 100%;
@@ -35,8 +44,7 @@
   /* The welcome text and the composer dock use a compact size in a small panel. */
   container: conversation / size;
 }
-/* Messages use the reading width. The composer dock is 17px wider on each side, so the
-   composer text (1px border + 8px padding + 8px text inset) aligns with the message text.
+/* Composer and messages share edges; composer text is inset 16px + 1px border.
    A classic scrollbar takes width on the right only. The session view measures it as
    --scrollbar-width, and the right padding is smaller by that width, so the message column
    stays centred over the composer. */
@@ -81,7 +89,7 @@
   clip-path: inset(50%);
 }
 /* Message bodies use .prose-ui for code, lists, quotes and links. Chat headings are
-   smaller than page headings: h1 20/28, h2 16/24, h3 15/24. All are bold. */
+   smaller than page headings: h1 20/28, h2 16/24, h3 15/24. All are 600. */
 .prose-ui[data-variant='chat'] :where(h1) {
   font-size: var(--text-xl);
   line-height: 28px;
@@ -93,7 +101,7 @@
   margin: 20px 0 8px;
 }
 .prose-ui[data-variant='chat'] :where(h3) {
-  font-size: var(--text-lg);
+  font-size: var(--text-base);
   line-height: 24px;
   font-weight: 600;
   margin: 16px 0 4px;
@@ -104,21 +112,38 @@
 .chat-markdown > :last-child {
   margin-bottom: 0;
 }
+/* A table has one outer frame with radius 10, like a code block. Cells never break a word. */
 .chat-markdown table {
   display: block;
+  width: fit-content;
   max-width: 100%;
   overflow: auto;
-  border-collapse: collapse;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  border-collapse: separate;
+  border-spacing: 0;
 }
 .chat-markdown th,
 .chat-markdown td {
-  padding: 8px 12px;
-  border: 1px solid var(--border);
+  padding: 4px 12px;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  font-size: var(--text-sm);
+  line-height: 20px;
+  text-align: left;
+  white-space: nowrap;
+  overflow-wrap: normal;
+  word-break: normal;
 }
-.chat-link {
-  color: var(--link);
-  text-decoration: underline;
-  text-underline-offset: 2px;
+.chat-markdown th + th,
+.chat-markdown td + td {
+  border-left: 1px solid var(--border);
+}
+.chat-markdown tr:last-child > td {
+  border-bottom: 0;
+}
+.chat-markdown th {
+  font-weight: 600;
 }
 .chat-link:focus-visible {
   outline: none;
@@ -140,8 +165,12 @@
   font-size: var(--text-xs);
   line-height: 16px;
   color: var(--muted-foreground);
-  margin: 12px 0;
+  margin: 8px 0;
   overflow-wrap: anywhere;
+}
+/* "Context: 2 facts" under the last answer. The chip text starts on the message edge. */
+.context-usage {
+  margin: 8px 0 0 -10px;
 }
 
 /* The composer dock holds the approval banner and the composer. It has the message width,
@@ -151,9 +180,11 @@
   align-self: center;
   flex-shrink: 0;
   padding: 8px 0 16px;
+  container: composer-dock / inline-size;
 }
-/* 16px inside the border: the text starts 16px from the left edge of the message column. The
-   chips and Send sit 8px from the border. */
+/* The one composer (composer.tsx), in a chat and on the project Overview. 16px inside the
+   border: the text starts 16px from the left edge of the message column. The pills and Send
+   sit 8px from the border. Focus makes the border darker, not brown. */
 .conversation-composer {
   position: relative;
   display: flex;
@@ -166,27 +197,19 @@
   color: var(--card-foreground);
 }
 .conversation-composer:focus-within {
-  border-color: color-mix(in oklab, var(--ring) 50%, var(--border));
+  border-color: color-mix(in oklab, var(--foreground) 20%, var(--border));
 }
-/* Attachments are pills like the composer chips: 28px, secondary fill, no border. */
+/* Attachments and mentions are Tags (24px, radius 6) with an X. */
 .context-attachments {
   display: flex;
   flex-wrap: wrap;
   gap: 4px;
 }
-.context-attachments > div {
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  max-width: 100%;
-  height: var(--control-sm);
-  padding: 0 var(--space-1) 0 var(--space-2);
-  border-radius: var(--radius-full);
-  background: var(--secondary);
-  color: var(--secondary-foreground);
-  font-size: var(--text-xs);
-  line-height: 16px;
-  font-weight: 500;
+.context-attachments .tag > svg,
+.chat-mentions .tag > svg {
+  width: 12px;
+  height: 12px;
+  color: var(--muted-foreground);
 }
 /* An inline question in the composer, for example "Allow edits?" after a refused write. */
 .composer-notice {
@@ -232,11 +255,7 @@
   border-top: 1px solid var(--border);
 }
 .mention-picker-heading {
-  padding: 2px 8px;
-  color: var(--muted-foreground);
-  font-size: var(--text-2xs);
-  font-weight: 500;
-  line-height: 16px;
+  padding: 4px 8px;
 }
 .mention-picker-option {
   display: flex;
@@ -258,12 +277,8 @@
   font-size: var(--text-xs);
   text-align: right;
 }
-/* A mention as a chip: in the composer and under a sent message. */
+/* A mention as a Tag: in the composer and under a sent message. */
 .mention-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  min-width: 0;
   max-width: 240px;
 }
 .chat-mentions {
@@ -272,15 +287,6 @@
   gap: 4px;
   margin-top: var(--space-2);
 }
-.chat-mentions .mention-chip {
-  height: 20px;
-  padding: 0 8px;
-  border-radius: var(--radius-full);
-  background: var(--secondary);
-  color: var(--secondary-foreground);
-  font-size: var(--text-xs);
-  line-height: 16px;
-}
 .chat-mention-inline {
   padding: 0 4px;
   border-radius: var(--radius-sm);
@@ -288,38 +294,61 @@
   color: var(--secondary-foreground);
   font-weight: 500;
 }
-/* A message that did not reach the agent, with the "could not start" card under it. Only
-   the icon is red. */
-.chat-message[data-failed] {
-  outline: 1px dashed var(--border);
-  outline-offset: -1px;
-}
-.chat-send-failure {
+/* ChatCard (chat-card.tsx): refusals, errors, approvals and questions. Padding 12/16,
+   radius 14, a neutral border, no shadow, a 16px icon column and a 12px gap. Only the icon has
+   the tone color. */
+.chat-card {
   display: grid;
   grid-template-columns: 16px minmax(0, 1fr);
   gap: 12px;
-  margin-top: 12px;
   padding: 12px 16px;
   border: 1px solid var(--border);
   border-radius: var(--radius-xl);
   background: var(--card);
   color: var(--card-foreground);
 }
-.chat-send-failure-icon {
+.chat-card:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+/* A card in the transcript sits 12px under its message. */
+.conversation-messages .chat-card {
+  margin: -20px 0 32px;
+}
+.chat-card-icon {
   width: 16px;
   height: 16px;
   margin-top: 2px;
+  color: var(--muted-foreground);
+}
+.chat-card[data-tone='danger'] .chat-card-icon {
   color: var(--destructive);
 }
-.chat-send-failure-title {
+.chat-card[data-tone='warning'] .chat-card-icon {
+  color: var(--warning);
+}
+.chat-card-main {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+.chat-card-title {
+  margin: 0;
   font-size: var(--text-sm);
   line-height: 20px;
   font-weight: 600;
 }
-.chat-send-failure-body {
+.chat-card-body {
+  margin: 0;
   font-size: var(--text-xs);
   line-height: 16px;
   color: var(--muted-foreground);
+}
+.chat-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
 }
 /* "Details": the managed-only note and the error code, closed by default. */
 .agent-error-details {
@@ -362,9 +391,16 @@
   align-items: center;
   gap: 4px;
 }
-.composer-actions .composer-send {
+/* Send stays at the bottom right. The rule is on the Hint slot, so a disabled Send (in its
+   wrapper span) does not move. */
+.composer-send-slot {
   flex-shrink: 0;
+  align-self: flex-end;
   margin-left: auto;
+}
+.composer-add {
+  width: var(--control-sm);
+  padding-inline: 0;
 }
 /* The approval and question cards dock above the composer, so they never scroll away. */
 .request-dock {
@@ -386,15 +422,13 @@
   color: var(--foreground);
   line-height: 16px;
 }
-.request-card-approval {
-  border-color: color-mix(in oklab, var(--warning) 45%, var(--border));
-}
-/* "3 files changed on main · +70 −2 · Review · Create pull request… · ⋯" after a run. */
+/* "3 files changed · +70 −2 · on main · Review · Create pull request… · ⋯" after a run. The
+   count never shortens. The branch shortens first, then hides in a narrow column. */
 .run-changes {
   display: flex;
   align-items: center;
   gap: 8px;
-  min-height: var(--control-lg);
+  min-height: 40px;
   margin: 0 0 8px;
   padding: 4px 4px 4px 12px;
   border: 1px solid var(--border);
@@ -405,15 +439,25 @@
   line-height: 16px;
 }
 .run-changes-text {
+  display: flex;
   flex: 1;
+  align-items: baseline;
+  gap: 6px;
   min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
   white-space: nowrap;
 }
 .run-changes-count {
+  flex-shrink: 0;
   color: var(--foreground);
   font-weight: 600;
+}
+.run-changes-lines {
+  flex-shrink: 0;
+}
+.run-changes-branch {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .run-changes-actions {
   display: flex;
@@ -421,11 +465,40 @@
   align-items: center;
   gap: 4px;
 }
-/* The permission chip keeps its label. The model chip and the folder pill truncate first. */
-.composer-permission {
-  min-width: max-content;
+.run-changes-short {
+  display: none;
+}
+@container composer-dock (max-width: 480px) {
+  .run-changes-branch,
+  .run-changes-long {
+    display: none;
+  }
+  .run-changes-short {
+    display: inline;
+  }
+}
+/* The access pill keeps its label. The model chip and the folder pill shorten first. */
+.composer-access {
+  flex-shrink: 0;
+}
+.composer-access-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: var(--radius-full);
+  background: var(--warning);
+}
+.composer-access-text {
+  display: grid;
+  flex: 1;
+}
+.composer-access-description {
+  color: var(--muted-foreground);
+  font-size: var(--text-xs);
+  line-height: 16px;
+  white-space: normal;
 }
 .composer-folder {
+  min-width: 0;
   max-width: 200px;
 }
 /* The activity of a run sits under its answer: sources, then the steps folded to
@@ -471,7 +544,8 @@ button.agent-step:hover {
 }
 .agent-step-list {
   display: grid;
-  padding-left: 16px;
+  /* The step icons line up with the text of the fold line. */
+  padding-left: 14px;
 }
 .agent-steps[data-state='open'] > .agent-step-live {
   display: none;
@@ -498,7 +572,8 @@ button.agent-step:hover {
   color: var(--destructive);
 }
 .agent-step-output {
-  padding: var(--space-1) 0 var(--space-2) var(--space-6);
+  /* The output lines up with the step title. */
+  padding: var(--space-1) 0 var(--space-2) 26px;
 }
 
 .conversation-welcome {
@@ -518,6 +593,9 @@ button.agent-step:hover {
   justify-content: center;
   gap: 8px;
   margin-top: 16px;
+}
+.conversation-starters > button {
+  background: var(--secondary);
 }
 /* Until the first message, the welcome block and the composer sit together in the middle of
    the panel, a little above the centre. */
@@ -646,16 +724,16 @@ button.agent-step:hover {
   font-weight: 500;
   color: var(--foreground);
 }
-/* The chat trail shortens from the middle. "Projects" and the project go first, then the
-   code folder. The chat title stays. */
+/* The chat trail shortens from the middle: the project or code folder goes first, then
+   "Projects". The chat title stays. */
 @container chat-trail (max-width: 560px) {
-  .conversation-trail [data-optional] {
+  .conversation-trail [data-middle],
+  .conversation-trail [data-middle] + svg {
     display: none;
   }
 }
 @container chat-trail (max-width: 320px) {
-  .conversation-trail [data-middle],
-  .conversation-trail [data-middle] + svg {
+  .conversation-trail [data-optional] {
     display: none;
   }
 }
@@ -682,35 +760,7 @@ button.agent-step:hover {
   outline: none;
   box-shadow: var(--focus-ring);
 }
-/* The policy result of a refused or escalated request. Only the icon has a color. */
-.policy-result {
-  display: grid;
-  grid-template-columns: 16px minmax(0, 1fr);
-  gap: 12px;
-  margin-top: 12px;
-  padding: 12px 16px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-xl);
-  background: var(--card);
-  color: var(--card-foreground);
-}
-.policy-result-icon {
-  width: 16px;
-  height: 16px;
-  margin-top: 2px;
-  color: var(--destructive);
-}
-.policy-result-title {
-  font-size: var(--text-sm);
-  line-height: 20px;
-  font-weight: 600;
-}
-.policy-result-body,
-.policy-result-note {
-  font-size: var(--text-xs);
-  line-height: 16px;
-  color: var(--muted-foreground);
-}
+/* The Details list of a policy result. */
 .policy-result-details {
   display: grid;
   gap: 4px;
@@ -729,8 +779,9 @@ button.agent-step:hover {
   min-width: 0;
   overflow-wrap: anywhere;
 }
-.policy-result-error {
-  font-size: var(--text-xs);
-  line-height: 16px;
-  color: var(--destructive);
+/* In a wide chat column, code blocks grow to 880px. Prose stays at the reading width. */
+@container conversation (min-width: 1200px) {
+  .chat-markdown > pre {
+    margin-inline: calc(-1 * var(--space-16));
+  }
 }

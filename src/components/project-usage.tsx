@@ -149,18 +149,16 @@ export function ProjectUsageInsights({
   return (
     <section aria-label="Usage details" className="grid gap-4" aria-busy={busy}>
       {!available ? (
-        <EmptyState compact icon={<BarChart3 />} title="Usage history is not available">
+        <EmptyState icon={<BarChart3 />} title="Usage history is not available">
           This version of Kalkidan cannot read the usage history. Update Kalkidan.
         </EmptyState>
       ) : !chats.length ? (
         <EmptyState
-          compact
           icon={<MessageSquare />}
           title="No chats yet"
           action={
             <Button
               variant="outline"
-              size="sm"
               onClick={() =>
                 window.dispatchEvent(
                   new CustomEvent('kalkidan-new-session', { detail: { groupId } }),
@@ -173,18 +171,16 @@ export function ProjectUsageInsights({
         />
       ) : error ? (
         <EmptyState
-          compact
           icon={<BarChart3 />}
           title="Usage history is not available"
           action={
             errorAction?.kind === 'retry' ? (
-              <Button variant="outline" size="sm" disabled={busy} onClick={() => void load(true)}>
+              <Button variant="outline" disabled={busy} onClick={() => void load(true)}>
                 Try again
               </Button>
             ) : errorAction?.kind === 'sign-in' ? (
               <Button
                 variant="outline"
-                size="sm"
                 onClick={() =>
                   window.dispatchEvent(
                     new CustomEvent('kalkidan-sign-in', { detail: { intent: 'login' } }),
@@ -196,7 +192,6 @@ export function ProjectUsageInsights({
             ) : errorAction?.kind === 'settings' ? (
               <Button
                 variant="outline"
-                size="sm"
                 onClick={() =>
                   window.dispatchEvent(
                     new CustomEvent('kalkidan-open-settings', {
@@ -215,7 +210,7 @@ export function ProjectUsageInsights({
       ) : !summary ? (
         <p className="form-help m-0">Loading the usage…</p>
       ) : summary.requests === 0 ? (
-        <EmptyState compact icon={<BarChart3 />} title="No managed-agent requests">
+        <EmptyState icon={<BarChart3 />} title="No managed-agent requests">
           {usage!.chats.length
             ? 'Verdictan has no requests for the chats of this project yet.'
             : 'The chats of this project do not use a managed agent with this account.'}

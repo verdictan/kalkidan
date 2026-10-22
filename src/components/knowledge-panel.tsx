@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import { BarChart3, ChevronDown, FileText, Lightbulb, Plus } from 'lucide-react';
 import type { API, Project, ProjectGroup, Session } from '../types';
 import { sessionRepo } from '../lib/session-repository';
@@ -6,6 +6,7 @@ import type { DocPassage } from '../domain/docs';
 import { useProjectResource } from '../hooks/use-project-resource';
 import { plural } from '../lib/platform';
 import { Button } from './ui/button';
+import { NavRow } from './ui/nav-row';
 import { SearchInput } from './ui/search-input';
 import { Hint } from './hint';
 import { KnowledgeRailGroup, ProjectDocsPanel, type DocOpenRequest } from './project-docs';
@@ -109,7 +110,12 @@ export function KnowledgePanel({
   );
   const [memoryTopic, setMemoryTopic] = useState(topic || '');
   const [factFocus, setFactFocus] = useState<{ id: string; serial: number }>();
-  const [view, setView] = useState<InsightView>(taskId ? 'usage' : 'board');
+  const { connection, board } = useInsightsBoard(api, group);
+  // Board and GitHub checks need a board. Without one, the rail does not show them.
+  const views = insightViews.filter(
+    (item) => !!connection || (item.view !== 'board' && item.view !== 'github'),
+  );
+  const [view, setView] = useState<InsightView>(taskId || !connection ? 'usage' : 'board');
   const [usageTask, setUsageTask] = useState(taskId);
   const [request, setRequest] = useState<DocOpenRequest>();
   const [addSerial, setAddSerial] = useState(0);
@@ -141,7 +147,6 @@ export function KnowledgePanel({
     api.docsMetadata(group.id),
   );
   const pages = metadata.state.value || [];
-  const { board } = useInsightsBoard(api, group);
   const checks = useUncertainWrites(api, group.id);
   const reads = useReadCounts(api, group.id);
 
@@ -268,6 +273,7 @@ export function KnowledgePanel({
           .join(' · '),
       }));
     const insightResults: Result[] = insightSearchItems(board.state.value, projectSessions)
+      .filter((item) => views.some((value) => value.view === item.view))
       .filter((item) => wordStartMatch(`${item.title} ${item.detail}`, trimmed))
       .map((item) => ({
         kind: 'insight',
@@ -277,7 +283,7 @@ export function KnowledgePanel({
         detail: insightViews.find((value) => value.view === item.view)!.label,
       }));
     return [...pageResults.slice(0, 8), ...factResults, ...insightResults];
-  }, [trimmed, pages, passages, facts, board.state.value, projectSessions, reads]);
+  }, [trimmed, pages, passages, facts, board.state.value, projectSessions, reads, views.length]);
   const current = Math.min(active, Math.max(0, results.length - 1));
 
   function openResult(result: Result) {
@@ -324,7 +330,7 @@ export function KnowledgePanel({
 
   const currentLabel =
     section === 'memory'
-      ? 'Memory'
+      ? memoryTopic || 'Memory'
       : section === 'insights'
         ? insightViews.find((item) => item.view === view)!.label
         : 'Pages';
@@ -332,7 +338,7 @@ export function KnowledgePanel({
     <Button
       variant="ghost"
       size="sm"
-      className="knowledge-switcher -ml-2 hidden max-[1099px]:inline-flex"
+      className="knowledge-switcher -ml-2 hidden @max-[719px]:inline-flex"
       aria-expanded={railOpen}
       aria-label={`Knowledge: ${currentLabel}`}
       onClick={() => setRailOpen((open) => !open)}
@@ -363,22 +369,20 @@ export function KnowledgePanel({
   );
   const railRow = (
     key: string,
-    label: ReactNode,
+    label: string,
     selected: boolean,
     onClick: () => void,
-    meta?: ReactNode,
+    count?: number,
+    className?: string,
   ) => (
     <li key={key}>
-      <button
-        type="button"
-        className="wiki-tree-row row-focus knowledge-rail-row"
-        data-selected={selected}
-        aria-current={selected ? 'page' : undefined}
+      <NavRow
+        label={label}
+        current={selected}
         onClick={onClick}
-      >
-        <span className="min-w-0 flex-1 truncate text-left">{label}</span>
-        {meta}
-      </button>
+        count={count || undefined}
+        className={className}
+      />
     </li>
   );
   const railBottom = (
@@ -407,7 +411,7 @@ export function KnowledgePanel({
             'All facts',
             !trimmed && section === 'memory' && !memoryTopic,
             () => apply({ section: 'memory' }),
-            facts.length ? <span className="knowledge-rail-count">{facts.length}</span> : null,
+            facts.length,
           )}
           {topics.map((item) =>
             railRow(
@@ -417,28 +421,21 @@ export function KnowledgePanel({
                 section === 'memory' &&
                 memoryTopic.toLowerCase() === item.topic.toLowerCase(),
               () => apply({ section: 'memory', topic: item.topic }),
-              <span className="knowledge-rail-count">{item.facts.length}</span>,
+              item.facts.length,
             ),
           )}
         </ul>
       </KnowledgeRailGroup>
       <KnowledgeRailGroup label="Insights">
         <ul className="knowledge-rail-list">
-          {insightViews.map((item) =>
+          {views.map((item) =>
             railRow(
               item.view,
               item.label,
               !trimmed && section === 'insights' && view === item.view,
               () => apply({ section: 'insights', view: item.view }),
-              item.view === 'github' && checks > 0 ? (
-                <span
-                  className="knowledge-rail-count"
-                  data-tone="warning"
-                  aria-label={`${plural(checks, 'change')} to check`}
-                >
-                  {checks}
-                </span>
-              ) : null,
+              item.view === 'github' ? checks : undefined,
+              item.view === 'github' ? 'knowledge-rail-checks' : undefined,
             ),
           )}
         </ul>
@@ -460,7 +457,7 @@ export function KnowledgePanel({
         if (!items.length) return null;
         return (
           <div key={kind} role="group" aria-label={label} className="knowledge-result-group">
-            <p className="sidebar-label knowledge-result-label">
+            <p className="group-label knowledge-result-label">
               {label} · {items.length}
             </p>
             {items.map((item) => {
@@ -503,7 +500,8 @@ export function KnowledgePanel({
         api={api}
         group={group}
         sessions={sessions}
-        initialTopic={memoryTopic}
+        topic={memoryTopic}
+        onShowAll={() => apply({ section: 'memory' })}
         focus={factFocus}
         addSerial={addSerial}
         readCounts={reads?.memory}

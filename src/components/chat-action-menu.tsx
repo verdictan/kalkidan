@@ -7,7 +7,6 @@ import {
   Code,
   Copy,
   CopyPlus,
-  ExternalLink,
   FileCode,
   FileDown,
   FolderInput,
@@ -20,6 +19,7 @@ import {
   GitPullRequestCreate,
   Hash,
   ListTodo,
+  MessageSquare,
   MousePointerClick,
   NotebookPen,
   PanelRight,
@@ -54,9 +54,9 @@ import {
 } from './ui/menu-styles';
 
 const icons: Partial<Record<ChatActionId, LucideIcon>> = {
-  open: ExternalLink,
+  open: MessageSquare,
   'open-beside': PanelRight,
-  'open-window': AppWindow,
+  'open-window': SquareArrowOutUpRight,
   rename: Pencil,
   pin: Pin,
   'link-task': ListTodo,
@@ -81,7 +81,7 @@ const icons: Partial<Record<ChatActionId, LucideIcon>> = {
   'copy-path': FolderInput,
   'open-vscode': SquareCode,
   'open-cursor': MousePointerClick,
-  'open-in': SquareArrowOutUpRight,
+  'open-in': AppWindow,
   export: Share2,
   archive: Archive,
 };
@@ -120,7 +120,7 @@ function Item({
   const label = (
     <span className="flex w-full items-center gap-2">
       {icon ? createElement(icon, { 'aria-hidden': true }) : null}
-      <span className="min-w-0 flex-1 truncate">{item.label}</span>
+      <span className="flex-1">{item.label}</span>
       {item.shortcut && (
         <span className={menuShortcutClass} aria-hidden="true">
           {chatShortcutText(item.shortcut)}
@@ -227,7 +227,7 @@ export function ChatActionsDropdown({
         <DropdownMenu.Content
           align="end"
           sideOffset={6}
-          collisionPadding={menuCollisionPadding}
+          collisionPadding={{ ...menuCollisionPadding, left: 12 }}
           aria-label={label}
           onCloseAutoFocus={menu.onCloseAutoFocus}
           className={cn(
@@ -301,7 +301,7 @@ export function ChatContextMenu({
       </ContextMenu.Trigger>
       <ContextMenu.Portal>
         <ContextMenu.Content
-          collisionPadding={menuCollisionPadding}
+          collisionPadding={{ ...menuCollisionPadding, left: 12 }}
           aria-label={label}
           onCloseAutoFocus={menu.onCloseAutoFocus}
           className={cn(

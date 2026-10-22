@@ -1,10 +1,19 @@
 import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
-import { ArrowRight, Check, ChevronDown, FolderOpen, RefreshCw, Sparkles, X } from 'lucide-react';
+import {
+  ArrowRight,
+  Bot,
+  Check,
+  ChevronDown,
+  FolderOpen,
+  LoaderCircle,
+  RefreshCw,
+  Sparkles,
+  X,
+} from 'lucide-react';
 import type { API, Snapshot, Agent, AgentInstallation, Project } from '../types';
 import { agentCatalog, agentLabel } from '../config/agents';
 import { CreateProject } from './create-project';
 import { AddRepository } from './add-repository';
-import { Choice } from './choice';
 import { AgentInstallHelp } from './agent-programs';
 import { folderName, showFolderImportResult, useFolderImport } from './repository-import';
 import { Hint } from './hint';
@@ -261,13 +270,14 @@ export function Onboarding({
   const agentName = agentLabel(agent);
   // Agents run through managed agents. The account state and the runtime install state are
   // separate sources: the runtime is ready only when the installer says that it is installed.
-  const managedSupported = !preview && typeof api.verdictanStatus === 'function';
+  // Each step is checked only from the live state, also in the browser preview.
+  const managedSupported = typeof api.verdictanStatus === 'function';
   const account = useVerdictanStatus(api, open && managedSupported);
-  const runtime = useRuntimeStatus(api, open && managedSupported);
+  const runtime = useRuntimeStatus(api, open && managedSupported && !preview);
   const status = account.status;
   const signedIn = status?.phase === 'authenticated';
-  // Without a managed-agent check (browser preview, older builds), sign-in is not a step.
-  const signInDone = !managedSupported || !status || signedIn;
+  // Without a managed-agent check (older builds), sign-in is not a step.
+  const signInDone = !managedSupported || signedIn;
   const current = openStep ?? (!signInDone ? 1 : repo ? 3 : 2);
   const progress = onboardingProgress(data, signInDone);
   useEffect(() => {
@@ -407,10 +417,10 @@ export function Onboarding({
   // One status source: the installer status decides if the runtime is ready.
   const steps = managedSteps(status, setup, runtime.status);
   const agentSetupReady = steps[managedAgent];
-  const runtimeReady = runtime.supported ? steps.runtime : true;
+  const runtimeReady = runtime.supported && !preview ? steps.runtime : true;
   // Without a managed-agent check (browser preview, older builds), do not block the draft.
   const managedReady =
-    !managedSupported || !status || (signedIn && runtimeReady && agentSetupReady);
+    !managedSupported || !status || preview || (signedIn && runtimeReady && agentSetupReady);
   const missing = !preview && !repo?.hostId && !checking && installation?.status === 'missing';
   // The chat opens with a draft and sends nothing, so a missing program does not block it. A
   // send fails without managed agents, so their setup does block it.
@@ -429,9 +439,22 @@ export function Onboarding({
   return (
     <>
       <Dialog open={open && !creating} onOpenChange={onOpenChange}>
-        <DialogContent size="lg" layout="scroll" className="onboarding">
+        <DialogContent
+          size="lg"
+          layout="scroll"
+          className="onboarding"
+          onOpenAutoFocus={(event) => {
+            // The title gets the focus, so no ring shows on a link in the first step.
+            event.preventDefault();
+            (event.currentTarget as HTMLElement | null)
+              ?.querySelector<HTMLElement>('[data-slot="dialog-title"]')
+              ?.focus();
+          }}
+        >
           <DialogHeader>
-            <DialogTitle>Get started</DialogTitle>
+            <DialogTitle tabIndex={-1} className="outline-none">
+              Get started
+            </DialogTitle>
             <DialogDescription className="sr-only">
               Sign in, open a code folder, and say hello to an agent.
             </DialogDescription>
@@ -447,23 +470,23 @@ export function Onboarding({
                 disabled={signInDone}
                 onOpen={() => setOpenStep(1)}
               >
-                <div className="flex flex-wrap items-center gap-3">
-                  <Button onClick={() => startSignIn('login')}>
-                    {phase === 'authorizing'
-                      ? 'Show sign-in'
-                      : phase === 'expired'
-                        ? 'Sign in again'
-                        : 'Sign in'}
-                  </Button>
+                <p className="m-0 text-xs leading-4 text-muted-foreground">
+                  Chats run as managed agents through your Verdictan account.
                   {phase !== 'authorizing' && phase !== 'expired' && (
-                    <span className="text-xs leading-4 text-muted-foreground">
+                    <>
+                      {' '}
                       No account?{' '}
-                      <Button type="button" variant="link" onClick={() => startSignIn('register')}>
+                      <Button
+                        type="button"
+                        variant="link"
+                        className="text-foreground underline"
+                        onClick={() => startSignIn('register')}
+                      >
                         Create one
                       </Button>
-                    </span>
+                    </>
                   )}
-                </div>
+                </p>
               </Step>
               <Step
                 number={2}
@@ -475,44 +498,40 @@ export function Onboarding({
               >
                 {folderImport.panel ? (
                   folderImport.panel
+                ) : importing ? (
+                  <p
+                    role="status"
+                    className="m-0 flex items-center gap-2 text-xs leading-4 text-muted-foreground"
+                  >
+                    <LoaderCircle className="size-4 animate-spin" aria-hidden="true" />
+                    Adding code folders…
+                  </p>
                 ) : !group ? (
-                  <div className="flex flex-wrap items-center gap-3">
-                    <Button disabled={importing} onClick={() => void chooseCodeFolder()}>
-                      <FolderOpen /> {importing ? 'Adding code folders…' : 'Open a code folder…'}
-                    </Button>
+                  <p className="m-0 text-xs leading-4 text-muted-foreground">
+                    Choose a folder with your Git repositories. Or{' '}
                     <Button
                       type="button"
                       variant="link"
-                      className="text-xs"
-                      disabled={importing}
+                      className="text-foreground underline"
                       onClick={() => setCreating(true)}
                     >
-                      Start with an empty project
+                      start with an empty project
                     </Button>
-                  </div>
+                    .
+                  </p>
                 ) : (
-                  <div className="flex flex-wrap items-center gap-2">
-                    <AddRepository
-                      api={api}
-                      groupId={group.id}
-                      variant={repos.length ? 'outline' : 'default'}
-                      onRefresh={refreshAfterAdd}
-                      onProjectCreated={(created) => {
-                        // Setup continues with the new project.
-                        setGroupId(created.id);
-                        setRepoId('');
-                      }}
-                    >
-                      Add code folder
-                    </AddRepository>
+                  <p className="m-0 text-xs leading-4 text-muted-foreground">
+                    Add a Git repository to {group.name}. Or{' '}
                     <Button
-                      variant="ghost"
-                      disabled={importing}
+                      type="button"
+                      variant="link"
+                      className="text-foreground underline"
                       onClick={() => void chooseCodeFolder()}
                     >
-                      <FolderOpen /> Open another folder…
+                      open another folder
                     </Button>
-                  </div>
+                    .
+                  </p>
                 )}
                 {setupError && (
                   <p role="alert" className="field-error">
@@ -528,7 +547,7 @@ export function Onboarding({
                 title="Say hello"
                 onOpen={() => setOpenStep(3)}
               >
-                <div className="flex min-w-0 flex-wrap items-center gap-1">
+                <div className="flex min-w-0 flex-wrap items-center gap-2">
                   <FolderMenu
                     data={data}
                     value={repo}
@@ -537,15 +556,11 @@ export function Onboarding({
                       setRepoId(nextRepo);
                     }}
                   />
-                  <Choice
-                    label="Agent"
-                    size="sm"
-                    variant="ghost"
+                  <AgentMenu
                     value={agent}
-                    options={agentCatalog.map((a) => ({ value: a.id, label: a.name }))}
                     onChange={(value) => {
-                      setAgent(value as Agent);
-                      savePreferredAgent(value as Agent);
+                      setAgent(value);
+                      savePreferredAgent(value);
                     }}
                   />
                 </div>
@@ -599,9 +614,38 @@ export function Onboarding({
             </ol>
           </DialogBody>
           <DialogFooter>
-            <Button variant="ghost" onClick={() => onOpenChange(false)}>
+            <Button variant="outline" onClick={() => onOpenChange(false)}>
               Set up later
             </Button>
+            {current === 1 && (
+              <Button onClick={() => startSignIn('login')}>
+                {phase === 'authorizing'
+                  ? 'Show sign-in'
+                  : phase === 'expired'
+                    ? 'Sign in again'
+                    : 'Sign in'}
+              </Button>
+            )}
+            {current === 2 &&
+              !folderImport.panel &&
+              !importing &&
+              (group ? (
+                <AddRepository
+                  api={api}
+                  groupId={group.id}
+                  variant="default"
+                  onRefresh={refreshAfterAdd}
+                  onProjectCreated={(created) => {
+                    // Setup continues with the new project.
+                    setGroupId(created.id);
+                    setRepoId('');
+                  }}
+                />
+              ) : (
+                <Button onClick={() => void chooseCodeFolder()}>
+                  <FolderOpen /> Open a code folder…
+                </Button>
+              ))}
             {current === 3 && (
               <Button disabled={!canStart} onClick={start}>
                 Open first chat
@@ -665,6 +709,30 @@ function FolderMenu({
               ))}
           </DropdownMenuRadioGroup>
         ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+/** "Codex ▾": the agent of the first chat, as a chip with a menu, like the folder chip. */
+function AgentMenu({ value, onChange }: { value: Agent; onChange: (agent: Agent) => void }) {
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button variant="chip" aria-label={`Agent: ${agentLabel(value)}`}>
+          <Bot />
+          {agentLabel(value)}
+          <ChevronDown />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start">
+        <DropdownMenuRadioGroup value={value} onValueChange={(next) => onChange(next as Agent)}>
+          {agentCatalog.map((item) => (
+            <DropdownMenuRadioItem key={item.id} value={item.id}>
+              {item.name}
+            </DropdownMenuRadioItem>
+          ))}
+        </DropdownMenuRadioGroup>
       </DropdownMenuContent>
     </DropdownMenu>
   );
@@ -744,11 +812,12 @@ function Step({
           <button
             type="button"
             className="onboarding-step-toggle"
+            data-done={done || undefined}
             disabled={disabled}
             aria-expanded={false}
             onClick={onOpen}
           >
-            <span className="text-sm leading-6 font-semibold">{title}</span>
+            <span className="onboarding-step-title">{title}</span>
             {summary && (
               <span className="min-w-0 truncate text-xs text-muted-foreground">{summary}</span>
             )}

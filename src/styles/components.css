@@ -709,18 +709,6 @@
   line-height: 16px;
 }
 
-/* Small headings in side panels: "Projects", "Pinned", "Pages". The type is .group-label. */
-.sidebar-label {
-  display: flex;
-  align-items: center;
-  min-height: var(--control-sm);
-  margin: 0;
-  color: var(--muted-foreground);
-  font-size: var(--text-2xs);
-  line-height: 16px;
-  font-weight: 600;
-}
-
 /* Shared prose parts: code blocks, lists, quotes and links. */
 .prose-ui :where(pre) {
   padding: var(--space-3) var(--space-4);

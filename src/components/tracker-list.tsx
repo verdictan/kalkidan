@@ -20,6 +20,7 @@ import {
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
 import { Checkbox } from './ui/checkbox';
+import { Count } from './ui/count';
 import { AgentIcon } from './ui/agent-icon';
 import {
   DropdownMenu,
@@ -49,6 +50,12 @@ export function StatusIcon({ name, size = 14 }: { name: string; size?: 14 | 16 }
   if (/backlog|no status/i.test(name))
     return <CircleDashed className={`${box} shrink-0 text-muted-foreground`} aria-hidden="true" />;
   return <Circle className={`${box} shrink-0 text-muted-foreground`} aria-hidden="true" />;
+}
+/** The meta line of a task: "atlas-web #40", "Draft" for a draft, else nothing. */
+export function taskMeta(item: TrackerItem) {
+  if (item.repository)
+    return `${pathBasename(item.repository)}${item.number ? ` #${item.number}` : ''}`;
+  return item.kind === 'DraftIssue' ? 'Draft' : '';
 }
 export function trackerColumns(board: TrackerBoard) {
   const options = board.statusField?.options || [];
@@ -255,19 +262,17 @@ export function TaskPullRequest({
 }
 
 /**
- * The "Start" button of a card or a row. It shows on hover and on focus, and always with
- * `always` (the first Todo card). The S key does the same.
+ * The "Start" button of a card or a row. It shows on hover and on focus, for tasks that are not
+ * done. The S key does the same.
  */
 export function TaskStartButton({
   item,
   onStart,
   tabIndex,
-  always = false,
 }: {
   item: TrackerItem;
   onStart: () => void;
   tabIndex?: number;
-  always?: boolean;
 }) {
   return (
     <Hint label="Start a chat on this task" shortcut="S">
@@ -275,7 +280,6 @@ export function TaskStartButton({
         variant="outline"
         size="xs"
         className="tracker-task-start"
-        data-always={always || undefined}
         aria-label={`Start task: ${item.title}`}
         aria-keyshortcuts="S"
         tabIndex={tabIndex}
@@ -462,10 +466,10 @@ export function TrackerList({
   const allSelected =
     !!selection && items.length > 0 && items.every((i) => selection.ids.has(i.id));
   const chatsOf = new Map(items.map((item) => [item.id, linkedChats(sessions, item.id)]));
-  const showRepository = items.some((item) => item.repository);
+  const showRepository = items.some((item) => taskMeta(item));
   const showChats = items.some((item) => chatsOf.get(item.id)?.length) || !!work.startingId;
   const options = board.statusField?.options || [];
-  const columnCount = 2 + (selection ? 1 : 0) + (showRepository ? 1 : 0) + (showChats ? 1 : 0);
+  const columnCount = 2 + (showRepository ? 1 : 0) + (showChats ? 1 : 0);
   return (
     <Table
       className="tracker-list table-fixed"
@@ -474,10 +478,11 @@ export function TrackerList({
     >
       <TableHeader>
         <TableRow className="hover:bg-transparent">
-          {selection && (
-            <TableHead className="tracker-list-check first:pl-0">
+          {/* The select boxes sit in the gutter left of the titles, so titles line up. */}
+          <TableHead className="tracker-list-title first:pl-0">
+            {selection && (
               <Checkbox
-                className="tracker-task-select"
+                className="tracker-task-select absolute top-1/2 -left-5 -translate-y-1/2"
                 aria-label="Select all tasks"
                 checked={allSelected}
                 ref={(element) => {
@@ -485,10 +490,10 @@ export function TrackerList({
                 }}
                 onChange={() => (allSelected ? selection.clear() : selection.selectAll())}
               />
-            </TableHead>
-          )}
-          <TableHead className={selection ? '' : 'first:pl-0'}>Title</TableHead>
-          {showRepository && <TableHead className="w-[18%]">Repository</TableHead>}
+            )}
+            Title
+          </TableHead>
+          {showRepository && <TableHead className="w-[22%]">Repository</TableHead>}
           {showChats && <TableHead className="w-44">Chat</TableHead>}
           <TableHead className="tracker-list-start">
             <span className="sr-only">Actions</span>
@@ -507,7 +512,7 @@ export function TrackerList({
                 <span className="flex items-center gap-2">
                   <StatusIcon name={column.name} />
                   <span className="text-sm font-semibold">{column.name}</span>
-                  <span className="text-xs text-muted-foreground">{tasks.length}</span>
+                  <Count>{tasks.length}</Count>
                 </span>
               </th>
             </TableRow>
@@ -518,7 +523,7 @@ export function TrackerList({
               return (
                 <TableRow
                   key={item.id}
-                  className="tracker-list-row h-[var(--row-height-lg)] border-b-0"
+                  className="tracker-list-row h-10 border-b-0"
                   data-state={selected ? 'selected' : undefined}
                   onKeyDown={taskKeys(item, work)}
                   onKeyUp={taskKeyUp(work)}
@@ -530,37 +535,29 @@ export function TrackerList({
                     selectionClick(event, item, selection);
                   }}
                 >
-                  {selection && (
-                    <TableCell className="tracker-list-check first:pl-0">
-                      <TaskCheckbox item={item} selection={selection} />
-                    </TableCell>
-                  )}
-                  <TableCell className={`${selection ? '' : 'first:pl-0'} whitespace-normal`}>
-                    <div className="flex min-w-0 items-baseline gap-2">
-                      <Button
-                        variant="bare"
-                        className="min-w-0 px-0 text-left font-medium whitespace-normal break-words hover:underline"
-                        data-task-focus={item.id}
-                        aria-keyshortcuts={work.onStart ? 'S' : undefined}
-                        onClick={(event) => {
-                          if (!selectionClick(event, item, selection)) onOpen(item);
-                        }}
-                      >
-                        {item.title}
-                      </Button>
-                      {item.number ? (
-                        <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
-                          #{item.number}
-                        </span>
-                      ) : null}
-                    </div>
+                  <TableCell className="tracker-list-title whitespace-normal first:pl-0">
+                    {selection && (
+                      <TaskCheckbox
+                        item={item}
+                        selection={selection}
+                        className="absolute top-1/2 -left-5 -translate-y-1/2"
+                      />
+                    )}
+                    <Button
+                      variant="bare"
+                      className="min-w-0 px-0 text-left font-medium whitespace-normal break-words hover:underline"
+                      data-task-focus={item.id}
+                      aria-keyshortcuts={work.onStart ? 'S' : undefined}
+                      onClick={(event) => {
+                        if (!selectionClick(event, item, selection)) onOpen(item);
+                      }}
+                    >
+                      {item.title}
+                    </Button>
                   </TableCell>
                   {showRepository && (
-                    <TableCell
-                      className="max-w-0 truncate text-xs text-muted-foreground"
-                      title={item.repository || undefined}
-                    >
-                      {item.repository ? pathBasename(item.repository) : ''}
+                    <TableCell className="max-w-0 truncate text-xs text-muted-foreground tabular-nums">
+                      {taskMeta(item)}
                     </TableCell>
                   )}
                   {showChats && (
@@ -581,9 +578,12 @@ export function TrackerList({
                   )}
                   <TableCell className="tracker-list-start">
                     <span className="tracker-task-actions">
-                      {work.onStart && !active && work.startingId !== item.id && (
-                        <TaskStartButton item={item} onStart={() => work.onStart?.(item)} />
-                      )}
+                      {work.onStart &&
+                        !active &&
+                        !isDoneStatus(column.name) &&
+                        work.startingId !== item.id && (
+                          <TaskStartButton item={item} onStart={() => work.onStart?.(item)} />
+                        )}
                       <TaskRowMenu
                         board={board}
                         item={item}

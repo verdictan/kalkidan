@@ -1,17 +1,27 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { useRefreshTriggers } from '../hooks/use-refresh-triggers';
 import { Button } from './ui/button';
+import { Switch } from './ui/switch';
+import { showToast } from './ui/toast';
 import type { API, RemoteHost } from '../types';
 import { errorMessage } from '../lib/errors';
 import { settingsAnchors } from '../domain/settings-route';
 import { agentProgramAnchor } from '../domain/agent-programs';
 import { useRemoteHosts } from './remote-host-picker';
 import { AddHostRow, HelperDetails, HostRow, useHelperUpdates } from './computers-settings';
-import { AgentRows, RuntimeHistory, ThisComputerRow, useRuntimeStatus } from './verdictan-settings';
+import {
+  AgentRows,
+  OrganizationSetupRow,
+  RuntimeHistory,
+  ThisComputerRow,
+  useRuntimeStatus,
+} from './verdictan-settings';
 import { SettingsDisclosure, SettingsRow } from './settings-disclosure';
 import { ComputerAgentRow } from './computer-agent';
 import { localComputer } from '../domain/verdictan';
-import { PageHeader } from './ui/page-header';
+import { PageHeader, SectionHeader } from './ui/page-header';
+
+const dayMs = 86_400_000;
 
 /** The anchor that the next Computers page should move to. `openComputers` sets it. */
 let pendingAnchor: string | undefined;
@@ -25,15 +35,53 @@ export function openComputers(anchor?: string) {
   window.dispatchEvent(new CustomEvent('kalkidan-open-computers', { detail: { anchor } }));
 }
 
-/** One group of the Computers page: a small label and one card of rows. */
+/** One group of the Computers page: a section header and flat rows with dividers. */
 function ComputersGroup({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <section className="computers-group" aria-label={label}>
-      <h2 className="computers-group-label">{label}</h2>
-      <ul className="settings-rows computers-card" aria-label={label}>
+    <section className="settings-group" aria-label={label}>
+      <SectionHeader title={label} />
+      <ul className="settings-rows" aria-label={label}>
         {children}
       </ul>
     </section>
+  );
+}
+
+/**
+ * Asks before Kalkidan quits while agent runs or shells work on SSH hosts. "Don't ask again" in
+ * the question turns it off. This switch turns it on again.
+ */
+function SshQuitRow({ api }: { api: API }) {
+  const [ask, setAsk] = useState<boolean>();
+  useEffect(() => {
+    if (typeof api.sshQuitPrompt !== 'function') return;
+    void Promise.resolve()
+      .then(() => api.sshQuitPrompt!())
+      .then(setAsk, () => {});
+  }, [api]);
+  if (ask === undefined || typeof api.setSshQuitPrompt !== 'function') return null;
+  async function choose(next: boolean) {
+    const before = ask;
+    setAsk(next);
+    try {
+      setAsk(await api.setSshQuitPrompt!(next));
+    } catch {
+      setAsk(before);
+      showToast({ message: 'Could not save the quit question setting.', tone: 'error' });
+    }
+  }
+  return (
+    <SettingsRow
+      id="ssh-quit-prompt"
+      label="Ask before quitting while SSH work runs"
+      help="Agent runs and shells on SSH hosts continue after Kalkidan quits."
+    >
+      <Switch
+        aria-label="Ask before quitting while SSH work runs"
+        checked={ask}
+        onCheckedChange={(next) => void choose(next)}
+      />
+    </SettingsRow>
   );
 }
 
@@ -134,10 +182,10 @@ export function ComputersPage({
     let tries = 0;
     const timer = setInterval(() => {
       // The runtime of a computer is in the row of that computer. The agents start at the
-      // Codex row, which has the ID of the managed setup.
+      // Codex row.
       const id =
-        focusId === settingsAnchors.agents || focusId === agentProgramAnchor('codex')
-          ? settingsAnchors.managedSetup
+        focusId === settingsAnchors.agents
+          ? agentProgramAnchor('codex')
           : focusId.replace(/^runtime-/, 'computer-');
       const element = root.current?.querySelector<HTMLElement>(`[id="${CSS.escape(id)}"]`);
       if (element || ++tries > 40) {
@@ -179,7 +227,8 @@ export function ComputersPage({
         <ComputersGroup label="This computer">
           <ThisComputerRow api={api} runtime={runtime} />
           <ComputerAgentRow api={api} open computer={localComputer} name="this computer" />
-          <AgentRows api={api} open anchor={focusId} />
+          <AgentRows api={api} open />
+          <OrganizationSetupRow api={api} open anchor={focusId} />
         </ComputersGroup>
         <ComputersGroup label="SSH hosts">
           {hosts.map((host) => (
@@ -201,6 +250,7 @@ export function ComputersPage({
               setAdded(host.id);
             }}
           />
+          <SshQuitRow api={api} />
         </ComputersGroup>
         <ProxySignIns api={api} />
         {(error || refreshError) && (
@@ -216,8 +266,9 @@ export function ComputersPage({
                 <SettingsRow
                   label="Managed agents release"
                   help={`Latest ${runtime.status.latest.version}${
-                    runtime.status.lastSuccessAt
-                      ? ` · Checked ${new Date(runtime.status.lastSuccessAt).toLocaleString()}`
+                    // A time near 0 means that no check finished yet, so it does not show.
+                    (runtime.status.lastSuccessAt || 0) > dayMs
+                      ? ` · Checked ${new Date(runtime.status.lastSuccessAt!).toLocaleString()}`
                       : ''
                   }`}
                 />

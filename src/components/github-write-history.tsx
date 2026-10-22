@@ -218,11 +218,14 @@ export function GitHubWriteHistory({
   groupId,
   board,
   onOpenTask,
+  embedded = false,
 }: {
   api: API;
   groupId: string;
   board: TrackerBoard;
   onOpenTask: (itemId: string) => void;
+  /** The page around it shows the title and the GitHub link, so leave out the section header. */
+  embedded?: boolean;
 }) {
   const [rows, setRows] = useState<GitHubMutationHistory>(),
     [busy, setBusy] = useState(false),
@@ -261,12 +264,19 @@ export function GitHubWriteHistory({
   const item = (id?: string) =>
     [...board.items, ...(board.archivedItems || [])].find((item) => item.id === id);
   return (
-    <section aria-labelledby="write-history-title">
-      <SectionHeader
-        title={<span id="write-history-title">GitHub changes</span>}
-        count={rows?.length}
-        actions={<ExternalTextLink href={board.project.url}>Open board on GitHub</ExternalTextLink>}
-      />
+    <section
+      aria-labelledby={embedded ? undefined : 'write-history-title'}
+      aria-label={embedded ? 'GitHub changes' : undefined}
+    >
+      {!embedded && (
+        <SectionHeader
+          title={<span id="write-history-title">GitHub changes</span>}
+          count={rows?.length}
+          actions={
+            <ExternalTextLink href={board.project.url}>Open board on GitHub</ExternalTextLink>
+          }
+        />
+      )}
       {!!unknown && (
         <p className="form-help">
           {uncertainWritesText(unknown)}. Check {unknown === 1 ? 'it' : 'each one'} on GitHub.

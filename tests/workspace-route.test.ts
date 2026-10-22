@@ -58,3 +58,10 @@ test('older project pages open Knowledge at their section', () => {
   );
   assert.deepEqual(restoreRoute({ kind: 'computers' }, [], [], []), { kind: 'computers' });
 });
+
+test('the Waiting for you page is a route of its own that a launch restores', () => {
+  const route: WorkspaceRoute = { kind: 'waiting' };
+  assert.equal(routeKey(route), 'waiting');
+  const saved = JSON.parse(JSON.stringify(saveableRoute(route))) as unknown;
+  assert.deepEqual(restoreRoute(saved, [], [], []), { kind: 'waiting' });
+});

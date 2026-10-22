@@ -24,10 +24,9 @@ import { plural, shortcutLabel } from '../lib/platform';
 import { interfaceConfig } from '../config/interface';
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import {
-  ChevronDown,
   Eye,
   Folder,
-  FolderPlus,
+  FolderOpen,
   Inbox,
   LayoutGrid,
   Loader2,
@@ -40,15 +39,10 @@ import { Collapsible, CollapsibleTrigger, CollapsibleContent } from './ui/collap
 import { AgentIcon } from './ui/agent-icon';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
+import { NavRow } from './ui/nav-row';
 import { showToast } from './ui/toast';
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-  DialogFooter,
-} from './ui/dialog';
+import { ConfirmDialog } from './confirm-dialog';
+import { RenameDialog } from './session-actions';
 import type { API, Project, ProjectGroup, Session, RemoteHost, TrackerItem } from '../types';
 
 const collapsedKey = 'kalkidan-collapsed-projects';
@@ -75,9 +69,11 @@ export interface PinnedView {
   id: string;
   name: string;
 }
-/** The main buttons of the visible tree rows, in order. */
+/** The main buttons of the visible nav rows and tree rows, in order. */
+const rowSelector = '.tree-row-button, .nav-row-main';
+const isRow = (element: HTMLElement) => element.matches(rowSelector);
 function treeRows(tree: HTMLElement) {
-  return [...tree.querySelectorAll<HTMLElement>('.tree-row-button')].filter(
+  return [...tree.querySelectorAll<HTMLElement>(rowSelector)].filter(
     (row) => !row.closest('[hidden]') && row.offsetParent !== null,
   );
 }
@@ -141,7 +137,7 @@ export function ProjectTree({
   onNewTaskIn?: (group: ProjectGroup) => void;
   /** Makes a new doc page in a project, from the project menu. */
   onNewPageIn?: (group: ProjectGroup) => void;
-  /** Opens the chats that wait for the user. The row shows only when one waits. */
+  /** Opens the one "Waiting for you" page. The row always shows, at the end of the nav rows. */
   onWaiting?: () => void;
   waitingCurrent?: boolean;
   /** Opens the Computers page: SSH hosts and agent programs. */
@@ -192,9 +188,8 @@ export function ProjectTree({
   onResume: (session: Session) => void;
   run: (action: () => Promise<unknown>) => Promise<void>;
 }) {
-  const [removing, setRemoving] = useState<
-    { kind: 'repository'; item: Project } | { kind: 'project'; item: ProjectGroup } | null
-  >(null);
+  const [removing, setRemoving] = useState<ProjectGroup | null>(null);
+  const [renaming, setRenaming] = useState<ProjectGroup | null>(null);
   const [reconnecting, setReconnecting] = useState('');
   // The one Add code folders dialog. The project row menu and the app open it.
   const [addFolder, setAddFolder] = useState<{
@@ -255,19 +250,16 @@ export function ProjectTree({
     groupId: string;
     tab?: ProjectSettingsTab;
     section?: 'general' | 'folders' | 'board';
-    rename?: boolean;
   } | null>(null);
   const settingsGroup = settings && groups.find((group) => group.id === settings.groupId);
-  const openSettings = (group: ProjectGroup, tab?: ProjectSettingsTab, rename = false) =>
-    setSettings({ groupId: group.id, tab, rename });
+  const openSettings = (group: ProjectGroup, tab?: ProjectSettingsTab) =>
+    setSettings({ groupId: group.id, tab });
   const latest = useRef({ groups, activeGroup });
   latest.current = { groups, activeGroup };
   useEffect(() => {
     const onOpen = (event: Event) => {
       const detail = (
-        event as CustomEvent<
-          { groupId?: string; tab?: string; section?: string; rename?: boolean } | undefined
-        >
+        event as CustomEvent<{ groupId?: string; tab?: string; section?: string } | undefined>
       ).detail;
       // An event without a project is for the project that shows.
       const id = detail?.groupId || latest.current.activeGroup;
@@ -275,15 +267,20 @@ export function ProjectTree({
       const section = (['general', 'folders', 'board'] as const).find(
         (value) => value === detail?.section,
       );
-      setSettings({
-        groupId: id,
-        tab: detail?.tab as ProjectSettingsTab | undefined,
-        section,
-        rename: !!detail?.rename,
-      });
+      setSettings({ groupId: id, tab: detail?.tab as ProjectSettingsTab | undefined, section });
+    };
+    // "Rename…" in the project header opens the same rename dialog as the sidebar row.
+    const onRename = (event: Event) => {
+      const id = (event as CustomEvent<{ groupId?: string } | undefined>).detail?.groupId;
+      const group = latest.current.groups.find((item) => item.id === id);
+      if (group) setRenaming(group);
     };
     window.addEventListener('kalkidan-open-project-settings', onOpen);
-    return () => window.removeEventListener('kalkidan-open-project-settings', onOpen);
+    window.addEventListener('kalkidan-rename-project', onRename);
+    return () => {
+      window.removeEventListener('kalkidan-open-project-settings', onOpen);
+      window.removeEventListener('kalkidan-rename-project', onRename);
+    };
   }, []);
   /** Tells the project page to load its board again. */
   const boardChanged = (groupId: string) =>
@@ -306,6 +303,8 @@ export function ProjectTree({
   function sessionRow(session: Session, kind: 'pinned' | 'recent', folder?: string) {
     const title = titleOf(session);
     const current = sameSession(activeSession, session);
+    // A new chat that has no first message yet. It stays open while the user is on other pages.
+    const draft = session.id.startsWith('draft-');
     const task = taskOf?.(session);
     const menu = chatMenus.menuFor(session);
     return (
@@ -334,13 +333,15 @@ export function ProjectTree({
             <span className="tree-icon">
               <AgentIcon agent={session.agent} className="size-3.5" />
             </span>
-            <span className="tree-label">{title}</span>
+            {/* The status dot is before the title, so the ⋯ button at the end never hides it. */}
+            <ActivityDot {...statusOf(session)} />
+            <span className={'tree-label' + (draft ? ' has-secondary' : '')}>{title}</span>
+            {draft && <span className="tree-secondary">Draft</span>}
             {task?.number && (
               <span className="tree-task-number" title={`Task #${task.number}: ${task.title}`}>
                 #{task.number}
               </span>
             )}
-            <ActivityDot {...statusOf(session)} />
           </Button>
           {/* Only … shows on hover, over the end of the title. Pin is in its menu. */}
           <ChatActionsDropdown
@@ -359,13 +360,16 @@ export function ProjectTree({
     const members = allRepos.filter((repo) => group.repoIds.includes(repo.id));
     const all = projectSessions(sessions, group, allRepos);
     const recent = all.filter((s) => !s.organization?.pinned).slice(0, recentLimit);
-    // A draft whose launch was refused or failed is not saved. It shows first, with its dot,
-    // while the app runs. It does not count as a chat of the project.
+    // A draft is not saved until its first message. It shows first while it is open, so the
+    // user can go back to its unsent text, and when its launch was refused or failed. It does
+    // not count as a chat of the project.
     const unsaved = sessions.filter((s) => {
       const outcome = draftOutcomes[activityKey(s.agent, s.id)]?.outcome;
       return (
         s.id.startsWith('draft-') &&
-        (outcome === 'refused' || outcome === 'failed') &&
+        (outcome === 'refused' ||
+          outcome === 'failed' ||
+          openChats.some((chat) => sameSession(chat.session, s))) &&
         group.repoIds.includes(sessionRepo(s, allRepos)?.id || '')
       );
     });
@@ -415,13 +419,7 @@ export function ProjectTree({
       onNewTask: () => (onNewTaskIn ? onNewTaskIn(group) : openProjectPage(group.id, 'tasks')),
       onNewPage: () => (onNewPageIn ? onNewPageIn(group) : openProjectPage(group.id, 'knowledge')),
       onAddFolder: () => showAddFolder(group),
-      onCloneFromGitHub: () =>
-        setAddFolder((current) => ({
-          groupId: group.id,
-          at: (current?.at || 0) + 1,
-          source: 'github',
-        })),
-      onRename: () => openSettings(group, 'general', true),
+      onRename: () => setRenaming(group),
       onSettings: () => openSettings(group),
       reconnect:
         host && host.status !== 'connected'
@@ -448,10 +446,9 @@ export function ProjectTree({
     }
   }
   const searching = !!query.trim();
-  const removingProjectRepos =
-    removing?.kind === 'project'
-      ? allRepos.filter((repo) => removing.item.repoIds.includes(repo.id)).length
-      : 0;
+  const removingProjectRepos = removing
+    ? allRepos.filter((repo) => removing.repoIds.includes(repo.id)).length
+    : 0;
   const treeRef = useRef<HTMLDivElement>(null);
   // The row that has the one tab stop of the tree. The arrow keys move it.
   const activeRow = useRef<HTMLElement | null>(null);
@@ -479,7 +476,7 @@ export function ProjectTree({
   }
   function onTreeKey(event: KeyboardEvent<HTMLDivElement>) {
     const target = event.target as HTMLElement;
-    if (!target.classList.contains('tree-row-button') || event.altKey || event.metaKey) return;
+    if (!isRow(target) || event.altKey || event.metaKey) return;
     const rows = treeRows(treeRef.current!);
     const index = rows.indexOf(target);
     const groupElement = target.closest<HTMLElement>('.project-group');
@@ -509,105 +506,57 @@ export function ProjectTree({
       className="project-list project-tree"
       onKeyDown={onTreeKey}
       onFocus={(event) => {
-        if ((event.target as HTMLElement).classList.contains('tree-row-button'))
-          activeRow.current = event.target as HTMLElement;
+        if (isRow(event.target as HTMLElement)) activeRow.current = event.target as HTMLElement;
       }}
     >
+      {/* The nav rows. Their order never changes: "Waiting for you" is always the last. */}
       {onNewChat && (
-        <div className="tree-row tree-top-row tree-nav-row tree-new-chat row-hover row-focus">
-          <Button variant="ghost" className={rowButton} onClick={onNewChat}>
-            <span className="tree-icon">
-              <SquarePen className="size-3.5" />
-            </span>
-            <span className="tree-label">New chat</span>
+        <NavRow
+          className="tree-new-chat"
+          icon={<SquarePen />}
+          label="New chat"
+          onClick={onNewChat}
+          actions={
             <kbd className="kbd tree-kbd" aria-hidden="true">
               {shortcutLabel(['mod'], 'N')}
             </kbd>
-          </Button>
-        </div>
-      )}
-      {onWaiting && waiting > 0 && (
-        <div
-          className={
-            'tree-row tree-top-row tree-nav-row tree-waiting-row row-hover row-focus' +
-            (waitingCurrent ? ' selected row-selected' : '')
           }
-        >
-          <Button
-            variant="ghost"
-            className={rowButton}
-            aria-current={waitingCurrent ? 'page' : undefined}
-            onClick={onWaiting}
-          >
-            <span className="tree-icon">
-              <Inbox className="size-3.5" />
-            </span>
-            <span className="tree-label">Waiting for you</span>
-            <span className="tree-count">{waiting}</span>
-          </Button>
-        </div>
+        />
       )}
-      <div
-        className={
-          'tree-row tree-top-row tree-nav-row row-hover row-focus' +
-          (overviewCurrent ? ' selected row-selected' : '')
-        }
-      >
-        <Button
-          variant="ghost"
-          className={rowButton}
-          aria-current={overviewCurrent ? 'page' : undefined}
-          onClick={onOverview}
-        >
-          <span className="tree-icon">
-            <LayoutGrid className="size-3.5" />
-          </span>
-          <span className="tree-label">Projects</span>
-        </Button>
-      </div>
+      <NavRow
+        icon={<LayoutGrid />}
+        label="Projects"
+        current={overviewCurrent}
+        onClick={onOverview}
+      />
       {onAllSessions && (
-        <div
-          className={
-            'tree-row tree-top-row tree-nav-row row-hover row-focus' +
-            (allSessionsCurrent ? ' selected row-selected' : '')
-          }
-        >
-          <Button
-            variant="ghost"
-            className={rowButton}
-            aria-current={allSessionsCurrent ? 'page' : undefined}
-            onClick={onAllSessions}
-          >
-            <span className="tree-icon">
-              <MessagesSquare className="size-3.5" />
-            </span>
-            <span className="tree-label">All chats</span>
-          </Button>
-        </div>
+        <NavRow
+          icon={<MessagesSquare />}
+          label="All chats"
+          current={allSessionsCurrent}
+          onClick={onAllSessions}
+        />
       )}
       {onComputers && (
-        <div
-          className={
-            'tree-row tree-top-row tree-nav-row row-hover row-focus' +
-            (computersCurrent ? ' selected row-selected' : '')
-          }
-        >
-          <Button
-            variant="ghost"
-            className={rowButton}
-            aria-current={computersCurrent ? 'page' : undefined}
-            onClick={onComputers}
-          >
-            <span className="tree-icon">
-              <Monitor className="size-3.5" />
-            </span>
-            <span className="tree-label">Computers</span>
-          </Button>
-        </div>
+        <NavRow
+          icon={<Monitor />}
+          label="Computers"
+          current={computersCurrent}
+          onClick={onComputers}
+        />
+      )}
+      {onWaiting && (
+        <NavRow
+          icon={<Inbox />}
+          label="Waiting for you"
+          count={waiting || undefined}
+          current={waitingCurrent}
+          onClick={onWaiting}
+        />
       )}
       {(pinned.length > 0 || views.length > 0) && (
-        <section className="tree-section pinned-sessions" aria-labelledby="tree-pinned">
-          <h2 id="tree-pinned" className="sidebar-label tree-heading">
+        <section className="pinned-sessions" aria-labelledby="tree-pinned">
+          <h2 id="tree-pinned" className="group-label tree-heading">
             Pinned
           </h2>
           {pinned.map((session) => sessionRow(session, 'pinned'))}
@@ -645,7 +594,7 @@ export function ProjectTree({
       {/* The heading always shows, so the tree does not move when a chat opens. */}
       {groups.length > 0 && (
         <div className="tree-heading tree-projects-heading">
-          <h2 className="sidebar-label">Your projects</h2>
+          <h2 className="group-label">Your projects</h2>
           <Hint label="New project" shortcut={shortcutLabel(['mod', 'shift'], 'N')}>
             <Button
               variant="ghost"
@@ -664,15 +613,22 @@ export function ProjectTree({
         const members = allRepos.filter((repo) => group.repoIds.includes(repo.id));
         const projectCurrent = activeGroup === group.id && !activeSession;
         const activeRepo = activeSession ? sessionRepo(activeSession, allRepos) : undefined;
-        // On a page of the project, or in one of its chats, the project row has a weak
-        // highlight. Only the chat row, when it shows, has the strong one.
-        const containsCurrent =
-          projectCurrent ||
-          (activeRepo
-            ? group.repoIds.includes(activeRepo.id)
-            : !activeGroup && members.some((repo) => selected === repo.id));
         const host = hosts.find((h) => h.id === group.hostId);
         const open = !collapsed.has(group.id);
+        const chatShows =
+          open &&
+          !!activeSession &&
+          projectSessions(sessions, group, allRepos)
+            .filter((s) => !s.organization?.pinned)
+            .slice(0, recentLimit)
+            .some((s) => sameSession(activeSession, s));
+        // The tree has one strong highlight. A project page, a code folder page, or a chat that
+        // does not show under the project selects the project row. A chat that shows under it
+        // selects the chat row, and the project row only gets its label in the foreground.
+        const containsCurrent = activeRepo
+          ? group.repoIds.includes(activeRepo.id)
+          : !activeGroup && members.some((repo) => selected === repo.id);
+        const rowSelected = projectCurrent || (containsCurrent && !chatShows);
         const groupState = strongestActivity(members.map((repo) => activity[repo.id]));
         const actions = projectActions(group, host);
         const folderColor = {
@@ -700,20 +656,30 @@ export function ProjectTree({
               <div
                 className={
                   'tree-row tree-top-row project-group-heading row-hover row-focus' +
-                  (containsCurrent ? ' contains-current' : '')
+                  (rowSelected
+                    ? ' selected row-selected'
+                    : containsCurrent
+                      ? ' contains-current'
+                      : '')
                 }
               >
                 <CollapsibleTrigger asChild>
                   <Button
                     variant="bare"
-                    className="tree-toggle tree-icon focus-visible:ring-0"
+                    className="tree-toggle tree-icon"
                     aria-label={`${open ? 'Collapse' : 'Expand'} ${group.name}`}
                   >
-                    <Folder
-                      className="project-folder-icon size-3.5"
-                      style={{ color: group.color ? projectColors[group.color] : undefined }}
-                    />
-                    <ChevronDown className="tree-chevron size-3.5" />
+                    {open ? (
+                      <FolderOpen
+                        className="size-4"
+                        style={{ color: group.color ? projectColors[group.color] : undefined }}
+                      />
+                    ) : (
+                      <Folder
+                        className="size-4"
+                        style={{ color: group.color ? projectColors[group.color] : undefined }}
+                      />
+                    )}
                   </Button>
                 </CollapsibleTrigger>
                 <Button
@@ -772,24 +738,11 @@ export function ProjectTree({
           </Collapsible>
         );
       })}
-      {/* The page shows the empty state. The sidebar has only one labeled button. */}
-      {!groups.length ? (
-        <Button
-          variant="outline"
-          size="sm"
-          className="tree-new-project"
-          disabled={busy}
-          onClick={() => setCreating(true)}
-        >
-          <FolderPlus />
-          New project
-        </Button>
-      ) : (
-        searching &&
+      {/* Without projects, the page shows the only "New project" action. */}
+      {searching &&
         !repos.some((repo) => groups.some((group) => group.repoIds.includes(repo.id))) && (
           <p className="tree-no-match">No matching projects or code folders.</p>
-        )
-      )}
+        )}
       {/* The dialog stays mounted, as it did when each project row had its own button. */}
       <AddRepository
         key={addFolder?.groupId}
@@ -802,49 +755,39 @@ export function ProjectTree({
         onNotice={onNotice}
       />
       {chatMenus.dialogs}
-      <Dialog open={!!removing} onOpenChange={(open) => !open && setRemoving(null)}>
-        <DialogContent size="sm">
-          <DialogHeader>
-            <DialogTitle>
-              {removing?.kind === 'project'
-                ? `Remove ${removing.item.name} from Kalkidan?`
-                : removing
-                  ? `Remove ${removing.item.name} from Kalkidan?`
-                  : ''}
-            </DialogTitle>
-            <DialogDescription>
-              {removing?.kind === 'project'
-                ? removingProjectRepos
-                  ? `Kalkidan stops showing this project and its ${removingProjectRepos === 1 ? 'code folder' : `${removingProjectRepos} code folders`}. All files stay on disk.`
-                  : 'Kalkidan stops showing this project. All files stay on disk.'
-                : 'Kalkidan stops showing this code folder. The folder, its files, and its sessions stay on disk.'}
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            {/* A remove action starts on Cancel, so a second Enter does not remove. */}
-            <Button type="button" variant="outline" autoFocus onClick={() => setRemoving(null)}>
-              Cancel
-            </Button>
-            <Button
-              type="button"
-              variant="destructive"
-              disabled={busy}
-              onClick={() =>
-                void run(async () => {
-                  if (!removing) return;
-                  if (removing.kind === 'repository') await api.remove(removing.item.id);
-                  else await api.removeGroup(removing.item.id, true);
-                  const message = `${removing.item.name} removed from Kalkidan.`;
-                  setRemoving(null);
-                  onNotice?.(message);
-                })
-              }
-            >
-              {removing?.kind === 'project' ? 'Remove project' : 'Remove from Kalkidan'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <ConfirmDialog
+        open={!!removing}
+        title="Remove project"
+        description={
+          removingProjectRepos
+            ? `Kalkidan stops showing ${removing?.name} and its ${plural(removingProjectRepos, 'code folder')}. All files stay on disk.`
+            : `Kalkidan stops showing ${removing?.name}. All files stay on disk.`
+        }
+        confirmLabel="Remove project"
+        destructive
+        busy={busy}
+        onCancel={() => setRemoving(null)}
+        onConfirm={() =>
+          void run(async () => {
+            if (!removing) return;
+            await api.removeGroup(removing.id, true);
+            setRemoving(null);
+            onNotice?.(`${removing.name} removed from Kalkidan.`);
+          })
+        }
+      />
+      <RenameDialog
+        open={!!renaming}
+        title="Rename project"
+        label="Project name"
+        value={renaming?.name || ''}
+        onOpenChange={(open) => !open && setRenaming(null)}
+        save={async (name) => {
+          if (!renaming) return;
+          await api.updateGroup(renaming.id, name);
+          await onRefresh();
+        }}
+      />
       <CreateProject
         api={api}
         open={creating}
@@ -863,7 +806,6 @@ export function ProjectTree({
           open={!!settings}
           tab={settings?.tab}
           section={settings?.section}
-          focusName={!!settings?.rename}
           onOpenChange={(open) => {
             if (open) return;
             setSettings(null);
@@ -884,8 +826,7 @@ export function ProjectTree({
               openProjectPage(settingsGroup.id, 'board');
           }}
           onAddFolder={() => showAddFolder(settingsGroup)}
-          onRemoveFolder={(repo) => setRemoving({ kind: 'repository', item: repo })}
-          onRemoveProject={() => setRemoving({ kind: 'project', item: settingsGroup })}
+          onRemoveProject={() => setRemoving(settingsGroup)}
         />
       )}
     </div>

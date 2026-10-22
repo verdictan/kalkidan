@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { ChevronDown, ChevronRight, Loader2, X } from 'lucide-react';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import type { API, ProjectGroup, TrackerBoard } from '../types';
@@ -8,6 +9,7 @@ import { docsPlanStateLabel, plural } from '../domain/planning-labels';
 import { Alert, AlertDescription } from './ui/alert';
 import { Button } from './ui/button';
 import { CheckboxRow } from './ui/checkbox';
+import { SegmentedControl } from './ui/segmented-control';
 import {
   Dialog,
   DialogBody,
@@ -139,10 +141,21 @@ async function linkDoc(
     }
 }
 
+/** The repository of most board tasks: the default for new tasks. */
+export function mainRepository(repositories: (string | undefined)[]) {
+  const counts = new Map<string, number>();
+  for (const value of repositories) if (value) counts.set(value, (counts.get(value) || 0) + 1);
+  let best = '';
+  for (const [value, count] of counts)
+    if (count > (counts.get(best) || 0) || (count === counts.get(best) && value < best))
+      best = value;
+  return best;
+}
+
 /**
- * Create tasks from a doc page: each ## heading (or each list item) becomes a task that you can
- * edit. Kalkidan adds each task to the board as a GitHub issue. With `pageId`, the dialog starts
- * with that page.
+ * Make tasks from a doc page: each ## heading (or each list item) becomes a task that you can
+ * edit. Kalkidan adds each task to the board as a GitHub issue. With `pageId`, the dialog uses
+ * that page and does not show the page choice.
  */
 export function DocsToIssuesDialog({
   api,
@@ -168,8 +181,24 @@ export function DocsToIssuesDialog({
     [error, setError] = useState(''),
     [result, setResult] = useState<DocsIssuePlanResult>(),
     [request, setRequest] = useState<DocsIssuePlan>(),
-    [byListItem, setByListItem] = useState(false);
+    [byListItem, setByListItem] = useState(false),
+    // The tasks that show their description, parent and blockers.
+    [expanded, setExpanded] = useState<number[]>([]),
+    // The page picked in the first step, while it loads.
+    [chosenId, setChosenId] = useState('');
   const pending = useRef(false);
+  // True after a pick in the page picker: its close then does not cancel the flow.
+  const picked = useRef(false);
+  useEffect(() => {
+    if (open) return;
+    picked.current = false;
+    setChosenId('');
+    // Without a given page, each opening starts with the page choice again.
+    if (!pageId) {
+      setDoc(undefined);
+      setEntries([]);
+    }
+  }, [open]);
   const form = useRef<HTMLDivElement>(null);
   const focused = useRef(false);
   const key = board ? `kalkidan-docs-issues:${group.id}:${board.project.id}` : '';
@@ -207,10 +236,9 @@ export function DocsToIssuesDialog({
         setBoard(value);
         const saved = readRequest(`kalkidan-docs-issues:${group.id}:${value.project.id}`);
         setRequest(saved);
-        const known = [
-          ...new Set(value.items.flatMap((item) => (item.repository ? [item.repository] : []))),
-        ];
-        setRepository((current) => current || (known.length === 1 ? known[0] : ''));
+        setRepository(
+          (current) => current || mainRepository(value.items.map((item) => item.repository)),
+        );
         if (!saved && pageId && doc?.id !== pageId) void choose(pageId);
       })
       .catch((failure) => {
@@ -222,11 +250,11 @@ export function DocsToIssuesDialog({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [api, group.id, open, pageId]);
 
-  // The first field to fill gets focus: the GitHub repository, or the page when there is none.
+  // The first field gets focus: the first task title, or the page choice when there is no page.
   useEffect(() => {
     if (!open || focused.current || !board || request || busy) return;
     const target = entries.length
-      ? form.current?.querySelector<HTMLElement>('[data-field="repository"] :is(button, input)')
+      ? form.current?.querySelector<HTMLElement>('[data-field="task"] input')
       : form.current?.querySelector<HTMLElement>('[data-field="page"]');
     if (!target) return;
     focused.current = true;
@@ -234,6 +262,7 @@ export function DocsToIssuesDialog({
   }, [open, board, entries.length, request, busy]);
   function splitBy(listItems: boolean) {
     setByListItem(listItems);
+    setExpanded([]);
     if (doc)
       setEntries((listItems ? splitListItems : pageTasks)(doc.markdown, doc.title || 'Untitled'));
   }
@@ -247,8 +276,9 @@ export function DocsToIssuesDialog({
     );
   const validRepository = /^[\w.-]+\/[\w.-]+$/.test(repository.trim());
 
+  /** Saves the plan as a recovery record, so "Try again" never makes a task twice. */
   function preview() {
-    if (!entries.length || !validRepository) return;
+    if (!entries.length || !validRepository) return undefined;
     setError('');
     const next: DocsIssuePlan = {
       id: crypto.randomUUID(),
@@ -266,9 +296,16 @@ export function DocsToIssuesDialog({
       localStorage.setItem(key, JSON.stringify(next));
       if (doc) localStorage.setItem(`${key}:doc`, JSON.stringify({ id: doc.id, title: doc.title }));
       setRequest(next);
+      return next;
     } catch {
       setError('Kalkidan cannot save a recovery record. Turn on local storage, then try again.');
+      return undefined;
     }
+  }
+  /** Makes the tasks in one step: save the plan, then add the tasks to the board. */
+  function create() {
+    const plan = preview();
+    if (plan) void publish(plan);
   }
   function restart() {
     try {
@@ -280,13 +317,13 @@ export function DocsToIssuesDialog({
     setRequest(undefined);
     setResult(undefined);
   }
-  async function publish() {
-    if (!request || pending.current) return;
+  async function publish(plan = request) {
+    if (!plan || pending.current) return;
     pending.current = true;
     setBusy(true);
     setError('');
     try {
-      const value = await api.trackerDocsPlan(group.id, request);
+      const value = await api.trackerDocsPlan(group.id, plan);
       setResult(value);
       const created = value.rows.filter((row) => row.state === 'complete');
       let source: { id: string; title: string } | undefined;
@@ -319,64 +356,77 @@ export function DocsToIssuesDialog({
     }
   }
   const finished = !!result?.rows.every((row) => row.state === 'complete');
+  // Opened from the Tasks page with no page yet: the page picker shows first.
+  const choosing = open && !pageId && !doc && !chosenId && !request;
+  // Why "Create tasks" cannot run. It shows in the body, under the fields.
+  const blocked = !doc
+    ? ''
+    : !entries.length
+      ? 'This page has no text to make tasks from.'
+      : !repository.trim()
+        ? 'Choose a GitHub repository.'
+        : entries.some((entry) => !entry.title.trim())
+          ? 'Give each task a title.'
+          : '';
+  const toggle = (index: number) =>
+    setExpanded((values) =>
+      values.includes(index) ? values.filter((value) => value !== index) : [...values, index],
+    );
   const state = (index: number) => result?.rows.find((row) => row.index === index)?.state;
   const readOnly = board?.writable === false;
   return (
-    <Dialog open={open} onOpenChange={(value) => !busy && onOpenChange(value)}>
-      <DialogContent
-        size="lg"
-        layout="scroll"
-        // The first empty field gets focus when the page and the board load.
-        onOpenAutoFocus={(event) => event.preventDefault()}
-      >
-        <DialogHeader>
-          <DialogTitle>Create tasks from a doc page</DialogTitle>
-          <DialogDescription>Each list item or heading becomes a task.</DialogDescription>
-        </DialogHeader>
-        <DialogBody ref={form} className="grid content-start gap-4">
-          {readOnly && (
-            <Alert size="sm">
-              <AlertDescription>
-                You can only read this board. Ask the owner for access to add tasks.
-              </AlertDescription>
-            </Alert>
-          )}
-          {!request ? (
-            <>
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <span className="min-w-0 text-sm">
-                  {doc ? (
-                    <>
-                      <span className="text-muted-foreground">Page: </span>
-                      <span className="font-medium">{doc.title || 'Untitled'}</span>
-                    </>
-                  ) : (
-                    <span className="text-muted-foreground">Choose a doc page to start.</span>
-                  )}
-                </span>
-                <Button
-                  size="sm"
-                  variant={doc ? 'ghost' : 'outline'}
-                  data-field="page"
-                  disabled={busy}
-                  onClick={() => setPicker(true)}
-                >
-                  {doc ? 'Change page' : 'Choose a page'}
-                </Button>
-              </div>
-              {doc && headings > 0 && hasListItems(doc.markdown) && (
-                <div className="docs-plan-split">
-                  <CheckboxRow
-                    label="Use the list items, not the headings"
-                    checked={byListItem}
-                    disabled={busy}
-                    onChange={(event) => splitBy(event.target.checked)}
-                  />
-                </div>
-              )}
-              {entries.length > 0 && (
-                <>
-                  <div className="planning-form-grid">
+    <>
+      <Dialog open={open && !choosing} onOpenChange={(value) => !busy && onOpenChange(value)}>
+        <DialogContent
+          size="lg"
+          layout="scroll"
+          // The first empty field gets focus when the page and the board load.
+          onOpenAutoFocus={(event) => event.preventDefault()}
+        >
+          <DialogHeader>
+            <DialogTitle>
+              {pageId ? 'Make tasks from this page' : 'Make tasks from a page'}
+            </DialogTitle>
+            <DialogDescription>
+              Each list item or heading becomes a task on the board.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogBody ref={form} className="grid content-start gap-4">
+            {readOnly && (
+              <Alert size="sm">
+                <AlertDescription>
+                  You can only read this board. Ask the owner for access to add tasks.
+                </AlertDescription>
+              </Alert>
+            )}
+            {!request ? (
+              <>
+                {/* Opened from a page: that page is the source, so there is no page choice. */}
+                {!pageId && (
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <span className="min-w-0 text-sm">
+                      {doc ? (
+                        <>
+                          <span className="text-muted-foreground">Page: </span>
+                          <span className="font-medium">{doc.title || 'Untitled'}</span>
+                        </>
+                      ) : (
+                        <span className="text-muted-foreground">Choose a doc page to start.</span>
+                      )}
+                    </span>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      data-field="page"
+                      disabled={busy}
+                      onClick={() => setPicker(true)}
+                    >
+                      {doc ? 'Change page' : 'Choose a page'}
+                    </Button>
+                  </div>
+                )}
+                {entries.length > 0 && (
+                  <>
                     <label className="form-label" data-field="repository">
                       GitHub repository
                       {repositories.length && !custom ? (
@@ -384,6 +434,7 @@ export function DocsToIssuesDialog({
                           label="GitHub repository"
                           value={repository}
                           disabled={busy}
+                          className="w-full"
                           onChange={(value) => {
                             if (value === otherRepository) {
                               setCustom(true);
@@ -409,208 +460,262 @@ export function DocsToIssuesDialog({
                         <span className="field-error">Write the repository as owner/name.</span>
                       )}
                     </label>
-                  </div>
-                  {entries.map((entry, index) => {
-                    const heading = `issue-plan-${index}`;
-                    return (
-                      <section
-                        key={index}
-                        role="group"
-                        aria-labelledby={heading}
-                        className="panel issue-plan-entry"
-                      >
-                        <SectionHeader
+                    {doc && headings > 0 && hasListItems(doc.markdown) && (
+                      <div className="docs-plan-split">
+                        <span className="form-label">Split by</span>
+                        <SegmentedControl
+                          label="Split by"
                           size="sm"
-                          as="h4"
-                          title={<span id={heading}>Task {index + 1}</span>}
-                          actions={
-                            entries.length > 1 ? (
-                              <Button
-                                size="xs"
-                                variant="ghost"
-                                disabled={busy}
-                                aria-label={`Remove task ${index + 1}`}
-                                onClick={() => setEntries(removeEntry(entries, index))}
-                              >
-                                Remove
-                              </Button>
-                            ) : undefined
-                          }
+                          value={byListItem ? 'items' : 'headings'}
+                          onChange={(value) => splitBy(value === 'items')}
+                          options={[
+                            { value: 'headings', label: 'Headings', disabled: busy },
+                            { value: 'items', label: 'List items', disabled: busy },
+                          ]}
                         />
-                        <label className="form-label">
-                          Title
-                          <Input
-                            aria-label={`Task ${index + 1} title`}
-                            maxLength={256}
-                            value={entry.title}
-                            disabled={busy}
-                            onChange={(event) => update(index, { title: event.target.value })}
-                          />
-                        </label>
-                        <label className="form-label">
-                          Description
-                          <Textarea
-                            aria-label={`Task ${index + 1} description`}
-                            maxLength={18000}
-                            rows={4}
-                            value={entry.body}
-                            disabled={busy}
-                            onChange={(event) => update(index, { body: event.target.value })}
-                          />
-                        </label>
-                        {index > 0 && (
-                          <div className="planning-form-grid">
-                            <label className="form-label">
-                              Parent task
-                              <FormSelect
-                                label="Parent task"
-                                value={entry.parent === undefined ? '' : String(entry.parent)}
+                      </div>
+                    )}
+                    <ol className="issue-plan-list" aria-label="Tasks">
+                      {entries.map((entry, index) => {
+                        const open = expanded.includes(index);
+                        const details = `issue-plan-${index}`;
+                        return (
+                          <li key={index} className="issue-plan-entry" data-field="task">
+                            <div className="issue-plan-line">
+                              <Button
+                                size="icon-xs"
+                                variant="ghost"
+                                aria-label={`More for task ${index + 1}`}
+                                aria-expanded={open}
+                                aria-controls={details}
+                                onClick={() => toggle(index)}
+                              >
+                                {open ? <ChevronDown /> : <ChevronRight />}
+                              </Button>
+                              <Input
+                                aria-label={`Task ${index + 1} title`}
+                                maxLength={256}
+                                value={entry.title}
                                 disabled={busy}
-                                onChange={(value) =>
-                                  update(index, {
-                                    parent: value === '' ? undefined : Number(value),
-                                  })
-                                }
-                                options={[
-                                  { value: '', label: 'No parent' },
-                                  ...entries.slice(0, index).map((value, i) => ({
-                                    value: String(i),
-                                    label: `${i + 1}. ${value.title}`,
-                                  })),
-                                ]}
+                                onChange={(event) => update(index, { title: event.target.value })}
                               />
-                            </label>
-                            <fieldset className="grid gap-2" disabled={busy}>
-                              <legend className="form-label mb-2">Blocked by</legend>
-                              {entries.slice(0, index).map((value, i) => (
-                                <CheckboxRow
-                                  key={i}
-                                  label={`${i + 1}. ${value.title}`}
-                                  checked={entry.blockedBy?.includes(i) || false}
-                                  onChange={(event) =>
-                                    update(index, {
-                                      blockedBy: event.target.checked
-                                        ? [...(entry.blockedBy || []), i]
-                                        : (entry.blockedBy || []).filter((id) => id !== i),
-                                    })
-                                  }
-                                />
-                              ))}
-                            </fieldset>
-                          </div>
-                        )}
-                        {board?.items.some(
-                          (item) =>
-                            item.title.trim().toLowerCase() === entry.title.trim().toLowerCase(),
-                        ) && (
-                          <Alert size="sm">
-                            <AlertDescription>
-                              A task with this title is on the board. Check it before you add
-                              another one.
-                            </AlertDescription>
-                          </Alert>
-                        )}
-                      </section>
+                              {entries.length > 1 && (
+                                <Button
+                                  size="icon-xs"
+                                  variant="ghost"
+                                  disabled={busy}
+                                  aria-label={`Remove task ${index + 1}`}
+                                  onClick={() => {
+                                    setEntries(removeEntry(entries, index));
+                                    setExpanded((values) =>
+                                      values
+                                        .filter((value) => value !== index)
+                                        .map((value) => (value > index ? value - 1 : value)),
+                                    );
+                                  }}
+                                >
+                                  <X />
+                                </Button>
+                              )}
+                            </div>
+                            {open && (
+                              <div id={details} className="issue-plan-details">
+                                <label className="form-label">
+                                  Description
+                                  <Textarea
+                                    aria-label={`Task ${index + 1} description`}
+                                    maxLength={18000}
+                                    rows={3}
+                                    value={entry.body}
+                                    disabled={busy}
+                                    onChange={(event) =>
+                                      update(index, { body: event.target.value })
+                                    }
+                                  />
+                                </label>
+                                {index > 0 && (
+                                  <div className="planning-form-grid">
+                                    <label className="form-label">
+                                      Parent task
+                                      <FormSelect
+                                        label="Parent task"
+                                        value={
+                                          entry.parent === undefined ? '' : String(entry.parent)
+                                        }
+                                        disabled={busy}
+                                        onChange={(value) =>
+                                          update(index, {
+                                            parent: value === '' ? undefined : Number(value),
+                                          })
+                                        }
+                                        options={[
+                                          { value: '', label: 'No parent' },
+                                          ...entries.slice(0, index).map((value, i) => ({
+                                            value: String(i),
+                                            label: `${i + 1}. ${value.title}`,
+                                          })),
+                                        ]}
+                                      />
+                                    </label>
+                                    <fieldset className="grid gap-2" disabled={busy}>
+                                      <legend className="form-label mb-2">Blocked by</legend>
+                                      {entries.slice(0, index).map((value, i) => (
+                                        <CheckboxRow
+                                          key={i}
+                                          label={`${i + 1}. ${value.title}`}
+                                          checked={entry.blockedBy?.includes(i) || false}
+                                          onChange={(event) =>
+                                            update(index, {
+                                              blockedBy: event.target.checked
+                                                ? [...(entry.blockedBy || []), i]
+                                                : (entry.blockedBy || []).filter((id) => id !== i),
+                                            })
+                                          }
+                                        />
+                                      ))}
+                                    </fieldset>
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                            {board?.items.some(
+                              (item) =>
+                                item.title.trim().toLowerCase() ===
+                                entry.title.trim().toLowerCase(),
+                            ) && (
+                              <p className="form-help m-0">
+                                A task with this title is on the board. Check it before you add
+                                another one.
+                              </p>
+                            )}
+                          </li>
+                        );
+                      })}
+                    </ol>
+                    <CheckboxRow
+                      label="Add the page name and version to each description"
+                      checked={reference}
+                      disabled={busy}
+                      onChange={(event) => setReference(event.target.checked)}
+                    />
+                  </>
+                )}
+                {busy && (
+                  <p className="form-help m-0 flex items-center gap-2" role="status">
+                    <Loader2 className="size-4 animate-spin" aria-hidden="true" />
+                    Reading the page…
+                  </p>
+                )}
+                {!busy && blocked && (
+                  <p className="form-help m-0" role="status">
+                    {blocked}
+                  </p>
+                )}
+              </>
+            ) : (
+              <>
+                <SectionHeader
+                  size="sm"
+                  as="h4"
+                  title={`Create ${plural(request.entries.length, 'task')} in ${request.repository}`}
+                />
+                <div className="review-list">
+                  {request.entries.map((entry, index) => {
+                    const value = state(index);
+                    return (
+                      <ReviewRow
+                        key={index}
+                        title={`${index + 1}. ${entry.title}`}
+                        meta={`${entry.parent === undefined ? 'No parent' : `Parent: task ${entry.parent + 1}`} · Blocked by: ${entry.blockedBy?.map((value) => value + 1).join(', ') || 'none'}`}
+                        status={value ? docsPlanStateLabel(value) : undefined}
+                      >
+                        <div className="prose-ui pt-1" data-size="sm">
+                          <Markdown skipHtml remarkPlugins={[remarkGfm]}>
+                            {entry.body || '_No description_'}
+                          </Markdown>
+                        </div>
+                      </ReviewRow>
                     );
                   })}
-                  <CheckboxRow
-                    label="Add the page name and version to each description"
-                    checked={reference}
-                    disabled={busy}
-                    onChange={(event) => setReference(event.target.checked)}
-                  />
-                </>
-              )}
-            </>
-          ) : (
-            <>
-              <SectionHeader
-                size="sm"
-                as="h4"
-                title={`Create ${plural(request.entries.length, 'task')} in ${request.repository}`}
-              />
-              <div className="review-list">
-                {request.entries.map((entry, index) => {
-                  const value = state(index);
-                  return (
-                    <ReviewRow
-                      key={index}
-                      title={`${index + 1}. ${entry.title}`}
-                      meta={`${entry.parent === undefined ? 'No parent' : `Parent: task ${entry.parent + 1}`} · Blocked by: ${entry.blockedBy?.map((value) => value + 1).join(', ') || 'none'}`}
-                      status={value ? docsPlanStateLabel(value) : undefined}
-                    >
-                      <div className="prose-ui pt-1" data-size="sm">
-                        <Markdown skipHtml remarkPlugins={[remarkGfm]}>
-                          {entry.body || '_No description_'}
-                        </Markdown>
-                      </div>
-                    </ReviewRow>
-                  );
-                })}
-              </div>
-              {result && !finished && (
-                <p className="form-help">
-                  Some tasks were not created. "Try again" continues. It does not create the other
-                  tasks again.
-                </p>
-              )}
-            </>
-          )}
-          <ErrorAlert>{error}</ErrorAlert>
-        </DialogBody>
-        <DialogFooter>
-          {!request ? (
-            <>
-              <Button variant="outline" disabled={busy} onClick={() => onOpenChange(false)}>
-                Cancel
-              </Button>
-              <Button
-                disabled={
-                  busy ||
-                  !doc ||
-                  board?.writable === false ||
-                  !validRepository ||
-                  !entries.length ||
-                  entries.some((entry) => !entry.title.trim())
-                }
-                onClick={preview}
-              >
-                {doc && entries.length
-                  ? `Review ${plural(entries.length, 'task')}`
-                  : 'Review tasks'}
-              </Button>
-            </>
-          ) : (
-            <>
-              <Button variant="outline" disabled={busy} onClick={restart}>
-                {result ? 'Start a new plan' : 'Back'}
-              </Button>
-              {finished ? (
-                <Button onClick={() => onOpenChange(false)}>Done</Button>
-              ) : (
-                <Button disabled={busy || board?.writable === false} onClick={() => void publish()}>
-                  {busy
-                    ? 'Creating tasks…'
-                    : result
-                      ? 'Try again'
-                      : `Create ${plural(request.entries.length, 'task')}`}
+                </div>
+                {busy && (
+                  <p className="form-help m-0 flex items-center gap-2" role="status">
+                    <Loader2 className="size-4 animate-spin" aria-hidden="true" />
+                    {`Making ${plural(request.entries.length, 'task')}…`}
+                  </p>
+                )}
+                {result && !finished && (
+                  <p className="form-help">
+                    Some tasks were not created. "Try again" continues. It does not create the other
+                    tasks again.
+                  </p>
+                )}
+              </>
+            )}
+            <ErrorAlert>{error}</ErrorAlert>
+          </DialogBody>
+          <DialogFooter>
+            {!request ? (
+              <>
+                <Button variant="outline" disabled={busy} onClick={() => onOpenChange(false)}>
+                  Cancel
                 </Button>
-              )}
-            </>
-          )}
-        </DialogFooter>
-        <DocPagePicker
-          api={api}
-          groupId={group.id}
-          open={picker}
-          onOpenChange={setPicker}
-          onPick={(value) => {
-            setPicker(false);
-            void choose(value.id);
-          }}
-          title="Choose a doc page for the tasks"
-        />
-      </DialogContent>
-    </Dialog>
+                <Button
+                  disabled={
+                    busy ||
+                    !doc ||
+                    board?.writable === false ||
+                    !validRepository ||
+                    !entries.length ||
+                    entries.some((entry) => !entry.title.trim())
+                  }
+                  onClick={create}
+                >
+                  {entries.length ? `Create ${plural(entries.length, 'task')}` : 'Create tasks'}
+                </Button>
+              </>
+            ) : (
+              <>
+                {/* Cancel before the tasks are made. Close after there are results. */}
+                {result ? (
+                  <Button variant="outline" disabled={busy} onClick={() => onOpenChange(false)}>
+                    Close
+                  </Button>
+                ) : (
+                  <Button variant="outline" disabled={busy} onClick={restart}>
+                    Cancel
+                  </Button>
+                )}
+                {!finished && (
+                  <Button
+                    disabled={busy || board?.writable === false}
+                    onClick={() => void publish()}
+                  >
+                    {result ? 'Try again' : `Create ${plural(request.entries.length, 'task')}`}
+                  </Button>
+                )}
+              </>
+            )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      {/* Without a page, the page choice opens first. Cancel there closes the whole flow. */}
+      <DocPagePicker
+        api={api}
+        groupId={group.id}
+        open={open && (picker || choosing)}
+        onOpenChange={(value) => {
+          setPicker(value);
+          if (!value && choosing && !picked.current) onOpenChange(false);
+        }}
+        onPick={(value) => {
+          picked.current = true;
+          setChosenId(value.id);
+          setPicker(false);
+          void choose(value.id);
+        }}
+        title="Choose a page for the tasks"
+      />
+    </>
   );
 }

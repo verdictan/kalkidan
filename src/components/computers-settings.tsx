@@ -17,7 +17,7 @@ import {
 import { AgentProgramsDialog } from './agent-programs';
 import { ComputerAgentRow } from './computer-agent';
 import { ConfirmDialog } from './confirm-dialog';
-import { CopyValue, SettingsRow, StatusBadge } from './settings-disclosure';
+import { CopyValue, SettingsDisclosure, SettingsRow, StatusBadge } from './settings-disclosure';
 import { Button } from './ui/button';
 import { CheckboxRow } from './ui/checkbox';
 import {
@@ -86,7 +86,9 @@ export function AddHostRow({ api, onAdded }: { api: API; onAdded: (host: RemoteH
         aria-label="Add host"
         onSubmit={(event) => void submit(event)}
       >
-        <Plus className="computers-add-icon" aria-hidden="true" />
+        <EntityIcon>
+          <Plus />
+        </EntityIcon>
         <Input
           aria-label="SSH target"
           placeholder="user@host or a name from ~/.ssh/config"
@@ -159,7 +161,12 @@ function hostHelp(host: RemoteHost, busy: string, runtime = '') {
     return helperSetupText(host.setup);
   switch (host.status) {
     case 'connected': {
-      const line = [host.target, host.platform, host.node ? `Node.js ${host.node}` : '']
+      // The target shows only when it is not the name of the row.
+      const line = [
+        host.target !== host.name ? host.target : '',
+        host.platform,
+        host.node ? `Node.js ${host.node}` : '',
+      ]
         .filter(Boolean)
         .join(' · ');
       if (!runtime) return line;
@@ -175,11 +182,10 @@ function hostHelp(host: RemoteHost, busy: string, runtime = '') {
         ? `Connection lost. Kalkidan tries again at ${new Date(host.retryAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}.`
         : 'Connection lost. Kalkidan tries again soon.';
     case 'error':
-      return host.setup?.phase === 'failed'
-        ? helperSetupText(host.setup)
-        : host.error || 'Connection failed.';
+      // One short line. The full error is in Details under the row.
+      return host.setup?.phase === 'failed' ? 'The helper setup failed.' : 'Connection failed.';
     default:
-      return host.target;
+      return host.target !== host.name ? host.target : '';
   }
 }
 
@@ -227,6 +233,14 @@ export function HostRow({
   // The runtime of a connected host shows only when it needs something or installs.
   const runtimeNeedsUser =
     ready && runtime.status && (runtimeExtraShown(runtime) || view.label.label !== 'Ready');
+  // The full reason of a failed connection, when the row does not already show it.
+  const reason =
+    host.status === 'error'
+      ? host.setup?.phase === 'failed'
+        ? helperSetupText(host.setup)
+        : host.error || ''
+      : '';
+  const details = reason && reason !== setup.error ? reason : '';
   function reconnect() {
     if (host.version) void setup.act('Connecting…', () => api.remoteConnect(host.id), 'connect');
     else void setup.guide(host);
@@ -243,7 +257,10 @@ export function HostRow({
         label={host.name}
         help={hostHelp(host, setup.busy, runtimeNeedsUser ? '' : hostRuntimeText(runtime.status))}
         extra={
-          setup.error || runtimeNeedsUser || (host.status === 'checked' && !host.version) ? (
+          setup.error ||
+          details ||
+          runtimeNeedsUser ||
+          (host.status === 'checked' && !host.version) ? (
             <div className="grid gap-2">
               {host.status === 'checked' && !host.version && !setup.busy && (
                 <div className="flex flex-wrap items-center gap-2">
@@ -268,6 +285,11 @@ export function HostRow({
                 <p role="alert" className="field-error whitespace-pre-wrap break-words">
                   {setup.error}
                 </p>
+              )}
+              {details && (
+                <SettingsDisclosure title="Details">
+                  <p className="form-help mt-0 whitespace-pre-wrap break-words">{details}</p>
+                </SettingsDisclosure>
               )}
             </div>
           ) : undefined

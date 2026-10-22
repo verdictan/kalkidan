@@ -21,12 +21,17 @@ async function appAPI(): Promise<Pick<API, 'docsMetadata'>> {
   return window.workspace || (await import('../demo')).demo;
 }
 
+/** Reads the doc pages of a project from the given API, or from the app API. */
+export async function loadDocPages(groupId: string, api?: Pick<API, 'docsMetadata'>) {
+  return (api || (await appAPI())).docsMetadata(groupId);
+}
+
 /**
  * Returns the pages in tree order, with the titles of their parent pages. The sort is the same
  * as the docs page list: order, then title. This file does not import project-docs.tsx, because
  * the docs editor imports this file.
  */
-function pageRows(pages: ProjectDocMetadata[]) {
+export function pageRows(pages: ProjectDocMetadata[]) {
   const rows: { page: ProjectDocMetadata; path: string }[] = [];
   const order = (page: ProjectDocMetadata) => page.order ?? Number.POSITIVE_INFINITY;
   const visit = (parentId: string | null, path: string[], seen: Set<string>) => {
@@ -40,6 +45,15 @@ function pageRows(pages: ProjectDocMetadata[]) {
   };
   visit(null, [], new Set());
   return rows;
+}
+
+/** The page rows whose title or parent titles contain each word of the query. */
+export function matchingPageRows(pages: ProjectDocMetadata[], query: string) {
+  const words = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  return pageRows(pages).filter(({ page, path }) => {
+    const text = (path + ' ' + page.title).toLowerCase();
+    return words.every((word) => text.includes(word));
+  });
 }
 
 /** A searchable list of the project's doc pages. Enter or a click picks a page. */
@@ -74,8 +88,7 @@ export function DocPagePicker({
     setError('');
     setQuery('');
     setActive(0);
-    (api ? Promise.resolve(api) : appAPI())
-      .then((source) => source.docsMetadata(groupId))
+    loadDocPages(groupId, api)
       .then((value) => live && setPages(value))
       .catch((e) => {
         if (!live) return;
@@ -86,13 +99,7 @@ export function DocPagePicker({
       live = false;
     };
   }, [api, groupId, open]);
-  const rows = useMemo(() => {
-    const words = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
-    return pageRows(pages || []).filter(({ page, path }) => {
-      const text = (path + ' ' + page.title).toLowerCase();
-      return words.every((word) => text.includes(word));
-    });
-  }, [pages, query]);
+  const rows = useMemo(() => matchingPageRows(pages || [], query), [pages, query]);
   const current = Math.min(active, Math.max(0, rows.length - 1));
   function pick(page: ProjectDocMetadata) {
     onPick({ id: page.id, title: page.title });
