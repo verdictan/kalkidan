@@ -122,6 +122,13 @@ import { ProjectGroups } from './project-groups';
 import { SessionLibrary } from './session-library';
 import { ChatOutcomes } from './chat-outcomes';
 import { AppPreferences, notificationKind } from './app-preferences';
+import { decideSshQuit } from './ssh-quit';
+import {
+  parseSshQuitAnswer,
+  sshDisconnectedNote,
+  sshWorkSummary,
+  type SshQuitAnswer,
+} from '../src/domain/ssh-quit';
 import { readTranscript } from './transcript';
 import { listRepositories, cloneRepository, repositoryName } from './repositories';
 import { GitHubAuth } from './github-auth';
@@ -246,6 +253,35 @@ function broadcastVerdictanChanged() {
 let verdictan: ReturnType<typeof createVerdictanServices> | undefined;
 // The user confirmed that running agents can stop. Do not ask again while the app quits.
 let stopAgentsConfirmed = false;
+// Work on SSH hosts continues without the app. The app asks once for each quit what to do with
+// it. `sshQuit` asks and stops the work when the user chooses "Stop all".
+let sshQuit: ((window?: BrowserWindow) => Promise<unknown>) | undefined;
+let sshQuitDecided = false;
+// The SSH hosts where the app knows of a shell, from an open, an attach or the last list. A shell
+// continues on its host when the connection stops.
+const sshShellHosts = new Set<string>();
+/** Keeps whether the last list of the shells of a host had a shell. */
+function seeShells(hostId: string, shells: unknown) {
+  if (!Array.isArray(shells)) return;
+  if (shells.length) sshShellHosts.add(hostId);
+  else sshShellHosts.delete(hostId);
+}
+let sshQuitPending: Promise<unknown> | undefined;
+/**
+ * Starts the question about the work on SSH hosts, when it was not answered for this quit.
+ * Returns true when the caller must wait: `then` continues the quit or the close after it.
+ */
+function deferForSshQuit(window: BrowserWindow | undefined, then: () => void) {
+  if (sshQuitDecided || !sshQuit) return false;
+  sshQuitPending ??= sshQuit(window)
+    .catch((error) => console.warn('SSH quit question failed', error))
+    .finally(() => {
+      sshQuitDecided = true;
+      sshQuitPending = undefined;
+      then();
+    });
+  return true;
+}
 /** Asks before an action stops running agents. Returns true when the action can continue. */
 function confirmStopAgents(parent?: BrowserWindow) {
   const count = chatRunner.runningCount();
@@ -266,6 +302,11 @@ function confirmStopAgents(parent?: BrowserWindow) {
 }
 app.on('before-quit', (event) => {
   if (!confirmStopAgents()) {
+    event.preventDefault();
+    return;
+  }
+  const focused = BrowserWindow.getFocusedWindow() ?? [...windows][0];
+  if (deferForSshQuit(focused, () => app.quit())) {
     event.preventDefault();
     return;
   }
@@ -1211,6 +1252,7 @@ app.whenReady().then(async () => {
       // A shell of this folder that continues on the host, and that no window owns. The newest
       // shell comes first.
       const shells = await remote.call(hostId, 'ptyList', []).catch(() => []);
+      seeShells(hostId, shells);
       const free = (Array.isArray(shells) ? shells : [])
         .filter(
           (shell: { id?: unknown; cwd?: unknown }) =>
@@ -1260,6 +1302,7 @@ app.whenReady().then(async () => {
         await startAgentTask(taskCwd, hostId, args[4], () => remote.call(hostId, method, args)),
       );
     const result = await remote.call(hostId, method, args);
+    if (method === 'ptyOpen' && result?.id) sshShellHosts.add(hostId);
     return method === 'chatStatus' ? localPolicies(taskExecutions.observe(result, hostId)) : result;
   }
   handle('remote-call', remoteHostCall);
@@ -1593,6 +1636,93 @@ app.whenReady().then(async () => {
     for (const window of windows)
       if (!window.isDestroyed()) window.webContents.send('remote-hosts-changed');
   });
+  // The question about the work on SSH hosts. A window shows it. The window answers with the ID
+  // of the question. Without a window that can show it, a system dialog asks.
+  const sshQuitAnswers = new Map<string, (answer: SshQuitAnswer | null) => void>();
+  handle('ssh-quit-answer', (value) => {
+    const answer = parseSshQuitAnswer(value);
+    if (!answer) throw new Error('Invalid answer.');
+    sshQuitAnswers.get(answer.id)?.(answer);
+  });
+  handle('ssh-quit-prompt', () => preferences.sshQuitPrompt());
+  handle('set-ssh-quit-prompt', (value) => preferences.setSshQuitPrompt(value));
+  sshQuit = (window) =>
+    decideSshQuit({
+      hosts: () =>
+        remote
+          .list()
+          .filter((host) => host.status === 'connected')
+          .map((host) => ({ id: host.id, name: host.name })),
+      call: async (hostId, method, args) => {
+        const result = await remote.call(hostId, method, args);
+        if (method === 'ptyList') seeShells(hostId, result);
+        return result;
+      },
+      // A host that is not connected now, with a run that continued on it or a known shell.
+      disconnected: () =>
+        remote
+          .list()
+          .filter(
+            (host) =>
+              host.status !== 'connected' &&
+              (remote.liveRuns(host.id).size > 0 || sshShellHosts.has(host.id)),
+          )
+          .map((host) => host.name),
+      title: (hostId, agent, sessionId) =>
+        remoteSnapshots
+          .peek(hostId)
+          ?.sessions.find((session) => session.agent === agent && session.id === sessionId)?.title,
+      asks: () => preferences.sshQuitPrompt(),
+      setAsks: (value) => preferences.setSshQuitPrompt(value),
+      askWindow: (request) => {
+        const target = [window, ...windows].find(
+          (value) => value && !value.isDestroyed() && !value.webContents.isLoading(),
+        );
+        if (!target) return Promise.resolve(null);
+        return new Promise((resolve) => {
+          const done = (answer: SshQuitAnswer | null) => {
+            sshQuitAnswers.delete(request.id);
+            target.removeListener('closed', closed);
+            resolve(answer);
+          };
+          const closed = () => done(null);
+          sshQuitAnswers.set(request.id, done);
+          target.once('closed', closed);
+          if (target.isMinimized()) target.restore();
+          target.show();
+          target.focus();
+          target.webContents.send('ssh-quit-request', request);
+        });
+      },
+      askSystem: async (request) => {
+        const detail = request.hosts
+          .map((host) =>
+            [
+              host.hostName,
+              ...[...host.runs, ...host.shells].map((item) => `  ${item.label}`),
+            ].join('\n'),
+          )
+          .join('\n');
+        // With work only on disconnected hosts, nothing can stop now.
+        const stoppable = request.hosts.length > 0;
+        const note = sshDisconnectedNote(request.disconnected);
+        const options = {
+          type: 'question' as const,
+          message: stoppable
+            ? `${sshWorkSummary(request.hosts)} continue after Kalkidan quits`
+            : 'Work may continue on SSH hosts after Kalkidan quits',
+          detail: [detail, note].filter(Boolean).join('\n\n'),
+          buttons: stoppable ? ['Keep running', 'Stop all'] : ['Keep running'],
+          defaultId: 0,
+          cancelId: 0,
+          checkboxLabel: "Don't ask again",
+        };
+        const { response, checkboxChecked } = window
+          ? await dialog.showMessageBox(window, options)
+          : await dialog.showMessageBox(options);
+        return { choice: response === 1 ? 'stop' : 'keep', dontAsk: checkboxChecked };
+      },
+    });
   handle('snapshot', async () => {
     const result = await history(codexRoot, claudeRoot);
     const remoteSessions: any[] = [];
@@ -2589,6 +2719,8 @@ app.whenReady().then(async () => {
   handle('dispatch-status', (id) => dispatch.status(id));
   handle('dispatch-cancel', (id) => dispatch.cancel(id));
   app.on('before-quit', () => {
+    // The quit waits for the question about the work on SSH hosts. It can still change.
+    if (sshQuitPending) return;
     dispatch.close();
     taskExecutions.suspend();
   });
@@ -2665,6 +2797,7 @@ app.whenReady().then(async () => {
   }
   function createWindow(session?: Session) {
     stopAgentsConfirmed = false;
+    sshQuitDecided = false;
     const window = new BrowserWindow({
       width: 1360,
       height: 900,
@@ -2706,9 +2839,13 @@ app.whenReady().then(async () => {
       // Navigation inside the app stays blocked and does not open a browser.
       if (!target.startsWith(base)) openExternalLink(target);
     });
-    // Agents stop when the last window closes. Ask first.
+    // Agents stop when the last window closes. Ask first. Then ask about the work on SSH hosts,
+    // which continues without the app.
     window.on('close', (event) => {
-      if (windows.size === 1 && !confirmStopAgents(window)) event.preventDefault();
+      if (windows.size !== 1) return;
+      if (!confirmStopAgents(window)) event.preventDefault();
+      else if (deferForSshQuit(window, () => !window.isDestroyed() && window.close()))
+        event.preventDefault();
     });
     // macOS hides the window buttons in full screen, so the title bar can use that space.
     window.on('enter-full-screen', () => window.webContents.send('full-screen', true));

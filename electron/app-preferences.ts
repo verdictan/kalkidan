@@ -10,6 +10,8 @@ interface PreferencesFile {
   /** True after the user read the data notice once. */
   dataNoticeSeen: boolean;
   notifications: NotificationPreferences;
+  /** True when the app asks before it quits while work runs on SSH hosts. */
+  sshQuitPrompt: boolean;
 }
 
 const defaults = (): PreferencesFile => ({
@@ -18,6 +20,7 @@ const defaults = (): PreferencesFile => ({
   everSignedIn: false,
   dataNoticeSeen: false,
   notifications: { finished: true, needsInput: true },
+  sshQuitPrompt: true,
 });
 
 /** The kind of a desktop notification. Each kind has its own choice in Settings. */
@@ -43,6 +46,7 @@ export class AppPreferences {
           value.welcomeDone = raw.welcomeDone === true;
           value.everSignedIn = raw.everSignedIn === true;
           value.dataNoticeSeen = raw.dataNoticeSeen === true;
+          value.sshQuitPrompt = raw.sshQuitPrompt !== false;
           const notifications = raw.notifications;
           if (notifications && typeof notifications === 'object') {
             value.notifications = {
@@ -104,6 +108,16 @@ export class AppPreferences {
     const { finished, needsInput } = input as NotificationPreferences;
     await this.save((value) => (value.notifications = { finished, needsInput }));
     return this.notifications();
+  }
+  /** True when the app asks before it quits while work runs on SSH hosts. */
+  async sshQuitPrompt() {
+    return (await this.read()).sshQuitPrompt;
+  }
+  /** "Don't ask again" sets false. The switch in Settings sets it again. */
+  async setSshQuitPrompt(input: unknown) {
+    if (typeof input !== 'boolean') throw new Error('Invalid quit question setting.');
+    await this.save((value) => (value.sshQuitPrompt = input));
+    return this.sshQuitPrompt();
   }
   /** True when the user wants notifications of this kind. */
   async allows(kind: NotificationKind) {

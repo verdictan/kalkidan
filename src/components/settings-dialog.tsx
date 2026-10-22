@@ -130,6 +130,44 @@ function PreferenceGroup({ label, children }: { label: string; children: ReactNo
   );
 }
 
+/**
+ * Asks before Kalkidan quits while agent runs or shells work on SSH hosts. "Don't ask again" in
+ * the question turns it off. This switch turns it on again.
+ */
+function SshQuitRow({ api, open }: { api: API; open: boolean }) {
+  const [ask, setAsk] = useState<boolean>();
+  useEffect(() => {
+    if (!open || typeof api.sshQuitPrompt !== 'function') return;
+    void Promise.resolve()
+      .then(() => api.sshQuitPrompt!())
+      .then(setAsk, () => {});
+  }, [api, open]);
+  if (ask === undefined || typeof api.setSshQuitPrompt !== 'function') return null;
+  async function choose(next: boolean) {
+    const before = ask;
+    setAsk(next);
+    try {
+      setAsk(await api.setSshQuitPrompt!(next));
+    } catch {
+      setAsk(before);
+      showToast({ message: 'Could not save the quit question setting.', tone: 'error' });
+    }
+  }
+  return (
+    <SettingsRow
+      id="ssh-quit-prompt"
+      label="Ask before quitting while SSH work runs"
+      help="Agent runs and shells on SSH hosts continue after Kalkidan quits."
+    >
+      <Switch
+        aria-label="Ask before quitting while SSH work runs"
+        checked={ask}
+        onCheckedChange={(next) => void choose(next)}
+      />
+    </SettingsRow>
+  );
+}
+
 /** Shows that a choice was saved, with Undo. */
 function savedToast(message: string, undo: () => void) {
   showToast({ message, actions: [{ label: 'Undo', onClick: undo }] });
@@ -221,6 +259,7 @@ function PreferenceRows({
           </Button>
         </SettingsRow>
         <GitHubRow services={services} />
+        <SshQuitRow api={api} open={open} />
       </PreferenceGroup>
       {error && <StepError>{error}</StepError>}
       <PreferenceGroup label="This app">
