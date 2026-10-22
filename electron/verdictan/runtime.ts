@@ -49,6 +49,17 @@ export class ManagedRuntimes {
   busy() {
     return this.operations.size > 0 || [...this.records.values()].some((r) => r.gateway);
   }
+  /** The number of runtimes whose release did not complete, for example without an app. */
+  releasing() {
+    return [...this.records.values()].filter((item) => item.phase === 'revocation-pending').length;
+  }
+  /** Releases again each runtime whose release did not complete. A failure stays pending. */
+  async retryReleases() {
+    const pending = [...this.records]
+      .filter(([, item]) => item.phase === 'revocation-pending')
+      .map(([sessionId]) => sessionId);
+    await Promise.all(pending.map((sessionId) => this.release(sessionId).catch(() => {})));
+  }
   private set(item: OwnedRuntime, phase: RuntimePhase) {
     item.phase = phase;
     this.options.changed?.();

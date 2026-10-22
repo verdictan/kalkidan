@@ -53,6 +53,8 @@ test('host setup installs the bundled agent and routes RPC through an SSH transp
     await chmod(join(bin, 'ssh'), 0o755);
     process.env.PATH = bin + ':' + oldPath;
     process.env.HOME = root;
+    // The helper of the test stops soon after the test.
+    process.env.KALKIDAN_HELPER_IDLE_MS = '500';
     await hosts.load();
     const host = await hosts.add('Test host', 'test-host');
     assert.equal((await hosts.check(host.id)).status, 'checked');
@@ -93,8 +95,17 @@ test('host setup installs the bundled agent and routes RPC through an SSH transp
       scan.repositories.map((repo: { name: string; branch?: string }) => [repo.name, repo.branch]),
       [['one', 'main']],
     );
+    // The helper runs apart from the SSH connection, in a private folder of the user.
+    const first = await hosts.call(host.id, 'hello', []);
+    const { lstat } = await import('node:fs/promises');
+    assert.equal((await lstat(join(root, '.kalkidan', 'run'))).mode & 0o777, 0o700);
     hosts.disconnect(host.id);
     await assert.rejects(hosts.call(host.id, 'hello', []), /offline/);
+    // The same helper answers the next connection, so its runs continue.
+    await hosts.connect(host.id);
+    assert.equal((await hosts.call(host.id, 'hello', [])).pid, first.pid);
+    assert.deepEqual(await hosts.call(host.id, 'chat-runs', []), []);
+    hosts.disconnect(host.id);
     // A failed connection keeps its reason for the UI. Reconnect clears it.
     const broken = join(root, 'broken');
     await mkdir(broken);
@@ -110,6 +121,7 @@ test('host setup installs the bundled agent and routes RPC through an SSH transp
     assert.equal(reconnected.error, undefined);
   } finally {
     hosts.close();
+    delete process.env.KALKIDAN_HELPER_IDLE_MS;
     process.env.PATH = oldPath;
     if (oldHome === undefined) delete process.env.HOME;
     else process.env.HOME = oldHome;

@@ -101,6 +101,17 @@ test('Insights and Usage history read the chats of an SSH host from the host bin
   assert.ok(f.calls.some((call) => call[0] === 'bindingRead' && call[2] === 's'));
 });
 
+test('the snapshot marks a chat whose run continues on its SSH host', async () => {
+  const f = await desktopFixture();
+  // The first read starts the host read. The next read has the sessions of the host.
+  await f.invoke('snapshot');
+  await new Promise((done) => setTimeout(done, 10));
+  const snapshot = await f.invoke('snapshot');
+  const remote = snapshot.sessions.find((session: any) => session.id === 'host::s');
+  assert.equal(remote.liveRunId, 'live-run');
+  assert.equal(snapshot.sessions.find((session: any) => session.id === 's').liveRunId, undefined);
+});
+
 test('a host connection recovers the run outcomes that the app did not see', async () => {
   const f = await desktopFixture();
   const listener = f.calls.find((call) => call[0] === 'remoteConnected')![1] as (

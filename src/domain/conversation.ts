@@ -36,6 +36,8 @@ export interface Session {
   organization?: SessionOrganization;
   /** How the latest run of this chat ended. The main process keeps it. */
   outcome?: ChatOutcome;
+  /** A run of this chat that still runs on its SSH host. The chat view attaches to it. */
+  liveRunId?: string;
   projectId?: string;
   task?: TrackerItem;
   initialPrompt?: string;
@@ -108,7 +110,17 @@ export interface ChatRun {
   activity: string;
   error?: string;
   /** `desktop.*` codes are managed agent errors. See managedErrors in verdictan.ts. */
-  errorCode?: 'session_busy' | 'transport_lost' | 'managed_launch_blocked' | `desktop.${string}`;
+  errorCode?:
+    | 'session_busy'
+    | 'transport_lost'
+    | 'unattended_limit'
+    | 'managed_launch_blocked'
+    | `desktop.${string}`;
+  /**
+   * True while the desktop has no connection to the SSH host of a run that continues there.
+   * The state is the last state that the desktop received.
+   */
+  hostDetached?: boolean;
   /** With `managed_launch_blocked`: the setup step that can remove the block. */
   managedSetup?: ManagedSetupStep;
   /** With `managed_launch_blocked`: the safe code that stopped the launch. */

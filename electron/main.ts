@@ -1279,11 +1279,14 @@ app.whenReady().then(async () => {
     for (const host of connected) {
       const cached = remoteSnapshots.read(host.id, () => remote.call(host.id, 'snapshot', []));
       if (cached.value) {
+        // A run that continues on the host marks its chat, so the chat view attaches to it.
+        const live = remote.liveRuns(host.id);
         remoteSessions.push(
           ...cached.value.sessions.map((session: any) => ({
             ...session,
             id: host.id + '::' + session.id,
             hostId: host.id,
+            ...(live.has(session.id) ? { liveRunId: live.get(session.id) } : {}),
           })),
         );
         warnings.push(...cached.value.warnings.map((warning) => host.name + ': ' + warning));

@@ -198,15 +198,20 @@ test('SSH lifecycle handles install failures, corrupt envelopes, RPC errors, tim
   rejected = assert.rejects(pending, /broken/);
   children.at(-1).emit('error', Error('broken'));
   await rejected;
-  const interrupted = await hosts.call(host.id, 'chatStatus', ['run']);
-  assert.equal(interrupted.status, 'failed');
-  assert.equal(interrupted.errorCode, 'transport_lost');
-  assert.equal(interrupted.messages[0].text, 'Saved output');
-  assert.equal(interrupted.requests[0].status, 'expired');
-  assert.equal(interrupted.approvals[0].status, 'expired');
-  await assert.rejects(hosts.call(host.id, 'chatRespond', ['run', 'q', {}]), /expired/);
-  await assert.rejects(hosts.call(host.id, 'chatApprove', ['run', 'a', true]), /expired/);
-  await hosts.call(host.id, 'chatStop', ['run']);
+  // The run continues on the host. The app keeps its last state and waits for the host.
+  const detached = await hosts.call(host.id, 'chatStatus', ['run']);
+  assert.equal(detached.status, 'running');
+  assert.equal(detached.hostDetached, true);
+  assert.equal(detached.errorCode, undefined);
+  assert.equal(detached.messages[0].text, 'Saved output');
+  assert.equal(detached.requests[0].status, 'pending');
+  assert.equal(detached.approvals[0].status, 'pending');
+  for (const [method, args] of [
+    ['chatRespond', ['run', 'q', {}]],
+    ['chatApprove', ['run', 'a', true]],
+    ['chatStop', ['run']],
+  ] as const)
+    await assert.rejects(hosts.call(host.id, method, [...args]), /continues on the SSH host/);
   await assert.rejects(hosts.call(host.id, 'operation', []), /offline/);
   mode = 'normal';
   await hosts.connect(host.id);

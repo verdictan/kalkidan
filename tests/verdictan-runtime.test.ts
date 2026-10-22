@@ -191,9 +191,14 @@ test('revocation failure stays unconfirmed and permits only explicit retry', asy
   f.fail('runtime.revoke');
   await assert.rejects(f.owner.revoke(id), /transport_lost/);
   assert.equal(f.owner.status()[0].phase, 'revocation-pending');
+  // A helper without the app keeps the release, and retries it when the app connects.
+  assert.equal(f.owner.releasing(), 1);
+  await f.owner.retryReleases();
+  assert.equal(f.owner.status()[0].phase, 'revocation-pending');
   f.fail();
-  await f.owner.revoke(id);
-  assert.equal(f.owner.status()[0].phase, 'revoked');
+  await f.owner.retryReleases();
+  assert.equal(f.owner.releasing(), 0);
+  assert.equal(f.owner.status().length, 0);
 });
 test('shutdown invalidates in-flight provisioning and prevents late supervisor startup', async () => {
   const f = fixture();

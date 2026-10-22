@@ -198,6 +198,7 @@ export async function desktopFixture(platform = 'linux', failure = '') {
     connectSaved = asyncRecord('remoteAutoConnect');
     hosts = hosts;
     list = () => hosts;
+    liveRuns = () => new Map([['s', 'live-run']]);
     busy = () => false;
     add = asyncRecord('remoteAdd');
     check = asyncRecord('remoteCheck');

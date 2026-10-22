@@ -22,6 +22,7 @@ export type ChatFailureReason =
   | 'session_busy'
   | 'timeout'
   | 'transport_lost'
+  | 'unattended_limit'
   | `desktop.${string}`;
 export const chatFailureReasons: readonly ChatFailureReason[] = [
   'agent_error',
@@ -31,6 +32,7 @@ export const chatFailureReasons: readonly ChatFailureReason[] = [
   'session_busy',
   'timeout',
   'transport_lost',
+  'unattended_limit',
 ];
 export interface ChatOutcome {
   outcome: ChatOutcomeKind;
@@ -63,7 +65,8 @@ export function safeOutcomeReason(outcome: ChatOutcomeKind, reason: unknown) {
 /** The safe failure reason of a failed run. It reads codes first, then known error forms. */
 export function failureReason(run: Pick<ChatRun, 'error' | 'errorCode'>): ChatFailureReason {
   const code = run.errorCode;
-  if (code === 'transport_lost' || code === 'session_busy') return code;
+  if (code === 'transport_lost' || code === 'session_busy' || code === 'unattended_limit')
+    return code;
   if (code && managedCode.test(code)) return code as `desktop.${string}`;
   const text = typeof run.error === 'string' ? run.error : '';
   if (/stopped after an earlier refusal|requires a new evaluation/i.test(text))
@@ -106,6 +109,7 @@ const failureWords: Record<Exclude<ChatFailureReason, `desktop.${string}`>, stri
   session_busy: 'A different app has this chat open.',
   timeout: 'The agent did not respond in time.',
   transport_lost: 'The connection to the computer stopped.',
+  unattended_limit: 'The run stopped on the SSH host because no app was connected for too long.',
 };
 
 /** Plain words for a failed or refused outcome, for the tooltip of the status dot. */
