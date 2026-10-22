@@ -72,6 +72,14 @@ export interface GatewayOptions {
    */
   agentLoginChecked?: boolean;
 }
+/**
+ * The Codex model provider IDs of the managed routes. The `-c` arguments define the provider,
+ * and the app-server `thread/start` request must name the same ID.
+ */
+export const codexProviders = {
+  byok: 'verdictan',
+  codex_subscription: 'verdictan_subscription',
+} as const;
 /** The correlation of one agent turn, for the desktop headers of a gateway request. */
 export interface TurnCorrelation {
   hostId: string;
@@ -594,28 +602,32 @@ export class ManagedGateway {
         .join(',') +
       '}';
     if (mode === 'codex_subscription') {
+      const provider = codexProviders.codex_subscription;
       return {
         address: this.address!,
+        modelProvider: provider,
         args: [
           '-c',
-          'model_provider="verdictan_subscription"',
+          `model_provider="${provider}"`,
           '-c',
           'features.apps=false',
           '-c',
-          `model_providers.verdictan_subscription={name="Verdictan subscription",base_url=${JSON.stringify(this.address + '/backend-api/codex')},wire_api="responses",requires_openai_auth=true,supports_websockets=false,request_max_retries=0,stream_max_retries=0,http_headers=${tomlHeaders},env_http_headers={"X-Gateway-Key"="KALKIDAN_INFERENCE_CREDENTIAL"}}`,
+          `model_providers.${provider}={name="Verdictan subscription",base_url=${JSON.stringify(this.address + '/backend-api/codex')},wire_api="responses",requires_openai_auth=true,supports_websockets=false,request_max_retries=0,stream_max_retries=0,http_headers=${tomlHeaders},env_http_headers={"X-Gateway-Key"="KALKIDAN_INFERENCE_CREDENTIAL"}}`,
         ],
         env: {
           KALKIDAN_INFERENCE_CREDENTIAL: this.credentials.inference_credential,
         } as NodeJS.ProcessEnv,
       };
     }
+    const provider = codexProviders.byok;
     return {
       address: this.address!,
+      modelProvider: provider,
       args: [
         '-c',
-        'model_provider="verdictan"',
+        `model_provider="${provider}"`,
         '-c',
-        `model_providers.verdictan={name="Verdictan",base_url=${JSON.stringify(this.address + '/v1')},env_key="OPENAI_API_KEY",wire_api="responses",request_max_retries=0,stream_max_retries=0,http_headers=${tomlHeaders}}`,
+        `model_providers.${provider}={name="Verdictan",base_url=${JSON.stringify(this.address + '/v1')},env_key="OPENAI_API_KEY",wire_api="responses",request_max_retries=0,stream_max_retries=0,http_headers=${tomlHeaders}}`,
       ],
       env: { OPENAI_API_KEY: this.credentials.inference_credential } as NodeJS.ProcessEnv,
     };

@@ -20,6 +20,11 @@ export interface ManagedLaunch {
   args: string[];
   env: NodeJS.ProcessEnv;
   model: string;
+  /**
+   * The Codex model provider ID that the managed arguments define. The app-server
+   * `thread/start` request names it. Missing for Claude Code.
+   */
+  modelProvider?: string;
   bindNativeSession(id: string): Promise<void>;
   redact(text: string): string;
   finish(): Promise<void>;

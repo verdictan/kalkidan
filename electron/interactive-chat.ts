@@ -372,7 +372,8 @@ export class InteractiveChatRunner {
           cwd: run.session.cwd,
           ...(this.internal ? { ephemeral: true } : {}),
           ...(model ? { model } : {}),
-          ...(run.managed ? { modelProvider: 'verdictan' } : {}),
+          // The provider that the managed arguments define. A subscription has its own ID.
+          ...(run.managed?.modelProvider ? { modelProvider: run.managed.modelProvider } : {}),
           // The managed launcher applies the OS boundary to the whole agent tree.
           // A second native sandbox cannot be nested on macOS or Linux.
           sandbox: run.managed

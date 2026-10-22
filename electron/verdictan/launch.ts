@@ -410,6 +410,7 @@ export class VerdictanLaunchService {
         env,
         launched: scrub,
         model: binding.model,
+        ...(route.modelProvider ? { modelProvider: route.modelProvider } : {}),
         bindNativeSession: (id) => this.store.save(kind, id, binding),
         observe: (state) => {
           observed = state;
