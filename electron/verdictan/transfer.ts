@@ -2,7 +2,7 @@ import { randomUUID, type KeyObject } from 'node:crypto';
 import { createReadStream } from 'node:fs';
 import { mkdtemp, open, rm, type FileHandle } from 'node:fs/promises';
 import { join } from 'node:path';
-import type { ComponentUpdateStatus } from '../../src/domain/updates';
+import type { ComponentUpdateStatus, RuntimeTransferProgress } from '../../src/domain/updates';
 import { discoverRuntime } from '../updates/runtime-feed';
 import { downloadRuntime } from './download';
 import type { RuntimeInstaller } from './install';
@@ -74,7 +74,8 @@ export async function transferRuntime(options: {
   now?: () => number;
   key?: KeyObject;
   signal?: AbortSignal;
-  progress?(sent: number, total: number): void;
+  /** Called at each step, and as bytes move in the download and in the copy. */
+  progress?(update: RuntimeTransferProgress): void;
 }): Promise<ComponentUpdateStatus> {
   const { host } = options;
   const request = options.request ?? fetch;
@@ -93,6 +94,9 @@ export async function transferRuntime(options: {
     request,
   });
   const signal = options.signal ?? AbortSignal.timeout(30 * 60000);
+  const totalBytes = release.artifact.size;
+  const report = (phase: RuntimeTransferProgress['phase'], bytes: number) =>
+    options.progress?.({ phase, bytes, totalBytes });
   const folder = await mkdtemp(join(options.directory, 'kalkidan-runtime-copy-'));
   let id: string | undefined;
   try {
@@ -103,10 +107,12 @@ export async function transferRuntime(options: {
       archive,
       releaseDownloadOrigins,
       signal,
-      () => {},
+      (bytes) => report('downloading', bytes),
       request,
     );
+    report('verifying', totalBytes);
     await verifySignedFile(archive, release.archiveSignature, key);
+    report('copying', 0);
     const begin = await options.call('begin', [discovered, encode(release.files)]);
     id = typeof begin?.id === 'string' ? begin.id : undefined;
     const chunkBytes = begin?.chunkBytes;
@@ -122,8 +128,9 @@ export async function transferRuntime(options: {
       signal.throwIfAborted();
       await options.call('chunk', [id, offset, (chunk as Buffer).toString('base64')]);
       offset += chunk.length;
-      options.progress?.(offset, release.artifact.size);
+      report('copying', offset);
     }
+    report('installing', totalBytes);
     const status = await options.call('commit', [id]);
     id = undefined;
     return status;

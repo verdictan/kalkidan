@@ -62,6 +62,16 @@ export interface ComponentUpdateStatus {
    * verify the release, and copy it to the host over the SSH connection.
    */
   canTransfer?: boolean;
+  /** The progress of a copy from this computer to the SSH host, while the copy runs. */
+  transfer?: RuntimeTransferProgress;
+}
+/** The steps of a copy of the runtime from this computer to an SSH host. */
+export interface RuntimeTransferProgress {
+  phase: 'downloading' | 'verifying' | 'copying' | 'installing';
+  /** Bytes done in this step. */
+  bytes: number;
+  /** Bytes of the runtime archive. */
+  totalBytes: number;
 }
 export interface UpdatesAPI {
   /** The version and build of the running Kalkidan app. */

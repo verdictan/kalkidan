@@ -80,6 +80,7 @@ import {
 } from 'electron';
 import { chromiumFetch, withReleaseErrors } from './verdictan/network';
 import { transferRuntime } from './verdictan/transfer';
+import type { RuntimeTransferProgress } from '../src/domain/updates';
 import { NetworkWatcher, recoverConnections } from './platform-events';
 import { LocalData } from './storage/local-data';
 import { localDataCheckIntervalMs } from '../src/domain/data-policy';
@@ -609,17 +610,23 @@ app.whenReady().then(async () => {
       broadcastVerdictanChanged();
     }
   });
+  // The progress of each copy of the runtime to an SSH host. Status reads of the host add it.
+  const transferProgress = new Map<string, RuntimeTransferProgress>();
   for (const action of ['status', 'check', 'install', 'cancel'] as const) {
     handle(`runtime-update-${action}`, async (hostId?: string) => {
       if (hostId && hostId !== 'local') {
         if (typeof hostId !== 'string' || !remote.list().some((host) => host.id === hostId))
           throw new Error('Remote host not found.');
-        return remote.call(hostId, 'runtime-update', [
+        const status = await remote.call(hostId, 'runtime-update', [
           action,
           app.getVersion(),
           hostId,
           verdictan!.region,
         ]);
+        const copy = transferProgress.get(hostId);
+        return copy && status && typeof status === 'object'
+          ? { ...status, transfer: copy }
+          : status;
       }
       if (action === 'status') return verdictan!.installer.check();
       if (action === 'check') return verdictan!.installer.check(true);
@@ -634,6 +641,8 @@ app.whenReady().then(async () => {
     if (typeof hostId !== 'string' || !remote.list().some((host) => host.id === hostId))
       throw new Error('Remote host not found.');
     if (transfers.has(hostId)) throw new Error('A copy to this host is in progress.');
+    let notified = 0;
+    let lastPhase = '';
     const task = (async () => {
       const hello = await remote.call(hostId, 'hello', []);
       if (typeof hello?.systemVersion !== 'string')
@@ -643,6 +652,16 @@ app.whenReady().then(async () => {
         desktopVersion: app.getVersion(),
         directory: app.getPath('temp'),
         request: releaseRequest,
+        progress: (update) => {
+          transferProgress.set(hostId, update);
+          // Settings reads the status again. Send at most four updates each second.
+          const now = Date.now();
+          if (update.phase !== lastPhase || now - notified >= 250) {
+            lastPhase = update.phase;
+            notified = now;
+            broadcastVerdictanChanged();
+          }
+        },
         call: (operation, args) =>
           remote.call(hostId, 'runtime-transfer', [
             operation,
@@ -658,6 +677,8 @@ app.whenReady().then(async () => {
       return await task;
     } finally {
       transfers.delete(hostId);
+      transferProgress.delete(hostId);
+      broadcastVerdictanChanged();
     }
   });
   if (!app.isPackaged && existsSync(appIcon)) app.dock?.setIcon(appIcon);

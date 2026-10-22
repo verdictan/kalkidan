@@ -70,6 +70,7 @@ async function fixture(t: any) {
     return receiver.abort(a);
   };
   const desktopRequests: string[] = [];
+  const progress: { phase: string; bytes: number; totalBytes: number }[] = [];
   const send = (
     call: (operation: any, args: unknown[]) => Promise<any> = helper,
     request: typeof fetch = release.request,
@@ -86,6 +87,7 @@ async function fixture(t: any) {
       now: () => release.options.now * 1000,
       key: testKeys.publicKey,
       call,
+      progress: (update) => progress.push(update),
     });
   const leftovers = async () => [
     ...(await readdir(hostRoot).catch(() => [] as string[])).filter((name) =>
@@ -102,6 +104,7 @@ async function fixture(t: any) {
     calls,
     leftovers,
     desktopRequests,
+    progress,
     hostRequests: () => hostRequests,
   };
 }
@@ -114,6 +117,13 @@ test('a host without internet gets a verified runtime copy over SSH and verifies
   assert.equal(checked.canTransfer, true, 'Settings offers the copy');
   const status = await f.send();
   assert.deepEqual(f.calls, ['begin', 'chunk', 'commit']);
+  // Settings shows each step, and the bytes of the download and of the copy.
+  const size = f.release.discovered().size;
+  const phases = f.progress.map((update) => update.phase);
+  assert.deepEqual([...new Set(phases)], ['downloading', 'verifying', 'copying', 'installing']);
+  assert.ok(f.progress.every((update) => update.totalBytes === size));
+  assert.deepEqual(f.progress.at(-2), { phase: 'copying', bytes: size, totalBytes: size });
+  assert.ok(f.progress.some((update) => update.phase === 'downloading' && update.bytes === size));
   assert.equal(status.installing, true, 'the host installs after the reply');
   const installed = await f.installer.install();
   assert.equal(installed.installed?.version, '0.2.1');

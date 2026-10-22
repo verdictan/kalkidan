@@ -464,7 +464,18 @@ test('the runtime copy reaches only a known SSH host and uses its helper', async
   const f = await desktopFixture();
   await assert.rejects(f.invoke('runtime-update-transfer', 'unknown'), /not found/);
   await assert.rejects(f.invoke('runtime-update-transfer', 42), /not found/);
+  let during: any;
+  (f.state as any).duringCopy = async () => {
+    during = await f.invoke('runtime-update-status', 'host');
+  };
+  const before = f.calls.filter((call) => call[0] === 'send' && call[1] === 'verdictan-changed');
   assert.deepEqual(await f.invoke('runtime-update-transfer', 'host'), { hostId: 'copied' });
+  // While the copy runs, the status of the host has its progress. It goes away after the copy.
+  assert.deepEqual(during.transfer, { phase: 'copying', bytes: 5, totalBytes: 10 });
+  assert.equal((await f.invoke('runtime-update-status', 'host')).transfer, undefined);
+  // Settings reads the status again when the copy moves on, and when it ends.
+  const after = f.calls.filter((call) => call[0] === 'send' && call[1] === 'verdictan-changed');
+  assert.ok(after.length >= before.length + 2);
   assert.deepEqual(f.calls.find((call) => call[0] === 'runtimeTransfer')?.[1], {
     platform: 'linux',
     arch: 'x64',

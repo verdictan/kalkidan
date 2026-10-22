@@ -378,6 +378,8 @@ export async function desktopFixture(platform = 'linux', failure = '') {
   stub('verdictan/transfer', {
     transferRuntime: async (options: any) => {
       calls.push(['runtimeTransfer', options.host, options.desktopVersion]);
+      options.progress?.({ phase: 'copying', bytes: 5, totalBytes: 10 });
+      await (state as any).duringCopy?.();
       await options.call('begin', ['discovered', 'files']);
       return { hostId: 'copied' };
     },

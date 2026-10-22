@@ -193,7 +193,9 @@ try {
       directory: tmpdir(),
       call: (operation, args) =>
         call('runtime-transfer', [operation, desktopVersion, hostId, null, ...args], 120000),
-      progress: (bytes) => (sent = bytes),
+      progress: (update) => {
+        if (update.phase === 'copying') sent = update.bytes;
+      },
     });
     record(
       'this computer verifies the release and copies it over the helper connection',
