@@ -198,6 +198,7 @@ export async function desktopFixture(platform = 'linux', failure = '') {
     remove = asyncRecord('remoteRemove');
     close = record('remoteClose');
     onRunEnded = record('remoteRunEnded');
+    onConnected = record('remoteConnected');
     agentInstallations = asyncRecord('remoteAgentInstallations');
     chooseAgentExecutable = asyncRecord('remoteAgentChoice');
     call = async (host: string, method: string, args: any[]) => {
