@@ -39,8 +39,10 @@ test('runtime discovery finds the newest published archive and its size', async 
     if (url === latest) return new Response('', { status: 404 });
     pages++;
     assert.equal(new URL(url).searchParams.get('page'), String(pages));
+    // A page of 100 releases is more than the 4 MiB limit, so a page has 30 releases.
+    assert.equal(new URL(url).searchParams.get('per_page'), '30');
     return new Response(
-      JSON.stringify(pages === 1 ? Array(100).fill({ tag_name: 'kalkidan-v0.1.0' }) : [row]),
+      JSON.stringify(pages === 1 ? Array(30).fill({ tag_name: 'kalkidan-v0.1.0' }) : [row]),
     );
   }) as typeof fetch;
   assert.equal((await discoverRuntime('darwin', 'arm64', paginated))?.version, '0.3.0');
