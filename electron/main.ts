@@ -24,6 +24,9 @@ import { ProjectCreation } from './operations/create-project';
 import { PublishOperations, publishEffects } from './operations/publish';
 import { createHash } from 'node:crypto';
 import { RemoteSnapshotCache } from './remote-snapshot-cache';
+import { PolicyReviews } from './verdictan/policy-review';
+import { PolicyResults } from './policy-results';
+import { remotePolicyRecords } from '../src/domain/policy-result';
 import { createVerdictanServices } from './verdictan/service';
 import { spawn } from 'node:child_process';
 import { appMenuTemplate } from './app-menu';
@@ -142,8 +145,14 @@ const previews = new Map<BrowserWindow, AnnotationBrowser>();
 const chatOutcomes = new ChatOutcomes(join(dataRoot, 'chat-outcomes.json'));
 // First-run state and notification choices. They stay in the data folder.
 const preferences = new AppPreferences(join(dataRoot, 'preferences.json'));
-const keepOutcome = (run: Parameters<ChatOutcomes['finished']>[0]) =>
+// The policy results of each chat. They stay after a restart.
+const policyResults = new PolicyResults(join(dataRoot, 'policy-results.json'));
+const keepOutcome = (run: Parameters<ChatOutcomes['finished']>[0]) => {
   void chatOutcomes.finished(run).catch((error) => console.warn('Chat outcome not saved', error));
+  void policyResults
+    .finished(run)
+    .catch((error) => console.warn('Chat policy results not saved', error));
+};
 const chatRunner = createAgentRuntimes(async (request) => {
   if (!verdictan) throw new DesktopProtocolError('desktop.runtime_starting');
   request.session.governanceScope = await resolveManagedScope(
@@ -577,6 +586,26 @@ app.whenReady().then(async () => {
     if (!region) throw new DesktopProtocolError('desktop.region_required');
     await shell.openExternal(verdictanAccountPageUrl(verdictanRegion(region).consoleOrigin, page));
   });
+  // The renderer sends a request ID and a region only. The service reads and checks the link.
+  const policyReviews = new PolicyReviews({
+    client: () => verdictan!.account.runtimeClient(),
+    region: () => verdictan!.region,
+    openExternal: (url) => shell.openExternal(url),
+  });
+  // The saved policy results of a chat. A remote chat ID has the form `<hostId>::<provider ID>`.
+  handle('chat-policy-results', (agent, id, hostId) =>
+    policyResults.list(
+      agent,
+      typeof hostId === 'string' && typeof id === 'string' && !id.includes('::')
+        ? `${hostId}::${id}`
+        : id,
+    ),
+  );
+  handle('verdictan-review-inspect', (id, region) => policyReviews.inspect(id, region));
+  handle('verdictan-review-open', (id, region) => policyReviews.open(id, region));
+  handle('verdictan-review-decide', (id, region, decision, reason, revision) =>
+    policyReviews.decide(id, region, decision, reason, revision),
+  );
   handle('verdictan-apply-recommended', () =>
     verdictan!.setup.applyRecommended(async (agent) =>
       (await modelOptions(agent, codexRoot)).map((model) => model.id),
@@ -811,6 +840,9 @@ app.whenReady().then(async () => {
     return localData.delete(kind);
   });
   await chatOutcomes.load().catch((error) => console.warn('Chat outcomes not loaded', error));
+  await policyResults
+    .load()
+    .catch((error) => console.warn('Chat policy results not loaded', error));
   try {
     await sessionLibrary.load();
   } catch (error: any) {
@@ -938,7 +970,15 @@ app.whenReady().then(async () => {
       verdictan!.remoteBroker.request(hostId, operation, parameters),
   );
   await remote.load();
-  remote.onRunEnded(keepOutcome);
+  // A remote run uses the account of this desktop. Its policy results get the region of this
+  // desktop and keep only the safe fields.
+  const localPolicies = <T>(run: T): T => {
+    if (!run || typeof run !== 'object' || !('policies' in run)) return run;
+    const { policies, ...rest } = run as { policies?: unknown };
+    const safe = remotePolicyRecords(policies, verdictan?.region);
+    return (safe ? { ...rest, policies: safe } : rest) as T;
+  };
+  remote.onRunEnded((run) => keepOutcome({ ...run, state: localPolicies(run.state) }));
   // A host checks its managed runtime as soon as it connects, so a newer signed release
   // installs without a chat or a visit to Settings. The check is the same status call that a
   // chat start makes. A host with no region yet, or no runtime, only reports its status.
@@ -1054,9 +1094,11 @@ app.whenReady().then(async () => {
     }
     if (taskCwd) args[6] = await resolveManagedScope(taskCwd, args[4]?.taskId, hostId);
     if (taskCwd)
-      return startAgentTask(taskCwd, hostId, args[4], () => remote.call(hostId, method, args));
+      return localPolicies(
+        await startAgentTask(taskCwd, hostId, args[4], () => remote.call(hostId, method, args)),
+      );
     const result = await remote.call(hostId, method, args);
-    return method === 'chatStatus' ? taskExecutions.observe(result, hostId) : result;
+    return method === 'chatStatus' ? localPolicies(taskExecutions.observe(result, hostId)) : result;
   }
   handle('remote-call', remoteHostCall);
   const github = new GitHubProjects(

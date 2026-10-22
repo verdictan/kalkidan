@@ -146,10 +146,12 @@ test('a refused version uses the managed-only format and links to Settings › A
       anchor: 'settings-agents',
       label: 'Open agent settings',
     });
-    // The same code in a chat error opens Settings › Agents.
+    // The same code in a chat error opens the row of that agent on the Computers page.
+    const agent = code.includes('claude') ? 'claude' : 'codex';
     assert.deepEqual(agentErrorMessage(error).action, {
       label: 'Open agent settings',
       section: 'agents',
+      anchor: `agent-program-local-${agent}`,
       kind: 'settings',
     });
   }

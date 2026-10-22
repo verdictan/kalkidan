@@ -100,7 +100,7 @@ test('dragging a task syncs its status and a failed write keeps the original col
 });
 
 for (const outcome of ['completed', 'failed', 'stopped']) {
-  test(`linked task ${outcome}: starts In progress and completion requires explicit review`, async ({
+  test(`linked task ${outcome}: starts In progress and only a finished run offers Mark task done`, async ({
     page,
   }) => {
     await page.addInitScript(
@@ -174,10 +174,11 @@ for (const outcome of ['completed', 'failed', 'stopped']) {
     await page.getByRole('button', { name: 'Send', exact: true }).click();
     await expect(page.getByText('Response ended', { exact: true })).toBeVisible();
     expect(await page.evaluate(() => (window as any).writes)).toEqual(['progress']);
-    // The run does not complete the task. The user marks it done from the changes row.
-    const changes = page.getByRole('group', { name: 'Changes from this chat', exact: true });
-    const done = changes.getByRole('button', { name: 'Mark task done', exact: true });
-    await expect(done).toBeVisible();
+    // The run does not complete the task. After a finished run the user marks it done from the
+    // changes row. A failed or stopped run does not offer "Mark task done".
+    const done = page.getByRole('button', { name: 'Mark task done', exact: true });
+    if (outcome === 'completed') await expect(done).toBeVisible();
+    else await expect(done).toHaveCount(0);
     await expect(page.getByText('Task marked Done.', { exact: true })).toHaveCount(0);
     expect(await page.evaluate(() => (window as any).writes)).toEqual(['progress']);
     if (outcome === 'completed') {

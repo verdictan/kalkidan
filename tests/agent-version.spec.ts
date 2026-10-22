@@ -104,7 +104,8 @@ test('a Claude Code version below the minimum refuses the send and links to the 
   // The Computers page opens with the agent rows.
   const settings = computersPage(page);
   await expect(settings).toBeVisible();
-  await expect(settings.getByRole('group', { name: 'Claude Code', exact: true })).toContainText(
-    'Needs update',
-  );
+  const claude = settings.getByRole('group', { name: 'Claude Code', exact: true });
+  await expect(claude).toContainText('Needs update');
+  // The focus moves to the row of the agent in the message.
+  await expect(page.locator('#agent-program-local-claude')).toBeFocused();
 });

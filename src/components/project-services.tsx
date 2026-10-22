@@ -434,7 +434,9 @@ export function ProjectServicesPanel({
                   {kind === 'context' && (
                     <p className="text-sm whitespace-pre-wrap">{text(row.content)}</p>
                   )}
+                  {/* The server checks the reviewer. The UI hides what the user cannot do. */}
                   {kind === 'reviews' &&
+                    allowed('review.decide') &&
                     ['pending', 'queued', 'claimed'].includes(text(row.status)) &&
                     (!row.reviewer_id || row.reviewer_id === result?.actor_id) && (
                       <div className="review-row-actions">
@@ -443,7 +445,7 @@ export function ProjectServicesPanel({
                             key={decision}
                             size="xs"
                             variant="outline"
-                            disabled={busy || !reason.trim() || !allowed('review.decide')}
+                            disabled={busy || !reason.trim()}
                             onClick={() =>
                               review(
                                 'review.decide',

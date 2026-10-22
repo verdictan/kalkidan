@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { writeJSON } from '../storage/atomic-json';
+import { consoleOrigins } from '../../src/domain/policy-result';
 
 export type VerdictanRegion = 'eu' | 'us';
 /**
@@ -12,12 +13,12 @@ export type VerdictanRegion = 'eu' | 'us';
 const regions = {
   eu: {
     apiOrigin: 'https://api.eu.verdictan.com',
-    consoleOrigin: 'https://console.eu.verdictan.com',
+    consoleOrigin: consoleOrigins.eu,
     profile: 'kalkidan-eu',
   },
   us: {
     apiOrigin: 'https://api.us.verdictan.com',
-    consoleOrigin: 'https://console.us.verdictan.com',
+    consoleOrigin: consoleOrigins.us,
     profile: 'kalkidan-us',
   },
 } as const;
