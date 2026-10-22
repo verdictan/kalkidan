@@ -6,7 +6,13 @@ import type {
 import { projectServicePermissions } from '../../src/domain/project-services';
 import { keychainRefusedCode, serviceName } from '../../src/domain/verdictan';
 import { protocolSupported, runtimeCompatibility } from '../../src/domain/compatibility';
-import { DesktopClient, DesktopProtocolError } from './protocol';
+import {
+  DesktopClient,
+  DesktopProtocolError,
+  secureStorageOperations,
+  secureStorageWaitingEvent,
+  type DesktopOperation,
+} from './protocol';
 
 export interface DesktopAccountOptions {
   apiOrigin: string;
@@ -16,6 +22,11 @@ export interface DesktopAccountOptions {
   changed?(): void;
   /** The clock, for tests. */
   now?(): number;
+  /**
+   * True when a slow keychain write can mean an open keychain prompt, as on macOS. Some CLI
+   * versions send no waiting event for these writes.
+   */
+  keychainPrompts?: boolean;
 }
 /** One backend owner serves every window. The CLI owns account secrets and PKCE. */
 /** How long a launch waits for a running status check or session renewal. */
@@ -35,6 +46,8 @@ const sessionEndedCodes = new Set([
 ]);
 /** The longest time that a timer can wait. A longer wait starts the timer again. */
 const maxTimerMs = 2 ** 31 - 1;
+/** A keychain write without a result after this time can wait for a keychain prompt. */
+export const keychainHintMs = 5_000;
 
 export class VerdictanAccountService {
   private state: VerdictanStatus = { phase: 'missing', executionReady: false };
@@ -53,6 +66,8 @@ export class VerdictanAccountService {
    * again, because each start shows the keychain prompt again. Only a user action clears it.
    */
   private keychainRefused = false;
+  /** The requests that wait for keychain access now. */
+  private keychainWaits = 0;
   private canceling?: Promise<void>;
   private now: () => number;
   constructor(private options: DesktopAccountOptions) {
@@ -64,7 +79,9 @@ export class VerdictanAccountService {
     }
   }
   status() {
-    return structuredClone(this.state);
+    const status = structuredClone(this.state);
+    if (this.keychainWaits) status.keychainWaiting = true;
+    return status;
   }
   private set(next: VerdictanStatus) {
     this.state = next;
@@ -172,12 +189,49 @@ export class VerdictanAccountService {
       throw error;
     };
     const watched: DesktopClient = {
-      request: (...args) => client.request(...args).catch(refused),
+      request: (operation, parameters, progress) => {
+        const wait = this.keychainWait(operation);
+        return client
+          .request(operation, parameters, (event) => {
+            if (event.event === secureStorageWaitingEvent) wait.start();
+            progress?.(event);
+          })
+          .catch(refused)
+          .finally(wait.end);
+      },
       exportRuntime: (runtimeId) => client.exportRuntime(runtimeId).catch(refused),
       close: (code) => client.close(code),
       onClose: (listener) => client.onClose(listener),
     };
     return watched;
+  }
+  /**
+   * Counts one request while it waits for keychain access. The UI then asks the person to
+   * answer the keychain prompt. The waiting event of the CLI starts the wait. Without it, a
+   * keychain write that is slow also starts it, where the system shows keychain prompts.
+   */
+  private keychainWait(operation: DesktopOperation) {
+    let waiting = false;
+    let ended = false;
+    const start = () => {
+      if (waiting || ended) return;
+      waiting = true;
+      if (this.keychainWaits++ === 0) this.options.changed?.();
+    };
+    const hint =
+      (this.options.keychainPrompts ?? process.platform === 'darwin') &&
+      secureStorageOperations.has(operation)
+        ? setTimeout(start, keychainHintMs)
+        : undefined;
+    hint?.unref?.();
+    return {
+      start,
+      end: () => {
+        ended = true;
+        clearTimeout(hint);
+        if (waiting && --this.keychainWaits === 0) this.options.changed?.();
+      },
+    };
   }
   private refuseKeychain(client: DesktopClient) {
     if (this.disposed || this.client !== client) return;
@@ -208,6 +262,14 @@ export class VerdictanAccountService {
     }
     if (this.disposed || this.operation)
       throw new DesktopProtocolError('desktop.operation_in_progress');
+    // After a lost or broken connection, check the account again. The UI then shows the state
+    // of the new connection, and a failed check gives the real reason. After a refused
+    // keychain prompt, only a user action starts the runtime again.
+    if (this.state.phase === 'error' && !this.keychainRefused) {
+      const checked = await this.check();
+      if (checked.phase === 'error')
+        throw new DesktopProtocolError(checked.error || 'desktop.operation_failed');
+    }
     const client = await this.connection();
     if (!client) throw new DesktopProtocolError('desktop.runtime_missing');
     return client;
@@ -276,6 +338,8 @@ export class VerdictanAccountService {
         authorization: undefined,
       });
       await client.request('authorization.start', { intent }, (event) => {
+        // A keychain wait is also progress. Only the start of the sign-in has the link.
+        if (event.event !== 'authorization.started') return;
         const url = event.data.authorization_url;
         if (typeof url !== 'string') throw new Error('Missing authorization URL.');
         const parsed = new URL(url);

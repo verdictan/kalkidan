@@ -50,7 +50,10 @@ Do these steps as a new user would. Record a screenshot of each dialog.
 3. Select **Set up later**. Make sure that Settings › Computers shows the managed agents runtime as
    installed, or shows its install progress.
 4. Sign in to Verdictan. Make sure that the system browser opens and that the sign-in completes.
-5. macOS: make sure that the keychain dialog names Kalkidan or Verdictan. Allow access.
+5. macOS: make sure that the keychain dialog names Kalkidan or Verdictan. Wait 1 minute before
+   you allow access. Make sure that the chat or Settings › Computers shows "Waiting for Keychain
+   access on this computer". Allow access. Make sure that the account stays signed in and that
+   the chat starts.
 6. Start a chat with a managed agent. Make sure that the policy and usage of the request show.
 7. Turn off the network. Make sure that Kalkidan shows a clear error and does not stop.
 8. Put the computer to sleep for 20 minutes. Wake it. Make sure that the chat and the SSH hosts

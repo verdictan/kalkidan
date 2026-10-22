@@ -48,7 +48,7 @@ test('each refusal code has its own words, step and retry rule', () => {
   const blocked = managedRefusal('desktop.readiness_blocked', where);
   assert.equal(
     blocked.message,
-    'The managed gateway on build-box is not ready. Try again in a moment. If it continues, check Settings › Accounts.',
+    'The managed gateway on build-box is not ready. Try again in a moment. If it continues, check Settings › Computers.',
   );
   assert.equal(blocked.step, 'status');
   assert.equal(blocked.retry, true);

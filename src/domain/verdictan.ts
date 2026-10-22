@@ -44,6 +44,8 @@ export interface VerdictanStatus {
   remoteRevocationPending?: boolean;
   /** The SSH hosts that still have no keychain access after Check status. Names only. */
   keychainHosts?: string[];
+  /** True while a request waits for keychain access, for example for a macOS prompt. */
+  keychainWaiting?: boolean;
   /** Account authentication alone does not authorize agent dispatch. */
   executionReady: boolean;
   /**
@@ -1010,7 +1012,7 @@ export const managedErrors: Record<string, ManagedErrorInfo> = {
 };
 // Codes for a lost or failed connection. The same action can work a second time.
 const connectionCodes =
-  /^desktop\.(transport_\w+|gateway_\w+|process_failed|credential_\w+|readiness_\w+|evidence_\w+|events_\w+|snapshot_\w+)$/;
+  /^desktop\.(transport_\w+|gateway_\w+|process_failed|protocol_invalid|credential_\w+|readiness_\w+|evidence_\w+|events_\w+|snapshot_\w+)$/;
 /** Returns the managed agent code in an error message, or nothing. */
 export function managedErrorCode(text: unknown) {
   return typeof text === 'string' ? text.match(/\bdesktop\.[a-z_]{1,100}\b/)?.[0] : undefined;
@@ -1239,7 +1241,11 @@ const launchBlocks: Record<string, [ManagedSetupStep, string]> = {
     `Update the Verdictan runtime to ${recommendedRuntime()} or later on the machine where work runs.`,
   ],
   'desktop.protocol_unsupported': ['runtime', runtimeRepair],
-  'desktop.protocol_invalid': ['runtime', runtimeRepair],
+  // The runtime is installed, but its connection sent a reply that Kalkidan did not expect.
+  'desktop.protocol_invalid': [
+    'status',
+    'The connection to the Verdictan runtime stopped. Try again.',
+  ],
   'desktop.operation_unsupported': ['runtime', runtimeRepair],
   'desktop.process_failed': ['runtime', runtimeRepair],
   'desktop.gateway_protocol_invalid': ['runtime', runtimeRepair],
@@ -1338,6 +1344,7 @@ const transientRefusals = new Set([
   'desktop.connection_limit',
   'desktop.transport_closed',
   'desktop.transport_lost',
+  'desktop.protocol_invalid',
 ]);
 // Codes of a gateway or check that did not become ready. A second try can fix them. The status
 // in Settings shows more.
@@ -1355,6 +1362,9 @@ const statusRefusals = new Set([
   'desktop.secure_storage_unavailable',
 ]);
 export const keychainRefusedCode = 'desktop.secure_storage_unavailable';
+/** The words while a request waits for the person to answer a keychain prompt. */
+export const keychainWaitingMessage =
+  'Waiting for Keychain access on this computer. Allow access in the macOS dialog.';
 /** The words for SSH hosts that still have no keychain access after Check status. */
 export function keychainHostsMessage(names: string[]) {
   const hosts = names.join(', ');
@@ -1426,12 +1436,12 @@ function refusalWords(
     case 'desktop.agent_version_unsupported':
       return `Kalkidan cannot confirm the agent version on ${where}. ${supportedAgent}`;
     case 'desktop.readiness_blocked':
-      return `The managed gateway on ${where} is not ready. Try again in a moment. If it continues, check Settings › Accounts.`;
+      return `The managed gateway on ${where} is not ready. Try again in a moment. If it continues, check Settings › Computers.`;
     case 'desktop.evidence_unavailable':
-      return `The managed gateway on ${where} did not send its status. Try again in a moment. If it continues, check Settings › Accounts.`;
+      return `The managed gateway on ${where} did not send its status. Try again in a moment. If it continues, check Settings › Computers.`;
     case 'desktop.readiness_failed':
     case 'desktop.readiness_required':
-      return `The managed agents check on ${where} did not pass. Check the status in Settings › Accounts, then try again.`;
+      return `The managed agents check on ${where} did not pass. Check the status in Settings › Computers, then try again.`;
     case 'desktop.event_buffer_full':
       return `The event buffer on ${where} is full. New requests stop until Verdictan receives the stored events. Check the network connection of ${where}, then try again.`;
     case 'desktop.clock_skew':

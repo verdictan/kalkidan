@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { writeFileSync } from 'node:fs';
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
@@ -118,6 +119,17 @@ export class DiagnosticsJournal {
       durationMs: Math.round(durationMs),
     });
     this.sample('broker_request_ms', durationMs);
+  }
+  /** A gateway or supervisor step failed. `detail` is already redacted. */
+  gatewayFailure(operation: string, outcome: string, detail?: string) {
+    this.correlation({
+      kind: 'gateway',
+      id: randomUUID(),
+      operation,
+      outcome,
+      at: new Date(this.now()).toISOString(),
+      ...(detail ? { detail } : {}),
+    });
   }
   /** The broker connection closed. A loss starts the recovery time. */
   connectionClosed(code: string) {
