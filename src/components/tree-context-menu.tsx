@@ -1,4 +1,5 @@
 import {
+  ChartColumn,
   Check,
   FilePlus2,
   FolderPlus,
@@ -135,6 +136,8 @@ export interface ProjectMenuHandlers {
   /** Opens the one Add code folder dialog. It has the Local and Clone from GitHub sources. */
   onAddFolder(): void;
   onRename(): void;
+  /** Opens the Usage sheet of the project: agent runs and their cost. */
+  onUsage?(): void;
   onSettings(): void;
   /** Shows "Reconnect to host" for a remote project whose host is not connected. */
   reconnect?: { host: string; disabled?: boolean; run(): void };
@@ -143,7 +146,7 @@ export interface ProjectMenuHandlers {
 
 /**
  * The items of the one project menu, in this order: New chat, New task, New page — Add code
- * folder — Rename, Color — Project settings. Give the color choice to the menu as
+ * folder — Rename, Color — Usage, Project settings. Give the color choice to the menu as
  * `folderColor`. The Color submenu then shows after "Rename".
  */
 export function projectMenuActions(handlers: ProjectMenuHandlers): TreeAction[] {
@@ -176,11 +179,22 @@ export function projectMenuActions(handlers: ProjectMenuHandlers): TreeAction[] 
       disabled: handlers.busy,
       action: handlers.onRename,
     },
+    ...(handlers.onUsage
+      ? [
+          {
+            label: 'Usage…',
+            icon: icon(ChartColumn),
+            separator: true,
+            colorBefore: true,
+            action: handlers.onUsage,
+          },
+        ]
+      : []),
     {
       label: 'Project settings…',
       icon: icon(Settings2),
-      separator: true,
-      colorBefore: true,
+      separator: !handlers.onUsage,
+      colorBefore: !handlers.onUsage,
       action: handlers.onSettings,
     },
   ];

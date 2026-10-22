@@ -1,15 +1,20 @@
-import { test, expect, openAccountMenuItem } from './helpers/app';
+import { test, expect, openSettingsWindow } from './helpers/app';
 
-test('Diagnostics shows versions and a redacted bundle preview before export', async ({ page }) => {
+test('Diagnostics opens from Settings and shows a redacted bundle preview before export', async ({
+  page,
+}) => {
   await page.goto('/');
-  await openAccountMenuItem(page, 'Diagnostics');
+  // The support bundle opens from Settings › General. The account menu has no Diagnostics item.
+  const settings = await openSettingsWindow(page, 'General');
+  await settings
+    .getByRole('group', { name: 'Diagnostics', exact: true })
+    .getByRole('button', { name: 'Support bundle…' })
+    .click();
   const dialog = page.getByRole('dialog', { name: 'Diagnostics', exact: true });
-  await expect(dialog.getByTestId('diagnostics-runtime-local')).toContainText('Version 0.6.9');
-  // The demo host runs 0.6.6, which is older than the support window.
-  await expect(dialog.getByTestId('diagnostics-runtime-demo-host')).toContainText(
-    /0\.6\.6 .*(deprecated|stopped)/,
-  );
+  // The versions are on the rows of Settings › Computers now, so Diagnostics has no version
+  // list and no connection list.
   await expect(dialog.getByRole('group', { name: 'Telemetry is off' })).toBeVisible();
+  await expect(dialog.getByRole('region', { name: /Versions|Connection/ })).toHaveCount(0);
   const exportButton = dialog.getByRole('button', { name: 'Export…' });
   await expect(exportButton).toBeDisabled();
   await dialog.getByRole('button', { name: 'Preview', exact: true }).click();

@@ -10,12 +10,11 @@ test('repository overview omits tasks while the project Board page retains them'
     .getByRole('navigation', { name: 'Project page' })
     .getByRole('button', { name: 'Tasks', exact: true })
     .click();
+  // The Tasks tab lists the boards on the page; one click connects a board.
   await page
     .getByRole('region', { name: 'Project tracker' })
-    .getByRole('button', { name: 'Connect board', exact: true })
+    .getByRole('button', { name: 'Connect Atlas roadmap #1', exact: true })
     .click();
-  await page.getByRole('button', { name: 'Atlas roadmap #1', exact: true }).click();
-  await page.getByRole('button', { name: 'Connect board', exact: true }).click();
   await expect(page.getByRole('region', { name: 'Tracker board', exact: true })).toBeVisible();
   await openCodeFolder(page, 'atlas-web');
   await expect(page.getByRole('region', { name: 'Repository project tasks' })).toHaveCount(0);

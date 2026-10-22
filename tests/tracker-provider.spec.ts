@@ -1,14 +1,18 @@
 import { type Page } from '@playwright/test';
 import { test, expect } from './helpers/app';
 
-/** Opens Project settings from the "Project actions" menu of the project header. */
+/**
+ * Opens the project section of Settings from the "Project actions" menu of the project header,
+ * and returns the Settings window.
+ */
 async function openProjectSettings(page: Page) {
   await page.locator('.project-header').getByRole('button', { name: 'Project actions' }).click();
   await page.getByRole('menuitem', { name: 'Project settings…', exact: true }).click();
+  return page.getByRole('dialog', { name: 'Settings', exact: true });
 }
-/** Refreshes the board from the board menu. */
+/** Refreshes the board from the board menu (the board name button). */
 async function refreshBoard(page: Page) {
-  await page.getByRole('button', { name: 'Board actions', exact: true }).click();
+  await page.getByRole('button', { name: /^Board: /, exact: true }).click();
   await page.getByRole('menuitem', { name: /^Refresh/ }).click();
 }
 
@@ -72,11 +76,8 @@ test('a configured non-GitHub provider drives project creation and a read-only b
     };
   });
   await page.goto('/');
-  // The empty overview offers a code folder first and an empty project second.
-  await page
-    .getByRole('main')
-    .getByRole('button', { name: 'New empty project', exact: true })
-    .click();
+  // The empty Projects page has New project in its header.
+  await page.getByRole('main').getByRole('button', { name: 'New project', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: 'New project', exact: true });
   await dialog.getByLabel('Project name', { exact: true }).fill('Platform');
   await dialog.getByRole('button', { name: 'More options', exact: true }).click();
@@ -106,15 +107,16 @@ test('project workflow mappings can be configured and reopened', async ({ page }
     .getByRole('navigation', { name: 'Project page', exact: true })
     .getByRole('button', { name: 'Tasks', exact: true })
     .click();
-  await page.getByRole('button', { name: 'Connect board', exact: true }).click();
-  const connect = page.getByRole('dialog');
-  await connect.getByRole('button', { name: 'Atlas roadmap #1', exact: true }).click();
-  await connect.getByRole('button', { name: 'Connect board', exact: true }).click();
+  // The Tasks tab lists the boards on the page; one click connects a board.
+  await page.getByRole('button', { name: 'Connect Atlas roadmap #1', exact: true }).click();
   await expect(page.getByRole('region', { name: 'Tracker board', exact: true })).toBeVisible();
-  // Automatic status changes are a part of Project settings › Board. A choice saves at once.
-  await openProjectSettings(page);
-  const workflow = page.getByRole('dialog', { name: 'Project settings: Atlas', exact: true });
-  await workflow.getByRole('tab', { name: 'Board', exact: true }).click();
+  // Automatic status changes are a part of the Board group of the project section of
+  // Settings. A choice saves at once.
+  const workflow = await openProjectSettings(page);
+  await expect(workflow.getByRole('tab', { name: 'Atlas', exact: true })).toHaveAttribute(
+    'aria-selected',
+    'true',
+  );
   const changes = workflow.getByRole('list', { name: 'Automatic status changes' });
   // A step with no saved status and no status of the default name does not move the task.
   const opened = changes.getByRole('combobox', { name: 'When a pull request opens' });
@@ -126,7 +128,6 @@ test('project workflow mappings can be configured and reopened', async ({ page }
   await expect(workflow).not.toBeVisible();
   // Reopened, the section shows the saved choice.
   await openProjectSettings(page);
-  await workflow.getByRole('tab', { name: 'Board', exact: true }).click();
   await expect(changes.getByRole('combobox', { name: 'When a pull request opens' })).toContainText(
     'In progress',
   );

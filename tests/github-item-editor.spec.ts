@@ -76,17 +76,20 @@ test('GitHub inspector edits fields, retains a failed draft, and restores archiv
     .click();
   await page.getByRole('button', { name: 'Plan work', exact: true }).click();
   const dialog = page.getByRole('dialog');
-  // The GitHub fields are in the collapsed Details part of the task sheet.
-  await dialog.getByRole('button', { name: 'Details', exact: true }).click();
-  const estimate = dialog.getByRole('spinbutton', { name: 'Estimate', exact: true });
+  // The GitHub fields are pills under the title. "Set a field" sets an empty field.
+  await dialog.getByRole('button', { name: 'Set a field', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Estimate…', exact: true }).click();
+  const estimate = page
+    .getByRole('dialog', { name: 'Estimate', exact: true })
+    .getByRole('spinbutton', { name: 'Estimate', exact: true });
   // Fields save on Enter. A failed write keeps the value, so Enter tries again.
   await estimate.fill('5');
   await estimate.press('Enter');
-  await expect(dialog.getByRole('alert')).toContainText('Permission changed');
+  await expect(page.getByRole('alert')).toContainText('Permission changed');
   await expect(estimate).toHaveValue('5');
   await estimate.press('Enter');
-  await expect(dialog.getByRole('alert')).toHaveCount(0);
-  await expect(dialog.getByRole('status').filter({ hasText: 'Saved' })).toBeVisible();
+  await expect(estimate).toHaveCount(0);
+  await expect(dialog.getByRole('button', { name: 'Estimate: 5', exact: true })).toBeVisible();
   const actions = dialog.getByRole('button', { name: 'Task actions', exact: true });
   await actions.click();
   await page.getByRole('menuitem', { name: 'Archive item', exact: true }).click();
@@ -100,9 +103,8 @@ test('GitHub inspector edits fields, retains a failed draft, and restores archiv
   await expect(page.getByRole('menu')).toHaveCount(0);
   await dialog.getByRole('button', { name: 'Close task', exact: true }).click();
   await expect(dialog).toHaveCount(0);
-  // The board menu tells how many tasks the user cannot see.
-  await page.getByRole('button', { name: 'Board actions', exact: true }).click();
-  await expect(page.getByRole('menu')).toContainText('Roadmap #1 · 1 hidden');
+  // The board health line tells how many tasks the user cannot see.
+  await expect(page.getByRole('toolbar', { name: 'Task tools' })).toContainText('1 hidden');
   expect(await page.evaluate(() => (window as any).calls)).toEqual([
     ['g', 'I', 'estimate', { number: 5 }],
     ['g', 'I', 'estimate', { number: 5 }],

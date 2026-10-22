@@ -1,34 +1,39 @@
 import { GitHubViewLayout, SavedViewFilterChip } from './github-view-layout';
 import { SavedViewsMenu, openSavedView, useSavedViews } from './github-saved-views';
 import type { SavedProjectView } from '../domain/github-resources';
-import { TrackerRoadmap } from './tracker-roadmap';
-import { GitHubItemEditor, ItemActionsMenu } from './github-item-editor';
+import type { TrackerField } from '../domain/tracker';
+import { FieldPills, GitHubItemEditor, ItemActionsMenu, fieldChoices } from './github-item-editor';
 import { useProjectBoard } from '../hooks/use-project-board';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import { Popover } from 'radix-ui';
 import {
   Archive,
-  ArrowRightLeft,
   ArrowUpRight,
-  CalendarRange,
-  CircleCheck,
+  ChartNoAxesColumn,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
-  FileStack,
+  CircleCheck,
+  Columns3,
+  FileText,
+  Folder,
   FolderPlus,
   GitBranch,
   GitPullRequest,
-  ListFilter,
-  Link2,
+  Layers2,
+  List,
+  LoaderCircle,
   Lock,
+  Megaphone,
   MessageSquare,
   PenLine,
   Play,
+  Plus,
+  RefreshCw,
+  Search,
   SearchX,
   Settings,
-  ShieldCheck,
-  SquareCheck,
   TriangleAlert,
   X,
 } from 'lucide-react';
@@ -38,7 +43,8 @@ import { useTracker } from '../hooks/use-tracker';
 import { sessionRepo } from '../lib/session-repository';
 import { pathBasename, plural } from '../lib/platform';
 import { relativeTime } from '../lib/relative-time';
-import { TrackerBoard } from './tracker-board';
+import { cn } from '../lib/utils';
+import { TrackerBoard, itemUrl } from './tracker-board';
 import {
   StatusIcon,
   TrackerList,
@@ -57,12 +63,12 @@ import {
   type PlanningTool,
   type TaskFilter,
 } from './planning-tools';
-import {
-  UncertainWritesPopover,
-  uncertainWritesText,
-  useUncertainWriteRows,
-} from './github-write-history';
+import { UncertainWritesChip, useUncertainWriteRows } from './github-write-history';
 import { checkWritesEvent } from './planning-kit';
+import { BoardHealthLine, ProjectHealth } from './project-health';
+import { useTaskUsage } from './task-usage-history';
+import { safeWave, startTasksInWaves } from './parallel-dispatch';
+import { setFieldOnTasks } from './project-batch';
 import {
   ActivityDot,
   activityKey,
@@ -73,10 +79,8 @@ import { projectColors } from '../domain/project-colors';
 import { EmptyState } from './ui/empty-state';
 import { EntityIcon } from './ui/entity-icon';
 import { PageHeader } from './ui/page-header';
-import { SegmentedControl } from './ui/segmented-control';
 import { Radio } from './ui/checkbox';
-import { MoreButton } from './ui/more-button';
-import { menuShortcutClass } from './ui/menu-styles';
+import { menuCollisionPadding, menuContentClass, menuShortcutClass } from './ui/menu-styles';
 import { showToast } from './ui/toast';
 import {
   useEffect,
@@ -85,19 +89,8 @@ import {
   useCallback,
   useMemo,
   type ComponentProps,
-  type KeyboardEvent,
   type ReactElement,
 } from 'react';
-import {
-  Columns3,
-  FileText,
-  Folder,
-  Layers2,
-  List,
-  LoaderCircle,
-  RefreshCw,
-  Plus,
-} from 'lucide-react';
 import { Hint } from './hint';
 import { DocPagePicker } from './doc-page-picker';
 import { Button } from './ui/button';
@@ -110,6 +103,9 @@ import {
   DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from './ui/dropdown-menu';
 import {
@@ -120,9 +116,6 @@ import {
 import { Textarea } from './ui/textarea';
 import { Badge } from './ui/badge';
 import { Tag } from './ui/tag';
-import { CountBadge } from './ui/count';
-import { StatusDot } from './ui/status-dot';
-import { PropertyRow } from './github-content-editor';
 import { Alert, AlertDescription } from './ui/alert';
 import {
   Dialog,
@@ -133,7 +126,7 @@ import {
   DialogDescription,
   DialogFooter,
 } from './ui/dialog';
-import { ConnectBoardDialog } from './tracker-project-picker';
+import { ConnectBoardPanel } from './tracker-project-picker';
 import { Choice } from './choice';
 import type { API, ProjectGroup, Project, TrackerItem, Agent, Session } from '../types';
 import { errorMessage } from '../lib/errors';
@@ -155,8 +148,6 @@ const defaultFilters: TrackerFilters = {
 // The tracker shows "Authorize access" only for errors about sign-in or permissions.
 const authErrorPattern =
   /\bauth|sign in|log in|login|not accessible|no longer accessible|access|token|permission|forbidden|unauthori[sz]ed|\b40[13]\b/i;
-// The filter button shows when the board has more tasks than this. Search always shows.
-const filterThreshold = 10;
 
 export { boardNoun };
 
@@ -171,15 +162,6 @@ function openBoardSettings(groupId: string) {
     new CustomEvent('kalkidan-open-project-settings', { detail: { groupId, section: 'board' } }),
   );
 }
-/** Opens the board settings at its fields, with a suggested "Start date" and "End date". */
-function openRoadmapDates(groupId: string) {
-  window.dispatchEvent(
-    new CustomEvent('kalkidan-open-project-settings', {
-      detail: { groupId, section: 'board', tab: 'roadmap-dates' },
-    }),
-  );
-}
-
 // The code folder of the last task that the user created or started, for each project.
 function folderKey(groupId: string) {
   return `kalkidan-task-folder:${groupId}`;
@@ -290,7 +272,8 @@ function readFilters(key: string): TrackerFilters {
       status: text('status'),
       repoFilter: text('repoFilter'),
       sort: text('sort'),
-      view: ['list', 'roadmap'].includes(text('view')) ? text('view') : 'board',
+      // Roadmap is on GitHub now. An old saved Roadmap opens the board.
+      view: text('view') === 'list' ? 'list' : 'board',
     };
   } catch {
     return defaultFilters;
@@ -308,19 +291,6 @@ function writeFilters(key: string, filters: TrackerFilters) {
 function ExternalAnchor({ node: _node, ...props }: ComponentProps<'a'> & { node?: unknown }) {
   return <a {...props} target="_blank" rel="noreferrer" />;
 }
-
-const planningLabels: Record<PlanningTool, string> = {
-  fields: 'Edit fields…',
-  iteration: 'Plan an iteration…',
-  readiness: 'Check readiness…',
-  dispatch: 'Start chats…',
-};
-const planningIcons: Record<PlanningTool, ReactElement> = {
-  fields: <PenLine className="size-4" />,
-  iteration: <CalendarRange className="size-4" />,
-  readiness: <ShieldCheck className="size-4" />,
-  dispatch: <Play className="size-4" />,
-};
 
 export function ProjectTrackerPanel({
   api,
@@ -405,8 +375,8 @@ export function ProjectTrackerPanel({
   );
   // The agent works in a branch copy unless the user changes it, or the folder has no Git.
   const [checkout, setCheckout] = useState('worktree');
-  // "Change" in the footer of the task sheet shows the code folder and branch choices.
-  const [changing, setChanging] = useState(false);
+  // "Where to work" in the start box of the task sheet: the code folder and branch popover.
+  const [whereOpen, setWhereOpen] = useState(false);
   // The title or the description that the user edits in the task sheet.
   const [editing, setEditing] = useState<'title' | 'body' | null>(null);
   const [editText, setEditText] = useState('');
@@ -437,18 +407,19 @@ export function ProjectTrackerPanel({
     if (value !== page) onPageChange?.(value);
     rememberPage(value);
   }
-  const [filtersOpen, setFiltersOpen] = useState(
-    () =>
-      savedFilters.status !== 'all' ||
-      savedFilters.repoFilter !== 'all' ||
-      savedFilters.sort !== 'project',
-  );
+  // Search is an icon until the user opens it or a search is active.
+  const [searchOpen, setSearchOpen] = useState(() => !!savedFilters.query);
+  // The column that shows the New task field: ⏎ adds, ⌘⏎ adds and starts.
+  const [adding, setAdding] = useState<string | null>(null);
+  // "Start N" in the selection bar while the tasks start.
+  const [waveBusy, setWaveBusy] = useState(false);
+  // Board name menu › Post status update…
+  const [statusOpen, setStatusOpen] = useState(false);
   const [docPickerOpen, setDocPickerOpen] = useState(false);
   const [chatPickerOpen, setChatPickerOpen] = useState(false);
   const [taskBranch, setTaskBranch] = useState('');
   const [taskBusy, setTaskBusy] = useState(false);
   const [taskError, setTaskError] = useState('');
-  const [connectOpen, setConnectOpen] = useState(false);
   const { state: boardState, refresh: reloadBoard } = useProjectBoard(
     api,
     client,
@@ -482,38 +453,22 @@ export function ProjectTrackerPanel({
   const [mutating, setBusy] = useState(false);
   const busy = mutating || boardState.status === 'loading' || boardState.status === 'refreshing';
   const [actionError, setError] = useState('');
-  // Each dialog shows its own error. The page error stays on the page.
-  const [modalError, setModalError] = useState('');
-  const [url, setUrl] = useState('');
   const [query, setQuery] = useState(savedFilters.query);
   const [status, setStatus] = useState(savedFilters.status);
-  const [modal, setModal] = useState<'draft' | 'issue' | null>(null);
-  const [draftStatus, setDraftStatus] = useState('');
-  // The code folder of the New task dialog, for "Create and start".
-  const [draftRepoId, setDraftRepoId] = useState('');
-  const [sort, setSort] = useState(savedFilters.sort);
-  const [view, setView] = useState<'board' | 'list' | 'roadmap'>(
-    savedFilters.view === 'roadmap' ? 'roadmap' : savedFilters.view === 'list' ? 'list' : 'board',
+  // One view: the board. ⌘K "Show as list" shows the same tasks as a dense list.
+  const [view, setView] = useState<'board' | 'list'>(
+    savedFilters.view === 'list' ? 'list' : 'board',
   );
   const [savedView, setSavedView] = useState<SavedProjectView | null>(null);
   const [savedViewPending, setSavedViewPending] = useState(false);
   const changeSavedView = useCallback((value: SavedProjectView | null, pending: boolean) => {
     setSavedView(value);
     setSavedViewPending(pending);
-    if (value)
-      setView(
-        value.layout === 'TABLE_LAYOUT'
-          ? 'list'
-          : value.layout === 'ROADMAP_LAYOUT'
-            ? 'roadmap'
-            : 'board',
-      );
+    if (value) setView(value.layout === 'TABLE_LAYOUT' ? 'list' : 'board');
   }, []);
   useEffect(() => {
-    writeFilters(filterStorage, { query, status, repoFilter, sort, view });
-  }, [filterStorage, query, status, repoFilter, sort, view]);
-  const [title, setTitle] = useState('');
-  const [body, setBody] = useState('');
+    writeFilters(filterStorage, { query, status, repoFilter, sort: 'project', view });
+  }, [filterStorage, query, status, repoFilter, view]);
   const [task, setTask] = useState<TrackerItem | null>(null);
   // The card that gets the focus back when the task sheet closes.
   const lastTaskId = useRef('');
@@ -530,9 +485,14 @@ export function ProjectTrackerPanel({
           new CustomEvent('kalkidan-add-code-folder', { detail: { groupId: group.id } }),
         );
   const openChat = (session: Session) => (onOpenSession || onResume)(session);
-  /** Opens the Connect board dialog. */
+  /** The board list is on the page. This puts the focus in its search field. */
   function connect() {
-    setConnectOpen(true);
+    if (page !== 'tasks') setPage('tasks');
+    window.setTimeout(
+      () =>
+        document.querySelector<HTMLInputElement>('.project-tracker .connect-board input')?.focus(),
+      0,
+    );
   }
   useEffect(() => {
     if (!connectRequested) return;
@@ -543,9 +503,6 @@ export function ProjectTrackerPanel({
     }, 0);
     return () => clearTimeout(timer);
   }, [connectRequested]);
-  function closeModal() {
-    setModal(null);
-  }
   /** The code folder that the user used last, when it is still in the project. */
   function lastFolder() {
     const id = readFolder(group.id);
@@ -570,7 +527,7 @@ export function ProjectTrackerPanel({
     checkoutTouched.current = false;
     setTaskBranch(taskBranchName(item));
     setTaskError('');
-    setChanging(false);
+    setWhereOpen(false);
     setEditing(null);
     setRepoId(taskFolder(item));
   }
@@ -882,14 +839,9 @@ export function ProjectTrackerPanel({
           (repoFilter === 'draft' ? !item.repository : item.repository === repoFilter)) &&
         `${item.title} ${item.repository || ''}`.toLowerCase().includes(query.toLowerCase()),
     ) || [];
-  const sortedItems =
-    sort === 'title'
-      ? [...items].sort((a, b) => a.title.localeCompare(b.title))
-      : savedView
-        ? [...items].sort(
-            (a, b) => savedView.itemIds.indexOf(a.id) - savedView.itemIds.indexOf(b.id),
-          )
-        : items;
+  const sortedItems = savedView
+    ? [...items].sort((a, b) => savedView.itemIds.indexOf(a.id) - savedView.itemIds.indexOf(b.id))
+    : items;
   // The order on screen: column by column, as the board and the list show the tasks.
   const visualOrder = useMemo(() => {
     if (!board) return sortedItems;
@@ -948,7 +900,7 @@ export function ProjectTrackerPanel({
   const visibleIds = visualOrder.map((item) => item.id);
   const selectedVisible = visibleIds.filter((id) => selectedIds.has(id));
   const selection: TaskSelection | undefined =
-    (planningTools.length || canMove) && !savedView && view !== 'roadmap'
+    (planningTools.length || canMove) && !savedView
       ? {
           ids: selectedIds,
           toggle(item, range) {
@@ -1002,20 +954,40 @@ export function ProjectTrackerPanel({
     });
   }
 
-  /** Opens New task. The task goes to the first status of the board. */
-  function newItem(statusId = '') {
-    setTitle('');
-    setBody('');
-    setDraftStatus(statusId || board?.statusField?.options[0]?.id || '');
-    setDraftRepoId(preferredRepoId || lastFolder() || repos[0]?.id || '');
-    setModalError('');
-    setModal('draft');
+  /**
+   * New task: a title field at the top of the first column. It shows the active board, so a
+   * saved view, a filter, the archive or the list give way to it.
+   */
+  function openNewTask() {
+    if (!linkedProject) {
+      connect();
+      return;
+    }
+    if (!board || busy || readOnly || !descriptor?.capabilities.createItem) return;
+    setPage('tasks');
+    setView('board');
+    setArchived(false);
+    if (savedView || savedViewPending) savedViews.choose('');
+    setQuery('');
+    setStatus('all');
+    setRepoFilter('all');
+    setAdding(trackerColumns(board)[0]?.id ?? '');
+    document.querySelector('.project-tracker .tracker-board')?.scrollTo({ left: 0 });
   }
-  /** Creates a task from the title field of a column. Returns false when it fails. */
-  async function createInColumn(statusId: string, value: string) {
+  /**
+   * Creates a task from the New task field. A GitHub issue or pull request URL adds that item.
+   * With `start`, a chat starts on the new task. Returns false when it fails, so the title stays.
+   */
+  async function createInColumn(statusId: string, value: string, start = false) {
     setBusy(true);
     setError('');
     try {
+      if (itemUrl(value)) {
+        await client.importItem(group.id, value);
+        await refreshBoard();
+        showToast(`Added the task to the ${boardName}.`);
+        return true;
+      }
       const createdId = await client.draft(group.id, value, '');
       if (statusId && createdId && descriptor?.capabilities.updateStatus) {
         try {
@@ -1030,7 +1002,12 @@ export function ProjectTrackerPanel({
           return true;
         }
       }
-      await refreshBoard();
+      const next = await refreshBoard();
+      const created = start && createdId && next?.items.find((item) => item.id === createdId);
+      if (created) {
+        setAdding(null);
+        void quickStart(created);
+      }
       return true;
     } catch (e) {
       showToast({ message: `Could not create the task. ${errorMessage(e)}`, tone: 'error' });
@@ -1039,11 +1016,6 @@ export function ProjectTrackerPanel({
       setBusy(false);
     }
   }
-  function addExisting() {
-    setUrl('');
-    setModalError('');
-    setModal('issue');
-  }
   // The shell and the command palette send these events after they open this page.
   const eventRef = useRef<{
     newTask: () => void;
@@ -1051,35 +1023,38 @@ export function ProjectTrackerPanel({
     filter: (filter: TaskFilter) => void;
     openTask: (id: string) => void;
     view: (id: string) => void;
+    layout: (value: string) => void;
     reload: () => void;
     check: () => void;
   }>(null!);
   eventRef.current = {
     newTask() {
-      if (!linkedProject) {
-        connect();
-        return;
-      }
-      if (busy || !descriptor?.capabilities.createItem) return;
-      setPage('tasks');
-      newItem();
+      openNewTask();
     },
     tool(name) {
       if (name === 'docs' || name === 'docs-to-issues') {
         if (docsPlanAvailable) setDocsPlanOpen(true);
         return;
       }
+      // Add existing: the New task field takes an issue or pull request URL.
       if (name === 'add-existing') {
-        if (!linkedProject) connect();
-        else if (descriptor?.capabilities.importItem) {
-          setPage('tasks');
-          addExisting();
-        }
+        openNewTask();
+        return;
+      }
+      // Readiness and dispatch are "Start N" in the selection bar now. It checks first.
+      if (name === 'readiness' || name === 'dispatch') {
+        if (page !== 'tasks') setPage('tasks');
+        if (selectedIssues.length) void startSelected();
+        else showToast('Select tasks on the board first. Then use Start.');
         return;
       }
       if (!planningTools.includes(name as PlanningTool)) return;
       if (page !== 'tasks') setPage('tasks');
       openTool(name as PlanningTool);
+    },
+    layout(value) {
+      setPage('tasks');
+      setView(value === 'list' ? 'list' : 'board');
     },
     filter(filter) {
       applyFilter(filter);
@@ -1127,6 +1102,13 @@ export function ProjectTrackerPanel({
         },
       ],
       ['kalkidan-github-writes', (event) => forGroup(event) && eventRef.current.reload()],
+      [
+        'kalkidan-board-layout',
+        (event) => {
+          const detail = forGroup(event);
+          if (detail && typeof detail.layout === 'string') eventRef.current.layout(detail.layout);
+        },
+      ],
       [checkWritesEvent, (event) => forGroup(event) && eventRef.current.check()],
       [
         'kalkidan-board-view',
@@ -1149,7 +1131,7 @@ export function ProjectTrackerPanel({
     };
   }, [embedded, group.id]);
   // Previous and next follow the screen: column by column, then top to bottom.
-  const sheetOrder = view === 'roadmap' || savedView ? sortedItems : visualOrder;
+  const sheetOrder = savedView ? sortedItems : visualOrder;
   const taskIndex = sheetOrder.findIndex((item) => item.id === task?.id);
   const repositoryOptions = [
     ...new Set(
@@ -1173,64 +1155,9 @@ export function ProjectTrackerPanel({
       setStatus(match || 'all');
     }
     if (filter.repository !== undefined) setRepoFilter(filter.repository || 'all');
-    if (filter.query !== undefined) setQuery(filter.query);
-    if (filter.status || filter.repository) setFiltersOpen(true);
-  }
-  const modalReady = !busy && (modal === 'draft' ? !!title.trim() : !!url.trim());
-  async function submitModal(start = false) {
-    if (!modalReady) return;
-    setBusy(true);
-    setModalError('');
-    // After the dialog closes, an error shows on the page.
-    let closed = false;
-    let startCreated = '';
-    const kind = modal;
-    try {
-      if (modal === 'issue') await client.importItem(group.id, url);
-      else {
-        const createdId = await client.draft(group.id, title, body);
-        setModal(null);
-        closed = true;
-        if (draftStatus && board?.statusField && descriptor?.capabilities.updateStatus) {
-          try {
-            if (!createdId) throw new Error('This tracker did not return the new task ID.');
-            await client.status(group.id, createdId, draftStatus);
-          } catch (e) {
-            await refreshBoard();
-            throw new Error(
-              'Task created, but its status could not be set. ' +
-                `Move it on the board to try again. ${errorMessage(e)}`,
-            );
-          }
-        }
-        if (start && createdId) startCreated = createdId;
-      }
-      setModal(null);
-      closed = true;
-      setError('');
-      const next = await refreshBoard();
-      const created = startCreated && next?.items.find((item) => item.id === startCreated);
-      if (created) void quickStart(created, draftRepoId || taskFolder(created));
-      if (kind === 'draft' && draftRepoId) saveFolder(group.id, draftRepoId);
-      showToast(
-        kind === 'issue'
-          ? `Added the task to the ${boardName}.`
-          : startCreated
-            ? 'Created the task. Starting a chat…'
-            : 'Created the task.',
-      );
-    } catch (e) {
-      (closed ? setError : setModalError)(errorMessage(e));
-    } finally {
-      setBusy(false);
-    }
-  }
-  // New task starts a chat when the project has a code folder. Enter runs the primary action.
-  const startsDraft = modal === 'draft' && repos.length > 0;
-  function submitOnEnter(event: KeyboardEvent<HTMLInputElement>) {
-    if (event.key === 'Enter' && !event.nativeEvent.isComposing) {
-      event.preventDefault();
-      void submitModal(startsDraft);
+    if (filter.query !== undefined) {
+      setQuery(filter.query);
+      if (filter.query) setSearchOpen(true);
     }
   }
   // A saved filter can point at a status or repository that no longer exists.
@@ -1278,14 +1205,28 @@ export function ProjectTrackerPanel({
   const filterCount = (status !== 'all' ? 1 : 0) + (repoFilter !== 'all' ? 1 : 0);
   const filtered = !!query || filterCount > 0 || !!savedView || savedViewPending;
   const total = board?.items.length || 0;
-  // Few tasks need no filters. A saved filter keeps the button, so that it can be cleared.
-  const showFilterButton = total > filterThreshold || filterCount > 0 || sort !== 'project';
-  const filtersVisible = showFilterButton && filtersOpen;
   const countText = filtered
     ? `${items.length} of ${plural(total, 'task')}`
     : archived
       ? plural(items.length, 'archived task')
       : plural(total, 'task');
+  // The name of the active filter, for the chip in the toolbar: "Todo", "No repository".
+  const filterName = [
+    status === 'none'
+      ? 'No status'
+      : status !== 'all'
+        ? board?.statusField?.options.find((o) => o.id === status)?.name
+        : '',
+    repoFilter === 'draft' ? 'No repository' : repoFilter !== 'all' ? pathBasename(repoFilter) : '',
+  ]
+    .filter(Boolean)
+    .join(' · ');
+  function clearFilters() {
+    setQuery('');
+    setStatus('all');
+    setRepoFilter('all');
+    setSearchOpen(false);
+  }
   const startBlocker = !repos.length
     ? 'Add a code folder first'
     : !repos.some((r) => r.id === repoId)
@@ -1295,21 +1236,21 @@ export function ProjectTrackerPanel({
         : '';
   const startReady = !taskBusy && !startBlocker;
   const taskRepo = repos.find((r) => r.id === repoId);
-  // "api-service · new branch 12-review-authentication", or "api-service · on main".
-  const whereText = taskRepo
-    ? checkout === 'worktree'
-      ? `${taskRepo.name} · new branch ${taskBranch.trim()}`
-      : `${taskRepo.name}${repoStatus?.branch ? ` · on ${repoStatus.branch}` : ''}`
-    : 'Choose a code folder';
+  // The second line of the start box: "⑂ 12-review-authentication" or "on main".
+  const branchText =
+    checkout === 'worktree'
+      ? taskBranch.trim() || 'New branch'
+      : repoStatus?.branch
+        ? `on ${repoStatus.branch}`
+        : 'in the folder';
   const shownPage: ProjectPage = embedded ? 'tasks' : page;
   const showTasks = shownPage === 'tasks';
   const canStart = repos.length > 0;
   const savedViewsAvailable = github && typeof api.trackerSavedView === 'function';
-  const boardSettingsAvailable = github && typeof api.trackerResources === 'function';
+  const statusUpdateAvailable =
+    github && !!board?.writable && typeof api.trackerResourceChange === 'function';
   const archivedCount = board?.archivedItems?.length || 0;
-  const hasDateField = !!board?.fields?.some((field) => field.dataType === 'DATE');
-  const hasIterationField = !!board?.fields?.some((field) => field.dataType === 'ITERATION');
-  // The sheet footer raises the toasts, so that a toast does not cover Start.
+  // The links row at the bottom of the sheet raises the toasts, so a toast does not cover it.
   useEffect(() => {
     const root = document.documentElement;
     if (!task || !footer) return;
@@ -1327,18 +1268,7 @@ export function ProjectTrackerPanel({
   const selectedIssues = selectedItems.filter((item) => item.kind === 'Issue');
   const selectedDrafts = selectedItems.filter((item) => item.kind === 'DraftIssue');
   const [convertOpen, setConvertOpen] = useState(false);
-  // Planning: Plan an iteration and Check readiness are in the board menu. The tools that act
-  // on many tasks are in the selection bar.
-  const planTools = planningTools.filter((name) => name === 'iteration' || name === 'readiness');
-  const planReason = (name: PlanningTool) =>
-    name === 'iteration' && !hasIterationField
-      ? 'Needs an Iteration field on GitHub'
-      : name === 'iteration' && readOnly
-        ? readOnly
-        : !visibleIds.length
-          ? 'No tasks'
-          : '';
-  const restricted = board?.restrictedItems || 0;
+  const usage = useTaskUsage(api, group.id, projectSessions);
   // The GitHub editor of a task: fields, the issue or pull request, and its comments.
   const editsItem = provider === 'github' && !!board?.writable && !!task;
   // The title and the description of a draft, an issue or a pull request can change here.
@@ -1388,103 +1318,67 @@ export function ProjectTrackerPanel({
       setEditBusy(false);
     }
   }
-  // The board "⋯" menu: the board name, refresh, the GitHub changes to check, the planning
-  // tools, saved views, archived tasks, the board on GitHub and Board settings.
+  // The board name is the board menu: Refresh, Open on GitHub (the Roadmap is there), the
+  // list or the board, saved views, archived tasks, the status update and Board settings.
+  const boardTitle = linkedProject
+    ? `${linkedProject.title}${linkedProject.number ? ` #${linkedProject.number}` : ''}`
+    : '';
   const boardMenu = board && linkedProject && (
-    <UncertainWritesPopover
-      api={api}
-      groupId={group.id}
-      board={board}
-      rows={writeCheck.rows}
-      open={checkOpen}
-      onOpenChange={setCheckOpen}
-      onChecked={writeCheck.reload}
-      onOpenTask={(id) => void openTaskById(id)}
-    >
-      <span className="tracker-board-menu">
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            {/* "Board ▾", so it does not look like the Project actions ⋯ above it. */}
-            <Button
-              variant="ghost"
-              size="sm"
-              aria-label={
-                writeCheck.rows.length
-                  ? `Board actions. ${uncertainWritesText(writeCheck.rows.length)}`
-                  : 'Board actions'
-              }
-            >
-              Board
-              <ChevronDown aria-hidden="true" />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" width="wide">
-            <DropdownMenuLabel className="truncate">
-              {linkedProject.title}
-              {linkedProject.number ? ` #${linkedProject.number}` : ''}
-              {restricted > 0 ? ` · ${restricted} hidden` : ''}
-            </DropdownMenuLabel>
-            <DropdownMenuItem disabled={busy} onSelect={refreshAll}>
-              <RefreshCw className={busy ? 'size-4 animate-spin' : 'size-4'} />
-              Refresh
-              {syncText && <span className={menuShortcutClass}>{syncText}</span>}
-            </DropdownMenuItem>
-            {writeCheck.rows.length > 0 && (
-              <DropdownMenuItem onSelect={() => setCheckOpen(true)}>
-                <TriangleAlert className="size-4 text-warning" />
-                <span className="min-w-0 truncate">
-                  {uncertainWritesText(writeCheck.rows.length)}
-                </span>
-                <span className={menuShortcutClass}>Check</span>
-              </DropdownMenuItem>
-            )}
-            {planTools.length > 0 && <DropdownMenuSeparator />}
-            {planTools.map((name) => {
-              const reason = planReason(name);
-              const entry = (
-                <DropdownMenuItem key={name} disabled={!!reason} onSelect={() => openTool(name)}>
-                  {planningIcons[name]}
-                  {planningLabels[name]}
-                </DropdownMenuItem>
-              );
-              // A disabled item tells why in a tooltip, not in the shortcut slot.
-              return reason ? (
-                <Hint key={name} label={reason} disabled className="flex">
-                  {entry}
-                </Hint>
-              ) : (
-                entry
-              );
-            })}
-            <DropdownMenuSeparator />
-            {savedViewsAvailable && <SavedViewsMenu value={savedViews} />}
-            {!!archivedCount && !savedView && (
-              <DropdownMenuItem onSelect={() => setArchived(!archived)}>
-                <Archive className="size-4" />
-                {archived ? 'Active tasks' : 'Archived tasks'}
-                {!archived && <span className={menuShortcutClass}>{archivedCount}</span>}
-              </DropdownMenuItem>
-            )}
-            <DropdownMenuSeparator />
-            {linkedProject.url && (
-              <DropdownMenuItem asChild>
-                <a href={linkedProject.url} target="_blank" rel="noreferrer">
-                  <ArrowUpRight className="size-4" />
-                  Open on {providerName}
-                </a>
-              </DropdownMenuItem>
-            )}
-            <DropdownMenuItem onSelect={() => openBoardSettings(group.id)}>
-              <Settings className="size-4" />
-              Board settings…
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
-        {writeCheck.rows.length > 0 && (
-          <StatusDot tone="warning" size="sm" className="tracker-board-dot" />
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button
+          variant="ghost"
+          size="sm"
+          className="tracker-board-name"
+          aria-label={`Board: ${boardTitle}`}
+        >
+          <Layers2 aria-hidden="true" />
+          <span className="truncate">{linkedProject.title}</span>
+          {!!linkedProject.number && (
+            <span className="tracker-board-number">#{linkedProject.number}</span>
+          )}
+          <ChevronDown aria-hidden="true" className="tracker-board-chevron" />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" width="wide">
+        <DropdownMenuItem disabled={busy} onSelect={refreshAll}>
+          <RefreshCw className={busy ? 'size-4 animate-spin' : 'size-4'} />
+          Refresh
+          {syncText && <span className={menuShortcutClass}>{syncText}</span>}
+        </DropdownMenuItem>
+        {linkedProject.url && (
+          <DropdownMenuItem asChild>
+            <a href={linkedProject.url} target="_blank" rel="noreferrer">
+              <ArrowUpRight className="size-4" />
+              Open on {providerName}
+            </a>
+          </DropdownMenuItem>
         )}
-      </span>
-    </UncertainWritesPopover>
+        <DropdownMenuItem onSelect={() => setView(view === 'list' ? 'board' : 'list')}>
+          {view === 'list' ? <Columns3 className="size-4" /> : <List className="size-4" />}
+          {view === 'list' ? 'Show as board' : 'Show as list'}
+        </DropdownMenuItem>
+        {savedViewsAvailable && <SavedViewsMenu value={savedViews} />}
+        {!!archivedCount && !savedView && (
+          <DropdownMenuItem onSelect={() => setArchived(!archived)}>
+            <Archive className="size-4" />
+            {archived ? 'Active tasks' : 'Archived tasks'}
+            {!archived && <span className={menuShortcutClass}>{archivedCount}</span>}
+          </DropdownMenuItem>
+        )}
+        <DropdownMenuSeparator />
+        {statusUpdateAvailable && (
+          <DropdownMenuItem onSelect={() => setStatusOpen(true)}>
+            <Megaphone className="size-4" />
+            Post status update…
+          </DropdownMenuItem>
+        )}
+        <DropdownMenuItem onSelect={() => openBoardSettings(group.id)}>
+          <Settings className="size-4" />
+          Board settings…
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
   // After the bar closes, the focus goes back to the tasks.
   const endSelection = () => {
@@ -1509,8 +1403,66 @@ export function ProjectTrackerPanel({
       showToast(`Moved ${plural(ids.length, 'task')} to ${statusName}.`);
     });
   }
-  const moreTools = planningTools.filter((name) => name !== 'dispatch');
-  // "2 selected ✕ │ Move to ▾ │ Start 2 │ ⋯" floats at the bottom of the board.
+  /** Sets one field choice on the selected tasks. The menu choice is the review. */
+  function setSelectedField(field: TrackerField, choice: { id: string; name: string }) {
+    const chosen = selectedItems;
+    void action(async () => {
+      showToast(await setFieldOnTasks(api, group.id, field, choice, chosen));
+    });
+  }
+  /**
+   * "Start N": checks the selected tasks, then starts the ready ones in safe waves, each in its
+   * own branch copy with its own chat. No dialog: the toast says what started and what waits.
+   */
+  async function startSelected() {
+    if (waveBusy || !board) return;
+    const chosen = selectedIssues.length ? selectedIssues : [];
+    if (!chosen.length) return;
+    const agent = readPreferredAgent();
+    setWaveBusy(true);
+    try {
+      const result = await startTasksInWaves({
+        api,
+        group,
+        items: chosen,
+        repos,
+        sessions: projectSessions,
+        agent,
+        folderFor: taskFolder,
+      });
+      for (const item of result.started) moveToProgress(item);
+      selection?.clear();
+      const first = result.skipped[0];
+      const started = result.started.length;
+      const message = [
+        started
+          ? `Started ${plural(started, 'task')} with ${agentLabel(agent)}` +
+            (started > safeWave ? `, ${safeWave} at a time.` : '.')
+          : '',
+        first
+          ? `${plural(result.skipped.length, 'task')} did not start: ${first.reason.toLowerCase()}` +
+            (result.skipped.length > 1 ? ' and more.' : '.')
+          : '',
+      ]
+        .filter(Boolean)
+        .join(' ');
+      showToast({
+        message,
+        tone: started ? undefined : 'error',
+        actions: first ? [{ label: 'Open task', onClick: () => chooseTask(first.item) }] : [],
+      });
+      if (started) void action(refreshBoard, false);
+    } catch (e) {
+      showToast({ message: `Could not start the tasks. ${errorMessage(e)}`, tone: 'error' });
+    } finally {
+      setWaveBusy(false);
+    }
+  }
+  const choiceFields = (board?.fields || []).filter(
+    (field) => field.id !== board?.statusField?.id && !!fieldChoices(field)?.length,
+  );
+  const startAvailable = planningTools.includes('dispatch') && canStart && !archived;
+  // "3 selected │ ▷ Start 3 with Codex │ Move to ▾ │ Set field ▾ │ ✕" floats over the board.
   const selectionBar = selection && selectedVisible.length > 0 && showTasks && (
     <div
       className="tracker-selection-bar"
@@ -1526,25 +1478,39 @@ export function ProjectTrackerPanel({
       <span className="tracker-selection-count" role="status">
         {selectedVisible.length} selected
       </span>
-      <Hint label="Clear selection" shortcut="Esc">
-        <Button
-          variant="ghost"
-          size="icon-xs"
-          className="tracker-selection-clear"
-          aria-label="Clear selection"
-          aria-keyshortcuts="Escape"
-          onClick={endSelection}
+      {startAvailable && (
+        // Only issues start. With drafts in the selection, Start tells how many start.
+        <StartHint
+          reason={selectedIssues.length ? '' : 'Drafts cannot start. Convert them to issues first.'}
         >
-          <X />
+          <Button
+            size="sm"
+            className="tracker-selection-start"
+            disabled={waveBusy || !selectedIssues.length}
+            aria-label={`Start ${plural(selectedIssues.length, 'task')} with ${agentLabel(preferredAgent)}`}
+            onClick={() => void startSelected()}
+          >
+            {waveBusy ? <LoaderCircle className="animate-spin" /> : <Play />}
+            {waveBusy
+              ? 'Starting…'
+              : `Start ${
+                  selectedDrafts.length || selectedIssues.length < selectedItems.length
+                    ? `${selectedIssues.length} of ${selectedItems.length}`
+                    : selectedIssues.length
+                } with ${agentLabel(preferredAgent)}`}
+          </Button>
+        </StartHint>
+      )}
+      {selectedDrafts.length > 0 && !readOnly && github && (
+        <Button variant="ghost" size="sm" onClick={() => setConvertOpen(true)}>
+          Convert to issues
         </Button>
-      </Hint>
-      <span className="tracker-filter-divider" aria-hidden="true" />
+      )}
       {canMove && (
         <DropdownMenu>
           <StartHint reason={readOnly}>
             <DropdownMenuTrigger asChild>
               <Button variant="ghost" size="sm" disabled={busy || !!readOnly}>
-                <ArrowRightLeft />
                 Move to
                 <ChevronDown aria-hidden="true" />
               </Button>
@@ -1560,206 +1526,95 @@ export function ProjectTrackerPanel({
           </DropdownMenuContent>
         </DropdownMenu>
       )}
-      {planningTools.includes('dispatch') && (
-        <>
-          {/* Only issues can start. With drafts in the selection, Start tells how many start. */}
-          {selectedIssues.length ? (
-            <Button
-              variant="ghost"
-              size="sm"
-              aria-label={`Start ${plural(selectedIssues.length, 'chat')}`}
-              onClick={() => openTool('dispatch')}
-            >
-              <Play />
-              {selectedDrafts.length
-                ? `Start ${selectedIssues.length} of ${selectedItems.length}`
-                : `Start ${selectedIssues.length}`}
-            </Button>
-          ) : (
-            <span className="tracker-selection-note">Drafts cannot start</span>
-          )}
-          {selectedDrafts.length > 0 && !readOnly && (
-            <Button variant="ghost" size="sm" onClick={() => setConvertOpen(true)}>
-              Convert to issues
-            </Button>
-          )}
-        </>
-      )}
-      {moreTools.length > 0 && (
+      {planningTools.includes('fields') && choiceFields.length > 0 && (
         <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <MoreButton size="sm" label="More actions for the selected tasks" />
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" side="top">
-            {moreTools.map((name) => (
-              <DropdownMenuItem
-                key={name}
-                disabled={
-                  (name !== 'readiness' && !!readOnly) ||
-                  (name === 'iteration' && !hasIterationField)
-                }
-                onSelect={() => openTool(name)}
-              >
-                {planningIcons[name]}
-                {planningLabels[name]}
-              </DropdownMenuItem>
+          <StartHint reason={readOnly}>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" size="sm" disabled={busy || !!readOnly}>
+                Set field
+                <ChevronDown aria-hidden="true" />
+              </Button>
+            </DropdownMenuTrigger>
+          </StartHint>
+          <DropdownMenuContent align="start" side="top">
+            {choiceFields.map((field) => (
+              <DropdownMenuSub key={field.id}>
+                <DropdownMenuSubTrigger>{field.name}</DropdownMenuSubTrigger>
+                <DropdownMenuSubContent>
+                  {fieldChoices(field)!.map((choice) => (
+                    <DropdownMenuItem
+                      key={choice.id}
+                      onSelect={() => setSelectedField(field, choice)}
+                    >
+                      {choice.name}
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuSubContent>
+              </DropdownMenuSub>
             ))}
-            {selectedVisible.length < visibleIds.length && (
-              <>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem onSelect={() => selection.selectAll()}>
-                  <SquareCheck className="size-4" />
-                  Select all
-                  <span className={menuShortcutClass}>⌘A</span>
-                </DropdownMenuItem>
-              </>
-            )}
           </DropdownMenuContent>
         </DropdownMenu>
       )}
+      <span className="tracker-selection-divider" aria-hidden="true" />
+      <Hint label="Clear selection" shortcut="Esc">
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          className="tracker-selection-clear"
+          aria-label="Clear selection"
+          aria-keyshortcuts="Escape"
+          onClick={endSelection}
+        >
+          <X />
+        </Button>
+      </Hint>
     </div>
   );
+  // N opens New task, when the focus is not in a field and no dialog or menu is open.
+  const newTaskKey = useRef(() => {});
+  newTaskKey.current = () => openNewTask();
+  const keyActive = showTasks && !!board && !readOnly && !embedded;
+  useEffect(() => {
+    if (!keyActive) return;
+    const handle = (event: globalThis.KeyboardEvent) => {
+      if (event.key !== 'n' && event.key !== 'N') return;
+      if (event.metaKey || event.ctrlKey || event.altKey || event.defaultPrevented) return;
+      const target = event.target as HTMLElement | null;
+      if (
+        target?.closest(
+          'input, textarea, select, [contenteditable="true"], [role="dialog"], [role="menu"]',
+        ) ||
+        document.querySelector('[role="dialog"], [role="menu"]')
+      )
+        return;
+      event.preventDefault();
+      newTaskKey.current();
+    };
+    window.addEventListener('keydown', handle);
+    return () => window.removeEventListener('keydown', handle);
+  }, [keyActive]);
   // A read-only board has no New task. The "Read only" badge tells why.
   const newTaskButton = !readOnly && (
-    <div className="split-button" role="group" aria-label="New task">
+    <Hint label="New task" shortcut="N">
       <Button
         size="sm"
-        className={descriptor?.capabilities.importItem ? 'rounded-r-none' : undefined}
         disabled={busy || !descriptor?.capabilities.createItem}
-        onClick={() => newItem()}
+        aria-keyshortcuts="N"
+        onClick={openNewTask}
       >
         <Plus size={16} />
         New task
+        <kbd className="tracker-new-task-key" aria-hidden="true">
+          N
+        </kbd>
       </Button>
-      {(descriptor?.capabilities.importItem || docsPlanAvailable) && (
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button
-              size="icon-sm"
-              disabled={busy}
-              className="rounded-l-none border-l border-primary-foreground/20"
-              aria-label="More ways to add a task"
-            >
-              <ChevronDown />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" width="wide">
-            {descriptor?.capabilities.importItem && (
-              <DropdownMenuItem onSelect={addExisting}>
-                <Link2 className="size-4" />
-                Add existing issue or pull request…
-              </DropdownMenuItem>
-            )}
-            {docsPlanAvailable && (
-              <DropdownMenuItem onSelect={() => setDocsPlanOpen(true)}>
-                <FileStack className="size-4" />
-                Make tasks from a page…
-              </DropdownMenuItem>
-            )}
-          </DropdownMenuContent>
-        </DropdownMenu>
-      )}
-    </div>
+    </Hint>
   );
-  // One row: search and Board/List on the left; Plan, the board menu and New task on the right.
+  // One row: the board name (the menu), the health line, then the GitHub check, search and New
+  // task on the right.
   const taskToolbar = (
     <div className="tracker-filterbar" role="toolbar" aria-label="Task tools">
-      <SearchInput
-        size="sm"
-        className="tracker-search"
-        aria-label="Search tasks"
-        placeholder="Search tasks"
-        value={query}
-        onChange={(e) => setQuery(e.target.value)}
-      />
-      <SegmentedControl
-        size="sm"
-        label="Task view"
-        className="tracker-view-switch"
-        value={view}
-        onChange={setView}
-        options={[
-          {
-            value: 'board' as const,
-            label: <span className="tracker-view-label">Board</span>,
-            icon: <Columns3 aria-hidden="true" />,
-            ariaLabel: 'Board',
-          },
-          {
-            value: 'list' as const,
-            label: <span className="tracker-view-label">List</span>,
-            icon: <List aria-hidden="true" />,
-            ariaLabel: 'List',
-          },
-          ...(github
-            ? [
-                {
-                  value: 'roadmap' as const,
-                  label: <span className="tracker-view-label">Roadmap</span>,
-                  icon: <CalendarRange aria-hidden="true" />,
-                  ariaLabel: 'Roadmap',
-                  disabled: !hasDateField,
-                  hint: hasDateField ? undefined : 'Needs a date field on the board',
-                },
-              ]
-            : []),
-        ]}
-      />
-      {busy && linkedProject ? (
-        <span className="tracker-sync-state" aria-hidden="true">
-          <LoaderCircle className="animate-spin" aria-hidden="true" />
-          Syncing…
-        </span>
-      ) : syncFailed && !actionError ? (
-        <span className="tracker-sync-state" data-failed>
-          <Hint label={boardState.error || ''}>
-            <span className="tracker-sync-error" tabIndex={0}>
-              <TriangleAlert aria-hidden="true" />
-              Could not sync
-            </span>
-          </Hint>
-          {authErrorPattern.test(boardState.error || '') ? (
-            <Button variant="ghost" size="sm" onClick={() => openSettings('account')}>
-              Sign in to {providerName}
-            </Button>
-          ) : (
-            <Button variant="ghost" size="sm" onClick={refreshAll}>
-              Try again
-            </Button>
-          )}
-        </span>
-      ) : null}
-      {showFilterButton && (
-        <Button
-          variant="ghost"
-          size="sm"
-          aria-expanded={filtersVisible}
-          onClick={() => setFiltersOpen((open) => !open)}
-        >
-          <ListFilter />
-          Filter
-          {filterCount > 0 && (
-            <CountBadge>
-              {filterCount}
-              <span className="sr-only"> active</span>
-            </CountBadge>
-          )}
-        </Button>
-      )}
-      {(!!query || filterCount > 0) && (
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={() => {
-            setQuery('');
-            setStatus('all');
-            setRepoFilter('all');
-          }}
-        >
-          Clear filters
-        </Button>
-      )}
-      {savedView && <SavedViewFilterChip view={savedView} />}
+      {boardMenu}
       {readOnly && (
         <Hint label="You can only read this board. Ask the board owner for access.">
           <Badge variant="muted" size="md" className="tracker-read-only" tabIndex={0}>
@@ -1768,15 +1623,82 @@ export function ProjectTrackerPanel({
           </Badge>
         </Hint>
       )}
+      {board && (
+        <BoardHealthLine
+          board={board}
+          syncing={busy && !!linkedProject}
+          syncError={syncFailed && !actionError ? boardState.error || '' : undefined}
+          onRetry={refreshAll}
+          onSignIn={
+            authErrorPattern.test(boardState.error || '')
+              ? () => openSettings('account')
+              : undefined
+          }
+          onFilter={applyFilter}
+        />
+      )}
+      {filterName && (
+        <Tag removeLabel={`Clear the filter ${filterName}`} onRemove={clearFilters}>
+          {filterName}
+        </Tag>
+      )}
+      {savedView && <SavedViewFilterChip view={savedView} />}
+      {archived && (
+        <Tag removeLabel="Show active tasks" onRemove={() => setArchived(false)}>
+          Archived
+        </Tag>
+      )}
       <span id="tracker-sync-text" className="sr-only" role="status">
         {syncText}
       </span>
       <div className="tracker-filter-end">
-        {boardMenu}
+        {board && (
+          <UncertainWritesChip
+            api={api}
+            groupId={group.id}
+            board={board}
+            rows={writeCheck.rows}
+            open={checkOpen}
+            onOpenChange={setCheckOpen}
+            onChecked={writeCheck.reload}
+            onOpenTask={(id) => void openTaskById(id)}
+          />
+        )}
+        {searchOpen || query ? (
+          <SearchInput
+            autoFocus={searchOpen && !query}
+            size="sm"
+            className="tracker-search"
+            aria-label="Search tasks"
+            placeholder="Search tasks"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            onBlur={() => !query && setSearchOpen(false)}
+            onKeyDown={(event) => {
+              if (event.key === 'Escape') {
+                event.preventDefault();
+                setQuery('');
+                setSearchOpen(false);
+              }
+            }}
+          />
+        ) : (
+          <Hint label="Search tasks">
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              aria-label="Search tasks"
+              onClick={() => setSearchOpen(true)}
+            >
+              <Search />
+            </Button>
+          </Hint>
+        )}
         {newTaskButton}
       </div>
     </div>
   );
+  const firstFolder = repos.find((r) => r.id === (preferredRepoId || lastFolder()));
   return (
     <section
       className={embedded ? 'project-tracker embedded-tracker' : 'project-tracker'}
@@ -1818,7 +1740,7 @@ export function ProjectTrackerPanel({
           }
         />
       ) : null}
-      {/* A sync error shows in the toolbar. A failed action shows here, above the toolbar. */}
+      {/* A sync error shows in the health line. A failed action shows here, above the toolbar. */}
       {actionError && (
         <Alert variant="destructive" size="sm" className="tracker-alert">
           <TriangleAlert aria-hidden="true" />
@@ -1838,65 +1760,16 @@ export function ProjectTrackerPanel({
         </Alert>
       )}
       {showTasks && linkedProject && taskToolbar}
-      {showTasks && linkedProject && filtersVisible && (
-        <div className="tracker-filters" role="group" aria-label="Task filters">
-          <Choice
-            size="sm"
-            variant="filled"
-            label="Filter by status"
-            value={status}
-            onChange={setStatus}
-            options={[
-              { value: 'all', label: 'All statuses' },
-              { value: 'none', label: 'No status' },
-              ...(board?.statusField?.options.map((o) => ({ value: o.id, label: o.name })) || []),
-            ]}
-          />
-          {!embedded && (
-            // The title shows the full name when the chosen repository is truncated.
-            <Choice
-              size="sm"
-              variant="filled"
-              className="max-w-60"
-              label="Filter by GitHub repository"
-              title={
-                repoFilter === 'all'
-                  ? undefined
-                  : repoFilter === 'draft'
-                    ? 'Not linked to a GitHub repository'
-                    : repoFilter
-              }
-              value={repoFilter}
-              onChange={setRepoFilter}
-              options={[
-                { value: 'all', label: 'All GitHub repositories' },
-                { value: 'draft', label: 'Not linked to a GitHub repository' },
-                ...repositoryOptions.map((repo) => ({ value: repo, label: repo })),
-              ]}
-            />
-          )}
-          <Choice
-            label="Sort tasks"
-            size="sm"
-            variant="filled"
-            value={sort}
-            onChange={setSort}
-            options={[
-              { value: 'project', label: 'Board order' },
-              { value: 'title', label: 'Title A–Z' },
-            ]}
-          />
-        </div>
-      )}
       {!linkedProject ? (
-        <EmptyState
-          className="w-full"
-          icon={<Columns3 />}
-          title="Plan work as tasks"
-          action={<Button onClick={connect}>Connect board</Button>}
-        >
-          Connect a {boardName}. Start an agent on any task.
-        </EmptyState>
+        // No board: the page itself lists the boards. One click connects.
+        <ConnectBoardPanel
+          api={api}
+          group={group}
+          onConnected={async () => {
+            setPage('tasks');
+            await onRefresh();
+          }}
+        />
       ) : !board ? (
         busy ? (
           <div className="tracker-board tracker-skeleton" aria-hidden="true">
@@ -1915,22 +1788,13 @@ export function ProjectTrackerPanel({
         )
       ) : (
         !items.length &&
-        view !== 'roadmap' &&
         (filtered ? (
           <EmptyState
-            icon={<SearchX />}
             title="No matching tasks"
             className="tracker-empty-result"
             action={
               !!query || filterCount > 0 ? (
-                <Button
-                  variant="outline"
-                  onClick={() => {
-                    setQuery('');
-                    setStatus('all');
-                    setRepoFilter('all');
-                  }}
-                >
+                <Button variant="outline" onClick={clearFilters}>
                   Clear filters
                 </Button>
               ) : undefined
@@ -1938,7 +1802,6 @@ export function ProjectTrackerPanel({
           />
         ) : archived ? (
           <EmptyState
-            icon={<Archive />}
             title="No archived tasks"
             className="tracker-empty-result"
             action={
@@ -1949,22 +1812,14 @@ export function ProjectTrackerPanel({
           />
         ) : view === 'list' ? (
           <EmptyState compact className="tracker-empty-result">
-            No tasks yet. Use New task to add one.
+            No tasks yet.
           </EmptyState>
         ) : null)
       )}
       {board &&
         showTasks &&
         linkedProject &&
-        (view === 'roadmap' ? (
-          <TrackerRoadmap
-            key={'roadmap:' + group.id}
-            board={board}
-            items={sortedItems}
-            onOpen={chooseTask}
-            onAddDateFields={boardSettingsAvailable ? () => openRoadmapDates(group.id) : undefined}
-          />
-        ) : savedView ? (
+        (savedView ? (
           <GitHubViewLayout
             board={board}
             items={sortedItems}
@@ -1974,8 +1829,7 @@ export function ProjectTrackerPanel({
           />
         ) : view === 'list' ? (
           !!items.length && (
-            // The table frame must not clip the select boxes in the gutter. This view scrolls.
-            <div className="tracker-list-view [&>[data-slot=table-container]]:overflow-visible">
+            <div className="tracker-list-view">
               <TrackerList
                 board={board}
                 items={sortedItems}
@@ -2002,14 +1856,14 @@ export function ProjectTrackerPanel({
               sessions={projectSessions}
               busy={busy || !descriptor?.capabilities.updateStatus}
               onCreate={
-                descriptor?.capabilities.createItem &&
-                descriptor?.capabilities.updateStatus &&
-                !readOnly &&
-                !archived &&
-                !savedView
+                descriptor?.capabilities.createItem && !readOnly && !archived && !savedView
                   ? createInColumn
                   : undefined
               }
+              adding={adding}
+              onAddingChange={setAdding}
+              addFolder={firstFolder?.name || (repos.length === 1 ? repos[0].name : undefined)}
+              usage={usage}
               onOpen={chooseTask}
               onStatus={(item, value) => void action(() => client.status(group.id, item.id, value))}
               activity={activity}
@@ -2069,125 +1923,29 @@ export function ProjectTrackerPanel({
           }}
         />
       )}
-      <ConnectBoardDialog
-        api={api}
-        group={group}
-        open={connectOpen}
-        onOpenChange={setConnectOpen}
-        onConnected={async () => {
-          setPage('tasks');
-          await onRefresh();
-        }}
-      />
-      <Dialog open={!!modal} onOpenChange={(open) => !open && !busy && closeModal()}>
-        <DialogContent size="md" layout="scroll">
-          <DialogHeader>
-            <DialogTitle>
-              {modal === 'issue' ? 'Add existing issue or pull request' : 'New task'}
-            </DialogTitle>
-            <DialogDescription className="sr-only">
-              {modal === 'issue'
-                ? `Paste the URL of a ${providerName} issue or pull request.`
-                : `Kalkidan adds the task to the ${boardName}.`}
-            </DialogDescription>
-          </DialogHeader>
-          <DialogBody className="grid gap-4">
-            {modal === 'draft' ? (
-              <div className="grid gap-4">
-                <label className="form-label">
-                  Title
-                  <Input
-                    maxLength={256}
-                    aria-label="Task title"
-                    onKeyDown={submitOnEnter}
-                    placeholder="What needs to be done?"
-                    value={title}
-                    onChange={(e) => setTitle(e.target.value)}
-                  />
-                </label>
-                <label className="form-label">
-                  Description
-                  <Textarea
-                    rows={4}
-                    className="field-sizing-fixed resize-y"
-                    maxLength={20000}
-                    aria-label="Task description"
-                    placeholder="Description and acceptance criteria"
-                    value={body}
-                    onChange={(e) => setBody(e.target.value)}
-                  />
-                </label>
-                {repos.length > 1 && (
-                  <div className="form-label">
-                    <span aria-hidden="true">Code folder</span>
-                    <Choice
-                      className="w-full"
-                      label="Code folder"
-                      value={draftRepoId}
-                      onChange={setDraftRepoId}
-                      options={repos.map((r) => ({ value: r.id, label: r.name }))}
-                    />
-                  </div>
-                )}
-              </div>
-            ) : (
-              <Input
-                aria-label={`${providerName} URL`}
-                placeholder="Issue or pull request URL"
-                onKeyDown={submitOnEnter}
-                value={url}
-                onChange={(e) => setUrl(e.target.value)}
+      {board && statusUpdateAvailable && (
+        <Dialog open={statusOpen} onOpenChange={setStatusOpen}>
+          <DialogContent size="lg" layout="scroll">
+            <DialogHeader>
+              <DialogTitle>Post status update</DialogTitle>
+              <DialogDescription className="sr-only">
+                Write a status update for the board and post it on {providerName}.
+              </DialogDescription>
+            </DialogHeader>
+            <DialogBody>
+              <ProjectHealth
+                api={api}
+                groupId={group.id}
+                board={board}
+                onFilter={(filter) => {
+                  setStatusOpen(false);
+                  applyFilter(filter);
+                }}
               />
-            )}
-            {modalError && (
-              <p role="alert" className="field-error">
-                {modalError}
-              </p>
-            )}
-          </DialogBody>
-          <DialogFooter>
-            <Button variant="outline" disabled={busy} onClick={closeModal}>
-              Cancel
-            </Button>
-            {startsDraft ? (
-              // One primary: create and start. "Create task" without a chat is in the ▾ menu.
-              <div className="split-button" role="group" aria-label="Create task">
-                <Button
-                  className="rounded-r-none"
-                  disabled={!modalReady}
-                  onClick={() => void submitModal(true)}
-                >
-                  {busy && <LoaderCircle className="animate-spin" aria-hidden="true" />}
-                  Create and start
-                </Button>
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button
-                      size="icon"
-                      disabled={!modalReady}
-                      className="rounded-l-none border-l border-primary-foreground/20"
-                      aria-label="More ways to create the task"
-                    >
-                      <ChevronDown />
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end">
-                    <DropdownMenuItem onSelect={() => void submitModal()}>
-                      <Plus />
-                      Create task only
-                    </DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
-              </div>
-            ) : (
-              <Button disabled={!modalReady} onClick={() => void submitModal()}>
-                {busy && <LoaderCircle className="animate-spin" aria-hidden="true" />}
-                {modal === 'issue' ? 'Add task' : 'Create task'}
-              </Button>
-            )}
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+            </DialogBody>
+          </DialogContent>
+        </Dialog>
+      )}
       <Dialog open={!!task} onOpenChange={(open) => !open && !taskBusy && setTask(null)}>
         <DialogContent
           showCloseButton={false}
@@ -2210,12 +1968,7 @@ export function ProjectTrackerPanel({
         >
           <div className="tracker-issue-nav">
             <span className="truncate">
-              {[
-                task?.number ? `#${task.number}` : task?.kind === 'DraftIssue' ? 'Draft' : '',
-                linkedProject?.title,
-              ]
-                .filter(Boolean)
-                .join(' · ')}
+              {task?.number ? `#${task.number}` : task?.kind === 'DraftIssue' ? 'Draft' : ''}
             </span>
             <div>
               <Hint label="Previous task">
@@ -2328,177 +2081,238 @@ export function ProjectTrackerPanel({
                 {task?.repository || 'Project task'}
               </DialogDescription>
             </DialogHeader>
-            {/* One property list: these rows, then the GitHub values under Details. */}
-            <div className="tracker-issue-properties">
-              <PropertyRow label="Status">
-                {task && board?.statusField ? (
+            {/* One property line: status, code folder and the GitHub fields as pills. */}
+            <div className="tracker-issue-pills" role="group" aria-label="Task properties">
+              {task && board?.statusField ? (
+                <DropdownMenu>
                   <StartHint reason={readOnly}>
-                    <Choice
-                      size="sm"
-                      variant="ghost"
-                      className="tracker-property-choice"
-                      label="Task status"
-                      value={task.statusId || ''}
-                      disabled={busy || !!readOnly || !descriptor?.capabilities.updateStatus}
-                      onChange={(value) =>
-                        void action(
-                          () => client.status(group.id, task.id, value),
-                          true,
-                          setTaskError,
-                        )
-                      }
-                      options={[
-                        ...(!task.statusId ? [{ value: '', label: 'No status' }] : []),
-                        ...board.statusField.options.map((o) => ({ value: o.id, label: o.name })),
-                      ]}
-                    />
-                  </StartHint>
-                ) : (
-                  <span className="flex min-w-0 items-center gap-1.5">
-                    <StatusIcon name={task?.status || 'No status'} />
-                    <span className="truncate">{task?.status || 'No status'}</span>
-                  </span>
-                )}
-              </PropertyRow>
-              <PropertyRow label="Repository">
-                {task?.repository ? (
-                  // The short name, as on the card. The owner shows in the tooltip.
-                  <Hint label={task.repository}>
-                    <span className="truncate" tabIndex={0}>
-                      {pathBasename(task.repository)}
-                    </span>
-                  </Hint>
-                ) : (
-                  <span className="text-muted-foreground">
-                    {task?.kind === 'DraftIssue' ? 'Draft' : 'None'}
-                  </span>
-                )}
-              </PropertyRow>
-              <PropertyRow label="Pull request">
-                {taskPr ? (
-                  <span className="flex min-w-0 flex-1 items-center gap-2">
-                    <GitPullRequest className="size-3.5 shrink-0 text-muted-foreground" />
-                    <a
-                      className="text-link underline-offset-2 hover:underline tabular-nums"
-                      href={taskPr.url}
-                      target="_blank"
-                      rel="noreferrer"
-                    >
-                      {taskPr.number ? `#${taskPr.number}` : 'Pull request'}
-                    </a>
-                    {taskPr.state && (
-                      <Badge
-                        size="sm"
-                        variant={
-                          taskPr.state === 'merged'
-                            ? 'success'
-                            : taskPr.state === 'open'
-                              ? 'warning'
-                              : 'muted'
-                        }
-                      >
-                        {pullRequestStateWord(taskPr.state)}
-                      </Badge>
-                    )}
-                    {markDoneOption && (
+                    <DropdownMenuTrigger asChild>
                       <Button
                         variant="outline"
                         size="xs"
-                        className="ml-auto"
-                        disabled={busy}
-                        onClick={() =>
+                        className="field-pill"
+                        aria-label={`Status: ${task.status || 'No status'}`}
+                        disabled={busy || !!readOnly || !descriptor?.capabilities.updateStatus}
+                      >
+                        <StatusIcon name={task.status || 'No status'} />
+                        {task.status || 'No status'}
+                      </Button>
+                    </DropdownMenuTrigger>
+                  </StartHint>
+                  <DropdownMenuContent align="start">
+                    <DropdownMenuLabel>Status</DropdownMenuLabel>
+                    {board.statusField.options.map((option) => (
+                      <DropdownMenuItem
+                        key={option.id}
+                        disabled={option.id === task.statusId}
+                        onSelect={() =>
                           void action(
-                            () => client.status(group.id, task!.id, markDoneOption.id),
+                            () => client.status(group.id, task.id, option.id),
                             true,
                             setTaskError,
                           )
                         }
                       >
-                        <CircleCheck />
-                        Mark done
-                      </Button>
-                    )}
-                  </span>
-                ) : linkedSessions.length ? (
-                  <Button
-                    variant="ghost"
-                    size="xs"
-                    className="-ml-2"
-                    onClick={() => createPullRequest(linkedSessions[0])}
-                  >
-                    <GitBranch />
-                    Create pull request…
-                  </Button>
-                ) : (
-                  <span className="text-muted-foreground">Opens when the agent pushes</span>
-                )}
-              </PropertyRow>
-              <PropertyRow label="Chats">
-                <span className="tracker-context-values">
-                  {linkedSessions.map((s) => {
-                    const state = activity[activityKey(s.agent, s.id)];
-                    const name = s.organization?.title || s.title;
-                    return (
-                      <Tag key={s.agent + s.id} icon={<AgentIcon agent={s.agent} />}>
-                        <button
-                          type="button"
-                          className="tracker-context-open"
-                          aria-label={`Open chat: ${name}${state ? `. ${activityText(state, s.agent)}` : ''}`}
-                          onClick={() => {
-                            setTask(null);
-                            openChat(s);
-                          }}
-                        >
-                          {name}
-                        </button>
-                        {state && <ActivityDot state={state} />}
-                      </Tag>
-                    );
-                  })}
-                  <LinkButton
-                    label="Link chat"
-                    iconOnly={linkedSessions.length > 0}
-                    onClick={() => setChatPickerOpen(true)}
-                  />
-                </span>
-              </PropertyRow>
-              {docsAvailable && (
-                <PropertyRow label="Docs">
-                  <span className="tracker-context-values">
-                    {docLinks.map((doc) => (
-                      <Tag
-                        key={doc.id}
-                        icon={<FileText aria-hidden="true" />}
-                        removeLabel={`Remove link to ${doc.title}`}
-                        onRemove={() =>
-                          void changeDocLinks(docLinks.filter((d) => d.id !== doc.id))
-                        }
-                      >
-                        {onOpenDocs ? (
-                          <button
-                            type="button"
-                            className="tracker-context-open"
-                            onClick={() => {
-                              setTask(null);
-                              onOpenDocs(doc.id);
-                            }}
-                          >
-                            {doc.title}
-                          </button>
-                        ) : (
-                          doc.title
-                        )}
-                      </Tag>
+                        <StatusIcon name={option.name} size={16} />
+                        {option.name}
+                      </DropdownMenuItem>
                     ))}
-                    <LinkButton
-                      label="Link page"
-                      iconOnly={docLinks.length > 0}
-                      onClick={() => setDocPickerOpen(true)}
-                    />
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              ) : (
+                <span className="field-pill field-pill-static">
+                  <StatusIcon name={task?.status || 'No status'} />
+                  {task?.status || 'No status'}
+                </span>
+              )}
+              {task?.repository ? (
+                // The short name, as on the card. The owner shows in the tooltip.
+                <Hint label={`Code folder · ${task.repository}`}>
+                  <span className="field-pill field-pill-static" tabIndex={0}>
+                    <Folder aria-hidden="true" />
+                    {pathBasename(task.repository)}
                   </span>
-                </PropertyRow>
+                </Hint>
+              ) : (
+                task?.kind === 'DraftIssue' && (
+                  <span className="field-pill field-pill-static">Draft</span>
+                )
+              )}
+              {editsItem && task && board && (
+                <FieldPills
+                  api={api}
+                  groupId={group.id}
+                  board={board}
+                  item={task}
+                  disabled={busy || !!readOnly}
+                  onSaved={refreshBoard}
+                />
               )}
             </div>
+            {/* Start comes first: where the agent works, then the one primary action. */}
+            <div className="tracker-start-box">
+              {repos.length > 0 ? (
+                <Popover.Root open={whereOpen} onOpenChange={setWhereOpen}>
+                  <Popover.Trigger asChild>
+                    <button
+                      type="button"
+                      className="tracker-start-where"
+                      disabled={taskBusy}
+                      aria-label={`Where to work: ${taskRepo?.name || 'Choose a code folder'} · ${branchText}`}
+                    >
+                      <span className="tracker-start-folder">
+                        <span className="truncate">{taskRepo?.name || 'Choose a code folder'}</span>
+                        <ChevronDown aria-hidden="true" />
+                      </span>
+                      <span className="tracker-start-branch">
+                        <GitBranch aria-hidden="true" />
+                        <span className="truncate">{branchText}</span>
+                      </span>
+                    </button>
+                  </Popover.Trigger>
+                  <Popover.Portal>
+                    <Popover.Content
+                      align="start"
+                      sideOffset={6}
+                      collisionPadding={menuCollisionPadding}
+                      aria-label="Where to work"
+                      className={cn(menuContentClass, 'tracker-start-options grid w-72 gap-3 p-3')}
+                    >
+                      <fieldset disabled={taskBusy}>
+                        <legend className="group-label">Code folder</legend>
+                        {repos.map((r) => (
+                          <label key={r.id} className="tracker-radio-row">
+                            <Radio
+                              name="task-folder"
+                              value={r.id}
+                              checked={repoId === r.id}
+                              onChange={() => {
+                                checkoutTouched.current = false;
+                                setRepoId(r.id);
+                              }}
+                            />
+                            <span className="truncate">{r.name}</span>
+                          </label>
+                        ))}
+                      </fieldset>
+                      <fieldset disabled={taskBusy}>
+                        <legend className="group-label">Branch</legend>
+                        <label className="tracker-radio-row">
+                          <Radio
+                            name="task-checkout"
+                            value="worktree"
+                            checked={checkout === 'worktree'}
+                            onChange={() => {
+                              checkoutTouched.current = true;
+                              setCheckout('worktree');
+                              if (task && !taskBranch.trim()) setTaskBranch(taskBranchName(task));
+                            }}
+                          />
+                          <Hint label="The agent works in a separate copy of the folder. Your work does not change.">
+                            <span className="shrink-0">New branch</span>
+                          </Hint>
+                        </label>
+                        <div className="tracker-branch-input">
+                          <Input
+                            size="sm"
+                            aria-label="Task branch"
+
+                            value={taskBranch}
+                            onFocus={() => {
+                              checkoutTouched.current = true;
+                              setCheckout('worktree');
+                            }}
+                            onChange={(e) => setTaskBranch(e.target.value)}
+                            onKeyDown={(event) => {
+                              if (event.key === 'Enter') setWhereOpen(false);
+                            }}
+                            placeholder="feature/task-name"
+                          />
+                        </div>
+                        <label className="tracker-radio-row">
+                          <Radio
+                            name="task-checkout"
+                            value="current"
+                            checked={checkout === 'current'}
+                            onChange={() => {
+                              checkoutTouched.current = true;
+                              setCheckout('current');
+                            }}
+                          />
+                          <span className="truncate">
+                            {repoStatus?.branch
+                              ? `Work on ${repoStatus.branch}`
+                              : 'Work in the folder'}
+                          </span>
+                        </label>
+                      </fieldset>
+                    </Popover.Content>
+                  </Popover.Portal>
+                </Popover.Root>
+              ) : (
+                <span className="tracker-start-where" data-static>
+                  <span className="tracker-start-folder">No code folder</span>
+                </span>
+              )}
+              {!repos.length ? (
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setTask(null);
+                    addFolder();
+                  }}
+                >
+                  <FolderPlus />
+                  Add code folder…
+                </Button>
+              ) : (
+                <StartHint reason={taskBusy ? '' : startBlocker}>
+                  <div className="split-button" role="group" aria-label="Start task">
+                    <Button
+                      className="rounded-r-none"
+                      disabled={!startReady}
+                      aria-label={`Start task with ${agentLabel(preferredAgent)}`}
+                      onClick={() => void startTask(preferredAgent)}
+                    >
+                      <AgentIcon agent={preferredAgent} />
+                      {taskBusy ? 'Starting…' : `Start with ${agentLabel(preferredAgent)}`}
+                    </Button>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button
+                          size="icon"
+                          disabled={!startReady}
+                          className="rounded-l-none border-l border-primary-foreground/20"
+                          aria-label="Choose an agent"
+                        >
+                          <ChevronDown />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        <DropdownMenuLabel>Agent</DropdownMenuLabel>
+                        {agentCatalog.map(({ id: agent }) => (
+                          <DropdownMenuItem
+                            key={agent}
+                            onSelect={() => {
+                              savePreferredAgent(agent);
+                              void startTask(agent);
+                            }}
+                          >
+                            <AgentIcon agent={agent} className="size-4" />
+                            Start with {agentLabel(agent)}
+                          </DropdownMenuItem>
+                        ))}
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </div>
+                </StartHint>
+              )}
+            </div>
+            {taskError && (
+              <p role="alert" className="field-error">
+                {taskError}
+              </p>
+            )}
             {editing === 'body' ? (
               <div className="grid gap-2">
                 <Textarea
@@ -2579,167 +2393,141 @@ export function ProjectTrackerPanel({
               />
             )}
           </div>
-          <DialogFooter
+          {/* Chats, pages, the pull request and the usage sit at the end of the task. */}
+          <div
             ref={setFooter}
-            className="tracker-issue-footer flex-col items-stretch sm:flex-col sm:justify-start"
+            className="tracker-issue-links"
+            aria-label="Linked work"
+            role="group"
           >
-            {changing && repos.length > 0 ? (
-              <div className="tracker-start-options" role="group" aria-label="Where to work">
-                <div className="tracker-start-options-head">
-                  <span className="group-label">Where to work</span>
-                  <Button
-                    type="button"
-                    variant="link"
-                    aria-expanded
-                    disabled={taskBusy}
-                    onClick={() => setChanging(false)}
+            <span className="tracker-issue-link-group">
+              <MessageSquare aria-hidden="true" />
+              {linkedSessions.length ? (
+                linkedSessions.map((s) => {
+                  const state = activity[activityKey(s.agent, s.id)];
+                  const name = s.organization?.title || s.title;
+                  return (
+                    <button
+                      key={s.agent + s.id}
+                      type="button"
+                      className="tracker-issue-link-button"
+                      aria-label={`Open chat: ${name}${state ? `. ${activityText(state, s.agent)}` : ''}`}
+                      onClick={() => {
+                        setTask(null);
+                        openChat(s);
+                      }}
+                    >
+                      <span className="truncate">{name}</span>
+                      {state && <ActivityDot state={state} />}
+                    </button>
+                  );
+                })
+              ) : (
+                <span>No chats yet</span>
+              )}
+              <LinkButton label="Link chat" onClick={() => setChatPickerOpen(true)} />
+            </span>
+            {docsAvailable && (
+              <span className="tracker-issue-link-group">
+                <FileText aria-hidden="true" />
+                {docLinks.map((doc) => (
+                  <Tag
+                    key={doc.id}
+                    removeLabel={`Remove link to ${doc.title}`}
+                    onRemove={() => void changeDocLinks(docLinks.filter((d) => d.id !== doc.id))}
                   >
-                    Done
-                  </Button>
-                </div>
-                <fieldset disabled={taskBusy}>
-                  <legend className="form-label">Code folder</legend>
-                  {repos.map((r) => (
-                    <label key={r.id} className="tracker-radio-row">
-                      <Radio
-                        name="task-folder"
-                        value={r.id}
-                        checked={repoId === r.id}
-                        onChange={() => {
-                          checkoutTouched.current = false;
-                          setRepoId(r.id);
+                    {onOpenDocs ? (
+                      <button
+                        type="button"
+                        className="tracker-context-open"
+                        onClick={() => {
+                          setTask(null);
+                          onOpenDocs(doc.id);
                         }}
-                      />
-                      <span className="truncate">{r.name}</span>
-                    </label>
-                  ))}
-                </fieldset>
-                <fieldset disabled={taskBusy}>
-                  <legend className="form-label">Branch</legend>
-                  <label className="tracker-radio-row">
-                    <Radio
-                      name="task-checkout"
-                      value="worktree"
-                      checked={checkout === 'worktree'}
-                      onChange={() => {
-                        checkoutTouched.current = true;
-                        setCheckout('worktree');
-                        if (task && !taskBranch.trim()) setTaskBranch(taskBranchName(task));
-                      }}
-                    />
-                    <Hint label="The agent works in a separate copy of the folder. Your work does not change.">
-                      <span className="shrink-0">New branch</span>
-                    </Hint>
-                    <Input
-                      size="sm"
-                      aria-label="Task branch"
-                      className="min-w-0 flex-1"
-                      value={taskBranch}
-                      onFocus={() => {
-                        checkoutTouched.current = true;
-                        setCheckout('worktree');
-                      }}
-                      onChange={(e) => setTaskBranch(e.target.value)}
-                      placeholder="feature/task-name"
-                    />
-                  </label>
-                  <label className="tracker-radio-row">
-                    <Radio
-                      name="task-checkout"
-                      value="current"
-                      checked={checkout === 'current'}
-                      onChange={() => {
-                        checkoutTouched.current = true;
-                        setCheckout('current');
-                      }}
-                    />
-                    <span className="truncate">
-                      {repoStatus?.branch
-                        ? `Work on ${repoStatus.branch} instead`
-                        : 'Work in the folder instead'}
-                    </span>
-                  </label>
-                </fieldset>
-              </div>
-            ) : (
-              repos.length > 0 && (
-                // Where the agent works, on its own line above Start, so it does not truncate.
-                <div className="tracker-start-where">
-                  <GitBranch aria-hidden="true" />
-                  <span className="min-w-0 break-words">{whereText}</span>
-                  <Button
+                      >
+                        {doc.title}
+                      </button>
+                    ) : (
+                      doc.title
+                    )}
+                  </Tag>
+                ))}
+                {docLinks.length ? (
+                  <LinkButton label="Link a page" onClick={() => setDocPickerOpen(true)} />
+                ) : (
+                  <button
                     type="button"
-                    variant="link"
-                    className="shrink-0"
-                    aria-expanded={false}
-                    disabled={taskBusy}
-                    onClick={() => setChanging(true)}
+                    className="tracker-issue-link-button"
+                    onClick={() => setDocPickerOpen(true)}
                   >
-                    Change
-                  </Button>
-                </div>
-              )
+                    Link a page
+                  </button>
+                )}
+              </span>
             )}
-            {taskError && (
-              <p role="alert" className="field-error">
-                {taskError}
-              </p>
-            )}
-            <div className="tracker-start-row">
-              {!repos.length && (
-                <Button
-                  variant="outline"
+            <span className="tracker-issue-link-group">
+              <GitPullRequest aria-hidden="true" />
+              {taskPr ? (
+                <>
+                  <a
+                    className="tracker-issue-link-button tabular-nums"
+                    href={taskPr.url}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    {taskPr.number ? `#${taskPr.number}` : 'Pull request'}
+                    {taskPr.state ? ` · ${pullRequestStateWord(taskPr.state)}` : ''}
+                  </a>
+                  {markDoneOption && (
+                    <Button
+                      variant="outline"
+                      size="xs"
+                      disabled={busy}
+                      onClick={() =>
+                        void action(
+                          () => client.status(group.id, task!.id, markDoneOption.id),
+                          true,
+                          setTaskError,
+                        )
+                      }
+                    >
+                      <CircleCheck />
+                      Mark done
+                    </Button>
+                  )}
+                </>
+              ) : linkedSessions.length ? (
+                <button
+                  type="button"
+                  className="tracker-issue-link-button"
+                  onClick={() => createPullRequest(linkedSessions[0])}
+                >
+                  Create pull request…
+                </button>
+              ) : (
+                <span>No pull request</span>
+              )}
+            </span>
+            {task && usage[task.id] && (
+              <span className="tracker-issue-link-group">
+                <ChartNoAxesColumn aria-hidden="true" />
+                <button
+                  type="button"
+                  className="tracker-issue-link-button"
                   onClick={() => {
                     setTask(null);
-                    addFolder();
+                    window.dispatchEvent(
+                      new CustomEvent('kalkidan-open-project-usage', {
+                        detail: { groupId: group.id, taskId: task.id },
+                      }),
+                    );
                   }}
                 >
-                  <FolderPlus />
-                  Add code folder…
-                </Button>
-              )}
-              <StartHint reason={taskBusy ? '' : startBlocker}>
-                <div className="split-button" role="group" aria-label="Start task">
-                  <Button
-                    className="rounded-r-none"
-                    disabled={!startReady}
-                    aria-label={`Start task with ${agentLabel(preferredAgent)}`}
-                    onClick={() => void startTask(preferredAgent)}
-                  >
-                    <AgentIcon agent={preferredAgent} />
-                    {taskBusy ? 'Starting…' : `Start with ${agentLabel(preferredAgent)}`}
-                  </Button>
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button
-                        size="icon"
-                        disabled={!startReady}
-                        className="rounded-l-none border-l border-primary-foreground/20"
-                        aria-label="Choose an agent"
-                      >
-                        <ChevronDown />
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end">
-                      <DropdownMenuLabel>Agent</DropdownMenuLabel>
-                      {agentCatalog.map(({ id: agent }) => (
-                        <DropdownMenuItem
-                          key={agent}
-                          onSelect={() => {
-                            savePreferredAgent(agent);
-                            void startTask(agent);
-                          }}
-                        >
-                          <AgentIcon agent={agent} className="size-4" />
-                          Start with {agentLabel(agent)}
-                        </DropdownMenuItem>
-                      ))}
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                </div>
-              </StartHint>
-            </div>
-          </DialogFooter>
+                  {usage[task.id].text}
+                </button>
+              </span>
+            )}
+          </div>
         </DialogContent>
       </Dialog>
       {docsAvailable && (
@@ -2980,11 +2768,11 @@ function ConvertDraftsDialog({
 /** "+ Link chat" when there is nothing linked yet, else a 24px + after the linked items. */
 function LinkButton({
   label,
-  iconOnly,
+  iconOnly = true,
   onClick,
 }: {
   label: string;
-  iconOnly: boolean;
+  iconOnly?: boolean;
   onClick: () => void;
 }) {
   return iconOnly ? (

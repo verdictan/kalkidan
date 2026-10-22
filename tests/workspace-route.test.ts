@@ -56,7 +56,13 @@ test('older project pages open Knowledge at their section', () => {
     restoreRoute({ kind: 'project', groupId: 'g', page: 'memory' }, [{ id: 'g' }], [], []),
     { kind: 'project', groupId: 'g', page: 'knowledge', section: 'memory' },
   );
-  assert.deepEqual(restoreRoute({ kind: 'computers' }, [], [], []), { kind: 'computers' });
+  // Computers is a section of Settings now. A saved Computers route opens Projects.
+  assert.deepEqual(restoreRoute({ kind: 'computers' }, [], [], []), { kind: 'home' });
+  // Insights left Knowledge. A saved Insights route opens Tasks.
+  assert.deepEqual(
+    restoreRoute({ kind: 'project', groupId: 'g', page: 'insights' }, [{ id: 'g' }], [], []),
+    { kind: 'project', groupId: 'g', page: 'tasks' },
+  );
 });
 
 test('the Waiting for you page is a route of its own that a launch restores', () => {

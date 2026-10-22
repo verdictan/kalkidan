@@ -58,6 +58,8 @@ export interface ChatActionState {
   noBranchWork?: boolean;
   /** The project has a task board. False hides Link task. */
   board?: boolean;
+  /** The linked task can be marked done now. Only then the menus show Mark task done. */
+  canMarkDone?: boolean;
 }
 
 export type ChatActionId =
@@ -70,6 +72,7 @@ export type ChatActionId =
   | 'open-linked-task'
   | 'notes'
   | 'commit'
+  | 'mark-task-done'
   | 'create-pull-request'
   // "View pull request #N". The ID stays for the surfaces that open the pull request.
   | 'open-pull-request'
@@ -272,6 +275,15 @@ export const chatActions: readonly ChatActionDefinition[] = [
     enabled: all(checks.repository, checks.idle, (state) => !!state.noChanges && reasons.noChanges),
   }),
   define({
+    id: 'mark-task-done',
+    label: 'Mark task done',
+    group: 'work',
+    keywords: 'task done finish close complete board',
+    command: 'session-mark-task-done',
+    visible: ({ state }) => !!state.canMarkDone,
+    enabled: all(checks.idle),
+  }),
+  define({
     id: 'create-pull-request',
     label: 'Create pull request…',
     group: 'work',
@@ -452,6 +464,7 @@ export const chatCommands = [
   'open-linked-task',
   'session-notes',
   'session-commit',
+  'session-mark-task-done',
   'session-create-pull-request',
   'open-pull-request',
   'session-duplicate',
@@ -550,19 +563,21 @@ function resolve(
 }
 
 /**
- * The layout of the chat row menu and the Chat actions menu: two levels. A click on a row opens
- * the chat, so the menu has no Open. Commit and the pull request are not in these menus: the
- * changes row of the chat shows them.
+ * The layout of the chat row menu and the Chat actions menu: two levels, few items. A click on a
+ * row opens the chat, so the menu has no Open. The pull request is not in these menus: the
+ * changes row of the chat shows it. Commit and Mark task done show only when they can run.
+ * Notes, side chat, export and usage history are in ⌘K and the menu bar.
  */
 type MenuEntry =
   ChatActionId | { id: 'open-in' | 'export'; label: string; children: ChatActionId[] };
 const chatMenuLayout: { group: ChatActionGroup; items: MenuEntry[] }[] = [
-  { group: 'organize', items: ['rename', 'pin', 'link-task', 'open-linked-task', 'notes'] },
+  { group: 'organize', items: ['rename', 'pin', 'link-task', 'open-linked-task'] },
   {
     group: 'work',
     items: [
+      'commit',
+      'mark-task-done',
       'fork',
-      'open-beside',
       {
         id: 'open-in',
         label: 'Open in',
@@ -570,19 +585,13 @@ const chatMenuLayout: { group: ChatActionGroup; items: MenuEntry[] }[] = [
       },
     ],
   },
-  {
-    group: 'share',
-    items: [
-      {
-        id: 'export',
-        label: 'Export',
-        children: ['export-markdown', 'export-html', 'copy-markdown', 'save-to-docs'],
-      },
-      'usage-history',
-    ],
-  },
   { group: 'archive', items: ['archive'] },
 ];
+/** Items of the layout that show only in some states. */
+const layoutVisible: Partial<Record<ChatActionId, (state: ChatActionState) => boolean>> = {
+  // Commit shows when the folder has changes. An unknown state hides it.
+  commit: (state) => state.noChanges === false,
+};
 /** The submenus of the layout. They have no command and run nothing themselves. */
 function submenuAction(id: 'open-in' | 'export', label: string): ChatActionDefinition {
   return { id, label, group: id === 'open-in' ? 'work' : 'share', run: () => {} };
@@ -630,6 +639,7 @@ export function chatActionMenu(
       items: items
         .map((entry): ChatMenuItem | null => {
           if (typeof entry === 'string') {
+            if (layoutVisible[entry] && !layoutVisible[entry]!(state)) return null;
             const item = menuItem(entry, context, platform);
             // A submenu of the definitions shows its items without separators.
             return item?.children
@@ -741,6 +751,7 @@ const optionalKeys: (keyof ChatActionState)[] = [
   'noChanges',
   'noBranchWork',
   'board',
+  'canMarkDone',
 ];
 /** Reads a state from an untrusted value, such as an IPC message. Returns null when invalid. */
 export function parseChatActionState(value: unknown): ChatActionState | null {

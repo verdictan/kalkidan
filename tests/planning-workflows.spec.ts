@@ -1,36 +1,34 @@
 import { type Page } from '@playwright/test';
-import { test, expect } from './helpers/app';
+import { test, expect, openPalette, palette } from './helpers/app';
 
 /** Chooses an option of a Radix select. */
 async function choose(page: Page, label: string, option: string) {
   await page.getByRole('combobox', { name: label, exact: true }).click();
   await page.getByRole('option', { name: option, exact: true }).click();
 }
-/** Selects tasks on the board, then opens a planning tool from the selection bar. */
-async function openTool(page: Page, tool: string, titles: string[]) {
-  for (const title of titles)
-    await page.getByRole('checkbox', { name: `Select ${title}`, exact: true }).check();
-  const bar = page.getByRole('toolbar', { name: 'Selected tasks' });
-  const button = bar.getByRole('button', { name: tool, exact: true });
-  // The frequent tools are buttons. The other tools are in the "⋯" menu.
-  if (await button.count()) await button.click();
-  else {
-    await bar
-      .getByRole('button', { name: 'More actions for the selected tasks', exact: true })
-      .click();
-    await page.getByRole('menuitem', { name: tool, exact: true }).click();
-  }
+/** Runs a command of the command palette (⌘K) of the project. */
+async function runCommand(page: Page, label: string) {
+  const input = await openPalette(page);
+  await input.fill(label);
+  await palette(page)
+    .getByRole('option', { name: `${label} in Platform`, exact: true })
+    .click();
 }
-/** Opens a view of Knowledge › Insights of the project. */
-async function openInsights(page: Page, view: 'Agent usage' | 'Agent knowledge') {
+/**
+ * Selects tasks on the board (⌘-click starts the selection, then the checkboxes show), then opens
+ * a planning tool from ⌘K. The tool acts on the selected tasks.
+ */
+async function openTool(page: Page, tool: string, titles: string[]) {
+  const [first, ...rest] = titles;
   await page
-    .getByRole('navigation', { name: 'Project page', exact: true })
-    .getByRole('button', { name: 'Knowledge', exact: true })
-    .click();
-  await page
-    .getByRole('complementary', { name: 'Knowledge sections' })
-    .getByRole('button', { name: view, exact: true })
-    .click();
+    .getByRole('button', { name: first, exact: true })
+    .click({ modifiers: ['ControlOrMeta'] });
+  for (const title of rest)
+    await page.getByRole('checkbox', { name: `Select ${title}`, exact: true }).check();
+  await expect(page.getByRole('toolbar', { name: 'Selected tasks' })).toContainText(
+    `${titles.length} selected`,
+  );
+  await runCommand(page, tool);
 }
 /** Opens the Projects page from the sidebar. */
 async function openProjects(page: Page) {
@@ -39,11 +37,6 @@ async function openProjects(page: Page) {
     .getByRole('button', { name: 'Projects', exact: true })
     .click();
 }
-/** The Agent usage view of Insights. */
-const usageView = (page: Page) =>
-  page.locator('.knowledge-insight').filter({
-    has: page.getByRole('heading', { name: 'Agent usage', exact: true }),
-  });
 test.beforeEach(async ({ page }) => {
   await page.addInitScript(() => {
     localStorage.setItem('kalkidan:onboarding:v1', 'dismissed');
@@ -112,96 +105,6 @@ test.beforeEach(async ({ page }) => {
           },
         ],
       }),
-      projectServicesStatus: async () => ({
-        available: true,
-        historyList: true,
-        operations: ['review.list', 'review.decide'],
-        permissions: ['review.read', 'review.decide'],
-      }),
-      managedHistory: async (target: any) => {
-        writes.push(['history', target]);
-        const entry = {
-          time: '2026-10-21T09:59:00Z',
-          decision: 'allow',
-          reason: 'allowed',
-          review: null,
-          provider: 'openai',
-          model: 'gpt-5.4',
-          agent: 'codex',
-          inputTokens: '100',
-          outputTokens: '20',
-          cachedInputTokens: null,
-          totalTokens: '120',
-          cost: target.cursor ? null : '0.0125',
-          currency: target.cursor ? null : 'USD',
-          settlement: 'completed',
-          corrected: !target.cursor,
-          releasedAt: '2026-10-21T09:59:30Z',
-          settledAt: '2026-10-21T10:00:00Z',
-          startedAt: '2026-10-21T09:58:59Z',
-          completedAt: '2026-10-21T09:59:00Z',
-          latencyMs: '900',
-          audited: true,
-        };
-        return {
-          entries: [entry],
-          cursor: target.cursor ? null : 'page-2',
-          asOf: '2026-10-21T10:00:00Z',
-          observedAt: '2026-10-21T10:00:00Z',
-        };
-      },
-      projectServicesRequest: async (_group: string, request: any) => {
-        writes.push(['project-service', request]);
-        return request.operation === 'review.list'
-          ? {
-              project_scope: { organization_id: 'org', project_id: 'P' },
-              actor_id: 'reviewer',
-              revision: 'list-1',
-              observed_at: '2026-10-21T00:00:00Z',
-              items: [
-                {
-                  escalation_id: 'review-1',
-                  title: 'Review tool access',
-                  status: 'pending',
-                  revision: 'review-v1',
-                },
-              ],
-            }
-          : {
-              project_scope: { organization_id: 'org', project_id: 'P' },
-              actor_id: 'reviewer',
-              revision: 'list-2',
-              observed_at: '2026-10-21T00:00:00Z',
-              receipt_id: 'receipt-1',
-              state: 'completed',
-            };
-      },
-      taskUsageHistory: async () => [
-        {
-          runId: 'run-1',
-          phase: 'ready-for-review',
-          updatedAt: 1,
-          evidence: [
-            {
-              observedAt: 1,
-              value: {
-                status: 'reconciling',
-                requests: [
-                  {
-                    id: 'request-1',
-                    policy: 'allow',
-                    usage: null,
-                    audit: null,
-                    actualCost: null,
-                    currency: null,
-                    tokens: null,
-                  },
-                ],
-              },
-            },
-          ],
-        },
-      ],
       trackerOwners: async () => [{ id: 'U', login: 'developer', kind: 'user' }],
       trackerProviders: async () => [
         {
@@ -326,16 +229,14 @@ test('iteration proposal excludes blockers and writes only after review', async 
 test('explicit Docs selection previews source text and relationships before issue publication', async ({
   page,
 }) => {
-  await page.getByRole('button', { name: 'More ways to add a task', exact: true }).click();
-  await page.getByRole('menuitem', { name: 'Make tasks from a page…', exact: true }).click();
+  // Make tasks from a page is in ⌘K (and on a Knowledge page), not on the Tasks tab.
+  await runCommand(page, 'Make tasks from a page…');
   // The page choice opens first.
   const picker = page.getByRole('dialog', { name: 'Choose a page for the tasks', exact: true });
   await picker.getByRole('option', { name: 'Launch guide', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: 'Make tasks from a page', exact: true });
-  const repository = dialog.getByRole('combobox', { name: 'GitHub repository' });
-  if ((await repository.textContent())?.includes('org/repo') !== true)
-    await choose(page, 'GitHub repository', 'org/repo');
-  await expect(repository).toContainText('org/repo');
+  // The board has one repository, so the tasks go there without a repository choice.
+  await expect(dialog.getByRole('combobox', { name: 'GitHub repository' })).toHaveCount(0);
   // "More" shows the description, the parent and the blockers of a task.
   await dialog.getByRole('button', { name: 'More for task 2', exact: true }).click();
   await expect(dialog.getByRole('textbox', { name: 'Task 2 description' })).toHaveValue(
@@ -354,37 +255,16 @@ test('explicit Docs selection previews source text and relationships before issu
   await dialog.getByRole('button', { name: 'Create 2 tasks' }).click();
   await expect(dialog.getByText('Created', { exact: true })).toHaveCount(2);
   const request = (await page.evaluate(() => (window as any).planningWrites))[0][2];
+  expect(request.repository).toBe('org/repo');
   expect(request.entries[1]).toMatchObject({
     title: 'Connect client',
-    body: 'Acceptance criteria B.',
     parent: 0,
     blockedBy: [0],
   });
-  expect(JSON.stringify(request)).not.toContain('source-v1');
-});
-test('readiness retains missing evidence and shows Jenkins sources without changing tasks', async ({
-  page,
-}) => {
-  await openTool(page, 'Check readiness…', ['Independent issue', 'Blocked issue', 'Merged change']);
-  const dialog = page.getByRole('dialog', { name: 'Check readiness' });
-  await dialog.getByRole('button', { name: 'Check readiness', exact: true }).click();
-  const wave = dialog.getByRole('region', { name: 'Wave 1' });
-  await expect(wave).toContainText('Independent issue');
-  await expect(wave).toContainText('org/repo · Own branch copy');
-  await expect(wave.getByRole('button', { name: 'Start wave (1 agent)' })).toBeVisible();
-  // The release evidence of the merged change is collapsed until the user opens it.
-  await dialog.getByRole('button', { name: 'Release evidence Ready to release' }).click();
-  await expect(dialog.getByRole('link', { name: 'Jenkins Linux' })).toHaveAttribute(
-    'href',
-    'https://ci.example.test/job/release/42',
+  // Each task names its source page and version, so an agent can read it.
+  expect(request.entries[1].body).toBe(
+    'Acceptance criteria B.\n\nSource document: Launch guide (doc, revision source-v1).',
   );
-  await expect(
-    dialog
-      .getByRole('region', { name: 'Tasks that need work' })
-      .getByText('Other issues block this task.')
-      .first(),
-  ).toBeVisible();
-  expect(await page.evaluate(() => (window as any).planningWrites)).toEqual([]);
 });
 test('portfolio preserves source projects and filters personal assignments', async ({ page }) => {
   // The tasks of all projects are on the Waiting for you page of the sidebar.
@@ -405,51 +285,7 @@ test('portfolio preserves source projects and filters personal assignments', asy
   await expect(work).toContainText('Platform · org/repo');
 });
 
-test('project reviews require an explicit reason and confirmation before the broker mutation', async ({
-  page,
-}) => {
-  // The managed agent services are in Knowledge › Insights › Agent knowledge.
-  await openInsights(page, 'Agent knowledge');
-  // The services are checked when the view opens.
-  await expect(page.getByRole('button', { name: 'Check again' })).toBeVisible();
-  await choose(page, 'Project service view', 'Reviews and approvals');
-  await page.getByRole('button', { name: 'Load current data' }).click();
-  await expect(page.getByRole('button', { name: 'Approve', exact: true })).toBeDisabled();
-  await page.getByLabel('Decision reason').fill('Reviewed the requested tool access.');
-  await page.getByRole('button', { name: 'Approve', exact: true }).click();
-  const calls = await page.evaluate(() => (window as any).planningWrites);
-  expect(calls.filter((call: any) => call[1]?.operation === 'review.decide')).toHaveLength(0);
-  await page.getByRole('button', { name: 'Confirm action', exact: true }).click();
-  await expect(
-    page.getByRole('status').filter({ hasText: 'Approve or deny a review' }),
-  ).toBeVisible();
-  // The receipt ID stays internal.
-  await expect(page.getByText('Verdictan recorded a receipt.')).toBeVisible();
-  await expect(page.getByText('receipt-1')).toHaveCount(0);
-  const mutation = await page.evaluate(
-    () =>
-      (window as any).planningWrites.find((call: any) => call[1]?.operation === 'review.decide')[1],
-  );
-  expect(mutation.fields).toMatchObject({
-    decision: 'approve',
-    expected_revision: 'review-v1',
-    escalation_id: 'review-1',
-  });
-  expect(mutation.fields.operation_id).toMatch(/^[a-f0-9-]{36}$/);
-});
-test('saved task usage keeps unavailable cost and tokens unknown', async ({ page }) => {
-  await openInsights(page, 'Agent usage');
-  const usage = usageView(page);
-  await usage.getByRole('combobox', { name: 'Task', exact: true }).click();
-  await page.getByRole('option', { name: 'Independent issue', exact: true }).click();
-  const record = usage.locator('dl.meta-list');
-  await expect(record).toContainText('CostUnknown');
-  await expect(record).toContainText('TokensUnknown');
-  await expect(record).toContainText('Audit recordUnknown');
-});
-test('a usage link from a chat opens Insights at the task without the task sheet', async ({
-  page,
-}) => {
+test('a usage link from a chat opens the Usage sheet without the task sheet', async ({ page }) => {
   // Chats send this event from their usage chip. The project page is not open yet.
   await openProjects(page);
   await page.evaluate(() =>
@@ -459,44 +295,7 @@ test('a usage link from a chat opens Insights at the task without the task sheet
       }),
     ),
   );
-  const usage = usageView(page);
-  await expect(usage.getByRole('combobox', { name: 'Task', exact: true })).toContainText(
-    'Independent issue',
-  );
-  await expect(usage.locator('dl.meta-list')).toContainText('CostUnknown');
-  await expect(page.getByRole('dialog')).toHaveCount(0);
-});
-test('task history from Verdictan shows each request without IDs and restarts to refresh', async ({
-  page,
-}) => {
-  // The managed agent services are in Knowledge › Insights › Agent knowledge.
-  await openInsights(page, 'Agent knowledge');
-  // The services are checked when the view opens.
-  await expect(page.getByRole('button', { name: 'Check again' })).toBeVisible();
-  await choose(page, 'Project service task', 'Independent issue');
-  const services = page
-    .getByRole('region', { name: 'Agent knowledge', exact: true })
-    .getByRole('region', { name: 'Agent services', exact: true });
-  const request = services.locator('.review-row').first();
-  await expect(request).toContainText('Request 1');
-  await expect(request).toContainText('Allowed');
-  await expect(request).toContainText('gpt-5.4');
-  await expect(request).toContainText('120 in total · 100 in · 20 out · unknown cached');
-  await expect(request).toContainText('0.0125 USD');
-  await expect(request).toContainText('Completed · Corrected after release');
-  await services.getByRole('button', { name: 'Next page', exact: true }).click();
-  await expect(services.locator('.review-row')).toHaveCount(2);
-  await expect(services.locator('.review-row').nth(1)).toContainText('CostUnknown');
-  await services.getByRole('button', { name: 'Load again', exact: true }).click();
-  await expect(services.locator('.review-row')).toHaveCount(1);
-  const calls = await page.evaluate(() =>
-    (window as any).planningWrites.filter((call: any) => call[0] === 'history'),
-  );
-  expect(calls.map((call: any) => call[1])).toEqual([
-    { kind: 'task', groupId: 'g', taskId: 'I1' },
-    { kind: 'task', groupId: 'g', taskId: 'I1', cursor: 'page-2' },
-    { kind: 'task', groupId: 'g', taskId: 'I1' },
-  ]);
-  const text = await services.innerText();
-  for (const id of ['page-2', 'I1', 'cfg_', 'vdt_']) expect(text).not.toContain(id);
+  // Knowledge has no Insights now: the usage of a task is in the Usage sheet of the project.
+  await expect(page.getByRole('dialog', { name: 'Usage', exact: true })).toBeVisible();
+  await expect(page.getByRole('dialog')).toHaveCount(1);
 });

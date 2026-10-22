@@ -40,7 +40,8 @@ test('the Welcome screen offers a new verification email and account recovery af
   page,
 }) => {
   await signedOut(page);
-  await expect(page.getByRole('heading', { name: 'Welcome to Kalkidan' })).toBeVisible();
+  // Welcome is one card with the steps. Its first step signs in.
+  await expect(page.getByRole('region', { name: 'Welcome to Kalkidan' })).toBeVisible();
   // The account help shows only after a sign-in fails.
   const trouble = page.getByRole('button', { name: 'Trouble signing in?' });
   await expect(

@@ -1,10 +1,10 @@
 import type { Locator } from '@playwright/test';
-import { test, expect, openComputersPage, openPreferences } from './helpers/app';
+import { test, expect, openSettingsWindow, settingsSection } from './helpers/app';
 
 const longPath =
   '/Users/someone/.vscode/extensions/openai.chatgpt-26.1007.21434-darwin-arm64/bin/macos-aarch64/codex';
 
-test('Preferences and Computers have no horizontal overflow and long paths truncate in the middle', async ({
+test('Settings has no horizontal overflow and long paths truncate in the middle', async ({
   page,
 }) => {
   await page.setViewportSize({ width: 1080, height: 715 });
@@ -28,9 +28,10 @@ test('Preferences and Computers have no horizontal overflow and long paths trunc
     };
   }, longPath);
   await page.goto('/');
-  // From 900px wide, the sidebar starts open. The Computers page shows beside it.
+  // From 900px wide, the sidebar starts open. Settings opens over it.
   await expect(page.getByRole('navigation', { name: 'Projects and repositories' })).toBeVisible();
-  const computers = await openComputersPage(page);
+  const settings = await openSettingsWindow(page, 'Computers');
+  const computers = settings.getByRole('tabpanel', { name: 'Computers', exact: true });
   /** The horizontal overflow of an element: its scroll width and the children past its edge. */
   const overflowOf = (pane: Locator) =>
     pane.evaluate((pane) => {
@@ -47,9 +48,10 @@ test('Preferences and Computers have no horizontal overflow and long paths trunc
   await expect(computers.getByRole('group', { name: 'Codex', exact: true })).toBeVisible();
   await page.waitForTimeout(300);
   expect(await overflowOf(computers), 'Computers').toEqual({ scroll: 0, wide: [] });
-  // "Locate…" opens the Codex program of this computer with its path.
-  await computers.getByRole('button', { name: 'Locate the Codex program' }).click();
-  const programs = page.getByRole('dialog', { name: 'Codex on this computer' });
+  // Details › "Programs…" opens the coding agent programs of this computer with their paths.
+  await computers.getByRole('button', { name: 'Details', exact: true }).click();
+  await computers.getByRole('button', { name: 'Programs…' }).click();
+  const programs = page.getByRole('dialog', { name: 'Coding agent programs on this computer' });
   const shown = programs.getByLabel(longPath, { exact: true });
   await expect(shown).toBeVisible();
   // The end of the path (the program name) stays visible.
@@ -61,14 +63,13 @@ test('Preferences and Computers have no horizontal overflow and long paths trunc
   await page.keyboard.press('Escape');
   await expect(programs).toHaveCount(0);
 
-  // Each section of Preferences fits in the dialog.
-  const preferences = await openPreferences(page);
-  for (const section of ['Chats', 'Connections', 'This app']) {
-    await preferences.getByRole('tab', { name: section, exact: true }).click();
-    const panel = preferences.getByRole('tabpanel', { name: section, exact: true });
+  // Each section of Settings fits in the window.
+  for (const section of ['General', 'Computers', 'Account', 'Project']) {
+    await settingsSection(page, section).click();
+    const panel = settings.getByRole('tabpanel', { name: section, exact: true });
     await expect(panel).toBeVisible();
-    expect(await overflowOf(panel), `Preferences › ${section}`).toEqual({ scroll: 0, wide: [] });
-    expect(await overflowOf(preferences), `Preferences dialog › ${section}`).toEqual({
+    expect(await overflowOf(panel), `Settings › ${section}`).toEqual({ scroll: 0, wide: [] });
+    expect(await overflowOf(settings), `Settings window › ${section}`).toEqual({
       scroll: 0,
       wide: [],
     });

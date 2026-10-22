@@ -80,10 +80,29 @@ export type Command = {
   keywords: string[];
   group: CommandGroup;
   run: (e: Editor) => unknown;
+  /** The command shows only when the typed text finds it. */
+  searchOnly?: boolean;
 };
 
+/** The most rows of the slash menu. */
+export const slashLimit = 8;
+
+/**
+ * The rows of the slash menu for the typed text: without text, the commands that are not
+ * search-only; with text, each command that matches. At most `slashLimit` rows.
+ */
+export function slashRows<T extends Pick<Command, 'label' | 'keywords' | 'searchOnly'>>(
+  commands: T[],
+  query: string,
+) {
+  const typed = !!query.trim();
+  return commands
+    .filter((command) => (typed ? commandMatches(command, query) : !command.searchOnly))
+    .slice(0, slashLimit);
+}
+
 /** The slash menu height: the most rows that show, the group labels and the padding. */
-const slashHeight = 400;
+const slashHeight = 300;
 
 /** The position of a menu at the caret: under the line when there is space, else above it. */
 function menuPosition(rect: { left: number; top: number; bottom: number }) {
@@ -341,28 +360,22 @@ function formatMenuProps(toolbar: RefObject<HTMLDivElement | null>) {
   };
 }
 
+// The page title is the first heading, so "/" offers Heading (H2) and Subheading (H3) only.
+// Numbered list, Quote and Divider show when the typed text finds them.
 const commands: Command[] = [
   {
-    label: 'Heading 1',
-    icon: Heading1,
-    shortcut: '#',
-    keywords: ['h1', 'title', 'large heading'],
-    group: 'Blocks',
-    run: (e: Editor) => e.chain().focus().setHeading({ level: 1 }).run(),
-  },
-  {
-    label: 'Heading 2',
+    label: 'Heading',
     icon: Heading2,
     shortcut: '##',
-    keywords: ['h2', 'section heading'],
+    keywords: ['h2', 'heading 2', 'section heading'],
     group: 'Blocks',
     run: (e: Editor) => e.chain().focus().setHeading({ level: 2 }).run(),
   },
   {
-    label: 'Heading 3',
+    label: 'Subheading',
     icon: Heading3,
     shortcut: '###',
-    keywords: ['h3', 'small heading'],
+    keywords: ['h3', 'heading 3', 'small heading'],
     group: 'Blocks',
     run: (e: Editor) => e.chain().focus().setHeading({ level: 3 }).run(),
   },
@@ -380,6 +393,7 @@ const commands: Command[] = [
     shortcut: '1.',
     keywords: ['ol', 'ordered list', 'numbers'],
     group: 'Blocks',
+    searchOnly: true,
     run: (e: Editor) => e.chain().focus().toggleOrderedList().run(),
   },
   {
@@ -396,6 +410,7 @@ const commands: Command[] = [
     shortcut: '>',
     keywords: ['blockquote', 'quotation'],
     group: 'Blocks',
+    searchOnly: true,
     run: (e: Editor) => e.chain().focus().toggleBlockquote().run(),
   },
   {
@@ -420,6 +435,7 @@ const commands: Command[] = [
     shortcut: '---',
     keywords: ['hr', 'line', 'rule', 'separator'],
     group: 'Blocks',
+    searchOnly: true,
     run: (e: Editor) => e.chain().focus().setHorizontalRule().run(),
   },
 ];
@@ -689,7 +705,7 @@ export function WikiEditor({
       : []),
   ];
   const allCommands: Command[] = [...commands, ...linkCommands];
-  const filtered = allCommands.filter((c) => commandMatches(c, slash?.query || ''));
+  const filtered = slashRows(allCommands, slash?.query || '');
   // The pages of the "[[" menu. They load each time the menu opens.
   const mentionOpen = !!mention && !readOnly;
   useEffect(() => {
@@ -1219,7 +1235,8 @@ export function WikiEditor({
                         >
                           <c.icon size={16} aria-hidden="true" />
                           <span>{c.label}</span>
-                          {c.shortcut && (
+                          {/* The Markdown shortcut shows on the active row only. */}
+                          {c.shortcut && i === index && (
                             <span className="wiki-slash-hint" aria-hidden="true">
                               {c.shortcut}
                             </span>

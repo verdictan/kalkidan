@@ -1,5 +1,5 @@
 import { type Page } from '@playwright/test';
-import { test, expect, openPreferences } from './helpers/app';
+import { test, expect, openSettingsWindow } from './helpers/app';
 
 /** A signed-in desktop with the local data methods. `extra` replaces parts of the API. */
 async function fixture(page: Page, extra = '') {
@@ -97,17 +97,16 @@ test('the notice does not show when the user already read it', async ({ page }) 
   await expect(notice(page)).toHaveCount(0);
 });
 
-/** Opens Preferences › This app › Your data. */
+/** Opens Settings › General › Your data. */
 async function openYourData(page: Page) {
-  const preferences = await openPreferences(page);
-  await preferences.getByRole('tab', { name: 'This app', exact: true }).click();
-  await preferences
+  const settings = await openSettingsWindow(page, 'General');
+  await settings
     .getByRole('group', { name: 'Your data', exact: true })
     .getByRole('button', { name: 'Manage…' })
     .click();
 }
 
-test('Preferences › Your data keeps the notice, the disk use, export, and deletion', async ({
+test('Settings › General › Your data keeps the notice, the disk use, export, and deletion', async ({
   page,
 }) => {
   await fixture(page, 'window.noticeSeen = true; return {};');
@@ -137,7 +136,7 @@ test('Preferences › Your data keeps the notice, the disk use, export, and dele
   await expect(settings).toBeVisible();
 });
 
-test('Preferences › Your data warns when only chat history keeps the folder above the limit', async ({
+test('Settings › General › Your data warns when only chat history keeps the folder above the limit', async ({
   page,
 }) => {
   await fixture(

@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react';
-import { FileText, FolderGit2, FolderPlus, ListTodo } from 'lucide-react';
+import { AtSign, FileText, GitBranch, Inbox, ListTodo } from 'lucide-react';
 import { agentCatalog, agentLabel } from '../config/agents';
 import { agentInstalled } from '../lib/agent-preference';
 import { onChatPreferencesChange, readEnterToSend } from '../lib/chat-preferences';
@@ -8,6 +8,7 @@ import { fullTime, relativeTime } from '../lib/relative-time';
 import { useRecentItems } from '../lib/recent-items';
 import { sessionRepo } from '../lib/session-repository';
 import type { ProjectDocMetadata } from '../domain/docs';
+import type { WorkingStatus } from '../api/contracts';
 import type {
   API,
   Agent,
@@ -26,6 +27,8 @@ import {
   AccessPill,
   Composer,
   FolderPill,
+  ComposerAddMenu,
+  composerPlaceholderFor,
   defaultAccess,
   readAccess,
   saveAccess,
@@ -36,7 +39,6 @@ import { ModelChip, useModelChoice } from './model-chip';
 import { Button } from './ui/button';
 import { EmptyState } from './ui/empty-state';
 import { EntityIcon } from './ui/entity-icon';
-import { ListRow } from './ui/list-row';
 import { SectionHeader } from './ui/page-header';
 
 const recentLimit = 8;
@@ -120,7 +122,8 @@ function HomeComposer({
   }, [group.id, text]);
   const [enterToSend, setEnterToSend] = useState(readEnterToSend);
   useEffect(() => onChatPreferencesChange(() => setEnterToSend(readEnterToSend())), []);
-  // Access: the last choice in the code folder, else the choice of Settings › General.
+  // Access: the last choice in the code folder, else the choice of Settings › General, else
+  // Read only. The Overview starts chats in the main checkout, never in a branch copy.
   const [access, setAccess] = useState<ChatAccess | null>(null);
   const shownAccess = access || readAccess(repo?.id) || defaultAccess() || 'read';
   // Agent and model, as in the chat composer.
@@ -153,6 +156,7 @@ function HomeComposer({
     <Composer
       label="New chat"
       inputLabel="Message for a new chat"
+      placeholder={composerPlaceholderFor(agentLabel(agent), repo?.name)}
       sendLabel="Start the chat"
       value={text}
       onValueChange={setText}
@@ -161,6 +165,18 @@ function HomeComposer({
       enterToSend={enterToSend}
       controls={
         <>
+          {/* The same chips in the same order as in a chat: + · folder · access · agent. */}
+          <ComposerAddMenu
+            items={[
+              {
+                label: 'File or folder',
+                icon: <AtSign />,
+                shortcut: '@',
+                onSelect: () =>
+                  setText((value) => (value && !value.endsWith(' ') ? value + ' @' : value + '@')),
+              },
+            ]}
+          />
           <FolderPill
             label={repo?.name}
             folders={repos}
@@ -190,8 +206,8 @@ function HomeComposer({
 }
 
 /**
- * The project home (the Overview tab): one compose box that starts a chat, then what waits for
- * the user, then recent chats, tasks and pages, then the code folders.
+ * The project home (the Overview tab): one compose box that starts a chat, then what needs the
+ * user, then recent chats, tasks and pages, then the code folders as one row of chips.
  */
 export function ProjectHomePage({
   api,
@@ -234,6 +250,23 @@ export function ProjectHomePage({
       live = false;
     };
   }, [api, group.id]);
+  // The branch of each code folder, for its chip and for the access default of the composer.
+  const [working, setWorking] = useState<Record<string, WorkingStatus>>({});
+  const repoKey = repos.map((repo) => repo.id).join(',');
+  useEffect(() => {
+    let live = true;
+    if (typeof api.workingStatus !== 'function') return;
+    for (const repo of repos)
+      Promise.resolve()
+        .then(() => api.workingStatus(repo.id))
+        .then((status) => live && setWorking((current) => ({ ...current, [repo.id]: status })))
+        .catch(() => {
+          /* The chip then shows the name only. */
+        });
+    return () => {
+      live = false;
+    };
+  }, [api, repoKey]);
   const opened = useRecentItems();
   const waitingKeys = new Set(
     needsYou.map(({ session }) => activityKey(session.agent, session.id)),
@@ -318,17 +351,24 @@ export function ProjectHomePage({
         sessions={sessions}
         onAddFolder={onAddFolder}
       />
-      <div className="project-home-lists">
-        {!!needsYou.length && (
-          <section className="project-home-section" aria-label="Waiting for you">
-            <SectionHeader title="Waiting for you" count={needsYou.length} />
-            <div className="chat-list">
-              {needsYou.map(({ session, repo, reason, state, at }) => (
+      {!!needsYou.length && (
+        <section className="project-home-section" aria-label="Needs you">
+          <SectionHeader title="Needs you" count={needsYou.length} />
+          <div className="chat-list">
+            {needsYou.map(({ session, repo, reason, state, at }) => {
+              const title = session.organization?.title || session.title;
+              return (
                 <ChatRow
                   key={activityKey(session.agent, session.id)}
+                  className="needs-you-row"
                   session={session}
                   activity={state}
                   onOpen={onOpenSession}
+                  icon={
+                    <EntityIcon className="needs-you-icon">
+                      <Inbox />
+                    </EntityIcon>
+                  }
                   meta={
                     <>
                       {[reason, repos.length > 1 ? repo.name : undefined]
@@ -344,50 +384,78 @@ export function ProjectHomePage({
                       )}
                     </>
                   }
+                  // The approval and the answer are in the chat. Review opens it there.
+                  trailing={
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      aria-label={`Review ${title}`}
+                      onClick={() => onOpenSession(session)}
+                    >
+                      Review
+                    </Button>
+                  }
                 />
-              ))}
-            </div>
-          </section>
-        )}
-        {!!recent.length && (
-          <section className="project-home-section" aria-label="Recent">
-            <SectionHeader title="Recent" />
-            <div className="chat-list">{recent.map((item) => item.node)}</div>
-          </section>
-        )}
-      </div>
+              );
+            })}
+          </div>
+        </section>
+      )}
+      {!!recent.length && (
+        <section className="project-home-section" aria-label="Recent">
+          <SectionHeader
+            title="Recent"
+            actions={
+              <Button
+                variant="bare"
+                className="section-link"
+                onClick={() => openProjectPage(group.id, 'chats')}
+              >
+                All chats
+              </Button>
+            }
+          />
+          <div className="chat-list">{recent.map((item) => item.node)}</div>
+        </section>
+      )}
       <section className="project-home-section" aria-label="Code folders">
         <SectionHeader
           title="Code folders"
           count={repos.length || undefined}
           actions={
-            <Button variant="ghost" size="sm" onClick={onAddFolder}>
-              <FolderPlus aria-hidden="true" />
-              Add code folder…
+            <Button
+              variant="bare"
+              className="section-link"
+              aria-label="Add code folder…"
+              onClick={onAddFolder}
+            >
+              Add…
             </Button>
           }
         />
         {repos.length ? (
-          <ul className="folder-list">
-            {repos.map((repo) => (
-              <ListRow
-                key={repo.id}
-                as="li"
-                icon={
-                  <EntityIcon>
-                    <FolderGit2 />
-                  </EntityIcon>
-                }
-                title={repo.name}
-                meta={repo.path}
-                onClick={() => onRepo(repo)}
-              />
-            ))}
+          <ul className="folder-chips">
+            {repos.map((repo) => {
+              const branch = working[repo.id]?.branch;
+              return (
+                <li key={repo.id}>
+                  <button
+                    type="button"
+                    className="folder-chip"
+                    title={repo.path}
+                    aria-label={branch ? `${repo.name}, branch ${branch}` : repo.name}
+                    onClick={() => onRepo(repo)}
+                  >
+                    <GitBranch aria-hidden="true" />
+                    <span className="folder-chip-name">{repo.name}</span>
+                    {branch && <span className="folder-chip-branch">{branch}</span>}
+                  </button>
+                </li>
+              );
+            })}
           </ul>
         ) : (
-          <EmptyState compact className="project-home-empty-state">
-            No code folders yet.
-          </EmptyState>
+          <EmptyState compact title="No code folders yet." />
         )}
       </section>
     </div>

@@ -1,27 +1,33 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
-import { BarChart3, ChevronDown, FileText, Lightbulb, Plus } from 'lucide-react';
-import type { API, Project, ProjectGroup, Session } from '../types';
-import { sessionRepo } from '../lib/session-repository';
+import { ChevronDown, FileText, Lightbulb } from 'lucide-react';
+import type { API, ProjectGroup, Session } from '../types';
 import type { DocPassage } from '../domain/docs';
 import { useProjectResource } from '../hooks/use-project-resource';
 import { plural } from '../lib/platform';
 import { Button } from './ui/button';
 import { NavRow } from './ui/nav-row';
 import { SearchInput } from './ui/search-input';
-import { Hint } from './hint';
-import { KnowledgeRailGroup, ProjectDocsPanel, type DocOpenRequest } from './project-docs';
-import { ProjectMemoryPanel, factTopics, useMemoryFacts } from './project-memory';
-import {
-  InsightsView,
-  insightSearchItems,
-  insightViews,
-  useInsightsBoard,
-  type InsightView,
-} from './insights-cards';
-import { useUncertainWrites } from './github-write-history';
+import { ProjectDocsPanel, type DocOpenRequest } from './project-docs';
+import { ProjectMemoryPanel, useMemoryFacts } from './project-memory';
+import { openProjectUsage } from './project-usage';
 import { useReadCounts } from './context-usage-chip';
 
+/**
+ * A part of the Knowledge tab. 'insights' is an old name only: Board health and GitHub checks
+ * are on the Tasks tab now, and Agent usage is the Usage sheet.
+ */
 export type KnowledgeSection = 'pages' | 'memory' | 'insights';
+
+/** Opens the part of the project that has an old Insights view now. */
+function openInsight(groupId: string, view: unknown, taskId?: string) {
+  if (view === 'usage' || view === 'knowledge' || taskId) {
+    openProjectUsage(groupId, taskId);
+    return;
+  }
+  window.dispatchEvent(
+    new CustomEvent('kalkidan-open-project-page', { detail: { groupId, page: 'tasks' } }),
+  );
+}
 
 /** The section of the Knowledge tab for an old page name or a section name. */
 export function knowledgeSection(value: unknown): KnowledgeSection | undefined {
@@ -64,24 +70,29 @@ const plainExcerpt = (text: string) =>
 
 type Result =
   | { kind: 'page'; key: string; docId: string; title: string; detail: string; heading?: string }
-  | { kind: 'fact'; key: string; id: string; topic: string; title: string; detail: string }
-  | { kind: 'insight'; key: string; view: InsightView; title: string; detail: string };
+  | { kind: 'fact'; key: string; id: string; topic: string; title: string; detail: string };
 
 const resultGroups: { kind: Result['kind']; label: string }[] = [
-  { kind: 'page', label: 'Pages' },
   { kind: 'fact', label: 'Memory' },
-  { kind: 'insight', label: 'Insights' },
+  { kind: 'page', label: 'Pages' },
 ];
 
 /**
- * The Knowledge tab of a project: pages, memory facts and insights in one rail, with one search
- * for all three. Enter opens the selected result on the right.
+ * The first part of the Knowledge tab to show, in the order of the rail: Memory when it has
+ * facts, else Pages when there are pages, else Memory, where the caret waits in "Add a fact".
+ */
+export function firstKnowledgeSection(facts: number, pages: number): 'memory' | 'pages' {
+  return facts || !pages ? 'memory' : 'pages';
+}
+
+/**
+ * The Knowledge tab of a project: what agents read. One rail list has Memory first, then the
+ * pages, with one search for both. Enter opens the selected result on the right.
  */
 export function KnowledgePanel({
   api,
   group,
   sessions = [],
-  repos: reposProp,
   section: sectionProp,
   docId,
   topic,
@@ -92,9 +103,9 @@ export function KnowledgePanel({
   group: ProjectGroup;
   /** The chats of the app. They give the titles of the source chats of facts. */
   sessions?: Session[];
-  /** The code folders of the app. Without them, the panel reads them once. */
-  repos?: Project[];
-  /** The part to open: pages, memory or insights. */
+  /** The code folders of the project. Not used now; the shell still passes them. */
+  repos?: unknown;
+  /** The part to open: pages or memory. 'insights' opens Tasks or the Usage sheet. */
   section?: KnowledgeSection;
   /** Opens this page. */
   docId?: string;
@@ -102,54 +113,42 @@ export function KnowledgePanel({
   topic?: string;
   /** Scrolls the opened page to the heading with this text. */
   heading?: string;
-  /** Opens Agent usage at this task. */
+  /** Opens the Usage sheet at this task. */
   taskId?: string;
 }) {
-  const [section, setSection] = useState<KnowledgeSection>(
-    sectionProp || (topic ? 'memory' : taskId ? 'insights' : 'pages'),
+  // Without a part to open, the panel waits for memory and pages, then opens the first part
+  // that has content (null until then).
+  const [section, setSection] = useState<'pages' | 'memory' | null>(
+    sectionProp === 'pages' || docId
+      ? 'pages'
+      : sectionProp === 'memory' || topic
+        ? 'memory'
+        : null,
   );
   const [memoryTopic, setMemoryTopic] = useState(topic || '');
   const [factFocus, setFactFocus] = useState<{ id: string; serial: number }>();
-  const { connection, board } = useInsightsBoard(api, group);
-  // Board and GitHub checks need a board. Without one, the rail does not show them.
-  const views = insightViews.filter(
-    (item) => !!connection || (item.view !== 'board' && item.view !== 'github'),
-  );
-  const [view, setView] = useState<InsightView>(taskId || !connection ? 'usage' : 'board');
-  const [usageTask, setUsageTask] = useState(taskId);
   const [request, setRequest] = useState<DocOpenRequest>();
-  const [addSerial, setAddSerial] = useState(0);
   const [railOpen, setRailOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [active, setActive] = useState(0);
   const serial = useRef(0);
-  const [loadedRepos, setLoadedRepos] = useState<Project[]>();
-  useEffect(() => {
-    if (reposProp) return;
-    let live = true;
-    api
-      .snapshot()
-      .then((snapshot) => live && setLoadedRepos(snapshot.projects))
-      .catch(() => live && setLoadedRepos([]));
-    return () => {
-      live = false;
-    };
-  }, [api, !!reposProp]);
-  const projectSessions = useMemo(() => {
-    const repos = (reposProp || loadedRepos || []).filter((repo) =>
-      group.repoIds.includes(repo.id),
-    );
-    return sessions.filter((session) => !!sessionRepo(session, repos));
-  }, [sessions, reposProp, loadedRepos, group.repoIds]);
-  const { facts } = useMemoryFacts(api, group);
-  const topics = useMemo(() => factTopics(facts), [facts]);
+  const { memory, facts, resource: memoryResource } = useMemoryFacts(api, group);
+  // A failed memory read counts as no facts, so the panel can still open the pages.
+  const memoryLoaded = !!memory || memoryResource.state.status === 'error';
   // An API without doc pages (an older bridge) shows no pages instead of an error.
   const metadata = useProjectResource(api, group, 'docs-metadata', () =>
     typeof api.docsMetadata === 'function' ? api.docsMetadata(group.id) : Promise.resolve([]),
   );
   const pages = metadata.state.value || [];
-  const checks = useUncertainWrites(api, group.id);
+  const pagesLoaded = !!metadata.state.value || metadata.state.status === 'error';
   const reads = useReadCounts(api, group.id);
+  // The caret goes to "Add a fact" when the panel chose Memory itself.
+  const [chosen, setChosen] = useState(false);
+  useEffect(() => {
+    if (section || !memoryLoaded || !pagesLoaded) return;
+    setSection(firstKnowledgeSection(facts.length, pages.length));
+    setChosen(true);
+  }, [section, memoryLoaded, pagesLoaded]);
 
   /** Opens a part of the Knowledge tab, from a prop, an event or a search result. */
   function apply(detail: {
@@ -158,9 +157,13 @@ export function KnowledgePanel({
     heading?: string;
     topic?: string;
     factId?: string;
-    view?: InsightView;
+    view?: unknown;
     taskId?: string;
   }) {
+    if (detail.section === 'insights' || (!detail.section && detail.taskId)) {
+      openInsight(group.id, detail.view, detail.taskId);
+      return;
+    }
     const next =
       detail.section ||
       (detail.docId ? 'pages' : detail.topic || detail.factId ? 'memory' : undefined);
@@ -173,12 +176,6 @@ export function KnowledgePanel({
       setMemoryTopic(detail.topic || '');
       if (detail.factId) setFactFocus({ id: detail.factId, serial: ++serial.current });
     }
-    if (next === 'insights') {
-      if (detail.taskId) {
-        setView('usage');
-        setUsageTask(detail.taskId);
-      } else if (detail.view) setView(detail.view);
-    }
   }
   useEffect(() => {
     apply({ section: sectionProp, docId, heading, topic, taskId });
@@ -190,7 +187,7 @@ export function KnowledgePanel({
       if (!detail || detail.groupId !== group.id) return;
       const value =
         detail.page === 'knowledge'
-          ? knowledgeSection(detail.section) || 'pages'
+          ? knowledgeSection(detail.section) || 'memory'
           : knowledgeSection(detail.page);
       if (!value) return;
       const text = (key: string) => (typeof detail[key] === 'string' ? detail[key] : undefined);
@@ -201,16 +198,14 @@ export function KnowledgePanel({
         topic: text('topic'),
         factId: text('factId'),
         taskId: text('taskId'),
-        view: insightViews.some((item) => item.view === detail.view)
-          ? (detail.view as InsightView)
-          : undefined,
+        view: detail.view,
       });
     };
     window.addEventListener('kalkidan-open-project-page', open);
     return () => window.removeEventListener('kalkidan-open-project-page', open);
   }, [group.id]);
 
-  // Search: page titles and passages, facts, and insight numbers.
+  // Search: page titles and passages, and facts.
   const [passages, setPassages] = useState<DocPassage[]>([]);
   const trimmed = query.trim();
   useEffect(() => {
@@ -273,27 +268,15 @@ export function KnowledgePanel({
           .filter(Boolean)
           .join(' · '),
       }));
-    const insightResults: Result[] = insightSearchItems(board.state.value, projectSessions)
-      .filter((item) => views.some((value) => value.view === item.view))
-      .filter((item) => wordStartMatch(`${item.title} ${item.detail}`, trimmed))
-      .map((item) => ({
-        kind: 'insight',
-        key: `insight:${item.view}:${item.title}`,
-        view: item.view,
-        title: item.title,
-        detail: insightViews.find((value) => value.view === item.view)!.label,
-      }));
-    return [...pageResults.slice(0, 8), ...factResults, ...insightResults];
-  }, [trimmed, pages, passages, facts, board.state.value, projectSessions, reads, views.length]);
+    return [...factResults, ...pageResults.slice(0, 8)];
+  }, [trimmed, pages, passages, facts, reads]);
   const current = Math.min(active, Math.max(0, results.length - 1));
 
   function openResult(result: Result) {
     setQuery('');
     if (result.kind === 'page')
       apply({ section: 'pages', docId: result.docId, heading: result.heading });
-    else if (result.kind === 'fact')
-      apply({ section: 'memory', topic: result.topic, factId: result.id });
-    else apply({ section: 'insights', view: result.view });
+    else apply({ section: 'memory', topic: result.topic, factId: result.id });
   }
   function searchKeys(event: KeyboardEvent<HTMLInputElement>) {
     if (event.key === 'Escape' && query) {
@@ -329,12 +312,7 @@ export function KnowledgePanel({
     };
   }, [railOpen]);
 
-  const currentLabel =
-    section === 'memory'
-      ? memoryTopic || 'Memory'
-      : section === 'insights'
-        ? insightViews.find((item) => item.view === view)!.label
-        : 'Pages';
+  const currentLabel = section === 'pages' ? 'Pages' : 'Memory';
   const switcher = (
     <Button
       variant="ghost"
@@ -354,7 +332,7 @@ export function KnowledgePanel({
       <SearchInput
         size="sm"
         aria-label="Search knowledge"
-        placeholder="Search knowledge"
+        placeholder="Search"
         value={query}
         role="combobox"
         aria-expanded={!!trimmed}
@@ -368,91 +346,25 @@ export function KnowledgePanel({
       />
     </div>
   );
-  const railRow = (
-    key: string,
-    label: string,
-    selected: boolean,
-    onClick: () => void,
-    count?: number,
-    className?: string,
-  ) => (
-    <li key={key}>
-      <NavRow
-        label={label}
-        current={selected}
-        onClick={onClick}
-        count={count || undefined}
-        className={className}
-      />
-    </li>
-  );
-  const railBottom = (
-    <>
-      <KnowledgeRailGroup
-        label="Memory"
-        actions={
-          <Hint label="Add fact">
-            <Button
-              variant="ghost"
-              size="icon-xs"
-              aria-label="Add fact"
-              onClick={() => {
-                apply({ section: 'memory' });
-                setAddSerial((value) => value + 1);
-              }}
-            >
-              <Plus size={14} />
-            </Button>
-          </Hint>
-        }
-      >
-        <ul className="knowledge-rail-list">
-          {railRow(
-            'all',
-            'All facts',
-            !trimmed && section === 'memory' && !memoryTopic,
-            () => apply({ section: 'memory' }),
-            facts.length,
-          )}
-          {topics.map((item) =>
-            railRow(
-              item.topic,
-              item.topic,
-              !trimmed &&
-                section === 'memory' &&
-                memoryTopic.toLowerCase() === item.topic.toLowerCase(),
-              () => apply({ section: 'memory', topic: item.topic }),
-              item.facts.length,
-            ),
-          )}
-        </ul>
-      </KnowledgeRailGroup>
-      <KnowledgeRailGroup label="Insights">
-        <ul className="knowledge-rail-list">
-          {views.map((item) =>
-            railRow(
-              item.view,
-              item.label,
-              !trimmed && section === 'insights' && view === item.view,
-              () => apply({ section: 'insights', view: item.view }),
-              item.view === 'github' ? checks : undefined,
-              item.view === 'github' ? 'knowledge-rail-checks' : undefined,
-            ),
-          )}
-        </ul>
-      </KnowledgeRailGroup>
-    </>
+  // Memory is the first row of the one rail list. The pages follow it.
+  const memoryRow = (
+    <NavRow
+      className="knowledge-rail-memory"
+      icon={<Lightbulb aria-hidden="true" />}
+      label="Memory"
+      current={!trimmed && section === 'memory'}
+      onClick={() => apply({ section: 'memory' })}
+    />
   );
   const searchPane = trimmed ? (
     <div className="knowledge-results" id={`knowledge-results-${group.id}`} role="listbox">
-      <div className="knowledge-pane-header">
-        {switcher}
-        <p className="knowledge-results-count" role="status">
-          {results.length
-            ? `${plural(results.length, 'result')} for “${trimmed}”`
-            : `No results for “${trimmed}”`}
-        </p>
-      </div>
+      {switcher && <div className="knowledge-pane-bar">{switcher}</div>}
+      {/* The groups show the results. Only "no results" needs a line. */}
+      <p className={results.length ? 'sr-only' : 'knowledge-results-empty'} role="status">
+        {results.length
+          ? `${plural(results.length, 'result')} for “${trimmed}”`
+          : `No results for “${trimmed}”`}
+      </p>
       {resultGroups.map(({ kind, label }) => {
         const items = results.filter((item) => item.kind === kind);
         if (!items.length) return null;
@@ -463,7 +375,7 @@ export function KnowledgePanel({
             </p>
             {items.map((item) => {
               const index = results.indexOf(item);
-              const Icon = kind === 'page' ? FileText : kind === 'fact' ? Lightbulb : BarChart3;
+              const Icon = kind === 'page' ? FileText : Lightbulb;
               return (
                 <div
                   key={item.key}
@@ -502,22 +414,14 @@ export function KnowledgePanel({
         group={group}
         sessions={sessions}
         topic={memoryTopic}
-        onShowAll={() => apply({ section: 'memory' })}
         focus={factFocus}
-        addSerial={addSerial}
+        autoFocus={chosen}
         readCounts={reads?.memory}
         switcher={switcher}
       />
-    ) : section === 'insights' ? (
-      <InsightsView
-        key={view + (usageTask || '')}
-        api={api}
-        group={group}
-        sessions={projectSessions}
-        view={view}
-        taskId={view === 'usage' ? usageTask : undefined}
-        switcher={switcher}
-      />
+    ) : section === null ? (
+      // Memory and pages load. The pane stays empty for this short time.
+      <span aria-busy="true" />
     ) : undefined);
   return (
     <div ref={root} className="knowledge-root">
@@ -525,8 +429,8 @@ export function KnowledgePanel({
         api={api}
         group={group}
         request={request}
-        railTop={searchBox}
-        railBottom={railBottom}
+        search={searchBox}
+        railLead={memoryRow}
         railOpen={railOpen}
         pane={pane}
         switcher={switcher}

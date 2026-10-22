@@ -296,6 +296,8 @@ export interface ProjectAPI {
   ): Promise<{ state: 'open' | 'merged' | 'closed'; number: number; title?: string }>;
   /** Opens the native folder dialog. Resolves null when the user cancels. Electron only. */
   chooseFolder(title?: string, buttonLabel?: string): Promise<string | null>;
+  /** The path on disk of a file or folder dropped on the window. Empty when it has none. */
+  pathForFile?(file: File): string;
   /**
    * Finds Git repositories in a folder: the folder itself and its subfolders to depth 3.
    * Skips hidden folders, node_modules and the folders inside a repository.

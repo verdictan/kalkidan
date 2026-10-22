@@ -1,33 +1,30 @@
-import { projectColors } from '../domain/project-colors';
 import { trackerConnection, type TrackerBoard } from '../domain/tracker';
 import { CreateProject } from './create-project';
 import { startFirstChat } from './onboarding';
 import { useState } from 'react';
-import { Folder, FolderOpen, FolderPlus, Loader2, Plus } from 'lucide-react';
+import { FolderOpen, Loader2, Plus } from 'lucide-react';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
 import { EmptyState } from './ui/empty-state';
-import { EntityIcon } from './ui/entity-icon';
 import { PageHeader, SectionHeader } from './ui/page-header';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table';
 import type { API, ProjectGroup, Project, Session } from '../types';
 import { sessionRepo } from '../lib/session-repository';
 import { fullTime, relativeTime } from '../lib/relative-time';
-import { doneStatus, itemStatus } from '../hooks/use-project-boards';
 import { ProjectPortfolio } from './planning-tools';
 import { folderName, showFolderImportResult, useFolderImport } from './repository-import';
 import { showToast } from './ui/toast';
 import { ChatRow } from './chat-row';
 import { errorMessage } from '../lib/errors';
 import {
-  ActivityDot,
+  StatusMark,
   activityKey,
   activityLabels,
   useActivityState,
   waitsForUser,
   type SessionActivityState,
 } from './activity-dot';
-import { NodeField } from './node-field';
+import { plural } from '../lib/platform';
 
 /** A chat that waits for the user, or a run that finished and is not seen yet. */
 export interface NeedsYouItem {
@@ -104,17 +101,25 @@ export function WaitingPage({
                   activity={state}
                   onOpen={onResume}
                   meta={[reason, placeOf(repo), repo.name].filter(Boolean).join(' · ')}
+                  trailing={
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      aria-label={`Review ${session.organization?.title || session.title}`}
+                      onClick={() => onResume(session)}
+                    >
+                      Review
+                    </Button>
+                  }
                 />
               ))}
             </div>
           ) : (
-            <p className="text-xs text-muted-foreground">No chats wait for you.</p>
+            <EmptyState compact title="No chats wait for you." />
           )}
         </section>
       )}
-      {!needsYou.length && !boards && (
-        <p className="text-sm text-muted-foreground">Nothing waits for you.</p>
-      )}
+      {!needsYou.length && !boards && <EmptyState title="Nothing waits for you." />}
       {boards && (
         <section className="waiting-section" aria-label="Tasks">
           <SectionHeader title="Tasks" />
@@ -133,9 +138,8 @@ export function ProjectOverview({
   query,
   onSelect,
   onRefresh,
-  boards = {},
 }: {
-  /** The boards of the connected projects, for the Tasks column. */
+  /** @deprecated The table has no Tasks column any more. */
   boards?: Record<string, TrackerBoard>;
   api: API;
   groups: ProjectGroup[];
@@ -147,6 +151,7 @@ export function ProjectOverview({
 }) {
   const [open, setOpen] = useState(false);
   const needsYou = useNeedsYou(sessions, repos);
+  const { activity } = useActivityState();
   const folderImport = useFolderImport(api, 'overview');
   const [importing, setImporting] = useState(false);
   /** Chooses a folder, makes a project with its name, and adds the Git repositories in it. */
@@ -188,34 +193,24 @@ export function ProjectOverview({
     .filter((item): item is { session: Session; repo: Project } => !!item.repo)
     .sort((a, b) => (b.session.updatedAt || '').localeCompare(a.session.updatedAt || ''));
   const rows = visible.map((group) => {
-    const members = repos.filter((r) => group.repoIds.includes(r.id));
-    const chats = recent.filter(({ repo }) => group.repoIds.includes(repo.id));
-    const board = boards[group.id];
-    const openTasks = board
-      ? board.items.filter((item) => !doneStatus(itemStatus(board, item))).length
-      : undefined;
-    const waiting = needsYou.filter((item) => group.repoIds.includes(item.repo.id)).length;
-    return { group, members, chats, openTasks, waiting, last: chats[0]?.session.updatedAt };
+    const inGroup = (repo?: Project) => !!repo && group.repoIds.includes(repo.id);
+    const chats = recent.filter(({ repo }) => inGroup(repo));
+    const waiting = needsYou.filter((item) => inGroup(item.repo)).length;
+    const running = activity.filter(
+      (item) => item.state === 'running' && inGroup(sessionRepo(item, repos)),
+    ).length;
+    return { group, chats, waiting, running, last: chats[0]?.session.updatedAt };
   });
-  // A column that is empty for every project does not show.
-  const showTasks = rows.some((row) => row.openTasks !== undefined || trackerConnection(row.group));
-  const showFolders = rows.some((row) => row.members.length > 0);
-  const muted = <span className="text-muted-foreground">—</span>;
   return (
-    <section className={'page' + (groups.length ? '' : ' focus-page')} aria-label="Projects">
-      {/* The empty page has one job, so it gets the quiet node background. */}
-      {!groups.length && <NodeField corners="bottom" />}
+    <section className="page" aria-label="Projects">
       <PageHeader
         title="Projects"
         reserveSubtitle
         actions={
-          // With no projects, the empty state shows the only "New project" action.
-          !!groups.length && (
-            <Button onClick={() => setOpen(true)}>
-              <Plus />
-              New project
-            </Button>
-          )
+          <Button onClick={() => setOpen(true)}>
+            <Plus />
+            New project
+          </Button>
         }
       />
       {!!visible.length && (
@@ -223,22 +218,18 @@ export function ProjectOverview({
           <Table>
             <colgroup>
               <col className="project-name-column" />
-              {showFolders && <col className="project-repositories-column" />}
-              <col className="project-sessions-column" />
-              {showTasks && <col className="project-tasks-column" />}
-              <col className="project-waiting-column" />
+              <col className="project-activity-column" />
+              <col className="project-updated-column" />
             </colgroup>
             <TableHeader className="[&_tr]:border-0">
               <TableRow className="border-0 hover:bg-transparent">
                 <TableHead>Name</TableHead>
-                {showFolders && <TableHead>Code folders</TableHead>}
-                <TableHead>Chats</TableHead>
-                {showTasks && <TableHead>Open tasks</TableHead>}
+                <TableHead>Activity</TableHead>
                 <TableHead className="text-right">Updated</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {rows.map(({ group, members, chats, openTasks, waiting, last }) => (
+              {rows.map(({ group, chats, waiting, running, last }) => (
                 // The whole row opens the project. The button keeps it reachable by keyboard.
                 <TableRow
                   key={group.id}
@@ -248,18 +239,12 @@ export function ProjectOverview({
                   <TableCell>
                     <Button
                       variant="bare"
-                      className="project-open max-w-full justify-start gap-3 text-left whitespace-normal"
+                      className="project-open max-w-full justify-start gap-2 text-left whitespace-normal"
                       onClick={(event) => {
                         event.stopPropagation();
                         onSelect(group);
                       }}
                     >
-                      <EntityIcon
-                        className="project-symbol"
-                        color={group.color ? projectColors[group.color] : undefined}
-                      >
-                        <Folder />
-                      </EntityIcon>
                       <span className="min-w-0 break-words font-medium">{group.name}</span>
                       {group.hostId && (
                         <Badge variant="outline" size="sm">
@@ -268,32 +253,28 @@ export function ProjectOverview({
                       )}
                     </Button>
                   </TableCell>
-                  {showFolders && (
-                    <TableCell>
-                      <span className="tabular-nums" title={members.map((r) => r.name).join(', ')}>
-                        {members.length || muted}
-                      </span>
-                    </TableCell>
-                  )}
+                  {/* One column: what needs the user, what runs, else the number of chats. */}
                   <TableCell>
-                    <span className="inline-flex items-center gap-2 tabular-nums">
-                      {chats.length || muted}
+                    <span className="project-activity">
                       {waiting > 0 && (
-                        <ActivityDot state="approval" label={`${waiting} waiting for you`} />
+                        <span className="project-activity-item" data-tone="waiting">
+                          <StatusMark state="approval" label={`${waiting} waiting for you`} />
+                          {waiting} waiting
+                        </span>
+                      )}
+                      {running > 0 && (
+                        <span className="project-activity-item">
+                          <StatusMark state="running" label={`${running} running`} />
+                          {running} running
+                        </span>
+                      )}
+                      {!waiting && !running && (
+                        <span className="project-activity-item">
+                          {chats.length ? plural(chats.length, 'chat') : 'No chats yet'}
+                        </span>
                       )}
                     </span>
                   </TableCell>
-                  {showTasks && (
-                    <TableCell>
-                      <span className="tabular-nums">
-                        {openTasks === undefined
-                          ? trackerConnection(group)
-                            ? '…'
-                            : muted
-                          : openTasks || muted}
-                      </span>
-                    </TableCell>
-                  )}
                   <TableCell className="text-right">
                     {last && (
                       <time
@@ -313,20 +294,13 @@ export function ProjectOverview({
       )}
       {!visible.length && (
         <EmptyState
-          icon={<FolderPlus />}
-          title={groups.length ? 'No matching projects' : 'Add your first project'}
+          title={groups.length ? 'No matching projects.' : 'No projects yet.'}
           action={
             !groups.length && (
-              <div className="flex flex-wrap justify-center gap-2">
-                <Button onClick={() => void openCodeFolder()}>
-                  {importing ? <Loader2 className="animate-spin" /> : <FolderOpen />}
-                  Open a folder…
-                </Button>
-                <Button variant="outline" onClick={() => setOpen(true)}>
-                  <Plus />
-                  New empty project
-                </Button>
-              </div>
+              <Button variant="outline" size="sm" onClick={() => void openCodeFolder()}>
+                {importing ? <Loader2 className="animate-spin" /> : <FolderOpen />}
+                Open a folder…
+              </Button>
             )
           }
         />

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
-import { Building2, Laptop } from 'lucide-react';
+import { Laptop } from 'lucide-react';
 import type { API } from '../api/contracts';
 import type { AgentInstallation } from '../domain/conversation';
 import {
@@ -31,29 +31,19 @@ import {
   updateRunning,
   type StatusLabel,
 } from '../lib/verdictan-labels';
-import { setAgentInstallations } from '../lib/agent-preference';
 import { computerAnchor, settingsAnchors } from '../domain/settings-route';
-import {
-  VerdictanSetupForm,
-  accessLabel,
-  managedAgentNames,
-  teamPolicyLabel,
-} from './verdictan-setup';
+import { VerdictanSetupForm, managedAgentNames } from './verdictan-setup';
 import { AgentProgramsDialog } from './agent-programs';
-import { SettingsRow, StatusBadge } from './settings-disclosure';
+import { SettingsRow, StatusBadge, StatusText } from './settings-disclosure';
+import { publishAgentChecks } from './settings-attention';
+import { startSignIn } from './sign-in-steps';
+
 import { ConfirmDialog } from './confirm-dialog';
 import { Alert, AlertDescription } from './ui/alert';
 import { AgentIcon } from './ui/agent-icon';
 import { Button } from './ui/button';
 import { CheckboxRow } from './ui/checkbox';
-import {
-  Dialog,
-  DialogBody,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from './ui/dialog';
+import { Dialog, DialogBody, DialogContent, DialogHeader, DialogTitle } from './ui/dialog';
 import { SegmentedControl } from './ui/segmented-control';
 import { EntityIcon } from './ui/entity-icon';
 import { Progress } from './ui/progress';
@@ -338,8 +328,20 @@ export function RuntimeExtra({ runtime }: { runtime: RuntimeState }) {
   );
 }
 
-/** The row of this computer in Settings › Computers. */
-export function ThisComputerRow({ api, runtime }: { api: API; runtime: RuntimeState }) {
+/**
+ * The managed agents service of this computer in Settings › Computers. With `quiet`, the row
+ * shows only when it needs the user or works: an install, a failure, an old version, or a wait
+ * for the keychain. A ready service updates by itself, so it does not show.
+ */
+export function ThisComputerRow({
+  api,
+  runtime,
+  quiet = false,
+}: {
+  api: API;
+  runtime: RuntimeState;
+  quiet?: boolean;
+}) {
   const view = runtimeView(runtime);
   // The account broadcasts a change when a request starts or stops to wait for the keychain.
   const { status: account } = useVerdictanStatus(api);
@@ -360,6 +362,11 @@ export function ThisComputerRow({ api, runtime }: { api: API; runtime: RuntimeSt
     if (!busy) before.current = operation?.id;
     wasBusy.current = busy;
   }, [busy]);
+  const needed =
+    !!account?.keychainWaiting ||
+    runtimeExtraShown(runtime) ||
+    (!!runtime.status && view.label.label !== 'Ready');
+  if (quiet && !needed) return null;
   return (
     <SettingsRow
       id={computerAnchor()}
@@ -368,7 +375,7 @@ export function ThisComputerRow({ api, runtime }: { api: API; runtime: RuntimeSt
           <Laptop />
         </EntityIcon>
       }
-      label="Managed agents"
+      label="Kalkidan service"
       help={
         account?.keychainWaiting ? (
           <span role="status" data-testid="keychain-waiting">
@@ -555,15 +562,16 @@ export function RegionDialog({
   );
 }
 
-/** The state of one agent on the Computers page, with the help line and the action. */
+/** The state of one agent in Settings › Computers, with the help line and the action. */
 interface AgentRowState {
   status: StatusLabel;
   help: string;
   /**
-   * The one action of the row. 'setup' opens the organization setup under the row.
-   * 'agent-sign-in' checks the sign-in of the coding agent again.
+   * The one action of the row. 'install' and 'update' open the program of the agent with the
+   * command. 'setup' opens the organization setup. 'agent-sign-in' checks the sign-in of the
+   * coding agent again.
    */
-  action: 'sign-in' | 'programs' | 'setup' | 'agent-sign-in' | 'none';
+  action: 'sign-in' | 'install' | 'update' | 'setup' | 'agent-sign-in' | 'none';
 }
 /** How to sign in to each coding agent with its subscription on a computer. */
 export const agentSignInSteps: Record<ManagedAgentKind, string> = {
@@ -576,9 +584,9 @@ function usesAgentLogin(agent: ManagedAgentKind, mode: string | undefined) {
   return agent === 'codex' ? mode === 'codex_subscription' : mode === 'claude_subscription';
 }
 
-/** "Version 0.160.2", or empty when Kalkidan cannot read the version. */
+/** "0.160.2", or empty when Kalkidan cannot read the version. */
 function programVersion(program: AgentInstallation | undefined) {
-  return program?.status === 'installed' && program.version ? `Version ${program.version}` : '';
+  return program?.status === 'installed' && program.version ? program.version : '';
 }
 
 export function agentRowState(
@@ -596,16 +604,16 @@ export function agentRowState(
   if (program?.status === 'missing')
     return {
       status: { label: 'Not installed', tone: 'warning' },
-      help: 'Not found on this computer',
-      action: 'programs',
+      help: 'Not installed',
+      action: 'install',
     };
   if (program?.status === 'installed') {
     const check = checkAgentVersion(kind, program.version);
     if (check.status === 'outdated')
       return {
         status: { label: 'Needs update', tone: 'warning' },
-        help: `${version} · Needs ${check.minimum} or later`,
-        action: 'programs',
+        help: `${version} · needs ${check.minimum}`,
+        action: 'update',
       };
   }
   if (!account && readFailed)
@@ -648,27 +656,43 @@ export function agentRowState(
       help: [version, agentSignInSteps[agent]].filter(Boolean).join(' · '),
       action: 'agent-sign-in',
     };
-  return {
-    status: { label: 'Ready', tone: 'success' },
-    help: [version, saved.model].filter(Boolean).join(' · '),
-    action: 'none',
-  };
+  return { status: { label: 'Ready', tone: 'success' }, help: version, action: 'none' };
 }
 
-/** The organization setup of a saved selection in one line: "Platform team · Kalkidan default". */
-function setupLine(setup: VerdictanSetup, agent: ManagedAgentKind) {
-  const saved = setup.selections[agent];
-  return [teamPolicyLabel(setup, saved), saved ? accessLabel(agent, saved) : '']
-    .filter(Boolean)
-    .join(' · ');
+/** The label of the one action of an agent row, for example "Update Claude Code". */
+function agentActionLabel(state: AgentRowState, name: string) {
+  switch (state.action) {
+    case 'install':
+      return `Install ${name}`;
+    case 'update':
+      return `Update ${name}`;
+    case 'sign-in':
+      return 'Sign in';
+    case 'setup':
+      return 'Set up';
+    case 'agent-sign-in':
+      return 'Check again';
+    default:
+      return '';
+  }
 }
 
 /**
- * The coding agent rows of the Computers page: one row for Codex and one for Claude Code with the
- * program version, the default model, and the state. "Install…" or "Locate…" opens the program
- * of that agent on this computer. The organization setup of both agents is one row below them.
+ * The coding agent rows of Settings › Computers: one row for Codex and one for Claude Code with
+ * the version and the state. Only a row that needs the user has a button, for example "Update
+ * Claude Code"; the first one is the primary action of the section. "Update" and "Install"
+ * open the program of that agent with the command. Details › Programs chooses another program.
  */
-export function AgentRows({ api, open }: { api: API; open: boolean }) {
+export function AgentRows({
+  api,
+  open,
+  onSetup,
+}: {
+  api: API;
+  open: boolean;
+  /** Opens the organization setup at an agent. */
+  onSetup?: (agent: ManagedAgentKind) => void;
+}) {
   const account = useAccountStatus(api, open);
   const status = account.status;
   const setup = useOrganizationSetup(api, open, status?.phase === 'authenticated');
@@ -680,27 +704,37 @@ export function AgentRows({ api, open }: { api: API; open: boolean }) {
       .then(
         (list) => {
           setPrograms(list);
-          setAgentInstallations(list);
+          publishAgentChecks(list);
         },
         () => {},
       );
   }, [api]);
   useRefreshTriggers(undefined, open, readPrograms);
   const agents: ManagedAgentKind[] = ['codex', 'claude'];
+  const states = agents.map((agent) =>
+    agentRowState(
+      agent,
+      status,
+      setup.value,
+      programs?.find((item) => item.agent === agent),
+      !!account.error,
+      setup.failed,
+    ),
+  );
+  // One brown button in the section: the first row that needs the user.
+  const primary = states.findIndex((state) => state.action !== 'none');
+  function act(agent: ManagedAgentKind, state: AgentRowState) {
+    if (state.action === 'install' || state.action === 'update') setProgramAgent(agent);
+    else if (state.action === 'sign-in') startSignIn('login');
+    else if (state.action === 'setup') onSetup?.(agent);
+    else if (state.action === 'agent-sign-in') readPrograms();
+  }
   return (
     <>
-      {agents.map((agent) => {
-        const program = programs?.find((item) => item.agent === agent);
-        const state = agentRowState(
-          agent,
-          status,
-          setup.value,
-          program,
-          !!account.error,
-          setup.failed,
-        );
+      {agents.map((agent, index) => {
+        const state = states[index];
         const name = managedAgentNames[agent];
-        const missing = program?.status === 'missing';
+        const label = agentActionLabel(state, name);
         return (
           <SettingsRow
             key={agent}
@@ -711,31 +745,21 @@ export function AgentRows({ api, open }: { api: API; open: boolean }) {
               </EntityIcon>
             }
             label={name}
-            help={
-              state.action === 'sign-in'
-                ? [state.help, 'Sign in to Verdictan to use it'].filter(Boolean).join(' · ')
-                : state.help || undefined
-            }
+            help={state.help || undefined}
           >
-            <StatusBadge status={state.status} />
-            {state.action === 'agent-sign-in' && (
+            {label && !(state.action === 'setup' && !onSetup) ? (
               <Button
-                variant="outline"
                 size="sm"
-                aria-label={`Check the ${name} sign-in again`}
-                onClick={readPrograms}
+                variant={
+                  index === primary && state.action !== 'agent-sign-in' ? 'default' : 'outline'
+                }
+                onClick={() => act(agent, state)}
               >
-                Check again
+                {label}
               </Button>
+            ) : (
+              <StatusText status={state.status} />
             )}
-            <Button
-              variant="outline"
-              size="sm"
-              aria-label={`${missing ? 'Install' : 'Locate'} the ${name} program`}
-              onClick={() => setProgramAgent(agent)}
-            >
-              {missing ? 'Install…' : 'Locate…'}
-            </Button>
           </SettingsRow>
         );
       })}
@@ -744,7 +768,10 @@ export function AgentRows({ api, open }: { api: API; open: boolean }) {
         agent={programAgent}
         open={!!programAgent}
         onOpenChange={(next) => !next && setProgramAgent(undefined)}
-        onChecked={(list) => setPrograms(list)}
+        onChecked={(list) => {
+          setPrograms(list);
+          publishAgentChecks(list);
+        }}
       />
     </>
   );
@@ -776,92 +803,99 @@ function useOrganizationSetup(api: API, open: boolean, signedIn: boolean) {
 }
 
 /**
- * The one "Organization setup" row of this computer: the team, policy, connection and default
- * model of Codex and Claude Code. "Set up…" or "Change…" opens the setup in a dialog. A link to
- * the managed setup opens the dialog at the first agent that needs it.
+ * The organization setup of Codex and Claude Code in one dialog: the team, policy, connection
+ * and default model. Each choice saves at once, with Undo in the toast. `agent` opens the
+ * dialog at that agent; undefined closes it.
  */
-export function OrganizationSetupRow({
+export function OrganizationSetupDialog({
+  api,
+  agent,
+  onAgentChange,
+}: {
+  api: API;
+  agent?: ManagedAgentKind;
+  onAgentChange: (agent: ManagedAgentKind | undefined) => void;
+}) {
+  const agents: ManagedAgentKind[] = ['codex', 'claude'];
+  return (
+    <Dialog open={!!agent} onOpenChange={(next) => !next && onAgentChange(undefined)}>
+      <DialogContent size="sm" layout="scroll" aria-describedby={undefined}>
+        <DialogHeader>
+          <DialogTitle>Organization setup</DialogTitle>
+        </DialogHeader>
+        <DialogBody className="grid content-start gap-4">
+          <SegmentedControl
+            size="sm"
+            label="Agent"
+            className="justify-self-start"
+            value={agent || 'codex'}
+            onChange={(value) => onAgentChange(value)}
+            options={agents.map((item) => ({ value: item, label: managedAgentNames[item] }))}
+          />
+          {agent && (
+            <VerdictanSetupForm
+              key={agent}
+              api={api}
+              agent={agent}
+              onSetup={notifyManagedAgentsChanged}
+            />
+          )}
+        </DialogBody>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/**
+ * "Organization setup…": a quiet link at the end of Settings › Computers. It opens the setup at
+ * the first agent that needs it. A link to the managed setup ('managed-agent-setup') opens it
+ * at once when an agent needs it. Only shows while signed in.
+ */
+export function OrganizationSetupLink({
   api,
   open,
   anchor,
+  agent,
+  onAgentChange,
 }: {
   api: API;
   open: boolean;
   anchor?: string;
+  /** The agent of the open setup dialog. The caller keeps it, so agent rows can open it too. */
+  agent?: ManagedAgentKind;
+  onAgentChange: (agent: ManagedAgentKind | undefined) => void;
 }) {
   const account = useAccountStatus(api, open);
   const signedIn = account.status?.phase === 'authenticated';
   const setup = useOrganizationSetup(api, open, signedIn);
-  const [editing, setEditing] = useState<ManagedAgentKind>();
   const agents: ManagedAgentKind[] = ['codex', 'claude'];
   const needs = setup.value
     ? agents.find(
-        (agent) =>
-          !setup.value!.selections[agent] ||
-          selectionIssue(setup.value!, setup.value!.selections[agent]),
+        (item) =>
+          !setup.value!.selections[item] ||
+          selectionIssue(setup.value!, setup.value!.selections[item]),
       )
     : undefined;
   const linked = useRef(false);
   useEffect(() => {
     if (linked.current || anchor !== settingsAnchors.managedSetup || !setup.value) return;
     linked.current = true;
-    if (needs) setEditing(needs);
+    if (needs) onAgentChange(needs);
   }, [anchor, setup.value]);
-  if (!signedIn || !setup.value) return null;
-  const help = agents
-    .map((agent) => {
-      const line = setupLine(setup.value!, agent);
-      return `${managedAgentNames[agent]}: ${line || 'Not chosen'}`;
-    })
-    .join(' · ');
   return (
     <>
-      <SettingsRow
-        id={settingsAnchors.managedSetup}
-        icon={
-          <EntityIcon>
-            <Building2 />
-          </EntityIcon>
-        }
-        label="Organization setup"
-        help={help}
-      >
-        {needs && <StatusBadge status={{ label: 'Needs setup', tone: 'warning' }} />}
-        <Button variant="outline" size="sm" onClick={() => setEditing(needs || 'codex')}>
-          {needs ? 'Set up…' : 'Change…'}
+      {signedIn && setup.value && (
+        <Button
+          id={settingsAnchors.managedSetup}
+          variant="ghost"
+          size="sm"
+          className="text-muted-foreground"
+          onClick={() => onAgentChange(needs || 'codex')}
+        >
+          Organization setup…
         </Button>
-      </SettingsRow>
-      <Dialog open={!!editing} onOpenChange={(next) => !next && setEditing(undefined)}>
-        <DialogContent size="sm" layout="scroll">
-          <DialogHeader>
-            <DialogTitle>Organization setup</DialogTitle>
-            <DialogDescription>
-              Each choice saves at once. Undo shows after each change.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogBody className="grid content-start gap-4">
-            <SegmentedControl
-              size="sm"
-              label="Agent"
-              className="justify-self-start"
-              value={editing || 'codex'}
-              onChange={(value) => setEditing(value)}
-              options={agents.map((agent) => ({ value: agent, label: managedAgentNames[agent] }))}
-            />
-            {editing && (
-              <VerdictanSetupForm
-                key={editing}
-                api={api}
-                agent={editing}
-                onSetup={(value) => {
-                  setup.setValue(value);
-                  notifyManagedAgentsChanged();
-                }}
-              />
-            )}
-          </DialogBody>
-        </DialogContent>
-      </Dialog>
+      )}
+      <OrganizationSetupDialog api={api} agent={agent} onAgentChange={onAgentChange} />
     </>
   );
 }

@@ -2,7 +2,8 @@ import type { ReactNode } from 'react';
 import { cn } from '@/lib/utils';
 
 /**
- * A list row: 48px, a 28px tile (EntityIcon or AgentIcon), a 12px gap, a 13/500 title and a
+ * A list row: 48px, an optional 28px tile (only when the icon carries meaning, for example the
+ * agent), a 12px gap, a 13/500 title and a
  * 12px muted meta line. The hover bleeds 8px past the content edge, so the text aligns with
  * the content edge. With `onClick`, the tile and text are one button. Actions show on hover
  * and keyboard focus.

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Check, CircleAlert, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from './button';
@@ -11,14 +11,17 @@ export interface ToastInput {
   message: string;
   /**
    * Error toasts show a red alert icon and stay until the user closes them. Success toasts show
-   * a green check. Other toasts close after `duration` ms.
+   * a green check.
    */
   tone?: 'default' | 'success' | 'error';
+  /** A toast with actions stays until the user uses or closes it, or the page changes. */
   actions?: ToastAction[];
+  /** Closes the toast after this many ms. Default: 4 s without actions. */
   duration?: number;
 }
 interface ToastItem extends ToastInput {
   id: number;
+  shown: number;
 }
 
 // Timers pause while the pointer or the focus is on a toast.
@@ -46,20 +49,23 @@ const listeners = new Set<(next: ToastItem[]) => void>();
 const emit = () => listeners.forEach((listener) => listener(items));
 
 /**
- * Shows a toast in the bottom-right corner of the window, two at most. Success toasts close
- * after 4 s (8 s with actions); error toasts stay. Returns a function that closes it.
+ * Shows a toast in the bottom-right corner of the window, two at most. A toast closes after
+ * 4 s. A toast with actions and an error toast stay until the user closes them. Every toast
+ * closes when the page changes (Toaster `resetKey`). Returns a function that closes it.
  */
 export function showToast(input: ToastInput | string): () => void {
   const toast: ToastItem = {
     id: nextId++,
+    shown: Date.now(),
     ...(typeof input === 'string' ? { message: input } : input),
   };
   for (const old of items.slice(0, -1)) closeToast(old.id);
   items = [...items, toast];
   emit();
   const close = () => closeToast(toast.id);
-  if (toast.tone !== 'error') {
-    timers.set(toast.id, { left: toast.duration ?? (toast.actions ? 8000 : 4000), started: 0 });
+  const duration = toast.duration ?? (toast.tone === 'error' || toast.actions ? 0 : 4000);
+  if (duration > 0) {
+    timers.set(toast.id, { left: duration, started: 0 });
     startTimer(toast.id);
   }
   return close;
@@ -80,13 +86,24 @@ export function dismissToasts() {
   emit();
 }
 
-/** Mount one Toaster in the app shell. */
-export function Toaster({ className }: { className?: string }) {
+/**
+ * Mount one Toaster in the app shell. When `resetKey` changes (the page), the toasts of the
+ * previous page close. A toast from the last second stays: the action that changed the page
+ * showed it.
+ */
+export function Toaster({ className, resetKey }: { className?: string; resetKey?: string }) {
   const [list, setList] = useState(items);
   useEffect(() => {
     listeners.add(setList);
     return () => void listeners.delete(setList);
   }, []);
+  const lastKey = useRef(resetKey);
+  useEffect(() => {
+    if (lastKey.current === resetKey) return;
+    lastKey.current = resetKey;
+    const now = Date.now();
+    for (const item of items) if (now - item.shown > 1000) closeToast(item.id);
+  }, [resetKey]);
   const close = closeToast;
   return (
     <div

@@ -168,9 +168,14 @@
   margin: 8px 0;
   overflow-wrap: anywhere;
 }
-/* "Context: 2 facts" under the last answer. The chip text starts on the message edge. */
-.context-usage {
-  margin: 8px 0 0 -10px;
+/* "Waiting for your approval": an amber dot in the place of the spinner. */
+.chat-activity-dot {
+  width: 6px;
+  height: 6px;
+  margin-inline: 4px;
+  flex-shrink: 0;
+  border-radius: var(--radius-full);
+  background: var(--warning);
 }
 
 /* The composer dock holds the approval banner and the composer. It has the message width,
@@ -225,13 +230,6 @@
 }
 .composer-notice > svg {
   color: var(--warning);
-}
-/* The task chip: a click opens the task, the arrow opens Change task and Unlink task. */
-.composer-task {
-  display: inline-flex;
-  align-items: center;
-  gap: 1px;
-  max-width: 260px;
 }
 /* The "@" picker. It opens above the caret in the composer. */
 .mention-picker {
@@ -363,18 +361,12 @@
   cursor: pointer;
   user-select: none;
 }
-/* "Used 3 doc passages" and "Memory: read 2 · saved 1" under an answer. */
+/* The memory topics, doc passages and facts behind the run line. */
 .chat-sources {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 4px;
-}
-.chat-sources-label {
-  margin-right: 4px;
-  color: var(--muted-foreground);
-  font-size: var(--text-xs);
-  line-height: 16px;
 }
 .composer-actions {
   display: flex;
@@ -422,17 +414,17 @@
   color: var(--foreground);
   line-height: 16px;
 }
-/* "3 files changed · +70 −2 · on main · Review · Create pull request… · ⋯" after a run. The
-   count never shortens. The branch shortens first, then hides in a narrow column. */
+/* "3 files +86 −4 · Review · Create pull request" after a run. It has the radius and the 16px
+   text inset of the composer under it. The count never shortens; the action label does. */
 .run-changes {
   display: flex;
   align-items: center;
   gap: 8px;
   min-height: 40px;
   margin: 0 0 8px;
-  padding: 4px 4px 4px 12px;
+  padding: 4px 8px 4px 16px;
   border: 1px solid var(--border);
-  border-radius: var(--radius-xl);
+  border-radius: var(--radius-2xl);
   background: var(--card);
   color: var(--muted-foreground);
   font-size: var(--text-xs);
@@ -454,38 +446,19 @@
 .run-changes-lines {
   flex-shrink: 0;
 }
-.run-changes-branch {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
 .run-changes-actions {
   display: flex;
-  flex-shrink: 0;
+  flex-shrink: 1;
+  min-width: 0;
   align-items: center;
   gap: 4px;
 }
-.run-changes-short {
-  display: none;
-}
-@container composer-dock (max-width: 480px) {
-  .run-changes-branch,
-  .run-changes-long {
-    display: none;
-  }
-  .run-changes-short {
-    display: inline;
-  }
+.run-changes-primary {
+  min-width: 0;
 }
 /* The access pill keeps its label. The model chip and the folder pill shorten first. */
 .composer-access {
   flex-shrink: 0;
-}
-.composer-access-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: var(--radius-full);
-  background: var(--warning);
 }
 .composer-access-text {
   display: grid;
@@ -501,12 +474,20 @@
   min-width: 0;
   max-width: 200px;
 }
-/* The activity of a run sits under its answer: sources, then the steps folded to
-   "N steps · M files edited". One 24px line for each step. */
+/* The activity of a run sits under its answer as one quiet line, "N steps · M files edited".
+   Steps, sources, policy and usage open behind it. One 24px line for each step. */
 .agent-activity {
   display: grid;
   gap: 4px;
   margin: -24px 0 32px;
+}
+.agent-activity-detail {
+  display: grid;
+  gap: 8px;
+}
+/* Sources and details start on the text of the fold line (20px). */
+.agent-activity-detail > :not(.agent-step-list) {
+  padding-left: var(--space-5);
 }
 .agent-steps-fold,
 .agent-step {
@@ -522,7 +503,8 @@
 }
 .agent-steps-fold {
   width: fit-content;
-  gap: 4px;
+  /* 6px between the icon and its label: the fold text starts at 20px. */
+  gap: 6px;
   padding-right: 4px;
 }
 .agent-steps-fold:hover,
@@ -537,23 +519,24 @@ button.agent-step:hover {
 .agent-step {
   width: 100%;
   min-width: 0;
-  padding-inline: 4px 8px;
+  gap: 6px;
+  padding-inline: var(--space-1) var(--space-2);
 }
 button.agent-step:hover {
   background: var(--surface-hover);
 }
 .agent-step-list {
   display: grid;
-  /* The step icons line up with the text of the fold line. */
-  padding-left: 14px;
+  /* The step icons line up with the text of the fold line: 16 + 4 = 14 + 6 = 20px. */
+  padding-left: var(--space-4);
 }
 .agent-steps[data-state='open'] > .agent-step-live {
   display: none;
 }
 .agent-step-icon {
   flex-shrink: 0;
-  width: 14px;
-  height: 14px;
+  width: var(--icon-size-sm);
+  height: var(--icon-size-sm);
 }
 .agent-step-title {
   flex: 1;
@@ -572,8 +555,8 @@ button.agent-step:hover {
   color: var(--destructive);
 }
 .agent-step-output {
-  /* The output lines up with the step title. */
-  padding: var(--space-1) 0 var(--space-2) 26px;
+  /* The output lines up with the step title: 4 + 14 + 6 = 24px. */
+  padding: var(--space-1) 0 var(--space-2) var(--space-6);
 }
 
 .conversation-welcome {
@@ -586,16 +569,6 @@ button.agent-step:hover {
   line-height: 28px;
   font-weight: 600;
   letter-spacing: -0.01em;
-}
-.conversation-starters {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  gap: 8px;
-  margin-top: 16px;
-}
-.conversation-starters > button {
-  background: var(--secondary);
 }
 /* Until the first message, the welcome block and the composer sit together in the middle of
    the panel, a little above the centre. */

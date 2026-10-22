@@ -3,16 +3,15 @@ import { test, expect } from './helpers/app';
 import { openCodeFolder } from './helpers/navigation';
 
 /**
- * Opens the Changes tool. The title bar shows Changes only when the chat has changes, so the
+ * Opens the Changes tool. The changes row shows Review only when the chat has changes, so the
  * test uses the shortcut, which always works.
  */
 async function openChanges(page: Page) {
   await page.getByLabel('Message agent').click();
   await page.keyboard.press('ControlOrMeta+Shift+G');
-  await expect(page.getByRole('button', { name: /^Changes/ })).toHaveAttribute(
-    'aria-pressed',
-    'true',
-  );
+  const tools = page.getByRole('region', { name: 'Repository tools' });
+  await expect(tools.getByRole('heading', { name: 'Changes', exact: true })).toBeVisible();
+  await expect(tools.getByRole('button', { name: 'Close Changes', exact: true })).toBeVisible();
 }
 
 async function openChat(page: Page, staged: string) {
@@ -63,9 +62,13 @@ async function openChat(page: Page, staged: string) {
 
 test('Commit is disabled with a reason when there are no changes', async ({ page }) => {
   await openChat(page, '');
-  // Without changes, the title bar does not show Changes.
+  // Without changes, the chat shows no changes row and the chat menu has no Commit.
   await expect(page.getByRole('group', { name: 'Tools' })).toBeVisible();
-  await expect(page.getByRole('button', { name: /^Changes/ })).toHaveCount(0);
+  await expect(page.getByRole('group', { name: 'Changes from this chat' })).toHaveCount(0);
+  await page.getByRole('button', { name: 'Chat actions', exact: true }).click();
+  await expect(page.getByRole('menuitem', { name: /^Rename/ })).toBeVisible();
+  await expect(page.getByRole('menuitem', { name: /^Commit/ })).toHaveCount(0);
+  await page.keyboard.press('Escape');
 
   // Commit changes in the command palette tells the user why it cannot commit.
   await page.getByRole('button', { name: 'Search or run a command', exact: true }).click();
@@ -80,8 +83,7 @@ test('Commit is disabled with a reason when there are no changes', async ({ page
 
   await openChanges(page);
   const tools = page.getByRole('region', { name: 'Repository tools' });
-  await expect(tools).toContainText('No changes here');
-  await expect(tools).toContainText('This folder has no uncommitted changes.');
+  await expect(tools).toContainText('No changes');
   // The Changes pane has no commit button. Without changes, the chat shows no changes row, so
   // no control offers a commit.
   await expect(tools.getByRole('button', { name: /^Commit/ })).toHaveCount(0);
@@ -99,15 +101,13 @@ test('Commit is disabled with a reason when there are no changes', async ({ page
 
 test('Commit is enabled when only staged changes exist', async ({ page }) => {
   await openChat(page, 'diff --git a/file.ts b/file.ts\n-old\n+new');
-  // With changes, the title bar shows Changes and its count.
-  await expect(
-    page.getByRole('button', { name: 'Changes, 1 file changed in this chat' }),
-  ).toBeVisible();
-  // The changes row of the chat offers the commit in its "More change actions" menu.
+  // With changes, the changes row shows the count and Review.
   const row = page.getByRole('group', { name: 'Changes from this chat' });
-  await expect(row).toContainText('1 file changed');
-  await row.getByRole('button', { name: 'More change actions', exact: true }).click();
-  const commit = page.getByRole('menuitem', { name: 'Commit only…', exact: true });
+  await expect(row.getByRole('status')).toContainText('1 file');
+  await expect(row.getByRole('button', { name: 'Review', exact: true })).toBeVisible();
+  // The chat menu offers the commit when the folder has changes.
+  await page.getByRole('button', { name: 'Chat actions', exact: true }).click();
+  const commit = page.getByRole('menuitem', { name: 'Commit changes…', exact: true });
   await expect(commit).toBeEnabled();
   await commit.click();
   await expect(page.getByRole('dialog', { name: 'Commit changes' })).toBeVisible();

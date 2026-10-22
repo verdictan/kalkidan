@@ -213,7 +213,8 @@ export function ToolSection({
 export function ExternalTextLink({ href, children }: { href: string; children: ReactNode }) {
   return (
     <a
-      className="text-link underline-offset-2 hover:underline inline-flex items-center gap-1"
+      // A muted link: GitHub is a place to look, not the action of the view.
+      className="inline-flex items-center gap-1 text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
       href={href}
       target="_blank"
       rel="noreferrer"
@@ -246,16 +247,21 @@ export function newChat(detail: {
 }) {
   window.dispatchEvent(new CustomEvent('kalkidan-new-session', { detail }));
 }
+/**
+ * Opens what was the Insights page: usage opens the Usage sheet of the project, the other
+ * views open the Tasks page, where the board health and the GitHub check now are.
+ */
 export function openInsights(
   groupId: string,
   view?: 'board' | 'github' | 'usage' | 'knowledge',
   taskId?: string,
 ) {
-  window.dispatchEvent(
-    new CustomEvent('kalkidan-open-project-page', {
-      detail: { groupId, page: 'knowledge', section: 'insights', view, taskId },
-    }),
-  );
+  if (view === 'usage' || taskId)
+    window.dispatchEvent(
+      new CustomEvent('kalkidan-open-project-usage', { detail: { groupId, taskId } }),
+    );
+  else if (view === 'github') openWriteCheck(groupId);
+  else openTasksPage(groupId);
 }
 export function openTasksPage(groupId: string) {
   window.dispatchEvent(

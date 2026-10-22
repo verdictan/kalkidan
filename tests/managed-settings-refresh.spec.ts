@@ -4,8 +4,8 @@ import {
   expect,
   computersPage,
   openComputersPage,
-  openPreferences,
-  preferencesDialog,
+  openSettings,
+  settingsDialog,
   sidebar,
 } from './helpers/app';
 
@@ -60,10 +60,7 @@ async function fixture(page: Page, extra: string) {
  */
 async function openSetup(page: Page) {
   const computers = await openComputersPage(page);
-  await computers
-    .getByRole('group', { name: 'Organization setup', exact: true })
-    .getByRole('button', { name: /^(Set up|Change)…$/ })
-    .click();
+  await computers.getByRole('button', { name: 'Organization setup…', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: 'Organization setup', exact: true });
   await expect(dialog).toBeVisible();
   const codex = dialog.getByRole('button', { name: 'Codex', exact: true });
@@ -72,16 +69,15 @@ async function openSetup(page: Page) {
   return dialog;
 }
 
-/** Opens Preferences at the Connections tab, which holds the region. */
-async function openConnections(page: Page) {
-  const preferences = await openPreferences(page);
-  await preferences.getByRole('tab', { name: 'Connections', exact: true }).click();
-  return preferences;
-}
+/** Opens Settings › Account, which holds the region. */
+const openConnections = (page: Page) => openSettings(page, 'Account');
 
-/** The managed agents runtime row of this computer on the Computers page. */
+/**
+ * The managed agents runtime row of this computer in Settings › Computers: "Kalkidan service".
+ * It shows only when the service needs the user or installs.
+ */
 const localRuntime = (settings: Locator) =>
-  settings.getByRole('group', { name: 'Managed agents', exact: true });
+  settings.getByRole('group', { name: 'Kalkidan service', exact: true });
 
 test('the runtime step shows the install and its result without a manual refresh', async ({
   page,
@@ -127,9 +123,11 @@ test('the runtime step shows the install and its result without a manual refresh
   await expect(runtime).toContainText('Starting the install of version 0.6.4');
   await expect(runtime.getByRole('button', { name: 'Install', exact: true })).toHaveCount(0);
   await expect(settings).not.toContainText('An install or check is in progress');
-  // The poll reads the result. Nobody presses a refresh button.
-  await expect(runtime.getByRole('status').first()).toHaveText('Ready', { timeout: 10000 });
-  await expect(runtime).toContainText('Managed agents 0.6.4 · Updates automatically');
+  // The poll reads the result. Nobody presses a refresh button. A ready service has no row.
+  await expect(page.getByText('Installed managed agents 0.6.4', { exact: true })).toBeVisible({
+    timeout: 10000,
+  });
+  await expect(runtime).toHaveCount(0);
   expect(await page.evaluate(() => (window as any).statusReads())).toBeGreaterThanOrEqual(3);
 });
 
@@ -195,7 +193,7 @@ test('a region change shows its progress and no errors, then clears them', async
   await expect(region).toContainText('European Union');
   await expect(managed).not.toContainText('Could not read');
   await page.keyboard.press('Escape');
-  await expect(preferencesDialog(page)).toHaveCount(0);
+  await expect(settingsDialog(page)).toHaveCount(0);
   // The account row in the sidebar shows the account after the change.
   await expect(
     sidebar(page)
@@ -204,7 +202,8 @@ test('a region change shows its progress and no errors, then clears them', async
   ).toBeVisible();
   // The runtime of this computer is on the Computers page. It reads again after the change.
   const computers = await openComputersPage(page);
-  await expect(localRuntime(computers).getByRole('status').first()).toHaveText('Ready');
+  await expect(computers.getByRole('group', { name: 'Codex', exact: true })).toBeVisible();
+  await expect(localRuntime(computers)).toHaveCount(0);
   await expect(computers).not.toContainText('Could not read');
   await expect(computers).not.toContainText('not available');
 });

@@ -1,25 +1,10 @@
 // Parts of the chat view that connect a chat to tasks, pull requests, docs and Settings.
 import { useEffect, useState, type ReactNode } from 'react';
-import {
-  ChevronDown,
-  CircleAlert,
-  ExternalLink,
-  FileText,
-  GitPullRequest,
-  Link2Off,
-  ListTodo,
-  LogIn,
-  Plus,
-  RefreshCw,
-  Replace,
-  Settings,
-  Shuffle,
-} from 'lucide-react';
+import { CircleAlert, FileText, LogIn, Plus, RefreshCw, Settings, Shuffle } from 'lucide-react';
 import { trackerConnection } from '../domain/tracker';
 import { trackerClient } from '../lib/tracker-client';
 import { errorMessage } from '../lib/errors';
 import type { AgentError } from '../lib/agent-errors';
-import { pullRequestLabel, type SessionPullRequest } from '../lib/pull-request';
 import type { API, ProjectGroup, TrackerItem } from '../types';
 import { ChatCard } from './chat-card';
 import { Button } from './ui/button';
@@ -28,7 +13,6 @@ import { Textarea } from './ui/textarea';
 import { Alert, AlertDescription } from './ui/alert';
 import { CheckboxRow } from './ui/checkbox';
 import { showToast } from './ui/toast';
-import { menuDestructiveClass } from './ui/menu-styles';
 import {
   Dialog,
   DialogBody,
@@ -38,15 +22,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from './ui/dialog';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from './ui/dropdown-menu';
 import { Choice } from './choice';
-import { Hint } from './hint';
 import { DocPagePicker } from './doc-page-picker';
 
 /** Sends one of the cross-view events. The shell and the project pages listen for them. */
@@ -74,104 +50,6 @@ export const openProjectPage = (
   extra: Record<string, unknown> = {},
 ) => dispatchApp('kalkidan-open-project-page', { groupId, page, ...extra });
 export const openExternal = (url: string) => window.open(url, '_blank', 'noreferrer');
-
-/** The linked task in the composer. A click opens the task. The menu changes or removes it. */
-export function TaskChip({
-  title,
-  disabled,
-  onOpen,
-  onChange,
-  onUnlink,
-}: {
-  title: string;
-  disabled?: boolean;
-  /** Opens the task sheet. Without it, the chip opens the menu only. */
-  onOpen?: () => void;
-  /** Opens the link dialog. Without it, Change task does not show. */
-  onChange?: () => void;
-  onUnlink: () => void;
-}) {
-  return (
-    <span className="composer-task min-w-0" role="group" aria-label="Linked task">
-      <Hint label={onOpen ? `Open task: ${title}` : `Task: ${title}`}>
-        <Button
-          variant="chip"
-          className="min-w-0 rounded-r-none bg-secondary text-secondary-foreground"
-          aria-label={`Open task: ${title}`}
-          disabled={!onOpen}
-          onClick={onOpen}
-        >
-          <ListTodo aria-hidden="true" />
-          <span className="truncate">Task · {title}</span>
-        </Button>
-      </Hint>
-      <DropdownMenu>
-        <Hint label="Task options">
-          <DropdownMenuTrigger asChild>
-            <Button
-              variant="chip"
-              className="w-6 rounded-l-none bg-secondary px-0 text-secondary-foreground has-[>svg]:px-0"
-              aria-label="Task options"
-            >
-              <ChevronDown aria-hidden="true" />
-            </Button>
-          </DropdownMenuTrigger>
-        </Hint>
-        <DropdownMenuContent align="start">
-          {onOpen && (
-            <DropdownMenuItem onSelect={onOpen}>
-              <ExternalLink />
-              Open task
-            </DropdownMenuItem>
-          )}
-          {onChange && (
-            <DropdownMenuItem disabled={disabled} onSelect={onChange}>
-              <Replace />
-              Change task…
-            </DropdownMenuItem>
-          )}
-          <DropdownMenuSeparator />
-          <DropdownMenuItem
-            className={menuDestructiveClass}
-            disabled={disabled}
-            onSelect={onUnlink}
-          >
-            <Link2Off />
-            Unlink task
-          </DropdownMenuItem>
-        </DropdownMenuContent>
-      </DropdownMenu>
-    </span>
-  );
-}
-
-/** "PR #12 · Open" in the composer. A click opens the pull request on GitHub. */
-export function PullRequestChip({ pr }: { pr: SessionPullRequest }) {
-  const label = pullRequestLabel(pr);
-  return (
-    <Hint label="Open the pull request on GitHub">
-      <Button
-        variant="chip"
-        className="min-w-0"
-        data-state={pr.state}
-        aria-label={`${label}. Open on GitHub`}
-        onClick={() => openExternal(pr.url)}
-      >
-        <GitPullRequest
-          aria-hidden="true"
-          className={
-            pr.state === 'merged'
-              ? 'text-[var(--link)]'
-              : pr.state === 'open'
-                ? 'text-success'
-                : undefined
-          }
-        />
-        <span className="truncate">{label}</span>
-      </Button>
-    </Hint>
-  );
-}
 
 /** Starts the Verdictan sign-in. The sign-in flow shows the waiting screen. */
 export const startSignIn = () => dispatchApp('kalkidan-sign-in', { intent: 'login' });

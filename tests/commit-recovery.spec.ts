@@ -84,7 +84,7 @@ test('a failed pull request keeps the successful commit and retries only the pul
   // The changes row of the chat commits the changes and creates the pull request in one step.
   await page
     .getByRole('group', { name: 'Changes from this chat' })
-    .getByRole('button', { name: 'Create pull request…', exact: true })
+    .getByRole('button', { name: 'Create pull request', exact: true })
     .click();
   const dialog = page.getByRole('dialog', { name: 'Create pull request' });
   await dialog.getByRole('button', { name: 'Create pull request', exact: true }).click();

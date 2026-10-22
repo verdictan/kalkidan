@@ -48,10 +48,17 @@ import { showToast } from './ui/toast';
 
 export type SignInIntent = 'login' | 'register';
 
-/** How the sign-in ended. `signedIn` is false when the user skipped or closed it. */
+/**
+ * How the first run ended. `signedIn` is false when the user skipped or closed the sign-in.
+ * `groupId` is the project that the Welcome card made, if any. The shell opens it.
+ */
 export interface SignInResult {
   signedIn: boolean;
+  groupId?: string;
 }
+
+/** Where the sign-in shows: the full window, a dialog, or step 1 of the Welcome card. */
+export type SignInMode = 'window' | 'dialog' | 'step';
 
 type View = 'start' | 'waiting' | 'setup' | 'error';
 
@@ -62,9 +69,12 @@ const installPollMs = 1500;
 const setupWaitMs = 8000;
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
-/** Opens the new Settings dialog at a section. */
-export function openSettings(section?: 'general' | 'account' | 'agents' | 'computers' | 'about') {
-  window.dispatchEvent(new CustomEvent('kalkidan-open-settings', { detail: { section } }));
+/**
+ * Opens the one Settings window at a section: 'general', 'computers', 'account',
+ * 'project:<id>', or an older name such as 'agents'. The shell handles the event.
+ */
+export function openSettings(section?: string, anchor?: string) {
+  window.dispatchEvent(new CustomEvent('kalkidan-open-settings', { detail: { section, anchor } }));
 }
 
 /** Starts the sign-in flow from anywhere in the app. SignInFlow handles the event. */
@@ -140,8 +150,11 @@ export function SignInSteps({
   onSkip,
 }: {
   api: API;
-  /** window: the full-window Welcome screen. dialog: the sign-in dialog of an open app. */
-  mode: 'window' | 'dialog';
+  /**
+   * window: a full-window screen. dialog: the sign-in dialog of an open app. step: step 1 of
+   * the Welcome card, with no title of its own.
+   */
+  mode: SignInMode;
   intent?: SignInIntent;
   /** Starts the sign-in at once when the region is already saved. */
   autoStart?: boolean;
@@ -452,14 +465,17 @@ export function SignInSteps({
           : 'Getting ready…'
         : '';
   const idle = !statusLine;
+  const step = mode === 'step';
   const host = urlHost(status?.authorization?.url) || (region ? regionConsoleHosts[region] : '');
   const lead = waiting
     ? status?.authorization
       ? `Kalkidan opened ${host}. This window updates when you finish.`
       : 'Kalkidan opens your browser. This window updates when you finish.'
     : mode === 'window'
-      ? 'Run Codex and Claude Code on your code, with the rules of your organization. Chats need a sign-in.'
-      : 'Chats run as managed agents through your Verdictan account.';
+      ? 'Run Codex and Claude Code on your code.'
+      : mode === 'step'
+        ? ''
+        : 'Chats run as managed agents through your Verdictan account.';
   /** Stops the preparation or the browser sign-in, and shows the start again. */
   function stop() {
     void cancel();
@@ -471,14 +487,14 @@ export function SignInSteps({
       try {
         account.setStatus(await api.verdictanSetRegion(region));
       } catch {
-        /* Preferences shows "Not chosen". The user can choose the region there. */
+        /* Settings › Account shows "Not chosen". The user can choose the region there. */
       }
     }
     onSkip?.();
   }
   return (
     <Screen mode={mode} className="sign-in-start">
-      {mode === 'window' ? (
+      {mode === 'step' ? null : mode === 'window' ? (
         <img
           src="./brand/kalkidan-mark.svg"
           alt=""
@@ -492,16 +508,20 @@ export function SignInSteps({
           <img src="./brand/kalkidan-mark.svg" alt="" width="28" height="28" />
         </EntityIcon>
       )}
-      <h1 className="sign-in-title">
-        {waiting
-          ? 'Finish signing in in your browser'
-          : mode === 'window'
-            ? 'Welcome to Kalkidan'
-            : 'Sign in to Verdictan'}
-      </h1>
-      <p className="sign-in-lead" role={waiting ? 'status' : undefined}>
-        {lead}
-      </p>
+      {(mode !== 'step' || waiting) && (
+        <h1 className="sign-in-title">
+          {waiting
+            ? 'Finish signing in in your browser'
+            : mode === 'window'
+              ? 'Welcome to Kalkidan'
+              : 'Sign in to Verdictan'}
+        </h1>
+      )}
+      {lead && (
+        <p className="sign-in-lead" role={waiting ? 'status' : undefined}>
+          {lead}
+        </p>
+      )}
       {statusLine && (
         <p className="sign-in-status" role="status" aria-live="polite">
           <LoaderCircle className="animate-spin" aria-hidden="true" />
@@ -510,23 +530,32 @@ export function SignInSteps({
       )}
       <div className="sign-in-actions">
         {idle && (
-          <Button size="lg" className="w-full" onClick={() => void begin('login')}>
+          <Button
+            size="lg"
+            className={step ? undefined : 'w-full'}
+            onClick={() => void begin('login')}
+          >
             Sign in with Verdictan
           </Button>
         )}
         {waiting && !!status?.authorization && (
-          <Button size="lg" className="w-full" onClick={() => void reopen()}>
+          <Button size="lg" className={step ? undefined : 'w-full'} onClick={() => void reopen()}>
             <ExternalLink /> Open browser again
           </Button>
         )}
-        {idle && mode === 'window' && onSkip && (
-          <Button size="lg" variant="ghost" className="w-full" onClick={() => void skip()}>
-            Set up later
+        {idle && mode !== 'dialog' && onSkip && (
+          <Button
+            size="lg"
+            variant="ghost"
+            className={step ? undefined : 'w-full'}
+            onClick={() => void skip()}
+          >
+            {step ? 'Later' : 'Set up later'}
           </Button>
         )}
         {/* Every wait can be cancelled. In the dialog, the close button also cancels. */}
-        {(preparing || (waiting && mode === 'window')) && (
-          <Button size="lg" variant="ghost" className="w-full" onClick={stop}>
+        {(preparing || (waiting && mode !== 'dialog')) && (
+          <Button size="lg" variant="ghost" className={step ? undefined : 'w-full'} onClick={stop}>
             Cancel
           </Button>
         )}
@@ -587,7 +616,7 @@ function Screen({
   className,
   children,
 }: {
-  mode: 'window' | 'dialog';
+  mode: SignInMode;
   className?: string;
   children: ReactNode;
 }) {
@@ -681,14 +710,16 @@ function ErrorView({
 }: {
   /** Shows the account help. The setup error of a signed-in account has none. */
   api?: API;
-  mode: 'window' | 'dialog';
+  mode: SignInMode;
   copy: ErrorCopy;
 }) {
   return (
     <Screen mode={mode} className="sign-in-error">
-      <EntityIcon size="lg" color="var(--warning)" className="sign-in-icon">
-        <X />
-      </EntityIcon>
+      {mode !== 'step' && (
+        <EntityIcon size="lg" color="var(--warning)" className="sign-in-icon">
+          <X />
+        </EntityIcon>
+      )}
       <h1 className="sign-in-title" role="alert">
         {copy.title}
       </h1>

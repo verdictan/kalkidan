@@ -1,5 +1,5 @@
-import { test, expect, openComputersPage, openPreferences, preferencesDialog } from './helpers/app';
-test('Preferences checks GitHub CLI and retries without hiding agent status', async ({ page }) => {
+import { test, expect, openSettingsWindow, settingsDialog, settingsSection } from './helpers/app';
+test('Settings checks GitHub CLI and retries without hiding agent status', async ({ page }) => {
   await page.addInitScript(() => {
     (window as any).ghState = 'missing';
     (window as any).workspace = {
@@ -21,12 +21,13 @@ test('Preferences checks GitHub CLI and retries without hiding agent status', as
     };
   });
   await page.goto('/');
-  const computers = await openComputersPage(page);
-  // The agent rows show the agent status. A missing agent opens its program with Install….
+  const settings = await openSettingsWindow(page, 'Computers');
+  const computers = settings.getByRole('tabpanel', { name: 'Computers', exact: true });
+  // The agent rows show the agent status. Only a row that needs the user has a button: a
+  // missing agent opens its program with "Install Claude Code".
   const claude = computers.getByRole('group', { name: 'Claude Code', exact: true });
   await expect(claude).toContainText('Not installed');
-  await expect(claude).toContainText('Not found on this computer');
-  await claude.getByRole('button', { name: 'Install the Claude Code program' }).click();
+  await claude.getByRole('button', { name: 'Install Claude Code' }).click();
   const claudeProgram = page.getByRole('dialog', { name: 'Claude Code on this computer' });
   // A missing agent shows how to install it. The dialog has no Done button.
   await expect(claudeProgram).toContainText('npm i -g @anthropic-ai/claude-code');
@@ -34,20 +35,21 @@ test('Preferences checks GitHub CLI and retries without hiding agent status', as
   await expect(claudeProgram.getByRole('button', { name: 'Done', exact: true })).toHaveCount(0);
   await page.keyboard.press('Escape');
   await expect(claudeProgram).toHaveCount(0);
-  // An installed agent opens its program with Locate….
-  await computers
-    .getByRole('group', { name: 'Codex', exact: true })
-    .getByRole('button', { name: 'Locate the Codex program' })
-    .click();
-  const codexProgram = page.getByRole('dialog', { name: 'Codex on this computer' });
+  // An installed agent has no button. Details › "Programs…" shows its program.
+  await expect(
+    computers.getByRole('group', { name: 'Codex', exact: true }).getByRole('button'),
+  ).toHaveCount(0);
+  await computers.getByRole('button', { name: 'Details', exact: true }).click();
+  await computers.getByRole('button', { name: 'Programs…' }).click();
+  const codexProgram = page.getByRole('dialog', { name: 'Coding agent programs on this computer' });
   await expect(
     codexProgram.getByRole('listitem', { name: 'Codex on this computer' }),
   ).toContainText('Meets the minimum');
   await page.keyboard.press('Escape');
   await expect(codexProgram).toHaveCount(0);
-  // The GitHub CLI and the board access are one row in Preferences › Connections.
-  const dialog = await openPreferences(page);
-  await dialog.getByRole('tab', { name: 'Connections', exact: true }).click();
+  // The GitHub CLI and the board access are one row in Settings › Account.
+  await settingsSection(page, 'Account').click();
+  const dialog = settings;
   const row = dialog.getByRole('group', { name: 'GitHub and boards', exact: true });
   await expect(row.getByRole('status')).toHaveText('Not installed');
   // Settings checks again when the window gets focus. There is no Check again button.
@@ -85,7 +87,7 @@ test('Preferences checks GitHub CLI and retries without hiding agent status', as
   await expect(row.getByRole('status')).toHaveText('Check failed');
 });
 
-test('closing Preferences keeps a shared approval; closing Connect GitHub cancels its attempt', async ({
+test('closing Settings keeps a shared approval; closing Connect GitHub cancels its attempt', async ({
   page,
 }) => {
   await page.addInitScript(() => {
@@ -118,11 +120,10 @@ test('closing Preferences keeps a shared approval; closing Connect GitHub cancel
   });
   await page.goto('/');
   const open = async () => {
-    const dialog = await openPreferences(page);
-    await dialog.getByRole('tab', { name: 'Connections', exact: true }).click();
+    await openSettingsWindow(page, 'Account');
   };
   const boards = () =>
-    preferencesDialog(page).getByRole('group', { name: 'GitHub and boards', exact: true });
+    settingsDialog(page).getByRole('group', { name: 'GitHub and boards', exact: true });
   const connect = page.getByRole('dialog', { name: 'Connect GitHub' });
   const cancels = () => page.evaluate(() => (window as any).cancels);
   await open();
@@ -136,16 +137,16 @@ test('closing Preferences keeps a shared approval; closing Connect GitHub cancel
   await expect(connect).toHaveCount(0);
   await expect.poll(cancels).toEqual(['attempt-1']);
   await page.keyboard.press('Escape');
-  await expect(preferencesDialog(page)).not.toBeVisible();
-  // An approval that started in another place is shared. Preferences shows it, and closing
-  // Preferences does not cancel it.
+  await expect(settingsDialog(page)).not.toBeVisible();
+  // An approval that started in another place is shared. Settings shows it, and closing
+  // Settings does not cancel it.
   await page.evaluate(() => {
     (window as any).auth = { status: 'waiting', attemptId: 'attempt-2', code: 'WXYZ-9876' };
   });
   await open();
   await expect(boards()).toContainText('Waiting for approval');
   await page.keyboard.press('Escape');
-  await expect(preferencesDialog(page)).not.toBeVisible();
+  await expect(settingsDialog(page)).not.toBeVisible();
   expect(await cancels()).toEqual(['attempt-1']);
   // Connect… shows the shared approval and does not start a new one.
   await open();
@@ -153,7 +154,7 @@ test('closing Preferences keeps a shared approval; closing Connect GitHub cancel
   await expect(connect.getByLabel('GitHub device code')).toHaveValue('WXYZ-9876');
   expect(await page.evaluate(() => (window as any).starts)).toBe(1);
   // Closing the dialog cancels the shared attempt by its ID. Wait for the open animation, so
-  // that Escape goes to this dialog and not to Preferences below it.
+  // that Escape goes to this dialog and not to Settings below it.
   await connect.evaluate((element) =>
     Promise.all(element.getAnimations().map((animation) => animation.finished)),
   );

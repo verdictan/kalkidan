@@ -6,6 +6,37 @@ import { openProjectTab } from './helpers/navigation';
 const saveState = (page: Page) =>
   page.getByRole('region', { name: 'Document editor' }).getByRole('status');
 
+type StoredPage = { title: string; parentId: string | null; markdown: string };
+
+/** The saved copy of a page in the store of the browser preview, or null. */
+const storedPage = (page: Page, title: string) =>
+  page.evaluate((title) => {
+    const groups: Record<string, StoredPage[]> = JSON.parse(
+      localStorage.getItem('kalkidan-demo-docs') || '{}',
+    );
+    return (
+      Object.values(groups)
+        .flat()
+        .find((doc) => doc.title === title) ?? null
+    );
+  }, title);
+
+/**
+ * Waits until a page is saved. The editor shows no "Saved" text: it shows a state only for a
+ * slow or failed save. So look at the stored page, then make sure that no state shows.
+ */
+async function expectSaved(
+  page: Page,
+  title: string,
+  markdown?: RegExp,
+  fields: Record<string, unknown> = {},
+) {
+  await expect.poll(() => storedPage(page, title)).toMatchObject(fields);
+  if (markdown)
+    await expect.poll(async () => (await storedPage(page, title))?.markdown).toMatch(markdown);
+  await expect(saveState(page)).toHaveCount(0);
+}
+
 /** Names a page that New page or Add subpage just made. Its title shows "Untitled", selected. */
 async function nameNewPage(page: Page, title: string) {
   const input = page.getByLabel('Page title', { exact: true });
@@ -38,7 +69,13 @@ async function markdownSource(page: Page, show: boolean) {
 const pageList = (page: Page) =>
   page
     .getByRole('complementary', { name: 'Knowledge sections' })
-    .getByRole('navigation', { name: 'Document structure' });
+    .getByRole('navigation', { name: 'Pages', exact: true });
+
+/** Opens a page from the page list. Knowledge opens on Memory when the project has facts. */
+async function openPage(page: Page, title: string) {
+  await pageList(page).getByRole('button', { name: title, exact: true }).click();
+  await expect(page.getByLabel('Page title', { exact: true })).toHaveValue(title);
+}
 
 /** Opens the right-click menu of a page row in the rail and selects an item. */
 async function rowMenu(page: Page, title: string, item: string) {
@@ -51,9 +88,9 @@ test('project Board and Docs pages support live Markdown, subpages and persisten
 }) => {
   await page.goto('/');
   await openProjectTab(page, 'Docs');
-  // A project without pages shows no page list, only the first-page action.
-  await expect(page.getByRole('heading', { name: 'No pages yet' })).toBeVisible();
+  // A project without pages shows no page list, only the New page action.
   await expect(pageList(page)).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'New page', exact: true })).toBeVisible();
   await newPage(page, 'Engineering handbook');
   await expect(pageList(page)).toBeVisible();
   await markdownSource(page, true);
@@ -62,7 +99,7 @@ test('project Board and Docs pages support live Markdown, subpages and persisten
     .fill('# Getting started\n\nUse **Markdown** for docs.\n\n- Install\n- Run');
   await markdownSource(page, false);
   await expect(page.getByRole('heading', { name: 'Getting started' })).toBeVisible();
-  await expect(saveState(page)).toHaveText('Saved');
+  await expectSaved(page, 'Engineering handbook', /# Getting started/);
   await page.getByRole('button', { name: 'Page actions', exact: true }).click();
   await page.getByRole('menuitem', { name: 'Add subpage' }).click();
   await nameNewPage(page, 'Setup');
@@ -71,7 +108,7 @@ test('project Board and Docs pages support live Markdown, subpages and persisten
   );
   await markdownSource(page, true);
   await page.getByLabel('Markdown content').fill('Child documentation');
-  await expect(saveState(page)).toHaveText('Saved');
+  await expectSaved(page, 'Setup', /Child documentation/);
   await page.locator('.project-tree').getByRole('button', { name: 'Atlas', exact: true }).click();
   const tabs = page.getByRole('navigation', { name: 'Project page' });
   await expect(tabs.getByRole('button', { name: 'Overview', exact: true })).toHaveAttribute(
@@ -79,30 +116,30 @@ test('project Board and Docs pages support live Markdown, subpages and persisten
     'page',
   );
   await tabs.getByRole('button', { name: 'Knowledge', exact: true }).click();
-  await pageList(page).getByRole('button', { name: 'Setup', exact: true }).click();
+  await openPage(page, 'Setup');
   await expect(page.getByRole('textbox', { name: 'Document content' })).toContainText(
     'Child documentation',
   );
   await page.reload();
   await openProjectTab(page, 'Docs');
-  await pageList(page).getByRole('button', { name: 'Engineering handbook', exact: true }).click();
+  await openPage(page, 'Engineering handbook');
   await expect(page.getByRole('heading', { name: 'Getting started' })).toBeVisible();
   await page.getByLabel('Page title', { exact: true }).fill('Team handbook');
-  await expect(saveState(page)).toHaveText('Saved');
-  await pageList(page).getByRole('button', { name: 'Setup', exact: true }).click();
+  await expectSaved(page, 'Team handbook');
+  await openPage(page, 'Setup');
   await page.getByRole('button', { name: 'Page actions', exact: true }).click();
   await page.getByRole('menuitem', { name: 'Move page…', exact: true }).click();
   await page.getByRole('combobox', { name: 'Parent page' }).click();
   await page.getByRole('option', { name: 'Top-level page', exact: true }).click();
   await page.getByRole('button', { name: 'Move', exact: true }).click();
-  await expect(saveState(page)).toHaveText('Saved');
+  await expectSaved(page, 'Setup', undefined, { parentId: null });
   // The page is top-level now, so the page has no breadcrumb.
   await expect(page.getByRole('navigation', { name: 'Document breadcrumb' })).toHaveCount(0);
   await page.getByRole('button', { name: 'Page actions', exact: true }).click();
   await page.getByRole('menuitem', { name: 'Delete page', exact: true }).click();
   await page.getByRole('dialog').getByRole('button', { name: 'Delete page', exact: true }).click();
   await expect(pageList(page).getByRole('button', { name: 'Setup', exact: true })).toHaveCount(0);
-  await pageList(page).getByRole('button', { name: 'Team handbook', exact: true }).click();
+  await openPage(page, 'Team handbook');
   await page.setViewportSize({ width: 900, height: 800 });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.screenshot({ path: 'test-results/project-docs.png', fullPage: true });
@@ -138,7 +175,7 @@ test('rich editor formats in place, supports slash blocks, and saves Markdown', 
   await expect(editor.locator('ul:not([data-type="taskList"]) > li').nth(1)).toHaveText(
     'Second step',
   );
-  await expect(saveState(page)).toHaveText('Saved');
+  await expectSaved(page, 'Project guide', /- Second step/);
   await markdownSource(page, true);
   await expect(page.getByLabel('Markdown content')).toHaveValue(
     /# Welcome[\s\S]*- \[ \] Ship the first release/,
@@ -173,6 +210,7 @@ test('rich editor preserves tables, links, code, and formatting through save and
   );
   await page.goto('/');
   await openProjectTab(page, 'Docs');
+  await openPage(page, 'Release guide');
   const editor = page.getByRole('textbox', { name: 'Document content' });
   await expect(editor.locator('table')).toContainText('Build');
   await expect(editor.locator('pre')).toContainText('const ready = true');
@@ -195,7 +233,7 @@ test('rich editor preserves tables, links, code, and formatting through save and
   await page.getByRole('button', { name: 'Bold', exact: true }).click();
   await expect(editor.locator('strong')).toHaveText('A useful paragraph.');
   await editor.locator('input[type="checkbox"]').check();
-  await expect(saveState(page)).toHaveText('Saved');
+  await expectSaved(page, 'Release guide', /- \[x\] Review release/);
   await markdownSource(page, true);
   await expect(page.getByLabel('Markdown content')).toHaveValue(/\*\*A useful paragraph\.\*\*/);
   await expect(page.getByLabel('Markdown content')).toHaveValue(/- \[x\] Review release/);
@@ -205,6 +243,7 @@ test('rich editor preserves tables, links, code, and formatting through save and
     .getByRole('navigation', { name: 'Project page' })
     .getByRole('button', { name: 'Knowledge', exact: true })
     .click();
+  await openPage(page, 'Release guide');
   await expect(editor.locator('strong')).toHaveText('A useful paragraph.');
   await expect(editor.locator('input[type="checkbox"]')).toBeChecked();
 });
@@ -231,9 +270,10 @@ test('document context menu preserves selection and supports keyboard block edit
   await expect(editor.locator('strong')).toHaveText('Selected words');
   await editor.press('Shift+F10');
   await menu.getByRole('menuitem', { name: 'Blocks', exact: true }).hover();
-  await page.getByRole('menuitem', { name: 'Heading 2', exact: true }).click();
+  // The page title is the first heading, so the blocks offer Heading (H2) and Subheading (H3).
+  await page.getByRole('menuitem', { name: 'Heading', exact: true }).click();
   await expect(editor.locator('h2')).toHaveText('Selected words');
-  await expect(saveState(page)).toHaveText('Saved');
+  await expectSaved(page, 'Editing menu', /^## \*\*Selected words\*\*$/m);
   await expect(
     page.locator('.wiki-page-icon, .wiki-page-meta, .wiki-collection, .wiki-library-search'),
   ).toHaveCount(0);
@@ -257,7 +297,7 @@ test('sidebar organizes nested pages and reveals a newly created child', async (
   await page.getByRole('combobox', { name: 'Parent page' }).click();
   await page.getByRole('option', { name: 'Top-level page' }).click();
   await page.getByRole('button', { name: 'Move', exact: true }).click();
-  await expect(saveState(page)).toHaveText('Saved');
+  await expectSaved(page, 'Contributing', undefined, { parentId: null });
   await expect(sidebar.locator('.wiki-tree-children')).not.toContainText('Contributing');
   // A page is renamed in its title. The page list shows the new title.
   await page.getByLabel('Page title', { exact: true }).fill('Contributing guide');
@@ -299,7 +339,7 @@ test('link dialog links to another doc page, and the link opens that page', asyn
   await expect(picker).toHaveCount(0);
   const link = editor.getByRole('link').first();
   await expect(link).toHaveAttribute('href', /^\.\/[\w-]+\.md$/);
-  await expect(saveState(page)).toHaveText('Saved');
+  await expectSaved(page, 'Launch plan', /\[See the checklist\]\(\.\/[\w-]+\.md\)/);
   await link.click();
   await expect(page.getByLabel('Page title', { exact: true })).toHaveValue('Release checklist');
 });

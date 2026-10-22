@@ -5,19 +5,20 @@ import { openProjectTab } from './helpers/navigation';
 /** The rail of the Knowledge tab. */
 const rail = (page: Page) => page.getByRole('complementary', { name: 'Knowledge sections' });
 
-/** The Memory pane. The rail has a Memory group too, so look in the pane. */
+/** The Memory row of the rail. Memory is one row, pinned first. */
+const memoryRow = (page: Page) => rail(page).getByRole('button', { name: 'Memory', exact: true });
+
+/** The Memory pane. The rail has a Memory row too, so look in the pane. */
 const memoryPane = (page: Page) =>
   page.locator('.knowledge-pane').getByRole('region', { name: 'Memory', exact: true });
 
-/** Opens all facts in the Memory section of the Knowledge tab. */
+/** Opens Memory in the Knowledge tab. */
 async function openMemory(page: Page, project?: string) {
   await openProjectTab(page, 'Knowledge', project);
-  await rail(page)
-    .getByRole('button', { name: /^All facts( \d+)?$/ })
-    .click();
+  await memoryRow(page).click();
 }
 
-test('Memory is a section of the Knowledge tab and shows facts by topic without edit fields', async ({
+test('Memory is the first row of the Knowledge rail and shows facts by topic as an outline', async ({
   page,
 }) => {
   await page.goto('/');
@@ -26,33 +27,40 @@ test('Memory is a section of the Knowledge tab and shows facts by topic without 
   const knowledge = tabs.getByRole('button', { name: 'Knowledge', exact: true });
   await knowledge.click();
   await expect(knowledge).toHaveAttribute('aria-current', 'page');
-  // The Memory group follows the Pages group in the rail.
-  const pagesBox = await rail(page)
-    .getByRole('region', { name: 'Pages', exact: true })
-    .boundingBox();
-  const memoryBox = await rail(page)
-    .getByRole('region', { name: 'Memory', exact: true })
-    .boundingBox();
-  expect(memoryBox!.y).toBeGreaterThan(pagesBox!.y);
-  const allFacts = rail(page).getByRole('button', { name: /^All facts( \d+)?$/ });
-  await allFacts.click();
-  await expect(allFacts).toHaveAttribute('aria-current', 'page');
+  // The demo has saved facts, so Knowledge opens on Memory.
+  await expect(memoryRow(page)).toHaveAttribute('aria-current', 'page');
   const panel = memoryPane(page);
   // One project header shows the project name above the tabs.
   await expect(page.locator('.project-header')).toContainText('Atlas');
-  // The demo has saved facts. The pane shows them by topic and has no text fields.
-  await expect(panel.getByRole('region', { name: /^Testing/ })).toContainText('npm run test:ui');
-  await expect(panel.getByRole('textbox')).toHaveCount(0);
-  const topic = rail(page).getByRole('button', { name: /^Authentication( \d+)?$/ });
-  await topic.click();
-  await expect(topic).toHaveAttribute('aria-current', 'page');
-  // A topic filters the list. The pane title names the topic, and "All facts" shows all again.
-  await expect(panel.getByRole('heading', { level: 2 })).toHaveText('Authentication');
-  await expect(panel.getByRole('region', { name: /^Testing/ })).toHaveCount(0);
-  await expect(panel.locator('.memory-fact').first()).toBeVisible();
-  await expect(panel.getByRole('textbox')).toHaveCount(0);
-  await panel.getByRole('button', { name: 'All facts', exact: true }).click();
+  // Topics are headings and facts are bullets. A saved fact is a button until the user edits it.
   await expect(panel.getByRole('heading', { level: 2 })).toHaveText('Memory');
+  await expect(panel.getByRole('region', { name: /^Testing/ })).toContainText('npm run test:ui');
+  const fact = panel.getByRole('button', { name: /^Edit fact: Run npm test and npm run test:ui/ });
+  await expect(fact).toBeVisible();
+  await expect(panel.getByRole('textbox', { name: 'Fact', exact: true })).toHaveCount(0);
+  // One way to add a fact: the last bullet.
+  await expect(panel.getByRole('textbox', { name: 'Add a fact', exact: true })).toHaveCount(1);
+  // A click on a fact edits it in place. Escape ends the edit without a save.
+  await fact.click();
+  const field = panel.getByRole('textbox', { name: 'Fact', exact: true });
+  await expect(field).toBeFocused();
+  await expect(field).toHaveValue(/npm run test:ui/);
+  await field.press('Escape');
+  await expect(panel.getByRole('textbox', { name: 'Fact', exact: true })).toHaveCount(0);
+  await expect(fact).toBeVisible();
+  // The pages follow the Memory row in the one rail list.
+  await rail(page).getByRole('button', { name: 'New page', exact: true }).click();
+  const title = page.getByLabel('Page title', { exact: true });
+  await expect(title).toHaveValue('Untitled');
+  await title.fill('Runbook');
+  const pages = rail(page).getByRole('navigation', { name: 'Pages', exact: true });
+  await expect(pages.getByRole('button', { name: 'Runbook', exact: true })).toBeVisible();
+  await expect(memoryRow(page)).not.toHaveAttribute('aria-current', 'page');
+  const memoryBox = await memoryRow(page).boundingBox();
+  const pagesBox = await pages.boundingBox();
+  expect(pagesBox!.y).toBeGreaterThan(memoryBox!.y);
+  await memoryRow(page).click();
+  await expect(memoryRow(page)).toHaveAttribute('aria-current', 'page');
   await expect(panel.getByRole('region', { name: /^Testing/ })).toBeVisible();
 });
 
@@ -112,9 +120,14 @@ test('Memory renders agent files and refreshes changes without open edit fields'
   // When the window gets focus again, a changed revision loads the facts again.
   await page.evaluate(() => window.dispatchEvent(new Event('focus')));
   await expect(panel).toContainText('Run npm test and lint.');
-  // The facts are not edit fields. The search is in the rail. A fact form opens only from Add
-  // fact or Edit fact.
-  await expect(panel.locator('input, textarea, [contenteditable="true"]')).toHaveCount(0);
+  // Facts from agent files have no saved entry, so they are not edit fields. The topic is
+  // read-only, and the only field is "Add a fact". The search is in the rail.
+  await expect(panel.getByRole('button', { name: /^Edit fact/ })).toHaveCount(0);
+  await expect(panel.locator('input:not([readonly]), [contenteditable="true"]')).toHaveCount(0);
+  await expect(panel.locator('textarea')).toHaveCount(1);
+  await expect(panel.getByRole('textbox', { name: 'Add a fact', exact: true })).toBeVisible();
+  await panel.getByText('Run npm test and lint.').click();
+  await expect(panel.getByRole('textbox', { name: 'Fact', exact: true })).toHaveCount(0);
   await expect(rail(page).getByRole('combobox', { name: 'Search knowledge' })).toBeVisible();
   await page.setViewportSize({ width: 757, height: 988 });
   await expect(panel.getByRole('heading', { name: 'Test conventions' })).toBeVisible();
@@ -164,40 +177,42 @@ test('late Memory reads cannot display content in another project', async ({ pag
   await expect(page.getByText('Alpha private fact')).toHaveCount(0);
 });
 
-for (const ready of [true, false])
-  test(`empty Memory chooses its action from managed agent state (ready: ${ready})`, async ({
-    page,
-  }) => {
-    await page.addInitScript((isReady) => {
-      (window as any).workspace = {
-        trackerProviders: async () => [],
-        docsMetadata: async () => [],
-        snapshot: async () => ({
-          projects: [],
-          groups: [{ id: 'g', name: 'Test', repoIds: [] }],
-          sessions: [],
-          warnings: [],
-          platform: 'darwin',
-        }),
-        memoryList: async () => ({ pages: [], limited: false }),
-        verdictanStatus: async () =>
-          isReady
-            ? { phase: 'authenticated', executionReady: true }
-            : { phase: 'missing', executionReady: false },
-        verdictanSetup: async () => ({ selections: { claude: {} } }),
-      };
-    }, ready);
-    await page.goto('/');
-    await openMemory(page);
-    const panel = memoryPane(page);
-    await expect(panel).toContainText('No facts yet');
-    const start = panel.getByRole('button', { name: 'Start a chat', exact: true });
-    const setUp = panel.getByRole('button', { name: 'Set up managed agents', exact: true });
-    if (ready) {
-      await expect(start).toBeVisible();
-      await expect(setUp).toHaveCount(0);
-    } else {
-      await expect(setUp).toBeVisible();
-      await expect(start).toHaveCount(0);
-    }
+// Round 10 removed the "No facts yet" empty state and its chat and setup actions. An empty
+// project opens on Memory with the caret in "Add a fact", and Enter saves the typed fact.
+test('empty Memory opens with the caret in Add a fact and saves a typed fact', async ({ page }) => {
+  await page.addInitScript(() => {
+    (window as any).saved = [];
+    (window as any).workspace = {
+      trackerProviders: async () => [],
+      docsMetadata: async () => [],
+      snapshot: async () => ({
+        projects: [],
+        groups: [{ id: 'g', name: 'Test', repoIds: [] }],
+        sessions: [],
+        warnings: [],
+        platform: 'darwin',
+      }),
+      memoryList: async () => ({ pages: [], limited: false }),
+      // The save stays open, so the typed line stays on the page.
+      memorySave: (_group: string, input: unknown) => {
+        (window as any).saved.push(input);
+        return new Promise(() => {});
+      },
+    };
   });
+  await page.goto('/');
+  await openProjectTab(page, 'Knowledge');
+  const panel = memoryPane(page);
+  await expect(memoryRow(page)).toHaveAttribute('aria-current', 'page');
+  const add = panel.getByRole('textbox', { name: 'Add a fact', exact: true });
+  await expect(add).toBeFocused();
+  await expect(panel).not.toContainText('No facts yet');
+  await expect(panel.getByRole('button')).toHaveCount(0);
+  await add.pressSequentially('Run npm test before a release.');
+  await add.press('Enter');
+  await expect
+    .poll(() => page.evaluate(() => (window as any).saved))
+    .toEqual([{ topic: 'General', content: 'Run npm test before a release.' }]);
+  await expect(add).toBeFocused();
+  await expect(add).toHaveValue('');
+});

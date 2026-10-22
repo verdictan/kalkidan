@@ -58,13 +58,16 @@ export interface SearchAction {
   run: () => void;
 }
 
-/** A chat, task or page that the user opened before, for "Recent" in an empty search. */
+/**
+ * A chat, task, page or project that the user opened before, for "Recent" in an empty search.
+ * A chat that waits for the user uses the same shape, for "Needs you".
+ */
 export interface RecentPlace {
   key: string;
   label: string;
   /** The project and the kind or agent, shown after the label. */
   context?: string;
-  kind: 'chat' | 'task' | 'doc';
+  kind: 'chat' | 'task' | 'doc' | 'project';
   agent?: string;
   open: () => void;
 }
@@ -122,6 +125,7 @@ function RecentIcon({ place }: { place: RecentPlace }) {
     return <AgentIcon agent={place.agent} className="size-3.5" />;
   if (place.kind === 'task') return <ListTodo />;
   if (place.kind === 'doc') return <FileText />;
+  if (place.kind === 'project') return <Folder />;
   return <Clock />;
 }
 
@@ -162,6 +166,7 @@ export function WorkspaceSearch({
   actions = [],
   suggested = [],
   recent = [],
+  needsYou = [],
   activity = {},
 }: {
   /** True when the palette shows. */
@@ -171,10 +176,12 @@ export function WorkspaceSearch({
   triggerRef?: RefObject<HTMLButtonElement | null>;
   /** Commands that show in the results when they match the query. */
   actions?: SearchAction[];
-  /** Commands that show with an empty query, under "Suggested". */
+  /** Commands that show with an empty query, under "Actions". */
   suggested?: SearchAction[];
   /** The last places, under "Recent" with an empty query. */
   recent?: RecentPlace[];
+  /** The chats that wait for the user. They show first, under "Needs you", with an empty query. */
+  needsYou?: RecentPlace[];
   /** Background state of open sessions, by `activityKey`. */
   activity?: Record<string, SessionActivityState>;
   /** Opens a docs page of a project. */
@@ -222,8 +229,9 @@ export function WorkspaceSearch({
     previousFocus.current =
       current instanceof HTMLElement && current !== document.body ? current : null;
   }, [open]);
-  // With an empty query, the palette shows Recent and Suggested.
-  const showStart = open && !term && (recent.length > 0 || suggested.length > 0);
+  // With an empty query, the palette shows Needs you, Recent and Actions.
+  const showStart =
+    open && !term && (needsYou.length > 0 || recent.length > 0 || suggested.length > 0);
   // Full-text doc results, with the heading of the passage as a snippet.
   const [passages, setPassages] = useState<{ group: ProjectGroup; passage: DocPassage }[]>([]);
   useEffect(() => {
@@ -487,6 +495,7 @@ export function WorkspaceSearch({
     repo ? groups.find((g) => g.repoIds.includes(repo.id))?.name : undefined;
   const options: SearchOption[] = showStart
     ? [
+        ...needsYou.map((place) => ({ key: 'needs:' + place.key, open: place.open })),
         ...recent.map((place) => ({ key: 'recent:' + place.key, open: place.open })),
         ...suggested.map((action) => ({ key: 'suggested:' + action.key, open: action.run })),
       ]
@@ -628,7 +637,7 @@ export function WorkspaceSearch({
               aria-controls={expanded ? listId : undefined}
               aria-autocomplete="list"
               aria-activedescendant={activeOption ? optionId(activeOption.key) : undefined}
-              placeholder="Search or run a command…"
+              placeholder="Search chats, projects, pages or run a command"
               autoComplete="off"
               spellCheck={false}
               value={query}
@@ -668,8 +677,21 @@ export function WorkspaceSearch({
             )}
           </div>
           {showStart ? (
-            <section className="workspace-search-results" aria-label="Recent and suggested">
-              <div id={listId} role="listbox" aria-label="Recent and suggested">
+            <section className="workspace-search-results" aria-label="Recent and actions">
+              <div id={listId} role="listbox" aria-label="Recent and actions">
+                {!!needsYou.length &&
+                  group(
+                    'needs',
+                    'Needs you',
+                    needsYou.map((place) =>
+                      row('needs:' + place.key, {
+                        icon: <RecentIcon place={place} />,
+                        title: place.label,
+                        meta: place.context,
+                        tooltip: [place.label, place.context].filter(Boolean).join(' · '),
+                      }),
+                    ),
+                  )}
                 {!!recent.length &&
                   group(
                     'recent',
@@ -678,7 +700,7 @@ export function WorkspaceSearch({
                       row('recent:' + place.key, {
                         icon: <RecentIcon place={place} />,
                         title: place.label,
-                        detail: place.context,
+                        meta: place.context,
                         tooltip: [place.label, place.context].filter(Boolean).join(' · '),
                       }),
                     ),
@@ -686,7 +708,7 @@ export function WorkspaceSearch({
                 {!!suggested.length &&
                   group(
                     'suggested',
-                    'Suggested',
+                    'Actions',
                     suggested.map((action) =>
                       row('suggested:' + action.key, {
                         icon: action.icon || <Zap />,
@@ -832,27 +854,17 @@ export function WorkspaceSearch({
                 </p>
               )}
             </section>
-          ) : (
-            <p className="workspace-search-results search-status">
-              Search chats, tasks, pages, memory and actions.
-            </p>
-          )}
+          ) : null}
+          {/* Two keys: Open and Ask an agent. Each action shows its own key on its row. */}
           <div className="command-palette-footer" aria-hidden="true">
-            <span>
-              <kbd className="kbd">↑</kbd>
-              <kbd className="kbd">↓</kbd> Move
-            </span>
             <span>
               <kbd className="kbd">↵</kbd> Open
             </span>
             {onAsk && (
               <span>
-                <kbd className="kbd">{askKeys}</kbd> Start a chat
+                <kbd className="kbd">{askKeys}</kbd> Ask an agent
               </span>
             )}
-            <span>
-              <kbd className="kbd">Esc</kbd> Close
-            </span>
           </div>
         </DialogContent>
       </Dialog>

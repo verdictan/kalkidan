@@ -1,6 +1,15 @@
 import { useTracker } from '../hooks/use-tracker';
-import { useEffect, useImperativeHandle, useRef, useState, type Ref } from 'react';
-import { Check, ExternalLink, SquareKanban } from 'lucide-react';
+import { useEffect, useImperativeHandle, useRef, useState, type ReactNode, type Ref } from 'react';
+import {
+  Check,
+  ChevronDown,
+  ExternalLink,
+  Layers2,
+  Link2,
+  LoaderCircle,
+  Plus,
+  SquareKanban,
+} from 'lucide-react';
 import type { API, ProjectGroup, TrackerOwner, TrackerProject } from '../types';
 import { trackerAuthPending, trackerConnection, type TrackerAuthState } from '../domain/tracker';
 import { interfaceConfig } from '../config/interface';
@@ -19,10 +28,16 @@ import {
   DialogBody,
   DialogContent,
   DialogDescription,
-  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from './ui/dialog';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuTrigger,
+} from './ui/dropdown-menu';
 import { cn } from '../lib/utils';
 
 /** The name of the board on the tracker side, for example "GitHub Projects board". */
@@ -320,9 +335,9 @@ export function TrackerProjectPicker({
 }
 
 /** Asks the tracker for access, and polls while the user approves it in the browser. */
-export function useTrackerAuth(api: API, provider: string, active: boolean) {
+export function useTrackerAuth(api: API, provider: string, active: boolean, start = true) {
   const { client, name: providerName } = useTracker(api, provider);
-  const [auth, setAuth] = useState<TrackerAuthState>({ status: 'idle' });
+  const [auth, setAuth] = useState<TrackerAuthState>({ status: start ? 'checking' : 'idle' });
   async function authorize() {
     setAuth({ status: 'checking' });
     try {
@@ -338,10 +353,19 @@ export function useTrackerAuth(api: API, provider: string, active: boolean) {
   }
   useEffect(() => {
     if (!active) return;
-    // Defer so that a remount in development does not start two checks.
-    const timer = setTimeout(() => void authorize(), 0);
+    // Defer so that a remount in development does not start two checks. Without `start`, only
+    // read the access: a sign-in starts when the person asks for it, never when a page opens.
+    const timer = setTimeout(() => {
+      if (start) void authorize();
+      else
+        void client.authStatus().then(
+          // Signed out is not an error here: the page shows "Connect" instead.
+          (value) => setAuth(value.status === 'signed-out' ? { status: 'idle' } : value),
+          () => setAuth({ status: 'idle' }),
+        );
+    }, 0);
     return () => clearTimeout(timer);
-  }, [active, client]);
+  }, [active, client, start]);
   useEffect(() => {
     if (!active || !trackerAuthPending(auth)) return;
     let live = true;
@@ -372,6 +396,7 @@ function TrackerAccess({
   onRetry,
   onOpenAuth,
   onPreferences,
+  onConnect,
 }: {
   auth: TrackerAuthState;
   providerName: string;
@@ -379,8 +404,16 @@ function TrackerAccess({
   onRetry(): void;
   onOpenAuth(): void;
   onPreferences(): void;
+  /** Starts the sign-in. Given when access is read, not started, as the page opens. */
+  onConnect?(): void;
 }) {
   if (auth.status === 'ready') return null;
+  if (auth.status === 'idle' && onConnect)
+    return (
+      <div>
+        <Button onClick={onConnect}>Connect {providerName}</Button>
+      </div>
+    );
   if (['checking', 'verifying', 'idle'].includes(auth.status))
     return (
       <p role="status" className="m-0 text-sm text-muted-foreground">
@@ -424,7 +457,7 @@ function TrackerAccess({
             Try again
           </Button>
           <Button variant="ghost" size="sm" onClick={onPreferences}>
-            Open Preferences…
+            Open Settings…
           </Button>
         </div>
       </AlertDescription>
@@ -432,10 +465,348 @@ function TrackerAccess({
   );
 }
 
+/** True when the text looks like the URL of a board, for example a GitHub Projects URL. */
+function boardUrl(text: string) {
+  return /^https?:\/\/\S+$/i.test(text.trim());
+}
+
 /**
- * The one Connect board dialog. Tasks, Knowledge (Make tasks), Insights and Project settings ›
- * Board all use it. It checks the tracker access, then the user chooses, creates or pastes a
- * board. The footer has one primary: "Connect board", or "Create and connect" for a new board.
+ * Puts the best match first: a board whose name contains the project name, then a board that
+ * shares a word with it. The order of the tracker stays for the others.
+ */
+export function rankBoards(projects: TrackerProject[], projectName: string) {
+  const name = projectName.trim().toLowerCase();
+  const words = name.split(/[^a-z0-9]+/).filter((word) => word.length > 2);
+  const score = (project: TrackerProject) => {
+    const title = project.title.toLowerCase();
+    if (name && title.includes(name)) return 2;
+    return words.some((word) => title.includes(word)) ? 1 : 0;
+  };
+  return projects
+    .map((project, index) => ({ project, index, score: score(project) }))
+    .sort((a, b) => b.score - a.score || a.index - b.index)
+    .map((entry) => entry.project);
+}
+
+/**
+ * Connect a board in one list: a search field that also takes a board URL, the owner as a menu
+ * button, the boards with the best match first and "New board for <project>" last. A click on
+ * a board connects it. The Tasks tab shows this list on the page; the dialog shows the same
+ * list.
+ */
+export function ConnectBoardPanel({
+  api,
+  group,
+  onConnected,
+  variant = 'page',
+}: {
+  api: API;
+  group: ProjectGroup;
+  /** Called after the project is connected to the board. */
+  onConnected?(): void | Promise<void>;
+  /** 'page' shows the "Connect a GitHub board" heading. 'dialog' does not. */
+  variant?: 'page' | 'dialog';
+}) {
+  const connection = trackerConnection(group);
+  const provider = connection?.provider || 'github';
+  const { client, name: providerName, descriptor } = useTracker(api, provider);
+  const board = boardLabel(providerName);
+  // On the Tasks page the panel only reads the access; the sign-in starts on a click.
+  const { auth, authorize, openAuth } = useTrackerAuth(api, provider, true, variant === 'dialog');
+  const ready = auth.status === 'ready';
+  const [owners, setOwners] = useState<TrackerOwner[]>([]);
+  const [ownerId, setOwnerId] = useState('');
+  const [projects, setProjects] = useState<TrackerProject[]>([]);
+  const [query, setQuery] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState('');
+  const [error, setError] = useState('');
+  const [revision, setRevision] = useState(0);
+  const owner = owners.find((o) => o.id === ownerId);
+  useEffect(() => {
+    if (!ready) return;
+    let active = true;
+    setLoading(true);
+    setError('');
+    client
+      .owners()
+      .then((result) => {
+        if (!active) return;
+        setOwners(result);
+        setOwnerId((current) =>
+          result.some((o) => o.id === current) ? current : result[0]?.id || '',
+        );
+        if (!result.length) setLoading(false);
+      })
+      .catch((e) => {
+        if (!active) return;
+        setError(errorMessage(e));
+        setLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [client, ready, revision]);
+  useEffect(() => {
+    if (!owner) return;
+    let active = true;
+    setLoading(true);
+    setProjects([]);
+    setError('');
+    client
+      .projects(owner)
+      .then((result) => {
+        if (active) setProjects(result);
+      })
+      .catch((e) => {
+        if (active) setError(errorMessage(e));
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [client, owner, revision]);
+  const text = query.trim();
+  const pasted = boardUrl(text);
+  const matches = pasted
+    ? []
+    : rankBoards(projects, group.name).filter((p) =>
+        `${p.title} ${p.number ?? ''}`.toLowerCase().includes(text.toLowerCase()),
+      );
+  async function connect(key: string, target: () => Promise<string>) {
+    if (busy) return;
+    setBusy(key);
+    setError('');
+    try {
+      const url = await target();
+      if (url === connection?.project.url) return;
+      await client.link(group.id, url);
+      showToast(connection ? 'The project now uses the new board.' : 'Board connected.');
+      await onConnected?.();
+    } catch (failure) {
+      setError(errorMessage(failure));
+    } finally {
+      setBusy('');
+    }
+  }
+  const canCreate = !!owner && !!descriptor?.capabilities.createProject;
+  const name = (project: TrackerProject) =>
+    project.number ? `${project.title} #${project.number}` : project.title;
+  return (
+    <section
+      className="connect-board"
+      data-variant={variant}
+      aria-labelledby={variant === 'page' ? 'connect-board-title' : undefined}
+      aria-label={variant === 'page' ? undefined : `Available ${board}s`}
+      aria-busy={!!busy || undefined}
+    >
+      {variant === 'page' && (
+        <h2 id="connect-board-title" className="connect-board-title">
+          Connect a {providerName} board
+        </h2>
+      )}
+      <TrackerAccess
+        auth={auth}
+        providerName={providerName}
+        board={board}
+        onRetry={() => void authorize()}
+        onConnect={variant === 'page' ? () => void authorize() : undefined}
+        onOpenAuth={() => void openAuth()}
+        onPreferences={() =>
+          window.dispatchEvent(
+            new CustomEvent('kalkidan-open-settings', {
+              detail: { section: 'account', anchor: settingsAnchors.github },
+            }),
+          )
+        }
+      />
+      {ready && (
+        <>
+          <div className="connect-board-search">
+            <SearchInput
+              autoFocus={variant === 'dialog'}
+              className="min-w-0 flex-1"
+              aria-label={`Search ${board}s or paste a URL`}
+              placeholder="Search or paste a URL"
+              value={query}
+              disabled={!!busy}
+              onChange={(e) => setQuery(e.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter' && pasted && !event.nativeEvent.isComposing) {
+                  event.preventDefault();
+                  void connect('url', async () => text);
+                }
+              }}
+            />
+            {owners.length > 1 && (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    variant="outline"
+                    disabled={!!busy}
+                    aria-label={`Owner: ${owner?.login || ''}`}
+                  >
+                    <span className="max-w-40 truncate">{owner?.login}</span>
+                    <ChevronDown aria-hidden="true" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuRadioGroup value={ownerId} onValueChange={setOwnerId}>
+                    {owners.map((o) => (
+                      <DropdownMenuRadioItem key={o.id} value={o.id}>
+                        <span className="truncate">{o.login}</span>
+                      </DropdownMenuRadioItem>
+                    ))}
+                  </DropdownMenuRadioGroup>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            )}
+          </div>
+          {error && (
+            <Alert variant="destructive" size="sm">
+              <AlertDescription>
+                {error}
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={!!busy}
+                  onClick={() => setRevision((n) => n + 1)}
+                >
+                  Try again
+                </Button>
+              </AlertDescription>
+            </Alert>
+          )}
+          <ul className="connect-board-list" aria-label={`Available ${board}s`}>
+            {pasted ? (
+              <li>
+                <ConnectRow
+                  first
+                  icon={<Link2 aria-hidden="true" />}
+                  title="Board at this URL"
+                  meta={text}
+                  label={`Connect the board at ${text}`}
+                  busy={busy === 'url'}
+                  disabled={!!busy}
+                  onConnect={() => void connect('url', async () => text)}
+                />
+              </li>
+            ) : loading ? (
+              <li className="connect-board-note" role="status">
+                Loading boards…
+              </li>
+            ) : (
+              matches.map((project, index) => (
+                <li key={project.id}>
+                  <ConnectRow
+                    first={index === 0}
+                    icon={<Layers2 aria-hidden="true" />}
+                    title={project.title}
+                    meta={[project.number ? `#${project.number}` : '', project.owner || '']
+                      .filter(Boolean)
+                      .join(' · ')}
+                    label={`Connect ${name(project)}`}
+                    current={project.url === connection?.project.url}
+                    busy={busy === project.id}
+                    disabled={!!busy}
+                    onConnect={() => void connect(project.id, async () => project.url)}
+                  />
+                </li>
+              ))
+            )}
+            {!pasted && !loading && !error && !matches.length && (
+              <li className="connect-board-note">
+                {text ? 'No matching boards.' : `${owner?.login || 'This owner'} has no boards.`}
+              </li>
+            )}
+            {!pasted && canCreate && !loading && (
+              <li>
+                <button
+                  type="button"
+                  className="connect-board-new"
+                  disabled={!!busy}
+                  onClick={() =>
+                    void connect(
+                      'new',
+                      async () => (await client.createProject(owner!, group.name)).url,
+                    )
+                  }
+                >
+                  {busy === 'new' ? (
+                    <LoaderCircle className="animate-spin" aria-hidden="true" />
+                  ) : (
+                    <Plus aria-hidden="true" />
+                  )}
+                  {busy === 'new' ? 'Creating the board…' : `New board for ${group.name}`}
+                </button>
+              </li>
+            )}
+          </ul>
+        </>
+      )}
+    </section>
+  );
+}
+
+/** One board in the connect list. The whole row is the Connect button. */
+function ConnectRow({
+  icon,
+  title,
+  meta,
+  label,
+  first,
+  current,
+  busy,
+  disabled,
+  onConnect,
+}: {
+  icon: ReactNode;
+  title: string;
+  meta: string;
+  label: string;
+  /** The best match. Its Connect shows without hover. */
+  first?: boolean;
+  /** The board that the project uses now. */
+  current?: boolean;
+  busy: boolean;
+  disabled: boolean;
+  onConnect(): void;
+}) {
+  return (
+    <button
+      type="button"
+      className="connect-board-row"
+      data-first={first || undefined}
+      data-busy={busy || undefined}
+      aria-label={current ? `${title}. Connected` : label}
+      disabled={disabled || current}
+      onClick={onConnect}
+    >
+      {icon}
+      <span className="connect-board-name">
+        <span className="truncate">{title}</span>
+        {meta && <small className="truncate">{meta}</small>}
+      </span>
+      {current ? (
+        <span className="connect-board-state">
+          <Check aria-hidden="true" />
+          Connected
+        </span>
+      ) : (
+        <span className="connect-board-action" aria-hidden="true">
+          {busy ? 'Connecting…' : 'Connect'}
+        </span>
+      )}
+    </button>
+  );
+}
+
+/**
+ * The one Connect board dialog, for pages other than Tasks (Knowledge, Project settings, ⌘K).
+ * It shows the same list as the Tasks page. A click on a board connects it and closes the
+ * dialog, so there is no footer.
  */
 export function ConnectBoardDialog({
   api,
@@ -452,106 +823,29 @@ export function ConnectBoardDialog({
   onConnected?(): void | Promise<void>;
 }) {
   const connection = trackerConnection(group);
-  const provider = connection?.provider || 'github';
-  const { client, name: providerName } = useTracker(api, provider);
-  const board = boardLabel(providerName);
-  const { auth, authorize, openAuth } = useTrackerAuth(api, provider, open);
-  const [url, setUrl] = useState('');
-  const [mode, setMode] = useState<BoardPickerMode>('pick');
-  const [canCreate, setCanCreate] = useState(false);
-  const [pickerBusy, setPickerBusy] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState('');
-  const picker = useRef<BoardPickerActions>(null);
-  useEffect(() => {
-    if (!open) return;
-    setUrl('');
-    setError('');
-    setMode('pick');
-  }, [open]);
-  const creating = mode === 'create';
-  const ready =
-    auth.status === 'ready' &&
-    !busy &&
-    !pickerBusy &&
-    (creating ? canCreate : !!url.trim() && url !== connection?.project.url);
-  async function connect() {
-    if (!ready) return;
-    setBusy(true);
-    setError('');
-    try {
-      const target = creating ? await picker.current!.create() : url.trim();
-      await client.link(group.id, target);
-      showToast(connection ? 'The project now uses the new board.' : 'Board connected.');
-      await onConnected?.();
-      onOpenChange(false);
-    } catch (failure) {
-      setError(errorMessage(failure));
-    } finally {
-      setBusy(false);
-    }
-  }
+  const { name: providerName } = useTracker(api, connection?.provider || 'github');
   return (
-    <Dialog open={open} onOpenChange={(next) => !busy && onOpenChange(next)}>
+    <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent size="md" layout="scroll">
         <DialogHeader>
           <DialogTitle>{connection ? 'Change board' : 'Connect board'}</DialogTitle>
           <DialogDescription className="sr-only">
-            Choose a {board}, create one or paste its URL.
+            Choose a {boardLabel(providerName)} or paste its URL.
           </DialogDescription>
         </DialogHeader>
-        {/* A fixed minimum height, so the dialog does not move between the three tabs. */}
-        <DialogBody className="grid min-h-60 content-start gap-4">
-          <TrackerAccess
-            auth={auth}
-            providerName={providerName}
-            board={board}
-            onRetry={() => void authorize()}
-            onOpenAuth={() => void openAuth()}
-            onPreferences={() => {
-              onOpenChange(false);
-              window.dispatchEvent(
-                new CustomEvent('kalkidan-open-settings', {
-                  detail: { section: 'general', anchor: settingsAnchors.github },
-                }),
-              );
-            }}
-          />
-          {auth.status === 'ready' && (
-            <TrackerProjectPicker
+        <DialogBody className="grid min-h-60 content-start">
+          {open && (
+            <ConnectBoardPanel
               api={api}
-              provider={provider}
-              defaultTitle={group.name}
-              value={url}
-              onChange={setUrl}
-              onBusy={setPickerBusy}
-              actions={picker}
-              onModeChange={(next, create) => {
-                setMode(next);
-                setCanCreate(create);
+              group={group}
+              variant="dialog"
+              onConnected={async () => {
+                await onConnected?.();
+                onOpenChange(false);
               }}
             />
           )}
-          {error && (
-            <p role="alert" className="field-error m-0">
-              {error}
-            </p>
-          )}
         </DialogBody>
-        <DialogFooter>
-          <Button variant="outline" disabled={busy} onClick={() => onOpenChange(false)}>
-            Cancel
-          </Button>
-          <Button disabled={!ready} onClick={() => void connect()}>
-            {busy && creating
-              ? 'Creating…'
-              : busy
-                ? 'Connecting…'
-                : creating
-                  ? 'Create and connect'
-                  : 'Connect board'}
-          </Button>
-        </DialogFooter>
       </DialogContent>
     </Dialog>
   );

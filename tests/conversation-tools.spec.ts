@@ -4,19 +4,17 @@ import { openCodeFolder } from './helpers/navigation';
 import { openTool } from './helpers/tools';
 
 /**
- * Shows the Changes tool with its shortcut. A new chat has no changes of its own, so the title
- * bar does not show the Changes button.
+ * Shows the Changes tool with its shortcut. A new chat has no changes of its own, so the chat
+ * shows no changes row with Review.
  */
 async function openChanges(page: Page) {
   // Below 980px the tool pane is a sheet over the chat, so the test focuses the composer
   // without a click.
   await page.getByLabel('Message agent').focus();
   await page.keyboard.press('ControlOrMeta+Shift+G');
-  await expect(
-    page
-      .getByRole('group', { name: 'Tools', exact: true })
-      .getByRole('button', { name: /^Changes/ }),
-  ).toHaveAttribute('aria-pressed', 'true');
+  const tools = page.getByRole('region', { name: 'Repository tools' });
+  await expect(tools.getByRole('heading', { name: 'Changes', exact: true })).toBeVisible();
+  await expect(tools.getByRole('button', { name: 'Close Changes', exact: true })).toBeVisible();
 }
 
 test('conversation tools preview evidence, attach it to the draft, and send it only on request', async ({
@@ -66,7 +64,7 @@ test('conversation tools preview evidence, attach it to the draft, and send it o
       }),
       repositoryDiff: async () => ({
         unstaged: 'diff --git a/app.ts b/app.ts\n-old\n+new',
-        staged: '+staged change',
+        staged: 'diff --git a/lib.ts b/lib.ts\n-before\n+staged change',
         untracked: ['new.ts'],
         newFiles: [{ path: 'new.ts', text: 'export const added = true;' }],
         truncated: false,
@@ -112,16 +110,17 @@ test('conversation tools preview evidence, attach it to the draft, and send it o
   await page.screenshot({ path: 'test-results/integrated-terminal.png' });
   await dialog.getByRole('button', { name: 'Attach output' }).click();
   await openChanges(page);
-  await expect(dialog.getByLabel('Git diff')).toContainText('+new');
-  await dialog.getByRole('button', { name: 'Next changed file' }).click();
-  await expect(dialog.getByLabel('Git diff')).toContainText('export const added = true;');
-  await expect(
-    dialog.getByRole('list', { name: 'Changed files' }).locator('[aria-current="true"]'),
-  ).toContainText('new.ts');
-  await dialog.getByRole('combobox', { name: 'Diff scope' }).click();
-  await page.getByRole('option', { name: 'Staged only', exact: true }).click();
+  // The pane shows staged, unstaged and new files together, staged first.
+  const files = dialog.getByRole('list', { name: 'Changed files' });
+  await expect(files.getByRole('button')).toHaveCount(3);
   await expect(dialog.getByLabel('Git diff')).toContainText('+staged change');
-  await dialog.getByRole('button', { name: 'Attach all changes to message' }).click();
+  await dialog.getByRole('button', { name: 'Attach file to message' }).click();
+  await files.getByRole('button', { name: /^app\.ts/ }).click();
+  await expect(dialog.getByLabel('Git diff')).toContainText('+new');
+  await files.getByRole('button', { name: /^new\.ts/ }).click();
+  await expect(dialog.getByLabel('Git diff')).toContainText('export const added = true;');
+  await expect(files.locator('[aria-current="true"]')).toContainText('new.ts');
+  await dialog.getByRole('button', { name: 'Attach file to message' }).click();
   await openTool(page, 'Browser');
   await dialog.getByRole('button', { name: 'Open preview' }).click();
   await dialog.getByRole('button', { name: 'Select element' }).click();
@@ -143,6 +142,7 @@ test('conversation tools preview evidence, attach it to the draft, and send it o
   const sent = await page.evaluate(() => (window as any).sent[0]);
   expect(sent).toContain('Tests passed: 12');
   expect(sent).toContain('+staged change');
+  expect(sent).toContain('export const added = true;');
   expect(sent).toContain('#save');
   expect(sent).toContain('Untrusted page evidence');
   await expect(page.getByLabel('Attached context')).toHaveCount(0);

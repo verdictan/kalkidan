@@ -1,17 +1,5 @@
-import { type Page } from '@playwright/test';
 import { test, expect } from './helpers/app';
 
-/** Opens a view of Knowledge › Insights. */
-async function openInsights(page: Page, view: string) {
-  await page
-    .getByRole('navigation', { name: 'Project page', exact: true })
-    .getByRole('button', { name: 'Knowledge', exact: true })
-    .click();
-  await page
-    .getByRole('complementary', { name: 'Knowledge sections' })
-    .getByRole('button', { name: view, exact: true })
-    .click();
-}
 test('saved views render configured fields and explicit report publishing uses the reviewed snapshot', async ({
   page,
 }) => {
@@ -25,7 +13,19 @@ test('saved views render configured fields and explicit report publishing uses t
       url: 'https://github.com/orgs/example/projects/1',
     };
     const field = { id: 'estimate', name: 'Estimate', dataType: 'NUMBER', raw: {} };
+    const priority = {
+      id: 'priority',
+      name: 'Priority',
+      dataType: 'SINGLE_SELECT',
+      options: [
+        { id: 'p1', name: 'P1' },
+        { id: 'p2', name: 'P2' },
+      ],
+      raw: {},
+    };
     const calls: any[] = [];
+    // The backend keeps the review, as the desktop history does.
+    let reviewed = false;
     (window as any).writes = calls;
     (window as any).workspace = {
       snapshot: async () => ({
@@ -49,12 +49,15 @@ test('saved views render configured fields and explicit report publishing uses t
         project,
         writable: true,
         cache: { revision: 'board', fetchedAt: 1 },
-        fields: [field],
+        fields: [field, priority],
         items: [
           {
             id: 'I',
             title: 'Selected work',
-            fieldValues: [{ field: { id: 'estimate' }, number: 5 }],
+            fieldValues: [
+              { field: { id: 'estimate' }, number: 5 },
+              { field: { id: 'priority' }, optionId: 'p2', name: 'P2' },
+            ],
           },
           { id: 'other', title: 'Other work' },
         ],
@@ -97,13 +100,17 @@ test('saved views render configured fields and explicit report publishing uses t
         };
       },
       trackerMutationHistory: async (group: string, reviewedId?: string) => {
-        if (reviewedId) calls.push(['review', group, reviewedId]);
+        if (reviewedId) {
+          calls.push(['review', group, reviewedId]);
+          reviewed = true;
+        }
         return [
           {
             id: 'operation-1',
             operation: 'addComment',
-            state: reviewedId ? 'reviewed' : 'unknown-outcome',
-            updatedAt: 1,
+            state: reviewed ? 'reviewed' : 'unknown-outcome',
+            // The Tasks header shows the unconfirmed changes of this session only.
+            updatedAt: Date.now(),
           },
         ];
       },
@@ -118,18 +125,22 @@ test('saved views render configured fields and explicit report publishing uses t
     .getByRole('navigation', { name: 'Project page', exact: true })
     .getByRole('button', { name: 'Tasks', exact: true })
     .click();
-  const pages = page.getByRole('navigation', { name: 'Project page', exact: true });
+  const board = page.getByRole('button', { name: 'Board: Roadmap #1', exact: true });
   // Saved views are a submenu of the board menu.
-  await page.getByRole('button', { name: 'Board actions', exact: true }).click();
+  await board.click();
   await page.getByRole('menuitem', { name: 'Saved view: All tasks', exact: true }).click();
   await page.getByRole('menuitemradio', { name: 'Current sprint', exact: true }).click();
   const view = page.getByRole('region', { name: 'Saved GitHub view: Current sprint' });
   await expect(view.getByRole('columnheader', { name: 'Estimate' })).toBeVisible();
   await expect(view.getByRole('cell', { name: '5', exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Other work', exact: true })).toHaveCount(0);
-  // The health report is in Knowledge › Insights › Board. The preview is the reviewed snapshot.
-  await openInsights(page, 'Board');
-  const health = page.getByRole('region', { name: 'Board health', exact: true });
+  // "Post status update…" in the board menu writes the health report. The preview is the
+  // reviewed snapshot.
+  await board.click();
+  await page.getByRole('menuitem', { name: 'Post status update…', exact: true }).click();
+  const health = page
+    .getByRole('dialog', { name: 'Post status update', exact: true })
+    .getByRole('region', { name: 'Board health', exact: true });
   await health.getByRole('button', { name: 'Write report' }).click();
   await expect(health).toContainText('2 active items');
   await health.getByRole('button', { name: 'Edit', exact: true }).click();
@@ -146,39 +157,33 @@ test('saved views render configured fields and explicit report publishing uses t
     'resources',
     'createProjectV2StatusUpdate',
   ]);
-  // Batch field changes start from the selected tasks on the Tasks page.
-  await pages.getByRole('button', { name: 'Tasks', exact: true }).click();
-  await page.getByRole('button', { name: 'Board actions', exact: true }).click();
+  await page.keyboard.press('Escape');
+  // Batch field changes start from the selected tasks. "Set field" in the selection bar sets
+  // a choice field; the choice is the review.
+  await board.click();
   await page.getByRole('menuitem', { name: 'Saved view: Current sprint', exact: true }).click();
   await page.getByRole('menuitemradio', { name: 'All tasks', exact: true }).click();
   await page.getByRole('checkbox', { name: 'Select Selected work', exact: true }).check();
-  // Edit fields… is in the "⋯" menu of the selection bar.
   await page
     .getByRole('toolbar', { name: 'Selected tasks' })
-    .getByRole('button', { name: 'More actions for the selected tasks', exact: true })
+    .getByRole('button', { name: 'Set field', exact: true })
     .click();
-  await page.getByRole('menuitem', { name: 'Edit fields…', exact: true }).click();
-  const batch = page.getByRole('dialog', { name: 'Edit fields of 1 task' });
-  const fieldSelect = batch.getByRole('combobox', { name: 'Field', exact: true });
-  if (!(await fieldSelect.textContent())?.includes('Estimate')) {
-    await fieldSelect.click();
-    await page.getByRole('option', { name: 'Estimate', exact: true }).click();
-  }
-  await batch.getByRole('spinbutton', { name: 'New value' }).fill('8');
-  await batch.getByRole('button', { name: 'Review 1 change' }).click();
-  await expect(batch.getByText('Estimate: 5 → 8')).toBeVisible();
-  expect((await page.evaluate(() => (window as any).writes)).length).toBe(1);
-  await batch.getByRole('button', { name: 'Apply 1 change' }).click();
-  await expect(batch.getByRole('button', { name: 'Done', exact: true })).toBeVisible();
-  await expect(batch.getByText('Saved', { exact: true })).toBeVisible();
+  await page.getByRole('menuitem', { name: 'Priority', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'P1', exact: true }).click();
+  await expect(
+    page.getByRole('status').filter({ hasText: 'Set Priority to P1 on 1 task.' }),
+  ).toBeVisible();
   expect((await page.evaluate(() => (window as any).writes))[1][1].changes).toEqual([
-    { itemId: 'I', fieldId: 'estimate', before: { number: 5 }, value: { number: 8 } },
+    {
+      itemId: 'I',
+      fieldId: 'priority',
+      before: { singleSelectOptionId: 'p2' },
+      value: { singleSelectOptionId: 'p1' },
+    },
   ]);
-  await batch.getByRole('button', { name: 'Done', exact: true }).click();
-  // A change with an unknown result stays in GitHub changes until the user checks it.
-  await openInsights(page, 'GitHub checks');
-  const changes = page.getByRole('region', { name: 'GitHub changes' });
-  const record = changes.getByRole('button', { name: 'Mark as checked' });
+  // A change with an unknown result shows in the Tasks header until the user checks it.
+  await page.getByRole('button', { name: '1 change may not have reached GitHub. Check' }).click();
+  const record = page.getByRole('button', { name: 'Mark as checked' });
   await record.click();
   await expect(record).toHaveCount(0);
   expect((await page.evaluate(() => (window as any).writes))[2]).toEqual([

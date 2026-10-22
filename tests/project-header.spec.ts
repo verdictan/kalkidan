@@ -10,13 +10,14 @@ test('every project tab shows one header and the tab bar keeps its place', async
     const tab = tabs.getByRole('button', { name, exact: true });
     await tab.click();
     await expect(tab).toHaveAttribute('aria-current', 'page');
-    // One fixed project header on each tab: the name, New chat, the project menu and the
-    // counts. Project settings is an item of the project menu.
+    // One fixed project header on each tab: the name and the project menu. It has no counts
+    // line and no New chat button (a local project has no subtitle). Project settings is an item
+    // of the project menu.
     const header = page.locator('.project-header');
     await expect(header).toHaveCount(1);
     await expect(header.getByRole('heading', { name: 'Atlas', exact: true })).toBeVisible();
-    await expect(header).toContainText('3 code folders · 2 chats');
-    await expect(header.getByRole('button', { name: 'New chat', exact: true })).toBeVisible();
+    await expect(header).toHaveText('Atlas');
+    await expect(header.getByRole('button', { name: 'New chat', exact: true })).toHaveCount(0);
     await expect(header.getByRole('button', { name: 'Project actions' })).toBeVisible();
     await expect(header.getByRole('button', { name: 'Project settings' })).toHaveCount(0);
     await expect(page.getByRole('main').locator('.page-header')).toHaveCount(1);

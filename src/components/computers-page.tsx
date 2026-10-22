@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from 'react';
+import { Plus } from 'lucide-react';
 import { useRefreshTriggers } from '../hooks/use-refresh-triggers';
 import { Button } from './ui/button';
 import { Switch } from './ui/switch';
@@ -8,41 +9,51 @@ import { errorMessage } from '../lib/errors';
 import { settingsAnchors } from '../domain/settings-route';
 import { agentProgramAnchor } from '../domain/agent-programs';
 import { useRemoteHosts } from './remote-host-picker';
-import { AddHostRow, HelperDetails, HostRow, useHelperUpdates } from './computers-settings';
+import { AddHostForm, HelperDetails, HostRow, useHelperUpdates } from './computers-settings';
 import {
   AgentRows,
-  OrganizationSetupRow,
+  OrganizationSetupLink,
   RuntimeHistory,
   ThisComputerRow,
   useRuntimeStatus,
 } from './verdictan-settings';
 import { SettingsDisclosure, SettingsRow } from './settings-disclosure';
 import { ComputerAgentRow } from './computer-agent';
-import { localComputer } from '../domain/verdictan';
-import { PageHeader, SectionHeader } from './ui/page-header';
+import { AgentProgramsDialog } from './agent-programs';
+import { publishAgentChecks } from './settings-attention';
+import { localComputer, type ManagedAgentKind } from '../domain/verdictan';
+import { isMac } from '../lib/platform';
 
 const dayMs = 86_400_000;
 
-/** The anchor that the next Computers page should move to. `openComputers` sets it. */
-let pendingAnchor: string | undefined;
-
 /**
- * Opens the Computers page, optionally at one row, for example 'computer-local' or
- * 'managed-agent-setup'. The shell handles the event and shows the page.
+ * Opens Settings › Computers, optionally at one row, for example 'computer-local' or
+ * 'managed-agent-setup'. The Computers page is now a section of the one Settings window.
  */
 export function openComputers(anchor?: string) {
-  pendingAnchor = anchor;
-  window.dispatchEvent(new CustomEvent('kalkidan-open-computers', { detail: { anchor } }));
+  window.dispatchEvent(
+    new CustomEvent('kalkidan-open-settings', { detail: { section: 'computers', anchor } }),
+  );
 }
 
-/** One group of the Computers page: a section header and flat rows with dividers. */
-function ComputersGroup({ label, children }: { label: string; children: ReactNode }) {
+/** One group of Settings › Computers: a group label and flat rows with dividers. */
+function ComputersGroup({
+  label,
+  computer,
+  children,
+}: {
+  label: string;
+  /** 'local' or the SSH host ID. A link to a computer that has no row moves here. */
+  computer?: string;
+  children: ReactNode;
+}) {
+  const id = useId();
   return (
-    <section className="settings-group" aria-label={label}>
-      <SectionHeader title={label} />
-      <ul className="settings-rows" aria-label={label}>
-        {children}
-      </ul>
+    <section className="settings-group" aria-labelledby={id} data-computer={computer}>
+      <h3 id={id} className="group-label">
+        {label}
+      </h3>
+      <ul className="settings-rows">{children}</ul>
     </section>
   );
 }
@@ -134,63 +145,56 @@ function ProxySignIns({ api }: { api: API }) {
 }
 
 /**
- * The Computers page: where Codex and Claude Code run. "This computer" has the managed agents
- * runtime, the agent of the computer with "Change agent", and one row for each coding agent with
- * its program, model and organization setup. Each SSH host also has its agent. "SSH hosts" has one
- * row for each host with its state and a "…" menu, and an always-visible field to add a host:
- * type the target, press Add, and the new row checks the connection. A Details fold at the end
- * has the install history and the helper builds.
+ * Settings › Computers: where Codex and Claude Code run. "This Mac" has one row for each coding
+ * agent with its version, and only a row that needs the user has a button, for example "Update
+ * Claude Code". The managed agents service shows only when it needs the user. Each SSH host is
+ * a group with its target, the versions of its agents, and a "…" menu. "Add SSH host" opens a
+ * field in place. "Organization setup…" is a quiet link. A Details fold at the end has the
+ * install history and the helper builds.
  */
-export function ComputersPage({
+export function ComputersPanel({
   api,
+  open = true,
   onRefresh,
   anchor,
 }: {
   api: API;
+  /** False while the section is hidden. The rows then do not read. */
+  open?: boolean;
   /** Reads the projects again after a host connects. */
   onRefresh?: () => Promise<void>;
-  /** The row to move to. Without it, the page uses the anchor of the last `openComputers`. */
+  /** The row to move to, for example 'computer-local' or 'managed-agent-setup'. */
   anchor?: string;
 }) {
-  const runtime = useRuntimeStatus(api, true, 'local');
-  const { hosts, setHosts, error } = useRemoteHosts(api, true);
-  const helpers = useHelperUpdates(api, true, hosts);
+  const runtime = useRuntimeStatus(api, open, 'local');
+  const { hosts, setHosts, error } = useRemoteHosts(api, open);
+  const helpers = useHelperUpdates(api, open, hosts);
   // The host that was just added. Its row checks the connection once.
   const [added, setAdded] = useState('');
+  const [adding, setAdding] = useState(false);
+  const [setupAgent, setSetupAgent] = useState<ManagedAgentKind>();
   const [refreshError, setRefreshError] = useState('');
-  const [focusId, setFocusId] = useState(() => {
-    const value = anchor || pendingAnchor;
-    pendingAnchor = undefined;
-    return value;
-  });
-  const root = useRef<HTMLElement>(null);
-  // A later request while the page shows moves to its row.
+  const root = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    const onOpen = (event: Event) => {
-      const next = (event as CustomEvent<{ anchor?: string }>).detail?.anchor;
-      pendingAnchor = undefined;
-      if (next) setFocusId(next);
-    };
-    window.addEventListener('kalkidan-open-computers', onOpen);
-    return () => window.removeEventListener('kalkidan-open-computers', onOpen);
-  }, []);
-  useEffect(() => {
-    if (anchor) setFocusId(anchor);
-  }, [anchor]);
-  useEffect(() => {
-    if (!focusId) return;
+    if (!open || !anchor) return;
     let tries = 0;
     const timer = setInterval(() => {
       // The runtime of a computer is in the row of that computer. The agents start at the
-      // Codex row.
+      // Codex row. A computer without a row of its own opens at its group.
       const id =
-        focusId === settingsAnchors.agents
+        anchor === settingsAnchors.agents
           ? agentProgramAnchor('codex')
-          : focusId.replace(/^runtime-/, 'computer-');
-      const element = root.current?.querySelector<HTMLElement>(`[id="${CSS.escape(id)}"]`);
+          : anchor.replace(/^runtime-/, 'computer-');
+      const computer = /^computer-(.+)$/.exec(id)?.[1];
+      const element =
+        root.current?.querySelector<HTMLElement>(`[id="${CSS.escape(id)}"]`) ||
+        (computer
+          ? root.current?.querySelector<HTMLElement>(
+              `[data-computer="${CSS.escape(computer)}"] .group-label`,
+            )
+          : null);
       if (element || ++tries > 40) {
         clearInterval(timer);
-        setFocusId(undefined);
         if (!element) return;
         element.scrollIntoView({ block: 'nearest' });
         if (!element.matches('button, a[href], input, [tabindex]'))
@@ -199,7 +203,7 @@ export function ComputersPage({
       }
     }, 50);
     return () => clearInterval(timer);
-  }, [focusId]);
+  }, [open, anchor]);
   // Read the projects again only when a host becomes connected, not on each render.
   const connected = useRef<Set<string>>(undefined);
   useEffect(() => {
@@ -219,67 +223,93 @@ export function ComputersPage({
         : [...previous, host],
     );
   }
-  const details = !!runtime.status?.history.length || !!runtime.status?.latest || !!hosts.length;
+  const [programs, setPrograms] = useState(false);
   return (
-    <section ref={root} className="page computers-page" aria-label="Computers">
-      <PageHeader title="Computers" subtitle="Where Codex and Claude Code run" />
-      <div className="computers-groups">
-        <ComputersGroup label="This computer">
-          <ThisComputerRow api={api} runtime={runtime} />
-          <ComputerAgentRow api={api} open computer={localComputer} name="this computer" />
-          <AgentRows api={api} open />
-          <OrganizationSetupRow api={api} open anchor={focusId} />
-        </ComputersGroup>
-        <ComputersGroup label="SSH hosts">
-          {hosts.map((host) => (
-            <HostRow
-              key={host.id}
-              api={api}
-              open
-              host={host}
-              helper={helpers[host.id]}
-              autoStart={host.id === added}
-              onHost={store}
-              onRemoved={(id) => setHosts((previous) => previous.filter((h) => h.id !== id))}
-            />
-          ))}
-          <AddHostRow
+    <div ref={root} className="computers-groups">
+      <ComputersGroup label={isMac ? 'This Mac' : 'This computer'} computer="local">
+        <ThisComputerRow api={api} runtime={runtime} quiet />
+        <AgentRows api={api} open={open} onSetup={setSetupAgent} />
+        <ComputerAgentRow api={api} open={open} computer={localComputer} name="this computer" />
+      </ComputersGroup>
+      {hosts.map((host) => (
+        <ComputersGroup key={host.id} label={host.name} computer={host.id}>
+          <HostRow
             api={api}
-            onAdded={(host) => {
-              store(host);
-              setAdded(host.id);
-            }}
+            open={open}
+            host={host}
+            helper={helpers[host.id]}
+            autoStart={host.id === added}
+            onHost={store}
+            onRemoved={(id) => setHosts((previous) => previous.filter((h) => h.id !== id))}
           />
-          <SshQuitRow api={api} />
         </ComputersGroup>
-        <ProxySignIns api={api} />
-        {(error || refreshError) && (
-          <p role="alert" className="field-error whitespace-pre-wrap break-words">
-            {refreshError || error}
-          </p>
-        )}
-        {details && (
-          <SettingsDisclosure title="Details">
-            <ul className="settings-rows">
-              <RuntimeHistory status={runtime.status} name="this computer" />
-              {runtime.status?.latest && (
-                <SettingsRow
-                  label="Managed agents release"
-                  help={`Latest ${runtime.status.latest.version}${
-                    // A time near 0 means that no check finished yet, so it does not show.
-                    (runtime.status.lastSuccessAt || 0) > dayMs
-                      ? ` · Checked ${new Date(runtime.status.lastSuccessAt!).toLocaleString()}`
-                      : ''
-                  }`}
-                />
-              )}
-              {hosts.map((host) => (
-                <HelperDetails key={host.id} host={host} helper={helpers[host.id]} />
-              ))}
-            </ul>
-          </SettingsDisclosure>
-        )}
-      </div>
-    </section>
+      ))}
+      {adding ? (
+        <AddHostForm
+          api={api}
+          onCancel={() => setAdding(false)}
+          onAdded={(host) => {
+            store(host);
+            setAdded(host.id);
+            setAdding(false);
+          }}
+        />
+      ) : (
+        <div className="computers-actions">
+          <Button variant="outline" size="sm" onClick={() => setAdding(true)}>
+            <Plus />
+            Add SSH host
+          </Button>
+          <OrganizationSetupLink
+            api={api}
+            open={open}
+            anchor={anchor}
+            agent={setupAgent}
+            onAgentChange={setSetupAgent}
+          />
+        </div>
+      )}
+      {hosts.length > 0 && (
+        <ul className="settings-rows">
+          <SshQuitRow api={api} />
+        </ul>
+      )}
+      <ProxySignIns api={api} />
+      {(error || refreshError) && (
+        <p role="alert" className="field-error whitespace-pre-wrap break-words">
+          {refreshError || error}
+        </p>
+      )}
+      <SettingsDisclosure title="Details">
+        <ul className="settings-rows">
+          <RuntimeHistory status={runtime.status} name="this computer" />
+          {runtime.status?.latest && (
+            <SettingsRow
+              label="Managed agents release"
+              help={`Latest ${runtime.status.latest.version}${
+                // A time near 0 means that no check finished yet, so it does not show.
+                (runtime.status.lastSuccessAt || 0) > dayMs
+                  ? ` · Checked ${new Date(runtime.status.lastSuccessAt!).toLocaleString()}`
+                  : ''
+              }`}
+            />
+          )}
+          <SettingsRow label="Coding agent programs">
+            <Button variant="outline" size="sm" onClick={() => setPrograms(true)}>
+              Programs…
+            </Button>
+          </SettingsRow>
+          {hosts.map((host) => (
+            <HelperDetails key={host.id} host={host} helper={helpers[host.id]} />
+          ))}
+        </ul>
+      </SettingsDisclosure>
+      <AgentProgramsDialog
+        api={api}
+        open={programs}
+        onOpenChange={setPrograms}
+        onChecked={publishAgentChecks}
+      />
+    </div>
   );
 }

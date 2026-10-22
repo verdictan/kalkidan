@@ -1,7 +1,16 @@
-import { useEffect, useState } from 'react';
-import { AppWindow, Globe, MessageSquare } from 'lucide-react';
-import type { API } from '../types';
-import { settingsAnchors, settingsPlace, type SettingsTab } from '../domain/settings-route';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { ExternalLink, Folder, Monitor, SlidersHorizontal, UserRound } from 'lucide-react';
+import type { API, Project, ProjectGroup } from '../types';
+import type { NotificationPreferences } from '../domain/verdictan';
+import { projectColors } from '../domain/project-colors';
+import {
+  paneGroupId,
+  projectPane,
+  settingsAnchors,
+  settingsPane,
+  type SettingsPane,
+  type SettingsTab,
+} from '../domain/settings-route';
 import {
   onChatPreferencesChange,
   readEnterToSend,
@@ -10,19 +19,24 @@ import {
   saveNewChatAccess,
   type ChatAccess,
 } from '../lib/chat-preferences';
+import { accountNames } from '../lib/verdictan-labels';
 import { isMac } from '../lib/platform';
 import { BrowserSettingsDialog } from './browser-menu';
-import { openComputers } from './computers-page';
+import { ComputersPanel } from './computers-page';
 import { VersionRow } from './about-section';
-import { DataDialog } from './data-settings';
+import { DataDialog, formatBytes } from './data-settings';
+import { openDiagnostics } from './diagnostics-section';
 import { GitHubRow, useGitHubServices } from './github-account';
+import { ProjectSettingsPanel } from './project-settings-dialog';
+import { useRemoteHosts } from './remote-host-picker';
+import { useComputersAttention } from './settings-attention';
 import {
   SettingsRow,
   SettingsRows,
   SettingsShell,
   type SettingsSection,
 } from './settings-disclosure';
-import { startSignIn } from './sign-in-steps';
+import { openSettings, startSignIn } from './sign-in-steps';
 import { RegionDialog, StepError, regionNames, useAccountStatus } from './verdictan-settings';
 import { Button } from './ui/button';
 import { Dialog } from './ui/dialog';
@@ -30,42 +44,25 @@ import { SegmentedControl } from './ui/segmented-control';
 import { Switch } from './ui/switch';
 import { showToast } from './ui/toast';
 
-/** Opens the account menu in the sidebar footer. The account menu handles the event. */
+/** Opens the one Settings window at a section. Older section names open their new section. */
+export { openSettings } from './sign-in-steps';
+
+/** Opens Settings at a project, optionally at a part of it, for example 'board'. */
+export function openProjectSettings(groupId: string, tab?: string) {
+  openSettings(projectPane(groupId), tab);
+}
+
+/** @deprecated The account menu holds no settings now. It opens the account menu. */
 export function openAccountMenu() {
   window.dispatchEvent(new Event('kalkidan-open-account-menu'));
 }
 
-type PreferencesSection = 'chats' | 'connections' | 'app';
-
-const preferenceSections: SettingsSection<PreferencesSection>[] = [
-  { value: 'chats', label: 'Chats', icon: <MessageSquare /> },
-  { value: 'connections', label: 'Connections', icon: <Globe /> },
-  { value: 'app', label: 'This app', icon: <AppWindow /> },
-];
-
 /**
- * The section of a Preferences anchor. Without an anchor, the older Account section opens
- * Connections, and the older About section opens This app.
- */
-function sectionOfAnchor(anchor: string | undefined, section?: string): PreferencesSection {
-  if (anchor === settingsAnchors.region || anchor === settingsAnchors.github) return 'connections';
-  if (anchor === settingsAnchors.data || anchor === settingsAnchors.about) return 'app';
-  if (!anchor && (section === 'account' || section === 'accounts')) return 'connections';
-  if (!anchor && section === 'about') return 'app';
-  return 'chats';
-}
-
-/**
- * Preferences (⌘,) in the one settings shell, with three sections. Chats: the access of new
- * chats and Enter to send. Connections: the region, GitHub, and a link to the Computers page.
- * This app: the built-in browser, your data, and the version. The agent and the model are in
- * the composer chip, notifications and sign-out are in the account menu, and the agents and
- * the SSH hosts are on the Computers page.
- *
- * Older requests still work. `section` and `anchor` go through `settingsPlace`: a request for
- * Agents or Computers opens the Computers page, a request for notifications opens the account
- * menu, and a request for the account while nobody is signed in starts the sign-in. The
- * dialog then closes at once.
+ * The one Settings window (⌘,): General, Computers, Account, and one section for each project.
+ * It replaces Preferences, the Computers page, the version list of Diagnostics, and Project
+ * settings. Older requests still work: `section` and `anchor` go through `settingsPane`, so
+ * 'agents', 'remote', 'updates' or a computer anchor open Computers, and 'project:<id>' opens
+ * that project. A request for the account while nobody is signed in starts the sign-in.
  */
 export function SettingsDialog({
   api,
@@ -73,45 +70,61 @@ export function SettingsDialog({
   onOpenChange,
   section,
   anchor,
+  groups = [],
+  repos = [],
+  onRefresh,
   onCloseAutoFocus,
 }: {
   api: API;
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  /** The section to open. Older names, such as 'accounts' or 'agents', go to their place. */
+  /** The section to open: 'general', 'computers', 'account', 'project:<id>', or an older name. */
   section?: SettingsTab | string;
-  /** The element to move to, for example 'verdictan-region'. */
+  /** The element to move to, for example 'verdictan-region', or a part of a project. */
   anchor?: string;
-  /** Reads the projects again after an SSH host connects. The Computers page uses it now. */
+  /** The projects. Each one has a section. */
+  groups?: ProjectGroup[];
+  /** All code folders, for the code folders of each project. */
+  repos?: Project[];
+  /** Reads the projects again, for example after a host connects or a project changes. */
   onRefresh?: () => Promise<void>;
   /** Moves the focus when the dialog closes, for example back to the element that opened it. */
   onCloseAutoFocus?: (event: Event) => void;
 }) {
-  const target = settingsPlace(section, anchor);
+  const target = settingsPane(section, anchor);
   const account = useAccountStatus(api, open);
   const phase = account.status?.phase;
   // A request for the account while nobody is signed in starts the sign-in.
   const signIn = target.anchor === settingsAnchors.account && !!phase && phase !== 'authenticated';
-  const elsewhere = target.place !== 'preferences' || signIn;
   useEffect(() => {
-    if (!open || !elsewhere) return;
-    if (signIn) startSignIn('login');
-    else if (target.place === 'computers') openComputers(target.anchor);
-    else openAccountMenu();
+    if (!open || !signIn) return;
+    startSignIn('login');
     onOpenChange(false);
-  }, [open, elsewhere]);
-  const focusId = target.place === 'preferences' ? target.anchor : undefined;
-  const [active, setActive] = useState<PreferencesSection>(sectionOfAnchor(focusId, section));
+  }, [open, signIn]);
+  const attention = useComputersAttention(api);
+  const { hosts } = useRemoteHosts(api, open);
+  // A request for a project that is gone opens General.
+  const requested: SettingsPane =
+    paneGroupId(target.pane) && !groups.some((g) => g.id === paneGroupId(target.pane))
+      ? 'general'
+      : target.pane;
+  const [active, setActive] = useState<SettingsPane>(requested);
   useEffect(() => {
-    if (open) setActive(sectionOfAnchor(focusId, section));
-  }, [open, focusId, section]);
-  // An anchor moves to its row after the rows load.
+    if (open) setActive(requested);
+  }, [open, requested, target.anchor]);
+  // A removed project closes its section.
   useEffect(() => {
-    if (!open || elsewhere || !focusId) return;
+    const id = paneGroupId(active);
+    if (id && !groups.some((g) => g.id === id)) setActive('general');
+  }, [groups, active]);
+  const focusId = paneGroupId(active) ? undefined : target.anchor;
+  // An anchor moves to its row after the rows load. Computers and projects move by themselves.
+  useEffect(() => {
+    if (!open || signIn || !focusId || active === 'computers') return;
     let tries = 0;
     const timer = setInterval(() => {
       const element = document.querySelector<HTMLElement>(
-        `.preferences-dialog [id="${CSS.escape(focusId)}"]`,
+        `.one-settings [id="${CSS.escape(focusId)}"]`,
       );
       if (element || ++tries > 40) {
         clearInterval(timer);
@@ -123,31 +136,60 @@ export function SettingsDialog({
       }
     }, 50);
     return () => clearInterval(timer);
-  }, [open, elsewhere, focusId]);
-  const visible = open && !elsewhere;
+  }, [open, signIn, focusId, active]);
+  const visible = open && !signIn;
+  const sections = useMemo<SettingsSection<SettingsPane>[]>(
+    () => [
+      { value: 'general', label: 'General', icon: <SlidersHorizontal /> },
+      { value: 'computers', label: 'Computers', icon: <Monitor />, attention },
+      { value: 'account', label: 'Account', icon: <UserRound /> },
+      ...groups.map((group) => ({
+        value: projectPane(group.id),
+        label: group.name,
+        group: 'Projects',
+        icon: <Folder style={group.color ? { color: projectColors[group.color] } : undefined} />,
+      })),
+    ],
+    [groups, attention],
+  );
+  const panels: Partial<Record<SettingsPane, ReactNode>> = {
+    general: <GeneralPanel api={api} open={visible} />,
+    computers: (
+      <ComputersPanel
+        api={api}
+        open={visible && active === 'computers'}
+        onRefresh={onRefresh}
+        anchor={active === 'computers' ? target.anchor : undefined}
+      />
+    ),
+    account: <AccountPanel api={api} open={visible} account={account} />,
+  };
+  for (const group of groups)
+    panels[projectPane(group.id)] = (
+      <ProjectSettingsPanel
+        api={api}
+        group={group}
+        repos={repos}
+        host={hosts.find((host) => host.id === group.hostId)}
+        open={visible && active === projectPane(group.id)}
+        tab={active === target.pane ? target.anchor : undefined}
+        onRefresh={onRefresh}
+      />
+    );
   return (
     <Dialog open={visible} onOpenChange={onOpenChange}>
-      <SettingsShell<PreferencesSection>
-        className="preferences-dialog"
-        title="Preferences"
-        description="Chats, connections, and this app."
-        navLabel="Preferences sections"
-        sections={preferenceSections}
+      <SettingsShell<SettingsPane>
+        // Utilities, so that they replace the width and the height of the shell.
+        className="one-settings h-[min(560px,calc(100dvh-2rem))] min-h-0 sm:max-w-[820px]"
+        title="Settings"
+        hideTitle
+        description="General, computers, account, and project settings."
+        navLabel="Settings sections"
+        sections={sections}
         value={active}
         onValueChange={setActive}
         onCloseAutoFocus={onCloseAutoFocus}
-        panels={{
-          chats: <ChatPreferences />,
-          connections: (
-            <ConnectionPreferences
-              api={api}
-              open={visible}
-              account={account}
-              onClose={() => onOpenChange(false)}
-            />
-          ),
-          app: <AppPreferences api={api} open={visible} />,
-        }}
+        panels={panels}
       />
     </Dialog>
   );
@@ -158,10 +200,16 @@ function savedToast(message: string, undo: () => void) {
   showToast({ message, actions: [{ label: 'Undo', onClick: undo }] });
 }
 
-/** Preferences › Chats: the access of new chats and Enter to send. */
-function ChatPreferences() {
+/**
+ * Settings › General: the access of new chats, Enter to send, notifications, the built-in
+ * browser, your data, and the version.
+ */
+function GeneralPanel({ api, open }: { api: API; open: boolean }) {
   const [access, setAccess] = useState<ChatAccess>(readNewChatAccess);
   const [enterToSend, setEnterToSend] = useState(readEnterToSend);
+  const [browserOpen, setBrowserOpen] = useState(false);
+  const [dataOpen, setDataOpen] = useState(false);
+  const [disk, setDisk] = useState<number>();
   useEffect(
     () =>
       onChatPreferencesChange(() => {
@@ -170,6 +218,15 @@ function ChatPreferences() {
       }),
     [],
   );
+  useEffect(() => {
+    if (!open || typeof api.localDataUsage !== 'function') return;
+    void Promise.resolve()
+      .then(() => api.localDataUsage!())
+      .then(
+        (usage) => setDisk(usage.total),
+        () => {},
+      );
+  }, [api, open]);
   function chooseAccess(next: ChatAccess) {
     const before = access;
     setAccess(next);
@@ -184,54 +241,173 @@ function ChatPreferences() {
     saveEnterToSend(next);
   }
   return (
-    <SettingsRows label="Chats">
-      <SettingsRow label="New chats start as">
-        <SegmentedControl
-          size="sm"
-          label="New chats start as"
-          value={access}
-          onChange={chooseAccess}
-          options={[
-            { value: 'read', label: 'Read only' },
-            { value: 'edit', label: 'Can edit files' },
-          ]}
-        />
-      </SettingsRow>
-      <SettingsRow
-        label="Enter sends the message"
-        help={enterToSend ? undefined : `${isMac ? '⌘Enter' : 'Ctrl+Enter'} sends`}
-      >
-        <Switch
-          aria-label="Enter sends the message"
-          checked={enterToSend}
-          onCheckedChange={chooseEnter}
-        />
-      </SettingsRow>
-    </SettingsRows>
+    <>
+      <SettingsRows label="General">
+        <SettingsRow label="New chats start as">
+          <SegmentedControl
+            size="sm"
+            label="New chats start as"
+            value={access}
+            onChange={chooseAccess}
+            options={[
+              { value: 'read', label: 'Read only' },
+              { value: 'edit', label: 'Can edit files' },
+            ]}
+          />
+        </SettingsRow>
+        <SettingsRow
+          label="Enter sends"
+          help={enterToSend ? undefined : `${isMac ? '⌘Enter' : 'Ctrl+Enter'} sends`}
+        >
+          <Switch aria-label="Enter sends" checked={enterToSend} onCheckedChange={chooseEnter} />
+        </SettingsRow>
+        <NotificationRow api={api} open={open} />
+        <SettingsRow label="Built-in browser">
+          <Button variant="outline" size="sm" onClick={() => setBrowserOpen(true)}>
+            Manage…
+          </Button>
+        </SettingsRow>
+        <SettingsRow
+          id={settingsAnchors.data}
+          label="Your data"
+          help={disk === undefined ? undefined : `${formatBytes(disk)} on this computer`}
+        >
+          <Button variant="outline" size="sm" onClick={() => setDataOpen(true)}>
+            Manage…
+          </Button>
+        </SettingsRow>
+        <VersionRow api={api} open={open} />
+        <SettingsRow label="Diagnostics">
+          <Button variant="ghost" size="sm" onClick={openDiagnostics}>
+            Support bundle…
+          </Button>
+        </SettingsRow>
+      </SettingsRows>
+      <BrowserSettingsDialog api={api} open={browserOpen} onOpenChange={setBrowserOpen} />
+      <DataDialog api={api} open={dataOpen} onOpenChange={setDataOpen} />
+    </>
   );
 }
 
-/** Preferences › Connections: the region, GitHub, and the Computers page. */
-function ConnectionPreferences({
+/**
+ * One switch for notifications: an agent finished or needs you, while Kalkidan is in the
+ * background. The desktop keeps two flags (finished and needs input). The switch sets both.
+ */
+function NotificationRow({ api, open }: { api: API; open: boolean }) {
+  const [preferences, setPreferences] = useState<NotificationPreferences>();
+  useEffect(() => {
+    if (!open || typeof api.notificationPreferences !== 'function') return;
+    void Promise.resolve()
+      .then(() => api.notificationPreferences())
+      .then(setPreferences, () => {});
+  }, [api, open]);
+  if (!preferences) return null;
+  const on = preferences.finished || preferences.needsInput;
+  async function toggle(next: boolean) {
+    if (!preferences) return;
+    const before = preferences;
+    const value = { ...preferences, finished: next, needsInput: next };
+    setPreferences(value);
+    try {
+      setPreferences(await api.setNotificationPreferences(value));
+    } catch {
+      setPreferences(before);
+      showToast({ message: 'Could not save the notification setting.', tone: 'error' });
+    }
+  }
+  return (
+    <SettingsRow id={settingsAnchors.notifications} label="Notify me when a chat waits or ends">
+      <Switch
+        aria-label="Notify me when a chat waits or ends"
+        checked={on}
+        onCheckedChange={(next) => void toggle(next)}
+      />
+    </SettingsRow>
+  );
+}
+
+/**
+ * Settings › Account: who is signed in with Sign out, the region, and GitHub. Signed out, the
+ * account row has "Sign in".
+ */
+function AccountPanel({
   api,
   open,
   account,
-  onClose,
 }: {
   api: API;
   open: boolean;
   account: ReturnType<typeof useAccountStatus>;
-  onClose: () => void;
 }) {
   const [regionOpen, setRegionOpen] = useState(false);
+  const [signingOut, setSigningOut] = useState(false);
   const services = useGitHubServices(api, open);
   const { status, busy, error, changing, run } = account;
   const known = status?.phase === 'authenticated' || status?.phase === 'expired';
+  const signedIn = status?.phase === 'authenticated';
   const authorizing = status?.phase === 'authorizing';
+  const names = accountNames(status);
+  async function signOut() {
+    setSigningOut(true);
+    try {
+      const result = await api.verdictanLogout();
+      account.setStatus(result);
+      if (result.phase !== 'authenticated') showToast('Signed out');
+    } catch {
+      showToast({ message: 'Kalkidan could not sign out. Try again.', tone: 'error' });
+    } finally {
+      setSigningOut(false);
+    }
+  }
   return (
     <>
       {error && <StepError>{error}</StepError>}
-      <SettingsRows label="Connections">
+      <SettingsRows label="Account">
+        <SettingsRow
+          id={settingsAnchors.account}
+          label={signedIn ? names.user || names.email || 'Signed in' : 'Not signed in'}
+          help={
+            signedIn
+              ? [names.email !== names.user ? names.email : '', names.organization]
+                  .filter(Boolean)
+                  .join(' · ') || undefined
+              : undefined
+          }
+        >
+          {signedIn ? (
+            <>
+              {typeof api.verdictanOpenConsole === 'function' && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() =>
+                    void api.verdictanOpenConsole().catch(() =>
+                      showToast({
+                        message: 'The browser did not open. Try again.',
+                        tone: 'error',
+                      }),
+                    )
+                  }
+                >
+                  Manage account
+                  <ExternalLink aria-label="Opens in the browser" />
+                </Button>
+              )}
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={signingOut}
+                onClick={() => void signOut()}
+              >
+                Sign out
+              </Button>
+            </>
+          ) : (
+            <Button size="sm" disabled={authorizing} onClick={() => startSignIn('login')}>
+              {authorizing ? 'Finish signing in…' : 'Sign in'}
+            </Button>
+          )}
+        </SettingsRow>
         <SettingsRow
           id={settingsAnchors.region}
           label="Region"
@@ -251,18 +427,6 @@ function ConnectionPreferences({
           </Button>
         </SettingsRow>
         <GitHubRow services={services} />
-        <SettingsRow label="Agents and SSH hosts" help="On the Computers page">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => {
-              onClose();
-              openComputers();
-            }}
-          >
-            Open Computers
-          </Button>
-        </SettingsRow>
       </SettingsRows>
       <RegionDialog
         open={regionOpen}
@@ -277,35 +441,6 @@ function ConnectionPreferences({
           ).then((done) => done && setRegionOpen(false))
         }
       />
-    </>
-  );
-}
-
-/** Preferences › This app: the built-in browser, your data, and the version. */
-function AppPreferences({ api, open }: { api: API; open: boolean }) {
-  const [browserOpen, setBrowserOpen] = useState(false);
-  const [dataOpen, setDataOpen] = useState(false);
-  return (
-    <>
-      <SettingsRows label="This app">
-        <SettingsRow label="Built-in browser data" help="Home page, history, and sign-in data">
-          <Button variant="outline" size="sm" onClick={() => setBrowserOpen(true)}>
-            Manage…
-          </Button>
-        </SettingsRow>
-        <SettingsRow
-          id={settingsAnchors.data}
-          label="Your data"
-          help="Disk use, export, deletion, and where your data goes"
-        >
-          <Button variant="outline" size="sm" onClick={() => setDataOpen(true)}>
-            Manage…
-          </Button>
-        </SettingsRow>
-        <VersionRow api={api} open={open} />
-      </SettingsRows>
-      <BrowserSettingsDialog api={api} open={browserOpen} onOpenChange={setBrowserOpen} />
-      <DataDialog api={api} open={dataOpen} onOpenChange={setDataOpen} />
     </>
   );
 }

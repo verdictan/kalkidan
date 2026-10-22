@@ -13,10 +13,10 @@ export async function openCodeFolder(page: Page, name?: string) {
   const count = await projects.count();
   for (let index = 0; index < count; index++) {
     await projects.nth(index).click();
-    const rows = page.locator('.project-home-section .list-row-main');
+    const rows = page.locator('.project-home-section .folder-chip');
     const row = name
       ? rows.filter({
-          has: page.locator('.list-row-title', { hasText: new RegExp(`^${escape(name)}$`) }),
+          has: page.locator('.folder-chip-name', { hasText: new RegExp(`^${escape(name)}$`) }),
         })
       : rows;
     try {
@@ -42,23 +42,29 @@ export async function openProjectTab(page: Page, tab: string, project?: string) 
       : page.locator('.project-tree .project-select').first();
     await row.click();
   }
-  // Docs, Memory and Insights are sections of the Knowledge tab now.
-  const section = { Docs: 'pages', Memory: 'memory', Insights: 'insights' }[tab];
+  // Docs and Memory are parts of the Knowledge tab now.
+  const section = { Docs: 'pages', Memory: 'memory' }[tab];
   await tabs.getByRole('button', { name: section ? 'Knowledge' : tab, exact: true }).click();
-  if (section === 'memory')
-    await page
-      .getByRole('complementary', { name: 'Knowledge sections' })
-      .getByRole('button', { name: 'All facts' })
-      .click();
-  if (section === 'insights')
-    await page
-      .getByRole('complementary', { name: 'Knowledge sections' })
-      .getByRole('button', { name: 'Board', exact: true })
-      .click();
+  if (section === 'memory') await page.getByRole('button', { name: 'Memory', exact: true }).click();
 }
 
 /** Opens the Add code folders dialog of a project from its row menu in the sidebar. */
 export async function openAddCodeFolders(page: Page, project: string) {
   await page.getByRole('button', { name: `Manage project ${project}`, exact: true }).click();
   await page.getByRole('menuitem', { name: 'Add code folder…', exact: true }).click();
+}
+
+/**
+ * Opens the Clone from GitHub dialog for a project from the command palette. "Add code folder…"
+ * of a local project opens the folder picker at once, so the clone has its own palette action.
+ */
+export async function openCloneFromGitHub(page: Page, project: string) {
+  await page.locator('.project-tree').getByRole('button', { name: project, exact: true }).click();
+  await page.getByRole('button', { name: 'Search or run a command', exact: true }).click();
+  const palette = page.getByRole('dialog', { name: 'Search or run a command', exact: true });
+  await palette
+    .getByRole('combobox', { name: 'Search or run a command' })
+    .fill('Clone from GitHub');
+  await palette.getByRole('option', { name: 'Clone from GitHub…', exact: true }).click();
+  await page.getByRole('dialog', { name: 'Clone from GitHub', exact: true }).waitFor();
 }

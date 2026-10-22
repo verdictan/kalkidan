@@ -31,7 +31,7 @@ import type { API, ProjectGroup, TrackerItem } from '../types';
 import { trackerConnection } from '../domain/tracker';
 import { trackerClient } from '../lib/tracker-client';
 import { useProjectBoard } from '../hooks/use-project-board';
-import { DocsToIssuesDialog } from './docs-to-issues';
+import { DocsToIssuesDialog, plannedTaskCount } from './docs-to-issues';
 import { openConnectBoard } from './tracker-project-picker';
 import { ConfirmDialog } from './confirm-dialog';
 import type { DeletedProjectDoc, ProjectDoc, ProjectDocMetadata } from '../domain/docs';
@@ -70,6 +70,7 @@ import {
   DialogFooter,
 } from './ui/dialog';
 import { errorMessage } from '../lib/errors';
+import { relativeTime } from '../lib/relative-time';
 
 type TreeCommand = {
   id: string;
@@ -219,33 +220,14 @@ function writeSelection(groupId: string, id: string) {
   }
 }
 
-/** One group of the Knowledge rail: a label with actions, then its rows. */
-export function KnowledgeRailGroup({
-  label,
-  actions,
-  children,
-}: {
-  label: string;
-  actions?: ReactNode;
-  children?: ReactNode;
-}) {
-  return (
-    <section className="knowledge-rail-group" aria-label={label}>
-      <div className="knowledge-rail-label">
-        <h2 className="group-label">{label}</h2>
-        {actions && <span className="knowledge-rail-actions">{actions}</span>}
-      </div>
-      {children}
-    </section>
-  );
-}
-
 /** The page and task actions that the editor gets from the docs page. */
 interface PageActions {
   /** Starts a new chat with this page attached. With text, the chat asks about that text. */
   onAskAgent: (doc: ProjectDoc, text?: string) => void;
   /** Opens "Make tasks from this page". */
   onPlanTasks: () => void;
+  /** The number of tasks that "Make tasks" makes from the open page. */
+  taskCount: (markdown: string) => number;
   /** Why "Make tasks" cannot run, for example on a read-only board. */
   planTasksDisabled?: string;
   /** Opens Connect board. Undefined when the project has a board. */
@@ -399,10 +381,23 @@ function DocEditor({
   useEffect(() => {
     onDirtyChange(saveState.status !== 'clean' || !!recovery);
   }, [saveState.status, recovery]);
-  // "Saved" shows for 2 seconds after each save, then fades. The key starts the fade again.
-  const [savedSerial, setSavedSerial] = useState(0);
+  // A save shows only when it is slow (after 1 second) or when it fails. The time of the last
+  // save shows in the document bar.
+  const [slowSave, setSlowSave] = useState(false);
+  const [editedAt, setEditedAt] = useState<string>();
+  const saving = ['dirty', 'saving'].includes(saveState.status);
   useEffect(() => {
-    if (saveState.status === 'clean') setSavedSerial((value) => value + 1);
+    if (!saving) {
+      setSlowSave(false);
+      return;
+    }
+    const slow = setTimeout(() => setSlowSave(true), 1000);
+    return () => clearTimeout(slow);
+  }, [saving]);
+  const wasSaving = useRef(false);
+  useEffect(() => {
+    if (saveState.status === 'clean' && wasSaving.current) setEditedAt(new Date().toISOString());
+    wasSaving.current = saving;
   }, [saveState.status]);
   const draft = saveState.draft;
   const latest = useRef(draft);
@@ -419,11 +414,7 @@ function DocEditor({
   const copy = useRef<ProjectDoc | null>(null);
   const error = actionError || saveState.error || '';
   const status =
-    saveState.status === 'clean'
-      ? 'Saved'
-      : ['dirty', 'saving'].includes(saveState.status)
-        ? 'Saving…'
-        : 'Not saved';
+    saveState.status === 'clean' ? '' : saving ? (slowSave ? 'Saving…' : '') : 'Not saved';
   const conflict = ['conflict', 'deleted'].includes(saveState.status);
   const readOnly = resolving || !!recovery;
   useEffect(() => {
@@ -496,6 +487,8 @@ function DocEditor({
   const askAgent = (text?: string) =>
     void flush().then(() => actions.onAskAgent(latest.current, text));
   const makeTasks = () => void flush().then(actions.onPlanTasks);
+  const taskCount = actions.taskCount(draft.markdown);
+  const makeLabel = taskCount ? `Make ${plural(taskCount, 'task')}` : 'Make tasks';
   const linkTask = () => (actions.onConnectBoard ? actions.onConnectBoard() : setPicking(true));
   const editorActions: WikiEditorActions = {
     onLinkTask: actions.onLinkTask,
@@ -509,8 +502,8 @@ function DocEditor({
       <div className="wiki-document-bar">
         <div className="wiki-document-bar-inner">
           {switcher}
-          {/* The ancestors of the page. The page title is the field under the bar. */}
-          {ancestors.length > 0 ? (
+          {/* The ancestors of the page, then how agents use it. The title is under the bar. */}
+          {ancestors.length > 0 && (
             <nav className="wiki-breadcrumbs" aria-label="Document breadcrumb">
               {ancestors.map((ancestor, index) => (
                 <span key={ancestor.id} className="contents">
@@ -521,20 +514,23 @@ function DocEditor({
                 </span>
               ))}
             </nav>
-          ) : (
-            <span className="flex-1" />
           )}
+          <span className="doc-meta">
+            {[
+              readCount ? `Read in ${plural(readCount, 'chat')}` : '',
+              editedAt ? `edited ${relativeTime(editedAt)}` : '',
+            ]
+              .filter(Boolean)
+              .join(' · ')
+              .replace(/^e/, 'E')}
+          </span>
           <div className="wiki-document-actions">
             {/* Do not announce each save. Announce only a failed save. */}
-            <span
-              key={status === 'Saved' ? savedSerial : status}
-              role="status"
-              aria-live="off"
-              className="doc-save-state"
-              data-state={status === 'Saved' ? 'saved' : undefined}
-            >
-              {status}
-            </span>
+            {status && (
+              <span role="status" aria-live="off" className="doc-save-state">
+                {status}
+              </span>
+            )}
             {status === 'Not saved' && (
               <span role="alert" className="sr-only">
                 The page is not saved.
@@ -545,10 +541,7 @@ function DocEditor({
                 Retry
               </Button>
             )}
-            {!!readCount && (
-              <span className="doc-read-count">Read in {plural(readCount, 'chat')}</span>
-            )}
-            <Button variant="outline" size="sm" onClick={() => askAgent()}>
+            <Button variant="ghost" size="sm" onClick={() => askAgent()}>
               <MessageSquare aria-hidden="true" />
               Ask agent
             </Button>
@@ -556,16 +549,16 @@ function DocEditor({
               <Hint label={actions.planTasksDisabled}>
                 {/* A disabled button gets no pointer events. The wrapper shows the reason. */}
                 <span tabIndex={0} className="rounded-md">
-                  <Button variant="outline" size="sm" disabled>
+                  <Button size="sm" disabled>
                     <ListChecks aria-hidden="true" />
-                    Make tasks
+                    {makeLabel}
                   </Button>
                 </span>
               </Hint>
             ) : (
-              <Button variant="outline" size="sm" onClick={makeTasks}>
+              <Button size="sm" onClick={makeTasks}>
                 <ListChecks aria-hidden="true" />
-                Make tasks
+                {makeLabel}
               </Button>
             )}
             <DropdownMenu>
@@ -868,9 +861,8 @@ export interface DocOpenRequest {
 }
 
 /**
- * The pages of the Knowledge tab: the page tree in the rail and the page editor. The rail can
- * hold more groups (`railTop`, `railBottom`). With `pane`, the right side shows that instead of
- * the editor.
+ * The pages of the Knowledge tab: one rail list (the `railLead` rows, then the page tree) and
+ * the page editor. With `pane`, the right side shows that instead of the editor.
  */
 export function ProjectDocsPanel({
   api,
@@ -878,8 +870,8 @@ export function ProjectDocsPanel({
   initialPageId,
   initialHeading,
   request,
-  railTop,
-  railBottom,
+  search,
+  railLead,
   railOpen,
   pane,
   switcher,
@@ -893,10 +885,10 @@ export function ProjectDocsPanel({
   /** Scrolls the opened page to the heading with this text. */
   initialHeading?: string;
   request?: DocOpenRequest;
-  /** Rail content above the pages, for example the search box. */
-  railTop?: ReactNode;
-  /** Rail groups under the pages. */
-  railBottom?: ReactNode;
+  /** The search field at the top of the rail. The New page button shows next to it. */
+  search?: ReactNode;
+  /** Rail rows above the pages, for example Memory. */
+  railLead?: ReactNode;
   /** In a narrow window, the rail shows over the content while this is true. */
   railOpen?: boolean;
   /** Shows this on the right instead of the page editor. */
@@ -959,6 +951,19 @@ export function ProjectDocsPanel({
   const [busy, setBusy] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [deletedPages, setDeletedPages] = useState<DeletedProjectDoc[] | null>(null);
+  // The number of deleted pages. It loads again after a delete or a restore.
+  const [trashCount, setTrashCount] = useState(0);
+  useEffect(() => {
+    if (typeof api.docsTrash !== 'function') return;
+    let live = true;
+    api
+      .docsTrash(group.id)
+      .then((value) => live && setTrashCount(value.length))
+      .catch(() => live && setTrashCount(0));
+    return () => {
+      live = false;
+    };
+  }, [api, group.id, pages.length, deletedPages?.length]);
   const pageLoading = ['idle', 'loading'].includes(content.state.status) && !!selected;
   // While a title is edited, the list sorts by the titles from before the edit.
   const [frozenTitles, setFrozenTitles] = useState<Map<string, string> | null>(null);
@@ -1305,6 +1310,7 @@ export function ProjectDocsPanel({
   const pageActions: PageActions = {
     onAskAgent: askAgent,
     onPlanTasks: () => (connection ? setPlanning(true) : connectThen('plan')),
+    taskCount: plannedTaskCount,
     planTasksDisabled: planReason,
     onConnectBoard: connection ? undefined : () => connectThen('link'),
     onLinkTask: (task) => void setLink(task, true),
@@ -1314,29 +1320,29 @@ export function ProjectDocsPanel({
   return (
     <section className="project-docs knowledge" aria-label="Knowledge" data-rail-open={railOpen}>
       <aside className="knowledge-rail" aria-label="Knowledge sections">
-        {railTop}
+        <div className="knowledge-rail-top">
+          {search}
+          <Hint label="New page">
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              aria-label="New page"
+              disabled={busy}
+              onClick={() => newPage(null)}
+            >
+              <Plus />
+            </Button>
+          </Hint>
+        </div>
         <div className="knowledge-rail-scroll">
-          <KnowledgeRailGroup
-            label="Pages"
-            actions={
-              <Hint label="New page">
-                <Button
-                  variant="ghost"
-                  size="icon-xs"
-                  aria-label="New page"
-                  disabled={busy}
-                  onClick={() => newPage(null)}
-                >
-                  <Plus size={14} />
-                </Button>
-              </Hint>
-            }
-          >
-            {hasPages && (
-              <nav aria-label="Document structure">
-                <ul className="wiki-page-tree">{tree(null)}</ul>
-              </nav>
-            )}
+          {railLead}
+          {hasPages && (
+            <nav aria-label="Pages" className="knowledge-rail-pages">
+              <ul className="wiki-page-tree">{tree(null)}</ul>
+            </nav>
+          )}
+          {/* Deleted pages shows only when there is a page to restore. */}
+          {trashCount > 0 && (
             <NavRow
               className="knowledge-rail-muted"
               icon={<Trash2 aria-hidden="true" />}
@@ -1348,8 +1354,7 @@ export function ProjectDocsPanel({
                 });
               }}
             />
-          </KnowledgeRailGroup>
-          {railBottom}
+          )}
         </div>
       </aside>
       {error && !pane && (

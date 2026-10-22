@@ -24,8 +24,9 @@ const badgeVariants = cva(
         md: 'h-6 px-2 text-xs',
       },
     },
+    // Status and labels are quiet. Brown (default) is only for the "waiting for you" count.
     defaultVariants: {
-      variant: 'default',
+      variant: 'muted',
       size: 'md',
     },
   },
@@ -33,7 +34,7 @@ const badgeVariants = cva(
 
 function Badge({
   className,
-  variant = 'default',
+  variant = 'muted',
   size = 'md',
   asChild = false,
   ...props

@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
-import { Bot, Download, Plus, RotateCw, Server, Trash2, Unplug } from 'lucide-react';
+import { Bot, Download, RotateCw, Server, Trash2, Unplug } from 'lucide-react';
+import { agentCatalog } from '../config/agents';
 import type { API, RemoteHost } from '../types';
 import type { ComponentUpdateStatus, HelperUpdateStatus } from '../domain/updates';
 import { computerAnchor, helperUpdateAnchor } from '../domain/settings-route';
-import { displayVersion, helperStatusLabel, shortId } from '../lib/verdictan-labels';
+import { helperStatusLabel, shortId } from '../lib/verdictan-labels';
 import { errorMessage } from '../lib/errors';
 import { useRefreshTriggers } from '../hooks/use-refresh-triggers';
 import { helperSetupText, hostStatusLabels, useHostSetup } from './remote-host-picker';
@@ -17,7 +18,7 @@ import {
 import { AgentProgramsDialog } from './agent-programs';
 import { ComputerAgentRow } from './computer-agent';
 import { ConfirmDialog } from './confirm-dialog';
-import { CopyValue, SettingsDisclosure, SettingsRow, StatusBadge } from './settings-disclosure';
+import { CopyValue, SettingsDisclosure, SettingsRow, StatusText } from './settings-disclosure';
 import { Button } from './ui/button';
 import { CheckboxRow } from './ui/checkbox';
 import {
@@ -57,13 +58,33 @@ export function useHelperUpdates(api: API, open: boolean, hosts: RemoteHost[]) {
 }
 
 /**
- * The always-visible "Add host" row of the Computers page: one field for the SSH target and
- * one Add button. The new host shows as a row at once and checks its connection in the row.
+ * The inline form of "Add SSH host": one field for the SSH target, Add, and Cancel. The new host
+ * shows as a row at once and checks its connection in the row. Escape cancels.
  */
-export function AddHostRow({ api, onAdded }: { api: API; onAdded: (host: RemoteHost) => void }) {
+export function AddHostForm({
+  api,
+  onAdded,
+  onCancel,
+}: {
+  api: API;
+  onAdded: (host: RemoteHost) => void;
+  onCancel: () => void;
+}) {
   const [target, setTarget] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const form = useRef<HTMLFormElement>(null);
+  // Escape closes the form, not the Settings window. The dialog reads Escape on the document
+  // before React does, so the form reads it on the window, which comes first.
+  useEffect(() => {
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key !== 'Escape' || busy || !form.current?.contains(event.target as Node)) return;
+      event.stopPropagation();
+      onCancel();
+    }
+    window.addEventListener('keydown', onKeyDown, { capture: true });
+    return () => window.removeEventListener('keydown', onKeyDown, { capture: true });
+  }, [busy, onCancel]);
   async function submit(event: FormEvent) {
     event.preventDefault();
     const value = target.trim();
@@ -80,28 +101,30 @@ export function AddHostRow({ api, onAdded }: { api: API; onAdded: (host: RemoteH
     }
   }
   return (
-    <li className="computers-add">
+    <div className="computers-add">
       <form
+        ref={form}
         className="computers-add-form"
-        aria-label="Add host"
+        aria-label="Add SSH host"
         onSubmit={(event) => void submit(event)}
       >
-        <EntityIcon>
-          <Plus />
-        </EntityIcon>
         <Input
           aria-label="SSH target"
           placeholder="user@host or a name from ~/.ssh/config"
           value={target}
           disabled={busy}
+          autoFocus
           aria-invalid={!!error || undefined}
           onChange={(event) => {
             setTarget(event.target.value);
             setError('');
           }}
         />
-        <Button type="submit" size="sm" disabled={busy || !target.trim()}>
-          {busy ? 'Adding…' : 'Add host'}
+        <Button type="submit" size="sm" variant="outline" disabled={busy || !target.trim()}>
+          {busy ? 'Adding…' : 'Add'}
+        </Button>
+        <Button type="button" size="sm" variant="ghost" disabled={busy} onClick={onCancel}>
+          Cancel
         </Button>
       </form>
       {error && (
@@ -109,8 +132,30 @@ export function AddHostRow({ api, onAdded }: { api: API; onAdded: (host: RemoteH
           {error}
         </p>
       )}
+    </div>
+  );
+}
+
+/** @deprecated Use `AddHostForm` behind an "Add SSH host" button. */
+export function AddHostRow({ api, onAdded }: { api: API; onAdded: (host: RemoteHost) => void }) {
+  return (
+    <li>
+      <AddHostForm api={api} onAdded={onAdded} onCancel={() => {}} />
     </li>
   );
+}
+
+/** "Codex 0.164.0 · Claude Code 2.1.301": the coding agents that the last check found on a host. */
+export function hostAgentsText(host: RemoteHost) {
+  const agents = host.agentCheck?.agents || [];
+  return agents
+    .filter((item) => item.status === 'installed')
+    .map((item) =>
+      [agentCatalog.find((entry) => entry.id === item.agent)?.name || item.agent, item.version]
+        .filter(Boolean)
+        .join(' '),
+    )
+    .join(' · ');
 }
 
 /** The helper builds and digests of one host, for the Details fold. */
@@ -143,15 +188,12 @@ export function HelperDetails({ host, helper }: { host: RemoteHost; helper?: Hel
 }
 
 /**
- * The managed runtime line of a connected host. A host checks its runtime each time it
- * connects, and a newer signed release installs without a chat. Empty when the row shows the
- * runtime below it, for example during an install or after an error.
+ * The managed runtime line of a connected host, only while the host checks for an update. A
+ * host checks its runtime each time it connects, and a newer signed release installs without a
+ * chat. A ready runtime needs no line. The row shows a problem below it.
  */
 function hostRuntimeText(status: ComponentUpdateStatus | undefined) {
-  if (!status) return '';
-  if (status.discovery === 'checking') return 'Checking managed agents for updates…';
-  if (!status.installed) return '';
-  return `Managed agents ${displayVersion(status.installed.version)} · Checked for updates when it connected`;
+  return status?.discovery === 'checking' ? 'Checking managed agents for updates…' : '';
 }
 
 /** The help line of a host row. A connected host also shows its managed runtime. */
@@ -161,14 +203,11 @@ function hostHelp(host: RemoteHost, busy: string, runtime = '') {
     return helperSetupText(host.setup);
   switch (host.status) {
     case 'connected': {
-      // The target shows only when it is not the name of the row.
-      const line = [
-        host.target !== host.name ? host.target : '',
-        host.platform,
-        host.node ? `Node.js ${host.node}` : '',
-      ]
-        .filter(Boolean)
-        .join(' · ');
+      // The versions of the coding agents, as on the rows of this computer. Without an agent
+      // check, the system of the host.
+      const line =
+        hostAgentsText(host) ||
+        [host.platform, host.node ? `Node.js ${host.node}` : ''].filter(Boolean).join(' · ');
       if (!runtime) return line;
       return (
         <span className="grid">
@@ -185,13 +224,14 @@ function hostHelp(host: RemoteHost, busy: string, runtime = '') {
       // One short line. The full error is in Details under the row.
       return host.setup?.phase === 'failed' ? 'The helper setup failed.' : 'Connection failed.';
     default:
-      return host.target !== host.name ? host.target : '';
+      return '';
   }
 }
 
 /**
- * One SSH host: name, "target · OS · Node.js", status, and a "…" menu with its actions.
- * `autoStart` checks the connection once, for a host that was just added.
+ * One SSH host: the SSH target, the versions of its coding agents, the status, and a "…" menu
+ * with its actions. The group label above it is the name of the host. `autoStart` checks the
+ * connection once, for a host that was just added.
  */
 export function HostRow({
   api,
@@ -254,7 +294,7 @@ export function HostRow({
             <Server />
           </EntityIcon>
         }
-        label={host.name}
+        label={host.target || host.name}
         help={hostHelp(host, setup.busy, runtimeNeedsUser ? '' : hostRuntimeText(runtime.status))}
         extra={
           setup.error ||
@@ -295,7 +335,7 @@ export function HostRow({
           ) : undefined
         }
       >
-        <StatusBadge status={status} />
+        <StatusText status={status} />
         {offline && host.status !== 'checked' && (
           <Button variant="outline" size="sm" disabled={!!setup.busy} onClick={reconnect}>
             Reconnect

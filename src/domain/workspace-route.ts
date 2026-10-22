@@ -24,7 +24,6 @@ export function projectPageOf(
 export type WorkspacePage =
   | { kind: 'home' }
   | { kind: 'sessions' }
-  | { kind: 'computers' }
   /** The one "Waiting for you" inbox: chats and assigned tasks. */
   | { kind: 'waiting' }
   | { kind: 'project'; groupId: string; page: ProjectPage; section?: KnowledgeSection }
@@ -37,7 +36,6 @@ export function routeKey(route: WorkspaceRoute): string {
   switch (route.kind) {
     case 'home':
     case 'sessions':
-    case 'computers':
     case 'waiting':
       return route.kind;
     case 'project':
@@ -91,6 +89,21 @@ export type SavedRoute =
   | WorkspacePage
   | { kind: 'conversation'; agent: string; id: string; hostId?: string; parent: WorkspacePage };
 const pageKinds = new Set(['home', 'sessions', 'computers', 'waiting', 'project', 'repository']);
+/**
+ * The project page of a page name and a Knowledge section. Knowledge has no Insights any more:
+ * its board health and GitHub checks are on Tasks, so an Insights route opens Tasks.
+ */
+export function projectTarget(
+  page: unknown,
+  section?: unknown,
+): { page: ProjectPage; section?: KnowledgeSection } | null {
+  const target = projectPageOf(page);
+  if (!target) return null;
+  const knowledge = target.section || projectPageOf(section)?.section;
+  if (target.page !== 'knowledge') return { page: target.page };
+  if (knowledge === 'insights') return { page: 'tasks' };
+  return knowledge ? { page: 'knowledge', section: knowledge } : { page: 'knowledge' };
+}
 export function saveableRoute(route: WorkspaceRoute): SavedRoute | null {
   // Settings is not a place to return to after a launch.
   if (route.kind === 'settings') return null;
@@ -112,21 +125,17 @@ function readPage(value: unknown): WorkspacePage | null {
   if (!pageKinds.has(page.kind as string)) return null;
   if (page.kind === 'project') {
     // A route saved by an older version can name 'docs', 'memory' or 'insights'.
-    const target = projectPageOf(page.page);
+    const target = projectTarget(page.page, page.section);
     if (typeof page.groupId !== 'string' || !target) return null;
-    const section = target.section || projectPageOf(page.section)?.section;
-    return {
-      kind: 'project',
-      groupId: page.groupId,
-      page: target.page,
-      ...(target.page === 'knowledge' && section ? { section } : {}),
-    };
+    return { kind: 'project', groupId: page.groupId, ...target };
   }
+  // The Computers page is a section of Settings now. Settings is not a place to return to.
+  if (page.kind === 'computers') return { kind: 'home' };
   if (page.kind === 'repository')
     return typeof page.repositoryId === 'string'
       ? { kind: 'repository', repositoryId: page.repositoryId }
       : null;
-  return { kind: page.kind as 'home' | 'sessions' | 'computers' | 'waiting' };
+  return { kind: page.kind as 'home' | 'sessions' | 'waiting' };
 }
 /**
  * The saved route when its project, code folder and chat still exist. Else the nearest page

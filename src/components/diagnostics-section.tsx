@@ -1,35 +1,15 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import type { API } from '../types';
-import type {
-  AgentDiagnostics,
-  DiagnosticsReport,
-  RuntimeDiagnostics,
-  SupportBundlePreview,
-} from '../domain/diagnostics';
+import type { DiagnosticsReport, SupportBundlePreview } from '../domain/diagnostics';
 import type { MeasurementName } from '../domain/diagnostics';
-import { agentCatalog } from '../config/agents';
 import { useRefreshTriggers } from '../hooks/use-refresh-triggers';
 import { errorMessage } from '../lib/errors';
-import { accountPhaseLabels, displayVersion, type StatusLabel } from '../lib/verdictan-labels';
-import { CopyValue, SettingsRow, SettingsRows, StatusBadge } from './settings-disclosure';
+import { CopyValue, SettingsRow, SettingsRows } from './settings-disclosure';
 import { SectionHeader } from './ui/page-header';
 import { Button } from './ui/button';
 import { Dialog, DialogBody, DialogContent, DialogHeader, DialogTitle } from './ui/dialog';
 import { showToast } from './ui/toast';
 
-const runtimeLabels: Record<RuntimeDiagnostics['support'], StatusLabel> = {
-  supported: { label: 'Supported', tone: 'success' },
-  deprecated: { label: 'Deprecated', tone: 'warning' },
-  broken: { label: 'Known problem', tone: 'destructive' },
-  unsupported: { label: 'Not supported', tone: 'destructive' },
-  unknown: { label: 'Not known', tone: 'muted' },
-};
-const agentLabels: Record<AgentDiagnostics['support'], StatusLabel> = {
-  supported: { label: 'Supported', tone: 'success' },
-  outdated: { label: 'Too old', tone: 'destructive' },
-  unknown: { label: 'Not known', tone: 'muted' },
-  missing: { label: 'Not installed', tone: 'muted' },
-};
 const measurementLabels: Record<MeasurementName, string> = {
   setup_completion_ms: 'Setup completion',
   first_success_ms: 'Time to the first successful request',
@@ -38,7 +18,6 @@ const measurementLabels: Record<MeasurementName, string> = {
   broker_request_ms: 'Verdictan broker request',
   recovery_ms: 'Recovery after a lost connection',
 };
-const agentName = (id: string) => agentCatalog.find((agent) => agent.id === id)?.name || id;
 const duration = (ms?: number) =>
   ms === undefined
     ? '—'
@@ -49,9 +28,9 @@ const duration = (ms?: number) =>
         : `${Math.round(ms / 60000)} min`;
 
 /**
- * Diagnostics: the versions of each component, the connection state, the recent
- * correlation IDs, and the local measurements. The support bundle is redacted. The user
- * previews it first and then exports it to a file. Kalkidan sends nothing.
+ * Diagnostics: the recent correlation IDs, the local measurements, and the support bundle. The
+ * versions and the state of each computer are in Settings › Computers. The support bundle is
+ * redacted. The user previews it first and then exports it to a file. Kalkidan sends nothing.
  */
 export function DiagnosticsSection({ api, open = true }: { api: API; open?: boolean }) {
   const [report, setReport] = useState<DiagnosticsReport>();
@@ -75,18 +54,6 @@ export function DiagnosticsSection({ api, open = true }: { api: API; open?: bool
       );
   }
   useRefreshTriggers(api, open, read);
-  // Checks the account again first, so a connection that works again shows as ready.
-  const [checking, setChecking] = useState(false);
-  function checkAgain() {
-    setChecking(true);
-    void Promise.resolve()
-      .then(() => (typeof api.verdictanCheck === 'function' ? api.verdictanCheck() : undefined))
-      .catch(() => undefined)
-      .finally(() => {
-        setChecking(false);
-        read();
-      });
-  }
   async function showPreview() {
     setBusy('preview');
     try {
@@ -115,83 +82,14 @@ export function DiagnosticsSection({ api, open = true }: { api: API; open?: bool
         <SettingsRow label="Diagnostics" help="Diagnostics need the desktop application." />
       </SettingsRows>
     );
-  const connection = report?.connection;
-  const phase = connection
-    ? accountPhaseLabels[connection.phase as keyof typeof accountPhaseLabels]
-    : undefined;
   const measurements = report?.measurements;
   return (
     <>
-      <DiagnosticsGroup
-        title="Versions"
-        actions={
-          <Button variant="ghost" size="sm" onClick={checkAgain} disabled={checking}>
-            {checking ? 'Checking…' : 'Check again'}
-          </Button>
-        }
-      >
-        <SettingsRows label="Versions">
-          <SettingsRow
-            label="Kalkidan"
-            help={
-              report
-                ? `Version ${displayVersion(report.app.version)} · ${report.platform} ${report.arch} ${report.osVersion}`
-                : error || 'Checking…'
-            }
-          />
-          {report?.runtimes.map((runtime) => (
-            <SettingsRow
-              key={`runtime-${runtime.hostId}`}
-              label={`Verdictan runtime · ${runtime.name}`}
-              help={
-                <span data-testid={`diagnostics-runtime-${runtime.hostId}`}>
-                  {runtimeHelp(runtime, report.supportWindow.runtimeMinimum)}
-                </span>
-              }
-            >
-              <StatusBadge status={runtimeLabels[runtime.support]} />
-            </SettingsRow>
-          ))}
-          {report?.agents.map((agent) => (
-            <SettingsRow
-              key={`agent-${agent.hostId}-${agent.agent}`}
-              label={`${agentName(agent.agent)} · ${report.runtimes.find((r) => r.hostId === agent.hostId)?.name || agent.hostId}`}
-              help={
-                agent.version
-                  ? `Version ${agent.version}${agent.minimum ? `. Kalkidan needs ${agent.minimum} or later.` : ''}`
-                  : 'Kalkidan did not find this agent.'
-              }
-            >
-              <StatusBadge status={agentLabels[agent.support]} />
-            </SettingsRow>
-          ))}
-        </SettingsRows>
-      </DiagnosticsGroup>
-      <DiagnosticsGroup title="Connection">
-        <SettingsRows label="Connection">
-          <SettingsRow
-            label="Verdictan"
-            help={
-              connection
-                ? [
-                    connection.region ? `Region ${connection.region.toUpperCase()}` : 'No region',
-                    connection.executionReady ? 'Managed agents ready' : 'Managed agents not ready',
-                    connection.protocolMin === undefined
-                      ? ''
-                      : connection.protocolMin === connection.protocolMax
-                        ? `Protocol ${connection.protocolMin}`
-                        : `Protocol ${connection.protocolMin}–${connection.protocolMax}`,
-                    connection.error || '',
-                  ]
-                    .filter(Boolean)
-                    .join(' · ')
-                : 'Checking…'
-            }
-          >
-            {phase && <StatusBadge status={phase} />}
-          </SettingsRow>
-        </SettingsRows>
-      </DiagnosticsGroup>
+      {error && (
+        <p role="alert" className="field-error mb-4">
+          {error}
+        </p>
+      )}
       <DiagnosticsGroup title="Correlation IDs">
         <SettingsRows label="Correlation IDs">
           {report && !report.correlations.length && (
@@ -284,21 +182,6 @@ export function DiagnosticsSection({ api, open = true }: { api: API; open?: bool
   );
 }
 
-function runtimeHelp(runtime: RuntimeDiagnostics, minimum: string) {
-  const version = runtime.running || runtime.installed;
-  const parts = [
-    version
-      ? `Version ${displayVersion(version)}`
-      : runtime.connected
-        ? 'Not installed'
-        : 'Not connected',
-    runtime.latest && runtime.latest !== version ? `Newest ${runtime.latest}` : '',
-    runtime.supportMessage || (version ? `Minimum ${minimum}` : ''),
-    runtime.error || '',
-  ];
-  return parts.filter(Boolean).join(' · ');
-}
-
 /** Opens the Diagnostics dialog. The account menu sends this. */
 export function openDiagnostics() {
   window.dispatchEvent(new Event('kalkidan-open-diagnostics'));
@@ -319,9 +202,18 @@ export function DiagnosticsDialog({ api }: { api: API }) {
         layout="scroll"
         aria-describedby={undefined}
         className="max-h-[min(720px,calc(100dvh-48px))]"
+        onOpenAutoFocus={(event) => {
+          // The title gets the focus, so no ring shows on a button at the dialog edge.
+          event.preventDefault();
+          (event.currentTarget as HTMLElement | null)
+            ?.querySelector<HTMLElement>('[data-slot="dialog-title"]')
+            ?.focus();
+        }}
       >
         <DialogHeader>
-          <DialogTitle>Diagnostics</DialogTitle>
+          <DialogTitle tabIndex={-1} className="outline-none">
+            Diagnostics
+          </DialogTitle>
         </DialogHeader>
         <DialogBody>{open && <DiagnosticsSection api={api} open={open} />}</DialogBody>
       </DialogContent>

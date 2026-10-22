@@ -1,4 +1,5 @@
 import { useRef, useState } from 'react';
+import { LoaderCircle, TriangleAlert } from 'lucide-react';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import type { API, TrackerBoard } from '../types';
@@ -14,25 +15,23 @@ import { SegmentedControl } from './ui/segmented-control';
 import { Textarea } from './ui/textarea';
 import { showToast } from './ui/toast';
 import { ActionRow, ErrorAlert } from './planning-kit';
+import { Hint } from './hint';
 import { errorMessage } from '../lib/errors';
 
 /**
- * The health of a project: one row of task counts (each count opens the Tasks page with a
- * filter), and a status update to publish on GitHub.
+ * Post a status update: choose the health (On track, At risk…), write a report from a fresh
+ * board snapshot, then publish it on GitHub. The task counts are on the Tasks header line.
  */
 export function ProjectHealth({
   api,
   groupId,
-  board,
-  onFilter,
-  extraTiles,
 }: {
   api: API;
   groupId: string;
-  board: TrackerBoard;
-  onFilter: (filter: { status?: string; repository?: string }) => void;
-  /** More counts after the status counts, each with its own action. */
-  extraTiles?: { label: string; count: number; run: () => void }[];
+  /** Not used any more. Kept so that older callers compile. */
+  board?: TrackerBoard;
+  /** Not used any more. Kept so that older callers compile. */
+  onFilter?: (filter: { status?: string; repository?: string }) => void;
 }) {
   const [body, setBody] = useState(''),
     [snapshot, setSnapshot] = useState<TrackerBoard>(),
@@ -42,7 +41,6 @@ export function ProjectHealth({
     [busy, setBusy] = useState(false),
     [published, setPublished] = useState(false);
   const pending = useRef(false);
-  const counts = projectHealthCounts(board);
   async function prepare() {
     if (pending.current) return;
     pending.current = true;
@@ -87,28 +85,8 @@ export function ProjectHealth({
       setBusy(false);
     }
   }
-  const tiles = [
-    ...counts.filter((row) => row.label !== 'No status' || row.count > 0),
-    ...(extraTiles || []),
-  ];
   return (
     <section aria-label="Board health" className="grid gap-4">
-      <ul className="insight-tiles" aria-label="Task counts">
-        {tiles.map((row) => (
-          <li key={row.label}>
-            <button
-              type="button"
-              className="insight-tile"
-              disabled={row.count === 0}
-              aria-label={`${row.count} ${row.label.toLowerCase()}: show the tasks`}
-              onClick={() => ('run' in row ? row.run() : onFilter(row.filter))}
-            >
-              <span className="insight-tile-value">{row.count}</span>
-              <span className="insight-tile-label">{row.label}</span>
-            </button>
-          </li>
-        ))}
-      </ul>
       <div className="flex flex-wrap items-center gap-2">
         <SegmentedControl
           label="Project health"
@@ -182,5 +160,78 @@ export function ProjectHealth({
         <p className="form-help">You can only read this board. Ask the owner for access.</p>
       )}
     </section>
+  );
+}
+
+/**
+ * The board health line of the Tasks header. It shows only what the columns do not show:
+ * tasks without a repository, hidden tasks and the sync state. Each count filters the board.
+ * It shows nothing when the board is healthy and synced.
+ */
+export function BoardHealthLine({
+  board,
+  syncing,
+  syncError,
+  onRetry,
+  onSignIn,
+  onFilter,
+}: {
+  board: TrackerBoard;
+  syncing: boolean;
+  /** The last sync error. "Could not sync" shows with Try again, or Sign in with `onSignIn`. */
+  syncError?: string;
+  onRetry(): void;
+  onSignIn?(): void;
+  onFilter(filter: { status?: string; repository?: string }): void;
+}) {
+  const noRepository = projectHealthCounts(board).find((row) => row.label === 'No repository');
+  const hidden = board.restrictedItems || 0;
+  const parts = [
+    noRepository && noRepository.count > 0 && (
+      <button
+        key="repository"
+        type="button"
+        className="board-health-link"
+        onClick={() => onFilter(noRepository.filter)}
+      >
+        {noRepository.count} without a repository
+      </button>
+    ),
+    hidden > 0 && (
+      <Hint key="hidden" label="You cannot read these tasks on GitHub.">
+        <span className="board-health-text" tabIndex={0}>
+          {hidden} hidden
+        </span>
+      </Hint>
+    ),
+  ].filter(Boolean);
+  if (!syncing && !syncError && !parts.length) return null;
+  return (
+    <span className="board-health" aria-label="Board health">
+      {syncing ? (
+        <span className="board-health-text" role="status">
+          <LoaderCircle className="animate-spin" aria-hidden="true" />
+          Syncing…
+        </span>
+      ) : syncError ? (
+        <span className="board-health-error">
+          <Hint label={syncError}>
+            <span className="board-health-text" data-tone="error" tabIndex={0}>
+              <TriangleAlert aria-hidden="true" />
+              Could not sync
+            </span>
+          </Hint>
+          <button type="button" className="board-health-link" onClick={onSignIn || onRetry}>
+            {onSignIn ? 'Sign in' : 'Try again'}
+          </button>
+        </span>
+      ) : null}
+      {parts.map((part, index) => (
+        <span key={index} className="board-health-part">
+          {(index > 0 || syncing || !!syncError) && <span aria-hidden="true">·</span>}
+          {part}
+        </span>
+      ))}
+    </span>
   );
 }

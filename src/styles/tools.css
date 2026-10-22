@@ -307,24 +307,34 @@
   display: grid;
   grid-template-columns: clamp(420px, var(--chat-width), calc(100% - 361px)) 1px minmax(360px, 1fr);
 }
-/* Below 781px there is no room for both: the tool pane is a sheet over the right of the chat. */
+/* Below 781px there is no room for both side by side: the tool pane goes above the chat, and
+   the chat keeps its last messages and the composer below it. Nothing covers the composer. The
+   shell also hides the sidebar in a narrow window while a tool shows. */
 @container agent-pane (max-width: 780px) {
   .conversation-split.tools-expanded {
-    display: flex;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr) minmax(320px, 45%);
   }
   .conversation-split.tools-expanded > .tool-divider {
     display: none;
   }
   .conversation-split.tools-expanded > .conversation-tool-dock {
-    position: absolute;
-    inset-block: 0;
-    right: 0;
-    z-index: var(--z-sticky);
-    width: min(100%, max(360px, 60%));
-    border-left: 1px solid var(--border);
-    background: var(--background);
-    box-shadow: var(--shadow-lg);
+    grid-row: 1;
+    border-bottom: 1px solid var(--border);
   }
+  .conversation-split.tools-expanded > .conversation-chat-column {
+    grid-row: 2;
+  }
+}
+/* "Changes  kal/sign-in-tests → main" with Close: the header of the Changes pane. */
+.diff-panel-title {
+  flex-shrink: 0;
+  padding-left: var(--space-1);
+  color: var(--foreground);
+  font-size: var(--text-sm);
+  font-weight: 500;
+  line-height: 20px;
 }
 .conversation-split .conversation-tool-dock {
   min-width: 0;
@@ -404,16 +414,13 @@
 .tool-tab-close {
   color: var(--muted-foreground);
 }
-/* Terminal, Browser and Changes ({n}) in the title bar: one SegmentedControl. The selected
-   button is the shown tool. The group has a visible fill on the title bar, and the count
-   reads inside the selected button. */
-.tool-launch {
-  flex-shrink: 0;
-  background: var(--surface-selected);
+/* Terminal and Browser in the title bar: two 28px icons. The pressed icon is the shown tool.
+   The changes row of the chat is the one way to Changes. */
+.tool-launch-button {
+  color: var(--muted-foreground);
 }
-.tool-launch .count-badge {
-  border: 1px solid var(--border);
-  background: var(--background);
+.tool-launch-button[aria-pressed='true'] {
+  background: var(--surface-selected);
   color: var(--foreground);
 }
 /* Two terminals or two browser tabs: a strip of tabs above the tool. */
@@ -456,14 +463,4 @@
 }
 #conversation-titlebar-tabs:has(.tool-tabbar) {
   flex: 0 0 auto;
-}
-/* Only a very narrow window shows the tool buttons as icons. Their names are in tooltips. */
-@media (max-width: 860px) {
-  .tool-launch .segmented-item:not([aria-pressed='true']) .tool-launch-label {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    overflow: hidden;
-    clip-path: inset(50%);
-  }
 }

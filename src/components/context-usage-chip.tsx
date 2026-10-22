@@ -1,22 +1,12 @@
 import { useEffect, useState } from 'react';
-import { BookOpen, FileText, Lightbulb } from 'lucide-react';
 import type { API } from '../types';
 import type { ContextUsage } from '../domain/memory';
-import { plural } from '../lib/platform';
-import { Button } from './ui/button';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuTrigger,
-} from './ui/dropdown-menu';
 
 /**
- * Calls `read` now, when the window gets focus, and when the memory or docs of the project
- * change.
+ * Calls `read` now, when `key` changes, when the window gets focus, and when the memory or docs
+ * of the project change.
  */
-function useProjectReload(api: API, groupId: string, read: () => void) {
+function useProjectReload(api: API, groupId: string, read: () => void, key = '') {
   useEffect(() => {
     read();
     const unsubscribe = api.onProjectResourceChange?.((event) => {
@@ -28,7 +18,7 @@ function useProjectReload(api: API, groupId: string, read: () => void) {
       window.removeEventListener('focus', read);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [api, groupId]);
+  }, [api, groupId, key]);
 }
 
 /** How many chats read each memory fact and each doc page of a project. */
@@ -47,96 +37,32 @@ export function useReadCounts(api: API, groupId: string) {
   return counts;
 }
 
-/** "Context: 3 facts · 1 page", or an empty text when the agent read nothing. */
-export function contextUsageLabel(usage: ContextUsage | undefined) {
-  if (!usage) return '';
-  const parts = [
-    usage.memory.length ? plural(usage.memory.length, 'fact') : '',
-    usage.docs.length ? plural(usage.docs.length, 'page') : '',
-  ].filter(Boolean);
-  return parts.length ? `Context: ${parts.join(' · ')}` : '';
-}
-
-const openKnowledge = (detail: Record<string, string>) =>
-  window.dispatchEvent(new CustomEvent('kalkidan-open-project-page', { detail }));
-
 /**
- * The facts and pages that the agent read in one chat. It shows under the last answer, with
- * its text on the edge of the message column. A click lists them; an item opens it in the
- * Knowledge tab. Nothing shows when the agent read nothing.
+ * The facts and pages that the agent read in one chat. It reads them again when the memory or
+ * the docs of the project change. Undefined while not known or when the agent read nothing.
  */
-export function ContextUsageChip({
-  api,
-  groupId,
-  agent,
-  sessionId,
-}: {
-  api: API;
-  groupId: string;
-  agent: string;
-  /** The provider session ID of the chat. */
-  sessionId: string;
-}) {
+export function useContextUsage(
+  api: API,
+  groupId: string | undefined,
+  agent: string,
+  /** The provider session ID of the chat. Empty: the chat is not saved yet. */
+  sessionId: string,
+  /** Increase it to read again, for example after a run. */
+  version = 0,
+) {
   const [usage, setUsage] = useState<ContextUsage>();
   useEffect(() => setUsage(undefined), [groupId, agent, sessionId]);
-  useProjectReload(api, `${groupId}`, () => {
-    if (typeof api.contextUsage !== 'function' || !sessionId) return;
-    void api
-      .contextUsage(groupId, agent, sessionId)
-      .then(setUsage)
-      .catch(() => setUsage(undefined));
-  });
-  const label = contextUsageLabel(usage);
-  if (!usage || !label) return null;
-  return (
-    <div className="context-usage">
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <Button variant="chip" aria-label={`${label}. Show what the agent read`}>
-            <BookOpen aria-hidden="true" />
-            {label}
-          </Button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="start" width="wide">
-          {usage.memory.length > 0 && <DropdownMenuLabel>Facts</DropdownMenuLabel>}
-          {usage.memory.map((fact) => (
-            <DropdownMenuItem
-              key={fact.id}
-              onSelect={() =>
-                openKnowledge({
-                  groupId,
-                  page: 'knowledge',
-                  section: 'memory',
-                  topic: fact.topic,
-                  factId: fact.id,
-                })
-              }
-            >
-              <Lightbulb aria-hidden="true" />
-              {fact.title || fact.topic}
-            </DropdownMenuItem>
-          ))}
-          {usage.docs.length > 0 && <DropdownMenuLabel>Pages</DropdownMenuLabel>}
-          {usage.docs.map((doc) => (
-            <DropdownMenuItem
-              key={doc.docId + (doc.heading || '')}
-              onSelect={() =>
-                openKnowledge({
-                  groupId,
-                  page: 'knowledge',
-                  section: 'pages',
-                  docId: doc.docId,
-                  ...(doc.heading ? { heading: doc.heading } : {}),
-                })
-              }
-            >
-              <FileText aria-hidden="true" />
-              {doc.title || 'Untitled'}
-              {doc.heading ? ` › ${doc.heading}` : ''}
-            </DropdownMenuItem>
-          ))}
-        </DropdownMenuContent>
-      </DropdownMenu>
-    </div>
+  useProjectReload(
+    api,
+    groupId || '',
+    () => {
+      if (!groupId || typeof api.contextUsage !== 'function' || !sessionId) return;
+      void api
+        .contextUsage(groupId, agent, sessionId)
+        .then((value) => setUsage(value.memory.length || value.docs.length ? value : undefined))
+        .catch(() => setUsage(undefined));
+    },
+    `${agent}:${sessionId}:${version}`,
   );
+  return usage;
 }

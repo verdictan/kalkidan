@@ -1,11 +1,10 @@
-import { type Page } from '@playwright/test';
+import { type Locator, type Page } from '@playwright/test';
 import {
   test,
   expect,
-  computersPage,
-  openComputersPage,
-  openPreferences,
-  preferencesDialog,
+  openSettingsWindow,
+  settingsDialog,
+  settingsSection,
   sidebar,
 } from './helpers/app';
 
@@ -125,7 +124,7 @@ async function fixture(page: Page, extra = '') {
   await page.goto('/');
 }
 
-const preferences = (page: Page) => preferencesDialog(page);
+const settings = (page: Page) => settingsDialog(page);
 
 /** Opens Settings with an app event, as other parts of the app do. */
 async function openWith(page: Page, detail: { section?: string; anchor?: string }) {
@@ -135,64 +134,67 @@ async function openWith(page: Page, detail: { section?: string; anchor?: string 
   );
 }
 
-/** Preferences shows, with its three sections as tabs. */
-async function expectPreferences(page: Page) {
-  const dialog = preferences(page);
+/** Settings shows at `section`, with General, Computers, Account and the project as tabs. */
+async function expectSection(page: Page, section: 'General' | 'Computers' | 'Account') {
+  const dialog = settings(page);
   await expect(dialog).toBeVisible();
-  const tabs = dialog.getByRole('tablist', { name: 'Preferences sections' });
-  await expect(tabs.getByRole('tab')).toHaveText(['Chats', 'Connections', 'This app']);
-}
-
-/** Opens a section of Preferences and returns its panel. */
-async function preferencesSection(page: Page, name: 'Chats' | 'Connections' | 'This app') {
-  const dialog = preferences(page);
-  await dialog.getByRole('tab', { name, exact: true }).click();
-  const panel = dialog.getByRole('tabpanel', { name, exact: true });
+  const tabs = dialog.getByRole('tablist', { name: 'Settings sections' });
+  await expect(tabs.getByRole('tab')).toHaveText(['General', 'Computers', 'Account', 'Project']);
+  await expect(settingsSection(page, section)).toHaveAttribute('aria-selected', 'true');
+  const panel = dialog.getByRole('tabpanel', { name: section, exact: true });
   await expect(panel).toBeVisible();
   return panel;
 }
 
-/** The Computers page shows, and Preferences does not. */
-async function expectComputers(page: Page) {
-  await expect(computersPage(page)).toBeVisible();
-  await expect(preferences(page)).toHaveCount(0);
+/** Opens a section of Settings and returns its panel. */
+async function openSection(page: Page, section: 'General' | 'Computers' | 'Account') {
+  await settingsSection(page, section).click();
+  return expectSection(page, section);
 }
 
-/** Closes Preferences with Escape. */
+/** The group of this computer in Settings › Computers. */
+const thisComputer = (computers: Locator) =>
+  computers.getByRole('region', { name: /^This (Mac|computer)$/ });
+
+/** Closes Settings with Escape. */
 async function close(page: Page) {
   await page.keyboard.press('Escape');
-  await expect(preferences(page)).toHaveCount(0);
+  await expect(settings(page)).toHaveCount(0);
 }
 
-test('each entry point opens Preferences or the Computers page', async ({ page }) => {
+test('each entry point opens Settings at its section', async ({ page }) => {
   await fixture(page);
-  // The account menu in the sidebar footer.
-  await openPreferences(page);
-  await expectPreferences(page);
+  // The account menu in the sidebar footer opens General.
+  await openSettingsWindow(page);
+  await expectSection(page, 'General');
   // The focus goes to the section title, so no focus ring shows on a row.
-  await expect(
-    preferences(page).getByRole('heading', { name: 'Chats', exact: true }),
-  ).toBeFocused();
-  // Escape closes Preferences and returns the focus to the account menu.
+  await expect(settings(page).getByRole('heading', { name: 'General', exact: true })).toBeFocused();
+  // Escape closes Settings and returns the focus to the account menu.
   await close(page);
   await expect(page.getByRole('button', { name: /^Account: / })).toBeFocused();
   // The menu command, for example Command-comma.
   await page.evaluate(() => (window as any).menuListeners.forEach((l: any) => l('settings')));
-  await expectPreferences(page);
+  await expectSection(page, 'General');
   await close(page);
   // An event from another part of the app, with an older section name.
   await openWith(page, { section: 'remote' });
-  await expectComputers(page);
-  // The older account section opens Preferences.
-  await openWith(page, { section: 'accounts' });
-  await expectPreferences(page);
+  await expectSection(page, 'Computers');
   await close(page);
-  // Search has one entry for Preferences and one for Computers.
+  // The older account section opens Account.
+  await openWith(page, { section: 'accounts' });
+  await expectSection(page, 'Account');
+  await close(page);
+  // Search has one entry for Settings and one for Computers.
   await page.keyboard.press('ControlOrMeta+k');
   const search = page.getByRole('combobox', { name: 'Search or run a command' });
-  await search.fill('Preferences');
-  await page.getByRole('option', { name: 'Preferences…', exact: true }).click();
-  await expectPreferences(page);
+  await search.fill('Settings');
+  await page.getByRole('option', { name: /^Settings…/ }).click();
+  await expectSection(page, 'General');
+  await close(page);
+  await page.keyboard.press('ControlOrMeta+k');
+  await search.fill('Computers');
+  await page.getByRole('option', { name: /^Computers…/ }).click();
+  await expectSection(page, 'Computers');
   await close(page);
   await page.keyboard.press('ControlOrMeta+k');
   await search.fill('Connect GitHub');
@@ -200,14 +202,10 @@ test('each entry point opens Preferences or the Computers page', async ({ page }
     .getByRole('option', { name: /Connect GitHub/ })
     .first()
     .click();
-  await expectPreferences(page);
-  // Connect GitHub opens the Connections section, which has the GitHub row.
-  await expect(preferences(page).getByRole('tab', { name: 'Connections' })).toHaveAttribute(
-    'aria-selected',
-    'true',
-  );
+  // Connect GitHub opens the Account section, which has the GitHub row.
+  const account = await expectSection(page, 'Account');
   await expect(
-    preferences(page).getByRole('group', { name: 'GitHub and boards', exact: true }),
+    account.getByRole('group', { name: 'GitHub and boards', exact: true }),
   ).toBeVisible();
   await close(page);
   // Kalkidan does not update itself. Search has no command that checks for updates.
@@ -218,42 +216,27 @@ test('each entry point opens Preferences or the Computers page', async ({ page }
 
 test('a deep link opens its place', async ({ page }) => {
   await fixture(page);
+  // A link opens when the page loads.
   await page.goto('/#settings=accounts');
-  await expectPreferences(page);
+  await page.reload();
+  await expectSection(page, 'Account');
 });
 
-test('Preferences, the account menu and the Computers page show their content', async ({
-  page,
-}) => {
+test('Settings and the account menu show their content', async ({ page }) => {
   await fixture(page);
-  const settings = await openPreferences(page);
+  await openSettingsWindow(page);
 
-  // Chats: the access of new chats and Enter to send. Chats is the first section.
-  await expect(settings.getByRole('tab', { name: 'Chats' })).toHaveAttribute(
-    'aria-selected',
-    'true',
-  );
-  const chats = settings.getByRole('tabpanel', { name: 'Chats', exact: true });
-  const access = chats.getByRole('group', { name: 'New chats start as' }).last();
+  // General: the access of new chats, Enter to send, the built-in browser, your data and the
+  // version. General is the first section.
+  const general = await expectSection(page, 'General');
+  const access = general.getByRole('group', { name: 'New chats start as' }).last();
   await expect(access.getByRole('button', { name: 'Read only' })).toBeVisible();
   await expect(access.getByRole('button', { name: 'Can edit files' })).toBeVisible();
-  await expect(chats.getByRole('switch', { name: 'Enter sends the message' })).toBeVisible();
-  // Connections: the region, GitHub, and a link to the Computers page.
-  const connections = await preferencesSection(page, 'Connections');
-  await expect(connections.getByRole('group', { name: 'Region', exact: true })).toContainText(
-    'European Union',
-  );
-  await expect(connections.getByRole('button', { name: 'Change the region' })).toBeVisible();
-  await expect(
-    connections.getByRole('group', { name: 'GitHub and boards', exact: true }),
-  ).toContainText('Boards not allowed');
-  await expect(connections.getByRole('button', { name: 'Open Computers' })).toBeVisible();
-  // This app: the built-in browser, your data and the version.
-  const app = await preferencesSection(page, 'This app');
-  await expect(app.getByRole('group', { name: 'Built-in browser data' })).toBeVisible();
-  await expect(app.getByRole('group', { name: 'Your data' })).toBeVisible();
-  await expect(app.getByTestId('settings-version')).toHaveText('Kalkidan 0.1.0');
-  const version = app.getByRole('group', { name: 'Kalkidan 0.1.0' });
+  await expect(general.getByRole('switch', { name: 'Enter sends', exact: true })).toBeVisible();
+  await expect(general.getByRole('group', { name: 'Built-in browser', exact: true })).toBeVisible();
+  await expect(general.getByRole('group', { name: 'Your data' })).toBeVisible();
+  await expect(general.getByTestId('settings-version')).toHaveText('Kalkidan 0.1.0');
+  const version = general.getByRole('group', { name: 'Kalkidan 0.1.0' });
   // The help shows only the build. The update command is on the release page.
   await expect(version).toContainText('Build ccccccc');
   await expect(version).not.toContainText('brew');
@@ -262,15 +245,81 @@ test('Preferences, the account menu and the Computers page show their content', 
     'href',
     'https://github.com/verdictan/packages/releases?q=kalkidan',
   );
-  // The account is in the account menu. There is no Renew session button and no Advanced fold.
-  await expect(settings.getByRole('button', { name: 'Sign out' })).toHaveCount(0);
-  await expect(settings.getByRole('button', { name: 'Renew session' })).toHaveCount(0);
-  await expect(settings.getByRole('button', { name: 'Advanced', exact: true })).toHaveCount(0);
-  await page.screenshot({ path: 'test-results/settings-preferences.png', fullPage: true });
+  // The support bundle opens from General. There is no Advanced fold.
+  await expect(
+    general
+      .getByRole('group', { name: 'Diagnostics', exact: true })
+      .getByRole('button', { name: 'Support bundle…' }),
+  ).toBeVisible();
+  await expect(settings(page).getByRole('button', { name: 'Advanced', exact: true })).toHaveCount(
+    0,
+  );
+
+  // Account: the account with Sign out, the region and GitHub. No Renew session button.
+  const account = await openSection(page, 'Account');
+  await expect(account.getByRole('group', { name: 'Signed in', exact: true })).toContainText(
+    'Acme Corp',
+  );
+  await expect(account.getByRole('button', { name: 'Sign out' })).toBeVisible();
+  await expect(account.getByRole('button', { name: 'Renew session' })).toHaveCount(0);
+  await expect(account.getByRole('group', { name: 'Region', exact: true })).toContainText(
+    'European Union',
+  );
+  await expect(account.getByRole('button', { name: 'Change the region' })).toBeVisible();
+  await expect(
+    account.getByRole('group', { name: 'GitHub and boards', exact: true }),
+  ).toContainText('Boards not allowed');
+  await page.screenshot({ path: 'test-results/settings-account.png', fullPage: true });
+
+  // Computers: one row for each agent of this computer, and a group for each SSH host.
+  const computers = await openSection(page, 'Computers');
+  const local = thisComputer(computers);
+  // A ready Kalkidan service updates by itself, so it has no row.
+  await expect(local.getByRole('group', { name: 'Kalkidan service' })).toHaveCount(0);
+  const codex = local.getByRole('group', { name: 'Codex', exact: true });
+  await expect(codex.getByRole('status')).toHaveText('Ready');
+  await expect(codex).toContainText('0.163.0');
+  // Only a row that needs the user has a button. Claude Code has no organization setup yet.
+  await expect(codex.getByRole('button')).toHaveCount(0);
+  const claude = local.getByRole('group', { name: 'Claude Code', exact: true });
+  await expect(claude).toContainText('2.1.306');
+  await expect(claude.getByRole('button', { name: 'Set up', exact: true })).toBeVisible();
+  // The organization setup is a quiet button at the end.
+  await expect(computers.getByRole('button', { name: 'Organization setup…' })).toBeVisible();
+  // Each host is a group named after the host, with one row named after its SSH target.
+  const devbox = computers
+    .getByRole('region', { name: 'devbox', exact: true })
+    .getByRole('group', { name: 'u@devbox', exact: true });
+  await expect(devbox.getByRole('status')).toHaveText('Connected');
+  await expect(devbox).toContainText('linux · Node.js v22.3.0');
+  // A ready runtime on a host needs no line.
+  await expect(devbox).not.toContainText('Managed agents');
+  const buildbox = computers
+    .getByRole('region', { name: 'buildbox', exact: true })
+    .getByRole('group', { name: 'u@buildbox', exact: true });
+  await expect(buildbox.getByRole('button', { name: 'Reconnect' })).toBeVisible();
+  // "Add SSH host" opens the field in place. Escape closes the field, not Settings.
+  await computers.getByRole('button', { name: 'Add SSH host' }).click();
+  const add = computers.getByRole('form', { name: 'Add SSH host' });
+  await expect(add.getByRole('textbox', { name: 'SSH target' })).toBeFocused();
+  await page.keyboard.press('Escape');
+  await expect(add).toHaveCount(0);
+  await expect(settings(page)).toBeVisible();
+  // The developer details are in one Details fold.
+  await computers.getByRole('button', { name: 'Details', exact: true }).click();
+  await expect(computers.getByRole('group', { name: 'Helper on devbox' })).toContainText(
+    'Version 1.4.0',
+  );
+  await expect(
+    computers
+      .getByRole('group', { name: 'Coding agent programs', exact: true })
+      .getByRole('button', { name: 'Programs…' }),
+  ).toBeVisible();
+  await page.screenshot({ path: 'test-results/settings-computers.png', fullPage: true });
   await close(page);
 
-  // The account menu: the organization and region, help, and Sign out. Kalkidan is light only,
-  // so the menu has no theme items.
+  // The account menu: the organization and region, Settings, help, and Sign out. Kalkidan is
+  // light only, so the menu has no theme items. The menu holds only actions.
   await sidebar(page)
     .getByRole('button', { name: /^Account: / })
     .click();
@@ -278,55 +327,19 @@ test('Preferences, the account menu and the Computers page show their content', 
   await expect(menu).toContainText('Acme Corp · European Union');
   await expect(menu.getByRole('menuitemradio')).toHaveCount(0);
   await expect(menu).not.toContainText('Theme');
+  await expect(menu.getByRole('menuitem', { name: /^Settings…/ })).toBeVisible();
   await expect(menu.getByRole('menuitem', { name: /Help and feedback/ })).toBeVisible();
   await expect(menu.getByRole('menuitem', { name: /Sign out/ })).toBeVisible();
-  // Keyboard shortcuts open with ⌘/ and from ⌘K, not from the account menu.
-  await expect(menu.getByRole('menuitem', { name: /Keyboard shortcuts/ })).toHaveCount(0);
+  for (const gone of [/Keyboard shortcuts/, /Notifications/, /Diagnostics/, /Get started/])
+    await expect(menu.getByRole('menuitem', { name: gone })).toHaveCount(0);
   await page.keyboard.press('Escape');
-
-  // Computers: this computer, one row for each agent, and the SSH hosts.
-  const computers = await openComputersPage(page);
-  const local = computers
-    .getByRole('region', { name: 'This computer', exact: true })
-    .getByRole('group', { name: 'Managed agents', exact: true });
-  await expect(local).toContainText('Managed agents 0.6.4 · Updates automatically');
-  await expect(local.getByRole('status')).toHaveText('Ready');
-  const codex = computers.getByRole('group', { name: 'Codex', exact: true });
-  await expect(codex.getByRole('status')).toHaveText('Ready');
-  await expect(codex).toContainText('Version 0.163.0 · gpt-5');
-  await expect(codex.getByRole('button', { name: 'Locate the Codex program' })).toBeVisible();
-  const claude = computers.getByRole('group', { name: 'Claude Code', exact: true });
-  await expect(claude.getByRole('status')).toHaveText('Needs setup');
-  // One Organization setup row holds the setup of both agents.
-  const organization = computers.getByRole('group', { name: 'Organization setup', exact: true });
-  await expect(organization).toContainText('Codex: Platform · Strict');
-  await expect(organization).toContainText('Claude Code: Not chosen');
-  await expect(organization.getByRole('button', { name: 'Set up…' })).toBeVisible();
-  const devbox = computers.getByRole('group', { name: 'devbox', exact: true });
-  await expect(devbox).toContainText('Connected');
-  await expect(devbox).toContainText('u@devbox · linux · Node.js v22.3.0');
-  // A host checks its managed runtime each time it connects.
-  await expect(devbox).toContainText(
-    'Managed agents 0.6.4 · Checked for updates when it connected',
-  );
-  const buildbox = computers.getByRole('group', { name: 'buildbox', exact: true });
-  await expect(buildbox.getByRole('button', { name: 'Reconnect' })).toBeVisible();
-  // The field that adds a host always shows.
-  const add = computers.getByRole('form', { name: 'Add host' });
-  await expect(add.getByRole('textbox', { name: 'SSH target' })).toBeVisible();
-  // The developer details are in one Details fold.
-  await computers.getByRole('button', { name: 'Details', exact: true }).click();
-  await expect(computers.getByRole('group', { name: 'Helper on devbox' })).toContainText(
-    'Version 1.4.0',
-  );
-  await page.screenshot({ path: 'test-results/settings-computers.png', fullPage: true });
 });
 
 test('the menu of a host opens its agent programs', async ({ page }) => {
   await fixture(page);
-  const computers = await openComputersPage(page);
+  const computers = await openSettingsWindow(page, 'Computers');
   await computers
-    .getByRole('group', { name: 'devbox', exact: true })
+    .getByRole('group', { name: 'u@devbox', exact: true })
     .getByRole('button', { name: 'Actions for devbox' })
     .click();
   await page.getByRole('menuitem', { name: 'Coding agent programs…' }).click();
@@ -334,10 +347,11 @@ test('the menu of a host opens its agent programs', async ({ page }) => {
   await expect(
     programs.getByRole('list', { name: 'Coding agents on devbox', exact: true }),
   ).toBeVisible();
-  // The dialog has no Done button. Escape closes it.
+  // The dialog has no Done button. Escape closes it and keeps Settings open.
   await expect(programs.getByRole('button', { name: 'Done', exact: true })).toHaveCount(0);
   await page.keyboard.press('Escape');
   await expect(programs).toHaveCount(0);
+  await expect(settings(page)).toBeVisible();
 });
 
 test('a link to the runtime opens Computers at this computer', async ({ page }) => {
@@ -354,22 +368,26 @@ test('a link to the runtime opens Computers at this computer', async ({ page }) 
       }),
     };`,
   );
-  // A link to the runtime of this computer focuses its row.
+  // A link to the runtime of this computer focuses the Kalkidan service row. The row shows,
+  // because the service is not installed.
   await openWith(page, { section: 'managed-agents', anchor: 'verdictan-runtime' });
-  await expectComputers(page);
-  const local = computersPage(page).locator('#computer-local');
+  const computers = await expectSection(page, 'Computers');
+  const local = computers.locator('#computer-local');
   await expect(local).toBeFocused();
+  await expect(local).toContainText('Kalkidan service');
   await expect(local).toContainText('Not installed');
 });
 
 test('the older Updates section and deep link open Computers', async ({ page }) => {
   await fixture(page);
   await openWith(page, { section: 'updates' });
-  await expectComputers(page);
-  // The runtime of this computer is in its row, so the row gets the focus.
-  await expect(computersPage(page).locator('#computer-local')).toBeFocused();
+  const computers = await expectSection(page, 'Computers');
+  // A ready runtime has no row, so the group of this computer gets the focus.
+  await expect(thisComputer(computers).getByRole('heading')).toBeFocused();
+  await close(page);
   await page.goto('/#settings=updates');
-  await expectComputers(page);
+  await page.reload();
+  await expectSection(page, 'Computers');
 });
 
 test('a helper update shows on the host row, and its link focuses the host menu', async ({
@@ -399,9 +417,8 @@ test('a helper update shows on the host row, and its link focuses the host menu'
   );
   // The update link of a host opens Computers at the menu of that host.
   await openWith(page, { anchor: 'helper-update-h1' });
-  await expectComputers(page);
-  const computers = computersPage(page);
-  const devbox = computers.getByRole('group', { name: 'devbox', exact: true });
+  const computers = await expectSection(page, 'Computers');
+  const devbox = computers.getByRole('group', { name: 'u@devbox', exact: true });
   await expect(devbox).toContainText('Update available');
   const menu = devbox.getByRole('button', { name: 'Actions for devbox' });
   await expect(menu).toBeFocused();
@@ -412,7 +429,7 @@ test('a helper update shows on the host row, and its link focuses the host menu'
   await confirm.getByRole('button', { name: 'Update helper' }).click();
   await expect.poll(() => page.evaluate(() => (window as any).installs)).toEqual(['h1']);
   // A host without an update does not show the update.
-  await expect(computers.getByRole('group', { name: 'buildbox', exact: true })).not.toContainText(
+  await expect(computers.getByRole('group', { name: 'u@buildbox', exact: true })).not.toContainText(
     'Update available',
   );
 });
@@ -420,13 +437,12 @@ test('a helper update shows on the host row, and its link focuses the host menu'
 test('a refusal link opens Computers with the row of that agent focused', async ({ page }) => {
   await fixture(page);
   await openWith(page, { section: 'agents', anchor: 'agent-program-local-claude' });
-  await expectComputers(page);
-  await expect(
-    computersPage(page).getByRole('group', { name: 'Claude Code', exact: true }),
-  ).toBeFocused();
-  // The older account step opens Preferences while the user is signed in.
+  const computers = await expectSection(page, 'Computers');
+  await expect(computers.getByRole('group', { name: 'Claude Code', exact: true })).toBeFocused();
+  await close(page);
+  // The older account step opens Account while the user is signed in.
   await openWith(page, { section: 'managed-agents', anchor: 'verdictan-account' });
-  await expectPreferences(page);
+  await expectSection(page, 'Account');
 });
 
 test('a managed setup choice saves at once and Undo restores the choice before', async ({
@@ -459,37 +475,33 @@ test('a managed setup choice saves at once and Undo restores the choice before',
     .toEqual(['gpt-5-mini', 'gpt-5']);
   await expect(model).toContainText('GPT-5');
   await expect(model).not.toContainText('mini');
-  // The dialog closes, and the Computers page shows with the Organization setup row.
+  // The dialog closes, and Settings › Computers shows. Codex is still ready.
   await page.keyboard.press('Escape');
   await expect(dialog).toHaveCount(0);
-  await expectComputers(page);
+  const computers = await expectSection(page, 'Computers');
   await expect(
-    computersPage(page).getByRole('group', { name: 'Organization setup', exact: true }),
-  ).toContainText('Codex: Platform · Strict');
+    computers.getByRole('group', { name: 'Codex', exact: true }).getByRole('status'),
+  ).toHaveText('Ready');
 });
 
-test('Preferences shows only the build of a development build', async ({ page }) => {
+test('General shows only the build of a development build', async ({ page }) => {
   await fixture(
     page,
     `return {
       appVersion: async () => ({ version: '0.1.0', build: 'c'.repeat(64), packaged: false }),
     };`,
   );
+  // The older About section opens General, which has the version.
   await openWith(page, { section: 'about' });
-  await expectPreferences(page);
-  const settings = preferences(page);
-  await expect(settings.getByTestId('settings-version')).toHaveText('Kalkidan 0.1.0');
-  // The version opens the This app section. The help shows only the build (ST-7).
-  await expect(settings.getByRole('tab', { name: 'This app' })).toHaveAttribute(
-    'aria-selected',
-    'true',
-  );
+  const general = await expectSection(page, 'General');
+  await expect(general.getByTestId('settings-version')).toHaveText('Kalkidan 0.1.0');
+  // The help shows only the build.
   await expect(
-    settings.getByRole('group', { name: 'Kalkidan 0.1.0' }).locator('.settings-row-help'),
+    general.getByRole('group', { name: 'Kalkidan 0.1.0' }).locator('.settings-row-help'),
   ).toHaveText('Build ccccccc');
-  // Kalkidan does not update itself. Preferences has no update button and no download.
-  await expect(settings.getByRole('button', { name: /update|download|restart/i })).toHaveCount(0);
-  await expect(settings.getByRole('link', { name: /Check for updates/ })).toBeVisible();
+  // Kalkidan does not update itself. General has no update button and no download.
+  await expect(general.getByRole('button', { name: /update|download|restart/i })).toHaveCount(0);
+  await expect(general.getByRole('link', { name: /Check for updates/ })).toBeVisible();
 });
 
 test('Computers adds a host and checks it at once', async ({ page }) => {
@@ -509,10 +521,13 @@ test('Computers adds a host and checks it at once', async ({ page }) => {
     };`,
   );
   await openWith(page, { section: 'computers' });
-  const computers = computersPage(page);
-  const form = computers.getByRole('form', { name: 'Add host' });
+  const computers = await expectSection(page, 'Computers');
+  await computers.getByRole('button', { name: 'Add SSH host' }).click();
+  const form = computers.getByRole('form', { name: 'Add SSH host' });
+  // Add is off until the field has a target.
+  await expect(form.getByRole('button', { name: 'Add', exact: true })).toBeDisabled();
   await form.getByRole('textbox', { name: 'SSH target' }).fill('u@staging');
-  await form.getByRole('button', { name: 'Add host' }).click();
+  await form.getByRole('button', { name: 'Add', exact: true }).click();
   // The new row checks the connection. The helper is missing. The user agrees to install it.
   const row = computers.getByRole('group', { name: 'u@staging', exact: true });
   await expect(row).toBeVisible();
@@ -522,7 +537,9 @@ test('Computers adds a host and checks it at once', async ({ page }) => {
     ['add', 'u@staging', 'u@staging'],
     ['check', 'h9'],
   ]);
-  await expect(form.getByRole('textbox', { name: 'SSH target' })).toHaveValue('');
+  // The field closes after the host is added.
+  await expect(form).toHaveCount(0);
+  await expect(computers.getByRole('button', { name: 'Add SSH host' })).toBeVisible();
 });
 
 /** The size of the content that goes past the right edge of `selector`. */
@@ -540,37 +557,34 @@ async function overflowOf(page: Page, selector: string) {
   });
 }
 
-test('Preferences and Computers do not overflow horizontally in a narrow window', async ({
-  page,
-}) => {
+test('Settings does not overflow horizontally in a narrow window', async ({ page }) => {
   await page.setViewportSize({ width: 820, height: 760 });
   await fixture(page);
   // Below 900px wide, the sidebar starts closed. Open it to reach the account menu.
   await page.getByRole('button', { name: 'Toggle sidebar', exact: true }).click();
-  await openPreferences(page);
+  await openSettingsWindow(page);
   // Let the rows read their data.
   await page.waitForTimeout(300);
-  for (const section of ['Chats', 'Connections', 'This app'] as const) {
-    await preferencesSection(page, section);
-    expect(await overflowOf(page, '.preferences-dialog'), `Preferences › ${section}`).toEqual({
+  for (const section of ['General', 'Account', 'Computers'] as const) {
+    const panel = await openSection(page, section);
+    if (section === 'Computers') {
+      await panel.getByRole('button', { name: 'Details', exact: true }).click();
+      await page.waitForTimeout(300);
+    }
+    expect(await overflowOf(page, '.one-settings'), `Settings › ${section}`).toEqual({
       scroll: 0,
       wide: [],
     });
   }
-  await close(page);
-  const computers = await openComputersPage(page);
-  await computers.getByRole('button', { name: 'Details', exact: true }).click();
-  await page.waitForTimeout(300);
-  expect(await overflowOf(page, '.computers-page'), 'Computers').toEqual({ scroll: 0, wide: [] });
   // The organization setup is in a dialog.
-  await computers
-    .getByRole('group', { name: 'Organization setup', exact: true })
-    .getByRole('button', { name: 'Set up…' })
-    .click();
+  await settings(page).getByRole('button', { name: 'Organization setup…' }).click();
   const setup = page.getByRole('dialog', { name: 'Organization setup', exact: true });
   await expect(setup.getByRole('group', { name: 'Agent' })).toBeVisible();
   await page.waitForTimeout(300);
-  expect(await overflowOf(page, '[data-slot="dialog-content"]'), 'Organization setup').toEqual({
+  expect(
+    await overflowOf(page, '[data-slot="dialog-content"]:not(.one-settings)'),
+    'Organization setup',
+  ).toEqual({
     scroll: 0,
     wide: [],
   });

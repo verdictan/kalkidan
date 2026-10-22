@@ -112,11 +112,11 @@ async function closeDialog(page: Page, dialog: Locator) {
 
 test('the Computers page shows the agent programs of each computer', async ({ page }) => {
   const settings = await installWorkspace(page);
-  // "Locate…" in the agent row shows the program of that agent on this computer.
-  const localRow = settings.getByRole('group', { name: 'Claude Code', exact: true });
-  await localRow.getByRole('button', { name: 'Locate the Claude Code program' }).click();
+  // Details › "Programs…" shows the agent programs of this computer.
+  await settings.getByRole('button', { name: 'Details', exact: true }).click();
+  await settings.getByRole('button', { name: 'Programs…', exact: true }).click();
   const localPrograms = page.getByRole('dialog', {
-    name: 'Claude Code on this computer',
+    name: 'Coding agent programs on this computer',
     exact: true,
   });
   const local = localPrograms.getByRole('list', { name: 'Coding agents on this computer' });

@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
 import {
-  Activity,
   BookOpen,
   ChevronsUpDown,
   CircleAlert,
@@ -9,28 +8,20 @@ import {
   LogOut,
   Settings2,
   UserRound,
-  BellRing,
 } from 'lucide-react';
 import type { API } from '../api/contracts';
-import {
-  keychainHostsMessage,
-  keychainRefusedCode,
-  type NotificationPreferences,
-} from '../domain/verdictan';
+import { keychainHostsMessage, keychainRefusedCode } from '../domain/verdictan';
 import { accountNames, verdictanErrorMessage } from '../lib/verdictan-labels';
 import { regionNames } from '../lib/region-suggestion';
 import { shortcutLabel } from '../lib/platform';
 import { cn } from '../lib/utils';
 import { useVerdictanStatus } from '../hooks/use-verdictan-status';
 import { userGuideUrl } from './about-section';
-import { openDiagnostics } from './diagnostics-section';
-import { GetStartedMenuItem } from './onboarding';
-import { Hint } from './hint';
+import { useComputersAttention } from './settings-attention';
 import { Button } from './ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from './ui/dialog';
 import {
   DropdownMenu,
-  DropdownMenuCheckboxItem,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuLabel,
@@ -38,7 +29,7 @@ import {
   DropdownMenuShortcut,
   DropdownMenuTrigger,
 } from './ui/dropdown-menu';
-import { Switch } from './ui/switch';
+import { StatusDot } from './ui/status-dot';
 import { showToast } from './ui/toast';
 import { openSettings, SignInSteps, startSignIn, type SignInIntent } from './sign-in-steps';
 import { checkStatusEvent } from './chat-links';
@@ -55,82 +46,36 @@ export function initials(name: string | undefined) {
   return letters.toUpperCase();
 }
 
-function Avatar({ text, className }: { text: string; className?: string }) {
+/** The avatar. `attention` adds an amber dot: something in Settings needs the user. */
+function Avatar({
+  text,
+  className,
+  attention = false,
+}: {
+  text: string;
+  className?: string;
+  attention?: boolean;
+}) {
   return (
     <span className={cn('account-menu-avatar', className)} aria-hidden="true">
       {text || <UserRound />}
+      {attention && <span className="account-menu-attention" />}
     </span>
   );
 }
 
 /**
- * The one notification switch: "Tell me when an agent finishes or needs me". The desktop keeps
- * two flags (finished and needs input). The switch sets both.
+ * The items that every account menu shows: Settings and help. The menu holds only
+ * actions. The settings, also notifications and Computers, are in Settings.
  */
-function NotificationItem({ api, open }: { api: API; open: boolean }) {
-  const [preferences, setPreferences] = useState<NotificationPreferences>();
-  useEffect(() => {
-    if (!open || typeof api.notificationPreferences !== 'function') return;
-    void Promise.resolve()
-      .then(() => api.notificationPreferences())
-      .then(setPreferences, () => {});
-  }, [api, open]);
-  if (!preferences) return null;
-  const on = preferences.finished || preferences.needsInput;
-  async function toggle() {
-    if (!preferences) return;
-    const before = preferences;
-    const next = { ...preferences, finished: !on, needsInput: !on };
-    setPreferences(next);
-    try {
-      setPreferences(await api.setNotificationPreferences(next));
-    } catch {
-      setPreferences(before);
-      showToast({ message: 'Could not save the notification setting.', tone: 'error' });
-    }
-  }
-  return (
-    <Hint label="Tell me when an agent finishes or needs me. Only when Kalkidan is in the background.">
-      <DropdownMenuCheckboxItem
-        checked={on}
-        // The switch shows the state. The check mark of the item does not show.
-        indicator={false}
-        className="account-menu-switch-item"
-        aria-label="Tell me when an agent finishes or needs me"
-        onSelect={(event) => {
-          event.preventDefault();
-          void toggle();
-        }}
-      >
-        <BellRing className="size-4" />
-        Notifications
-        <Switch
-          checked={on}
-          tabIndex={-1}
-          aria-hidden="true"
-          className="pointer-events-none ml-auto"
-        />
-      </DropdownMenuCheckboxItem>
-    </Hint>
-  );
-}
-
-/**
- * The items that every account menu shows: Preferences, diagnostics and help. Computers is in
- * the sidebar, so the menu does not repeat it.
- */
-function AppItems() {
+function AppItems({ attention }: { attention: boolean }) {
   return (
     <>
-      <GetStartedMenuItem />
-      <DropdownMenuItem onSelect={() => openSettings()}>
+      <DropdownMenuItem onSelect={() => openSettings(attention ? 'computers' : undefined)}>
         <Settings2 className="size-4" />
-        Preferences…
+        Settings…
+        {attention && <StatusDot tone="warning" size="sm" label="Needs attention" />}
         <DropdownMenuShortcut>{shortcutLabel(['mod'], ',')}</DropdownMenuShortcut>
-      </DropdownMenuItem>
-      <DropdownMenuItem onSelect={openDiagnostics}>
-        <Activity className="size-4" />
-        Diagnostics
       </DropdownMenuItem>
       <DropdownMenuItem asChild>
         <a href={userGuideUrl} target="_blank" rel="noreferrer">
@@ -157,11 +102,14 @@ function useMenuOpen() {
 /**
  * The account row in the sidebar footer: one 48px trigger that fills the row, in both states.
  * Signed in, it shows the initials, the name and the organization, and opens the account menu:
- * notifications, Preferences, help, and Sign out. Signed out, it shows "Sign in", and the same
- * menu starts with "Sign in".
+ * Settings…, help, and Sign out. Signed out, it shows "Sign in", and the same menu
+ * starts with "Sign in". When something in Settings › Computers needs the user, for example an
+ * old Claude Code, the avatar and "Settings…" show an amber dot.
  */
 export function AccountMenu({ api }: { api: API }) {
   const { status, supported } = useVerdictanStatus(api);
+  const attention = useComputersAttention(api);
+  const attentionText = attention ? ', something needs your attention' : '';
   const names = accountNames(status);
   const signedIn = status?.phase === 'authenticated';
   const [signingOut, setSigningOut] = useState(false);
@@ -195,9 +143,11 @@ export function AccountMenu({ api }: { api: API }) {
             <button
               type="button"
               className="account-menu-trigger row-focus"
-              aria-label={supported ? `${label}, Preferences and help` : 'Preferences and help'}
+              aria-label={
+                (supported ? `${label}, Settings and help` : 'Settings and help') + attentionText
+              }
             >
-              <Avatar text="" className="account-menu-avatar-empty" />
+              <Avatar text="" className="account-menu-avatar-empty" attention={attention} />
               <span className="min-w-0 flex-1 truncate text-left text-sm font-medium">{label}</span>
               <ChevronsUpDown
                 className="size-4 shrink-0 text-muted-foreground"
@@ -220,9 +170,7 @@ export function AccountMenu({ api }: { api: API }) {
                 <DropdownMenuSeparator />
               </>
             )}
-            <NotificationItem api={api} open={open} />
-            <DropdownMenuSeparator />
-            <AppItems />
+            <AppItems attention={attention} />
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
@@ -239,9 +187,9 @@ export function AccountMenu({ api }: { api: API }) {
           <button
             type="button"
             className="account-menu-trigger row-focus"
-            aria-label={`Account: ${name}${names.organization ? `, ${names.organization}` : ''}`}
+            aria-label={`Account: ${name}${names.organization ? `, ${names.organization}` : ''}${attentionText}`}
           >
-            <Avatar text={avatar} />
+            <Avatar text={avatar} attention={attention} />
             <span className="min-w-0 flex-1 text-left">
               <span className="block truncate text-sm leading-4 font-medium">{name}</span>
               <span className="block truncate text-xs leading-4 text-muted-foreground">
@@ -268,9 +216,7 @@ export function AccountMenu({ api }: { api: API }) {
             </span>
           </DropdownMenuLabel>
           <DropdownMenuSeparator />
-          <NotificationItem api={api} open={open} />
-          <DropdownMenuSeparator />
-          <AppItems />
+          <AppItems attention={attention} />
           <DropdownMenuSeparator />
           {typeof api.verdictanOpenConsole === 'function' && (
             <DropdownMenuItem

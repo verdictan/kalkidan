@@ -50,10 +50,7 @@ const setupDialog = (page: Page) =>
  */
 async function openSetup(page: Page, agent: 'Codex' | 'Claude Code' = 'Codex') {
   const computers = await openComputersPage(page);
-  await computers
-    .getByRole('group', { name: 'Organization setup', exact: true })
-    .getByRole('button', { name: /^(Set up|Change)…$/ })
-    .click();
+  await computers.getByRole('button', { name: 'Organization setup…', exact: true }).click();
   const dialog = setupDialog(page);
   await expect(dialog).toBeVisible();
   const tab = dialog.getByRole('button', { name: agent, exact: true });
@@ -243,15 +240,21 @@ test('a launch block link opens the Computers page at the exact managed setup st
   await expect(dialog).not.toContainText('11111111-1111');
   await page.keyboard.press('Escape');
   await expect(dialog).toHaveCount(0);
-  // The dialog opens from the one "Organization setup" row, which holds the link anchor.
+  // The dialog opens from the one "Organization setup…" button, which holds the link anchor.
+  // The agent rows that need the setup have "Set up".
   const settings = computersPage(page);
-  const row = settings.locator('#managed-agent-setup');
-  await expect(row).toHaveAccessibleName('Organization setup');
-  await expect(row).toContainText('Needs setup');
-  await expect(row).toContainText('Codex: Not chosen');
+  const link = settings.locator('#managed-agent-setup');
+  await expect(link).toHaveAccessibleName('Organization setup…');
+  await expect(
+    settings
+      .getByRole('group', { name: 'Codex', exact: true })
+      .getByRole('button', { name: 'Set up', exact: true }),
+  ).toBeVisible();
+  await expect(settings).not.toContainText('11111111-1111');
+  await page.keyboard.press('Escape');
+  await expect(settings).toHaveCount(0);
   // Without a service name the account has a generic label. IDs never show.
   const account = sidebar(page).locator('.account-menu');
   await expect(account).toContainText('Verdictan');
   await expect(account).not.toContainText('11111111-1111');
-  await expect(settings).not.toContainText('11111111-1111');
 });

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { BarChart3, MessageSquare } from 'lucide-react';
-import type { API, Session } from '../types';
+import type { API, Project, ProjectGroup, Session } from '../types';
 import {
   projectUsageLimits,
   summarizeProjectUsage,
@@ -14,10 +14,12 @@ import { managedErrorInfo } from '../domain/verdictan';
 import { errorMessage } from '../lib/errors';
 import { plural } from '../lib/platform';
 import { fullTime, relativeTime } from '../lib/relative-time';
+import { sessionRepo } from '../lib/session-repository';
 import { openChat } from './planning-kit';
 import { AgentIcon } from './ui/agent-icon';
 import { Button } from './ui/button';
 import { EmptyState } from './ui/empty-state';
+import { Dialog, DialogBody, DialogContent, DialogHeader, DialogTitle } from './ui/dialog';
 
 const count = (value: number) => value.toLocaleString('en-US');
 function tokenText(tokens: UsageTokens) {
@@ -367,5 +369,119 @@ export function ProjectUsageInsights({
         </>
       )}
     </section>
+  );
+}
+
+/** The window event that opens the Usage sheet of a project. detail: { groupId, taskId? }. */
+export const openProjectUsageEvent = 'kalkidan-open-project-usage';
+
+/** Opens the Usage sheet of a project. The shell mounts one ProjectUsageSheetHost. */
+export function openProjectUsage(groupId: string, taskId?: string) {
+  window.dispatchEvent(new CustomEvent(openProjectUsageEvent, { detail: { groupId, taskId } }));
+}
+
+/** The chats of a project: the chats in one of its code folders. */
+function projectChats(group: ProjectGroup, sessions: Session[], repos: Project[]) {
+  const own = repos.filter((repo) => group.repoIds.includes(repo.id));
+  return sessions.filter((session) => !!sessionRepo(session, own));
+}
+
+/**
+ * The Usage sheet of a project: the managed-agent usage of its chats. It opens from the project
+ * menu and from ⌘K.
+ */
+export function ProjectUsageSheet({
+  api,
+  group,
+  open,
+  onOpenChange,
+  sessions: sessionsProp,
+  repos: reposProp,
+}: {
+  api: API;
+  group: ProjectGroup;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  /** The chats of the app. The sheet keeps the chats of this project. */
+  sessions?: Session[];
+  /** The code folders of the app. Without them, the sheet reads them once. */
+  repos?: Project[];
+}) {
+  const [loaded, setLoaded] = useState<{ sessions: Session[]; projects: Project[] }>();
+  const needsSnapshot = open && (!sessionsProp || !reposProp);
+  useEffect(() => {
+    if (!needsSnapshot || loaded) return;
+    let live = true;
+    api
+      .snapshot()
+      .then((value) => live && setLoaded({ sessions: value.sessions, projects: value.projects }))
+      .catch(() => live && setLoaded({ sessions: [], projects: [] }));
+    return () => {
+      live = false;
+    };
+  }, [api, needsSnapshot, !!loaded]);
+  const sessions = sessionsProp || loaded?.sessions;
+  const repos = reposProp || loaded?.projects;
+  const chats = useMemo(
+    () => (sessions && repos ? projectChats(group, sessions, repos) : undefined),
+    [group, sessions, repos],
+  );
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent size="lg" layout="scroll" aria-describedby={undefined}>
+        <DialogHeader>
+          <DialogTitle>Usage</DialogTitle>
+        </DialogHeader>
+        <DialogBody>
+          {chats ? (
+            <ProjectUsageInsights api={api} groupId={group.id} sessions={chats} />
+          ) : (
+            <p className="form-help m-0">Loading the usage…</p>
+          )}
+        </DialogBody>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/**
+ * Shows the Usage sheet when a `kalkidan-open-project-usage` event names a project. The shell
+ * mounts it once.
+ */
+export function ProjectUsageSheetHost({
+  api,
+  groups,
+  sessions,
+  repos,
+}: {
+  api: API;
+  groups: ProjectGroup[];
+  sessions?: Session[];
+  repos?: Project[];
+}) {
+  const [groupId, setGroupId] = useState('');
+  const [open, setOpen] = useState(false);
+  useEffect(() => {
+    const show = (event: Event) => {
+      const detail = (event as CustomEvent<{ groupId?: unknown }>).detail;
+      if (typeof detail?.groupId !== 'string') return;
+      setGroupId(detail.groupId);
+      setOpen(true);
+    };
+    window.addEventListener(openProjectUsageEvent, show);
+    return () => window.removeEventListener(openProjectUsageEvent, show);
+  }, []);
+  const group = groups.find((value) => value.id === groupId);
+  if (!group) return null;
+  return (
+    <ProjectUsageSheet
+      key={group.id}
+      api={api}
+      group={group}
+      open={open}
+      onOpenChange={setOpen}
+      sessions={sessions}
+      repos={repos}
+    />
   );
 }

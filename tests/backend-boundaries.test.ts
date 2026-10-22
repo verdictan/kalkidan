@@ -135,6 +135,8 @@ test('preload exposes only explicit IPC functions and removes event subscription
           api = value;
         },
       },
+      // The one helper that is not IPC: the path of a file dropped on the window.
+      webUtils: { getPathForFile: (file: { path: string }) => file.path },
       ipcRenderer: {
         invoke: (channel: string, ...args: unknown[]) => {
           calls.push([channel, args]);
@@ -149,8 +151,9 @@ test('preload exposes only explicit IPC functions and removes event subscription
     },
   })(source('preload'));
   assert.equal(typeof api.memoryList, 'function');
+  assert.equal(api.pathForFile({ path: '/code/atlas' }), '/code/atlas');
   for (const [name, fn] of Object.entries(api)) {
-    if (name.startsWith('on')) continue;
+    if (name.startsWith('on') || name === 'pathForFile') continue;
     assert.equal(await (fn as Function)('one', 'two', 'three', 'four', 'five'), 'reply', name);
   }
   assert.ok(calls.some(([channel, args]) => channel === 'memory-list' && args[0] === 'one'));

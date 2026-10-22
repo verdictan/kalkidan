@@ -90,9 +90,9 @@ test('a proxy sign-in prompt sends the answer once, and a saved sign-in can be r
     'prompt-2',
     null,
   ]);
-  // Computers lists the saved sign-in without its password, with Remove.
+  // Settings › Computers lists the saved sign-in without its password, with Remove.
   const settings = await openSettings(page, 'Computers');
-  const saved = settings.getByRole('list', { name: 'Proxy sign-in' });
+  const saved = settings.getByRole('region', { name: 'Proxy sign-in' });
   await expect(saved).toContainText('proxy.corp.example:3128');
   await expect(saved).toContainText('dev · Saved in the secret store of this computer');
   await saved

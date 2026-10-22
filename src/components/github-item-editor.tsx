@@ -9,8 +9,13 @@ import {
   CircleCheck,
   CircleDot,
   ChevronRight,
+  Plus,
   Trash2,
 } from 'lucide-react';
+import { Popover } from 'radix-ui';
+import { projectFieldText } from '../domain/project-view';
+import { menuCollisionPadding, menuContentClass } from './ui/menu-styles';
+import { cn } from '../lib/utils';
 import type { API, TrackerBoard, TrackerItem } from '../types';
 import type { TrackerField } from '../domain/tracker';
 import type { ProjectFieldValue, ProjectItemAction } from '../domain/github-mutations';
@@ -27,7 +32,11 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
   DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from './ui/dropdown-menu';
 import { Hint } from './hint';
@@ -36,10 +45,11 @@ import { errorMessage } from '../lib/errors';
 import { timestamp } from '../lib/github-labels';
 
 /**
- * The GitHub part of the task sheet, folded under "Details": project fields, draft conversion,
- * the issue or pull request, and its relationships. The sheet itself edits the title and the
- * description. Fields save on Enter, on blur or on a choice. A failed write keeps the
- * value in the field, so the user can try again.
+ * The GitHub part of the task sheet, folded under "Details": draft conversion, the issue or pull
+ * request, and its relationships. The sheet itself edits the title and the description, and
+ * shows the project fields as pills (`FieldPills`). With `showFields`, the fields also show
+ * here. Fields save on Enter, on blur or on a choice. A failed write keeps the value in the
+ * field, so the user can try again.
  */
 export function GitHubItemEditor({
   api,
@@ -47,12 +57,14 @@ export function GitHubItemEditor({
   board,
   item,
   onSaved,
+  showFields = false,
 }: {
   api: API;
   groupId: string;
   board: TrackerBoard;
   item: TrackerItem;
   onSaved: () => Promise<unknown>;
+  showFields?: boolean;
 }) {
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
@@ -79,7 +91,7 @@ export function GitHubItemEditor({
   const act = (action: ProjectItemAction, done: string) =>
     run(() => api.trackerItemAction(groupId, item.id, action), done);
   const content = ['Issue', 'PullRequest'].includes(item.kind || '');
-  const fields = (board.fields || []).filter((field) => field.id !== board.statusField?.id);
+  const fields = showFields ? editableFields(board) : [];
   const relations = item.kind === 'Issue' && typeof api.trackerRelations === 'function' && (
     <GitHubIssueRelations
       key={item.id}
@@ -168,6 +180,298 @@ export function GitHubItemEditor({
         </section>
       </CollapsibleContent>
     </Collapsible>
+  );
+}
+
+/** The project fields that the sheet can edit: all but the status and the built-in fields. */
+export function editableFields(board: TrackerBoard) {
+  return (board.fields || []).filter(
+    (field) =>
+      field.id !== board.statusField?.id &&
+      (field.dataType in valueKeys || field.dataType === 'MULTI_SELECT'),
+  );
+}
+
+/** The choices of a single select or an iteration field, else undefined. */
+export function fieldChoices(field: TrackerField) {
+  return field.dataType === 'SINGLE_SELECT'
+    ? field.options
+    : field.dataType === 'ITERATION'
+      ? field.iterations?.map((iteration) => ({ id: iteration.id, name: iteration.title }))
+      : undefined;
+}
+
+/**
+ * The project fields of a task as pills under its title: "Sprint 14", "P1". A pill changes its
+ * value; "+" sets an empty field. A choice saves at once. Text, number and date save on Enter.
+ */
+export function FieldPills({
+  api,
+  groupId,
+  board,
+  item,
+  disabled,
+  onSaved,
+}: {
+  api: API;
+  groupId: string;
+  board: TrackerBoard;
+  item: TrackerItem;
+  disabled: boolean;
+  onSaved: () => Promise<unknown>;
+}) {
+  const [busy, setBusy] = useState(false);
+  // The text, number or date field that the "+" menu opened.
+  const [typing, setTyping] = useState<TrackerField | null>(null);
+  const fields = editableFields(board);
+  const filled = fields.filter((field) => projectFieldText(item, field));
+  const empty = fields.filter((field) => !projectFieldText(item, field));
+  async function save(field: TrackerField, value: ProjectFieldValue) {
+    if (busy) return false;
+    setBusy(true);
+    try {
+      await api.trackerField(groupId, item.id, field.id, value);
+      await onSaved();
+      return true;
+    } catch (failure) {
+      showToast({
+        message: `Could not change ${field.name}. ${errorMessage(failure)}`,
+        tone: 'error',
+      });
+      return false;
+    } finally {
+      setBusy(false);
+    }
+  }
+  const off = disabled || busy;
+  const plus = (
+    <Button
+      variant="outline"
+      size="icon-xs"
+      className="field-pill-add"
+      aria-label="Set a field"
+      disabled={off}
+    >
+      <Plus />
+    </Button>
+  );
+  return (
+    <>
+      {filled.map((field) => (
+        <FieldPill
+          key={field.id}
+          field={field}
+          item={item}
+          disabled={off}
+          onSave={(value) => save(field, value)}
+        />
+      ))}
+      {!!empty.length && (
+        <Popover.Root open={!!typing} onOpenChange={(open) => !open && setTyping(null)}>
+          <DropdownMenu>
+            <Popover.Anchor asChild>
+              <span className="inline-flex">
+                <Hint label="Set a field">
+                  <DropdownMenuTrigger asChild>{plus}</DropdownMenuTrigger>
+                </Hint>
+              </span>
+            </Popover.Anchor>
+            <DropdownMenuContent
+              align="start"
+              // Focus goes to the field popover, not back to "+". Else the popover closes.
+              onCloseAutoFocus={(event) => typing && event.preventDefault()}
+            >
+              <DropdownMenuLabel>Set a field</DropdownMenuLabel>
+              {empty.map((field) => {
+                const choices = fieldChoices(field);
+                return choices ? (
+                  <DropdownMenuSub key={field.id}>
+                    <DropdownMenuSubTrigger>{field.name}</DropdownMenuSubTrigger>
+                    <DropdownMenuSubContent>
+                      {choices.map((choice) => (
+                        <DropdownMenuItem
+                          key={choice.id}
+                          onSelect={() =>
+                            void save(
+                              field,
+                              field.dataType === 'ITERATION'
+                                ? { iterationId: choice.id }
+                                : { singleSelectOptionId: choice.id },
+                            )
+                          }
+                        >
+                          {choice.name}
+                        </DropdownMenuItem>
+                      ))}
+                    </DropdownMenuSubContent>
+                  </DropdownMenuSub>
+                ) : (
+                  <DropdownMenuItem
+                    key={field.id}
+                    disabled={field.dataType === 'MULTI_SELECT'}
+                    onSelect={() => setTyping(field)}
+                  >
+                    {field.name}…
+                  </DropdownMenuItem>
+                );
+              })}
+            </DropdownMenuContent>
+          </DropdownMenu>
+          <Popover.Portal>
+            <Popover.Content
+              align="start"
+              sideOffset={6}
+              collisionPadding={menuCollisionPadding}
+              className={cn(menuContentClass, 'w-64 p-2')}
+              aria-label={typing?.name}
+            >
+              {typing && (
+                <FieldInput
+                  field={typing}
+                  initial=""
+                  disabled={off}
+                  onSave={async (value) => {
+                    if (await save(typing, value)) setTyping(null);
+                  }}
+                />
+              )}
+            </Popover.Content>
+          </Popover.Portal>
+        </Popover.Root>
+      )}
+    </>
+  );
+}
+
+/** One field pill. A choice field opens a menu; text, number and date open a small field. */
+function FieldPill({
+  field,
+  item,
+  disabled,
+  onSave,
+}: {
+  field: TrackerField;
+  item: TrackerItem;
+  disabled: boolean;
+  onSave: (value: ProjectFieldValue) => Promise<boolean>;
+}) {
+  const [open, setOpen] = useState(false);
+  const text = projectFieldText(item, field);
+  const choices = fieldChoices(field);
+  const pill = (
+    <Button
+      variant="outline"
+      size="xs"
+      className="field-pill"
+      disabled={disabled}
+      aria-label={`${field.name}: ${text}`}
+    >
+      <span className="truncate">{text}</span>
+    </Button>
+  );
+  if (choices)
+    return (
+      <DropdownMenu>
+        <Hint label={field.name}>
+          <DropdownMenuTrigger asChild>{pill}</DropdownMenuTrigger>
+        </Hint>
+        <DropdownMenuContent align="start">
+          <DropdownMenuLabel>{field.name}</DropdownMenuLabel>
+          {choices.map((choice) => (
+            <DropdownMenuItem
+              key={choice.id}
+              onSelect={() =>
+                void onSave(
+                  field.dataType === 'ITERATION'
+                    ? { iterationId: choice.id }
+                    : { singleSelectOptionId: choice.id },
+                )
+              }
+            >
+              <Check
+                className={cn('size-4', choice.name !== text && 'invisible')}
+                aria-hidden="true"
+              />
+              {choice.name}
+            </DropdownMenuItem>
+          ))}
+          <DropdownMenuSeparator />
+          <DropdownMenuItem onSelect={() => void onSave(null)}>Clear {field.name}</DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    );
+  if (field.dataType === 'MULTI_SELECT')
+    return (
+      <Hint label={field.name}>
+        <span className="field-pill field-pill-static" tabIndex={0}>
+          {text}
+        </span>
+      </Hint>
+    );
+  return (
+    <Popover.Root open={open} onOpenChange={setOpen}>
+      <Hint label={field.name}>
+        <Popover.Trigger asChild>{pill}</Popover.Trigger>
+      </Hint>
+      <Popover.Portal>
+        <Popover.Content
+          align="start"
+          sideOffset={6}
+          collisionPadding={menuCollisionPadding}
+          className={cn(menuContentClass, 'w-64 p-2')}
+          aria-label={field.name}
+        >
+          <FieldInput
+            field={field}
+            initial={text}
+            disabled={disabled}
+            onSave={async (value) => {
+              if (await onSave(value)) setOpen(false);
+            }}
+          />
+        </Popover.Content>
+      </Popover.Portal>
+    </Popover.Root>
+  );
+}
+
+/** A text, number or date field that saves on Enter. An empty value clears the field. */
+function FieldInput({
+  field,
+  initial,
+  disabled,
+  onSave,
+}: {
+  field: TrackerField;
+  initial: string;
+  disabled: boolean;
+  onSave: (value: ProjectFieldValue) => Promise<void>;
+}) {
+  const [value, setValue] = useState(initial);
+  const key = valueKeys[field.dataType];
+  return (
+    <Input
+      autoFocus
+      size="sm"
+      aria-label={field.name}
+      placeholder={field.name}
+      type={field.dataType === 'NUMBER' ? 'number' : field.dataType === 'DATE' ? 'date' : 'text'}
+      value={value}
+      disabled={disabled}
+      onChange={(event) => setValue(event.target.value)}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter' && !event.nativeEvent.isComposing) {
+          event.preventDefault();
+          void onSave(
+            value === ''
+              ? null
+              : ({
+                  [key]: field.dataType === 'NUMBER' ? Number(value) : value,
+                } as ProjectFieldValue),
+          );
+        }
+      }}
+    />
   );
 }
 

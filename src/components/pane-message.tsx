@@ -21,8 +21,10 @@ export function PaneMessage({
 }) {
   return (
     <div className="tool-pane-message" role={tone === 'danger' ? 'alert' : undefined}>
+      {/* The empty state draws no icon, so an error shows its tone in the text. */}
       <EmptyState
         compact
+        className={tone === 'danger' ? 'text-destructive' : undefined}
         icon={icon || <CircleAlert className={tone === 'danger' ? 'text-destructive' : ''} />}
         title={title}
         action={action}

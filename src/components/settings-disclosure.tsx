@@ -1,8 +1,9 @@
-import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
+import { Fragment, useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import { Tabs as TabsPrimitive } from 'radix-ui';
 import { ChevronRight, Copy } from 'lucide-react';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from './ui/collapsible';
 import { Badge } from './ui/badge';
+import { StatusDot } from './ui/status-dot';
 import { Button } from './ui/button';
 import { DialogContent, DialogDescription, DialogTitle } from './ui/dialog';
 import { showToast } from './ui/toast';
@@ -130,16 +131,24 @@ export function SettingsRow({
   );
 }
 
-export type SettingsSection<T extends string> = { value: T; label: string; icon: ReactNode };
+export type SettingsSection<T extends string> = {
+  value: T;
+  label: string;
+  icon: ReactNode;
+  /** A group label above this item, for example "Projects". */
+  group?: string;
+  /** A dot after the label: something in the section needs the user. */
+  attention?: boolean;
+};
 
 /**
- * The one settings shell, for Preferences and Project settings: a 720px dialog with the
- * sections on the left and one section on the right. The height fits the content, from 400px
- * up to 80% of the window. Each panel mounts the first time that it opens and then stays
- * mounted. The section title gets the focus when the dialog opens.
+ * The one settings shell: a dialog with the sections on the left and one section on the right.
+ * Each panel mounts the first time that it opens and then stays mounted. The section title gets
+ * the focus when the dialog opens.
  */
 export function SettingsShell<T extends string>({
   title,
+  hideTitle = false,
   subtitle,
   description,
   navLabel,
@@ -151,8 +160,10 @@ export function SettingsShell<T extends string>({
   onOpenAutoFocus,
   onCloseAutoFocus,
 }: {
-  /** The name of the dialog. The nav shows it above the sections. */
+  /** The name of the dialog. The nav shows it above the sections, unless `hideTitle`. */
   title: ReactNode;
+  /** The title is for assistive technology only. The nav starts with the first section. */
+  hideTitle?: boolean;
   /** One muted line below the title, for example the computer of a remote project. */
   subtitle?: ReactNode;
   /** Text for assistive technology. The shell does not show it. */
@@ -204,21 +215,35 @@ export function SettingsShell<T extends string>({
           onPointerDown={(event) => (event.currentTarget.dataset.pointer = '')}
           onKeyDown={(event) => delete event.currentTarget.dataset.pointer}
         >
-          <DialogTitle className="group-label settings-nav-title truncate py-0 text-2xs leading-4">
+          <DialogTitle
+            className={cn(
+              hideTitle
+                ? 'sr-only'
+                : 'group-label settings-nav-title truncate py-0 text-2xs leading-4',
+            )}
+          >
             {title}
           </DialogTitle>
           {subtitle && <p className="settings-nav-subtitle">{subtitle}</p>}
           <DialogDescription className="sr-only">{description}</DialogDescription>
           <TabsPrimitive.List aria-label={navLabel} loop className="contents">
-            {sections.map((item) => (
-              <TabsPrimitive.Trigger
-                key={item.value}
-                value={item.value}
-                className="settings-nav-item"
-              >
-                {item.icon}
-                <span className="min-w-0 flex-1 truncate">{item.label}</span>
-              </TabsPrimitive.Trigger>
+            {sections.map((item, index) => (
+              <Fragment key={item.value}>
+                {item.group && item.group !== sections[index - 1]?.group && (
+                  <p className="group-label settings-nav-group" aria-hidden="true">
+                    {item.group}
+                  </p>
+                )}
+                <TabsPrimitive.Trigger
+                  value={item.value}
+                  className="settings-nav-item"
+                  aria-description={item.attention ? 'Needs attention' : undefined}
+                >
+                  {item.icon}
+                  <span className="min-w-0 flex-1 truncate">{item.label}</span>
+                  {item.attention && <StatusDot tone="warning" size="sm" />}
+                </TabsPrimitive.Trigger>
+              </Fragment>
             ))}
           </TabsPrimitive.List>
         </nav>
@@ -244,6 +269,24 @@ export function SettingsShell<T extends string>({
         </div>
       </TabsPrimitive.Root>
     </DialogContent>
+  );
+}
+
+const dotTones = {
+  success: 'success',
+  warning: 'warning',
+  destructive: 'danger',
+  secondary: 'neutral',
+  muted: 'neutral',
+} as const;
+
+/** A status in a Settings row: one dot and a short muted label, for example "● Ready". */
+export function StatusText({ status }: { status: StatusLabel }) {
+  return (
+    <span className="settings-status" data-tone={status.tone} role="status">
+      <StatusDot tone={dotTones[status.tone]} size="sm" />
+      {status.label}
+    </span>
   );
 }
 

@@ -69,7 +69,6 @@ export function AgentWorkspace({
   onSelect,
   onClose,
   onOpenRepository,
-  onOpenOverview,
   onOpenProject,
   onOpenChats,
   onActivity,
@@ -93,8 +92,6 @@ export function AgentWorkspace({
   onSelect: (session: Session) => void;
   onClose: () => void;
   onOpenRepository?: (repository: Project) => void;
-  /** Opens the Projects overview from the breadcrumb. */
-  onOpenOverview?: () => void;
   /** Opens the project home from the breadcrumb. */
   onOpenProject?: (group: ProjectGroup) => void;
   /** Reports the open chats, for the "Open chats" list in the sidebar. */
@@ -369,25 +366,6 @@ export function AgentWorkspace({
         createPortal(
           <div className="conversation-heading">
             <nav className="conversation-toolbar conversation-trail" aria-label="Breadcrumb">
-              {onOpenOverview && (
-                <>
-                  <button
-                    type="button"
-                    className="topbar-crumb"
-                    data-optional
-                    aria-label="Projects overview"
-                    title="Projects"
-                    onClick={onOpenOverview}
-                  >
-                    Projects
-                  </button>
-                  <ChevronRight
-                    aria-hidden="true"
-                    data-optional
-                    className="size-3 shrink-0 text-muted-foreground"
-                  />
-                </>
-              )}
               {group && onOpenProject && (
                 <>
                   <button

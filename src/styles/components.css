@@ -125,58 +125,40 @@
   height: 20px;
 }
 
-/* One empty state. */
+/* One empty state: one quiet sentence and the action on the same line, left-aligned on the
+   content edge of its area. No tile and no centering. */
 .empty-state {
-  /* Every page-level empty state sits at the top of its area, 48px down. */
   align-self: start;
-  display: grid;
-  justify-items: center;
-  gap: var(--space-2);
-  padding: var(--space-12) var(--space-6);
-  text-align: center;
-}
-.empty-state-icon {
-  display: inline-flex;
+  display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  justify-content: center;
-  width: 48px;
-  height: 48px;
-  border-radius: var(--radius-md);
-  background: var(--secondary);
-  color: var(--muted-foreground);
+  gap: var(--space-2) var(--space-3);
+  min-width: 0;
+  padding: var(--space-2) 0;
+  text-align: left;
 }
-.empty-state-icon svg {
-  width: 20px;
-  height: 20px;
+.empty-state-text {
+  min-width: 0;
+  max-width: var(--reading-width);
+  margin: 0;
+  color: var(--muted-foreground);
+  font-size: var(--text-sm);
+  line-height: 20px;
 }
 .empty-state-title {
-  margin: 0;
-  font-size: var(--text-sm);
-  line-height: 20px;
-  font-weight: 600;
-}
-.empty-state-body {
-  max-width: 400px;
-  color: var(--muted-foreground);
-  font-size: var(--text-sm);
-  line-height: 20px;
+  color: var(--foreground);
 }
 .empty-state-action {
-  margin-top: var(--space-2);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
 }
 .empty-state[data-compact] {
-  gap: var(--space-1);
-  padding: var(--space-6) var(--space-4);
+  gap: var(--space-1) var(--space-2);
+  padding: var(--space-1) 0;
 }
-.empty-state[data-compact] .empty-state-icon {
-  width: 28px;
-  height: 28px;
-}
-.empty-state[data-compact] .empty-state-icon svg {
-  width: 16px;
-  height: 16px;
-}
-.empty-state[data-compact] .empty-state-body {
+.empty-state[data-compact] .empty-state-text {
   font-size: var(--text-xs);
   line-height: 16px;
 }
@@ -625,10 +607,10 @@
 }
 /* A dot that waits for the user has a halo in its own color. */
 .activity-dot:is([data-state='question'], [data-state='approval']) {
-  box-shadow: 0 0 0 3px color-mix(in oklch, var(--dot-color) 25%, transparent);
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--dot-color) 25%, transparent);
 }
 .activity-dot[data-state='question'] {
-  --dot-color: var(--link);
+  --dot-color: var(--warning);
 }
 .activity-dot[data-state='done'] {
   border: 1.5px solid var(--success);
@@ -637,15 +619,14 @@
 .activity-dot[data-state='approval'] {
   --dot-color: var(--warning);
 }
-/* The latest run failed: a red dot. A refused launch: an amber diamond, so the shape differs
-   from the amber approval dot too. */
+/* Status has one shape: a dot. Waiting for you (question or approval) is amber with a halo,
+   working is green and pulses, the latest run failed is red. A refused launch is amber with
+   no halo. */
 .activity-dot[data-state='failed'] {
   background: var(--destructive);
 }
 .activity-dot[data-state='refused'] {
-  border-radius: 0;
   background: var(--warning);
-  transform: rotate(45deg) scale(0.85);
 }
 @media (prefers-reduced-motion: no-preference) {
   .activity-dot[data-state='running'] {
@@ -658,11 +639,6 @@
   }
 }
 /* Row labels set every span to fill the row. The dot keeps its own size. */
-.tree-row-button .activity-dot {
-  flex: 0 0 8px;
-  min-width: 8px;
-}
-
 /* Rows inside a .list-box picker. */
 .list-box-row {
   display: flex;

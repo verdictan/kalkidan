@@ -62,6 +62,18 @@ export function sendSessionCommand(command: string) {
   return !!detail.handled;
 }
 
+/**
+ * The event that the open chat view sends with what only it knows, for example that its linked
+ * task can be marked done. detail: { canMarkDone: boolean }.
+ */
+export const chatMenuStateEvent = 'kalkidan-chat-menu-state';
+let lastChatMenuState = { canMarkDone: false };
+/** The visible chat view calls it. The menu reads the last value when it mounts. */
+export function reportChatMenuState(state: { canMarkDone: boolean }) {
+  lastChatMenuState = state;
+  window.dispatchEvent(new CustomEvent(chatMenuStateEvent, { detail: state }));
+}
+
 /** The text that explains a branch copy. Use it once in each flow that makes one. */
 export const branchCopyHelp =
   'A branch copy is a separate folder on its own branch, so the agent’s changes stay apart from your work.';
@@ -72,6 +84,7 @@ export const branchCopyHelp =
  */
 const chatViewActions = new Set<ChatActionId>([
   'commit',
+  'mark-task-done',
   'create-pull-request',
   'link-task',
   'open-linked-task',
@@ -117,6 +130,15 @@ export function SessionMenu({
   const [noChanges, setNoChanges] = useState<boolean>();
   // True when Git reports no changes and no commits for a pull request.
   const [noBranchWork, setNoBranchWork] = useState<boolean>();
+  // The chat view tells whether its linked task can be marked done now.
+  const [canMarkDone, setCanMarkDone] = useState(lastChatMenuState.canMarkDone);
+  useEffect(() => {
+    setCanMarkDone(lastChatMenuState.canMarkDone);
+    const read = (event: Event) =>
+      setCanMarkDone(!!(event as CustomEvent<{ canMarkDone?: boolean }>).detail?.canMarkDone);
+    window.addEventListener(chatMenuStateEvent, read);
+    return () => window.removeEventListener(chatMenuStateEvent, read);
+  }, [session.id]);
   const statusTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   useEffect(() => () => clearTimeout(statusTimer.current), []);
   function showStatus(text: string) {
@@ -164,6 +186,7 @@ export function SessionMenu({
     board,
     noChanges,
     noBranchWork,
+    canMarkDone,
   });
   const groups = chatActionMenu('header', state, platform);
   const action = (kind: Parameters<API['sessionAction']>[1]) =>
@@ -454,6 +477,8 @@ export function CommitDialog({
     task,
     sessionTitle,
   });
+  // The pull request description. It starts from the chat and the user can change it.
+  const [description, setDescription] = useState<string | null>(null);
   /** Reads the status and the files. A reload keeps the user's choice of files. */
   async function load(keep = false) {
     const [nextStatus, nextFiles] = await Promise.all([
@@ -477,6 +502,7 @@ export function CommitDialog({
     setResult(null);
     setBranchName(suggestedBranch(sessionTitle));
     setMessage(initialMessage);
+    setDescription(null);
     try {
       operationId.current = localStorage.getItem(`kalkidan-publish:${repositoryId}`);
     } catch {
@@ -503,7 +529,7 @@ export function CommitDialog({
   }, [open, api, repositoryId]);
   const changes = files ? files.length : status ? status.changed + status.untracked : 0;
   const chosen = files ? files.filter((file) => selected.has(file.path)) : [];
-  const commitCount = files ? chosen.length : changes;
+  const commitCount = files && intent !== 'pull-request' ? chosen.length : changes;
   const onDefault = !!status && status.branch === status.defaultBranch;
   const canPullRequest = !!status && !onDefault;
   const pullRequestIntent = intent === 'pull-request';
@@ -524,15 +550,23 @@ export function CommitDialog({
           'Cannot save publish recovery information. Enable local storage before publishing.',
         );
       }
+      // "Create pull request" commits all changed files. "Commit only" commits the chosen ones.
       const paths =
-        files && chosen.length < files.length ? chosen.map((file) => file.path) : undefined;
+        !pullRequest && files && chosen.length < files.length
+          ? chosen.map((file) => file.path)
+          : undefined;
       const operation = await api.gitPublish(repositoryId, {
         id,
         ...(isNew && commitCount && !result?.commit
           ? { commit: { message: message.trim(), files: paths } }
           : {}),
         ...(pullRequest
-          ? { pullRequest: { title: message.trim().split('\n')[0], body: pullRequestBody } }
+          ? {
+              pullRequest: {
+                title: message.trim().split('\n')[0],
+                body: description ?? pullRequestBody,
+              },
+            }
           : {}),
       });
       const next = { commit: operation.commit, url: operation.url };
@@ -594,7 +628,13 @@ export function CommitDialog({
             {intent === 'pull-request' ? 'Create pull request' : 'Commit changes'}
           </DialogTitle>
           <DialogDescription>
-            {status ? (
+            {status && pullRequestIntent ? (
+              <>
+                {onDefault && branchName.trim() ? branchName.trim() : status.branch} →{' '}
+                {status.defaultBranch}
+                {changes ? ` · ${plural(changes, 'file')}` : ''}
+              </>
+            ) : status ? (
               <>
                 On <span className="font-medium text-foreground">{status.branch}</span> ·{' '}
                 {plural(changes, 'changed file')}
@@ -630,7 +670,7 @@ export function CommitDialog({
               />
             </label>
           )}
-          {!!files?.length && (
+          {!!files?.length && !pullRequestIntent && (
             <fieldset className="grid gap-1">
               <legend className="mb-1 flex w-full items-center justify-between gap-2 text-sm font-medium">
                 Files to commit
@@ -675,21 +715,44 @@ export function CommitDialog({
               </ul>
             </fieldset>
           )}
-          <label className="form-label">
-            Commit message
-            <Textarea
-              rows={3}
-              value={message}
-              disabled={busy || !changes}
-              // The message is the first field. The caret goes to its end.
-              autoFocus={!newBranchNeeded}
-              onFocus={(e) => {
-                const end = e.currentTarget.value.length;
-                e.currentTarget.setSelectionRange(end, end);
-              }}
-              onChange={(e) => setMessage(e.target.value)}
-            />
-          </label>
+          {pullRequestIntent ? (
+            <>
+              <label className="form-label">
+                Title
+                <Input
+                  value={message.split('\n')[0]}
+                  disabled={busy}
+                  autoFocus={!newBranchNeeded}
+                  onChange={(e) => setMessage(e.target.value)}
+                />
+              </label>
+              <label className="form-label">
+                Description
+                <Textarea
+                  rows={5}
+                  value={description ?? pullRequestBody}
+                  disabled={busy}
+                  onChange={(e) => setDescription(e.target.value)}
+                />
+              </label>
+            </>
+          ) : (
+            <label className="form-label">
+              Commit message
+              <Textarea
+                rows={3}
+                value={message}
+                disabled={busy || !changes}
+                // The message is the first field. The caret goes to its end.
+                autoFocus={!newBranchNeeded}
+                onFocus={(e) => {
+                  const end = e.currentTarget.value.length;
+                  e.currentTarget.setSelectionRange(end, end);
+                }}
+                onChange={(e) => setMessage(e.target.value)}
+              />
+            </label>
+          )}
           {draftTask && pullRequestIntent && !result?.url && (
             <Alert size="sm">
               <GitPullRequest aria-hidden="true" />

@@ -88,6 +88,40 @@ export function pageTasks(markdown: string, title: string) {
     : splitListItems(markdown, title);
 }
 
+/** The open items of a checklist at the top level of a page. Checked items are done. */
+function openChecklistItems(markdown: string) {
+  const items: { title: string; body: string }[] = [];
+  let checklist = false;
+  let fence = false;
+  for (const line of markdown.split('\n')) {
+    if (/^ {0,3}(`{3,}|~{3,})/.test(line)) fence = !fence;
+    if (fence) continue;
+    const item = /^ {0,3}[-*+]\s+\[([ xX])\]\s+(.+?)\s*$/.exec(line);
+    if (!item) continue;
+    checklist = true;
+    if (item[1] === ' ') items.push({ title: item[2].slice(0, 256), body: '' });
+  }
+  return checklist ? items.slice(0, 20) : undefined;
+}
+
+/**
+ * The tasks that "Make tasks" makes from a page: the open checklist items when the page has a
+ * checklist, else the tasks of pageTasks.
+ */
+export function plannedTasks(markdown: string, title: string) {
+  return openChecklistItems(markdown) ?? pageTasks(markdown, title);
+}
+
+/**
+ * The number of tasks on the "Make N tasks" button: the open checklist items, else the ##
+ * headings, else the top-level list items. Zero when the page has none of them.
+ */
+export function plannedTaskCount(markdown: string) {
+  const checklist = openChecklistItems(markdown);
+  if (checklist) return checklist.length;
+  return headingTaskCount(markdown) || Math.min(20, listItemCount(markdown));
+}
+
 /** True when the page has top-level list items. */
 export function hasListItems(markdown: string) {
   return listItemCount(markdown) > 0;
@@ -176,7 +210,6 @@ export function DocsToIssuesDialog({
     [entries, setEntries] = useState<Entry[]>([]),
     [repository, setRepository] = useState(''),
     [custom, setCustom] = useState(false),
-    [reference, setReference] = useState(false),
     [busy, setBusy] = useState(false),
     [error, setError] = useState(''),
     [result, setResult] = useState<DocsIssuePlanResult>(),
@@ -212,7 +245,7 @@ export function DocsToIssuesDialog({
       const value = await api.docsRead(group.id, id);
       setDoc(value);
       setEntries(
-        (byListItem ? splitListItems : pageTasks)(value.markdown, value.title || 'Untitled'),
+        (byListItem ? splitListItems : plannedTasks)(value.markdown, value.title || 'Untitled'),
       );
     } catch (failure) {
       setError(errorMessage(failure));
@@ -264,7 +297,9 @@ export function DocsToIssuesDialog({
     setByListItem(listItems);
     setExpanded([]);
     if (doc)
-      setEntries((listItems ? splitListItems : pageTasks)(doc.markdown, doc.title || 'Untitled'));
+      setEntries(
+        (listItems ? splitListItems : plannedTasks)(doc.markdown, doc.title || 'Untitled'),
+      );
   }
   const headings = doc ? headingTaskCount(doc.markdown) : 0;
   const repositories = [
@@ -287,9 +322,8 @@ export function DocsToIssuesDialog({
         ...entry,
         body:
           entry.body +
-          (reference && doc
-            ? `\n\nSource document: ${doc.title} (${doc.id}, revision ${doc.revision}).`
-            : ''),
+          // Each task names its source page, so an agent can read it.
+          (doc ? `\n\nSource document: ${doc.title} (${doc.id}, revision ${doc.revision}).` : ''),
       })),
     };
     try {
@@ -387,7 +421,7 @@ export function DocsToIssuesDialog({
             <DialogTitle>
               {pageId ? 'Make tasks from this page' : 'Make tasks from a page'}
             </DialogTitle>
-            <DialogDescription>
+            <DialogDescription className="sr-only">
               Each list item or heading becomes a task on the board.
             </DialogDescription>
           </DialogHeader>
@@ -427,39 +461,42 @@ export function DocsToIssuesDialog({
                 )}
                 {entries.length > 0 && (
                   <>
-                    <label className="form-label" data-field="repository">
-                      GitHub repository
-                      {repositories.length && !custom ? (
-                        <FormSelect
-                          label="GitHub repository"
-                          value={repository}
-                          disabled={busy}
-                          className="w-full"
-                          onChange={(value) => {
-                            if (value === otherRepository) {
-                              setCustom(true);
-                              setRepository('');
-                            } else setRepository(value);
-                          }}
-                          options={[
-                            ...repositories.map((value) => ({ value, label: value })),
-                            { value: otherRepository, label: 'Other repository…' },
-                          ]}
-                        />
-                      ) : (
-                        <Input
-                          aria-label="GitHub repository"
-                          placeholder="owner/repository"
-                          value={repository}
-                          disabled={busy}
-                          aria-invalid={!!repository && !validRepository}
-                          onChange={(event) => setRepository(event.target.value)}
-                        />
-                      )}
-                      {!!repository && !validRepository && (
-                        <span className="field-error">Write the repository as owner/name.</span>
-                      )}
-                    </label>
+                    {/* With one repository on the board, the tasks go there. */}
+                    {(repositories.length !== 1 || custom || repository !== repositories[0]) && (
+                      <label className="form-label" data-field="repository">
+                        GitHub repository
+                        {repositories.length && !custom ? (
+                          <FormSelect
+                            label="GitHub repository"
+                            value={repository}
+                            disabled={busy}
+                            className="w-full"
+                            onChange={(value) => {
+                              if (value === otherRepository) {
+                                setCustom(true);
+                                setRepository('');
+                              } else setRepository(value);
+                            }}
+                            options={[
+                              ...repositories.map((value) => ({ value, label: value })),
+                              { value: otherRepository, label: 'Other repository…' },
+                            ]}
+                          />
+                        ) : (
+                          <Input
+                            aria-label="GitHub repository"
+                            placeholder="owner/repository"
+                            value={repository}
+                            disabled={busy}
+                            aria-invalid={!!repository && !validRepository}
+                            onChange={(event) => setRepository(event.target.value)}
+                          />
+                        )}
+                        {!!repository && !validRepository && (
+                          <span className="field-error">Write the repository as owner/name.</span>
+                        )}
+                      </label>
+                    )}
                     {doc && headings > 0 && hasListItems(doc.markdown) && (
                       <div className="docs-plan-split">
                         <span className="form-label">Split by</span>
@@ -592,12 +629,6 @@ export function DocsToIssuesDialog({
                         );
                       })}
                     </ol>
-                    <CheckboxRow
-                      label="Add the page name and version to each description"
-                      checked={reference}
-                      disabled={busy}
-                      onChange={(event) => setReference(event.target.checked)}
-                    />
                   </>
                 )}
                 {busy && (
