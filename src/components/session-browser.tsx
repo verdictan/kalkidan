@@ -1,5 +1,4 @@
 import {
-  ActivityDot,
   activityKey,
   useActivityState,
   useChatStatus,
@@ -7,17 +6,31 @@ import {
   type SessionActivityState,
 } from './activity-dot';
 import { useEffect, useState, type ReactNode } from 'react';
-import { ArchiveRestore, GitBranch, MessagesSquare, Pin } from 'lucide-react';
+import {
+  ArchiveRestore,
+  ChevronDown,
+  GitBranch,
+  ListFilter,
+  MessagesSquare,
+  Pin,
+} from 'lucide-react';
 import { agentCatalog, agentLabel } from '../config/agents';
 import { fullTime, relativeTime } from '../lib/relative-time';
-import { plural } from '../lib/platform';
-import { Choice } from './choice';
+import { ChatRow } from './chat-row';
 import { ChatActionsDropdown, ChatContextMenu } from './chat-action-menu';
 import { useChatListActions } from './chat-list-actions';
-import { AgentIcon } from './ui/agent-icon';
 import { Button } from './ui/button';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from './ui/dropdown-menu';
 import { EmptyState } from './ui/empty-state';
-import { EntityIcon } from './ui/entity-icon';
 import { SearchInput } from './ui/search-input';
 import { SegmentedControl } from './ui/segmented-control';
 import type { API, Session, SessionOrganization, TrackerItem } from '../types';
@@ -61,6 +74,8 @@ interface Props {
   onSessionCommand?: (command: string, session: Session) => void;
   /** True for the chat that is open in this window. Its menu has no Open. */
   isOpen?: (session: Session) => boolean;
+  /** True when the project of the chat has a task board. False hides "Link task". */
+  hasBoard?: (session: Session) => boolean;
 }
 interface SavedView {
   agent: string;
@@ -88,17 +103,21 @@ function readView(key: string | undefined): SavedView {
 }
 /** The storage key of the saved view for one list. */
 export const sessionViewKey = (key: string) => `kalkidan.sessionView.${key}`;
-/** Shows the archived sessions of a list, for example from the "View archived" toast action. */
-export function viewArchivedSessions(key: string) {
+/** Shows one view of a list, such as 'waiting' or 'archived', also before the list opens. */
+export function showSessionScope(key: string, scope: string) {
   try {
     localStorage.setItem(
       sessionViewKey(key),
-      JSON.stringify({ ...readView(sessionViewKey(key)), scope: 'archived' }),
+      JSON.stringify({ ...readView(sessionViewKey(key)), scope }),
     );
   } catch {
     // Storage is not available. The event below still changes an open list.
   }
-  window.dispatchEvent(new CustomEvent('kalkidan-view-archived', { detail: { key } }));
+  window.dispatchEvent(new CustomEvent('kalkidan-session-scope', { detail: { key, scope } }));
+}
+/** Shows the archived sessions of a list, for example from the "View archived" toast action. */
+export function viewArchivedSessions(key: string) {
+  showSessionScope(key, 'archived');
 }
 export function SessionBrowser({
   api,
@@ -120,6 +139,7 @@ export function SessionBrowser({
   onOpenTask,
   onSessionCommand,
   isOpen,
+  hasBoard,
 }: Props) {
   const placeName = (session: Session) => {
     const place = placeOf?.(session);
@@ -153,11 +173,12 @@ export function SessionBrowser({
   }, [loadedKey, view]);
   useEffect(() => {
     const onView = (event: Event) => {
-      if ((event as CustomEvent<{ key?: string }>).detail?.key === listKey)
-        setView((previous) => ({ ...previous, scope: 'archived' }));
+      const detail = (event as CustomEvent<{ key?: string; scope?: string }>).detail;
+      if (detail?.key === listKey && detail.scope)
+        setView((previous) => ({ ...previous, scope: detail.scope! }));
     };
-    window.addEventListener('kalkidan-view-archived', onView);
-    return () => window.removeEventListener('kalkidan-view-archived', onView);
+    window.addEventListener('kalkidan-session-scope', onView);
+    return () => window.removeEventListener('kalkidan-session-scope', onView);
   }, [listKey]);
   const setAgent = (value: string) => setView((previous) => ({ ...previous, agent: value }));
   const setScope = (value: string) => setView((previous) => ({ ...previous, scope: value }));
@@ -189,6 +210,7 @@ export function SessionBrowser({
         }
       : undefined,
     stateOf: (session) => ({
+      board: hasBoard?.(session),
       open: !!isOpen?.(session),
       running: !!activity[activityKey(session.agent, session.id)],
       linkedTask: !!(taskOf?.(session) || session.organization?.taskId || session.task?.id),
@@ -213,6 +235,7 @@ export function SessionBrowser({
       waitingCount > 0 ||
       failedCount > 0 ||
       refusedCount > 0 ||
+      archivedCount > 0 ||
       scope !== 'active' ||
       agent !== 'all' ||
       project !== 'all' ||
@@ -244,6 +267,94 @@ export function SessionBrowser({
         b.updatedAt.localeCompare(a.updatedAt),
     );
   const shown = compact ? list.slice(0, 3) : list;
+  // The agent, place and task filters, and the Archived, Failed and Refused views, are in one
+  // filter menu. The segments hold the views that people use most.
+  const placeLabel = filterBy === 'folder' ? 'Code folder' : 'Project';
+  const filterCount =
+    Number(agent !== 'all') +
+    Number(project !== 'all') +
+    Number(task !== 'all') +
+    Number(scope === 'archived' || scope === 'failed' || scope === 'refused');
+  const otherViews = [
+    ...(failedCount || scope === 'failed'
+      ? [{ value: 'failed', label: failedCount ? `Failed (${failedCount})` : 'Failed' }]
+      : []),
+    ...(refusedCount || scope === 'refused'
+      ? [{ value: 'refused', label: refusedCount ? `Refused (${refusedCount})` : 'Refused' }]
+      : []),
+    {
+      value: 'archived',
+      label: archivedCount ? `Archived (${archivedCount})` : 'Archived',
+    },
+  ];
+  const filterMenu = (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button variant="ghost" size="sm" aria-label="Filter chats">
+          <ListFilter />
+          {filterCount ? `Filters (${filterCount})` : 'Filter'}
+          <ChevronDown />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" className="min-w-56">
+        {(agents.size > 1 || agent !== 'all') && (
+          <>
+            <DropdownMenuLabel>Agent</DropdownMenuLabel>
+            <DropdownMenuRadioGroup value={agent} onValueChange={setAgent}>
+              <DropdownMenuRadioItem value="all">All agents</DropdownMenuRadioItem>
+              {agentCatalog.map((item) => (
+                <DropdownMenuRadioItem key={item.id} value={item.id}>
+                  {item.name}
+                </DropdownMenuRadioItem>
+              ))}
+            </DropdownMenuRadioGroup>
+            <DropdownMenuSeparator />
+          </>
+        )}
+        {(projects.length > 1 || project !== 'all') && (
+          <>
+            <DropdownMenuLabel>{placeLabel}</DropdownMenuLabel>
+            <DropdownMenuRadioGroup value={project} onValueChange={setProject}>
+              <DropdownMenuRadioItem value="all">
+                {filterBy === 'folder' ? 'All code folders' : 'All projects'}
+              </DropdownMenuRadioItem>
+              {projects.map((name) => (
+                <DropdownMenuRadioItem key={name} value={name}>
+                  {name}
+                </DropdownMenuRadioItem>
+              ))}
+            </DropdownMenuRadioGroup>
+            <DropdownMenuSeparator />
+          </>
+        )}
+        {(linkedCount > 0 || task !== 'all') && (
+          <>
+            <DropdownMenuLabel>Task</DropdownMenuLabel>
+            <DropdownMenuRadioGroup value={task} onValueChange={setTask}>
+              <DropdownMenuRadioItem value="all">All chats</DropdownMenuRadioItem>
+              <DropdownMenuRadioItem value="linked">Linked to a task</DropdownMenuRadioItem>
+              <DropdownMenuRadioItem value="unlinked">No task</DropdownMenuRadioItem>
+            </DropdownMenuRadioGroup>
+            <DropdownMenuSeparator />
+          </>
+        )}
+        <DropdownMenuLabel>Show</DropdownMenuLabel>
+        <DropdownMenuRadioGroup value={scope} onValueChange={setScope}>
+          {otherViews.map((option) => (
+            <DropdownMenuRadioItem key={option.value} value={option.value}>
+              {option.label}
+            </DropdownMenuRadioItem>
+          ))}
+        </DropdownMenuRadioGroup>
+        {filterCount > 0 && (
+          <>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onSelect={() => setView(defaultView)}>Clear filters</DropdownMenuItem>
+          </>
+        )}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
   return (
     <>
       {(showFilters || onQueryChange || actions) && !compact && (
@@ -253,7 +364,7 @@ export function SessionBrowser({
               size="sm"
               className="repository-session-filter"
               aria-label="Filter chats"
-              placeholder="Filter chats"
+              placeholder="Search chats"
               value={query}
               onChange={(event) => onQueryChange(event.target.value)}
             />
@@ -270,71 +381,16 @@ export function SessionBrowser({
                   value: 'waiting',
                   label: waitingCount ? `Waiting for you (${waitingCount})` : 'Waiting for you',
                 },
-                // Failed and Refused show only when a chat has that outcome, or when selected.
-                ...(failedCount || scope === 'failed'
-                  ? [{ value: 'failed', label: failedCount ? `Failed (${failedCount})` : 'Failed' }]
-                  : []),
-                ...(refusedCount || scope === 'refused'
-                  ? [
-                      {
-                        value: 'refused',
-                        label: refusedCount ? `Refused (${refusedCount})` : 'Refused',
-                      },
-                    ]
-                  : []),
                 { value: 'pinned', label: 'Pinned' },
-                { value: 'archived', label: 'Archived' },
               ]}
             />
           )}
-          {showFilters && (agents.size > 1 || agent !== 'all') && (
-            <Choice
-              label="Filter by agent"
-              size="sm"
-              className="min-w-32"
-              value={agent}
-              onChange={setAgent}
-              options={[
-                { value: 'all', label: 'All agents' },
-                ...agentCatalog.map((item) => ({ value: item.id, label: item.name })),
-              ]}
-            />
-          )}
-          {showFilters && (projects.length > 1 || project !== 'all') && (
-            <Choice
-              label={filterBy === 'folder' ? 'Filter by code folder' : 'Filter by project'}
-              size="sm"
-              className="min-w-32"
-              value={project}
-              onChange={setProject}
-              options={[
-                {
-                  value: 'all',
-                  label: filterBy === 'folder' ? 'All code folders' : 'All projects',
-                },
-                ...projects.map((name) => ({ value: name, label: name })),
-              ]}
-            />
-          )}
-          {showFilters && (linkedCount > 0 || task !== 'all') && (
-            <Choice
-              label="Filter by task"
-              size="sm"
-              className="min-w-32"
-              value={task}
-              onChange={setTask}
-              options={[
-                { value: 'all', label: 'All chats' },
-                { value: 'linked', label: 'Linked to a task' },
-                { value: 'unlinked', label: 'No task' },
-              ]}
-            />
-          )}
+          {showFilters && filterMenu}
           {actions && <div className="session-filters-end">{actions}</div>}
         </div>
       )}
       {shown.length ? (
-        <div className="session-list">
+        <div className="session-list chat-list">
           {shown.map((session) => {
             const org = session.organization || {};
             const title = org.title || session.title;
@@ -347,8 +403,9 @@ export function SessionBrowser({
                   ? place?.folder || ''
                   : ''
                 : place
-                  ? [place.project, place.folder].filter(Boolean).join(' › ')
+                  ? [place.project, place.folder].filter(Boolean).join(' · ')
                   : '';
+            const when = relativeTime(session.updatedAt);
             const menu = menuFor(session);
             return (
               <ChatContextMenu
@@ -356,34 +413,18 @@ export function SessionBrowser({
                 groups={menu.groups}
                 onRun={menu.run}
               >
-                <div className="list-row">
-                  <EntityIcon>
-                    <AgentIcon agent={session.agent} />
-                  </EntityIcon>
-                  <div className="min-w-0 flex-1">
-                    <Button
-                      variant="bare"
-                      className="session-title max-w-full justify-start gap-1.5 text-left font-medium"
-                      title={title}
-                      disabled={busy}
-                      aria-label={`Resume ${title}`}
-                      onClick={() => onResume(session)}
-                    >
-                      {org.pinned && <Pin className="size-3" aria-hidden="true" />}
-                      <span>{title}</span>
+                <ChatRow
+                  session={session}
+                  activity={activity[activityKey(session.agent, session.id)]}
+                  label={`Resume ${title}`}
+                  onOpen={(item) => !busy && onResume(item)}
+                  meta={
+                    <>
+                      {org.pinned && <Pin className="chat-row-pin" aria-label="Pinned" />}
+                      {[agentLabel(session.agent), where].filter(Boolean).join(' · ')}
                       {linked?.number && (
-                        <span className="session-task-number" title={`Task: ${linked.title}`}>
-                          #{linked.number}
-                        </span>
+                        <span title={`Task: ${linked.title}`}>{` · #${linked.number}`}</span>
                       )}
-                      <ActivityDot {...statusOf(session)} />
-                    </Button>
-                    <div className="session-meta">
-                      {agentLabel(session.agent)} ·{' '}
-                      <time dateTime={session.updatedAt} title={fullTime(session.updatedAt)}>
-                        {relativeTime(session.updatedAt)}
-                      </time>
-                      {where && ` · ${where}`}
                       {branch && (
                         <span className="session-branch" title={`Branch copy: ${branch}`}>
                           {' · '}
@@ -392,11 +433,25 @@ export function SessionBrowser({
                           {branch}
                         </span>
                       )}
-                    </div>
-                    {org.notes && !compact && <p className="session-note">{org.notes}</p>}
-                  </div>
-                  <div className="session-actions">
-                    {org.archived && !compact && (
+                      {when && (
+                        <>
+                          {' · '}
+                          <time dateTime={session.updatedAt} title={fullTime(session.updatedAt)}>
+                            {when}
+                          </time>
+                        </>
+                      )}
+                      {org.notes && !compact && (
+                        <span className="chat-row-note" title={org.notes}>
+                          {' · '}
+                          {org.notes}
+                        </span>
+                      )}
+                    </>
+                  }
+                  trailing={
+                    org.archived &&
+                    !compact && (
                       <Button
                         variant="outline"
                         size="xs"
@@ -407,7 +462,9 @@ export function SessionBrowser({
                         <ArchiveRestore aria-hidden="true" />
                         Restore
                       </Button>
-                    )}
+                    )
+                  }
+                  menu={
                     <ChatActionsDropdown
                       size="xs"
                       disabled={busy}
@@ -415,8 +472,8 @@ export function SessionBrowser({
                       groups={menu.groups}
                       onRun={menu.run}
                     />
-                  </div>
-                </div>
+                  }
+                />
               </ChatContextMenu>
             );
           })}
@@ -440,25 +497,7 @@ export function SessionBrowser({
                         ? 'No chats found'
                         : 'No chats yet'
           }
-        >
-          {scope === 'waiting' && !compact
-            ? 'Chats that ask for an approval or an answer, and finished runs, show here.'
-            : (scope === 'failed' || scope === 'refused') && !compact
-              ? 'Chats whose last run failed or did not start show here.'
-              : sessions.length
-                ? 'Try a different search or filter. Use ⋯ on a chat to pin it, add notes, or archive it.'
-                : 'Select New chat to start one. The agent works in a code folder of the project.'}
-        </EmptyState>
-      )}
-      {!showFilters && !compact && archivedCount > 0 && (
-        <Button
-          variant="link"
-          size="sm"
-          className="session-archived-link"
-          onClick={() => setScope('archived')}
-        >
-          View archived ({plural(archivedCount, 'chat')})
-        </Button>
+        />
       )}
       {dialogs}
     </>

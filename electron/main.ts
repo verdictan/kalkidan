@@ -34,6 +34,8 @@ import {
 } from './storage/project-location';
 import { memoryDirectory, readProjectMemory } from './storage/project-memory';
 import { projectMemory } from './storage/managed-memory';
+import { contextUsage, readCounts } from './storage/context-usage';
+import type { ContextUsage } from '../src/domain/memory';
 import { resourceRevision } from './storage/resource-revision';
 import { ProjectDocs } from './storage/project-docs';
 import { dataDirectory } from './storage/data-directory';
@@ -928,7 +930,7 @@ app.whenReady().then(async () => {
     if (method === 'chatCreate') {
       taskCwd = args[0];
       args[5] = await memoryContext(args[0], args[2], hostId);
-      args[2] = await projectPrompt(args[0], args[2], args[4], hostId);
+      args[2] = await projectPrompt(args[0], args[2], args[4], hostId, args[5]?.read);
     }
     if (method === 'chatStart') {
       const h = await remote.call(hostId, 'snapshot', []);
@@ -936,7 +938,7 @@ app.whenReady().then(async () => {
       if (!session) throw new Error('Remote session not found');
       taskCwd = session.cwd;
       args[5] = await memoryContext(session.cwd, args[2], hostId);
-      args[2] = await projectPrompt(session.cwd, args[2], args[4], hostId);
+      args[2] = await projectPrompt(session.cwd, args[2], args[4], hostId, args[5]?.read);
     }
     if (taskCwd) args[6] = await resolveManagedScope(taskCwd, args[4]?.taskId, hostId);
     if (taskCwd)
@@ -1117,6 +1119,33 @@ app.whenReady().then(async () => {
       ? remote.call(group.hostId, 'project-memory', [id, root, 'entries']).catch(helperTooOld)
       : projectMemory(root).list();
   });
+  // An older helper cannot report what agents read. Show nothing rather than an error.
+  const olderHelper = (empty: unknown) => (error: any) => {
+    if (/^(Unknown memory operation|Unsupported remote operation)/.test(error?.message))
+      return empty;
+    throw error;
+  };
+  handle('context-usage', async (id, agent, sessionId) => {
+    if (!isAgent(agent) || typeof sessionId !== 'string') throw new Error('Invalid session');
+    const { group, root } = await memoryGroup(id);
+    if (!group.hostId) return contextUsage(root, agent, sessionId);
+    return remote
+      .call(group.hostId, 'project-memory', [
+        id,
+        root,
+        'usage',
+        [agent, providerSessionId(group.hostId, sessionId)],
+      ])
+      .catch(olderHelper({ memory: [], docs: [] }));
+  });
+  handle('read-counts', async (id) => {
+    const { group, root } = await memoryGroup(id);
+    return group.hostId
+      ? remote
+          .call(group.hostId, 'project-memory', [id, root, 'counts'])
+          .catch(olderHelper({ memory: {}, docs: {} }))
+      : readCounts(root);
+  });
   handle('memory-forget', async (id, entryId, revision) => {
     const { group, root } = await memoryGroup(id);
     if (group.hostId)
@@ -1162,6 +1191,7 @@ app.whenReady().then(async () => {
       root: await projectRoot(group.id),
       groupId: group.id,
       prompt,
+      read: { memory: [], docs: [] } as ContextUsage,
       changed: hostId
         ? undefined
         : () => {
@@ -1346,8 +1376,9 @@ app.whenReady().then(async () => {
       agentStarts.run(
         options?.operationId,
         [projectId, agent, prompt, allowEdits, options],
-        async () =>
-          chatRunner.start(
+        async () => {
+          const context = await memoryContext(p.path, prompt);
+          return chatRunner.start(
             {
               id: randomUUID(),
               agent,
@@ -1356,13 +1387,14 @@ app.whenReady().then(async () => {
               organization: options?.taskId ? { taskId: options.taskId } : undefined,
               updatedAt: new Date().toISOString(),
             },
-            await projectPrompt(p.path, prompt, options),
+            await projectPrompt(p.path, prompt, options, undefined, context?.read),
             allowEdits,
             true,
             options?.model,
             options?.forkFrom,
-            await memoryContext(p.path, prompt),
-          ),
+            context,
+          );
+        },
       ),
     );
   }
@@ -1372,17 +1404,18 @@ app.whenReady().then(async () => {
     if (!(await stat(session.cwd)).isDirectory())
       throw new Error('The session project folder is no longer available.');
     return startAgentTask(session.cwd, undefined, options, () =>
-      agentStarts.run(options?.operationId, [agent, id, prompt, allowEdits, options], async () =>
-        chatRunner.start(
+      agentStarts.run(options?.operationId, [agent, id, prompt, allowEdits, options], async () => {
+        const context = await memoryContext(session.cwd, prompt);
+        return chatRunner.start(
           session,
-          await projectPrompt(session.cwd, prompt, options),
+          await projectPrompt(session.cwd, prompt, options, undefined, context?.read),
           allowEdits,
           false,
           options?.model,
           undefined,
-          await memoryContext(session.cwd, prompt),
-        ),
-      ),
+          context,
+        );
+      }),
     );
   });
   handle('chat-status', (id) => taskExecutions.observe(chatRunner.status(id)));
@@ -2180,7 +2213,7 @@ app.whenReady().then(async () => {
   function windowColors() {
     return nativeTheme.shouldUseDarkColors
       ? { chrome: '#15191c', symbol: '#e1e4e7', background: '#101316' }
-      : { chrome: '#f6f8fa', symbol: '#1f2328', background: '#fbfbfc' };
+      : { chrome: '#f3f5f7', symbol: '#1f2328', background: '#fbfbfc' };
   }
   function titleBarOverlay() {
     const colors = windowColors();
