@@ -168,7 +168,7 @@ function NotificationItem({ api, open }: { api: API; open: boolean }) {
   );
 }
 
-/** The items that every account menu shows: Computers, Preferences, shortcuts, diagnostics and help. */
+/** The items that every account menu shows: Computers, Preferences, diagnostics and help. */
 function AppItems() {
   return (
     <>
