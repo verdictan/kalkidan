@@ -16,7 +16,7 @@ import type { Session } from '../src/domain/conversation';
 test('Settings has five sections in order', () => {
   assert.deepEqual(
     settingsSections.map((section) => section.label),
-    ['General', 'Account', 'Agents', 'Computers', 'About'],
+    ['General', 'Account', 'Agents', 'Computers', 'Diagnostics', 'About'],
   );
   assert.equal(isSettingsSection('computers'), true);
   assert.equal(isSettingsSection('remote'), false);

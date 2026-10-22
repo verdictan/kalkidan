@@ -78,6 +78,9 @@ import { existsSync } from 'node:fs';
 import { readFile, writeFile, stat, realpath, rm } from 'node:fs/promises';
 import { join, basename } from 'node:path';
 import { homedir } from 'node:os';
+import { journal } from './diagnostics/journal';
+import { collectDiagnostics, SupportBundles } from './diagnostics/report';
+import { hostSystemVersion } from './verdictan/system-version';
 import { randomUUID } from 'node:crypto';
 import { pathToFileURL } from 'node:url';
 import * as TOML from '@iarna/toml';
@@ -176,6 +179,12 @@ function notifyVerdictan() {
   lastPhase = phase;
   if (status?.phase === 'authenticated') {
     void preferences.setSignedIn().catch(() => {});
+    journal.connected();
+    if (!journal.setupDone)
+      void verdictan?.installer
+        .check()
+        .then((runtime) => runtime?.installed && journal.setupCompleted())
+        .catch(() => {});
     // The browser sign-in finished. Bring Kalkidan to the front again.
     if (previousPhase.startsWith('["authorizing"')) focusMainWindow();
   }
@@ -424,7 +433,23 @@ async function git(path: string, args: string[]) {
     .stdout;
 }
 const appearanceFile = join(dataRoot, 'appearance.json');
+app.on('will-quit', () => journal.close());
+// Local crash counts for docs/operational-targets.md. Kalkidan sends no telemetry.
+const crashReasons = new Set([
+  'abnormal-exit',
+  'crashed',
+  'oom',
+  'launch-failed',
+  'integrity-failure',
+]);
+app.on('render-process-gone', (_event, _contents, details) => {
+  if (crashReasons.has(details.reason)) journal.crash();
+});
+app.on('child-process-gone', (_event, details) => {
+  if (crashReasons.has(details.reason)) journal.crash();
+});
 app.whenReady().then(async () => {
+  await journal.open(join(dataRoot, 'diagnostics', 'measurements.json'));
   powerMonitor.on('resume', () => {
     void remote?.reconcile().catch(() => {});
     // The session timer does not run while the computer sleeps. Renew the session now.
@@ -1613,6 +1638,56 @@ app.whenReady().then(async () => {
   // No host ID means this computer. A host ID checks the agents on that SSH host.
   handle('agent-installations', (hostId?: string | null) =>
     hostId ? remote.agentInstallations(hostId) : agentInstallations(),
+  );
+  const collect = () =>
+    collectDiagnostics({
+      app: async () => ({
+        version: app.getVersion(),
+        build: await appBuild,
+        packaged: app.isPackaged,
+      }),
+      platform: process.platform,
+      arch: process.arch,
+      osVersion: hostSystemVersion(),
+      account: () => ({ ...verdictan!.account.status(), region: verdictan!.region }),
+      hosts: () =>
+        remote.list().map((host) => ({
+          id: host.id,
+          name: host.name,
+          connected: host.status === 'connected',
+          ...(host.installedDigest || host.version
+            ? { helper: host.installedDigest || host.version }
+            : {}),
+        })),
+      runtime: (hostId) =>
+        hostId
+          ? remote.call(hostId, 'runtime-update', [
+              'status',
+              app.getVersion(),
+              hostId,
+              verdictan!.region,
+            ])
+          : verdictan!.installer.check(),
+      agents: (hostId) => (hostId ? remote.agentInstallations(hostId) : agentInstallations()),
+      journal,
+    });
+  const supportBundles = new SupportBundles(collect, homedir());
+  handle('diagnostics', collect);
+  handle('support-bundle-preview', () => supportBundles.preview());
+  // Export only after a preview, and only to the file that the user chooses.
+  handle('support-bundle-export', (digest: unknown) =>
+    supportBundles.export(digest, async (name) => {
+      const parent = BrowserWindow.getFocusedWindow() || undefined;
+      const options = {
+        title: 'Export support bundle',
+        defaultPath: join(app.getPath('downloads'), name),
+        filters: [{ name: 'JSON', extensions: ['json'] }],
+      };
+      const result = parent
+        ? await dialog.showSaveDialog(parent, options)
+        : await dialog.showSaveDialog(options);
+      return result.canceled ? undefined : result.filePath;
+    }),
   );
   handle('agent-executable-choose', (agent, path, hostId?: string | null) =>
     hostId ? remote.chooseAgentExecutable(hostId, agent, path) : chooseAgentExecutable(agent, path),

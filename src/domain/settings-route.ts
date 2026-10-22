@@ -1,5 +1,6 @@
 /** The sections of the Settings dialog, in order. */
-export type SettingsSection = 'general' | 'account' | 'agents' | 'computers' | 'about';
+export type SettingsSection =
+  'general' | 'account' | 'agents' | 'computers' | 'diagnostics' | 'about';
 
 /**
  * A section name that other parts of the app can send. It includes the names of the older
@@ -12,6 +13,7 @@ export const settingsSections: { value: SettingsSection; label: string }[] = [
   { value: 'account', label: 'Account' },
   { value: 'agents', label: 'Agents' },
   { value: 'computers', label: 'Computers' },
+  { value: 'diagnostics', label: 'Diagnostics' },
   { value: 'about', label: 'About' },
 ];
 

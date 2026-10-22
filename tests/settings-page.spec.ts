@@ -151,7 +151,7 @@ test('each entry point opens Settings on the right section', async ({ page }) =>
       .getByRole('tablist', { name: 'Settings sections' })
       .getByRole('tab')
       .allTextContents(),
-  ).toEqual(['General', 'Account', 'Agents', 'Computers', 'About']);
+  ).toEqual(['General', 'Account', 'Agents', 'Computers', 'Diagnostics', 'About']);
   // The focus moves to the section in the list. Arrow keys move between the sections.
   await expect(settingsTab(page, 'General')).toBeFocused();
   await page.keyboard.press('ArrowDown');
@@ -507,7 +507,7 @@ test('no Settings section overflows horizontally in a narrow window', async ({ p
   // Below 900px wide, the sidebar starts closed. Open it to reach the account menu.
   await page.getByRole('button', { name: 'Toggle sidebar', exact: true }).click();
   const settings = await openSettings(page);
-  for (const name of ['General', 'Account', 'Agents', 'Computers', 'About']) {
+  for (const name of ['General', 'Account', 'Agents', 'Computers', 'Diagnostics', 'About']) {
     await settingsTab(page, name).click();
     await expect(settingsTab(page, name)).toHaveAttribute('aria-selected', 'true');
     // Let the section read its data, and open its Advanced fold.

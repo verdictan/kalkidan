@@ -5,6 +5,7 @@ import type {
 } from '../../src/domain/verdictan';
 import { projectServicePermissions } from '../../src/domain/project-services';
 import { serviceName } from '../../src/domain/verdictan';
+import { protocolSupported, runtimeCompatibility } from '../../src/domain/compatibility';
 import { DesktopClient, DesktopProtocolError } from './protocol';
 
 export interface DesktopAccountOptions {
@@ -295,6 +296,7 @@ export class VerdictanAccountService {
   private async refresh(client: DesktopClient, generation: number) {
     const account = parseAccount((await client.request('status')).data, this.options.apiOrigin);
     const capabilities = parseCapabilities((await client.request('capabilities')).data);
+    assertRuntimeSupported(capabilities, this.now());
     if (account.state === 'authenticated' && capabilities.capabilities.includes('account.inspect'))
       Object.assign(account, await accountNames(client, account));
     if (generation === this.generation)
@@ -454,8 +456,7 @@ export function parseCapabilities(data: Record<string, unknown>): VerdictanCapab
     !text(data.cli_version) ||
     !Number.isSafeInteger(data.protocol_min) ||
     !Number.isSafeInteger(data.protocol_max) ||
-    Number(data.protocol_min) > 1 ||
-    Number(data.protocol_max) < 1 ||
+    Number(data.protocol_min) > Number(data.protocol_max) ||
     !Array.isArray(data.capabilities) ||
     data.capabilities.length > 100 ||
     !data.capabilities.every(text) ||
@@ -464,6 +465,9 @@ export function parseCapabilities(data: Record<string, unknown>): VerdictanCapab
     data.tested_agents.length > 100
   )
     throw new DesktopProtocolError('desktop.capabilities_invalid');
+  // A well-formed range without the Kalkidan protocol has its own code and plain words.
+  if (!protocolSupported(Number(data.protocol_min), Number(data.protocol_max)))
+    throw new DesktopProtocolError('desktop.protocol_unsupported');
   const agents = data.tested_agents.map((entry) => {
     if (!entry || !['codex', 'claude_code'].includes(entry.kind) || !text(entry.version))
       throw new DesktopProtocolError('desktop.capabilities_invalid');
@@ -477,4 +481,15 @@ export function parseCapabilities(data: Record<string, unknown>): VerdictanCapab
     managedExecutionReady: data.managed_execution_ready,
     testedAgents: agents,
   };
+}
+/**
+ * Refuses a runtime below the minimum of the support window, or a deprecated runtime after its
+ * end-of-support date. See `docs/compatibility.md`. A deprecated runtime before that date works.
+ */
+export function assertRuntimeSupported(capabilities: VerdictanCapabilities, now = Date.now()) {
+  const result = runtimeCompatibility(capabilities.cliVersion, now);
+  if (result.status === 'unsupported' || result.status === 'unknown')
+    throw new DesktopProtocolError('desktop.runtime_version_unsupported', {
+      version: capabilities.cliVersion,
+    });
 }

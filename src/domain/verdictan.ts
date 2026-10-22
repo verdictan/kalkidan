@@ -5,6 +5,7 @@ import {
   type NativeAgentKind,
 } from './agent-version';
 import { safeProgramPath } from './agent-programs';
+import { supportWindow } from './compatibility';
 import { runtimeAnchor, settingsAnchors, type SettingsSection } from './settings-route';
 
 /** Safe desktop state. Account and runtime credentials never cross renderer IPC. */
@@ -676,6 +677,14 @@ export const managedErrors: Record<string, ManagedErrorInfo> = {
     message: 'Managed agents must update their records. Check the status in Settings.',
     section: 'computers',
   },
+  'desktop.runtime_version_unsupported': {
+    message: `Kalkidan does not support this Verdictan runtime version. Update the runtime to ${supportWindow.runtime.minimum} or later in Settings › Computers.`,
+    section: 'computers',
+  },
+  'desktop.protocol_unsupported': {
+    message: `This Verdictan runtime does not support desktop protocol ${supportWindow.protocol.current}. Update the runtime and Kalkidan to their newest versions.`,
+    section: 'computers',
+  },
   'desktop.agent_version_unsupported': {
     message:
       'Kalkidan cannot confirm the version of the installed agent. Check the agent in Settings, then try again.',
@@ -1062,6 +1071,11 @@ const launchBlocks: Record<string, [ManagedSetupStep, string]> = {
   'desktop.runtime_starting': ['status', 'The managed runtime is starting. Wait, then try again.'],
   'desktop.managed_launch_unavailable': ['runtime', runtimeRepair],
   'desktop.capabilities_invalid': ['runtime', runtimeRepair],
+  'desktop.runtime_version_unsupported': [
+    'runtime',
+    `Update the Verdictan runtime to ${supportWindow.runtime.minimum} or later on the machine where work runs.`,
+  ],
+  'desktop.protocol_unsupported': ['runtime', runtimeRepair],
   'desktop.protocol_invalid': ['runtime', runtimeRepair],
   'desktop.operation_unsupported': ['runtime', runtimeRepair],
   'desktop.process_failed': ['runtime', runtimeRepair],

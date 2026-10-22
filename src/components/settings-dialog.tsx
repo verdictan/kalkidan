@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Tabs as TabsPrimitive } from 'radix-ui';
-import { Bot, CircleUser, Info, Laptop, Settings } from 'lucide-react';
+import { Activity, Bot, CircleUser, Info, Laptop, Settings } from 'lucide-react';
 import { agentCatalog } from '../config/agents';
 import type { API, Agent } from '../types';
 import type { NotificationPreferences } from '../domain/verdictan';
@@ -35,6 +35,7 @@ import { displayVersion } from '../lib/verdictan-labels';
 import { isMac } from '../lib/platform';
 import { BrowserSettingsDialog } from './browser-menu';
 import { AboutSection } from './about-section';
+import { DiagnosticsSection } from './diagnostics-section';
 import { ComputersSection } from './computers-settings';
 import { SettingsRow, SettingsRows } from './settings-disclosure';
 import { AccountSection, AgentsSection } from './verdictan-settings';
@@ -50,6 +51,7 @@ const sectionIcons: Record<SettingsSection, ReactNode> = {
   account: <CircleUser aria-hidden="true" />,
   agents: <Bot aria-hidden="true" />,
   computers: <Laptop aria-hidden="true" />,
+  diagnostics: <Activity aria-hidden="true" />,
   about: <Info aria-hidden="true" />,
 };
 
@@ -67,7 +69,7 @@ function fallbackSelector(id: string) {
 
 /**
  * The Settings dialog: a 720px modal with a section list on the left (General, Account,
- * Agents, Computers, About) and one column of rows. ↑ and ↓ move between the sections. A
+ * Agents, Computers, Diagnostics, About) and one column of rows. ↑ and ↓ move between the sections. A
  * section opens at the top, or at `anchor` when it is set. Choices save at once with Undo.
  */
 export function SettingsDialog({
@@ -225,6 +227,9 @@ export function SettingsDialog({
                       open={open && active === 'computers'}
                       onRefresh={onRefresh}
                     />
+                  )}
+                  {item.value === 'diagnostics' && (
+                    <DiagnosticsSection api={api} open={open && active === 'diagnostics'} />
                   )}
                   {item.value === 'about' && (
                     <AboutSection

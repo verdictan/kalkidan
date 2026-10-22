@@ -14,6 +14,8 @@ ci-results
 coverage
 # Byte copies of the Verdictan shared contract (cli/docs/contracts).
 tests/fixtures/verdictan/desktop-*.json
+# The pinned copy of the Verdictan contracts. Their SHA-256 digests are in source.json.
+contracts/verdictan/
 # Signed Verdictan release files. A format change breaks the signature.
 tests/fixtures/verdictan/release-*/
 

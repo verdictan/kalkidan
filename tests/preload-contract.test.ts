@@ -11,6 +11,7 @@ const contractFiles = [
   'src/domain/publish.ts',
   'src/domain/verdictan.ts',
   'src/domain/updates.ts',
+  'src/domain/diagnostics.ts',
   'src/domain/docs.ts',
   'src/domain/github-content.ts',
   'src/domain/github-relations.ts',

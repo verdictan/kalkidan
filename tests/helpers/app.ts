@@ -48,7 +48,7 @@ export const sidebar = (page: Page) =>
 export const settingsDialog = (page: Page) =>
   page.getByRole('dialog', { name: 'Settings', exact: true });
 
-/** A section tab of the Settings dialog: General, Account, Agents, Computers or About. */
+/** A section tab of the Settings dialog: General, Account, Agents, Computers, Diagnostics or About. */
 export const settingsTab = (page: Page, name: string) =>
   settingsDialog(page)
     .getByRole('tablist', { name: 'Settings sections' })

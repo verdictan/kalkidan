@@ -13,6 +13,12 @@ import {
   type VerdictanStatus,
 } from './domain/verdictan';
 import type { ComponentUpdateStatus } from './domain/updates';
+import {
+  agentSupport,
+  runtimeSupport,
+  supportBundle,
+  type DiagnosticsReport,
+} from './domain/diagnostics';
 import type { API, Project, Session, ProjectGroup } from './types';
 const now = new Date().toISOString();
 let projects: Project[] = [
@@ -412,6 +418,66 @@ function demoSetup(): VerdictanSetup {
 }
 /** The demo runtime: a fresh demo installs it in about 3 s, as the first launch does. */
 const demoRuntimeRelease = { version: '0.6.9', releaseId: 'demo', sha256: '0'.repeat(64) };
+/** Sample diagnostics for the browser preview. The values are examples, not measurements. */
+function demoDiagnostics(): DiagnosticsReport {
+  return {
+    schemaVersion: 1,
+    createdAt: new Date().toISOString(),
+    app: { version: '0.1.0', build: 'preview', packaged: false },
+    platform: 'darwin',
+    arch: 'arm64',
+    osVersion: '26.7.1',
+    supportWindow: { protocol: 1, runtimeMinimum: '0.6.8', runtimeNewestVerified: '0.6.10' },
+    connection: {
+      region: 'eu',
+      phase: 'authenticated',
+      executionReady: true,
+      protocolMin: 1,
+      protocolMax: 1,
+      capabilities: ['authorization.browser.pkce', 'runtime.provision'],
+    },
+    runtimes: [
+      runtimeSupport({
+        hostId: 'local',
+        name: 'This computer',
+        connected: true,
+        installed: demoRuntimeRelease.version,
+        running: demoRuntimeRelease.version,
+        latest: '0.6.10',
+      }),
+      runtimeSupport({
+        hostId: 'demo-host',
+        name: 'build-server',
+        connected: true,
+        installed: '0.6.6',
+        running: '0.6.6',
+      }),
+    ],
+    agents: [
+      agentSupport({ hostId: 'local', agent: 'codex', status: 'installed', version: '0.164.0' }),
+      agentSupport({ hostId: 'local', agent: 'claude', status: 'installed', version: '2.1.287' }),
+    ],
+    correlations: [
+      {
+        kind: 'broker',
+        id: '11111111-1111-4111-8111-111111111111',
+        operation: 'status',
+        outcome: 'ok',
+        at: new Date().toISOString(),
+        durationMs: 42,
+      },
+    ],
+    measurements: {
+      telemetry: 'off',
+      since: '2026-10-22T00:00:00.000Z',
+      sessions: 3,
+      crashes: 0,
+      turnsCompleted: 5,
+      turnsFailed: 1,
+      samples: { stream_first_output_ms: { count: 5, last: 900, p50: 850, p95: 1400 } },
+    },
+  };
+}
 let demoRuntimeInstalledAt = demoRead<{ at: number }>('kalkidan-demo-runtime', { at: 0 }).at;
 const demoRuntimeMs = 3000;
 function demoRuntime(hostId?: string): ComponentUpdateStatus {
@@ -567,6 +633,15 @@ export const demo: API = {
     throw new Error('Runtime installation requires the desktop application.');
   },
   runtimeUpdateCancel: async (hostId) => demo.runtimeUpdateStatus(hostId),
+  diagnostics: async () => demoDiagnostics(),
+  supportBundlePreview: async () => {
+    const { value, count } = supportBundle(demoDiagnostics());
+    const text = JSON.stringify(value, null, 2) + '\n';
+    return { text, digest: 'preview', redactions: count, bytes: new Blob([text]).size };
+  },
+  supportBundleExport: async () => {
+    throw new Error('Export requires the desktop application.');
+  },
   memoryList: async () => ({
     pages: demoMemory.map((entry) => ({
       topic: entry.topic,

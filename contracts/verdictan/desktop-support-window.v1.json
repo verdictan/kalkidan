@@ -1,0 +1,201 @@
+{
+  "schema_version": 1,
+  "kind": "desktop.support_window",
+  "decision_status": "approved",
+  "published": "2026-10-22",
+  "source_of_truth": "verdictan/cli/docs/contracts",
+  "protocol": {
+    "current": 1,
+    "supported": [
+      1
+    ],
+    "versions": [
+      {
+        "version": 1,
+        "introduced_in_runtime": "0.1.0",
+        "deprecated": null,
+        "end_of_support": null,
+        "contracts": [
+          {
+            "schema": "auth-desktop.request.v1.schema.json",
+            "fixtures": [
+              {
+                "file": "fixtures/auth-desktop.requests.json"
+              },
+              {
+                "file": "fixtures/project-services.requests.json"
+              }
+            ]
+          },
+          {
+            "schema": "auth-desktop.event.v1.schema.json",
+            "fixtures": [
+              {
+                "file": "fixtures/auth-desktop.events.json"
+              },
+              {
+                "file": "fixtures/claude-subscription.provisioned.json"
+              },
+              {
+                "file": "fixtures/claude-subscription.errors.json",
+                "pointer": "/errors"
+              }
+            ]
+          },
+          {
+            "schema": "auth-desktop.protected-credentials.v1.schema.json",
+            "fixtures": []
+          },
+          {
+            "schema": "gateway-supervise.request.v1.schema.json",
+            "fixtures": [
+              {
+                "file": "fixtures/gateway-supervise.requests.json"
+              }
+            ]
+          },
+          {
+            "schema": "gateway-supervise.event.v1.schema.json",
+            "fixtures": [
+              {
+                "file": "fixtures/gateway-supervise.events.json"
+              }
+            ]
+          },
+          {
+            "schema": "desktop-gateway-readiness.v1.schema.json",
+            "fixtures": [
+              {
+                "file": "fixtures/desktop-gateway-readiness.json"
+              }
+            ]
+          },
+          {
+            "schema": "desktop-gateway-events.v1.schema.json",
+            "fixtures": [
+              {
+                "file": "fixtures/desktop-gateway-events.json"
+              }
+            ]
+          },
+          {
+            "schema": "desktop-snapshot.v1.schema.json",
+            "fixtures": [
+              {
+                "file": "fixtures/desktop-snapshot.json"
+              }
+            ]
+          },
+          {
+            "schema": "desktop-release-manifest.v1.schema.json",
+            "fixtures": [
+              {
+                "file": "fixtures/desktop-release-manifest.json"
+              }
+            ]
+          },
+          {
+            "schema": "desktop-release-feed.v1.schema.json",
+            "fixtures": [
+              {
+                "file": "fixtures/desktop-release-feed.json"
+              }
+            ]
+          },
+          {
+            "schema": "desktop-release-pins.v1.schema.json",
+            "fixtures": [
+              {
+                "file": "fixtures/desktop-release-pins.json"
+              }
+            ]
+          },
+          {
+            "schema": "desktop-update-operation.v1.schema.json",
+            "fixtures": [
+              {
+                "file": "fixtures/desktop-update-operations.json"
+              }
+            ]
+          },
+          {
+            "schema": "desktop-process-inventory.v1.schema.json",
+            "fixtures": [
+              {
+                "file": "fixtures/desktop-process-inventory.json"
+              }
+            ]
+          },
+          {
+            "schema": "desktop-conversation-binding.v1.schema.json",
+            "fixtures": [
+              {
+                "file": "fixtures/desktop-conversation-binding.json"
+              }
+            ]
+          },
+          {
+            "schema": "desktop-resume-result.v1.schema.json",
+            "fixtures": [
+              {
+                "file": "fixtures/desktop-resume-result.json"
+              }
+            ]
+          },
+          {
+            "schema": "desktop-support-bundle.v1.schema.json",
+            "fixtures": [
+              {
+                "file": "fixtures/desktop-support-bundle.json"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "runtime": {
+    "policy": "The current release and the two releases before it.",
+    "minimum": "0.6.8",
+    "newest_verified": "0.6.10",
+    "deprecation_notice_days": 90,
+    "capabilities_fixture": "fixtures/runtime-capabilities.json",
+    "versions": [
+      {
+        "version": "0.6.8",
+        "protocol": 1,
+        "contracts_sha256": "3999ff850c3a5b44f57f535cdca5ebf496e482cb3a2046770456e69384a1d303"
+      },
+      {
+        "version": "0.6.9",
+        "protocol": 1,
+        "contracts_sha256": "3999ff850c3a5b44f57f535cdca5ebf496e482cb3a2046770456e69384a1d303"
+      },
+      {
+        "version": "0.6.10",
+        "protocol": 1,
+        "contracts_sha256": "3999ff850c3a5b44f57f535cdca5ebf496e482cb3a2046770456e69384a1d303"
+      }
+    ],
+    "deprecations": [
+      {
+        "versions": {
+          "minimum": "0.6.6",
+          "maximum": "0.6.7"
+        },
+        "reason": "These releases are older than the support window. 0.6.6 also refuses native agent versions that its release evidence did not test.",
+        "replacement": "0.6.8",
+        "deprecated": "2026-10-22",
+        "end_of_support": "2027-01-20"
+      }
+    ]
+  },
+  "desktop": {
+    "minimum": "0.1.0"
+  },
+  "agents": {
+    "owner": "kalkidan",
+    "codex": "0.160.0",
+    "claude_code": "2.1.300"
+  }
+}

@@ -7,6 +7,7 @@ import { isAbsolute } from 'node:path';
 import { StringDecoder } from 'node:string_decoder';
 import type { Readable } from 'node:stream';
 import { parseRuntimeCredentials, type RuntimeCredentials } from './credentials';
+import { journal } from '../diagnostics/journal';
 import type { ProviderAccessMode } from '../../src/domain/verdictan';
 
 export type DesktopOperation =
@@ -172,6 +173,7 @@ export class DesktopProtocol {
       reject(error: Error): void;
       progress?: (event: DesktopEvent) => void;
       timer: ReturnType<typeof setTimeout>;
+      startedAt: number;
     }
   >();
   constructor(
@@ -256,6 +258,7 @@ export class DesktopProtocol {
         reject,
         progress,
         timer,
+        startedAt: this.now(),
       });
       try {
         const request = {
@@ -373,18 +376,29 @@ export class DesktopProtocol {
         this.pending.delete(value.correlation_id);
         if (value.event === 'error') {
           const code = value.data.code;
-          pending.reject(
-            new DesktopProtocolError(
-              typeof code === 'string' && /^desktop\.[a-z_]{1,100}$/.test(code)
-                ? code
-                : 'desktop.operation_failed',
-            ),
+          const error = new DesktopProtocolError(
+            typeof code === 'string' && /^desktop\.[a-z_]{1,100}$/.test(code)
+              ? code
+              : 'desktop.operation_failed',
           );
-        } else pending.resolve(value);
+          this.ended(value.correlation_id, pending, error.code);
+          pending.reject(error);
+        } else {
+          this.ended(value.correlation_id, pending, 'ok');
+          pending.resolve(value);
+        }
       } catch {
         this.close('desktop.protocol_invalid');
       }
     }
+  }
+  /** Keeps the correlation ID, the operation, and the result for diagnostics. No data. */
+  private ended(
+    id: string,
+    pending: { operation: DesktopOperation; startedAt: number },
+    outcome: string,
+  ) {
+    journal.brokerRequest(id, pending.operation, outcome, this.now() - pending.startedAt);
   }
   close(code = 'desktop.transport_closed') {
     if (this.closed) return;
@@ -395,8 +409,10 @@ export class DesktopProtocol {
     this.secretBuffer.fill(0);
     this.secretBuffer = Buffer.alloc(0);
     this.protectedPipe?.destroy();
-    for (const pending of this.pending.values()) {
+    journal.connectionClosed(code);
+    for (const [id, pending] of this.pending) {
       clearTimeout(pending.timer);
+      this.ended(id, pending, code);
       pending.reject(new DesktopProtocolError(code));
     }
     this.pending.clear();

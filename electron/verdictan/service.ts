@@ -11,7 +11,7 @@ import { hostSystemVersion } from './system-version';
 import { ManagedRuntimes } from './runtime';
 import { DesktopProtocol, DesktopProtocolError } from './protocol';
 import { desktopVersion } from './release';
-import { VerdictanAccountService, parseCapabilities } from './account';
+import { VerdictanAccountService, assertRuntimeSupported, parseCapabilities } from './account';
 import { RuntimeInstaller } from './install';
 
 export function createVerdictanServices(options: {
@@ -67,6 +67,8 @@ export function createVerdictanServices(options: {
         const capabilities = parseCapabilities((await client.request('capabilities')).data);
         if (capabilities.cliVersion !== version)
           throw new Error('Runtime executable version does not match the signed release.');
+        // Do not activate a release below the minimum of the support window.
+        assertRuntimeSupported(capabilities);
       } finally {
         client.close();
       }

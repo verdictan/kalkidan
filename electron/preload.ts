@@ -42,6 +42,9 @@ const api: API = {
   runtimeUpdateCheck: (hostId) => ipcRenderer.invoke('runtime-update-check', hostId),
   runtimeUpdateInstall: (hostId) => ipcRenderer.invoke('runtime-update-install', hostId),
   runtimeUpdateCancel: (hostId) => ipcRenderer.invoke('runtime-update-cancel', hostId),
+  diagnostics: () => ipcRenderer.invoke('diagnostics'),
+  supportBundlePreview: () => ipcRenderer.invoke('support-bundle-preview'),
+  supportBundleExport: (digest) => ipcRenderer.invoke('support-bundle-export', digest),
   memoryList: (group) => ipcRenderer.invoke('memory-list', group),
   projectResourceRevision: (group, kind) =>
     ipcRenderer.invoke('project-resource-revision', group, kind),
