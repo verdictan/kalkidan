@@ -105,6 +105,14 @@ export function AgentWorkspace({
     ]);
   }, [initialTabs]);
   const [sideKey, setSideKey] = useState<string | null>(null);
+  // A new side chat takes the focus, after the menu that opened it gives the focus back.
+  useEffect(() => {
+    if (!sideKey) return;
+    const timer = window.setTimeout(() =>
+      document.querySelector<HTMLTextAreaElement>('.agent-pane[data-side] textarea')?.focus(),
+    );
+    return () => window.clearTimeout(timer);
+  }, [sideKey]);
   const [running, setRunning] = useState<Record<string, SessionActivityState | null>>({});
   const [created, setCreated] = useState<Record<string, { id: string; title: string }>>({});
   // Keys in the order the user viewed them, most recent first.
@@ -430,6 +438,7 @@ export function AgentWorkspace({
                 <div
                   className="agent-pane"
                   key={key}
+                  data-side={key === sideKey || undefined}
                   hidden={key !== selectedKey && key !== sideKey}
                 >
                   {key === sideKey && (

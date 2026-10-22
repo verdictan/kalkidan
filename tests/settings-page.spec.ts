@@ -256,6 +256,8 @@ test('Preferences, the account menu and the Computers page show their content', 
     await expect(menu.getByRole('menuitemradio', { name: theme, exact: true })).toBeVisible();
   await expect(menu.getByRole('menuitem', { name: /Help and feedback/ })).toBeVisible();
   await expect(menu.getByRole('menuitem', { name: /Sign out/ })).toBeVisible();
+  // Keyboard shortcuts open with ⌘/ and from ⌘K, not from the account menu.
+  await expect(menu.getByRole('menuitem', { name: /Keyboard shortcuts/ })).toHaveCount(0);
   await page.keyboard.press('Escape');
 
   // Computers: this computer, one row for each agent, and the SSH hosts.
