@@ -20,6 +20,7 @@ import { fetchRuntimeRelease, type SignedRuntimeRelease } from './release-source
 import { releasePublicKey, verifySignedFile } from './signature';
 import { downloadRuntime } from './download';
 import { extractRuntime } from './archive';
+import { keychainRefusedCode, managedErrorText } from '../../src/domain/verdictan';
 
 interface Receipt {
   schema: 1;
@@ -439,8 +440,8 @@ export class RuntimeInstaller {
             assertOwned();
             this.state.staged = undefined;
             await this.phase('completed');
-          } catch {
-            await this.rollback();
+          } catch (error) {
+            await this.rollback(error);
           }
         } catch (error) {
           await this.phase(
@@ -467,7 +468,8 @@ export class RuntimeInstaller {
     await this.check(true);
     return this.status();
   }
-  private async rollback() {
+  /** `cause` is the failure of the new version. A refused keychain prompt keeps its own words. */
+  private async rollback(cause?: unknown) {
     await this.phase('rolling-back');
     this.state.active = undefined;
     await this.persist();
@@ -480,7 +482,9 @@ export class RuntimeInstaller {
       this.state.active = old;
       await this.phase(
         'rolled-back',
-        'Runtime activation failed. The previous installation was restored.',
+        keychainRefused(cause)
+          ? keychainRollbackError
+          : 'Runtime activation failed. The previous installation was restored.',
       );
     } catch (error) {
       await this.phase('rollback-failed', safeInstallError(error));
@@ -648,7 +652,17 @@ async function fileDigest(path: string) {
     await file.close();
   }
 }
+/** True when the system keychain refused the runtime, for example after a refused prompt. */
+function keychainRefused(error: unknown) {
+  return error instanceof Error && error.message === managedErrorText(keychainRefusedCode);
+}
+/** Retry in Settings › Computers starts the install again, and the system asks again. */
+const keychainInstallError =
+  'The new runtime did not get access to the system keychain. Select Retry, then allow access when the system asks.';
+const keychainRollbackError =
+  'The new runtime did not get access to the system keychain. The previous version was restored. Select Retry, then allow access when the system asks.';
 function safeInstallError(error: unknown) {
+  if (keychainRefused(error)) return keychainInstallError;
   if (
     error instanceof Error &&
     /^(?:The |This |Runtime |Release |Invalid |No |Update |Storage |Cannot )/.test(error.message)

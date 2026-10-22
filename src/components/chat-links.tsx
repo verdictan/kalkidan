@@ -167,6 +167,9 @@ export function PullRequestChip({ pr }: { pr: SessionPullRequest }) {
 
 /** Starts the Verdictan sign-in. The sign-in flow shows the waiting screen. */
 export const startSignIn = () => dispatchApp('kalkidan-sign-in', { intent: 'login' });
+/** Checks the managed agents account again. The account strip above the page listens. */
+export const checkStatusEvent = 'kalkidan-check-status';
+export const requestCheckStatus = () => dispatchApp(checkStatusEvent, {});
 
 /**
  * The action buttons for a chat error. The fix (Sign in or a Settings page) is the filled
@@ -188,7 +191,10 @@ export function AgentErrorActions({
   const buttons: ReactNode[] = [];
   const fix =
     action &&
-    (action.kind === 'settings' || action.kind === 'install' || action.kind === 'sign-in');
+    (action.kind === 'settings' ||
+      action.kind === 'install' ||
+      action.kind === 'sign-in' ||
+      action.kind === 'check-status');
   // A retryable error shows "Try again" first. The fix is then the second choice.
   const retryFirst = !!error.retryFirst && !!onRetry;
   const retryButton = (filled: boolean) => (
@@ -211,10 +217,20 @@ export function AgentErrorActions({
         size="sm"
         variant={buttons.length ? 'outline' : 'default'}
         onClick={() =>
-          action.kind === 'sign-in' ? startSignIn() : openSettings(action.section, action.anchor)
+          action.kind === 'sign-in'
+            ? startSignIn()
+            : action.kind === 'check-status'
+              ? requestCheckStatus()
+              : openSettings(action.section, action.anchor)
         }
       >
-        {action.kind === 'sign-in' ? <LogIn aria-hidden="true" /> : <Settings aria-hidden="true" />}
+        {action.kind === 'sign-in' ? (
+          <LogIn aria-hidden="true" />
+        ) : action.kind === 'check-status' ? (
+          <RefreshCw aria-hidden="true" />
+        ) : (
+          <Settings aria-hidden="true" />
+        )}
         {action.label}
       </Button>,
     );

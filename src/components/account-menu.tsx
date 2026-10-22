@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   BookOpen,
   ChevronsUpDown,
@@ -16,8 +16,12 @@ import {
   BellRing,
 } from 'lucide-react';
 import type { API } from '../api/contracts';
-import type { NotificationPreferences } from '../domain/verdictan';
-import { accountNames } from '../lib/verdictan-labels';
+import {
+  keychainHostsMessage,
+  keychainRefusedCode,
+  type NotificationPreferences,
+} from '../domain/verdictan';
+import { accountNames, verdictanErrorMessage } from '../lib/verdictan-labels';
 import { regionNames } from '../lib/region-suggestion';
 import {
   applyAppearance,
@@ -49,6 +53,7 @@ import {
 import { Switch } from './ui/switch';
 import { showToast } from './ui/toast';
 import { openSettings, SignInSteps, startSignIn, type SignInIntent } from './sign-in-steps';
+import { checkStatusEvent } from './chat-links';
 
 export { startSignIn } from './sign-in-steps';
 
@@ -340,12 +345,57 @@ export function AccountMenu({ api }: { api: API }) {
 }
 
 /**
- * The strip above the page when the Verdictan session ended. It is not a modal: projects and
- * chats stay usable. A user who never signed in, or who signed out, sees no strip: the
- * "Sign in" row in the sidebar footer is the one sign-in prompt.
+ * The strip above the page when the Verdictan session ended, or when the system keychain
+ * refused access. It is not a modal: projects and chats stay usable. A user who never signed
+ * in, or who signed out, sees no strip: the "Sign in" row in the sidebar footer is the one
+ * sign-in prompt.
+ *
+ * After a refused keychain prompt, Kalkidan does not try again by itself. "Check status" here,
+ * or in a chat error, checks the account again on this computer and on each SSH host. This
+ * starts the runtime again, so the system asks again.
  */
 export function SessionBanner({ api }: { api: API }) {
-  const { status } = useVerdictanStatus(api);
+  const { status, setStatus } = useVerdictanStatus(api);
+  const [hosts, setHosts] = useState<string[]>([]);
+  const [checking, setChecking] = useState(false);
+  const running = useRef(false);
+  async function check() {
+    if (running.current || typeof api.verdictanCheck !== 'function') return;
+    running.current = true;
+    setChecking(true);
+    try {
+      const next = await api.verdictanCheck();
+      setStatus(next);
+      setHosts(next.keychainHosts ?? []);
+      if (next.phase === 'authenticated' && !next.keychainHosts?.length)
+        showToast('Managed agents are ready. Try again.');
+    } catch {
+      showToast({ message: 'Kalkidan could not check the status. Try again.', tone: 'error' });
+    } finally {
+      running.current = false;
+      setChecking(false);
+    }
+  }
+  const latest = useRef(check);
+  latest.current = check;
+  useEffect(() => {
+    const run = () => void latest.current();
+    window.addEventListener(checkStatusEvent, run);
+    return () => window.removeEventListener(checkStatusEvent, run);
+  }, []);
+  const refused = status?.error === keychainRefusedCode;
+  if (refused || hosts.length)
+    return (
+      <div className="session-banner" role="status" data-testid="keychain-banner">
+        <CircleAlert className="session-banner-icon" aria-hidden="true" />
+        <p className="min-w-0 flex-1 text-sm">
+          {refused ? verdictanErrorMessage(keychainRefusedCode) : keychainHostsMessage(hosts)}
+        </p>
+        <Button variant="outline" size="sm" disabled={checking} onClick={() => void check()}>
+          {checking ? 'Checking…' : 'Check status'}
+        </Button>
+      </div>
+    );
   if (status?.phase !== 'expired') return null;
   return (
     <div className="session-banner" role="status" data-testid="session-banner">

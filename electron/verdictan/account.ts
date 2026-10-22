@@ -4,7 +4,7 @@ import type {
   VerdictanStatus,
 } from '../../src/domain/verdictan';
 import { projectServicePermissions } from '../../src/domain/project-services';
-import { serviceName } from '../../src/domain/verdictan';
+import { keychainRefusedCode, serviceName } from '../../src/domain/verdictan';
 import { DesktopClient, DesktopProtocolError } from './protocol';
 
 export interface DesktopAccountOptions {
@@ -47,6 +47,11 @@ export class VerdictanAccountService {
   private detach?: () => void;
   private renewTimer?: ReturnType<typeof setTimeout>;
   private quietError?: string;
+  /**
+   * True after the system keychain refused access. No automatic operation starts the runtime
+   * again, because each start shows the keychain prompt again. Only a user action clears it.
+   */
+  private keychainRefused = false;
   private canceling?: Promise<void>;
   private now: () => number;
   constructor(private options: DesktopAccountOptions) {
@@ -132,6 +137,8 @@ export class VerdictanAccountService {
   }
   private async connection() {
     if (this.client) return this.client;
+    // Do not start the runtime again without a user action. A new start asks the keychain again.
+    if (this.keychainRefused) throw new DesktopProtocolError(keychainRefusedCode);
     const generation = this.connectionGeneration;
     const pending = (this.connecting ??= this.options.connect());
     try {
@@ -140,18 +147,46 @@ export class VerdictanAccountService {
         client?.close();
         throw new DesktopProtocolError('desktop.transport_closed');
       }
-      if (client) {
-        this.client = client;
-        this.detach = client.onClose((code) => {
-          if (this.client !== client) return;
-          this.client = undefined;
-          this.set({ phase: 'error', executionReady: false, error: code });
-        });
-      }
-      return client;
+      if (!client) return null;
+      const watched = this.watchKeychain(client);
+      this.client = watched;
+      this.detach = client.onClose((code) => {
+        if (this.client !== watched) return;
+        this.client = undefined;
+        this.set({ phase: 'error', executionReady: false, error: code });
+      });
+      return watched;
     } finally {
       if (this.connecting === pending) this.connecting = undefined;
     }
+  }
+  /**
+   * Returns the client with a check of each result. When the keychain refuses access, the
+   * running runtime process cannot ask again. Stop it, and keep it stopped until a user action.
+   */
+  private watchKeychain(client: DesktopClient): DesktopClient {
+    const refused = (error: unknown): never => {
+      if (error instanceof DesktopProtocolError && error.code === keychainRefusedCode)
+        this.refuseKeychain(watched);
+      throw error;
+    };
+    const watched: DesktopClient = {
+      request: (...args) => client.request(...args).catch(refused),
+      exportRuntime: (runtimeId) => client.exportRuntime(runtimeId).catch(refused),
+      close: (code) => client.close(code),
+      onClose: (listener) => client.onClose(listener),
+    };
+    return watched;
+  }
+  private refuseKeychain(client: DesktopClient) {
+    if (this.disposed || this.client !== client) return;
+    this.keychainRefused = true;
+    this.detach?.();
+    this.detach = undefined;
+    this.client = undefined;
+    client.close();
+    // The error state also stops the renewal timer. No timer asks the keychain again.
+    this.set({ ...this.state, phase: 'error', executionReady: false, error: keychainRefusedCode });
   }
   /** Backend-only access. The CLI remains the single owner of account credentials. */
   async runtimeClient() {
@@ -191,6 +226,8 @@ export class VerdictanAccountService {
         ? this.operation
         : Promise.reject(new DesktopProtocolError('desktop.operation_in_progress'));
     this.operationKind = kind;
+    // A user action, such as Check status, starts the runtime again. It asks the keychain again.
+    if (!quiet) this.keychainRefused = false;
     const generation = ++this.generation;
     const task = (async () => {
       try {
@@ -385,6 +422,8 @@ export class VerdictanAccountService {
     this.detach = undefined;
     this.client?.close();
     this.client = undefined;
+    // A reset starts with a new runtime, for example after an update or a new SSH connection.
+    this.keychainRefused = false;
     this.set({ phase: 'missing', executionReady: false });
   }
 }
