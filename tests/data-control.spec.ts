@@ -65,18 +65,20 @@ async function openYourData(page: Page) {
     .click();
 }
 
-test('Settings › General › Your data keeps the notice, the disk use, export, and deletion', async ({
+test('Settings › General › Your data keeps the disk use, export, and deletion', async ({
   page,
 }) => {
   await fixture(page);
   await openYourData(page);
   const settings = page.getByRole('dialog', { name: 'Your data' });
   await expect(settings).toContainText('1.2 GB of 2.0 GB in /Users/dana/.kalkidan');
-  // The notice is in the closed "Where your data goes" section.
-  const notice = settings.getByRole('heading', { name: 'Goes to the model provider' });
-  await expect(notice).toHaveCount(0);
-  await settings.getByRole('button', { name: 'Where your data goes' }).click();
-  await expect(notice).toBeVisible();
+  // The page has no data notice, store, or removal sections.
+  for (const name of [
+    'Where your data goes',
+    'What each store keeps, and for how long',
+    'When you remove a host, an account, or the app',
+  ])
+    await expect(settings.getByRole('button', { name })).toHaveCount(0);
   await settings.getByRole('button', { name: 'Export…' }).click();
   await expect(page.getByRole('status').getByText('Exported 12 files.')).toBeVisible();
   // Delete chat history is in the Danger zone.

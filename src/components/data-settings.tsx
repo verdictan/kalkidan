@@ -2,10 +2,7 @@ import { useEffect, useState } from 'react';
 import { LoaderCircle } from 'lucide-react';
 import type { API } from '../types';
 import {
-  dataDisclosure,
-  lifecycleEffects,
   localDataLabels,
-  storePolicies,
   type LocalDataDeletion,
   type LocalDataUsage,
 } from '../domain/data-policy';
@@ -34,27 +31,6 @@ export function formatBytes(bytes: number) {
     unit++;
   }
   return `${value >= 10 ? Math.round(value) : value.toFixed(1)} ${units[unit]}`;
-}
-
-/** The three parts of the data notice. */
-export function DataDisclosure({ headingLevel = 3 }: { headingLevel?: 3 | 4 }) {
-  const Heading = headingLevel === 3 ? 'h3' : 'h4';
-  return (
-    <div className="data-disclosure grid gap-4" data-testid="data-disclosure">
-      {dataDisclosure.map((section) => (
-        <section key={section.id} aria-labelledby={`data-${section.id}`}>
-          <Heading id={`data-${section.id}`} className="mb-1 text-sm font-semibold">
-            {section.title}
-          </Heading>
-          <ul className="list-disc space-y-1 pl-5 text-sm text-muted-foreground">
-            {section.items.map((item) => (
-              <li key={item}>{item}</li>
-            ))}
-          </ul>
-        </section>
-      ))}
-    </div>
-  );
 }
 
 /** The "Your data" dialog of Preferences. */
@@ -212,35 +188,6 @@ export function DataSection({ api, open }: { api: API; open: boolean }) {
           </Button>
         </SettingsRow>
       </SettingsRows>
-      <div className="grid">
-        <SettingsDisclosure title="Where your data goes">
-          <DataDisclosure headingLevel={4} />
-        </SettingsDisclosure>
-        <SettingsDisclosure title="What each store keeps, and for how long">
-          <div className="grid gap-3 text-sm">
-            {storePolicies.map((store) => (
-              <section key={store.id} aria-label={store.name}>
-                <h4 className="font-medium">{store.name}</h4>
-                <p className="text-muted-foreground">{store.contents}</p>
-                <p className="text-muted-foreground">Location: {store.path}</p>
-                <p className="text-muted-foreground">Retention: {store.retention}</p>
-                <p className="text-muted-foreground">Limit: {store.limit}</p>
-                <p className="text-muted-foreground">Delete: {store.deletion}</p>
-              </section>
-            ))}
-          </div>
-        </SettingsDisclosure>
-        <SettingsDisclosure title="When you remove a host, an account, or the app">
-          <ul className="grid gap-2 text-sm">
-            {lifecycleEffects.map((item) => (
-              <li key={item.action}>
-                <span className="font-medium">{item.action}.</span>{' '}
-                <span className="text-muted-foreground">{item.effect}</span>
-              </li>
-            ))}
-          </ul>
-        </SettingsDisclosure>
-      </div>
       <ConfirmDialog
         open={confirm === 'chat-history'}
         title="Delete chat history?"
