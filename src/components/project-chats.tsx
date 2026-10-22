@@ -2,6 +2,7 @@ import { useState, type ComponentProps } from 'react';
 import type { Project, ProjectGroup, Session } from '../types';
 import { sessionRepo } from '../lib/session-repository';
 import { SessionBrowser } from './session-browser';
+import { trackerConnection } from '../domain/tracker';
 
 type BrowserProps = ComponentProps<typeof SessionBrowser>;
 
@@ -45,6 +46,7 @@ export function ProjectChats({
         query={query}
         onQueryChange={setQuery}
         filterBy="folder"
+        hasBoard={() => !!trackerConnection(group)}
         placeOf={(session) => ({
           project: group.name,
           folder: sessionRepo(session, repos)?.name,

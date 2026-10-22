@@ -1,5 +1,5 @@
-import { test, expect, openSettings, settingsDialog } from './helpers/app';
-test('Settings checks GitHub CLI and retries without hiding agent status', async ({ page }) => {
+import { test, expect, openComputersPage, openPreferences, preferencesDialog } from './helpers/app';
+test('Preferences checks GitHub CLI and retries without hiding agent status', async ({ page }) => {
   await page.addInitScript(() => {
     (window as any).ghState = 'missing';
     (window as any).workspace = {
@@ -21,12 +21,12 @@ test('Settings checks GitHub CLI and retries without hiding agent status', async
     };
   });
   await page.goto('/');
-  const dialog = await openSettings(page, 'Agents');
-  // The Agents rows show the agent status. A missing agent opens its programs with Fix.
-  const agents = dialog.getByRole('list', { name: 'Managed agents' });
-  const claude = agents.getByRole('group', { name: 'Claude Code', exact: true });
-  await expect(claude).toContainText('Claude Code is not installed on this computer.');
-  await claude.getByRole('button', { name: 'Fix Claude Code' }).click();
+  const computers = await openComputersPage(page);
+  // The agent rows show the agent status. A missing agent opens its programs with Choose….
+  const claude = computers.getByRole('group', { name: 'Claude Code', exact: true });
+  await expect(claude).toContainText('Not installed');
+  await expect(claude).toContainText('Not found on this computer');
+  await claude.getByRole('button', { name: 'Choose the Claude Code program' }).click();
   const programs = page.getByRole('dialog', { name: 'Agent programs on this computer' });
   await expect(programs.getByRole('listitem', { name: 'Codex on this computer' })).toContainText(
     'Meets the minimum',
@@ -36,15 +36,12 @@ test('Settings checks GitHub CLI and retries without hiding agent status', async
   await expect(programs.getByRole('link', { name: 'How to install' })).toBeVisible();
   await programs.getByRole('button', { name: 'Done', exact: true }).click();
   await expect(programs).toHaveCount(0);
-  // The GitHub CLI and the board access are connected services in Account.
-  await dialog.getByRole('tab', { name: 'Account', exact: true }).click();
-  const services = dialog.getByRole('list', { name: 'Connected services' });
-  const row = services.getByRole('group', { name: 'GitHub', exact: true });
+  // The GitHub CLI and the board access are one row in Preferences.
+  const dialog = await openPreferences(page);
+  const row = dialog.getByRole('group', { name: 'GitHub and boards', exact: true });
   await expect(row).toContainText('Not installed');
   await expect(row.getByRole('link', { name: 'How to install' })).toBeVisible();
-  await expect(
-    services.getByRole('group', { name: 'GitHub Projects boards', exact: true }),
-  ).toContainText('Not allowed');
+  await expect(row).toContainText('Boards not allowed');
   // Settings checks again when the window gets focus. There is no Check again button.
   await expect(dialog.getByRole('button', { name: 'Check again' })).toHaveCount(0);
   const recheck = async (state: string) => {
@@ -59,13 +56,16 @@ test('Settings checks GitHub CLI and retries without hiding agent status', async
   await expect(row).toContainText('gh auth login');
   await page.waitForTimeout(2100);
   await recheck('ready');
-  await expect(row).toContainText('Connected');
+  // The CLI works. The row is not "Connected" because the boards are not allowed.
+  await expect(row).not.toContainText('Signed out');
+  await expect(row).not.toContainText('gh auth login');
+  await expect(row).toContainText('Boards not allowed');
   await page.waitForTimeout(2100);
   await recheck('error');
   await expect(row).toContainText('Check failed');
 });
 
-test('closing Settings detaches from shared approval; explicit cancel identifies its attempt', async ({
+test('closing Preferences detaches from shared approval; explicit cancel identifies its attempt', async ({
   page,
 }) => {
   await page.addInitScript(() => {
@@ -97,23 +97,21 @@ test('closing Settings detaches from shared approval; explicit cancel identifies
     };
   });
   await page.goto('/');
-  const open = () => openSettings(page, 'Account');
+  const open = () => openPreferences(page);
   const boards = () =>
-    settingsDialog(page)
-      .getByRole('list', { name: 'Connected services' })
-      .getByRole('group', { name: 'GitHub Projects boards', exact: true });
+    preferencesDialog(page).getByRole('group', { name: 'GitHub and boards', exact: true });
   const approval = page.getByRole('dialog', { name: 'Allow access to GitHub Projects' });
   await open();
   await boards().getByRole('button', { name: 'Allow access…', exact: true }).click();
   await expect(approval.getByLabel('GitHub device code')).toHaveValue('ABCD-1234');
-  // Escape closes the approval sheet, then Settings. The approval keeps running.
+  // Escape closes the approval sheet, then Preferences. The approval keeps running.
   await page.keyboard.press('Escape');
   await expect(approval).toHaveCount(0);
   await page.keyboard.press('Escape');
-  await expect(settingsDialog(page)).not.toBeVisible();
+  await expect(preferencesDialog(page)).not.toBeVisible();
   expect(await page.evaluate(() => (window as any).cancels)).toEqual([]);
   await open();
-  await expect(boards()).toContainText('Waiting…');
+  await expect(boards()).toContainText('Waiting for approval');
   await boards().getByRole('button', { name: 'Continue…', exact: true }).click();
   await expect(approval.getByLabel('GitHub device code')).toHaveValue('ABCD-1234');
   expect(await page.evaluate(() => (window as any).starts)).toBe(1);

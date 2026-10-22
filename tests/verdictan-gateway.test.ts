@@ -43,6 +43,7 @@ function fixture() {
   child.signalCode = null;
   let killed = 0,
     lost = 0;
+  const revocations: unknown[] = [];
   const close = () => {
     if (child.exitCode === null) {
       child.exitCode = 0;
@@ -80,7 +81,10 @@ function fixture() {
       requests.push({ url, options });
       return Response.json(payload, { status });
     }) as any,
-    lost: () => lost++,
+    lost: (revocation) => {
+      lost++;
+      revocations.push(revocation);
+    },
   });
   let sequence = 0;
   function emit(event: string, data: object, overrides = {}) {
@@ -117,6 +121,7 @@ function fixture() {
     emit,
     killed: () => killed,
     lost: () => lost,
+    revocations,
     change: (value: any, code = 200) => {
       payload = value;
       status = code;
@@ -269,6 +274,37 @@ test('stale supervisor generations and non-loopback addresses terminate ownershi
     await assert.rejects(f.gateway.readiness(agent), /protocol_invalid/);
     assert.equal(f.lost(), 1);
     assert.equal(f.killed(), 1);
+    await f.gateway.stop();
+  }
+});
+
+test('a revoked runtime stops the gateway at once and reports the reason', async () => {
+  const f = fixture();
+  f.listen();
+  await f.gateway.readiness(agent);
+  f.emit('credential.revoked', { runtime_id: id, reason: 'session_revoked' });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(f.lost(), 1);
+  assert.deepEqual(f.revocations, ['session_revoked']);
+  assert.equal(f.killed(), 1);
+  await assert.rejects(f.gateway.readiness(agent), /gateway_unavailable/);
+  // The gateway keeps no secret after the revocation.
+  const kept = (f.gateway as any).credentials;
+  assert.equal(kept.runtime_credential, '');
+  assert.equal(kept.inference_credential, '');
+  await f.gateway.stop();
+});
+test('a revocation event for another runtime or with an unknown reason is a protocol error', async () => {
+  for (const data of [
+    { runtime_id: '22222222-2222-4222-8222-222222222222', reason: 'host_revoked' },
+    { runtime_id: id, reason: 'unknown' },
+  ]) {
+    const f = fixture();
+    f.listen();
+    f.emit('credential.revoked', data);
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(f.lost(), 1);
+    assert.deepEqual(f.revocations, [undefined]);
     await f.gateway.stop();
   }
 });

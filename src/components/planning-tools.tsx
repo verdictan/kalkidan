@@ -75,19 +75,19 @@ function toolTitle(tool: PlanningTool, count: number) {
     case 'readiness':
       return 'Check readiness';
     default:
-      return 'Run tasks in parallel';
+      return `Start ${plural(count, 'chat')}`;
   }
 }
 function toolDescription(tool: PlanningTool) {
   switch (tool) {
     case 'fields':
-      return 'Choose a field and a value. Review each change, then apply the changes on GitHub.';
+      return 'Review each change before it goes to GitHub.';
     case 'iteration':
-      return 'Choose up to 50 tasks. Kalkidan proposes the tasks that fit the remaining capacity.';
+      return 'Kalkidan proposes the tasks that fit the capacity.';
     case 'readiness':
-      return 'Choose up to 20 tasks. Kalkidan shows which tasks can run at the same time. Each task runs in its own branch copy.';
+      return 'Shows which tasks can run at the same time.';
     default:
-      return 'Each issue runs in its own branch copy with its own chat. Review the prompts before the chats start.';
+      return 'Each task gets its own branch copy and its own chat.';
   }
 }
 
@@ -162,7 +162,14 @@ export function PlanningToolDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent size="lg" layout="scroll">
         <DialogHeader>
-          <DialogTitle>{toolTitle(current, items.length)}</DialogTitle>
+          <DialogTitle>
+            {toolTitle(
+              current,
+              current === 'dispatch'
+                ? items.filter((item) => item.kind === 'Issue').length
+                : items.length,
+            )}
+          </DialogTitle>
           <DialogDescription>{toolDescription(current)}</DialogDescription>
         </DialogHeader>
         {!available[current] ? (

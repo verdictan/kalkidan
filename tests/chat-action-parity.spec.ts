@@ -1,5 +1,5 @@
 import { type Page } from '@playwright/test';
-import { test, expect, openMoreChatActions } from './helpers/app';
+import { test, expect } from './helpers/app';
 import { openCodeFolder } from './helpers/navigation';
 
 /** The actions of the open menu, in order, with "---" for a separator. */
@@ -14,46 +14,50 @@ async function menuActions(page: Page) {
 }
 
 const title = 'Refine project and repository navigation';
-// The row menu shows the frequent actions. The other actions are in the "More" submenu.
+// The row menu shows nine items in two levels. The demo project has no board, so "Link task"
+// does not show. Commit and the pull request are in the changes row of the chat, not here.
 const rowActions = [
   'open',
   '---',
   'rename',
   'pin',
-  'link-task',
-  '---',
-  'commit',
-  'create-pull-request',
-  '---',
-  'more',
-  '---',
-  'archive',
-];
-const moreActions = [
-  'open-beside',
-  'open-window',
-  '---',
   'notes',
   '---',
   'duplicate',
-  'show-folder',
+  'open-in',
   '---',
-  'share',
-  'copy-markdown',
+  'export',
   'usage-history',
   '---',
-  'developer',
+  'archive',
 ];
+const submenus = {
+  'Duplicate chat': ['duplicate-here', 'duplicate-branch'],
+  'Open in': ['show-folder', 'open-vscode', 'open-cursor', 'open-window', 'open-beside'],
+  Export: ['export-markdown', 'export-html', 'copy-markdown', 'save-to-docs'],
+};
 
-/** Opens the "More" submenu of the open menu and returns its actions. */
-async function moreMenuActions(page: Page) {
-  await openMoreChatActions(page);
-  return menuActions(page);
+/**
+ * Opens each submenu of a chat menu and returns the actions of each one. `open` opens the menu.
+ * The menu opens again for each submenu, so the open submenu of the item before cannot show.
+ * The menu is closed at the end.
+ */
+async function submenuActions(page: Page, open: () => Promise<unknown>) {
+  const result: Record<string, (string | null)[]> = {};
+  for (const name of Object.keys(submenus)) {
+    await open();
+    await page.getByRole('menuitem', { name, exact: true }).hover();
+    await page.keyboard.press('ArrowRight');
+    await expect(page.getByRole('menu')).toHaveCount(2);
+    result[name] = await menuActions(page);
+    await page.keyboard.press('Escape');
+    await expect(page.getByRole('menu')).toHaveCount(0);
+  }
+  return result;
 }
 
-/** Opens Notes of a chat from its row menu, in the "More" submenu. */
+/** Opens Notes of a chat from its row menu. */
 async function openNotes(page: Page) {
-  await openMoreChatActions(page);
   await page.getByRole('menuitem', { name: 'Notes…', exact: true }).click();
 }
 
@@ -63,13 +67,13 @@ test('chat rows, the sidebar and the chat header show one action list', async ({
   const list = page.locator('.session-list');
 
   // The All chats row menu.
-  await list.getByRole('button', { name: `${title} actions`, exact: true }).click();
+  const rowMenu = () => list.getByRole('button', { name: `${title} actions`, exact: true }).click();
+  await rowMenu();
   const row = await menuActions(page);
   expect(row).toEqual(rowActions);
-  const more = await moreMenuActions(page);
-  expect(more).toEqual(moreActions);
   await page.keyboard.press('Escape');
-  await page.keyboard.press('Escape');
+  const more = await submenuActions(page, rowMenu);
+  expect(more).toEqual(submenus);
 
   // The right-click menu of the same row.
   await list
@@ -87,22 +91,23 @@ test('chat rows, the sidebar and the chat header show one action list', async ({
   await page.keyboard.press('Escape');
   await treeRow.click({ button: 'right' });
   expect(await menuActions(page)).toEqual(row);
-  expect(await moreMenuActions(page)).toEqual(more);
   await page.keyboard.press('Escape');
-  await page.keyboard.press('Escape');
+  expect(await submenuActions(page, () => treeRow.click({ button: 'right' }))).toEqual(more);
 
   // The chat header menu has the same actions. Open does not show, because the chat is open.
   await list.getByRole('button', { name: `Resume ${title}`, exact: true }).click();
-  await page.getByRole('button', { name: 'Chat actions', exact: true }).click();
+  const headerMenu = () => page.getByRole('button', { name: 'Chat actions', exact: true }).click();
+  await headerMenu();
   expect(await menuActions(page)).toEqual(row.slice(row.indexOf('open') + 2));
-  expect(await moreMenuActions(page)).toEqual(more);
   await page.keyboard.press('Escape');
+  expect(await submenuActions(page, headerMenu)).toEqual(more);
+  await headerMenu();
   // The header and the rows show the same shortcut.
   const rename = page.getByRole('menuitem', { name: 'Rename…', exact: true });
   const shortcut = await rename.getAttribute('aria-keyshortcuts');
   expect(shortcut).toMatch(/\+(R|E)$/);
   await page.keyboard.press('Escape');
-  await page.getByRole('button', { name: /^Back to / }).click();
+  await page.getByRole('button', { name: 'Go back', exact: true }).click();
   await list.getByRole('button', { name: `${title} actions`, exact: true }).click();
   await expect(rename).toHaveAttribute('aria-keyshortcuts', shortcut!);
 });
@@ -115,7 +120,8 @@ test('Notes from a chat row show in the chat header', async ({ page }) => {
   await openNotes(page);
   await page.getByRole('textbox', { name: 'Notes', exact: true }).fill('Check the tree keys');
   await page.getByRole('button', { name: 'Save notes', exact: true }).click();
-  await expect(list.getByText('Check the tree keys', { exact: true })).toBeVisible();
+  // The row shows the note after the chat details.
+  await expect(list.getByTitle('Check the tree keys', { exact: true })).toBeVisible();
   await list.getByRole('button', { name: `Resume ${title}`, exact: true }).click();
   const note = page.getByRole('button', { name: 'Notes: Check the tree keys', exact: true });
   await expect(note).toBeVisible();

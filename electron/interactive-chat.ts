@@ -8,6 +8,8 @@ import { executable, normalizeChatFailure, applyChatEvent, chatArgs } from './ch
 import type { ChatRun, Session, ToolActivity } from '../src/types';
 import { extractMemory } from './storage/memory-extraction';
 import type { MemoryScope } from './storage/managed-memory';
+import { recordContextUsage } from './storage/context-usage';
+import type { ContextUsage } from '../src/domain/memory';
 import { startMemoryTools, type ManagedProjectContext } from './agents/memory-tools';
 import { parseQuestions, validateAnswers } from './agents/questions';
 import { DesktopProtocolError } from './verdictan/protocol';
@@ -49,6 +51,8 @@ interface Active {
   messageId: string;
   memoryScope?: MemoryScope;
   memoryContext?: ManagedProjectContext;
+  /** What the agent read in this turn: memory facts and doc passages. */
+  contextRead?: ContextUsage;
   done: (() => void)[];
   model?: string;
   memory?: Awaited<ReturnType<typeof startMemoryTools>>;
@@ -232,7 +236,14 @@ export class InteractiveChatRunner {
             .map((tool) => ({ id: 'tool:' + tool.id, text: tool.detail!.slice(0, 4000) })),
         ],
       };
-      run.memory = await startMemoryTools(run.memoryScope, memory.changed);
+      const contextRead: ContextUsage = {
+        memory: [...(memory.read?.memory || [])],
+        docs: [...(memory.read?.docs || [])],
+      };
+      run.contextRead = contextRead;
+      run.memory = await startMemoryTools(run.memoryScope, memory.changed, (entries) => {
+        if (contextRead.memory.length < 200) contextRead.memory.push(...entries);
+      });
       if (run.stopped) {
         run.memory.close();
         return;
@@ -815,6 +826,7 @@ export class InteractiveChatRunner {
       }
     }
     for (const done of run.done.splice(0)) done();
+    this.recordContext(run);
     if (status === 'completed' && run.memoryScope) this.extract(run);
     run.process?.stdin.end();
     // App Server is long-lived; terminate this owned process after the turn is persisted.
@@ -832,6 +844,22 @@ export class InteractiveChatRunner {
       }, 2000);
       run.killTimer.unref();
     }
+  }
+  /** Saves what the agent read, so the chat and the Knowledge tab can show it. */
+  private recordContext(run: Active) {
+    const read = run.contextRead;
+    const context = run.memoryContext;
+    // A Codex chat that did not start has no session ID. The agent read nothing then.
+    const id = run.state.sessionId || (run.create ? '' : run.session.id);
+    if (this.internal || !read || !context || !id || (!read.memory.length && !read.docs.length))
+      return;
+    void recordContextUsage(context.root, run.session.agent, id, read)
+      .then((saved) => {
+        if (saved) context.changed?.();
+      })
+      .catch(() => {
+        // Usage is a hint for the user. It must not change the turn.
+      });
   }
   private extract(run: Active) {
     const controller = new AbortController();

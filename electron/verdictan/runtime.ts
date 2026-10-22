@@ -1,6 +1,11 @@
 import { agentVersionErrorCode, checkAgentVersion } from '../../src/domain/agent-version';
 import { DesktopClient, DesktopProtocolError, type RuntimeProvision } from './protocol';
-import { ManagedGateway, type GatewayOptions, type NativeAgent } from './gateway';
+import {
+  ManagedGateway,
+  type GatewayOptions,
+  type GatewayRevocation,
+  type NativeAgent,
+} from './gateway';
 import { uuid, type RuntimeCredentials } from './credentials';
 
 export type RuntimePhase =
@@ -30,6 +35,8 @@ interface RuntimeOptions {
   executable(): Promise<string | null>;
   gateway?(options: GatewayOptions): ManagedGateway;
   changed?(): void;
+  /** Verdictan revoked a runtime. The runtime is already stopped. */
+  revoked?(reason: GatewayRevocation): void;
 }
 /** One backend owner serializes credential mutations. Failed rotation is never retried. */
 export class ManagedRuntimes {
@@ -121,7 +128,8 @@ export class ManagedRuntimes {
         item.credentialGeneration = Number(data.generation);
         await this.launch(item, client);
       } catch (error) {
-        if (item.phase !== 'reconciliation-required') this.set(item, 'failed');
+        if (item.phase !== 'reconciliation-required' && item.phase !== 'revoked')
+          this.set(item, 'failed');
         await item.gateway?.stop();
         item.gateway = undefined;
         // Keep the ID so callers can revoke an issued runtime after startup failure.
@@ -154,9 +162,16 @@ export class ManagedRuntimes {
     const gateway = (this.options.gateway || ((options) => new ManagedGateway(options)))({
       executable,
       credentials: frame,
-      lost: () => {
-        this.set(item, 'failed');
+      lost: (revocation) => {
+        item.gateway = undefined;
+        if (revocation && revocation !== 'offline_limit') {
+          // A revoked host stays blocked until a new host identity is authorized.
+          if (revocation === 'host_revoked')
+            this.blockedHosts.add(item.binding.installation_id + ':' + item.binding.host_id);
+          this.set(item, 'revoked');
+        } else this.set(item, 'failed');
         void item.stopAgent().catch(() => {});
+        if (revocation) this.options.revoked?.(revocation);
       },
     });
     item.gateway = gateway;

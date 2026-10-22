@@ -18,7 +18,6 @@ import { openChat } from './planning-kit';
 import { AgentIcon } from './ui/agent-icon';
 import { Button } from './ui/button';
 import { EmptyState } from './ui/empty-state';
-import { SectionHeader } from './ui/page-header';
 
 const count = (value: number) => value.toLocaleString('en-US');
 function tokenText(tokens: UsageTokens) {
@@ -148,11 +147,7 @@ export function ProjectUsageInsights({
   };
   const peak = Math.max(1, ...(summary?.days.map((day) => day.requests) || [1]));
   return (
-    <section aria-labelledby="project-usage-title" className="grid gap-3" aria-busy={busy}>
-      <SectionHeader title={<span id="project-usage-title">Managed-agent usage</span>} />
-      <p className="form-help project-usage-intro">
-        Requests and costs of managed agents in this project.
-      </p>
+    <section aria-label="Usage details" className="grid gap-4" aria-busy={busy}>
       {!available ? (
         <EmptyState compact icon={<BarChart3 />} title="Usage history is not available">
           This version of Kalkidan cannot read the usage history. Update Kalkidan.
@@ -175,9 +170,7 @@ export function ProjectUsageInsights({
               New chat
             </Button>
           }
-        >
-          Start a chat with a managed agent in this project. Its requests then show here.
-        </EmptyState>
+        />
       ) : error ? (
         <EmptyState
           compact
@@ -264,7 +257,7 @@ export function ProjectUsageInsights({
             </p>
           )}
           <section aria-labelledby="usage-days-title" className="grid gap-2">
-            <h4 id="usage-days-title" className="text-sm font-medium">
+            <h4 id="usage-days-title" className="text-xs font-semibold text-muted-foreground">
               Requests for each day
             </h4>
             <ol className="project-usage-days" aria-label="Requests for each day, last 14 days">
@@ -297,7 +290,7 @@ export function ProjectUsageInsights({
           </section>
           {summary.models.length > 0 && (
             <section aria-labelledby="usage-models-title" className="grid gap-2">
-              <h4 id="usage-models-title" className="text-sm font-medium">
+              <h4 id="usage-models-title" className="text-xs font-semibold text-muted-foreground">
                 Models
               </h4>
               <ul className="flex flex-wrap gap-2" aria-label="Models used">
@@ -310,7 +303,7 @@ export function ProjectUsageInsights({
             </section>
           )}
           <section aria-labelledby="usage-chats-title" className="grid gap-2">
-            <h4 id="usage-chats-title" className="text-sm font-medium">
+            <h4 id="usage-chats-title" className="text-xs font-semibold text-muted-foreground">
               Chats
             </h4>
             <ul className="review-list" aria-label="Usage by chat">

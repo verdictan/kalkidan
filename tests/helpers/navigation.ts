@@ -13,12 +13,8 @@ export async function openCodeFolder(page: Page, name?: string) {
   const count = await projects.count();
   for (let index = 0; index < count; index++) {
     await projects.nth(index).click();
-    const rows = page.locator('.project-home-open');
-    const row = name
-      ? rows.filter({
-          has: page.locator('.project-home-title', { hasText: new RegExp(`^${escape(name)}$`) }),
-        })
-      : rows;
+    const rows = page.locator('.project-home-section .folder-row');
+    const row = name ? rows.filter({ hasText: new RegExp(`^${escape(name)}$`) }) : rows;
     try {
       await row.first().waitFor({ timeout: count > 1 ? 3000 : 10000 });
     } catch {
@@ -42,11 +38,23 @@ export async function openProjectTab(page: Page, tab: string, project?: string) 
       : page.locator('.project-tree .project-select').first();
     await row.click();
   }
-  await tabs.getByRole('button', { name: tab, exact: true }).click();
+  // Docs, Memory and Insights are sections of the Knowledge tab now.
+  const section = { Docs: 'pages', Memory: 'memory', Insights: 'insights' }[tab];
+  await tabs.getByRole('button', { name: section ? 'Knowledge' : tab, exact: true }).click();
+  if (section === 'memory')
+    await page
+      .getByRole('complementary', { name: 'Knowledge sections' })
+      .getByRole('button', { name: 'All facts' })
+      .click();
+  if (section === 'insights')
+    await page
+      .getByRole('complementary', { name: 'Knowledge sections' })
+      .getByRole('button', { name: 'Board', exact: true })
+      .click();
 }
 
 /** Opens the Add code folders dialog of a project from its row menu in the sidebar. */
 export async function openAddCodeFolders(page: Page, project: string) {
   await page.getByRole('button', { name: `Manage project ${project}`, exact: true }).click();
-  await page.getByRole('menuitem', { name: 'Add a code folder…', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Add code folder…', exact: true }).click();
 }

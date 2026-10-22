@@ -7,7 +7,9 @@ export const menuContentClass =
   menuMotionClass;
 export const menuItemClass =
   "relative flex h-7 cursor-default items-center gap-2 rounded-sm px-2 text-sm outline-hidden select-none focus:bg-[var(--surface-selected)] focus:text-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50 data-[state=open]:bg-[var(--surface-selected)] [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-3.5 [&_svg:not([class*='text-'])]:text-muted-foreground";
-export const menuLabelClass = 'px-2 pt-2 pb-1 text-xs font-medium text-muted-foreground';
+// One group-label style for every menu, the same as the sidebar labels.
+export const menuLabelClass =
+  'px-2 pt-2 pb-1 text-2xs font-semibold tracking-[0.04em] text-muted-foreground';
 /** Destructive items in dropdown and context menus. */
 export const menuDestructiveClass =
   'text-destructive focus:bg-destructive/10 focus:text-destructive dark:focus:bg-destructive/20 [&_svg]:!text-destructive';

@@ -1,5 +1,5 @@
 import { type Page } from '@playwright/test';
-import { test, expect, settingsTab } from './helpers/app';
+import { test, expect, computersPage } from './helpers/app';
 import { openCodeFolder } from './helpers/navigation';
 
 /** Opens a Claude Code chat. `allowed` is the model list of the organization, if any. */
@@ -93,9 +93,7 @@ test('one allowed model shows as a label with the reason', async ({ page }) => {
   const label = page.getByRole('note', { name: /^Agent and model: Claude Code · Sonnet\./ });
   await expect(label).toHaveText('Claude Code · Sonnet');
   await label.focus();
-  await expect(page.getByRole('tooltip')).toHaveText(
-    'Your organization sets the model. More models: Settings › Agents.',
-  );
+  await expect(page.getByRole('tooltip')).toHaveText('Your organization sets the model.');
   // The chat picks no model, so the setup model applies.
   expect((await send(page, 'Hello')).model).toBeUndefined();
 });
@@ -111,10 +109,13 @@ test('the model chip lists only the allowed models and marks the setup default',
   await page.getByRole('menuitemradio', { name: 'Opus', exact: true }).click();
   await expect(chip).toHaveAccessibleName('Agent and model: Claude Code · Opus');
   expect((await send(page, 'Use Opus')).model).toBe('opus');
-  // Manage models… opens Settings › Agents, where each agent has its default model.
+  // Manage agents… opens the Computers page, where each agent has its organization setup.
   await chip.click();
-  await page.getByRole('menuitem', { name: 'Manage models…', exact: true }).click();
-  await expect(settingsTab(page, 'Agents')).toHaveAttribute('aria-selected', 'true');
+  await page.getByRole('menuitem', { name: 'Manage agents…', exact: true }).click();
+  await expect(computersPage(page)).toBeVisible();
+  await expect(
+    computersPage(page).getByRole('group', { name: 'Claude Code', exact: true }),
+  ).toBeVisible();
 });
 
 test('without managed setup, the chip keeps the agent models', async ({ page }) => {

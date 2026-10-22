@@ -115,9 +115,7 @@ export function TrackerProjectPicker({
       setQuery('');
       onChange(project.url);
       setMode('pick');
-      setNotice(
-        `Created “${project.title}” on ${providerName}. Select Connect board to connect it to ${defaultTitle}.`,
-      );
+      setNotice(`Created “${project.title}”.`);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -202,10 +200,6 @@ export function TrackerProjectPicker({
             }}
             placeholder="Board name"
           />
-          <p className="form-help m-0">
-            Creates a {board} owned by {owner?.login || 'the selected account'}. The permissions of
-            an organization can prevent this.
-          </p>
           <Button
             variant="outline"
             className="justify-self-end"
@@ -224,7 +218,11 @@ export function TrackerProjectPicker({
             value={query}
             onChange={(e) => setQuery(e.target.value)}
           />
-          <div className="list-box" role="group" aria-label={`Available ${board}s`}>
+          <div
+            className="list-box tracker-picker-list"
+            role="group"
+            aria-label={`Available ${board}s`}
+          >
             {loading ? (
               <p role="status" className="list-box-row m-0 text-sm text-muted-foreground">
                 Loading boards…
@@ -240,10 +238,7 @@ export function TrackerProjectPicker({
                     aria-label={
                       project.number ? `${project.title} #${project.number}` : project.title
                     }
-                    className={cn(
-                      'list-box-row text-sm',
-                      value === project.url && 'text-foreground',
-                    )}
+                    className="list-box-row text-sm"
                     onClick={() => onChange(project.url)}
                   >
                     <span className="min-w-0 flex-1 truncate" title={project.title}>
@@ -267,18 +262,14 @@ export function TrackerProjectPicker({
                 `${p.title} ${p.number}`.toLowerCase().includes(query.toLowerCase()),
               ) && (
                 <EmptyState compact icon={<SquareKanban />}>
-                  {query
-                    ? 'No matching boards.'
-                    : descriptor?.capabilities.createProject
-                      ? 'No open boards yet. Select Create new to make one.'
-                      : 'No open boards yet.'}
+                  {query ? 'No matching boards.' : 'No open boards yet.'}
                 </EmptyState>
               )}
           </div>
         </>
       )}
       {notice && (
-        <p role="status" className="text-sm">
+        <p role="status" className="form-help m-0">
           {notice}
         </p>
       )}

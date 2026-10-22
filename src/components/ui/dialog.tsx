@@ -39,6 +39,32 @@ function DialogOverlay({
   );
 }
 
+/**
+ * Keeps the element that had focus when the dialog opened. It mounts with the dialog content,
+ * so a dialog that stays rendered while closed keeps the element of its last opening, not the
+ * element of its first render.
+ */
+function ReturnFocusCapture({
+  onCapture,
+}: {
+  onCapture: (target: HTMLElement | null, fallback: HTMLElement | null) => void;
+}) {
+  React.useLayoutEffect(() => {
+    let active = document.activeElement;
+    // A menu item closes with its menu. Return focus to the menu button instead.
+    const menu = active instanceof HTMLElement ? active.closest('[role="menu"]') : null;
+    if (menu?.id) active = document.querySelector(`[aria-controls="${CSS.escape(menu.id)}"]`);
+    const target = active instanceof HTMLElement && active !== document.body ? active : null;
+    const row = target?.closest('li, [role="row"], .tree-row, .list-row');
+    const sibling = (row?.nextElementSibling || row?.previousElementSibling) as HTMLElement | null;
+    onCapture(
+      target,
+      sibling?.querySelector<HTMLElement>('button, a[href], [tabindex="0"]') || null,
+    );
+  }, []);
+  return null;
+}
+
 function DialogContent({
   className,
   children,
@@ -61,23 +87,9 @@ function DialogContent({
   // The app opens dialogs without a DialogTrigger, so Radix has no element to
   // focus on close. Keep the element that had focus before the dialog opened.
   const returnFocus = React.useRef<HTMLElement | null>(null);
-  React.useLayoutEffect(() => {
-    let active = document.activeElement;
-    // A menu item closes with its menu. Return focus to the menu button instead.
-    const menu = active instanceof HTMLElement ? active.closest('[role="menu"]') : null;
-    if (menu?.id) active = document.querySelector(`[aria-controls="${CSS.escape(menu.id)}"]`);
-    returnFocus.current = active instanceof HTMLElement && active !== document.body ? active : null;
-  }, []);
   // The focus target can be gone after the dialog removes something. Use the nearest
   // focusable item in the same list, or the main heading.
   const fallbackFocus = React.useRef<HTMLElement | null>(null);
-  React.useLayoutEffect(() => {
-    const target = returnFocus.current;
-    const row = target?.closest('li, [role="row"], .tree-row, .list-row');
-    const sibling = (row?.nextElementSibling || row?.previousElementSibling) as HTMLElement | null;
-    fallbackFocus.current =
-      sibling?.querySelector<HTMLElement>('button, a[href], [tabindex="0"]') || null;
-  }, []);
   return (
     <DialogPortal data-slot="dialog-portal">
       <DialogOverlay />
@@ -120,11 +132,17 @@ function DialogContent({
         }}
         {...props}
       >
+        <ReturnFocusCapture
+          onCapture={(target, fallback) => {
+            returnFocus.current = target;
+            fallbackFocus.current = fallback;
+          }}
+        />
         {children}
         {showCloseButton && (
           <DialogPrimitive.Close
             data-slot="dialog-close"
-            className="absolute top-5 right-5 inline-flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-[var(--surface-hover)] hover:text-foreground focus-visible:ring-2 focus-visible:ring-[var(--focus-color)] focus-visible:outline-hidden disabled:pointer-events-none [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4"
+            className="absolute top-[22px] right-[18px] inline-flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-[var(--surface-hover)] hover:text-foreground focus-visible:ring-2 focus-visible:ring-[var(--focus-color)] focus-visible:outline-hidden disabled:pointer-events-none [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4"
           >
             <XIcon />
             <span className="sr-only">Close</span>

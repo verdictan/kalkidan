@@ -1,11 +1,31 @@
 import type { Session } from './conversation';
 import type { SettingsTab } from './settings-route';
 /** 'board' is the project overview page (the old name is kept for saved routes). */
-export type ProjectPage = 'board' | 'docs' | 'tasks' | 'chats' | 'memory' | 'insights';
+export type ProjectPage = 'board' | 'tasks' | 'chats' | 'knowledge';
+/** The pages of the Knowledge tab. */
+export type KnowledgeSection = 'pages' | 'memory' | 'insights';
+/** The older project pages. Links and saved routes with them open Knowledge at a section. */
+export type LegacyProjectPage = 'docs' | 'memory' | 'insights';
+const legacySections: Record<LegacyProjectPage, KnowledgeSection> = {
+  docs: 'pages',
+  memory: 'memory',
+  insights: 'insights',
+};
+/** The page and the Knowledge section of a page name, also of an older name. Else null. */
+export function projectPageOf(
+  value: unknown,
+): { page: ProjectPage; section?: KnowledgeSection } | null {
+  if (value === 'board' || value === 'tasks' || value === 'chats' || value === 'knowledge')
+    return { page: value };
+  if (value === 'docs' || value === 'memory' || value === 'insights')
+    return { page: 'knowledge', section: legacySections[value] };
+  return null;
+}
 export type WorkspacePage =
   | { kind: 'home' }
   | { kind: 'sessions' }
-  | { kind: 'project'; groupId: string; page: ProjectPage }
+  | { kind: 'computers' }
+  | { kind: 'project'; groupId: string; page: ProjectPage; section?: KnowledgeSection }
   | { kind: 'repository'; repositoryId: string }
   | { kind: 'settings'; tab: SettingsTab };
 export type WorkspaceRoute =
@@ -15,6 +35,7 @@ export function routeKey(route: WorkspaceRoute): string {
   switch (route.kind) {
     case 'home':
     case 'sessions':
+    case 'computers':
       return route.kind;
     case 'project':
       return `project:${route.groupId}:${route.page}`;
@@ -66,15 +87,7 @@ export function resolveRouteSession(
 export type SavedRoute =
   | WorkspacePage
   | { kind: 'conversation'; agent: string; id: string; hostId?: string; parent: WorkspacePage };
-const pageKinds = new Set(['home', 'sessions', 'project', 'repository']);
-const projectPages = new Set<ProjectPage>([
-  'board',
-  'docs',
-  'tasks',
-  'chats',
-  'memory',
-  'insights',
-]);
+const pageKinds = new Set(['home', 'sessions', 'computers', 'project', 'repository']);
 export function saveableRoute(route: WorkspaceRoute): SavedRoute | null {
   // Settings is not a place to return to after a launch.
   if (route.kind === 'settings') return null;
@@ -94,15 +107,23 @@ function readPage(value: unknown): WorkspacePage | null {
   if (!value || typeof value !== 'object') return null;
   const page = value as Record<string, unknown>;
   if (!pageKinds.has(page.kind as string)) return null;
-  if (page.kind === 'project')
-    return typeof page.groupId === 'string' && projectPages.has(page.page as ProjectPage)
-      ? { kind: 'project', groupId: page.groupId, page: page.page as ProjectPage }
-      : null;
+  if (page.kind === 'project') {
+    // A route saved by an older version can name 'docs', 'memory' or 'insights'.
+    const target = projectPageOf(page.page);
+    if (typeof page.groupId !== 'string' || !target) return null;
+    const section = target.section || projectPageOf(page.section)?.section;
+    return {
+      kind: 'project',
+      groupId: page.groupId,
+      page: target.page,
+      ...(target.page === 'knowledge' && section ? { section } : {}),
+    };
+  }
   if (page.kind === 'repository')
     return typeof page.repositoryId === 'string'
       ? { kind: 'repository', repositoryId: page.repositoryId }
       : null;
-  return { kind: page.kind as 'home' | 'sessions' };
+  return { kind: page.kind as 'home' | 'sessions' | 'computers' };
 }
 /**
  * The saved route when its project, code folder and chat still exist. Else the nearest page

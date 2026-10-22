@@ -88,7 +88,9 @@ test('agent questions accept keyboard answers without granting permissions', asy
   await page.keyboard.press('Space');
   await form.getByRole('button', { name: 'Send answer' }).focus();
   await page.keyboard.press('Enter');
-  await expect(form).toContainText('Answer sent.');
+  // The dock shows only open questions. A toast confirms the answer.
+  await expect(page.getByRole('status').filter({ hasText: 'Answer sent to Codex.' })).toBeVisible();
+  await expect(form).toHaveCount(0);
   expect(await page.evaluate(() => (window as any).sentAnswers)).toEqual([
     { id: 'run', request: 'q', answers: { name: ['Atlas'], db: ['SQLite'] } },
   ]);
