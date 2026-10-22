@@ -9,6 +9,9 @@ import { agentPrograms } from '../electron/chat';
 import { installedAgentVersion } from '../electron/agents/installed-version';
 import { checkAgentVersion } from '../src/domain/agent-version';
 import { ManagedGateway } from '../electron/verdictan/gateway';
+import { prepareSubscriptionAuth } from '../electron/verdictan/subscription-auth';
+import { createServer, type IncomingHttpHeaders } from 'node:http';
+import type { AddressInfo } from 'node:net';
 
 /**
  * Runs the real Codex app-server with the managed arguments, when this computer has a supported
@@ -24,7 +27,7 @@ async function codex() {
 }
 
 const id = '11111111-1111-4111-8111-111111111111';
-async function managedArgs(mode: 'byok' | 'codex_subscription') {
+async function managedArgs(mode: 'byok' | 'codex_subscription', address = 'http://127.0.0.1:9') {
   const gateway = new ManagedGateway({
     executable: '/fixture/verdictan',
     credentials: {
@@ -42,7 +45,7 @@ async function managedArgs(mode: 'byok' | 'codex_subscription') {
       inference_credential: 'vdt_' + 'b'.repeat(20),
       provider_access_mode: mode,
     },
-    instance: { address: 'http://127.0.0.1:9', subscribe: () => () => {} },
+    instance: { address, subscribe: () => () => {} },
     request: (async () =>
       Response.json({
         schema_version: 1,
@@ -131,4 +134,84 @@ test('the real Codex accepts the managed provider of each access mode', async (t
     (await threadStart(program.path, subscription.args, home, 'verdictan')) || '',
     /Model provider `verdictan` not found/,
   );
+});
+
+/** A synthetic ChatGPT login. Codex reads the account from the ID token claims. */
+function syntheticLogin() {
+  const part = (value: object) => Buffer.from(JSON.stringify(value)).toString('base64url');
+  const token = [
+    part({ alg: 'none', typ: 'JWT' }),
+    part({
+      exp: Math.floor(Date.now() / 1000) + 3600,
+      'https://api.openai.com/auth': { chatgpt_account_id: 'acct-test', chatgpt_plan_type: 'plus' },
+    }),
+    'signature',
+  ].join('.');
+  return { accessToken: token, accountId: 'acct-test', idToken: token };
+}
+
+test('the real Codex sends the subscription and gateway headers with the managed login', async (t) => {
+  const program = await codex();
+  if (!program) return t.skip('No supported Codex on this computer.');
+  const home = await mkdtemp(join(tmpdir(), 'kalkidan-codex-home-'));
+  const requests: { path: string; headers: IncomingHttpHeaders }[] = [];
+  // A fake gateway on loopback. It records each request and refuses it.
+  const server = createServer((request, response) => {
+    requests.push({ path: request.url || '', headers: request.headers });
+    request.resume();
+    response.writeHead(401, { 'content-type': 'application/json' });
+    response.end('{"error":{"code":"desktop.test","message":"refused"}}');
+  });
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  t.after(async () => {
+    server.close();
+    await rm(home, { recursive: true, force: true });
+  });
+  const address = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+  await prepareSubscriptionAuth(home, syntheticLogin());
+  const route = await managedArgs('codex_subscription', address);
+  const child = spawn(program.path, ['app-server', ...route.args], {
+    env: { ...process.env, ...route.env, CODEX_HOME: home },
+    stdio: ['pipe', 'pipe', 'ignore'],
+  });
+  t.after(() => child.kill());
+  const lines = createInterface({ input: child.stdout! });
+  const replies = new Map<number, (value: any) => void>();
+  lines.on('line', (line) => {
+    try {
+      const row = JSON.parse(line);
+      replies.get(row.id)?.(row);
+    } catch {
+      /* Not a protocol line. */
+    }
+  });
+  const call = (id: number, method: string, params: unknown) =>
+    new Promise<any>((resolve) => {
+      replies.set(id, resolve);
+      child.stdin!.write(JSON.stringify({ id, method, params }) + '\n');
+    });
+  await call(1, 'initialize', { clientInfo: { name: 'kalkidan-test', title: 't', version: '0' } });
+  child.stdin!.write(JSON.stringify({ method: 'initialized', params: {} }) + '\n');
+  const thread = await call(2, 'thread/start', {
+    cwd: home,
+    ephemeral: true,
+    sandbox: 'danger-full-access',
+    approvalPolicy: 'on-request',
+    modelProvider: route.modelProvider,
+    model: 'gpt-test',
+  });
+  await call(3, 'turn/start', {
+    threadId: thread.result.thread.id,
+    input: [{ type: 'text', text: 'hi' }],
+  });
+  const end = Date.now() + 30000;
+  while (!requests.some((r) => r.path.includes('/responses')) && Date.now() < end)
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  const responses = requests.find((r) => r.path.includes('/backend-api/codex/responses'));
+  assert.ok(responses, 'Codex sent no responses request');
+  // The gateway refuses a request without all three headers (401 "Codex subscription and
+  // gateway authentication are required").
+  assert.match(String(responses.headers.authorization), /^Bearer eyJ/);
+  assert.equal(responses.headers['chatgpt-account-id'], 'acct-test');
+  assert.match(String(responses.headers['x-gateway-key']), /^vdt_/);
 });

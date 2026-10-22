@@ -14,6 +14,10 @@ export function contentText(content: unknown): string {
     .join('\n');
 }
 const kalkidanContext = 'Project context supplied by Kalkidan.';
+/** True when a text starts with the hidden project context of Kalkidan. Never show it. */
+export function hasHiddenContext(text: string) {
+  return text.trimStart().startsWith(kalkidanContext);
+}
 const userRequest = '\n\nUser request:\n';
 /**
  * The part of a user message that the user wrote. Kalkidan wraps project prompts in project

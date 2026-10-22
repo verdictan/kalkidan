@@ -972,6 +972,11 @@ export const managedErrors: Record<string, ManagedErrorInfo> = {
       'Kalkidan cannot read the Codex sign-in on the machine where work runs. Run codex login there again. Then send the message again.',
     section: 'agents',
   },
+  'desktop.codex_gateway_auth_missing': {
+    message:
+      'Codex did not send its ChatGPT sign-in to the managed gateway, so the gateway refused the request. Try again. If the problem continues, run codex login on the machine where work runs.',
+    retry: true,
+  },
   'desktop.codex_subscription_catalog_unavailable': {
     message:
       'Codex cannot reach its models through the managed gateway. Try again. If the problem continues, run codex login on the machine where work runs.',
@@ -1371,6 +1376,7 @@ const transientRefusals = new Set([
   'desktop.transport_lost',
   'desktop.protocol_invalid',
   'desktop.codex_subscription_catalog_unavailable',
+  'desktop.codex_gateway_auth_missing',
 ]);
 // Codes of a gateway or check that did not become ready. A second try can fix them. The status
 // in Settings shows more.
