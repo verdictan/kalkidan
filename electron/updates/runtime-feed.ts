@@ -7,9 +7,11 @@ import {
   runtimeTarget,
   type RuntimeDiscovery,
 } from '../verdictan/release';
+import { knownBrokenRuntime } from '../../src/domain/compatibility';
 /**
  * Find the newest stable release that has an archive for this host. Discovery is not trust. The
- * installer accepts the release only when the Verdictan release key signs it.
+ * installer accepts the release only when the Verdictan release key signs it. A known-broken
+ * release (see `supportWindow.runtime.knownBroken`) is skipped, so Kalkidan never installs it.
  *
  * The latest-release redirect on github.com comes first, because the GitHub REST API allows only
  * 60 unauthenticated requests each hour for each IP address. The API is the fallback, for example
@@ -19,17 +21,19 @@ export async function discoverRuntime(
   os: string,
   arch: string,
   request: typeof fetch = fetch,
+  skip: (version: string) => boolean = (version) => !!knownBrokenRuntime(version),
 ): Promise<RuntimeDiscovery | undefined> {
   const target = runtimeTarget(os, arch);
   if (!target) return undefined;
   const name = runtimeArchiveName(target);
   try {
     const latest = await discoverLatest(name, request);
-    if (latest) return latest;
+    // A known-broken latest release: the API below finds the newest release before it.
+    if (latest && !skip(latest.version)) return latest;
   } catch {
     // Use the API below.
   }
-  return discoverFromAPI(name, request);
+  return discoverFromAPI(name, request, skip);
 }
 
 const latestReleaseURL = 'https://github.com/verdictan/packages/releases/latest';
@@ -78,7 +82,11 @@ async function discoverLatest(
  */
 const releasesPerPage = 30;
 
-async function discoverFromAPI(name: string, request: typeof fetch): Promise<RuntimeDiscovery> {
+async function discoverFromAPI(
+  name: string,
+  request: typeof fetch,
+  skip: (version: string) => boolean,
+): Promise<RuntimeDiscovery> {
   const signal = AbortSignal.timeout(30000);
   for (let page = 1; page <= 10; page++) {
     const response = await request(
@@ -111,7 +119,8 @@ async function discoverFromAPI(name: string, request: typeof fetch): Promise<Run
         row.draft ||
         row.prerelease ||
         typeof row.tag_name !== 'string' ||
-        !/^v\d+\.\d+\.\d+$/.test(row.tag_name)
+        !/^v\d+\.\d+\.\d+$/.test(row.tag_name) ||
+        skip(row.tag_name.slice(1))
       )
         continue;
       const asset =

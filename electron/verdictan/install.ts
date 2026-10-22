@@ -27,6 +27,8 @@ import { downloadRuntime, verifyRuntimeArchive } from './download';
 import { isReleaseNetworkError } from './network';
 import { extractRuntime } from './archive';
 import { keychainRefusedCode, managedErrorText } from '../../src/domain/verdictan';
+import { knownBrokenRuntime } from '../../src/domain/compatibility';
+import { compareVersionCores } from '../../src/domain/agent-version';
 
 interface Receipt {
   schema: 1;
@@ -230,6 +232,7 @@ export class RuntimeInstaller {
   private async resolve(): Promise<SignedRuntimeRelease> {
     const discovered = await this.options.discover();
     if (!discovered) throw new Error('No runtime release supports this execution host.');
+    knownBrokenGuard(discovered.version, this.state.active?.release.version);
     return fetchRuntimeRelease(discovered, {
       now: Math.floor(this.now() / 1000),
       desktopVersion: this.options.desktopVersion,
@@ -764,4 +767,21 @@ function safeInstallError(error: unknown) {
   )
     return error.message.slice(0, 300);
   return 'Runtime installation failed. Check available storage and retry.';
+}
+
+/**
+ * Refuses a known-broken release, and keeps a computer on a known-broken release from going back
+ * to an older one: it waits for the release that fixes it. Discovery already skips known-broken
+ * releases. This guard also covers another discovery source.
+ */
+export function knownBrokenGuard(discovered: string, active?: string) {
+  if (knownBrokenRuntime(discovered))
+    throw new Error(
+      `This runtime release, ${discovered}, cannot start managed gateways. Kalkidan does not install it.`,
+    );
+  const current = active ? knownBrokenRuntime(active) : undefined;
+  if (current && (compareVersionCores(discovered, current.fixedIn) ?? -1) < 0)
+    throw new Error(
+      `This runtime version, ${active}, cannot start managed gateways. Kalkidan installs ${current.fixedIn} or later when it is published.`,
+    );
 }

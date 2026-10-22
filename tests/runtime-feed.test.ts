@@ -124,3 +124,51 @@ test('runtime discovery uses the latest release redirect before the GitHub API',
   assert.equal((await discoverRuntime('linux', 'x64', fallback))?.releaseId, '7');
   assert.equal(api, 1);
 });
+
+test('runtime discovery skips a known-broken release and finds the release before it', async () => {
+  const redirect = (location: string) => new Response(null, { status: 302, headers: { location } });
+  const name = 'verdictan-x86_64-unknown-linux-gnu.tar.gz';
+  const row = (id: number, version: string) => ({
+    id,
+    tag_name: `v${version}`,
+    assets: [
+      {
+        name,
+        browser_download_url: `${base}/download/v${version}/${name}`,
+        digest: 'sha256:' + String(id).repeat(64).slice(0, 64),
+        size: 2048,
+      },
+    ],
+  });
+  const seen: string[] = [];
+  const request = (async (input: string | URL) => {
+    const url = String(input);
+    seen.push(url);
+    // The latest release is 0.6.11, which the support window marks as known-broken.
+    if (url === latest) return redirect(`${base}/tag/v0.6.11`);
+    if (url === `${base}/download/v0.6.11/sha256.sum`)
+      return new Response(`${'1'.repeat(64)}  ${name}\n`);
+    if (url.startsWith(`${base}/download/v0.6.11/`))
+      return new Response('x', { headers: { 'content-length': '2048' } });
+    if (url.startsWith('https://api.github.com/'))
+      return new Response(JSON.stringify([row(11, '0.6.11'), row(10, '0.6.10')]));
+    throw new Error(`unexpected ${url}`);
+  }) as typeof fetch;
+  const found = await discoverRuntime('linux', 'x64', request);
+  assert.equal(found?.version, '0.6.10');
+  assert.equal(found?.releaseId, '10');
+  assert.ok(seen.some((url) => url.startsWith('https://api.github.com/')));
+  // When the fix is the latest release, the redirect gives it at once.
+  const fixed = (async (input: string | URL) => {
+    const url = String(input);
+    if (url === latest) return redirect(`${base}/tag/v0.6.12`);
+    if (url === `${base}/download/v0.6.12/sha256.sum`)
+      return new Response(`${'2'.repeat(64)}  ${name}\n`);
+    if (url.startsWith(`${base}/download/v0.6.12/`))
+      return new Response('x', { headers: { 'content-length': '2048' } });
+    throw new Error(`unexpected ${url}`);
+  }) as typeof fetch;
+  assert.equal((await discoverRuntime('linux', 'x64', fixed))?.version, '0.6.12');
+  // A caller can choose its own rule.
+  assert.equal((await discoverRuntime('linux', 'x64', request, () => false))?.version, '0.6.11');
+});

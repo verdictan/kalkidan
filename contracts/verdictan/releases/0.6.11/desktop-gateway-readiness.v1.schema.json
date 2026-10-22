@@ -1,0 +1,715 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Authenticated desktop gateway readiness evidence",
+  "oneOf": [
+    {
+      "type": "object",
+      "properties": {
+        "schema_version": {
+          "const": 1
+        },
+        "ready": {
+          "type": "boolean"
+        },
+        "dispatch_authorized": {
+          "const": false
+        },
+        "runtime_id": {
+          "type": "string"
+        },
+        "session_id": {
+          "type": "string"
+        },
+        "credential": {
+          "const": "ready"
+        },
+        "dependencies": {
+          "enum": [
+            "ready",
+            "unavailable"
+          ]
+        },
+        "protocol_acceptance": {
+          "$comment": "verified means a known agent_kind (codex or claude_code) with a well-formed agent_version. It does not mean an exact tested version. Verdictan does not pin native agent versions. unverified is deprecated; gateways up to CLI 0.6.6 can send it.",
+          "enum": [
+            "verified",
+            "unverified"
+          ]
+        },
+        "control_plane": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "object",
+              "properties": {
+                "schema_version": {
+                  "const": 1
+                },
+                "runtime_id": {
+                  "type": "string"
+                },
+                "session_id": {
+                  "type": "string"
+                },
+                "generation": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "observed_at": {
+                  "type": "string",
+                  "pattern": "^[0-9T :.+Z-]{10,64}$"
+                },
+                "ready": {
+                  "type": "boolean"
+                },
+                "dispatch_authorized": {
+                  "const": false
+                },
+                "native_compatibility": {
+                  "const": "not_evaluated"
+                },
+                "checks": {
+                  "type": "object",
+                  "properties": {
+                    "account": {
+                      "enum": [
+                        "ready",
+                        "blocked"
+                      ]
+                    },
+                    "organization": {
+                      "enum": [
+                        "ready",
+                        "blocked"
+                      ]
+                    },
+                    "policy": {
+                      "enum": [
+                        "configured",
+                        "blocked"
+                      ]
+                    },
+                    "provider": {
+                      "enum": [
+                        "ready",
+                        "blocked"
+                      ]
+                    },
+                    "model": {
+                      "enum": [
+                        "bound",
+                        "blocked"
+                      ]
+                    },
+                    "pricing": {
+                      "enum": [
+                        "ready",
+                        "missing",
+                        "subscription"
+                      ]
+                    },
+                    "budget": {
+                      "enum": [
+                        "request_authorization_required",
+                        "provider_quota"
+                      ]
+                    },
+                    "runtime": {
+                      "enum": [
+                        "ready",
+                        "blocked"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "account",
+                    "organization",
+                    "policy",
+                    "provider",
+                    "model",
+                    "pricing",
+                    "budget",
+                    "runtime"
+                  ],
+                  "additionalProperties": false
+                },
+                "blockers": {
+                  "type": "array",
+                  "maxItems": 32,
+                  "items": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/-]{0,255}$"
+                  }
+                },
+                "capture": {
+                  "type": "object",
+                  "properties": {
+                    "source": {
+                      "enum": [
+                        "agent_deployment",
+                        null
+                      ]
+                    },
+                    "enabled": {
+                      "type": [
+                        "boolean",
+                        "null"
+                      ]
+                    },
+                    "mode": {
+                      "enum": [
+                        "raw",
+                        "full",
+                        "full_payload",
+                        "metadata_only",
+                        "disabled",
+                        null
+                      ]
+                    },
+                    "required_audit": {
+                      "type": [
+                        "boolean",
+                        "null"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "source",
+                    "enabled",
+                    "mode",
+                    "required_audit"
+                  ],
+                  "additionalProperties": false
+                },
+                "billing": {
+                  "type": "object",
+                  "properties": {
+                    "payer": {
+                      "enum": [
+                        "organization_provider_connection",
+                        "user_codex_subscription",
+                        "user_claude_subscription"
+                      ]
+                    },
+                    "provider_connection_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/-]{0,255}$"
+                    },
+                    "provider": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/-]{0,255}$"
+                    },
+                    "model": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/-]{0,255}$"
+                    },
+                    "currency": {
+                      "enum": [
+                        "USD",
+                        null
+                      ]
+                    },
+                    "authorized_limit": {
+                      "type": "null"
+                    },
+                    "estimate_freshness": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "pattern": "^[0-9T :.+Z-]{10,64}$"
+                    },
+                    "pricing": {
+                      "type": "object",
+                      "properties": {
+                        "input_per_1k": {
+                          "type": [
+                            "string",
+                            "null"
+                          ],
+                          "pattern": "^\\d+(?:\\.\\d+)?$"
+                        },
+                        "output_per_1k": {
+                          "type": [
+                            "string",
+                            "null"
+                          ],
+                          "pattern": "^\\d+(?:\\.\\d+)?$"
+                        }
+                      },
+                      "required": [
+                        "input_per_1k",
+                        "output_per_1k"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "provider_budget": {
+                      "type": "object",
+                      "properties": {
+                        "limit": {
+                          "type": [
+                            "number",
+                            "null"
+                          ]
+                        },
+                        "remaining": {
+                          "type": [
+                            "number",
+                            "null"
+                          ]
+                        },
+                        "spent": {
+                          "type": [
+                            "number",
+                            "null"
+                          ]
+                        },
+                        "period": {
+                          "type": [
+                            "string",
+                            "null"
+                          ],
+                          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/-]{0,255}$"
+                        },
+                        "enforced": {
+                          "const": false
+                        }
+                      },
+                      "required": [
+                        "limit",
+                        "remaining",
+                        "spent",
+                        "period",
+                        "enforced"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "provider_charges": {
+                      "const": "provider_authority"
+                    },
+                    "platform_fees": {
+                      "const": "separate"
+                    },
+                    "provider_account_binding": {
+                      "enum": [
+                        "bound",
+                        "not_bound"
+                      ]
+                    },
+                    "provider_authentication": {
+                      "const": "native_probe_required"
+                    },
+                    "provider_access_mode": {
+                      "enum": [
+                        "byok",
+                        "codex_subscription",
+                        "claude_subscription"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "payer",
+                    "provider_connection_id",
+                    "provider",
+                    "model",
+                    "currency",
+                    "authorized_limit",
+                    "estimate_freshness",
+                    "pricing",
+                    "provider_budget",
+                    "provider_charges",
+                    "platform_fees"
+                  ],
+                  "additionalProperties": false
+                },
+                "links": {
+                  "oneOf": [
+                    {
+                      "type": "null"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "agent": {
+                          "type": "string",
+                          "pattern": "^https://[^/?#@]+/agents/[0-9a-fA-F-]{36}$"
+                        },
+                        "provider_setup": {
+                          "type": "string",
+                          "pattern": "^https://[^/?#@]+/credentials/secrets$"
+                        }
+                      },
+                      "required": [
+                        "agent",
+                        "provider_setup"
+                      ],
+                      "additionalProperties": false
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "schema_version",
+                "runtime_id",
+                "session_id",
+                "generation",
+                "observed_at",
+                "ready",
+                "dispatch_authorized",
+                "native_compatibility",
+                "checks",
+                "blockers",
+                "capture",
+                "billing"
+              ],
+              "additionalProperties": false,
+              "allOf": [
+                {
+                  "if": {
+                    "required": [
+                      "billing"
+                    ],
+                    "properties": {
+                      "billing": {
+                        "required": [
+                          "payer"
+                        ],
+                        "properties": {
+                          "payer": {
+                            "enum": [
+                              "user_codex_subscription",
+                              "user_claude_subscription"
+                            ]
+                          }
+                        }
+                      }
+                    }
+                  },
+                  "then": {
+                    "properties": {
+                      "checks": {
+                        "properties": {
+                          "pricing": {
+                            "enum": [
+                              "subscription",
+                              "missing"
+                            ]
+                          },
+                          "budget": {
+                            "const": "provider_quota"
+                          }
+                        }
+                      },
+                      "billing": {
+                        "properties": {
+                          "provider_connection_id": {
+                            "type": "null"
+                          },
+                          "currency": {
+                            "type": "null"
+                          },
+                          "pricing": {
+                            "properties": {
+                              "input_per_1k": {
+                                "type": "null"
+                              },
+                              "output_per_1k": {
+                                "type": "null"
+                              }
+                            }
+                          },
+                          "provider_budget": {
+                            "properties": {
+                              "limit": {
+                                "type": "null"
+                              },
+                              "remaining": {
+                                "type": "null"
+                              },
+                              "spent": {
+                                "type": "null"
+                              },
+                              "period": {
+                                "type": "null"
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  },
+                  "else": {
+                    "properties": {
+                      "checks": {
+                        "properties": {
+                          "pricing": {
+                            "enum": [
+                              "ready",
+                              "missing"
+                            ]
+                          },
+                          "budget": {
+                            "const": "request_authorization_required"
+                          }
+                        }
+                      },
+                      "billing": {
+                        "properties": {
+                          "currency": {
+                            "const": "USD"
+                          }
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "if": {
+                    "required": [
+                      "billing"
+                    ],
+                    "properties": {
+                      "billing": {
+                        "required": [
+                          "payer"
+                        ],
+                        "properties": {
+                          "payer": {
+                            "const": "user_claude_subscription"
+                          }
+                        }
+                      }
+                    }
+                  },
+                  "then": {
+                    "properties": {
+                      "billing": {
+                        "required": [
+                          "provider_access_mode"
+                        ],
+                        "properties": {
+                          "provider_access_mode": {
+                            "const": "claude_subscription"
+                          },
+                          "provider": {
+                            "const": "anthropic"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        "request_authorization": {
+          "const": "required_per_request"
+        },
+        "error": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "object",
+              "properties": {
+                "code": {
+                  "$comment": "desktop.agent_identity_invalid is HTTP 400 for an unknown agent_kind or a malformed agent_version. desktop.agent_compatibility_unverified and desktop.agent_version_unsupported are deprecated: Verdictan does not pin native agent versions and no longer sends them; gateways up to CLI 0.6.6 can send them.",
+                  "enum": [
+                    "desktop.events_unavailable",
+                    "desktop.event_auth_required",
+                    "desktop.event_scope_denied",
+                    "desktop.event_authority_unavailable",
+                    "desktop.readiness_blocked",
+                    "desktop.event_buffer_full",
+                    "desktop.provider_probe_required",
+                    "desktop.agent_identity_invalid",
+                    "desktop.agent_compatibility_unverified",
+                    "desktop.agent_version_unsupported"
+                  ]
+                },
+                "category": {
+                  "enum": [
+                    "permission",
+                    "authentication",
+                    "outage",
+                    "configuration",
+                    "compatibility"
+                  ]
+                },
+                "message": {
+                  "type": "string"
+                },
+                "recovery_action": {
+                  "$comment": "install_supported_agent is deprecated with desktop.agent_version_unsupported.",
+                  "enum": [
+                    "reconcile_runtime",
+                    "renew_session",
+                    "retry_setup",
+                    "update_integration",
+                    "refresh_provider_access",
+                    "install_supported_agent"
+                  ]
+                },
+                "correlation_id": {
+                  "type": "string"
+                },
+                "retryable": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "code",
+                "category",
+                "message",
+                "recovery_action",
+                "correlation_id",
+                "retryable"
+              ],
+              "additionalProperties": false
+            }
+          ]
+        },
+        "provider_authentication": {
+          "enum": [
+            "verified",
+            "probe_required",
+            "required_per_request"
+          ]
+        },
+        "provider_quota": {
+          "const": "unverified_until_request"
+        }
+      },
+      "required": [
+        "schema_version",
+        "ready",
+        "dispatch_authorized",
+        "runtime_id",
+        "session_id",
+        "credential",
+        "dependencies",
+        "protocol_acceptance",
+        "control_plane",
+        "request_authorization",
+        "error"
+      ],
+      "additionalProperties": true,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "ready": {
+                "const": true
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "dependencies": {
+                "const": "ready"
+              },
+              "protocol_acceptance": {
+                "const": "verified"
+              },
+              "control_plane": {
+                "type": "object",
+                "properties": {
+                  "ready": {
+                    "const": true
+                  }
+                }
+              },
+              "error": {
+                "type": "null"
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "type": "object",
+      "properties": {
+        "schema_version": {
+          "const": 1
+        },
+        "error": {
+          "type": "object",
+          "properties": {
+            "code": {
+              "$comment": "desktop.agent_identity_invalid is HTTP 400 for an unknown agent_kind or a malformed agent_version. desktop.agent_compatibility_unverified and desktop.agent_version_unsupported are deprecated: Verdictan does not pin native agent versions and no longer sends them; gateways up to CLI 0.6.6 can send them.",
+              "enum": [
+                "desktop.events_unavailable",
+                "desktop.event_auth_required",
+                "desktop.event_scope_denied",
+                "desktop.event_authority_unavailable",
+                "desktop.readiness_blocked",
+                "desktop.event_buffer_full",
+                "desktop.provider_probe_required",
+                "desktop.agent_identity_invalid",
+                "desktop.agent_compatibility_unverified",
+                "desktop.agent_version_unsupported"
+              ]
+            },
+            "category": {
+              "enum": [
+                "permission",
+                "authentication",
+                "outage",
+                "configuration",
+                "compatibility"
+              ]
+            },
+            "message": {
+              "type": "string"
+            },
+            "recovery_action": {
+              "$comment": "install_supported_agent is deprecated with desktop.agent_version_unsupported.",
+              "enum": [
+                "reconcile_runtime",
+                "renew_session",
+                "retry_setup",
+                "update_integration",
+                "refresh_provider_access",
+                "install_supported_agent"
+              ]
+            },
+            "correlation_id": {
+              "type": "string"
+            },
+            "retryable": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "code",
+            "category",
+            "message",
+            "recovery_action",
+            "correlation_id",
+            "retryable"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "schema_version",
+        "error"
+      ],
+      "additionalProperties": false
+    }
+  ]
+}

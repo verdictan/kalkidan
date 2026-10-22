@@ -490,8 +490,19 @@
                   "reauthorize_new_session",
                   "verify_native_account",
                   "repair_managed_launch",
-                  "open_authorized_setup"
+                  "open_authorized_setup",
+                  "fork_conversation"
                 ]
+              },
+              "reason": {
+                "enum": [
+                  "agent_deleted",
+                  "agent_inactive",
+                  "agent_not_configured",
+                  "access_denied",
+                  "gateway_unlinked"
+                ],
+                "description": "Only with code desktop.agent_unavailable: why the computer cannot use the agent of the conversation. agent_deleted, agent_inactive and agent_not_configured describe the agent. access_denied: the user may no longer use the agent (role, permission or team). gateway_unlinked: the gateway no longer serves the agent, for example after host revocation. Make the conversation read-only and offer a fork with another agent."
               }
             },
             "required": [
@@ -1041,7 +1052,8 @@
               },
               "candidates": {
                 "type": "array",
-                "maxItems": 50,
+                "maxItems": 500,
+                "description": "The host gateways of the user, one for each (host, agent) pair. A gateway serves one agent and every project of its host. At most candidate_limit items.",
                 "items": {
                   "type": "object",
                   "properties": {
@@ -1159,6 +1171,10 @@
               },
               "discovery_limit": {
                 "const": 50
+              },
+              "candidate_limit": {
+                "const": 500,
+                "description": "The most candidates. Releases before 0.6.12 omit it and list at most 50."
               },
               "teams": {
                 "type": "array",
@@ -1849,7 +1865,8 @@
               },
               "gateway_id": {
                 "type": "string",
-                "pattern": "^[A-Za-z0-9_.:-]{1,128}$"
+                "pattern": "^[A-Za-z0-9_.:-]{1,128}$",
+                "description": "The gateway of this host for agent_id. Use it for new chats with this agent. A chat keeps the agent and gateway that it started with."
               },
               "runtime_registration_id": {
                 "type": "string",
@@ -1888,7 +1905,7 @@
                   "kalkidan_default_agent",
                   "selected_agent"
                 ],
-                "description": "host: a new agent for this host. kalkidan_default_agent: the host gateway is attached to the bootstrapped Kalkidan agent. selected_agent: the host gateway is attached to the requested agent_id."
+                "description": "host: a new agent for this host. kalkidan_default_agent: the gateway serves the bootstrapped Kalkidan agent. selected_agent: the gateway serves the requested agent_id."
               }
             },
             "required": [

@@ -505,7 +505,7 @@ On Linux, the file must belong to you and must not be readable by other users.
 
 ### Kalkidan does not support the Verdictan runtime version
 
-Kalkidan supports the current Verdictan runtime release and the two releases before it (now 0.6.9 to 0.6.11). Older versions work with a warning until 2027-01-20. The one-time setup needs 0.6.6 or later. See [Compatibility](compatibility.md) for the support window and the deprecation dates.
+Kalkidan supports the current Verdictan runtime release and the two releases before it (now 0.6.10 to 0.6.12; Kalkidan never installs 0.6.11, which cannot start managed gateways). Older versions work with a warning until 2027-01-20. The one-time setup needs 0.6.6 or later. See [Compatibility](compatibility.md) for the support window and the deprecation dates.
 
 1. Open the account menu in the sidebar footer. Select **Diagnostics**. Find the runtime that shows **Not supported** or **Deprecated**.
 2. Open **Settings** › **Computers**. Update the runtime on that computer.

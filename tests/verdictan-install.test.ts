@@ -5,7 +5,11 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { create } from 'tar';
 import { generateKeyPairSync } from 'node:crypto';
-import { RuntimeInstaller, type RuntimeInstallerOptions } from '../electron/verdictan/install';
+import {
+  knownBrokenGuard,
+  RuntimeInstaller,
+  type RuntimeInstallerOptions,
+} from '../electron/verdictan/install';
 import { downloadRuntime } from '../electron/verdictan/download';
 import { extractRuntime } from '../electron/verdictan/archive';
 import { releaseDownloadOrigins } from '../electron/verdictan/release';
@@ -473,4 +477,24 @@ test('a Linux host installs the signed archive that discovery reports', async (t
   assert.equal(result.installed?.sha256, release.discovered().sha256);
   assert.ok(probed.includes('0.2.1'));
   assert.ok(await installer.executable());
+});
+
+test('a known-broken release is never installed, and a computer on one waits for the fix', async (t) => {
+  assert.throws(() => knownBrokenGuard('0.6.11'), /0\.6\.11, cannot start managed gateways/);
+  assert.throws(() => knownBrokenGuard('0.6.11', '0.6.10'), /does not install it/);
+  // Before 0.6.12 is published, discovery finds 0.6.10. A computer on 0.6.11 waits.
+  assert.throws(() => knownBrokenGuard('0.6.10', '0.6.11'), /installs 0\.6\.12 or later/);
+  knownBrokenGuard('0.6.12', '0.6.11');
+  knownBrokenGuard('0.6.10', '0.6.10');
+  knownBrokenGuard('0.6.10');
+  const f = await fixture(t);
+  const broken = new RuntimeInstaller({
+    ...((f.installer as any).options as RuntimeInstallerOptions),
+    changed: undefined,
+    discover: async () => ({ ...f.release.discovered(), version: '0.6.11' }),
+  });
+  const checked = await broken.check(true);
+  assert.equal(checked.discovery, 'blocked');
+  assert.match(checked.error!, /cannot start managed gateways/);
+  assert.equal(checked.installed, undefined);
 });
