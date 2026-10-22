@@ -1,4 +1,4 @@
-import { GitHubContentEditor, useContentMenu } from './github-content-editor';
+import { GitHubContentEditor, PropertyRow, useContentMenu } from './github-content-editor';
 import { GitHubIssueRelations } from './github-issue-relations';
 import { Fragment, useEffect, useRef, useState, type ReactNode } from 'react';
 import {
@@ -17,18 +17,10 @@ import type { ProjectFieldValue, ProjectItemAction } from '../domain/github-muta
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { CheckboxRow } from './ui/checkbox';
-import { SectionHeader } from './ui/page-header';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from './ui/collapsible';
 import { Alert, AlertDescription } from './ui/alert';
 import { showToast } from './ui/toast';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from './ui/dialog';
+import { ConfirmDialog } from './confirm-dialog';
 import type { ActionMenuItem } from './action-menu';
 import { MoreButton } from './ui/more-button';
 import {
@@ -98,38 +90,34 @@ export function GitHubItemEditor({
     />
   );
   return (
-    <Collapsible className="tool-section tracker-details" aria-busy={busy}>
-      <CollapsibleTrigger className="tool-section-trigger group">
+    <Collapsible className="tracker-details" aria-busy={busy}>
+      <CollapsibleTrigger className="tracker-details-trigger group">
         <ChevronRight
           size={14}
           aria-hidden="true"
           className="shrink-0 transition-transform duration-[var(--motion-fast)] group-data-[state=open]:rotate-90"
         />
-        <span className="tool-section-title">Details</span>
+        Details
       </CollapsibleTrigger>
       <CollapsibleContent>
-        <section className="grid gap-5 pt-2" aria-label="GitHub item properties">
+        <section className="grid gap-6 pt-2" aria-label="GitHub item properties">
           {error && (
             <Alert variant="destructive" size="sm">
               <AlertDescription>{error}</AlertDescription>
             </Alert>
           )}
           {!!fields.length && (
-            <section aria-label="Project fields" className="grid gap-2">
-              <SectionHeader size="sm" as="h4" className="mb-0" title="Fields" />
-              <div className="grid gap-2">
-                {fields.map((field) => (
-                  <FieldEditor
-                    key={`${item.id}:${field.id}`}
-                    field={field}
-                    item={item}
-                    disabled={busy}
-                    onSave={(value) =>
-                      run(() => api.trackerField(groupId, item.id, field.id, value))
-                    }
-                  />
-                ))}
-              </div>
+            // The project fields continue the property list of the sheet.
+            <section aria-label="Project fields" className="grid gap-1">
+              {fields.map((field) => (
+                <FieldEditor
+                  key={`${item.id}:${field.id}`}
+                  field={field}
+                  item={item}
+                  disabled={busy}
+                  onSave={(value) => run(() => api.trackerField(groupId, item.id, field.id, value))}
+                />
+              ))}
             </section>
           )}
           {item.kind === 'DraftIssue' && (
@@ -242,7 +230,7 @@ export function ItemActionsMenu({
         ]
       : []),
     {
-      label: 'Remove from project…',
+      label: 'Remove from board…',
       icon: <Trash2 className="size-4" />,
       danger: true,
       separator: true,
@@ -258,7 +246,7 @@ export function ItemActionsMenu({
             <MoreButton size={size} label="Task actions" disabled={busy} />
           </DropdownMenuTrigger>
         </Hint>
-        <DropdownMenuContent align="end" className="min-w-48">
+        <DropdownMenuContent align="end">
           {items.map((entry) => {
             const reason = entry.disabled && entry.reason;
             // The issue items of the content editor have no icon. Close and reopen get one.
@@ -269,54 +257,50 @@ export function ItemActionsMenu({
               ) : /^Reopen/.test(entry.label) ? (
                 <CircleDot className="size-4" />
               ) : null);
+            const row = (
+              <DropdownMenuItem
+                variant={entry.danger ? 'destructive' : 'default'}
+                disabled={entry.disabled}
+                onSelect={entry.action}
+              >
+                {icon}
+                {entry.label}
+              </DropdownMenuItem>
+            );
             return (
               <Fragment key={entry.label}>
                 {entry.separator && <DropdownMenuSeparator />}
-                <DropdownMenuItem
-                  variant={entry.danger ? 'destructive' : 'default'}
-                  disabled={entry.disabled}
-                  className={reason ? 'h-auto items-start py-1.5' : undefined}
-                  onSelect={entry.action}
-                >
-                  {icon}
-                  <span className="grid min-w-0 gap-0.5">
-                    {entry.label}
-                    {reason && <span className="text-xs text-muted-foreground">{reason}</span>}
-                  </span>
-                </DropdownMenuItem>
+                {/* A disabled item tells why in a tooltip. */}
+                {reason ? (
+                  <Hint label={reason} disabled className="flex">
+                    {row}
+                  </Hint>
+                ) : (
+                  row
+                )}
               </Fragment>
             );
           })}
         </DropdownMenuContent>
       </DropdownMenu>
-      <Dialog open={confirmRemove} onOpenChange={(open) => !busy && setConfirmRemove(open)}>
-        <DialogContent size="sm">
-          <DialogHeader>
-            <DialogTitle>Remove this task from the board?</DialogTitle>
-            <DialogDescription>
-              {item.kind === 'DraftIssue'
-                ? 'GitHub deletes the draft. You cannot undo this.'
-                : 'The issue or pull request stays in its repository. You can add it again later.'}
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button variant="outline" disabled={busy} onClick={() => setConfirmRemove(false)}>
-              Cancel
-            </Button>
-            <Button
-              variant="destructive"
-              disabled={busy}
-              onClick={() =>
-                void act({ kind: 'remove' }, 'Task removed from the board.').then(
-                  (ok) => ok && setConfirmRemove(false),
-                )
-              }
-            >
-              {busy ? 'Removing…' : 'Remove'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <ConfirmDialog
+        open={confirmRemove}
+        title="Remove from board"
+        description={
+          item.kind === 'DraftIssue'
+            ? 'GitHub deletes the draft. You cannot undo this.'
+            : 'The issue or pull request stays in its repository. You can add it again later.'
+        }
+        confirmLabel="Remove from board"
+        destructive
+        busy={busy}
+        onCancel={() => setConfirmRemove(false)}
+        onConfirm={() =>
+          void act({ kind: 'remove' }, 'Task removed from the board.').then(
+            (ok) => ok && setConfirmRemove(false),
+          )
+        }
+      />
     </>
   );
 }
@@ -366,13 +350,13 @@ export function FieldEditor({
     return () => window.clearTimeout(timer);
   }, [savedAt]);
   const label = (
-    <span className="flex min-h-8 items-center gap-2 text-xs font-medium text-muted-foreground">
+    <span className="flex min-w-0 items-center gap-1">
       <span className="truncate">{field.name}</span>
-      <span role="status" className="inline-flex items-center gap-0.5 text-success">
+      <span role="status" className="inline-flex items-center text-success">
         {!!savedAt && (
           <>
             <Check className="size-3" aria-hidden="true" />
-            Saved
+            <span className="sr-only">Saved</span>
           </>
         )}
       </span>
@@ -380,10 +364,9 @@ export function FieldEditor({
   );
   if (!key && field.dataType !== 'MULTI_SELECT')
     return (
-      <div className="grid grid-cols-[8rem_minmax(0,1fr)] items-center gap-3">
-        {label}
+      <PropertyRow label={label}>
         <span className="text-sm text-muted-foreground">Edit on GitHub</span>
-      </div>
+      </PropertyRow>
     );
   function input(next: string, multi: string[]): ProjectFieldValue {
     if (field.dataType === 'MULTI_SELECT')
@@ -425,7 +408,9 @@ export function FieldEditor({
       </div>
     ) : choices ? (
       <Choice
-        className="w-full"
+        size={auto ? 'sm' : 'default'}
+        variant={auto ? 'ghost' : 'outline'}
+        className={auto ? 'tracker-property-choice' : 'w-full'}
         label={field.name}
         value={value}
         disabled={disabled}
@@ -441,6 +426,7 @@ export function FieldEditor({
     ) : (
       <Input
         aria-label={field.name}
+        size={auto ? 'sm' : undefined}
         type={field.dataType === 'NUMBER' ? 'number' : field.dataType === 'DATE' ? 'date' : 'text'}
         value={value}
         disabled={disabled}
@@ -455,13 +441,7 @@ export function FieldEditor({
         }}
       />
     );
-  if (auto)
-    return (
-      <div className="grid grid-cols-[8rem_minmax(0,1fr)] items-start gap-3">
-        {label}
-        {control}
-      </div>
-    );
+  if (auto) return <PropertyRow label={label}>{control}</PropertyRow>;
   return (
     <div className="grid gap-2">
       <span className="form-label">{field.name}</span>

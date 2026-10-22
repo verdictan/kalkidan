@@ -7,7 +7,6 @@ import {
   Code,
   Copy,
   CopyPlus,
-  ExternalLink,
   FileCode,
   FileDown,
   FolderInput,
@@ -20,6 +19,7 @@ import {
   GitPullRequestCreate,
   Hash,
   ListTodo,
+  MessageSquare,
   MousePointerClick,
   NotebookPen,
   PanelRight,
@@ -46,16 +46,17 @@ import { MoreButton } from './ui/more-button';
 import { Hint } from './hint';
 import {
   menuCollisionPadding,
-  menuContentClass,
+  menuSurfaceClass,
+  menuWideClass,
   menuItemClass,
   menuSeparatorClass,
   menuShortcutClass,
 } from './ui/menu-styles';
 
 const icons: Partial<Record<ChatActionId, LucideIcon>> = {
-  open: ExternalLink,
+  open: MessageSquare,
   'open-beside': PanelRight,
-  'open-window': AppWindow,
+  'open-window': SquareArrowOutUpRight,
   rename: Pencil,
   pin: Pin,
   'link-task': ListTodo,
@@ -80,7 +81,7 @@ const icons: Partial<Record<ChatActionId, LucideIcon>> = {
   'copy-path': FolderInput,
   'open-vscode': SquareCode,
   'open-cursor': MousePointerClick,
-  'open-in': SquareArrowOutUpRight,
+  'open-in': AppWindow,
   export: Share2,
   archive: Archive,
 };
@@ -119,7 +120,7 @@ function Item({
   const label = (
     <span className="flex w-full items-center gap-2">
       {icon ? createElement(icon, { 'aria-hidden': true }) : null}
-      <span className="min-w-0 flex-1 truncate">{item.label}</span>
+      <span className="flex-1">{item.label}</span>
       {item.shortcut && (
         <span className={menuShortcutClass} aria-hidden="true">
           {chatShortcutText(item.shortcut)}
@@ -147,7 +148,7 @@ function Item({
         <P.Portal>
           <P.SubContent
             collisionPadding={menuCollisionPadding}
-            className={cn(menuContentClass, 'w-64')}
+            className={cn(menuSurfaceClass, menuWideClass)}
           >
             {item.children.map((child) => (
               <Fragment key={child.id}>
@@ -226,12 +227,13 @@ export function ChatActionsDropdown({
         <DropdownMenu.Content
           align="end"
           sideOffset={6}
-          collisionPadding={menuCollisionPadding}
+          collisionPadding={{ ...menuCollisionPadding, left: 12 }}
           aria-label={label}
           onCloseAutoFocus={menu.onCloseAutoFocus}
           className={cn(
-            menuContentClass,
-            'w-80 max-h-(--radix-dropdown-menu-content-available-height) origin-(--radix-dropdown-menu-content-transform-origin)',
+            menuSurfaceClass,
+            menuWideClass,
+            'max-h-(--radix-dropdown-menu-content-available-height) origin-(--radix-dropdown-menu-content-transform-origin)',
           )}
         >
           <Items parts={DropdownMenu} groups={groups} onRun={menu.run} />
@@ -299,12 +301,13 @@ export function ChatContextMenu({
       </ContextMenu.Trigger>
       <ContextMenu.Portal>
         <ContextMenu.Content
-          collisionPadding={menuCollisionPadding}
+          collisionPadding={{ ...menuCollisionPadding, left: 12 }}
           aria-label={label}
           onCloseAutoFocus={menu.onCloseAutoFocus}
           className={cn(
-            menuContentClass,
-            'w-80 max-h-(--radix-context-menu-content-available-height) origin-(--radix-context-menu-content-transform-origin)',
+            menuSurfaceClass,
+            menuWideClass,
+            'max-h-(--radix-context-menu-content-available-height) origin-(--radix-context-menu-content-transform-origin)',
           )}
         >
           <Items parts={ContextMenu} groups={groups} onRun={menu.run} />

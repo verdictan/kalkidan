@@ -14,17 +14,17 @@ async function menuActions(page: Page) {
 }
 
 const title = 'Refine project and repository navigation';
-// The row menu shows ten items in two levels. The demo project has no board, so "Link task"
-// does not show. Commit and the pull request are in the changes row of the chat, not here.
+// The row menu shows its items in two levels. A click on the row opens the chat, so the menu
+// has no Open. "Fork chat…" is the one way to copy a chat, so "Duplicate chat" does not show.
+// The demo project has no board, so "Link task" does not show. Commit and the pull request are
+// in the changes row of the chat, not here.
 const rowActions = [
-  'open',
-  '---',
   'rename',
   'pin',
   'notes',
   '---',
-  'duplicate',
   'fork',
+  'open-beside',
   'open-in',
   '---',
   'export',
@@ -33,8 +33,7 @@ const rowActions = [
   'archive',
 ];
 const submenus = {
-  'Duplicate chat': ['duplicate-here', 'duplicate-branch'],
-  'Open in': ['show-folder', 'open-vscode', 'open-cursor', 'open-window', 'open-beside'],
+  'Open in': ['show-folder', 'open-vscode', 'open-cursor', 'open-window'],
   Export: ['export-markdown', 'export-html', 'copy-markdown', 'save-to-docs'],
 };
 
@@ -95,11 +94,11 @@ test('chat rows, the sidebar and the chat header show one action list', async ({
   await page.keyboard.press('Escape');
   expect(await submenuActions(page, () => treeRow.click({ button: 'right' }))).toEqual(more);
 
-  // The chat header menu has the same actions. Open does not show, because the chat is open.
+  // The chat header menu has the same actions.
   await list.getByRole('button', { name: `Resume ${title}`, exact: true }).click();
   const headerMenu = () => page.getByRole('button', { name: 'Chat actions', exact: true }).click();
   await headerMenu();
-  expect(await menuActions(page)).toEqual(row.slice(row.indexOf('open') + 2));
+  expect(await menuActions(page)).toEqual(row);
   await page.keyboard.press('Escape');
   expect(await submenuActions(page, headerMenu)).toEqual(more);
   await headerMenu();

@@ -16,13 +16,15 @@ async function openBoardSection(page: Page) {
   );
 }
 
-/** Opens the Tasks tab of a project and selects "Connect a board". */
+/** The one dialog that connects a board: "Connect board", or "Change board" for a new one. */
+const connectDialog = (page: Page, name: 'Connect board' | 'Change board' = 'Connect board') =>
+  page.getByRole('dialog', { name, exact: true });
+
+/** Opens the Tasks tab of a project and selects "Connect board". */
 async function openConnectBoard(page: Page, project: string) {
   await openProjectTab(page, 'Tasks', project);
-  await page.getByRole('button', { name: 'Connect a board', exact: true }).click();
-  await expect(
-    page.getByRole('dialog', { name: 'Connect a GitHub Projects board', exact: true }),
-  ).toBeVisible();
+  await page.getByRole('button', { name: 'Connect board', exact: true }).click();
+  await expect(connectDialog(page)).toBeVisible();
 }
 
 /** Checks that the Tasks tab shows the connected board. The Board actions menu names it. */
@@ -41,9 +43,10 @@ test('project navigation, search, editing, worktrees, and sessions', async ({ pa
   await openCodeFolder(page);
   await expect(page.getByRole('heading', { name: 'atlas-web', exact: true })).toBeVisible();
 
-  // The main folder shows first, without its chats. The chats have their own section, and
-  // "Branch copies" shows only when the folder has one or more.
-  await expect(page.getByText('Main folder · main', { exact: true })).toBeVisible();
+  // The header subtitle shows the branch of the main folder. The chats have their own
+  // section, and "Branch copies" shows only when the folder has one or more.
+  const subtitle = page.getByRole('main').locator('.page-subtitle');
+  await expect(subtitle).toHaveText(/^main\s*·/);
   await expect(page.getByRole('region', { name: 'Code folder chats' })).toBeVisible();
   await expect(page.getByRole('region', { name: 'Repository branch copies' })).toHaveCount(0);
   await expect(page.locator('.repository-overview').getByRole('tablist')).toHaveCount(0);
@@ -53,7 +56,7 @@ test('project navigation, search, editing, worktrees, and sessions', async ({ pa
   // Refresh and New branch copy are in the Repository actions menu.
   await page.getByRole('button', { name: 'Repository actions', exact: true }).click();
   await page.getByRole('menuitem', { name: 'Refresh branch copies', exact: true }).click();
-  await expect(page.getByText('Main folder · main', { exact: true })).toBeVisible();
+  await expect(subtitle).toHaveText(/^main\s*·/);
   await page.getByRole('button', { name: 'Repository actions', exact: true }).click();
   await page.getByRole('menuitem', { name: 'New branch copy…', exact: true }).click();
   await expect(page.getByRole('dialog')).toBeVisible();
@@ -98,8 +101,8 @@ test('organize sessions and continue inside the conversation UI', async ({ page 
     .getByRole('button', { name: 'Refine project and repository navigation actions' })
     .click();
   await page.getByRole('menuitem', { name: 'Rename…', exact: true }).click();
-  await page.getByLabel('Session name', { exact: true }).fill('Navigation follow-up');
-  await page.getByRole('button', { name: 'Save name', exact: true }).click();
+  await page.getByLabel('Chat name', { exact: true }).fill('Navigation follow-up');
+  await page.getByRole('button', { name: 'Rename', exact: true }).click();
   await list.getByRole('button', { name: 'Navigation follow-up actions' }).click();
   // Notes is at the top level of the chat row menu.
   await page.getByRole('menuitem', { name: 'Notes…', exact: true }).click();
@@ -330,10 +333,10 @@ test('a session ownership conflict shows the unsent message and permits an expli
   await page.getByLabel('Message agent').fill('Keep my follow-up');
   await page.getByRole('button', { name: 'Send', exact: true }).click();
   await expect(page.getByRole('alert')).toContainText('another window');
-  // The failed message shows once, with its error under it. It is not in the composer too.
+  // The failed message shows once, with its error card under it. It is not in the composer too.
   await expect(page.locator('.chat-message.user')).toHaveCount(1);
   await expect(page.locator('.chat-message.user')).toContainText('Keep my follow-up');
-  await expect(page.locator('.chat-message.user').getByRole('alert')).toBeVisible();
+  await expect(page.locator('.chat-message.user + .chat-card[role="alert"]')).toBeVisible();
   await expect(page.getByLabel('Message agent')).toHaveValue('');
   // "Try again" sends the same message again and replaces the failed one.
   await page.getByRole('button', { name: 'Try again', exact: true }).click();
@@ -407,14 +410,16 @@ test('integrated conversations keep drafts and project navigation visible', asyn
   ).not.toBeVisible();
   await page.getByRole('button', { name: 'Toggle sidebar', exact: true }).click();
   await expect(page.getByRole('navigation', { name: 'Projects and repositories' })).toBeVisible();
-  // The breadcrumb goes back to the project.
-  await page
-    .getByRole('navigation', { name: 'Breadcrumb' })
-    .getByRole('button', { name: 'Atlas project', exact: true })
-    .click();
+  // A narrow title bar hides the project crumb first. In a wide window, the breadcrumb goes
+  // back to the project.
+  const breadcrumb = page.getByRole('navigation', { name: 'Breadcrumb' });
+  const projectCrumb = breadcrumb.getByRole('button', { name: 'Atlas project', exact: true });
+  await expect(projectCrumb).toBeHidden();
+  await page.setViewportSize({ width: 1360, height: 960 });
+  await projectCrumb.click();
   await expect(page.getByRole('heading', { name: 'Atlas', level: 1 })).toBeVisible();
   await openProjectTab(page, 'Tasks');
-  await expect(page.getByRole('button', { name: 'Connect a board', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Connect board', exact: true })).toBeVisible();
   await openCodeFolder(page, 'atlas-web');
   await page
     .getByRole('button', { name: 'Resume Refine project and repository navigation', exact: true })
@@ -681,7 +686,8 @@ test('GitHub task status, repository choice, and composer model carry through to
   await page.goto('/');
   // The project row opens the overview. The Tasks row opens the board.
   await openProjectTab(page, 'Tasks');
-  // The task menu of a card has "Move to" with the status options.
+  // The task menu of a card shows on hover. It has "Move to" with the status options.
+  await page.getByRole('button', { name: 'Fix login', exact: true }).hover();
   await page.getByRole('button', { name: 'Task menu: Fix login' }).click();
   await page.getByRole('menuitem', { name: 'Done', exact: true }).click();
   await expect(page.getByRole('region', { name: 'Done column' })).toContainText('Fix login');
@@ -730,27 +736,30 @@ test('a project can connect, create a GitHub draft, and change its connection in
 }) => {
   await page.goto('/');
   await openConnectBoard(page, 'Atlas');
-  await page.getByRole('button', { name: 'Use URL', exact: true }).click();
-  await page
-    .getByLabel('GitHub Projects board URL')
-    .fill('https://github.com/orgs/example/projects/1');
-  await page.getByRole('button', { name: 'Connect board', exact: true }).click();
+  const connect = connectDialog(page);
+  await connect.getByRole('button', { name: 'Use URL', exact: true }).click();
+  await connect.getByLabel('Board URL').fill('https://github.com/orgs/example/projects/1');
+  await connect.getByRole('button', { name: 'Connect board', exact: true }).click();
   await expectConnectedBoard(page, 'Atlas roadmap');
   await page.getByRole('button', { name: 'New task', exact: true }).click();
   await page.getByLabel('Task title').fill('Ship the next release');
   await page.getByLabel('Task description').fill('Verify release checks');
-  await page.getByRole('button', { name: 'Create task', exact: true }).click();
+  // The project has code folders, so the primary is "Create and start". Its menu creates the
+  // task only.
+  await page.getByRole('button', { name: 'More ways to create the task', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Create task only', exact: true }).click();
   await expect(
     page.getByRole('button', { name: 'Ship the next release', exact: true }),
   ).toBeVisible();
-  // Project settings › Board changes the connected board.
+  // Project settings › Board changes the connected board in the "Change board" dialog.
   await openBoardSection(page);
   const settings = projectSettings(page);
   await settings.getByRole('button', { name: 'Change…', exact: true }).click();
-  await expect(settings.getByRole('region', { name: 'Change board' })).toBeVisible();
-  // Cancel keeps the board that is connected.
-  await settings.getByRole('button', { name: 'Cancel', exact: true }).click();
-  await expect(settings.getByRole('region', { name: 'Change board' })).toHaveCount(0);
+  const change = connectDialog(page, 'Change board');
+  await expect(change).toBeVisible();
+  // Cancel keeps the board that is connected, and Project settings stays open.
+  await change.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await expect(change).toHaveCount(0);
   await expect(settings).toContainText('Atlas roadmap #1');
   await page.keyboard.press('Escape');
   await expect(settings).toHaveCount(0);
@@ -796,78 +805,80 @@ test('GitHub connection waits for browser approval and supports cancel and retry
   });
   await page.goto('/');
   await openConnectBoard(page, 'Platform');
-  await expect(page.getByLabel('GitHub device code')).toHaveValue('ABCD-1234');
-  await expect(page.getByRole('button', { name: 'Connect board', exact: true })).toBeDisabled();
-  await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+  const connect = connectDialog(page);
+  await expect(connect.getByLabel('GitHub device code')).toHaveValue('ABCD-1234');
+  await expect(connect.getByRole('button', { name: 'Connect board', exact: true })).toBeDisabled();
+  await connect.getByRole('button', { name: 'Cancel', exact: true }).click();
   await expect(page.getByRole('dialog')).not.toBeVisible();
-  await page.getByRole('button', { name: 'Connect a board', exact: true }).click();
-  await expect(page.getByLabel('GitHub device code')).toHaveValue('ABCD-1234');
+  await page.getByRole('button', { name: 'Connect board', exact: true }).click();
+  await expect(connect.getByLabel('GitHub device code')).toHaveValue('ABCD-1234');
   await page.evaluate(() => (window as any).approveGitHub());
   // After the approval, the code goes away and the boards of the account show.
-  await expect(page.getByLabel('GitHub device code')).toHaveCount(0);
-  await expect(page.getByRole('group', { name: 'Available GitHub Projects boards' })).toBeVisible();
-  await page.getByRole('button', { name: 'Authorized roadmap #1', exact: true }).click();
-  await page.getByRole('button', { name: 'Connect board', exact: true }).click();
+  await expect(connect.getByLabel('GitHub device code')).toHaveCount(0);
+  await expect(
+    connect.getByRole('group', { name: 'Available GitHub Projects boards' }),
+  ).toBeVisible();
+  await connect.getByRole('button', { name: 'Authorized roadmap #1', exact: true }).click();
+  await connect.getByRole('button', { name: 'Connect board', exact: true }).click();
   await expectConnectedBoard(page, 'Authorized roadmap');
 });
 
 test('choose an existing GitHub project or create one without entering a URL', async ({ page }) => {
   await page.goto('/');
   await openConnectBoard(page, 'Atlas');
-  await page.getByLabel('Search GitHub Projects boards').fill('roadmap');
-  await page.getByRole('button', { name: 'Atlas roadmap #1', exact: true }).click();
-  await page.getByRole('button', { name: 'Connect board', exact: true }).click();
+  const connect = connectDialog(page);
+  await connect.getByLabel('Search GitHub Projects boards').fill('roadmap');
+  await connect.getByRole('button', { name: 'Atlas roadmap #1', exact: true }).click();
+  await connect.getByRole('button', { name: 'Connect board', exact: true }).click();
   await expectConnectedBoard(page, 'Atlas roadmap');
   await openBoardSection(page);
-  await page.getByRole('button', { name: 'Change…', exact: true }).click();
-  await page.getByRole('button', { name: 'Create new', exact: true }).click();
-  await expect(page.getByLabel('New GitHub Projects board name')).toHaveValue('Atlas');
-  await page.getByLabel('New GitHub Projects board name').fill('Next release');
-  await page.getByRole('button', { name: 'Create GitHub Projects board', exact: true }).click();
-  await expect(
-    page.getByRole('status').filter({ hasText: 'Created “Next release”' }),
-  ).toBeVisible();
-  await page.getByRole('button', { name: 'Connect board', exact: true }).click();
+  await projectSettings(page).getByRole('button', { name: 'Change…', exact: true }).click();
+  // "Create new" makes the board and connects it with one button.
+  const change = connectDialog(page, 'Change board');
+  await change.getByRole('button', { name: 'Create new', exact: true }).click();
+  await expect(change.getByLabel('Board name')).toHaveValue('Atlas');
+  await change.getByLabel('Board name').fill('Next release');
+  await change.getByRole('button', { name: 'Create and connect', exact: true }).click();
+  await expect(change).toHaveCount(0);
+  await expect(projectSettings(page)).toContainText('Next release');
   // The Tasks tab shows the new board.
   await page.keyboard.press('Escape');
   await expect(projectSettings(page)).toHaveCount(0);
   await expectConnectedBoard(page, 'Next release');
 });
 
-test('add repositories can create a project, then clone a GitHub repo into it', async ({
-  page,
-}) => {
+test('New project connects a board, then Add code folder adds a folder to it', async ({ page }) => {
   await page.goto('/');
-  await openAddCodeFolders(page, 'Atlas');
-  const dialog = page.getByRole('dialog', { name: 'Add code folders', exact: true });
-  await dialog.getByRole('button', { name: 'Create a new project', exact: true }).click();
+  await page.getByRole('main').getByRole('button', { name: 'New project', exact: true }).click();
   const create = page.getByRole('dialog', { name: 'New project', exact: true });
   await create.getByLabel('Project name', { exact: true }).fill('Mobile');
   await create.getByRole('button', { name: 'More options', exact: true }).click();
   await create.getByRole('button', { name: 'Connect now', exact: true }).click();
-  await create.getByRole('button', { name: 'Atlas roadmap #1', exact: true }).click();
+  await expect(create.getByRole('button', { name: 'Atlas roadmap #1', exact: true })).toBeVisible();
   await create.getByRole('button', { name: 'Create project', exact: true }).click();
-  // Creating the project ends the flow. The new project opens, and the dialog stays closed.
+  // Creating the project ends the flow. The new project opens.
   await expect(create).not.toBeVisible();
-  await expect(dialog).not.toBeVisible();
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  await expect(page.getByRole('main').getByRole('heading', { name: 'Mobile' })).toBeVisible();
   await openAddCodeFolders(page, 'Mobile');
-  await expect(dialog.getByRole('combobox', { name: 'Add to project' })).toContainText('Mobile');
+  const dialog = page.getByRole('dialog', { name: 'Add code folder', exact: true });
+  await expect(dialog).toContainText('Adds a Git repository to Mobile.');
+  // The demo has no GitHub CLI, so Clone from GitHub asks to connect GitHub first.
   await dialog.getByRole('button', { name: 'Clone from GitHub', exact: true }).click();
-  await dialog.getByLabel('Search GitHub repositories').fill('mobile');
-  await dialog.getByRole('radio', { name: /example\/mobile-app/ }).click();
-  await dialog.getByRole('button', { name: 'Clone into project', exact: true }).click();
+  await expect(dialog).toContainText('Connect GitHub to see your repositories');
+  await expect(dialog.getByRole('button', { name: 'Connect GitHub…', exact: true })).toBeVisible();
+  await expect(dialog.getByRole('button', { name: 'Clone', exact: true })).toBeDisabled();
+  // Local adds a folder on this computer to the project.
+  await dialog.getByRole('button', { name: 'Local', exact: true }).click();
+  await dialog.getByRole('button', { name: 'Choose folder…', exact: true }).click();
+  const found = page.getByRole('dialog', { name: /^Found \d+ Git repositories/ });
+  await found.getByRole('button', { name: 'Select none', exact: true }).click();
+  await found.getByRole('checkbox', { disabled: false }).first().check();
+  await found.getByRole('button', { name: 'Add 1 code folder', exact: true }).click();
   await expect(dialog).not.toBeVisible();
   await expect(
-    page.getByRole('region', { name: 'Code folders' }).getByText('mobile-app', { exact: true }),
-  ).toBeVisible();
-  await openAddCodeFolders(page, 'Mobile');
-  await dialog.getByRole('button', { name: 'Already in Kalkidan', exact: true }).click();
-  await dialog.getByRole('combobox', { name: 'Code folder already in Kalkidan' }).click();
-  await page.getByRole('option', { name: /design-system ·/ }).click();
-  await dialog.getByRole('button', { name: 'Move to project', exact: true }).click();
-  await expect(
-    page.locator('.project-tree').getByRole('button', { name: 'Mobile', exact: true }),
-  ).toBeVisible();
+    page.getByRole('region', { name: 'Code folders' }).getByRole('listitem'),
+  ).toHaveCount(1);
 });
 
 test('local folder selection keeps the chosen project and clone cancellation keeps dialog open', async ({
@@ -883,6 +894,7 @@ test('local folder selection keeps the chosen project and clone cancellation kee
         warnings: [],
         platform: 'darwin',
       }),
+      githubCliCheck: async () => ({ status: 'ready' }),
       githubRepositories: async () => [],
       cloneRepository: async () => false,
       add: async (id: string) => {
@@ -892,13 +904,13 @@ test('local folder selection keeps the chosen project and clone cancellation kee
   });
   await page.goto('/');
   await openAddCodeFolders(page, 'Platform');
-  const dialog = page.getByRole('dialog');
+  const dialog = page.getByRole('dialog', { name: 'Add code folder', exact: true });
   await dialog.getByRole('button', { name: 'Clone from GitHub', exact: true }).click();
   await dialog.getByLabel('GitHub repository name').fill('example/web');
-  await dialog.getByRole('button', { name: 'Clone into project', exact: true }).click();
+  await dialog.getByRole('button', { name: 'Clone', exact: true }).click();
   await expect(dialog).toBeVisible();
-  await dialog.getByRole('button', { name: 'Local folder', exact: true }).click();
-  await dialog.getByRole('button', { name: 'Choose folder', exact: true }).click();
+  await dialog.getByRole('button', { name: 'Local', exact: true }).click();
+  await dialog.getByRole('button', { name: 'Choose folder…', exact: true }).click();
   await expect(dialog).not.toBeVisible();
   expect(await page.evaluate(() => (window as any).addedTo)).toBe('p');
 });
@@ -906,8 +918,9 @@ test('local folder selection keeps the chosen project and clone cancellation kee
 test('tracker board groups tasks, syncs status moves, and filters', async ({ page }) => {
   await page.goto('/');
   await openConnectBoard(page, 'Atlas');
-  await page.getByRole('button', { name: 'Atlas roadmap #1', exact: true }).click();
-  await page.getByRole('button', { name: 'Connect board', exact: true }).click();
+  const connect = connectDialog(page);
+  await connect.getByRole('button', { name: 'Atlas roadmap #1', exact: true }).click();
+  await connect.getByRole('button', { name: 'Connect board', exact: true }).click();
   const board = page.getByRole('region', { name: 'Tracker board', exact: true });
   await expect(board).toBeVisible();
   await expect(
@@ -915,7 +928,8 @@ test('tracker board groups tasks, syncs status moves, and filters', async ({ pag
       .getByRole('region', { name: 'Todo column', exact: true })
       .getByRole('button', { name: 'Review authentication', exact: true }),
   ).toBeVisible();
-  // The task menu of a card moves the task to another status.
+  // The task menu of a card shows on hover. It moves the task to another status.
+  await board.getByRole('button', { name: 'Review authentication', exact: true }).hover();
   await board.getByRole('button', { name: 'Task menu: Review authentication' }).click();
   await page.getByRole('menuitem', { name: 'Done', exact: true }).click();
   await expect(
@@ -970,34 +984,47 @@ test('repository authorization explicitly requests browser login and shows appro
         (window as any).browserOpens++;
       },
       githubAuthCancel: async () => (state = { status: 'idle' }),
+      // The GitHub CLI is signed out, so Clone from GitHub asks to connect GitHub.
+      githubCliCheck: async () => ({ status: 'signed-out' }),
     };
   });
   await page.goto('/');
   await openAddCodeFolders(page, 'Platform');
-  const add = page.getByRole('dialog', { name: 'Add code folders', exact: true });
+  const add = page.getByRole('dialog', { name: 'Add code folder', exact: true });
   await add.getByRole('button', { name: 'Clone from GitHub', exact: true }).click();
   // GitHub sign-in is in Preferences. The clone source links to it.
-  await add
-    .getByRole('button', { name: 'Check your GitHub account in Preferences', exact: true })
-    .click();
-  // GitHub and GitHub Projects access are one row of Preferences. The approval opens in its own
-  // dialog.
+  await add.getByRole('button', { name: 'Connect GitHub…', exact: true }).click();
+  // GitHub and GitHub Projects access are one row of Preferences. "Connect…" opens the
+  // Connect GitHub dialog with one step for each part.
   const settings = settingsDialog(page);
   await expect(settings).toBeVisible();
   const access = settings.getByRole('group', { name: 'GitHub and boards', exact: true });
-  await expect(access).toContainText('Boards not allowed');
-  await access.getByRole('button', { name: 'Allow access…', exact: true }).click();
-  const approval = page.getByRole('dialog', { name: 'Allow access to GitHub Projects' });
-  await expect(approval.getByLabel('GitHub device code')).toHaveValue('ABCD-1234');
-  // The first approval does not force a new sign-in. Allow again does.
+  await expect(access).toContainText('Signed out');
+  await access.getByRole('button', { name: 'Connect…', exact: true }).click();
+  const connect = page.getByRole('dialog', { name: 'Connect GitHub', exact: true });
+  const repositories = connect.getByRole('group', { name: 'Repositories', exact: true });
+  const boards = connect.getByRole('group', { name: 'Boards', exact: true });
+  await expect(repositories).toContainText('Run gh auth login in a terminal.');
+  await expect(repositories.getByRole('button', { name: 'Copy command' })).toBeVisible();
+  // The GitHub CLI is not ready, so the board approval starts only when the user asks.
   expect(await page.evaluate(() => (window as any).authForced)).toBe(false);
-  await approval.getByRole('button', { name: 'Open GitHub', exact: true }).click();
+  await boards.getByRole('button', { name: 'Allow access…', exact: true }).click();
+  await expect(connect.getByLabel('GitHub device code')).toHaveValue('ABCD-1234');
+  // The first approval does not force a new sign-in.
+  expect(await page.evaluate(() => (window as any).authForced)).toBe(false);
+  await boards.getByRole('button', { name: 'Open GitHub', exact: true }).click();
   expect(await page.evaluate(() => (window as any).browserOpens)).toBe(1);
   await page.evaluate(() => (window as any).approve());
-  // The approval dialog closes by itself, and the row shows the result.
-  await expect(approval).toHaveCount(0);
-  await expect(access).toContainText('Boards allowed');
-  await expect(access.getByRole('button', { name: 'Allow access…', exact: true })).toHaveCount(0);
+  // The code goes away, and the Boards step shows the result.
+  await expect(connect.getByLabel('GitHub device code')).toHaveCount(0);
+  await expect(boards).toContainText('Allowed');
+  await expect(boards.getByRole('button', { name: 'Allow access…', exact: true })).toHaveCount(0);
+  // The Preferences row announces the result of both parts.
+  await connect.getByRole('button', { name: 'Close', exact: true }).click();
+  await expect(connect).toHaveCount(0);
+  await expect(settings.getByRole('status').filter({ hasText: /^GitHub:/ })).toHaveText(
+    'GitHub: Signed out. GitHub Projects boards: allowed.',
+  );
 });
 
 test('project navigation replaces the main sidebar and global history page', async ({ page }) => {
@@ -1043,18 +1070,20 @@ test('simplified controls remain accessible and selection follows project and co
     'aria-current',
     'page',
   );
-  // A code folder page marks its project row as the place that contains the current page.
+  // The tree has one strong highlight. A code folder page selects its project row.
   await openCodeFolder(page, 'atlas-web');
   const projectRow = tree.locator('.project-group-heading').filter({ hasText: 'Atlas' });
-  await expect(projectRow).toHaveClass(/contains-current/);
+  await expect(projectRow).toHaveClass(/\brow-selected\b/);
+  await expect(projectRow).not.toHaveClass(/contains-current/);
   await page
     .getByRole('button', { name: 'Resume Refine project and repository navigation', exact: true })
     .click();
-  // An open chat is selected in the sidebar. Its project row contains it.
+  // An open chat is selected in the sidebar. Its project row only contains it.
   await expect(
     tree.getByRole('button', { name: 'Chat: Refine project and repository navigation' }),
   ).toHaveAttribute('aria-current', 'page');
   await expect(projectRow).toHaveClass(/contains-current/);
+  await expect(projectRow).not.toHaveClass(/\brow-selected\b/);
   await expect(page.getByRole('region', { name: 'Chats', exact: true })).toBeVisible();
   await openSettings(page);
   await expect(page.getByRole('button', { name: 'Preview chat history', exact: true })).toHaveCount(

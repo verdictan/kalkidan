@@ -202,8 +202,10 @@ export function WorkspaceSearch({
   const [history, setHistory] = useState<{ session: Session; excerpt: string }[]>([]);
   const [busy, setBusy] = useState(false);
   const [partial, setPartial] = useState(0);
-  const [active, setActive] = useState(-1);
-  useEffect(() => setActive(-1), [term]);
+  // The first result is active when the palette opens and after each change of the query, so
+  // Enter opens it at once.
+  const [active, setActive] = useState(0);
+  useEffect(() => setActive(0), [term, open]);
   // Each time the palette opens, it starts with an empty query.
   useEffect(() => {
     if (!open) setQuery('');
@@ -459,13 +461,16 @@ export function WorkspaceSearch({
         ),
       )
     : [];
-  // One row for each label: two actions with the same words are one result.
+  // One row for each label: two actions with the same words are one result. Actions whose
+  // label matches come before actions that match only through their keywords.
   const actionMatches = term
-    ? actions.filter(
-        (action, index, list) =>
-          matches(action.label + ' ' + (action.keywords || '')) &&
-          list.findIndex((item) => item.label === action.label) === index,
-      )
+    ? actions
+        .filter(
+          (action, index, list) =>
+            matches(action.label + ' ' + (action.keywords || '')) &&
+            list.findIndex((item) => item.label === action.label) === index,
+        )
+        .sort((a, b) => Number(matches(b.label)) - Number(matches(a.label)))
     : [];
   const ask = term && onAsk ? query.trim() : '';
   const title = (s: Session) => s.organization?.title || s.title;
@@ -557,7 +562,7 @@ export function WorkspaceSearch({
   function group(name: string, label: string, rows: ReactNode) {
     return (
       <div role="group" aria-labelledby={`${id}-${name}`}>
-        <h3 id={`${id}-${name}`} className="sidebar-label">
+        <h3 id={`${id}-${name}`} className="group-label">
           {label}
         </h3>
         {rows}
@@ -633,9 +638,7 @@ export function WorkspaceSearch({
                   if (!total) return;
                   event.preventDefault();
                   const step = event.key === 'ArrowDown' ? 1 : -1;
-                  setActive((current) =>
-                    current < 0 && step < 0 ? total - 1 : (current + step + total) % total,
-                  );
+                  setActive((current) => (Math.max(current, 0) + step + total) % total);
                 } else if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
                   // Mod+Enter turns the query into a new chat.
                   if (!ask) return;
@@ -810,7 +813,6 @@ export function WorkspaceSearch({
                           row('ask', {
                             icon: <MessageSquarePlus />,
                             title: `Ask an agent: “${ask}”`,
-                            meta: kbd(askKeys),
                             tooltip: ask,
                           }),
                         ]

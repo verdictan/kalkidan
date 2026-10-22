@@ -1,6 +1,13 @@
 import * as React from 'react';
 import { cn } from '@/lib/utils';
-import { menuCollisionPadding, menuContentClass, menuItemClass } from './menu-styles';
+import {
+  menuCollisionPadding,
+  menuItemClass,
+  menuLabelClass,
+  menuSeparatorClass,
+  menuSurfaceClass,
+  menuWidthClass,
+} from './menu-styles';
 import { CheckIcon, ChevronDownIcon, ChevronUpIcon } from 'lucide-react';
 import { Select as SelectPrimitive } from 'radix-ui';
 
@@ -33,7 +40,7 @@ function SelectTrigger({
       data-size={size}
       data-variant={variant}
       className={cn(
-        "flex w-fit items-center justify-between gap-2 rounded-md border border-input bg-transparent px-2.5 text-sm whitespace-nowrap shadow-xs transition-[color,box-shadow] outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-[var(--focus-color)] focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:cursor-not-allowed disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-destructive/20 data-[placeholder]:text-muted-foreground data-[size=default]:h-8 data-[size=sm]:h-7 *:data-[slot=select-value]:line-clamp-1 *:data-[slot=select-value]:flex *:data-[slot=select-value]:items-center *:data-[slot=select-value]:gap-2 group/select hover:bg-[var(--surface-hover)] data-[variant=filled]:border-border data-[variant=filled]:bg-secondary data-[variant=filled]:shadow-none data-[variant=filled]:hover:bg-secondary data-[variant=ghost]:border-transparent data-[variant=ghost]:bg-transparent data-[variant=ghost]:shadow-none data-[variant=ghost]:hover:bg-[var(--surface-hover)] data-[variant=chip]:h-7 data-[variant=chip]:rounded-full data-[variant=chip]:border-transparent data-[variant=chip]:bg-transparent data-[variant=chip]:px-2.5 data-[variant=chip]:text-xs data-[variant=chip]:font-medium data-[variant=chip]:text-muted-foreground data-[variant=chip]:shadow-none data-[variant=chip]:hover:bg-[var(--surface-hover)] data-[variant=chip]:hover:text-foreground [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 [&_svg:not([class*='text-'])]:text-muted-foreground",
+        "flex w-fit items-center justify-between gap-2 rounded-md border border-input bg-transparent px-2.5 text-sm whitespace-nowrap shadow-xs transition-[color,box-shadow] outline-none focus-visible:border-ring focus-visible:shadow-[var(--focus-ring-field)] disabled:cursor-not-allowed disabled:opacity-50 aria-invalid:border-destructive data-[placeholder]:text-muted-foreground data-[size=default]:h-8 data-[size=sm]:h-7 *:data-[slot=select-value]:line-clamp-1 *:data-[slot=select-value]:flex *:data-[slot=select-value]:items-center *:data-[slot=select-value]:gap-2 group/select hover:bg-[var(--surface-hover)] data-[variant=filled]:border-border data-[variant=filled]:bg-secondary data-[variant=filled]:shadow-none data-[variant=filled]:hover:bg-secondary data-[variant=ghost]:border-transparent data-[variant=ghost]:bg-transparent data-[variant=ghost]:shadow-none data-[variant=ghost]:hover:bg-[var(--surface-hover)] data-[variant=chip]:h-7 data-[variant=chip]:rounded-full data-[variant=chip]:border-transparent data-[variant=chip]:bg-transparent data-[variant=chip]:px-2.5 data-[variant=chip]:text-xs data-[variant=chip]:font-medium data-[variant=chip]:text-muted-foreground data-[variant=chip]:shadow-none data-[variant=chip]:hover:bg-[var(--surface-hover)] data-[variant=chip]:hover:text-foreground [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 [&_svg:not([class*='text-'])]:text-muted-foreground",
         className,
       )}
       {...props}
@@ -59,7 +66,8 @@ function SelectContent({
       <SelectPrimitive.Content
         data-slot="select-content"
         className={cn(
-          menuContentClass,
+          menuSurfaceClass,
+          menuWidthClass,
           'relative max-h-(--radix-select-content-available-height) origin-(--radix-select-content-transform-origin) p-0 ',
           position === 'popper' &&
             'data-[side=bottom]:translate-y-1 data-[side=left]:-translate-x-1 data-[side=right]:translate-x-1 data-[side=top]:-translate-y-1',
@@ -90,7 +98,7 @@ function SelectLabel({ className, ...props }: React.ComponentProps<typeof Select
   return (
     <SelectPrimitive.Label
       data-slot="select-label"
-      className={cn('px-2 pt-1.5 pb-1 text-xs font-medium text-muted-foreground', className)}
+      className={cn(menuLabelClass, className)}
       {...props}
     />
   );
@@ -111,7 +119,7 @@ function SelectItem({
       className={cn(
         menuItemClass,
         'w-full pr-8 *:[span]:last:flex *:[span]:last:items-center *:[span]:last:gap-2',
-        description && 'h-auto min-h-7 py-1',
+        description && 'h-auto min-h-7 py-1 whitespace-normal',
         className,
       )}
       {...props}
@@ -143,7 +151,7 @@ function SelectSeparator({
   return (
     <SelectPrimitive.Separator
       data-slot="select-separator"
-      className={cn('pointer-events-none -mx-1 my-1 h-px bg-border', className)}
+      className={cn('pointer-events-none', menuSeparatorClass, className)}
       {...props}
     />
   );

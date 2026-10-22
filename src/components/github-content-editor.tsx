@@ -9,13 +9,14 @@ import {
 } from 'react';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { Plus, X } from 'lucide-react';
+import { Plus } from 'lucide-react';
 import type { API } from '../types';
 import type { GitHubContentSnapshot, GitHubContentAction } from '../domain/github-content';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Textarea } from './ui/textarea';
 import { Badge } from './ui/badge';
+import { Tag } from './ui/tag';
 import { SectionHeader } from './ui/page-header';
 import { SegmentedControl } from './ui/segmented-control';
 import { Alert, AlertDescription } from './ui/alert';
@@ -37,7 +38,14 @@ import {
 type ReviewEvent = 'APPROVE' | 'REQUEST_CHANGES' | 'COMMENT';
 
 function ExternalAnchor({ node: _node, ...props }: ComponentProps<'a'> & { node?: unknown }) {
-  return <a {...props} className="text-link" target="_blank" rel="noreferrer" />;
+  return (
+    <a
+      {...props}
+      className="text-link underline-offset-2 hover:underline"
+      target="_blank"
+      rel="noreferrer"
+    />
+  );
 }
 function MarkdownBody({ children, empty }: { children: string; empty: string }) {
   return children.trim() ? (
@@ -111,6 +119,19 @@ function Section({
   );
 }
 
+/**
+ * One property row of the task sheet: a 12px muted name in a 120px column, then the value. The
+ * sheet, its fields and the issue details use it, so all values line up.
+ */
+export function PropertyRow({ label, children }: { label: ReactNode; children: ReactNode }) {
+  return (
+    <div className="tracker-property-row">
+      <span className="tracker-property-label">{label}</span>
+      <div className="tracker-property-value">{children}</div>
+    </div>
+  );
+}
+
 /** A removable chip with a box that adds a value on Enter. */
 function ChipList({
   noun,
@@ -135,24 +156,16 @@ function ChipList({
     setDraft('');
   };
   return (
-    <div className="flex flex-wrap items-center gap-1.5">
+    <div className="flex flex-wrap items-center gap-1 py-0.5">
       {values.map((value) => (
-        <span
+        <Tag
           key={value.id}
-          className="inline-flex h-6 items-center gap-0.5 rounded-full border pr-0.5 pl-2 text-xs font-medium"
           style={value.style}
+          removeLabel={`Remove ${noun} ${value.name}`}
+          onRemove={disabled ? undefined : () => onRemove(value.name)}
         >
           {value.name}
-          <button
-            type="button"
-            className="inline-flex size-5 items-center justify-center rounded-full text-muted-foreground outline-none hover:bg-[var(--surface-hover)] hover:text-foreground focus-visible:shadow-[var(--focus-ring)] disabled:opacity-50"
-            aria-label={`Remove ${noun} ${value.name}`}
-            disabled={disabled}
-            onClick={() => onRemove(value.name)}
-          >
-            <X className="size-3" aria-hidden="true" />
-          </button>
-        </span>
+        </Tag>
       ))}
       {!values.length && disabled && <span className="text-sm text-muted-foreground">None</span>}
       {!disabled && (
@@ -170,7 +183,7 @@ function ChipList({
           <Input
             size="sm"
             aria-label={`Add ${noun}`}
-            className="h-6 w-40 rounded-full pl-6 text-xs"
+            className="h-6 w-40 rounded-sm pl-6 text-xs"
             placeholder={placeholder}
             value={draft}
             onChange={(event) => setDraft(event.target.value)}
@@ -311,7 +324,7 @@ export function GitHubContentEditor({
   ];
   return (
     <section className="grid gap-5" aria-label="Issue and pull request content" aria-busy={busy}>
-      <div className="flex flex-wrap items-center gap-1.5">
+      <div className="flex flex-wrap items-center gap-1">
         <Badge size="sm" variant={itemStateTone(value.state)}>
           {itemKindLabel(value.kind)} · {itemStateLabel(value.state)}
         </Badge>
@@ -331,35 +344,39 @@ export function GitHubContentEditor({
           <AlertDescription>{writeError}</AlertDescription>
         </Alert>
       )}
-      <Section title="Assignees" count={value.assignees.length}>
-        <ChipList
-          noun="assignee"
-          placeholder="Add a person"
-          values={value.assignees.map((user) => ({ id: user.id, name: user.login }))}
-          disabled={locked || !value.permissions.assign}
-          onAdd={(login) => void change({ kind: 'assign', login }, `Assigned ${login}.`)}
-          onRemove={(login) => void change({ kind: 'unassign', login }, `Unassigned ${login}.`)}
-        />
-      </Section>
-      <Section title="Labels" count={value.labels.length}>
-        <ChipList
-          noun="label"
-          placeholder="Add a label"
-          values={value.labels.map((label) => ({
-            id: label.id,
-            name: label.name,
-            style: labelStyle(label),
-          }))}
-          disabled={locked || !value.permissions.label}
-          onAdd={(name) => void change({ kind: 'label', name }, `Added the ${name} label.`)}
-          onRemove={(name) => void change({ kind: 'unlabel', name }, `Removed the ${name} label.`)}
-        />
-      </Section>
-      <div className="grid gap-3 sm:grid-cols-2">
-        <label className="form-label">
-          Milestone
+      {/* The issue values continue the property list of the sheet. */}
+      <div className="grid gap-1">
+        <PropertyRow label="Assignees">
+          <ChipList
+            noun="assignee"
+            placeholder="Add a person"
+            values={value.assignees.map((user) => ({ id: user.id, name: user.login }))}
+            disabled={locked || !value.permissions.assign}
+            onAdd={(login) => void change({ kind: 'assign', login }, `Assigned ${login}.`)}
+            onRemove={(login) => void change({ kind: 'unassign', login }, `Unassigned ${login}.`)}
+          />
+        </PropertyRow>
+        <PropertyRow label="Labels">
+          <ChipList
+            noun="label"
+            placeholder="Add a label"
+            values={value.labels.map((label) => ({
+              id: label.id,
+              name: label.name,
+              style: labelStyle(label),
+            }))}
+            disabled={locked || !value.permissions.label}
+            onAdd={(name) => void change({ kind: 'label', name }, `Added the ${name} label.`)}
+            onRemove={(name) =>
+              void change({ kind: 'unlabel', name }, `Removed the ${name} label.`)
+            }
+          />
+        </PropertyRow>
+        <PropertyRow label="Milestone">
           <Choice
-            className="w-full"
+            size="sm"
+            variant="ghost"
+            className="tracker-property-choice"
             label="Issue milestone"
             value={value.milestone?.id || ''}
             disabled={locked || !value.canSetMilestone}
@@ -372,12 +389,13 @@ export function GitHubContentEditor({
               })),
             ]}
           />
-        </label>
+        </PropertyRow>
         {value.kind === 'Issue' && (
-          <label className="form-label">
-            Issue type
+          <PropertyRow label="Type">
             <Choice
-              className="w-full"
+              size="sm"
+              variant="ghost"
+              className="tracker-property-choice"
               label="Issue type"
               value={value.issueType?.id || ''}
               disabled={locked || !value.canSetType}
@@ -392,7 +410,7 @@ export function GitHubContentEditor({
                 })),
               ]}
             />
-          </label>
+          </PropertyRow>
         )}
       </div>
       <GitHubCheckEvidenceView value={value} />
@@ -496,7 +514,7 @@ export function GitHubContentEditor({
                     {time &&
                       (row.url ? (
                         <a
-                          className="text-link text-xs leading-4 text-muted-foreground"
+                          className="text-xs leading-4 text-muted-foreground underline-offset-2 hover:underline"
                           href={row.url}
                           target="_blank"
                           rel="noreferrer"

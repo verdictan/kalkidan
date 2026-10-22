@@ -17,18 +17,16 @@
   <body>
     <!--
       The launch splash shows before any script loads. The brackets close in from the sides, the
-      brown point lands, then the name and a progress line. The app removes it (src/lib/splash.ts)
-      when the first page can show. The colors are the theme values: theme.css is not loaded yet.
+      brown point lands, then a progress line shows. The 48px mark is at the same place as the
+      mark of the Welcome screen (centered, 104px above the middle of the window), so it does not
+      move when Welcome shows. The app removes the splash (src/lib/splash.ts) when the first page
+      can show. The colors are the theme values: theme.css is not loaded yet.
     -->
     <style>
       #splash {
         position: fixed;
         inset: 0;
         z-index: 100;
-        display: grid;
-        place-items: center;
-        align-content: center;
-        gap: 20px;
         background: #ffffff;
         color: #171717;
         font-family:
@@ -45,17 +43,15 @@
         opacity: 0;
         pointer-events: none;
       }
-      .splash-lockup {
-        display: flex;
-        align-items: center;
-        gap: 14px;
-      }
-      .splash-lockup svg {
-        width: 56px;
-        height: 56px;
+      .splash-mark {
+        position: absolute;
+        top: calc(50% - 128px);
+        left: calc(50% - 24px);
+        width: 48px;
+        height: 48px;
         overflow: visible;
       }
-      .splash-lockup svg * {
+      .splash-mark * {
         transform-box: fill-box;
         transform-origin: 50% 50%;
       }
@@ -68,14 +64,10 @@
       .splash-point {
         animation: splash-pop 380ms cubic-bezier(0.3, 1.5, 0.5, 1) 450ms both;
       }
-      .splash-name {
-        font-size: 28px;
-        font-weight: 600;
-        line-height: 1;
-        letter-spacing: -0.03em;
-        animation: splash-rise 450ms cubic-bezier(0.2, 0.8, 0.2, 1) 650ms both;
-      }
       .splash-bar {
+        position: absolute;
+        top: calc(50% - 56px);
+        left: calc(50% - 60px);
         width: 120px;
         height: 2px;
         border-radius: 2px;
@@ -106,12 +98,6 @@
           transform: scale(0);
         }
       }
-      @keyframes splash-rise {
-        from {
-          transform: translateY(6px);
-          opacity: 0;
-        }
-      }
       @keyframes splash-progress {
         from {
           transform: scaleX(0);
@@ -129,30 +115,27 @@
       }
     </style>
     <div id="splash" aria-hidden="true">
-      <div class="splash-lockup">
-        <svg viewBox="0 0 100 100">
-          <path
-            class="splash-left"
-            d="M34 18H20V82H34"
-            fill="none"
-            stroke="#171717"
-            stroke-width="9"
-            stroke-linejoin="round"
-            stroke-linecap="round"
-          />
-          <path
-            class="splash-right"
-            d="M66 18H80V82H66"
-            fill="none"
-            stroke="#171717"
-            stroke-width="9"
-            stroke-linejoin="round"
-            stroke-linecap="round"
-          />
-          <circle class="splash-point" cx="50" cy="50" r="9" fill="#9a4600" />
-        </svg>
-        <span class="splash-name">Kalkidan</span>
-      </div>
+      <svg class="splash-mark" viewBox="0 0 100 100">
+        <path
+          class="splash-left"
+          d="M34 18H20V82H34"
+          fill="none"
+          stroke="#171717"
+          stroke-width="9"
+          stroke-linejoin="round"
+          stroke-linecap="round"
+        />
+        <path
+          class="splash-right"
+          d="M66 18H80V82H66"
+          fill="none"
+          stroke="#171717"
+          stroke-width="9"
+          stroke-linejoin="round"
+          stroke-linecap="round"
+        />
+        <circle class="splash-point" cx="50" cy="50" r="9" fill="#9a4600" />
+      </svg>
       <div class="splash-bar"><i></i></div>
     </div>
     <div id="root"></div>

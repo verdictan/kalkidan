@@ -1,5 +1,5 @@
 import { type Page } from '@playwright/test';
-import { test, expect, openPreferences } from './helpers/app';
+import { test, expect, openComputersPage } from './helpers/app';
 
 /** A signed-in desktop. `ask` sends the quit question from the main process. */
 async function fixture(page: Page) {
@@ -96,7 +96,7 @@ test('the quit question lists the work of each host, and Escape keeps it running
   expect(await answers(page)).toEqual([{ id: 'q1', choice: 'keep', dontAsk: false }]);
 });
 
-test('Stop all with "Don\'t ask again" answers once, and Preferences turns the question on', async ({
+test('Stop all with "Don\'t ask again" answers once, and Computers turns the question on', async ({
   page,
 }) => {
   await fixture(page);
@@ -106,18 +106,18 @@ test('Stop all with "Don\'t ask again" answers once, and Preferences turns the q
   await dialog.getByRole('button', { name: 'Stop all' }).click();
   await expect(dialog).toBeHidden();
   expect(await answers(page)).toEqual([{ id: 'q2', choice: 'stop', dontAsk: true }]);
-  // The main process saves "Don't ask again". Preferences shows it and can turn it on again.
+  // The main process saves "Don't ask again". Computers › SSH hosts shows it and can turn it on
+  // again.
   await page.evaluate(() => ((window as any).asks = false));
-  const preferences = await openPreferences(page);
-  const toggle = preferences.getByRole('switch', {
-    name: 'Ask before quitting while SSH work runs',
-  });
+  const computers = await openComputersPage(page);
+  const toggle = computers
+    .getByRole('region', { name: 'SSH hosts', exact: true })
+    .getByRole('switch', { name: 'Ask before quitting while SSH work runs' });
   await expect(toggle).not.toBeChecked();
   await toggle.click();
   await expect(toggle).toBeChecked();
   expect(await page.evaluate(() => (window as any).asks)).toBe(true);
   // A new question starts with the box clear.
-  await page.keyboard.press('Escape');
   await ask(page, 'q3');
   await expect(question(page).getByRole('checkbox', { name: "Don't ask again" })).not.toBeChecked();
   await question(page).getByRole('button', { name: 'Keep running' }).click();
@@ -135,15 +135,19 @@ test('the question names the disconnected hosts whose work can still run', async
   await expect(dialog.getByRole('button', { name: 'Stop all' })).toBeVisible();
   await page.keyboard.press('Escape');
   await expect(dialog).toBeHidden();
-  // With only disconnected hosts, Keep running is the only action.
+  // With only disconnected hosts, nothing can stop. "Quit" replaces Stop all, and both
+  // actions keep the work.
   await ask(page, 'q5', { hosts: [], disconnected: ['Old box', 'Lab 2'] });
   await expect(dialog).toContainText('Work may continue on SSH hosts after Kalkidan quits.');
   await expect(dialog.getByRole('note')).toHaveText(note);
   await expect(dialog.getByRole('button', { name: 'Stop all' })).toHaveCount(0);
-  await expect(dialog.getByRole('button', { name: 'Keep running' })).toBeFocused();
+  await expect(dialog.getByRole('button', { name: 'Quit', exact: true })).toBeFocused();
   await dialog.getByRole('checkbox', { name: "Don't ask again" }).check();
-  await dialog.getByRole('button', { name: 'Keep running' }).click();
+  await dialog.getByRole('button', { name: 'Quit', exact: true }).click();
   expect((await answers(page)).at(-1)).toEqual({ id: 'q5', choice: 'keep', dontAsk: true });
+  await ask(page, 'q5b', { hosts: [], disconnected: ['Old box'] });
+  await dialog.getByRole('button', { name: 'Keep running' }).click();
+  expect((await answers(page)).at(-1)).toEqual({ id: 'q5b', choice: 'keep', dontAsk: false });
   // Without disconnected hosts, there is no note.
   await ask(page, 'q6');
   await expect(dialog.getByRole('note')).toHaveCount(0);

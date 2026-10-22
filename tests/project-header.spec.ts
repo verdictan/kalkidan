@@ -10,18 +10,17 @@ test('every project tab shows one header and the tab bar keeps its place', async
     const tab = tabs.getByRole('button', { name, exact: true });
     await tab.click();
     await expect(tab).toHaveAttribute('aria-current', 'page');
-    // One fixed project header on each tab: the name, New chat and the project menu. Only
-    // Overview shows the counts. Project settings is an item of the project menu.
+    // One fixed project header on each tab: the name, New chat, the project menu and the
+    // counts. Project settings is an item of the project menu.
     const header = page.locator('.project-header');
     await expect(header).toHaveCount(1);
     await expect(header.getByRole('heading', { name: 'Atlas', exact: true })).toBeVisible();
-    if (name === 'Overview') await expect(header).toContainText('3 code folders · 2 chats');
-    else await expect(header).not.toContainText('code folder');
+    await expect(header).toContainText('3 code folders · 2 chats');
     await expect(header.getByRole('button', { name: 'New chat', exact: true })).toBeVisible();
     await expect(header.getByRole('button', { name: 'Project actions' })).toBeVisible();
     await expect(header.getByRole('button', { name: 'Project settings' })).toHaveCount(0);
     await expect(page.getByRole('main').locator('.page-header')).toHaveCount(1);
-    // The header keeps one height with or without the counts line, so the tabs never move.
+    // The header keeps one height on every tab, so the tabs never move.
     expect(await tabs.boundingBox()).toEqual(first);
   }
   await page.screenshot({ path: 'test-results/project-header.png' });

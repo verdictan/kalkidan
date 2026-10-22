@@ -97,17 +97,35 @@ test('the notice does not show when the user already read it', async ({ page }) 
   await expect(notice(page)).toHaveCount(0);
 });
 
+/** Opens Preferences › This app › Your data. */
+async function openYourData(page: Page) {
+  const preferences = await openPreferences(page);
+  await preferences.getByRole('tab', { name: 'This app', exact: true }).click();
+  await preferences
+    .getByRole('group', { name: 'Your data', exact: true })
+    .getByRole('button', { name: 'Manage…' })
+    .click();
+}
+
 test('Preferences › Your data keeps the notice, the disk use, export, and deletion', async ({
   page,
 }) => {
   await fixture(page, 'window.noticeSeen = true; return {};');
-  await (await openPreferences(page)).getByRole('button', { name: 'Manage…' }).last().click();
+  await openYourData(page);
   const settings = page.getByRole('dialog', { name: 'Your data' });
-  await expect(settings.getByRole('heading', { name: 'Goes to the model provider' })).toBeVisible();
   await expect(settings).toContainText('1.2 GB of 2.0 GB in /Users/dana/.kalkidan');
+  // The notice is in the closed "Where your data goes" section.
+  const notice = settings.getByRole('heading', { name: 'Goes to the model provider' });
+  await expect(notice).toHaveCount(0);
+  await settings.getByRole('button', { name: 'Where your data goes' }).click();
+  await expect(notice).toBeVisible();
   await settings.getByRole('button', { name: 'Export…' }).click();
   await expect(page.getByRole('status').getByText('Exported 12 files.')).toBeVisible();
-  await settings.getByRole('button', { name: 'Delete…' }).last().click();
+  // Delete chat history is in the Danger zone.
+  await settings
+    .getByRole('list', { name: 'Danger zone' })
+    .getByRole('button', { name: 'Delete chat history…' })
+    .click();
   const confirm = page.getByRole('dialog', { name: 'Delete chat history?' });
   await expect(confirm).toContainText('Project documents and memory stay.');
   await confirm.getByRole('button', { name: 'Delete chat history' }).click();
@@ -127,7 +145,7 @@ test('Preferences › Your data warns when only chat history keeps the folder ab
     `window.noticeSeen = true;
      return { localDataUsage: async () => ({ root: '/r', total: 2_500_000_000, limit: 2_000_000_000, categories: [] }) };`,
   );
-  await (await openPreferences(page)).getByRole('button', { name: 'Manage…' }).last().click();
+  await openYourData(page);
   const settings = page.getByRole('dialog', { name: 'Your data' });
   await expect(settings.getByRole('alert')).toContainText(
     'Chat history is never removed automatically',

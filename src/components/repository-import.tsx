@@ -38,7 +38,7 @@ export function showFolderImportResult(name: string, added: number) {
   if (added > 0) showToast(`Created ${name} with ${codeFolders(added)}.`);
   else
     showToast({
-      message: 'Kalkidan could not add the code folders. Select Add code folder to try again.',
+      message: 'Kalkidan could not add the code folders. Select Add code folder… to try again.',
       tone: 'error',
     });
 }

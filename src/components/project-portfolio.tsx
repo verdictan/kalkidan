@@ -12,7 +12,6 @@ import {
 import { plural } from '../domain/planning-labels';
 import { Badge } from './ui/badge';
 import { Button } from './ui/button';
-import { EmptyState } from './ui/empty-state';
 import { SegmentedControl } from './ui/segmented-control';
 import { Hint } from './hint';
 import { ErrorAlert, openTask, TaskTitle, FormSelect } from './planning-kit';
@@ -81,13 +80,8 @@ export function ProjectPortfolio({ api, groups }: { api: API; groups: ProjectGro
     };
   }, [api]);
 
-  if (!available) return null;
-  if (!connected.length)
-    return (
-      <EmptyState compact title="No connected boards">
-        Connect a GitHub Projects board to a project. Its tasks then show here.
-      </EmptyState>
-    );
+  // The Waiting for you page shows this list only when a board is connected.
+  if (!available || !connected.length) return null;
   const name = (groupId: string) => groups.find((group) => group.id === groupId)?.name || 'Project';
   const all = portfolioItems(projects, who === 'me' ? login : '')
     .filter((row) => !project || row.groupId === project)
@@ -147,7 +141,9 @@ export function ProjectPortfolio({ api, groups }: { api: API; groups: ProjectGro
             </Button>
           ))}
         <span className="ml-auto text-xs text-muted-foreground">{plural(rows.length, 'task')}</span>
-        <Hint label="Load again">
+        <Hint
+          label={at ? `Load again · Loaded ${new Date(at).toLocaleTimeString()}` : 'Load again'}
+        >
           <Button
             size="icon-sm"
             variant="ghost"
@@ -169,18 +165,20 @@ export function ProjectPortfolio({ api, groups }: { api: API; groups: ProjectGro
         ))}
       {busy && !projects.length && <p className="form-help">Loading tasks…</p>}
       {!busy && at && !rows.length && (
-        <EmptyState compact>
-          {risks.length || project || who === 'me'
+        <p className="text-xs text-muted-foreground">
+          {risks.length || project
             ? 'No tasks match. Clear a filter to see more tasks.'
-            : 'The connected boards have no tasks.'}
-        </EmptyState>
+            : who === 'me'
+              ? 'No tasks are assigned to you.'
+              : 'The connected boards have no tasks.'}
+        </p>
       )}
       {rows.length > 0 && (
         <div>
           {rows.map(({ groupId, item, risks: notes }) => (
-            <div key={`${groupId}:${item.id}`} className="list-row row-hover px-2">
+            <div key={`${groupId}:${item.id}`} className="list-row">
               <div className="grid min-w-0 flex-1 gap-0.5">
-                <span className="text-[13px] leading-5 font-medium">
+                <span className="text-sm font-medium">
                   <TaskTitle title={item.title} onOpen={() => openTask(groupId, item.id)} />
                 </span>
                 <span className="truncate text-xs leading-4 text-muted-foreground">
@@ -200,11 +198,6 @@ export function ProjectPortfolio({ api, groups }: { api: API; groups: ProjectGro
             </div>
           ))}
         </div>
-      )}
-      {at && (
-        <p className="form-help">
-          Loaded {new Date(at).toLocaleString()}. A date in the past is a hint, not a deadline.
-        </p>
       )}
     </section>
   );

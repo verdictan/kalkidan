@@ -10,7 +10,7 @@ async function connectAtlasBoard(page: Page) {
     .getByRole('navigation', { name: 'Project page', exact: true })
     .getByRole('button', { name: 'Tasks', exact: true })
     .click();
-  await page.getByRole('button', { name: 'Connect a board', exact: true }).click();
+  await page.getByRole('button', { name: 'Connect board', exact: true }).click();
   await page.getByRole('button', { name: 'Atlas roadmap #1', exact: true }).click();
   await page.getByRole('button', { name: 'Connect board', exact: true }).click();
   await expect(page.getByRole('region', { name: 'Tracker board', exact: true })).toBeVisible();
@@ -48,13 +48,23 @@ test('project creation is GitHub-backed without client fields or navigation', as
   await page.keyboard.press('Escape');
   await page.getByRole('button', { name: 'Manage project Platform' }).click();
   await page.getByRole('menuitem', { name: 'Rename…', exact: true }).click();
-  // Rename opens Project settings at the project name.
+  // Rename opens a dialog with the project name.
+  const rename = page.getByRole('dialog', { name: 'Rename project', exact: true });
+  await expect(rename.getByLabel('Project name', { exact: true })).toHaveValue('Platform');
+  await page.keyboard.press('Escape');
+  await expect(rename).toHaveCount(0);
+  // Project settings has no client field.
+  await page.getByRole('button', { name: 'Manage project Platform' }).click();
+  await page.getByRole('menuitem', { name: 'Project settings…', exact: true }).click();
   const settings = page.getByRole('dialog', { name: 'Project settings: Platform', exact: true });
-  await expect(settings.getByLabel('Project name', { exact: true })).toHaveValue('Platform');
+  await expect(settings).toBeVisible();
   await expect(settings.getByLabel('Client label', { exact: true })).toHaveCount(0);
   await settings.getByRole('button', { name: 'Close', exact: true }).click();
   await expect(settings).toHaveCount(0);
-  await page.getByRole('button', { name: 'Projects', exact: true }).click();
+  await page
+    .getByRole('navigation', { name: 'Projects and repositories' })
+    .getByRole('button', { name: 'Projects', exact: true })
+    .click();
   const overview = page.getByRole('region', { name: 'Projects', exact: true });
   await expect(overview.getByRole('button', { name: 'Platform', exact: true })).toBeVisible();
   await expect(overview.getByRole('button', { name: 'Atlas', exact: true })).toBeVisible();
@@ -142,7 +152,9 @@ for (const allow of [true, false])
     await page.getByRole('button', { name: 'Resume Review changes', exact: true }).click();
     await page.getByLabel('Message agent').fill('Review and test');
     await page.getByRole('button', { name: 'Send', exact: true }).click();
-    await expect(page.getByRole('status')).toContainText('Waiting for your approval');
+    // The live step shows under the steps fold, and the chat row shows that it waits for you.
+    await expect(page.getByRole('button', { name: 'npm test Running', exact: true })).toBeVisible();
+    await expect(page.getByRole('img', { name: 'Waiting for your approval' })).toBeVisible();
     await expect(page.getByRole('region', { name: 'Agent approval' })).toContainText('npm test');
     await page.screenshot({ path: `test-results/approval-${allow}.png` });
     await page.getByRole('button', { name: allow ? 'Allow once' : 'Deny', exact: true }).click();
@@ -280,9 +292,7 @@ test('project opens its board and filters tasks by repository', async ({ page })
   ).toHaveCount(0);
   await expect(tracker.getByRole('tab')).toHaveCount(0);
   await expect(page.locator('.library-footer')).toHaveCount(0);
-  await expect(
-    page.locator('.sidebar-github').getByRole('button', { name: 'GitHub project', exact: true }),
-  ).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'GitHub project', exact: true })).toHaveCount(0);
   await tracker.getByRole('button', { name: 'Clear filters' }).click();
   await expect(
     tracker.getByRole('button', { name: 'Build the project overview', exact: true }),
@@ -308,9 +318,7 @@ test('project board moves tasks and starts work in the selected repository', asy
   await expect(tasks.getByRole('region', { name: 'Done column', exact: true })).toContainText(
     'Build the project overview',
   );
-  await expect(page.locator('.return-conversation, .projects-home, .sidebar-github>p')).toHaveCount(
-    0,
-  );
+  await expect(page.locator('.return-conversation, .projects-home')).toHaveCount(0);
   await page.setViewportSize({ width: 961, height: 988 });
   await page.screenshot({ path: 'test-results/project-board-tasks.png', fullPage: true });
   await tasks.getByRole('button', { name: 'Build the project overview', exact: true }).click();
@@ -319,7 +327,11 @@ test('project board moves tasks and starts work in the selected repository', asy
   await sheet.getByRole('button', { name: 'Change', exact: true }).click();
   const where = sheet.getByRole('group', { name: 'Where to work' });
   await where.getByRole('radio', { name: 'api-service', exact: true }).check();
+  await expect(where.getByRole('radio', { name: /^New branch/ })).toBeChecked();
+  // Done folds the options. The summary line names the folder and the branch.
+  await where.getByRole('button', { name: 'Done', exact: true }).click();
   await expect(sheet).toContainText('api-service · new branch');
+  await sheet.getByRole('button', { name: 'Change', exact: true }).click();
   await where.getByRole('radio', { name: 'atlas-web', exact: true }).check();
   await expect(where.getByRole('radio', { name: 'atlas-web', exact: true })).toBeChecked();
   // On main, a branch copy is the default. The preview has no Git, so work on main.

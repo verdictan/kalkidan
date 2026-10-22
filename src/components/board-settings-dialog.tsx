@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react';
 import type { API, ProjectGroup } from '../types';
+import { ConnectBoardHost } from './tracker-project-picker';
 
 /** The old Board settings tabs. They all open Project settings › Board now. */
 export type BoardSettingsTab = 'fields' | 'views' | 'updates' | 'workflows' | 'github';
@@ -43,16 +44,20 @@ export function BoardSettingsDialog({
 
 /**
  * Mount this one time. It opens Project settings › Board for the `kalkidan-open-board-settings`
- * event, {groupId, tab?, preset?}. An event without a project is for `activeGroupId`.
+ * event, {groupId, tab?, preset?}. An event without a project is for `activeGroupId`. It also
+ * shows the Connect board dialog for `openConnectBoard`.
  */
 export function BoardSettingsHost({
+  api,
   groups,
   activeGroupId,
+  onChanged,
 }: {
   api?: API;
   groups: ProjectGroup[];
   activeGroupId?: string;
-  onChanged?(groupId: string): void;
+  /** Reloads the app data after a project connects to a board. */
+  onChanged?(groupId: string): void | Promise<void>;
 }) {
   const latest = useRef({ groups, activeGroupId });
   latest.current = { groups, activeGroupId };
@@ -72,5 +77,5 @@ export function BoardSettingsHost({
     window.addEventListener('kalkidan-open-board-settings', onOpen);
     return () => window.removeEventListener('kalkidan-open-board-settings', onOpen);
   }, []);
-  return null;
+  return <ConnectBoardHost api={api} groups={groups} onChanged={onChanged} />;
 }

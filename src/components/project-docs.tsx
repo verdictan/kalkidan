@@ -4,6 +4,7 @@ import {
   useRef,
   useState,
   useSyncExternalStore,
+  type CSSProperties,
   type DragEvent,
   type ReactNode,
 } from 'react';
@@ -20,7 +21,6 @@ import {
   FilePlus,
   FileText,
   FolderInput,
-  Link2,
   ListChecks,
   MessageSquare,
   Plus,
@@ -31,7 +31,9 @@ import type { API, ProjectGroup, TrackerItem } from '../types';
 import { trackerConnection } from '../domain/tracker';
 import { trackerClient } from '../lib/tracker-client';
 import { useProjectBoard } from '../hooks/use-project-board';
-import { DocsToIssuesDialog, pageTasks } from './docs-to-issues';
+import { DocsToIssuesDialog } from './docs-to-issues';
+import { openConnectBoard } from './tracker-project-picker';
+import { ConfirmDialog } from './confirm-dialog';
 import type { DeletedProjectDoc, ProjectDoc, ProjectDocMetadata } from '../domain/docs';
 import { hasPrimaryModifier, plural } from '../lib/platform';
 import { cn } from '../lib/utils';
@@ -42,6 +44,8 @@ import { Hint } from './hint';
 import { Alert, AlertDescription } from './ui/alert';
 import { EmptyState } from './ui/empty-state';
 import { MoreButton } from './ui/more-button';
+import { NavRow } from './ui/nav-row';
+import { Textarea } from './ui/textarea';
 import {
   menuCollisionPadding,
   menuContentClass,
@@ -163,13 +167,8 @@ export function placedSiblings(
 const openTask = (groupId: string, itemId: string) =>
   window.dispatchEvent(new CustomEvent('kalkidan-open-task', { detail: { groupId, itemId } }));
 
-const connectBoard = (groupId: string) =>
-  window.dispatchEvent(
-    new CustomEvent('kalkidan-open-project-settings', { detail: { groupId, section: 'board' } }),
-  );
-
 /** Alerts in the editor: under the document bar, at the width of the text column. */
-const docAlertClass = 'mx-auto mt-3 w-[min(var(--reading-width),calc(100%-3rem))]';
+const docAlertClass = 'mt-3 mx-[var(--pane-inset)] max-w-[var(--reading-width)]';
 
 const selectionKey = (groupId: string) => 'kalkidan-docs-selected:' + groupId;
 
@@ -233,7 +232,7 @@ export function KnowledgeRailGroup({
   return (
     <section className="knowledge-rail-group" aria-label={label}>
       <div className="knowledge-rail-label">
-        <h2 className="sidebar-label">{label}</h2>
+        <h2 className="group-label">{label}</h2>
         {actions && <span className="knowledge-rail-actions">{actions}</span>}
       </div>
       {children}
@@ -245,7 +244,7 @@ export function KnowledgeRailGroup({
 interface PageActions {
   /** Starts a new chat with this page attached. With text, the chat asks about that text. */
   onAskAgent: (doc: ProjectDoc, text?: string) => void;
-  /** Opens "Create tasks from a doc page" for this page. */
+  /** Opens "Make tasks from this page". */
   onPlanTasks: () => void;
   /** Why "Make tasks" cannot run, for example on a read-only board. */
   planTasksDisabled?: string;
@@ -494,18 +493,11 @@ function DocEditor({
     pages.map((p) => (p.id === draft.id ? { ...p, parentId: draft.parentId } : p)),
     draft.id,
   );
-  const taskCount = useMemo(
-    () => pageTasks(draft.markdown, draft.title || 'Untitled').length,
-    [draft.markdown, draft.title],
-  );
   const askAgent = (text?: string) =>
     void flush().then(() => actions.onAskAgent(latest.current, text));
   const makeTasks = () => void flush().then(actions.onPlanTasks);
   const linkTask = () => (actions.onConnectBoard ? actions.onConnectBoard() : setPicking(true));
   const editorActions: WikiEditorActions = {
-    taskCount,
-    onMakeTasks: makeTasks,
-    onAskAgent: () => askAgent(),
     onLinkTask: actions.onLinkTask,
     onConnectBoard: actions.onConnectBoard,
     onMakeTask: actions.onMakeTask,
@@ -520,12 +512,12 @@ function DocEditor({
           {/* The ancestors of the page. The page title is the field under the bar. */}
           {ancestors.length > 0 ? (
             <nav className="wiki-breadcrumbs" aria-label="Document breadcrumb">
-              {ancestors.map((ancestor) => (
+              {ancestors.map((ancestor, index) => (
                 <span key={ancestor.id} className="contents">
-                  <button title={ancestor.title} onClick={() => onNavigate(ancestor.id)}>
+                  {index > 0 && <ChevronRight size={12} aria-hidden="true" />}
+                  <button type="button" onClick={() => onNavigate(ancestor.id)}>
                     {ancestor.title || 'Untitled'}
                   </button>
-                  <ChevronRight size={12} aria-hidden="true" />
                 </span>
               ))}
             </nav>
@@ -582,11 +574,7 @@ function DocEditor({
                   <MoreButton label="Page actions" />
                 </DropdownMenuTrigger>
               </Hint>
-              <DropdownMenuContent align="end" className="min-w-[13rem]">
-                <DropdownMenuItem onSelect={linkTask}>
-                  <Link2 className="size-4" aria-hidden="true" />
-                  Link a task
-                </DropdownMenuItem>
+              <DropdownMenuContent align="end">
                 <DropdownMenuItem onSelect={() => setSource((value) => !value)}>
                   <Code className="size-4" aria-hidden="true" />
                   {source ? 'Hide Markdown' : 'View Markdown'}
@@ -744,7 +732,9 @@ function DocEditor({
           onPick={actions.onLinkTask}
           onCloseAutoFocus={(event) => {
             event.preventDefault();
-            body.current?.querySelector<HTMLElement>('.doc-tasks [data-add]')?.focus();
+            body.current
+              ?.querySelector<HTMLElement>('.doc-tasks [data-add], .ProseMirror, .wiki-source')
+              ?.focus();
           }}
         />
       )}
@@ -777,32 +767,34 @@ function DocEditor({
             void flush();
           }}
         />
-        <div className="doc-tasks" role="group" aria-label="Linked tasks">
-          <span className="doc-tasks-label">Tasks</span>
-          {linkedTasks.map((task) => (
-            <span key={task.id} className="doc-task-chip">
-              <button type="button" title={task.title} onClick={() => openTask(groupId, task.id)}>
-                <CircleDot size={12} aria-hidden="true" />
-                <span className="truncate">{taskLabel(task)}</span>
-                {task.status && <span className="doc-task-status">{task.status}</span>}
-              </button>
-              <button
-                type="button"
-                className="doc-task-unlink"
-                aria-label={`Unlink ${taskLabel(task)}`}
-                onClick={() => actions.onUnlinkTask(task)}
-              >
-                <X size={12} aria-hidden="true" />
-              </button>
-            </span>
-          ))}
-          <button type="button" className="doc-task-chip" data-add="" onClick={linkTask}>
-            <Plus size={12} aria-hidden="true" />
-            Link task
-          </button>
-        </div>
+        {linkedTasks.length > 0 && (
+          <div className="doc-tasks" role="group" aria-label="Linked tasks">
+            <span className="doc-tasks-label">Tasks</span>
+            {linkedTasks.map((task) => (
+              <span key={task.id} className="doc-task-chip">
+                <button type="button" onClick={() => openTask(groupId, task.id)}>
+                  <CircleDot size={12} aria-hidden="true" />
+                  <span className="truncate">{taskLabel(task)}</span>
+                  {task.status && <span className="doc-task-status">{task.status}</span>}
+                </button>
+                <button
+                  type="button"
+                  className="doc-task-unlink"
+                  aria-label={`Unlink ${taskLabel(task)}`}
+                  onClick={() => actions.onUnlinkTask(task)}
+                >
+                  <X size={12} aria-hidden="true" />
+                </button>
+              </span>
+            ))}
+            <button type="button" className="doc-task-chip" data-add="" onClick={linkTask}>
+              <Plus size={12} aria-hidden="true" />
+              Link task
+            </button>
+          </div>
+        )}
         {source ? (
-          <textarea
+          <Textarea
             className="wiki-source font-mono"
             aria-label="Markdown content"
             readOnly={readOnly}
@@ -857,10 +849,7 @@ function PageRowMenu({
     <ContextMenu.Root>
       <ContextMenu.Trigger asChild>{children}</ContextMenu.Trigger>
       <ContextMenu.Portal>
-        <ContextMenu.Content
-          collisionPadding={menuCollisionPadding}
-          className={cn(menuContentClass, 'z-[70]')}
-        >
+        <ContextMenu.Content collisionPadding={menuCollisionPadding} className={menuContentClass}>
           {item('Add subpage', FilePlus, onSubpage)}
           {item('Move page…', FolderInput, onMove)}
           <ContextMenu.Separator className={menuSeparatorClass} />
@@ -978,7 +967,9 @@ export function ProjectDocsPanel({
   const workspace = useRef<HTMLDivElement>(null);
   const [planning, setPlanning] = useState(false);
   // An action that waits for a board: it continues when the board connects.
-  const [afterConnect, setAfterConnect] = useState<'plan' | 'link' | null>(null);
+  const [afterConnect, setAfterConnect] = useState<'plan' | 'link' | 'task' | null>(null);
+  // The selected text of "Make task" while the board connects.
+  const pendingTask = useRef('');
   const connection = trackerConnection(group);
   const provider = connection?.provider || 'github';
   const client = useMemo(() => trackerClient(api, provider), [api, provider]);
@@ -1008,11 +999,23 @@ export function ProjectDocsPanel({
   const [linking, setLinking] = useState(false);
   // Continue the action after Connect board.
   useEffect(() => {
-    if (!connection || !afterConnect) return;
-    if (afterConnect === 'plan') setPlanning(true);
-    else setLinking(true);
+    if (!afterConnect) return;
+    // Make tasks reads the board itself, so it can open before the project data reloads.
+    if (afterConnect === 'plan') {
+      setPlanning(true);
+      setAfterConnect(null);
+      return;
+    }
+    if (!connection) return;
+    if (afterConnect === 'link') setLinking(true);
+    else if (pendingTask.current) void makeTask(pendingTask.current);
+    pendingTask.current = '';
     setAfterConnect(null);
   }, [!!connection, afterConnect]);
+  /** Opens Connect board over the page. The action continues when the board connects. */
+  function connectThen(next: 'plan' | 'link' | 'task') {
+    openConnectBoard({ groupId: group.id, onConnected: () => setAfterConnect(next) });
+  }
   function askAgent(doc: ProjectDoc, text?: string) {
     const title = doc.title || 'Untitled';
     const quote = text
@@ -1046,7 +1049,8 @@ export function ProjectDocsPanel({
   }
   async function makeTask(text: string) {
     if (!connection) {
-      connectBoard(group.id);
+      pendingTask.current = text;
+      connectThen('task');
       return;
     }
     if (planReason) {
@@ -1128,10 +1132,17 @@ export function ProjectDocsPanel({
     createdPage.current = null;
     const frame = requestAnimationFrame(() => {
       const input = workspace.current?.querySelector<HTMLInputElement>('.doc-title');
-      input?.focus();
+      input?.focus({ preventScroll: true });
       input?.select();
     });
     return () => cancelAnimationFrame(frame);
+  }, [openPageId]);
+  // A page opens at its top, under the document bar.
+  useEffect(() => {
+    const element = workspace.current;
+    if (!element) return;
+    element.scrollTop = 0;
+    element.removeAttribute('data-scrolled');
   }, [openPageId]);
   function command(id: string, kind: TreeCommand['kind']) {
     open(id);
@@ -1209,7 +1220,7 @@ export function ProjectDocsPanel({
       return { ...current, ...Object.fromEntries(ancestors.map((id) => [id, false])) };
     });
   }, [selected, pages]);
-  function tree(parentId: string | null, visited = new Set<string>()): ReactNode {
+  function tree(parentId: string | null, depth = 0, visited = new Set<string>()): ReactNode {
     const siblings = children.get(parentId) || [];
     return siblings.map((p, index) => {
       if (visited.has(p.id)) return null;
@@ -1225,6 +1236,8 @@ export function ProjectDocsPanel({
           >
             <div
               className="wiki-tree-row row-focus"
+              // A subpage row has the full width. Only its icon and title move in.
+              style={depth ? ({ '--depth': depth } as CSSProperties) : undefined}
               data-selected={current}
               data-drop={drag?.over === p.id ? drag.position : undefined}
               draggable={!busy}
@@ -1283,7 +1296,7 @@ export function ProjectDocsPanel({
             </div>
           </PageRowMenu>
           {hasChildren && !collapsed[p.id] && (
-            <ul className="wiki-tree-children">{tree(p.id, next)}</ul>
+            <ul className="wiki-tree-children">{tree(p.id, depth + 1, next)}</ul>
           )}
         </li>
       );
@@ -1291,20 +1304,9 @@ export function ProjectDocsPanel({
   }
   const pageActions: PageActions = {
     onAskAgent: askAgent,
-    onPlanTasks: () => {
-      if (connection) setPlanning(true);
-      else {
-        setAfterConnect('plan');
-        connectBoard(group.id);
-      }
-    },
+    onPlanTasks: () => (connection ? setPlanning(true) : connectThen('plan')),
     planTasksDisabled: planReason,
-    onConnectBoard: connection
-      ? undefined
-      : () => {
-          setAfterConnect('link');
-          connectBoard(group.id);
-        },
+    onConnectBoard: connection ? undefined : () => connectThen('link'),
     onLinkTask: (task) => void setLink(task, true),
     onUnlinkTask: (task) => void setLink(task, false),
     onMakeTask: (text) => void makeTask(text),
@@ -1317,54 +1319,35 @@ export function ProjectDocsPanel({
           <KnowledgeRailGroup
             label="Pages"
             actions={
-              <>
-                <Hint label="New page">
-                  <Button
-                    variant="ghost"
-                    size="icon-xs"
-                    aria-label="New page"
-                    disabled={busy}
-                    onClick={() => newPage(null)}
-                  >
-                    <Plus size={14} />
-                  </Button>
-                </Hint>
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <MoreButton size="xs" label="Pages menu" />
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end">
-                    <DropdownMenuItem
-                      disabled={busy}
-                      onSelect={() =>
-                        void action(async () => {
-                          setDeletedPages(await api.docsTrash(group.id));
-                        })
-                      }
-                    >
-                      <Trash2 className="size-4" aria-hidden="true" />
-                      Deleted pages
-                    </DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
-              </>
+              <Hint label="New page">
+                <Button
+                  variant="ghost"
+                  size="icon-xs"
+                  aria-label="New page"
+                  disabled={busy}
+                  onClick={() => newPage(null)}
+                >
+                  <Plus size={14} />
+                </Button>
+              </Hint>
             }
           >
-            {hasPages ? (
+            {hasPages && (
               <nav aria-label="Document structure">
                 <ul className="wiki-page-tree">{tree(null)}</ul>
               </nav>
-            ) : (
-              <button
-                type="button"
-                className="wiki-tree-row knowledge-rail-muted"
-                disabled={busy || loading}
-                onClick={() => newPage(null)}
-              >
-                <Plus size={16} aria-hidden="true" />
-                New page
-              </button>
             )}
+            <NavRow
+              className="knowledge-rail-muted"
+              icon={<Trash2 aria-hidden="true" />}
+              label="Deleted pages"
+              onClick={() => {
+                if (busy) return;
+                void action(async () => {
+                  setDeletedPages(await api.docsTrash(group.id));
+                });
+              }}
+            />
           </KnowledgeRailGroup>
           {railBottom}
         </div>
@@ -1417,7 +1400,13 @@ export function ProjectDocsPanel({
             heading={heading}
             onDelete={() => {
               setError('');
-              setDeleting(true);
+              // A page with subpages cannot go: its subpages would lose their parent.
+              if (hasSubpages)
+                showToast({
+                  message: 'Move or delete the subpages of this page first.',
+                  tone: 'error',
+                });
+              else setDeleting(true);
             }}
           />
         </div>
@@ -1445,52 +1434,31 @@ export function ProjectDocsPanel({
           />
         </div>
       )}
-      <Dialog open={deleting} onOpenChange={(open) => !busy && setDeleting(open)}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Delete “{page?.title || 'Untitled'}”?</DialogTitle>
-            <DialogDescription>
-              {hasSubpages
-                ? 'This page has subpages. Move or delete its subpages first.'
-                : 'You can restore the page later from Deleted pages.'}
-            </DialogDescription>
-          </DialogHeader>
-          {error && (
-            <p role="alert" className="field-error">
-              {error}
-            </p>
-          )}
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setDeleting(false)}>
-              Cancel
-            </Button>
-            {hasSubpages ? (
-              <Hint label="Move or delete its subpages first.">
-                <Button variant="destructive" disabled>
-                  Delete page
-                </Button>
-              </Hint>
-            ) : (
-              <Button
-                variant="destructive"
-                disabled={busy}
-                onClick={() =>
-                  void action(async () => {
-                    if (!page) return;
-                    await api.docsDelete(group.id, page.id, page.revision);
-                    setPages((p) => p.filter((d) => d.id !== page.id));
-                    setSelected(pageAfterDelete(pages, page.id));
-                    setDeleting(false);
-                  })
-                }
-              >
-                Delete page
-              </Button>
-            )}
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-      {connection && !planReason && (
+      <ConfirmDialog
+        open={deleting}
+        title="Delete page"
+        description={`“${page?.title || 'Untitled'}” goes to Deleted pages. You can restore it from there.`}
+        confirmLabel="Delete page"
+        destructive
+        busy={busy}
+        onCancel={() => setDeleting(false)}
+        onConfirm={() =>
+          void action(async () => {
+            if (!page) return;
+            await api.docsDelete(group.id, page.id, page.revision);
+            setPages((p) => p.filter((d) => d.id !== page.id));
+            setSelected(pageAfterDelete(pages, page.id));
+            setDeleting(false);
+          })
+        }
+      >
+        {error && (
+          <p role="alert" className="field-error">
+            {error}
+          </p>
+        )}
+      </ConfirmDialog>
+      {(connection || planning) && !planReason && (
         <DocsToIssuesDialog
           api={api}
           group={group}
@@ -1569,9 +1537,7 @@ export function ProjectDocsPanel({
                 ))}
               </ul>
             ) : (
-              <EmptyState compact icon={<Trash2 />}>
-                No deleted pages.
-              </EmptyState>
+              <EmptyState compact icon={<Trash2 />} title="No deleted pages" />
             )}
           </DialogBody>
         </DialogContent>

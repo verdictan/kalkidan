@@ -15,7 +15,7 @@ test('board quick creation, issue inspector and status changes share the tracker
     .click();
   await page
     .getByRole('region', { name: 'Project tracker' })
-    .getByRole('button', { name: 'Connect a board', exact: true })
+    .getByRole('button', { name: 'Connect board', exact: true })
     .click();
   await page.getByRole('button', { name: 'Atlas roadmap #1', exact: true }).click();
   await page.getByRole('button', { name: 'Connect board', exact: true }).click();
@@ -35,7 +35,9 @@ test('board quick creation, issue inspector and status changes share the tracker
   const create = page.getByRole('dialog', { name: 'New task', exact: true });
   await create.getByLabel('Task title').fill('Polish the issue workflow');
   await create.getByLabel('Task description').fill('## Acceptance criteria\n- Keep GitHub in sync');
-  await create.getByRole('button', { name: 'Create task', exact: true }).click();
+  // Atlas has code folders, so the primary is Create and start. The menu creates the task only.
+  await create.getByRole('button', { name: 'More ways to create the task', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Create task only', exact: true }).click();
   const todo = board.getByRole('region', { name: 'Todo column', exact: true });
   await expect(
     todo.getByRole('button', { name: 'Polish the issue workflow', exact: true }),

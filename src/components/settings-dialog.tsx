@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useState } from 'react';
+import { AppWindow, Globe, MessageSquare } from 'lucide-react';
 import type { API } from '../types';
 import { settingsAnchors, settingsPlace, type SettingsTab } from '../domain/settings-route';
 import {
@@ -15,11 +16,16 @@ import { openComputers } from './computers-page';
 import { VersionRow } from './about-section';
 import { DataDialog } from './data-settings';
 import { GitHubRow, useGitHubServices } from './github-account';
-import { SettingsRow, SettingsRows } from './settings-disclosure';
+import {
+  SettingsRow,
+  SettingsRows,
+  SettingsShell,
+  type SettingsSection,
+} from './settings-disclosure';
 import { startSignIn } from './sign-in-steps';
 import { RegionDialog, StepError, regionNames, useAccountStatus } from './verdictan-settings';
 import { Button } from './ui/button';
-import { Dialog, DialogBody, DialogContent, DialogHeader, DialogTitle } from './ui/dialog';
+import { Dialog } from './ui/dialog';
 import { SegmentedControl } from './ui/segmented-control';
 import { Switch } from './ui/switch';
 import { showToast } from './ui/toast';
@@ -29,11 +35,32 @@ export function openAccountMenu() {
   window.dispatchEvent(new Event('kalkidan-open-account-menu'));
 }
 
+type PreferencesSection = 'chats' | 'connections' | 'app';
+
+const preferenceSections: SettingsSection<PreferencesSection>[] = [
+  { value: 'chats', label: 'Chats', icon: <MessageSquare /> },
+  { value: 'connections', label: 'Connections', icon: <Globe /> },
+  { value: 'app', label: 'This app', icon: <AppWindow /> },
+];
+
 /**
- * Preferences (⌘,): one short sheet with seven rows in three groups. Chats: the access of new
- * chats and Enter to send. Connections: the region and GitHub. This app: the built-in browser,
- * your data, and the version. The agent and the model are in the composer chip, notifications and
- * sign-out are in the account menu, and the hosts are on the Computers page.
+ * The section of a Preferences anchor. Without an anchor, the older Account section opens
+ * Connections, and the older About section opens This app.
+ */
+function sectionOfAnchor(anchor: string | undefined, section?: string): PreferencesSection {
+  if (anchor === settingsAnchors.region || anchor === settingsAnchors.github) return 'connections';
+  if (anchor === settingsAnchors.data || anchor === settingsAnchors.about) return 'app';
+  if (!anchor && (section === 'account' || section === 'accounts')) return 'connections';
+  if (!anchor && section === 'about') return 'app';
+  return 'chats';
+}
+
+/**
+ * Preferences (⌘,) in the one settings shell, with three sections. Chats: the access of new
+ * chats and Enter to send. Connections: the region, GitHub, and a link to the Computers page.
+ * This app: the built-in browser, your data, and the version. The agent and the model are in
+ * the composer chip, notifications and sign-out are in the account menu, and the agents and
+ * the SSH hosts are on the Computers page.
  *
  * Older requests still work. `section` and `anchor` go through `settingsPlace`: a request for
  * Agents or Computers opens the Computers page, a request for notifications opens the account
@@ -73,15 +100,19 @@ export function SettingsDialog({
     else openAccountMenu();
     onOpenChange(false);
   }, [open, elsewhere]);
-  const title = useRef<HTMLHeadingElement>(null);
-  const body = useRef<HTMLDivElement>(null);
   const focusId = target.place === 'preferences' ? target.anchor : undefined;
+  const [active, setActive] = useState<PreferencesSection>(sectionOfAnchor(focusId, section));
+  useEffect(() => {
+    if (open) setActive(sectionOfAnchor(focusId, section));
+  }, [open, focusId, section]);
   // An anchor moves to its row after the rows load.
   useEffect(() => {
     if (!open || elsewhere || !focusId) return;
     let tries = 0;
     const timer = setInterval(() => {
-      const element = body.current?.querySelector<HTMLElement>(`[id="${CSS.escape(focusId)}"]`);
+      const element = document.querySelector<HTMLElement>(
+        `.preferences-dialog [id="${CSS.escape(focusId)}"]`,
+      );
       if (element || ++tries > 40) {
         clearInterval(timer);
         if (!element) return;
@@ -93,78 +124,32 @@ export function SettingsDialog({
     }, 50);
     return () => clearInterval(timer);
   }, [open, elsewhere, focusId]);
+  const visible = open && !elsewhere;
   return (
-    <Dialog open={open && !elsewhere} onOpenChange={onOpenChange}>
-      <DialogContent
-        size="md"
-        layout="scroll"
+    <Dialog open={visible} onOpenChange={onOpenChange}>
+      <SettingsShell<PreferencesSection>
         className="preferences-dialog"
-        aria-describedby={undefined}
+        title="Preferences"
+        description="Chats, connections, and this app."
+        navLabel="Preferences sections"
+        sections={preferenceSections}
+        value={active}
+        onValueChange={setActive}
         onCloseAutoFocus={onCloseAutoFocus}
-        onOpenAutoFocus={(event) => {
-          // The title gets the focus, so no focus ring shows on a row when the sheet opens.
-          event.preventDefault();
-          title.current?.focus();
+        panels={{
+          chats: <ChatPreferences />,
+          connections: (
+            <ConnectionPreferences
+              api={api}
+              open={visible}
+              account={account}
+              onClose={() => onOpenChange(false)}
+            />
+          ),
+          app: <AppPreferences api={api} open={visible} />,
         }}
-      >
-        <DialogHeader>
-          <DialogTitle ref={title} tabIndex={-1} className="preferences-title">
-            Preferences
-          </DialogTitle>
-        </DialogHeader>
-        <DialogBody ref={body} className="preferences-body">
-          <PreferenceRows api={api} open={open && !elsewhere} account={account} />
-        </DialogBody>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-/** One group of Preferences with a small label. */
-function PreferenceGroup({ label, children }: { label: string; children: ReactNode }) {
-  return (
-    <section className="preferences-group" aria-label={label}>
-      <h3 className="preferences-group-label">{label}</h3>
-      <SettingsRows>{children}</SettingsRows>
-    </section>
-  );
-}
-
-/**
- * Asks before Kalkidan quits while agent runs or shells work on SSH hosts. "Don't ask again" in
- * the question turns it off. This switch turns it on again.
- */
-function SshQuitRow({ api, open }: { api: API; open: boolean }) {
-  const [ask, setAsk] = useState<boolean>();
-  useEffect(() => {
-    if (!open || typeof api.sshQuitPrompt !== 'function') return;
-    void Promise.resolve()
-      .then(() => api.sshQuitPrompt!())
-      .then(setAsk, () => {});
-  }, [api, open]);
-  if (ask === undefined || typeof api.setSshQuitPrompt !== 'function') return null;
-  async function choose(next: boolean) {
-    const before = ask;
-    setAsk(next);
-    try {
-      setAsk(await api.setSshQuitPrompt!(next));
-    } catch {
-      setAsk(before);
-      showToast({ message: 'Could not save the quit question setting.', tone: 'error' });
-    }
-  }
-  return (
-    <SettingsRow
-      id="ssh-quit-prompt"
-      label="Ask before quitting while SSH work runs"
-      help="Agent runs and shells on SSH hosts continue after Kalkidan quits."
-    >
-      <Switch
-        aria-label="Ask before quitting while SSH work runs"
-        checked={ask}
-        onCheckedChange={(next) => void choose(next)}
       />
-    </SettingsRow>
+    </Dialog>
   );
 }
 
@@ -173,23 +158,10 @@ function savedToast(message: string, undo: () => void) {
   showToast({ message, actions: [{ label: 'Undo', onClick: undo }] });
 }
 
-/** The seven rows of Preferences. */
-function PreferenceRows({
-  api,
-  open,
-  account,
-}: {
-  api: API;
-  open: boolean;
-  account: ReturnType<typeof useAccountStatus>;
-}) {
+/** Preferences › Chats: the access of new chats and Enter to send. */
+function ChatPreferences() {
   const [access, setAccess] = useState<ChatAccess>(readNewChatAccess);
   const [enterToSend, setEnterToSend] = useState(readEnterToSend);
-  const [browserOpen, setBrowserOpen] = useState(false);
-  const [regionOpen, setRegionOpen] = useState(false);
-  const [dataOpen, setDataOpen] = useState(false);
-  const services = useGitHubServices(api, open);
-  const { status, busy, error, changing, run } = account;
   useEffect(
     () =>
       onChatPreferencesChange(() => {
@@ -211,35 +183,55 @@ function PreferenceRows({
     setEnterToSend(next);
     saveEnterToSend(next);
   }
+  return (
+    <SettingsRows label="Chats">
+      <SettingsRow label="New chats start as">
+        <SegmentedControl
+          size="sm"
+          label="New chats start as"
+          value={access}
+          onChange={chooseAccess}
+          options={[
+            { value: 'read', label: 'Read only' },
+            { value: 'edit', label: 'Can edit files' },
+          ]}
+        />
+      </SettingsRow>
+      <SettingsRow
+        label="Enter sends the message"
+        help={enterToSend ? undefined : `${isMac ? '⌘Enter' : 'Ctrl+Enter'} sends`}
+      >
+        <Switch
+          aria-label="Enter sends the message"
+          checked={enterToSend}
+          onCheckedChange={chooseEnter}
+        />
+      </SettingsRow>
+    </SettingsRows>
+  );
+}
+
+/** Preferences › Connections: the region, GitHub, and the Computers page. */
+function ConnectionPreferences({
+  api,
+  open,
+  account,
+  onClose,
+}: {
+  api: API;
+  open: boolean;
+  account: ReturnType<typeof useAccountStatus>;
+  onClose: () => void;
+}) {
+  const [regionOpen, setRegionOpen] = useState(false);
+  const services = useGitHubServices(api, open);
+  const { status, busy, error, changing, run } = account;
   const known = status?.phase === 'authenticated' || status?.phase === 'expired';
   const authorizing = status?.phase === 'authorizing';
   return (
     <>
-      <PreferenceGroup label="Chats">
-        <SettingsRow label="New chats start as">
-          <SegmentedControl
-            size="sm"
-            label="New chats start as"
-            value={access}
-            onChange={chooseAccess}
-            options={[
-              { value: 'read', label: 'Read only' },
-              { value: 'edit', label: 'Can edit files' },
-            ]}
-          />
-        </SettingsRow>
-        <SettingsRow
-          label="Enter sends the message"
-          help={enterToSend ? undefined : `${isMac ? '⌘Enter' : 'Ctrl+Enter'} sends`}
-        >
-          <Switch
-            aria-label="Enter sends the message"
-            checked={enterToSend}
-            onCheckedChange={chooseEnter}
-          />
-        </SettingsRow>
-      </PreferenceGroup>
-      <PreferenceGroup label="Connections">
+      {error && <StepError>{error}</StepError>}
+      <SettingsRows label="Connections">
         <SettingsRow
           id={settingsAnchors.region}
           label="Region"
@@ -259,28 +251,19 @@ function PreferenceRows({
           </Button>
         </SettingsRow>
         <GitHubRow services={services} />
-        <SshQuitRow api={api} open={open} />
-      </PreferenceGroup>
-      {error && <StepError>{error}</StepError>}
-      <PreferenceGroup label="This app">
-        <SettingsRow label="Built-in browser data">
-          <Button variant="outline" size="sm" onClick={() => setBrowserOpen(true)}>
-            Manage…
+        <SettingsRow label="Agents and SSH hosts" help="On the Computers page">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              onClose();
+              openComputers();
+            }}
+          >
+            Open Computers
           </Button>
         </SettingsRow>
-        <SettingsRow
-          id={settingsAnchors.data}
-          label="Your data"
-          help="Where your data goes, disk use, export, and deletion"
-        >
-          <Button variant="outline" size="sm" onClick={() => setDataOpen(true)}>
-            Manage…
-          </Button>
-        </SettingsRow>
-        <VersionRow api={api} open={open} />
-      </PreferenceGroup>
-      <BrowserSettingsDialog api={api} open={browserOpen} onOpenChange={setBrowserOpen} />
-      <DataDialog api={api} open={dataOpen} onOpenChange={setDataOpen} />
+      </SettingsRows>
       <RegionDialog
         open={regionOpen}
         current={status?.region}
@@ -294,6 +277,35 @@ function PreferenceRows({
           ).then((done) => done && setRegionOpen(false))
         }
       />
+    </>
+  );
+}
+
+/** Preferences › This app: the built-in browser, your data, and the version. */
+function AppPreferences({ api, open }: { api: API; open: boolean }) {
+  const [browserOpen, setBrowserOpen] = useState(false);
+  const [dataOpen, setDataOpen] = useState(false);
+  return (
+    <>
+      <SettingsRows label="This app">
+        <SettingsRow label="Built-in browser data" help="Home page, history, and sign-in data">
+          <Button variant="outline" size="sm" onClick={() => setBrowserOpen(true)}>
+            Manage…
+          </Button>
+        </SettingsRow>
+        <SettingsRow
+          id={settingsAnchors.data}
+          label="Your data"
+          help="Disk use, export, deletion, and where your data goes"
+        >
+          <Button variant="outline" size="sm" onClick={() => setDataOpen(true)}>
+            Manage…
+          </Button>
+        </SettingsRow>
+        <VersionRow api={api} open={open} />
+      </SettingsRows>
+      <BrowserSettingsDialog api={api} open={browserOpen} onOpenChange={setBrowserOpen} />
+      <DataDialog api={api} open={dataOpen} onOpenChange={setDataOpen} />
     </>
   );
 }

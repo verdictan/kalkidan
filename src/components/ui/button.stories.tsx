@@ -17,10 +17,10 @@ export const Variants: Story = {
   render: () => (
     <div className="flex flex-wrap items-center gap-2">
       <Button>Default</Button>
-      <Button variant="secondary">Secondary</Button>
       <Button variant="outline">Outline</Button>
       <Button variant="ghost">Ghost</Button>
       <Button variant="destructive">Delete</Button>
+      <Button variant="destructive-outline">Delete…</Button>
       <Button variant="link">Link</Button>
       <Button variant="bare">Bare</Button>
     </div>

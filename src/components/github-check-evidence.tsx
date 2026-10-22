@@ -63,7 +63,12 @@ function CheckRows({ rows }: { rows: GitHubCheckEvidence[] | undefined }) {
           <CheckStateIcon state={row.state} />
           <span className="min-w-0 flex-1 truncate">
             {row.url ? (
-              <a className="text-link" href={row.url} target="_blank" rel="noreferrer">
+              <a
+                className="text-link underline-offset-2 hover:underline"
+                href={row.url}
+                target="_blank"
+                rel="noreferrer"
+              >
                 {row.name}
               </a>
             ) : (
@@ -112,7 +117,7 @@ export function GitHubCheckEvidenceView({ value }: { value: GitHubContentSnapsho
         <article key={pr.id} className="grid gap-2 rounded-lg border p-3">
           <div className="flex min-w-0 items-center gap-2">
             <a
-              className="text-link inline-flex min-w-0 flex-1 items-center gap-1 text-sm font-medium"
+              className="text-link underline-offset-2 hover:underline inline-flex min-w-0 flex-1 items-center gap-1 text-sm font-medium"
               href={pr.url}
               target="_blank"
               rel="noreferrer"

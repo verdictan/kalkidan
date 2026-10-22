@@ -54,7 +54,9 @@ test('desktop workflow preserves drafts across the title bar tools and resizable
     'Keep this plan while I inspect the app.',
   );
   await page.keyboard.press('Control+Backquote');
-  await expect(page.getByLabel('Interactive terminal').first()).toBeVisible();
+  // Control+` opens the terminal. The demo has no shell, so the pane shows why in place of
+  // the terminal.
+  await expect(terminal).toHaveAttribute('aria-pressed', 'true');
   await expect(tools.getByRole('alert').first()).toContainText('Open the desktop app');
   await browser.click();
   await expect(browser).toHaveAttribute('aria-pressed', 'true');

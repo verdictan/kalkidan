@@ -17,11 +17,10 @@ type Story = StoryObj<typeof meta>;
 export const Default: Story = {
   args: {
     icon: (
-      <EntityIcon size="lg">
+      <EntityIcon>
         <GitBranch />
       </EntityIcon>
     ),
-    eyebrow: 'Repository',
     title: 'kalkidan',
     subtitle: '~/Work/verdictan/kalkidan',
     actions: (
@@ -41,3 +40,5 @@ export const TitleOnly: Story = { args: { title: 'Settings' } };
 export const WithSubtitle: Story = {
   args: { title: 'Projects', subtitle: 'Group repositories, sessions and tasks.' },
 };
+
+export const ReservedSubtitle: Story = { args: { title: 'Tasks', reserveSubtitle: true } };

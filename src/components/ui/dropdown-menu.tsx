@@ -2,10 +2,13 @@ import * as React from 'react';
 import { cn } from '@/lib/utils';
 import {
   menuCollisionPadding,
-  menuContentClass,
   menuItemClass,
   menuLabelClass,
+  menuSeparatorClass,
   menuShortcutClass,
+  menuSurfaceClass,
+  menuWideClass,
+  menuWidthClass,
 } from './menu-styles';
 import { CheckIcon, ChevronRightIcon, CircleIcon } from 'lucide-react';
 import { DropdownMenu as DropdownMenuPrimitive } from 'radix-ui';
@@ -30,8 +33,12 @@ function DropdownMenuContent({
   className,
   sideOffset = 6,
   collisionPadding = menuCollisionPadding,
+  width = 'default',
   ...props
-}: React.ComponentProps<typeof DropdownMenuPrimitive.Content>) {
+}: React.ComponentProps<typeof DropdownMenuPrimitive.Content> & {
+  /** default 224px. wide 256px, for menus with shortcuts or long names. */
+  width?: 'default' | 'wide';
+}) {
   return (
     <DropdownMenuPrimitive.Portal>
       <DropdownMenuPrimitive.Content
@@ -39,7 +46,8 @@ function DropdownMenuContent({
         sideOffset={sideOffset}
         collisionPadding={collisionPadding}
         className={cn(
-          menuContentClass,
+          menuSurfaceClass,
+          width === 'wide' ? menuWideClass : menuWidthClass,
           'max-h-(--radix-dropdown-menu-content-available-height) origin-(--radix-dropdown-menu-content-transform-origin)',
           className,
         )}
@@ -69,7 +77,7 @@ function DropdownMenuItem({
       data-variant={variant}
       className={cn(
         menuItemClass,
-        'data-[inset]:pl-8 data-[variant=destructive]:text-destructive data-[variant=destructive]:focus:bg-destructive/10 data-[variant=destructive]:focus:text-destructive data-[variant=destructive]:*:[svg]:text-destructive',
+        'data-[inset]:pl-8 data-[variant=destructive]:text-destructive data-[variant=destructive]:[--menu-icon:var(--destructive)] data-[variant=destructive]:focus:bg-destructive/10 data-[variant=destructive]:focus:text-destructive',
         className,
       )}
       {...props}
@@ -81,20 +89,26 @@ function DropdownMenuCheckboxItem({
   className,
   children,
   checked,
+  indicator = true,
   ...props
-}: React.ComponentProps<typeof DropdownMenuPrimitive.CheckboxItem>) {
+}: React.ComponentProps<typeof DropdownMenuPrimitive.CheckboxItem> & {
+  /** false: no check mark and no indent, for an item that shows its state itself (a switch). */
+  indicator?: boolean;
+}) {
   return (
     <DropdownMenuPrimitive.CheckboxItem
       data-slot="dropdown-menu-checkbox-item"
-      className={cn(menuItemClass, 'pl-8', className)}
+      className={cn(menuItemClass, indicator && 'pl-8', className)}
       checked={checked}
       {...props}
     >
-      <span className="pointer-events-none absolute left-2 flex size-3.5 items-center justify-center">
-        <DropdownMenuPrimitive.ItemIndicator>
-          <CheckIcon className="size-3.5" />
-        </DropdownMenuPrimitive.ItemIndicator>
-      </span>
+      {indicator && (
+        <span className="pointer-events-none absolute left-2 flex size-3.5 items-center justify-center">
+          <DropdownMenuPrimitive.ItemIndicator>
+            <CheckIcon className="size-3.5" />
+          </DropdownMenuPrimitive.ItemIndicator>
+        </span>
+      )}
       {children}
     </DropdownMenuPrimitive.CheckboxItem>
   );
@@ -151,7 +165,7 @@ function DropdownMenuSeparator({
   return (
     <DropdownMenuPrimitive.Separator
       data-slot="dropdown-menu-separator"
-      className={cn('-mx-1 my-1 h-px bg-border', className)}
+      className={cn(menuSeparatorClass, className)}
       {...props}
     />
   );
@@ -202,7 +216,8 @@ function DropdownMenuSubContent({
       data-slot="dropdown-menu-sub-content"
       collisionPadding={collisionPadding}
       className={cn(
-        menuContentClass,
+        menuSurfaceClass,
+        menuWidthClass,
         'max-h-(--radix-dropdown-menu-content-available-height) origin-(--radix-dropdown-menu-content-transform-origin)',
         className,
       )}

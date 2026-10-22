@@ -48,39 +48,49 @@ test('Project settings has General, Code folders and Board sections', async ({ p
   await expect(row).toBeVisible();
   await expect(page.locator('.project-header').getByRole('heading')).toHaveText('Atlas web');
 
-  // Code folders: the list, Add a code folder and Remove with a confirmation.
+  // Code folders: the list, Add code folder and Remove with a confirmation.
   await openFromHeader(page);
   await section(page, 'Code folders').click();
-  const folders = settings(page).getByRole('region', { name: 'Code folders' });
-  await expect(folders.getByRole('listitem')).toHaveCount(3);
-  await folders.getByRole('button', { name: 'Add a code folder…' }).click();
+  const folders = settings(page)
+    .getByRole('region', { name: 'Code folders' })
+    .getByRole('list', { name: 'Code folders' });
+  await expect(folders.getByRole('group')).toHaveCount(3);
+  await settings(page).getByRole('button', { name: 'Add code folder…', exact: true }).click();
   await expect(settings(page)).toHaveCount(0);
-  const add = page.getByRole('dialog', { name: 'Add code folders', exact: true });
-  await expect(add.getByRole('combobox', { name: 'Add to project' })).toContainText('Atlas web');
+  const add = page.getByRole('dialog', { name: 'Add code folder', exact: true });
+  await expect(add).toContainText('Adds a Git repository to Atlas web.');
   await add.getByRole('button', { name: 'Cancel', exact: true }).click();
   await openFromHeader(page);
   await section(page, 'Code folders').click();
-  await folders.getByRole('button', { name: 'More actions for api-service' }).click();
-  await page.getByRole('menuitem', { name: 'Remove from project…', exact: true }).click();
-  const confirm = page.getByRole('dialog', { name: 'Remove api-service from Kalkidan?' });
+  // Each code folder has a remove button. The confirmation opens over Project settings.
+  await folders
+    .getByRole('button', { name: 'Remove code folder api-service…', exact: true })
+    .click();
+  const confirm = page.getByRole('dialog', { name: 'Remove api-service from Atlas web?' });
   await expect(confirm).toContainText('stay on disk');
-  await confirm.getByRole('button', { name: 'Remove from Kalkidan', exact: true }).click();
+  await confirm.getByRole('button', { name: 'Remove code folder', exact: true }).click();
   await expect(confirm).toHaveCount(0);
-  await openFromHeader(page);
-  await section(page, 'Code folders').click();
-  await expect(folders.getByRole('listitem')).toHaveCount(2);
+  await expect(settings(page)).toBeVisible();
+  await expect(folders.getByRole('group')).toHaveCount(2);
 
-  // Board: the existing board connection.
+  // Board: no board is connected, so the section offers "Connect board…".
   await section(page, 'Board').click();
-  await expect(settings(page).getByRole('region', { name: 'Connect a board' })).toBeVisible();
+  await expect(
+    settings(page).getByRole('heading', { name: 'No board', exact: true }),
+  ).toBeVisible();
+  await expect(
+    settings(page).getByRole('button', { name: 'Connect board…', exact: true }),
+  ).toBeVisible();
 
-  // Remove project is at the end of General, with its confirmation.
+  // Remove project is in the Danger zone of General, with its confirmation.
   await section(page, 'General').click();
   await settings(page).getByRole('button', { name: 'Remove project…' }).click();
-  await expect(settings(page)).toHaveCount(0);
-  const remove = page.getByRole('dialog', { name: 'Remove Atlas web from Kalkidan?' });
+  const remove = page.getByRole('dialog', { name: 'Remove project', exact: true });
   await expect(remove).toContainText('All files stay on disk.');
   await remove.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await expect(remove).toHaveCount(0);
+  await page.keyboard.press('Escape');
+  await expect(settings(page)).toHaveCount(0);
   await expect(row).toBeVisible();
   await page.getByRole('button', { name: 'Manage project Atlas web', exact: true }).click();
   await page.getByRole('menuitem', { name: 'Project settings…', exact: true }).click();

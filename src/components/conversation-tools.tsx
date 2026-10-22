@@ -2,19 +2,10 @@ import { interfaceConfig } from '../config/interface';
 import { AttachHint, DiffReview } from './diff-review';
 import { createPortal } from 'react-dom';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import {
-  FileDiff,
-  GitCommitHorizontal,
-  Globe,
-  LoaderCircle,
-  Paperclip,
-  RefreshCw,
-  Terminal,
-  X,
-} from 'lucide-react';
+import { FileDiff, Globe, LoaderCircle, Paperclip, RefreshCw, Terminal, X } from 'lucide-react';
 import { Button } from './ui/button';
-import { Alert, AlertDescription } from './ui/alert';
-import { EmptyState } from './ui/empty-state';
+import { SegmentedControl } from './ui/segmented-control';
+import { PaneMessage } from './pane-message';
 import { Choice } from './choice';
 import { Hint } from './hint';
 import { ConfirmDialog } from './confirm-dialog';
@@ -30,8 +21,10 @@ export type ToolRequest = { kind: 'terminal' | 'browser' | 'diff'; n: number };
 type ToolTab = { id: string; kind: ToolKind; title: string; url?: string };
 
 // Command+` cycles windows on macOS, so the terminal uses Control+` there, as VS Code does.
-// The session column keeps at least this width so it is never narrower than a usable composer.
-const minSessionWidth = 360;
+// The chat column keeps at least 420px and a tool pane at least 360px. A narrower area shows
+// the tool pane as a sheet over the chat (tools.css).
+const minSessionWidth = 420;
+const minToolWidth = 360;
 const shortcuts = {
   terminal: shortcutLabel([isMac ? 'ctrl' : 'mod'], '`'),
   tab: shortcutLabel(['mod'], 'T'),
@@ -98,7 +91,6 @@ export function ConversationTools({
   changeHint,
   runsFinished = 0,
   onChangesRead,
-  onCommit,
 }: {
   children: ReactNode;
   /** Opens the Changes tool when the number changes. */
@@ -115,8 +107,6 @@ export function ConversationTools({
   runsFinished?: number;
   /** Called after the Changes tab reads the diff, so the session can update the count. */
   onChangesRead?: () => void;
-  /** Opens the commit dialog. Without it, the Changes toolbar has no Commit button. */
-  onCommit?: () => void;
   onToolChange: (open: boolean) => void;
   visible?: boolean;
   remote?: boolean;
@@ -255,7 +245,10 @@ export function ConversationTools({
   function resize(value: number) {
     const width = container.current?.clientWidth || 1000;
     const lower = Math.max(interfaceConfig.toolPane.minPercent, (minSessionWidth / width) * 100),
-      upper = Math.min(interfaceConfig.toolPane.maxPercent, ((width - 286) / width) * 100);
+      upper = Math.min(
+        interfaceConfig.toolPane.maxPercent,
+        ((width - minToolWidth - 1) / width) * 100,
+      );
     const next = Math.min(upper, Math.max(lower, value));
     setRatio(next);
     try {
@@ -267,10 +260,11 @@ export function ConversationTools({
     if (!expanded || !container.current) return;
     const observer = new ResizeObserver(([entry]) => {
       const width = entry.contentRect.width;
-      if (width < 550) return;
+      // A narrow area shows the tool pane as a sheet. The ratio then does not apply.
+      if (width < minSessionWidth + minToolWidth + 1) return;
       setRatio((previous) =>
         Math.min(
-          Math.min(interfaceConfig.toolPane.maxPercent, ((width - 286) / width) * 100),
+          Math.min(interfaceConfig.toolPane.maxPercent, ((width - minToolWidth - 1) / width) * 100),
           Math.max(
             Math.max(interfaceConfig.toolPane.minPercent, (minSessionWidth / width) * 100),
             previous,
@@ -345,9 +339,6 @@ export function ConversationTools({
     window.addEventListener('kalkidan-session-command', command);
     return () => window.removeEventListener('kalkidan-session-command', command);
   }, [visible, tool, tabs]);
-  // The Commit dialog commits staged and unstaged changes, so both scopes count.
-  const nothingToCommit =
-    !!diff && !scopeHasChanges(diff, 'staged') && !scopeHasChanges(diff, 'unstaged');
   // All changes in the scope. Unstaged changes include new, untracked files.
   const allChanges = diff
     ? [
@@ -414,48 +405,41 @@ export function ConversationTools({
         createPortal(
           <div className="tool-tabbar" data-expanded={expanded}>
             {/* Each button is the tool: selected = shown. Select it again to hide the tools. */}
-            <div className="segmented tool-launch" data-size="sm" role="group" aria-label="Tools">
-              {launcherRows.map((row) => {
-                const count = row.kind === 'diff' ? changeCount || 0 : 0;
-                const selected = tool === row.kind;
+            <SegmentedControl<ToolKind>
+              label="Tools"
+              size="sm"
+              allowNone
+              className="tool-launch"
+              value={tool || null}
+              onChange={open}
+              options={launcherRows
                 // Changes shows when there are changes, or when its tab is open.
-                if (row.kind === 'diff' && !count && !tabs.some((t) => t.kind === 'diff'))
-                  return null;
-                return (
-                  <Hint
-                    key={row.kind}
-                    label={
-                      (selected
+                .filter(
+                  (row) =>
+                    row.kind !== 'diff' || !!changeCount || tabs.some((t) => t.kind === 'diff'),
+                )
+                .map((row) => {
+                  const count = row.kind === 'diff' ? changeCount || 0 : 0;
+                  return {
+                    value: row.kind,
+                    id: 'tool-launch-' + row.kind,
+                    icon: <row.icon aria-hidden="true" />,
+                    label: <span className="tool-launch-label">{row.title}</span>,
+                    count,
+                    hint:
+                      tool === row.kind
                         ? `Hide ${row.title}`
                         : row.kind === 'diff' && changeHint
                           ? changeHint
-                          : row.title) + (row.shortcut ? ` (${row.shortcut})` : '')
-                    }
-                  >
-                    <button
-                      type="button"
-                      id={'tool-launch-' + row.kind}
-                      className="segmented-item tool-launch-button"
-                      aria-pressed={selected}
-                      aria-label={
-                        row.kind === 'diff' && count
-                          ? `Changes, ${count} ${count === 1 ? 'file' : 'files'} changed in this chat`
-                          : row.title
-                      }
-                      onClick={() => open(selected ? null : row.kind)}
-                    >
-                      <row.icon aria-hidden="true" />
-                      <span className="tool-launch-label">{row.title}</span>
-                      {!!count && (
-                        <span className="tool-launch-count" aria-hidden="true">
-                          {count}
-                        </span>
-                      )}
-                    </button>
-                  </Hint>
-                );
-              })}
-            </div>
+                          : row.title,
+                    shortcut: row.shortcut || undefined,
+                    ariaLabel:
+                      row.kind === 'diff' && count
+                        ? `Changes, ${count} ${count === 1 ? 'file' : 'files'} changed in this chat`
+                        : row.title,
+                  };
+                })}
+            />
           </div>,
           document.getElementById('conversation-titlebar-tabs')!,
         )}
@@ -579,7 +563,7 @@ export function ConversationTools({
                     <div className="diff-panel">
                       {tool === 'diff' && (
                         <>
-                          <div className="tool-toolbar flex-nowrap">
+                          <div className="tool-toolbar">
                             <Choice
                               size="sm"
                               className="min-w-0 text-xs"
@@ -598,6 +582,7 @@ export function ConversationTools({
                               <Button
                                 variant="ghost"
                                 size="icon-sm"
+                                className="ml-auto"
                                 aria-label="Refresh changes"
                                 disabled={busy}
                                 onClick={readDiff}
@@ -605,28 +590,6 @@ export function ConversationTools({
                                 <RefreshCw />
                               </Button>
                             </Hint>
-                            {onCommit && (
-                              <Hint
-                                label={
-                                  nothingToCommit
-                                    ? noChangesToCommit
-                                    : disabled && disabledReason
-                                      ? disabledReason
-                                      : 'Commit the changes'
-                                }
-                              >
-                                <Button
-                                  size="sm"
-                                  variant="outline"
-                                  className="ml-auto"
-                                  disabled={busy || disabled || nothingToCommit}
-                                  onClick={onCommit}
-                                >
-                                  <GitCommitHorizontal aria-hidden="true" />
-                                  Commit…
-                                </Button>
-                              </Hint>
-                            )}
                           </div>
                           <div className="diff-panel-body">
                             {busy ? (
@@ -652,16 +615,9 @@ export function ConversationTools({
                                   )
                                 }
                               />
-                            ) : error ? (
-                              <Alert variant="destructive" size="sm">
-                                <AlertDescription>
-                                  Changes are not available. {error}
-                                </AlertDescription>
-                              </Alert>
                             ) : (
-                              <EmptyState
-                                compact
-                                icon={<FileDiff />}
+                              <PaneMessage
+                                tone={error ? 'danger' : 'neutral'}
                                 title="Changes are not available"
                                 action={
                                   <Button size="sm" variant="outline" onClick={readDiff}>
@@ -669,8 +625,8 @@ export function ConversationTools({
                                   </Button>
                                 }
                               >
-                                Kalkidan could not read the Git changes of this folder.
-                              </EmptyState>
+                                {error || 'Kalkidan could not read the Git changes of this folder.'}
+                              </PaneMessage>
                             )}
                             {diff?.truncated && (
                               <p className="shrink-0 text-xs text-muted-foreground">
@@ -716,7 +672,7 @@ export function ConversationTools({
       </div>
       <ConfirmDialog
         open={!!closing}
-        title="Close terminal?"
+        title="Close terminal"
         description="The shell and any running command stop."
         confirmLabel="Close terminal"
         destructive

@@ -17,7 +17,7 @@ export function shortcutGroups(): { title: string; items: [string, string][] }[]
         ['New chat', shortcutLabel(['mod'], 'N')],
         ['New project', shortcutLabel(['mod', 'shift'], 'N')],
         ['New task', shortcutLabel(['mod', 'shift'], 'K')],
-        ['Add a code folder', shortcutLabel(['mod', 'shift'], 'O')],
+        ['Add code folder', shortcutLabel(['mod', 'shift'], 'O')],
         ['Show or hide the sidebar', shortcutLabel(['mod'], 'B')],
         ['Close the tool tab or the chat', shortcutLabel(['mod'], 'W')],
       ],
@@ -33,12 +33,10 @@ export function shortcutGroups(): { title: string; items: [string, string][] }[]
         ['Go to Knowledge', shortcutLabel(['mod'], '4')],
         ['Show all chats', shortcutLabel(['mod', 'shift'], 'L')],
         ['Move between sidebar rows', '↑ ↓'],
-        ['Expand or collapse a project', '→ ←'],
+        ['Collapse or expand a project', '← →'],
         ['Show the actions of a sidebar row', shortcutLabel(['shift'], 'F10')],
-        ['Move between search results', '↑ ↓'],
-        ['Open the search result', 'Enter'],
-        ['Ask an agent about the search text', shortcutLabel(['mod'], 'Enter')],
-        ['Close the search', 'Esc'],
+        // The search shows its other keys (↑ ↓, ↵, Esc) at its bottom edge.
+        ['Ask an agent about the search text', shortcutLabel(['mod'], '↵')],
       ],
     },
     {
@@ -47,18 +45,18 @@ export function shortcutGroups(): { title: string; items: [string, string][] }[]
         ['Move between tasks', '↑ ↓ ← →'],
         ['Select the task', 'Space'],
         ['Start the task', 'S'],
-        ['Open the task', 'Enter'],
+        ['Open the task', '↵'],
         ['Select all tasks', shortcutLabel(['mod'], 'A')],
       ],
     },
     {
       title: 'Chat',
       items: [
-        ['Send the message', 'Enter'],
-        ['Add a new line', shortcutLabel(['shift'], 'Enter')],
+        ['Send the message', '↵'],
+        ['Add a new line', shortcutLabel(['shift'], '↵')],
         ['Rename the chat', sessionKey(isMac ? 'R' : 'E')],
         ['Pin or unpin the chat', sessionKey('P')],
-        ['Open a second chat beside this one', sessionKey('S')],
+        ['Open side chat', sessionKey('S')],
         ['Archive the chat', shortcutLabel(['mod', 'shift'], 'A')],
       ],
     },
@@ -97,7 +95,13 @@ export function ShortcutsSheet({
         size="lg"
         layout="scroll"
         aria-describedby={undefined}
-        className="max-h-[min(640px,calc(100dvh-48px))]"
+        className="max-h-[80vh]"
+        // The sheet only shows information. The focus goes to the sheet, not to the close
+        // button, so no focus ring shows when it opens.
+        onOpenAutoFocus={(event) => {
+          event.preventDefault();
+          (event.currentTarget as HTMLElement | null)?.focus();
+        }}
       >
         <DialogHeader>
           <DialogTitle>Keyboard shortcuts</DialogTitle>

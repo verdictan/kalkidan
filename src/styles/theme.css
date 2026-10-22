@@ -1,7 +1,7 @@
 /*
- * The colors of the Verdictan Console (console/src/app/styles/theme.css): the shadcn/ui base-vega
- * theme with the neutral base color and the Verdictan brand color #9a4600 on the primary roles.
- * Kalkidan keeps its own token names, so the components do not change.
+ * Kalkidan tokens: the shadcn/ui neutral base with the Verdictan brand color #9a4600 on the
+ * primary roles, an amber warning and a strong border for control boundaries. Components use
+ * these tokens only: no color, radius, shadow or z-index literals.
  *
  * Light only. Kalkidan has no dark theme: no `.dark` token block, no `dark:` classes and no
  * color-scheme media query.
@@ -19,7 +19,6 @@
   --color-secondary-foreground: var(--secondary-foreground);
   --color-muted: var(--muted);
   --color-muted-foreground: var(--muted-foreground);
-  --color-subtle-foreground: var(--subtle-foreground);
   --color-accent: var(--accent);
   --color-accent-foreground: var(--accent-foreground);
   --color-destructive: var(--destructive);
@@ -29,24 +28,12 @@
   --color-success: var(--success);
   --color-warning: var(--warning);
   --color-link: var(--link);
-  --color-info: var(--info);
-  --color-primary-subtle: var(--primary-subtle);
   --color-success-subtle: var(--success-subtle);
   --color-warning-subtle: var(--warning-subtle);
-  --color-info-subtle: var(--primary-subtle);
-  --color-destructive-subtle: var(--destructive-subtle);
-  --color-chart-1: var(--chart-1);
-  --color-chart-2: var(--chart-2);
-  --color-chart-3: var(--chart-3);
-  --color-chart-4: var(--chart-4);
-  --color-chart-5: var(--chart-5);
-  --color-chart-6: var(--chart-6);
-  --color-chart-7: var(--chart-7);
-  --color-chart-8: var(--chart-8);
-  --color-chart-9: var(--chart-9);
   --color-diff-add: var(--diff-add);
   --color-diff-remove: var(--diff-remove);
-  /* Type scale. text-sm is the one UI size. */
+  /* Type scale: 11/16 labels, 12/16 meta, 13/20 UI, 15/24 chat prose and composer, 16/24
+     dialog, sheet and pane titles, 20/28 page title, 24/32 document title. */
   --text-2xs: 11px;
   --text-2xs--line-height: 16px;
   --text-xs: 12px;
@@ -61,60 +48,63 @@
   --text-xl--line-height: 28px;
   --text-2xl: 24px;
   --text-2xl--line-height: 32px;
-  --text-3xl: 32px;
-  --text-3xl--line-height: 40px;
   /* The Console fonts: Inter and Geist Mono. Kalkidan works offline and loads no web fonts, so
      each stack falls back to the system font when the font is not installed. */
   --font-sans: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   --font-mono: 'Geist Mono', 'SF Mono', Menlo, Consolas, 'DejaVu Sans Mono', monospace;
   --color-destructive-foreground: var(--destructive-foreground);
-  /* The Console radius scale from --radius (10px): 6 small parts, 8 controls and rows, 10 cards
-     and menus, 14 dialogs. */
+  /* Radius scale from --radius (10px): 4 check boxes and keys, 6 badges, tags and xs buttons,
+     8 controls, rows and menu items, 10 cards and popovers, 14 dialogs, 18 composer, full for
+     pills, dots and avatars. */
   --radius-xs: 4px;
   --radius-sm: calc(var(--radius) * 0.6);
   --radius-md: calc(var(--radius) * 0.8);
   --radius-lg: var(--radius);
   --radius-xl: calc(var(--radius) * 1.4);
   --radius-2xl: calc(var(--radius) * 1.8);
-  --shadow-xs: var(--shadow-subtle);
-  --shadow-sm: var(--shadow-raised);
-  --shadow-md: var(--shadow-popover);
-  --shadow-lg: var(--shadow-dialog);
+  --radius-full: 9999px;
+  /* Shadows: xs controls, md menus, popovers and toasts, lg dialogs. sm is the same as xs. */
+  --shadow-xs: 0 1px 2px rgb(0 0 0 / 0.06);
+  --shadow-sm: var(--shadow-xs);
+  --shadow-md: 0 4px 16px rgb(0 0 0 / 0.12);
+  --shadow-lg: 0 16px 48px rgb(0 0 0 / 0.18);
 }
 
 :root {
   color-scheme: light;
   --background: oklch(1 0 0);
   --foreground: oklch(0.145 0 0);
-  --card: oklch(1 0 0);
-  --popover: oklch(1 0 0);
-  /* The Verdictan brand color. White on #9a4600 is 6.5:1 (WCAG AA). */
+  --card: var(--background);
+  --popover: var(--background);
+  /* The Verdictan brand color. White on #9a4600 is 6.5:1 (WCAG AA). Use it for one primary
+     button per view, links, checked controls, the active tab and the focus ring only. */
   --primary: #9a4600;
   --primary-foreground: oklch(1 0 0);
+  /* The one neutral fill. Muted and accent are the same fill. */
   --secondary: oklch(0.97 0 0);
   --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
+  --muted: var(--secondary);
+  --accent: var(--secondary);
+  --accent-foreground: var(--secondary-foreground);
   /* 5.3:1 on white and 4.8:1 on the muted surface. */
   --muted-foreground: oklch(0.53 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
+  /* Dividers. */
   --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: #9a4600;
+  /* Control boundaries: check box, radio, switch track, input and select. 3.3:1 on white and
+     3.1:1 on the muted surface (WCAG 1.4.11). */
+  --border-strong: oklch(0.64 0 0);
+  --input: var(--border-strong);
+  --ring: var(--primary);
   --radius: 0.625rem;
   /* 6.1:1 on white. */
   --destructive: oklch(0.52 0.21 27.325);
   --destructive-foreground: oklch(1 0 0);
-  /* The sidebar surface of the Console. */
+  /* The sidebar and title bar surface: the window chrome is one surface. */
   --navigation: oklch(0.985 0 0);
-  /* The title bar uses the sidebar surface, so the window chrome is one surface. */
-  --chrome: var(--navigation);
-  /* Secondary text, for example hints. The same as --muted-foreground, so it reaches 4.5:1. */
-  --subtle-foreground: var(--muted-foreground);
-  /* The Console status colors. Each reaches 4.5:1 on white. Info is the primary color. */
+  /* Status colors. Each reaches 4.5:1 on white and on its own tint. Warning is amber, so that
+     it does not look like the brand color. */
   --success: #047857;
-  --warning: #92600e;
-  --info: var(--primary);
+  --warning: #b45309;
   --link: var(--primary);
   /* A tint is 8% of its color on the background. */
   --primary-subtle: color-mix(in oklch, var(--primary) 8%, var(--background));
@@ -125,19 +115,10 @@
   --diff-add-surface: var(--success-subtle);
   --diff-remove: var(--destructive);
   --diff-remove-surface: var(--destructive-subtle);
-  /* The Console chart series colors. Charts use them in this order: 1, 9, 8, 6, 7, 4, 5, 2, 3. */
-  --chart-1: #9a4600;
-  --chart-2: #047857;
-  --chart-3: #92600e;
-  --chart-4: #5f6b2d;
-  --chart-5: #b4632a;
-  --chart-6: #2f6f5e;
-  --chart-7: #7a5c3e;
-  --chart-8: #b07d38;
-  --chart-9: #2e4a5e;
   --navigation-width: 260px;
 
-  /* Spacing uses a 4px grid. 6px is only for icon and label gaps. */
+  /* Spacing uses a 4px grid. 2px only inside a control. 6px only between an icon and its
+     label. */
   --space-1: 4px;
   --space-2: 8px;
   --space-3: 12px;
@@ -147,41 +128,51 @@
   --space-8: 32px;
   --space-12: 48px;
   --space-16: 64px;
-  --space-24: 96px;
-  /* Controls and rows */
+  /* Controls: 24 inline and row actions, 28 toolbars and menu items, 32 forms, 36 calls to
+     action. Rows: NavRow 32, ListRow and SettingsRow 48. */
   --control-xs: 24px;
   --control-sm: 28px;
   --control-md: 32px;
   --control-lg: 36px;
   --row-height: 32px;
-  --row-height-2line: 56px;
   --row-height-lg: 48px;
+  /* Menu widths: 224 by default, 256 for menus with shortcuts or long names. */
+  --menu-width: 224px;
+  --menu-width-wide: 256px;
   /* Layout */
   --titlebar-height: 48px;
   --page-max-width: 1120px;
   --page-padding-x: 32px;
   --page-padding-top: 24px;
+  --page-padding-bottom: 48px;
   --reading-width: 752px;
   --section-gap: 32px;
   --dialog-sm: 440px;
   --dialog-md: 560px;
   --dialog-lg: 720px;
-  /* States and elevation */
+  /* Layers */
+  --z-sticky: 10;
+  --z-dropdown: 50;
+  --z-dialog: 60;
+  /* Menus, select lists and tooltips open in a portal, also from inside a dialog. */
+  --z-popover: 65;
+  --z-toast: 70;
+  --z-titlebar: 100;
+  /* States: hover 4% and selected 7% on the page, 6% and 9% on the sidebar surface. */
   --surface-hover: color-mix(in oklch, var(--foreground) 4%, transparent);
   --surface-selected: color-mix(in oklch, var(--foreground) 7%, transparent);
-  /* Elevation ladder: page < sidebar and title bar < card < menus and dialogs. */
-  /* The Console keyboard focus: a 2px ring in the brand color, 2px from the control. */
+  --sidebar-hover: color-mix(in oklch, var(--foreground) 6%, transparent);
+  --sidebar-selected: color-mix(in oklch, var(--foreground) 9%, transparent);
+  /* Keyboard focus. Buttons: a 2px ring 2px from the control. Fields: the border plus a 3px
+     ring at 20%. Rows in clipped containers: an inset ring. */
   --focus-color: var(--ring);
   --focus-ring: 0 0 0 2px var(--background), 0 0 0 4px var(--ring);
+  --focus-ring-field: 0 0 0 3px color-mix(in oklch, var(--ring) 20%, transparent);
+  --focus-ring-inset: inset 0 0 0 2px var(--ring);
   --overlay: rgb(0 0 0 / 0.32);
-  --shadow-subtle: 0 1px 2px rgb(0 0 0 / 0.04);
-  --shadow-raised: 0 1px 2px rgb(0 0 0 / 0.08);
-  --shadow-popover: 0 4px 16px rgb(0 0 0 / 0.12);
-  --shadow-dialog: 0 16px 48px rgb(0 0 0 / 0.18);
   /* Motion. Wrapped by a reduced-motion rule in components.css. */
   --motion-fast: 120ms;
   --motion-base: 200ms;
-  --ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
   font-family: var(--font-sans);
   font-synthesis: none;
 }
@@ -193,18 +184,23 @@
     margin: 0;
     background: var(--background);
     color: var(--foreground);
-    font-size: 13px;
-    line-height: 20px;
+    font-size: var(--text-sm);
+    line-height: var(--text-sm--line-height);
     -webkit-font-smoothing: antialiased;
   }
   * {
     box-sizing: border-box;
     border-color: var(--border);
   }
-  /* The Console keyboard focus outline. Controls with their own focus style replace it. */
+  /* The keyboard focus outline. Controls with their own focus style replace it. */
   :focus-visible {
     outline: 2px solid var(--ring);
     outline-offset: 2px;
+  }
+  /* Programmatic focus targets, such as a page title after a dialog closes, draw nothing. */
+  [tabindex='-1']:focus,
+  [tabindex='-1']:focus-visible {
+    outline: none;
   }
 }
 button,

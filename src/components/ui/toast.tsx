@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { X } from 'lucide-react';
+import { Check, CircleAlert, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from './button';
 
@@ -9,8 +9,11 @@ export interface ToastAction {
 }
 export interface ToastInput {
   message: string;
-  /** Error toasts stay until the user closes them. Other toasts close after `duration` ms. */
-  tone?: 'default' | 'error';
+  /**
+   * Error toasts show a red alert icon and stay until the user closes them. Success toasts show
+   * a green check. Other toasts close after `duration` ms.
+   */
+  tone?: 'default' | 'success' | 'error';
   actions?: ToastAction[];
   duration?: number;
 }
@@ -88,8 +91,8 @@ export function Toaster({ className }: { className?: string }) {
   return (
     <div
       className={cn(
-        // Above the dialogs (z-50), so a toast with Undo stays usable while a dialog shows.
-        'pointer-events-none fixed right-4 bottom-[calc(1rem+var(--toast-offset,0px))] z-[60] flex w-[min(420px,calc(100vw-2rem))] flex-col items-end gap-2',
+        // Above the dialogs and menus, so a toast with Undo stays usable while a dialog shows.
+        'pointer-events-none fixed right-4 bottom-[calc(1rem+var(--toast-offset,0px))] z-[var(--z-toast)] flex w-[min(420px,calc(100vw-2rem))] flex-col items-end gap-2',
         className,
       )}
     >
@@ -110,11 +113,16 @@ export function Toaster({ className }: { className?: string }) {
           onFocus={() => pauseTimer(item.id)}
           onBlur={() => startTimer(item.id)}
           className={cn(
-            'pointer-events-auto flex max-w-full min-h-10 items-center gap-2 rounded-lg border bg-popover py-2 pr-2 pl-3 text-sm text-popover-foreground shadow-md',
+            'pointer-events-auto flex max-w-full min-h-9 items-center gap-2 rounded-lg border bg-popover py-1 pr-1 pl-3 text-sm text-popover-foreground shadow-md',
             'motion-safe:animate-in motion-safe:fade-in-0 motion-safe:slide-in-from-bottom-2 motion-safe:duration-[var(--motion-base)]',
-            item.tone === 'error' && 'text-destructive',
           )}
         >
+          {item.tone === 'error' && (
+            <CircleAlert className="size-4 shrink-0 text-destructive" aria-hidden="true" />
+          )}
+          {item.tone === 'success' && (
+            <Check className="size-4 shrink-0 text-success" aria-hidden="true" />
+          )}
           <span className="min-w-0 flex-1">{item.message}</span>
           {item.actions?.map((action) => (
             <Button
@@ -130,7 +138,7 @@ export function Toaster({ className }: { className?: string }) {
             </Button>
           ))}
           <Button
-            size="icon-xs"
+            size="icon-sm"
             variant="ghost"
             aria-label="Close notification"
             onClick={() => close(item.id)}

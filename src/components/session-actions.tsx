@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { LoaderCircle } from 'lucide-react';
 import type { API, Session, SessionOrganization } from '../types';
 import { errorMessage } from '../lib/errors';
 import { Button } from './ui/button';
@@ -29,8 +30,96 @@ async function saveWith(session: Session, changes: SessionOrganization, api?: AP
 export const sessionTitle = (session: Session) => session.organization?.title || session.title;
 
 /**
- * The one rename UI for a session. The sidebar, the session list and the session menu use it.
- * Without `save`, the dialog saves the new name with `api.updateSession`.
+ * The one rename dialog: chats and projects use it. "Rename…" opens it. The field starts with
+ * the current name, and Rename saves the new name.
+ */
+export function RenameDialog({
+  open,
+  title,
+  label,
+  value: initial,
+  description,
+  onOpenChange,
+  save,
+}: {
+  open: boolean;
+  /** "Rename chat" or "Rename project". */
+  title: string;
+  /** The accessible name of the field, such as "Chat name". */
+  label: string;
+  /** The current name. */
+  value: string;
+  description?: string;
+  onOpenChange: (open: boolean) => void;
+  /** Saves the new name. A rejection shows its message under the field. */
+  save: (name: string) => Promise<void>;
+}) {
+  const [value, setValue] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  useEffect(() => {
+    if (!open) return;
+    setValue(initial);
+    setError('');
+  }, [open, initial]);
+  async function submit() {
+    if (!value.trim() || busy) return;
+    setBusy(true);
+    setError('');
+    try {
+      await save(value.trim());
+      onOpenChange(false);
+    } catch (e) {
+      setError(errorMessage(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <Dialog open={open} onOpenChange={(next) => !busy && onOpenChange(next)}>
+      <DialogContent size="sm">
+        <DialogHeader>
+          <DialogTitle>{title}</DialogTitle>
+          {description && <DialogDescription>{description}</DialogDescription>}
+        </DialogHeader>
+        <form
+          className="grid gap-4"
+          onSubmit={(e) => {
+            e.preventDefault();
+            void submit();
+          }}
+        >
+          <Input
+            autoFocus
+            aria-label={label}
+            placeholder={label}
+            value={value}
+            aria-invalid={!!error || undefined}
+            onChange={(e) => setValue(e.target.value)}
+          />
+          {error && (
+            <p role="alert" className="field-error break-words">
+              {error}
+            </p>
+          )}
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+              Cancel
+            </Button>
+            <Button type="submit" disabled={!value.trim()}>
+              {busy && <LoaderCircle className="animate-spin" aria-hidden="true" />}
+              Rename
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/**
+ * The rename dialog of a chat. The sidebar, the chat list and the chat menu use it. Without
+ * `save`, the dialog saves the new name with `api.updateSession`.
  */
 export function RenameSessionDialog({
   session,
@@ -49,70 +138,21 @@ export function RenameSessionDialog({
   /** Called after the name is saved, for example to read the session list again. */
   onRenamed?: (title: string) => void;
 }) {
-  const [value, setValue] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState('');
-  useEffect(() => {
-    if (!open || !session) return;
-    setValue(sessionTitle(session));
-    setError('');
-  }, [open, session?.agent, session?.id]);
-  async function submit() {
-    if (!session || !value.trim()) return;
-    setBusy(true);
-    setError('');
-    try {
-      const title = value.trim();
-      if (save) await save({ title });
-      else await saveWith(session, { title }, api);
-      onRenamed?.(title);
-      onOpenChange(false);
-    } catch (e) {
-      setError(errorMessage(e));
-    } finally {
-      setBusy(false);
-    }
-  }
   return (
-    <Dialog open={open && !!session} onOpenChange={(next) => !busy && onOpenChange(next)}>
-      <DialogContent size="sm">
-        <DialogHeader>
-          <DialogTitle>Rename chat</DialogTitle>
-          <DialogDescription>
-            This name shows in the sidebar and in the chat list.
-          </DialogDescription>
-        </DialogHeader>
-        <form
-          className="grid gap-4"
-          onSubmit={(e) => {
-            e.preventDefault();
-            void submit();
-          }}
-        >
-          <Input
-            autoFocus
-            aria-label="Session name"
-            placeholder="Session name"
-            value={value}
-            aria-invalid={!!error || undefined}
-            onChange={(e) => setValue(e.target.value)}
-          />
-          {error && (
-            <p role="alert" className="field-error break-words">
-              {error}
-            </p>
-          )}
-          <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
-              Cancel
-            </Button>
-            <Button type="submit" disabled={busy || !value.trim()}>
-              Save name
-            </Button>
-          </DialogFooter>
-        </form>
-      </DialogContent>
-    </Dialog>
+    <RenameDialog
+      open={open && !!session}
+      title="Rename chat"
+      label="Chat name"
+      description="This name shows in the sidebar and in the chat list."
+      value={session ? sessionTitle(session) : ''}
+      onOpenChange={onOpenChange}
+      save={async (title) => {
+        if (!session) return;
+        if (save) await save({ title });
+        else await saveWith(session, { title }, api);
+        onRenamed?.(title);
+      }}
+    />
   );
 }
 
@@ -146,7 +186,7 @@ export function NotesDialog({
     setError('');
   }, [open, session?.agent, session?.id]);
   async function submit() {
-    if (!session) return;
+    if (!session || busy) return;
     setBusy(true);
     setError('');
     try {
@@ -196,8 +236,9 @@ export function NotesDialog({
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
               Cancel
             </Button>
-            <Button type="submit" disabled={busy}>
-              {busy ? 'Saving…' : 'Save notes'}
+            <Button type="submit">
+              {busy && <LoaderCircle className="animate-spin" aria-hidden="true" />}
+              Save notes
             </Button>
           </DialogFooter>
         </form>

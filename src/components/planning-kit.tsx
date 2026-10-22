@@ -1,7 +1,7 @@
 // Small parts that the planning tools share: review rows, the selected-task list, sections and
 // events to other pages. Each tool uses these parts, so that all tools look the same.
-import type { ReactNode } from 'react';
-import { ChevronRight, ExternalLink, X } from 'lucide-react';
+import { useState, type ReactNode } from 'react';
+import { ChevronRight, ExternalLink } from 'lucide-react';
 import type {
   Agent,
   API,
@@ -18,8 +18,10 @@ import type { ProjectFieldValue } from '../domain/github-mutations';
 import { cn } from '../lib/utils';
 import { Alert, AlertDescription } from './ui/alert';
 import { Badge } from './ui/badge';
+import { Button } from './ui/button';
+import { Count } from './ui/count';
+import { Tag } from './ui/tag';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from './ui/collapsible';
-import { SectionHeader } from './ui/page-header';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { showToast } from './ui/toast';
 
@@ -31,6 +33,8 @@ export interface PlanningToolProps {
   /** The selected tasks, in board order. */
   items: TrackerItem[];
   onRemove: (id: string) => void;
+  /** True when no task was selected, so the tool acts on all visible tasks. */
+  allTasks?: boolean;
   /** Closes the dialog and opens the task sheet. */
   onOpenTask: (id: string) => void;
   onClose: () => void;
@@ -98,45 +102,65 @@ export function TaskTitle({ title, onOpen }: { title: string; onOpen?: () => voi
   );
 }
 
-/** The selected tasks as a compact list of chips. Each chip has a remove button. */
+/**
+ * The tasks of a tool: one summary line ("All tasks 14" or "Selected tasks 3"), and the tasks as
+ * removable tags behind "Edit". A short selection shows its tags at once.
+ */
 export function SelectedTasks({
   items,
   onRemove,
   limit,
   label = 'Selected tasks',
+  all = false,
 }: {
   items: TrackerItem[];
   onRemove?: (id: string) => void;
   limit: number;
   label?: string;
+  /** No task was selected: the tool acts on all visible tasks. */
+  all?: boolean;
 }) {
+  const tooMany = items.length > limit;
+  const [open, setOpen] = useState(!all && items.length <= 6);
+  const name = all ? 'All tasks' : label;
+  const shown = open || tooMany;
   return (
-    <section className="grid gap-2" aria-label={label}>
-      <SectionHeader size="sm" as="h4" title={label} count={items.length} />
-      {items.length ? (
-        <ul className="selected-tasks">
-          {items.map((item) => (
-            <li key={item.id} className="selected-task">
-              <span className="truncate" title={item.title}>
-                {item.title}
-              </span>
-              {onRemove && (
-                <button
-                  type="button"
-                  className="selected-task-remove"
-                  aria-label={`Remove ${item.title}`}
-                  onClick={() => onRemove(item.id)}
-                >
-                  <X size={12} />
-                </button>
-              )}
-            </li>
-          ))}
-        </ul>
+    <section className="grid gap-2" aria-label={name}>
+      <div className="selected-tasks-summary">
+        <span className="font-semibold">{name}</span>
+        <Count>{items.length}</Count>
+        {items.length > 0 && !tooMany && (
+          <Button
+            type="button"
+            variant="link"
+            className="ml-auto"
+            aria-expanded={shown}
+            onClick={() => setOpen((value) => !value)}
+          >
+            {shown ? 'Done' : onRemove ? 'Edit' : 'Show'}
+          </Button>
+        )}
+      </div>
+      {!items.length ? (
+        <p className="form-help m-0">Select tasks on the board first.</p>
       ) : (
-        <p className="form-help">Select tasks on the board first.</p>
+        shown && (
+          <ul className="selected-tasks">
+            {items.map((item) => (
+              <li key={item.id}>
+                <Tag
+                  title={item.title}
+                  removeLabel={`Remove ${item.title}`}
+                  onRemove={onRemove && (() => onRemove(item.id))}
+                >
+                  {item.title}
+                </Tag>
+              </li>
+            ))}
+          </ul>
+        )
       )}
-      {items.length > limit && (
+      {tooMany && (
         <Alert variant="destructive" size="sm">
           <AlertDescription>
             Choose up to {plural(limit, 'task')}. Remove {plural(items.length - limit, 'task')}.
@@ -189,7 +213,7 @@ export function ToolSection({
 export function ExternalTextLink({ href, children }: { href: string; children: ReactNode }) {
   return (
     <a
-      className="text-link inline-flex items-center gap-1"
+      className="text-link underline-offset-2 hover:underline inline-flex items-center gap-1"
       href={href}
       target="_blank"
       rel="noreferrer"

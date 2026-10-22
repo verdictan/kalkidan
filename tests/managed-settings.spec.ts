@@ -40,21 +40,26 @@ async function fixture(page: Page, extra: string) {
   await page.goto('/');
 }
 
+/** The "Organization setup" dialog of the Computers page. */
+const setupDialog = (page: Page) =>
+  page.getByRole('dialog', { name: 'Organization setup', exact: true });
+
 /**
- * Opens the organization setup of an agent in place under its row on the Computers page.
- * Returns the part under the row that holds the setup form.
+ * Opens the organization setup dialog from its row on the Computers page and shows the setup of
+ * one agent. Returns the dialog.
  */
 async function openSetup(page: Page, agent: 'Codex' | 'Claude Code' = 'Codex') {
   const computers = await openComputersPage(page);
   await computers
-    .getByRole('button', { name: `Change the organization setup of ${agent}`, exact: true })
+    .getByRole('group', { name: 'Organization setup', exact: true })
+    .getByRole('button', { name: /^(Set up|Change)…$/ })
     .click();
-  const hide = page.getByRole('button', {
-    name: `Hide the organization setup of ${agent}`,
-    exact: true,
-  });
-  await expect(hide).toBeVisible();
-  return computers.locator('.settings-row-extra').filter({ has: hide });
+  const dialog = setupDialog(page);
+  await expect(dialog).toBeVisible();
+  const tab = dialog.getByRole('button', { name: agent, exact: true });
+  await tab.click();
+  await expect(tab).toHaveAttribute('aria-pressed', 'true');
+  return dialog;
 }
 
 test('managed agent setup shows names or numbered generic labels, never IDs', async ({ page }) => {
@@ -210,6 +215,14 @@ test('a launch block link opens the Computers page at the exact managed setup st
           apiUrl: 'https://api.eu.verdictan.com',
         },
       }),
+      verdictanSetup: async () => ({
+        status: 'selection_required',
+        providerAccessModes: ['byok'],
+        teams: [{ team_id: ids.team }],
+        policies: [{ configuration_id: ids.cfg, configuration_version_id: ids.cfgv }],
+        providerConnections: [{ provider_connection_id: ids.team, provider: 'openai' }],
+        selections: {},
+      }),
     };`,
   );
   await page.evaluate(() =>
@@ -219,10 +232,23 @@ test('a launch block link opens the Computers page at the exact managed setup st
       }),
     ),
   );
+  // The link opens the organization setup dialog at Codex, the first agent that needs setup.
+  const dialog = setupDialog(page);
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByRole('button', { name: 'Codex', exact: true })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  );
+  await expect(dialog.getByRole('textbox', { name: 'Default model' })).toBeVisible();
+  await expect(dialog).not.toContainText('11111111-1111');
+  await page.keyboard.press('Escape');
+  await expect(dialog).toHaveCount(0);
+  // The dialog opens from the one "Organization setup" row, which holds the link anchor.
   const settings = computersPage(page);
-  // The managed setup row of Codex, at the top of the agent rows, gets the focus.
-  await expect(settings.locator('#managed-agent-setup')).toBeFocused();
-  await expect(settings.locator('#managed-agent-setup')).toContainText('Codex');
+  const row = settings.locator('#managed-agent-setup');
+  await expect(row).toHaveAccessibleName('Organization setup');
+  await expect(row).toContainText('Needs setup');
+  await expect(row).toContainText('Codex: Not chosen');
   // Without a service name the account has a generic label. IDs never show.
   const account = sidebar(page).locator('.account-menu');
   await expect(account).toContainText('Verdictan');

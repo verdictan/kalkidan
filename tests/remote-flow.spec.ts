@@ -107,14 +107,15 @@ test('remote project flow checks and installs the host, picks remote folders, an
   await dialog.getByRole('button', { name: 'Connect GitHub', exact: true }).click();
   await dialog.getByRole('button', { name: 'Use URL', exact: true }).click();
   await dialog
-    .getByLabel('GitHub Projects board URL')
+    .getByRole('textbox', { name: 'Board URL', exact: true })
     .fill('https://github.com/orgs/example/projects/1');
   await page.screenshot({ path: 'test-results/remote-project-setup.png', fullPage: true });
   await dialog.getByRole('button', { name: 'Create project', exact: true }).click();
   await openAddCodeFolders(page, 'Remote platform');
-  const add = page.getByRole('dialog', { name: 'Add code folders', exact: true });
-  await add.getByRole('combobox', { name: 'Add to project' }).click();
-  await page.getByRole('option', { name: 'Remote platform', exact: true }).click();
+  const add = page.getByRole('dialog', { name: 'Add code folder', exact: true });
+  // The project is known, so the dialog has no project field.
+  await expect(add).toContainText('Remote platform');
+  await expect(add.getByRole('combobox', { name: 'Add to project' })).toHaveCount(0);
   await expect(add.getByRole('region', { name: 'Remote repository picker' })).toBeVisible();
   await add.getByLabel('Remote folder path').fill('/mnt/work/');
   await expect(add.getByRole('button', { name: 'Add remote folder', exact: true })).toBeDisabled();

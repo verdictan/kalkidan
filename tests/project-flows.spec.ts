@@ -16,11 +16,15 @@ test('single view ignores old split preferences and preserves conversation draft
   );
   await expect(page.locator('.management-pane')).toBeHidden();
   await page.locator('.project-tree').getByRole('button', { name: 'Atlas', exact: true }).click();
-  await expect(page.getByRole('form', { name: 'New chat', exact: true })).toBeVisible();
+  // The project row opens the Overview with its New chat composer.
+  await expect(page.getByRole('textbox', { name: 'Message for a new chat' })).toBeVisible();
   await expect(page.getByLabel('Message agent')).toBeHidden();
   await page.getByRole('button', { name: 'Go back', exact: true }).click();
   await expect(page.getByLabel('Message agent')).toHaveValue('Preserve this draft');
-  await page.getByRole('button', { name: 'Projects', exact: true }).click();
+  await page
+    .getByRole('navigation', { name: 'Projects and repositories' })
+    .getByRole('button', { name: 'Projects', exact: true })
+    .click();
   await expect(page.getByRole('region', { name: 'Projects', exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Go back', exact: true }).click();
   await expect(page.getByLabel('Message agent')).toHaveValue('Preserve this draft');
@@ -28,18 +32,20 @@ test('single view ignores old split preferences and preserves conversation draft
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 });
 
-test('adding a repository requires choosing a project', async ({ page }) => {
+test('adding a code folder from a project menu adds it to that project', async ({ page }) => {
   await page.goto(url);
   await openAddCodeFolders(page, 'Atlas');
-  const dialog = page.getByRole('dialog');
-  await dialog.getByRole('button', { name: 'Local folder', exact: true }).click();
-  await dialog.getByRole('combobox', { name: 'Add to project' }).click();
-  await page.getByRole('option', { name: 'Choose a project', exact: true }).click();
-  await expect(dialog.getByRole('button', { name: 'Choose folder', exact: true })).toBeDisabled();
-  await dialog.getByRole('combobox', { name: 'Add to project' }).click();
-  await expect(page.getByRole('option', { name: 'Ungrouped', exact: true })).toHaveCount(0);
-  await page.getByRole('option', { name: 'Atlas', exact: true }).click();
-  await expect(dialog.getByRole('button', { name: 'Choose folder', exact: true })).toBeEnabled();
+  const dialog = page.getByRole('dialog', { name: 'Add code folder', exact: true });
+  // The project is known, so the dialog names it and does not ask for a project.
+  await expect(dialog).toContainText('Adds a Git repository to Atlas.');
+  await expect(dialog.getByRole('combobox', { name: 'Add to project' })).toHaveCount(0);
+  await expect(dialog.getByText('Ungrouped', { exact: true })).toHaveCount(0);
+  // The dialog opens on Local.
+  await expect(dialog.getByRole('button', { name: 'Local', exact: true })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  );
+  await expect(dialog.getByRole('button', { name: 'Choose folder…', exact: true })).toBeEnabled();
 });
 
 test('dragging a task syncs its status and a failed write keeps the original column', async ({
@@ -229,15 +235,19 @@ test('settings shows agent and remote controls without history import', async ({
   // Preferences is a dialog over the workspace with the account connections.
   await openSettings(page);
   const dialog = settingsDialog(page);
-  for (const name of ['Chats', 'Connections', 'This app'])
-    await expect(dialog.getByRole('region', { name, exact: true })).toBeVisible();
+  // Each section is a tab. No tab has a history import.
+  for (const name of ['Chats', 'Connections', 'This app']) {
+    await dialog.getByRole('tab', { name, exact: true }).click();
+    await expect(dialog.getByRole('tabpanel', { name, exact: true })).toBeVisible();
+    await expect(dialog.getByText('Import chat history', { exact: true })).toHaveCount(0);
+    await expect(dialog.getByRole('button', { name: 'Preview chat history' })).toHaveCount(0);
+  }
+  await dialog.getByRole('tab', { name: 'Connections', exact: true }).click();
   await expect(
     dialog
-      .getByRole('region', { name: 'Connections' })
+      .getByRole('tabpanel', { name: 'Connections' })
       .getByRole('group', { name: 'GitHub and boards' }),
   ).toBeVisible();
-  await expect(dialog.getByText('Import chat history', { exact: true })).toHaveCount(0);
-  await expect(dialog.getByRole('button', { name: 'Preview chat history' })).toHaveCount(0);
   await page.screenshot({ path: 'test-results/settings-page.png', fullPage: true });
   // Escape closes it.
   await page.keyboard.press('Escape');
@@ -283,8 +293,13 @@ test('project menu connects the chosen project without duplicate authorization',
   const settings = page.getByRole('dialog', { name: 'Project settings: Platform', exact: true });
   await expect(settings).toContainText('Platform');
   await settings.getByRole('tab', { name: 'Board', exact: true }).click();
-  await expect(page.getByLabel('GitHub device code')).toHaveValue('ABCD-1234');
+  await settings.getByRole('button', { name: 'Connect board…', exact: true }).click();
+  // The Connect board dialog checks the board access once.
+  const connect = page.getByRole('dialog', { name: 'Connect board', exact: true });
+  await expect(connect.getByLabel('GitHub device code')).toHaveValue('ABCD-1234');
   expect(await page.evaluate(() => (window as any).authStarts)).toBe(1);
+  await page.keyboard.press('Escape');
+  await expect(connect).toHaveCount(0);
   await settings.getByRole('button', { name: 'Close', exact: true }).click();
   await expect(settings).toHaveCount(0);
 });
@@ -294,7 +309,7 @@ test('task conversation returns to the filtered project board', async ({ page })
   await openProjectTab(page, 'Tasks', 'Atlas');
   await page
     .getByRole('region', { name: 'Project tracker', exact: true })
-    .getByRole('button', { name: 'Connect a board', exact: true })
+    .getByRole('button', { name: 'Connect board', exact: true })
     .click();
   await page.getByRole('button', { name: 'Atlas roadmap #1', exact: true }).click();
   await page.getByRole('button', { name: 'Connect board', exact: true }).click();

@@ -23,7 +23,9 @@ import { agentLabel } from '../config/agents';
 import { errorMessage } from '../lib/errors';
 import { diffFiles } from '../lib/diff-files';
 import { plural } from '../lib/platform';
-import { AgentQuestions, requestCardClass, requestTitleClass } from './agent-questions';
+import { AgentQuestions } from './agent-questions';
+import { ChatCard } from './chat-card';
+import { DiffBlock, isPatch } from './diff-review';
 import { Hint } from './hint';
 import { openProjectPage } from './chat-links';
 
@@ -361,7 +363,11 @@ function StepLine({ tool }: { tool: ToolActivity }) {
         {line}
       </CollapsibleTrigger>
       <CollapsibleContent className="prose-ui agent-step-output" data-size="sm">
-        <pre className={outputClass}>{output}</pre>
+        {tool.diff ? (
+          <DiffBlock patch={tool.diff} label={`Changes: ${tool.title}`} />
+        ) : (
+          <pre className={outputClass}>{output}</pre>
+        )}
       </CollapsibleContent>
     </Collapsible>
   );
@@ -486,50 +492,50 @@ export function RunRequests({
       {running && <AgentQuestions api={api} run={run} onUpdate={onUpdate} pendingOnly />}
       {running &&
         pending.map((approval) => (
-          <section
+          <ChatCard
             key={approval.id}
-            aria-label="Agent approval"
-            className={requestCardClass + ' request-card-approval'}
+            label="Agent approval"
+            tone="warning"
+            icon={ShieldAlert}
+            title={approval.title}
+            actions={
+              <>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="mr-auto"
+                  disabled={!!busy}
+                  onClick={() =>
+                    void answer(approval.id, false).then((done) => {
+                      if (done) onInstead();
+                    })
+                  }
+                >
+                  Tell {agent} what to do instead
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={!!busy}
+                  onClick={() => void answer(approval.id, false)}
+                >
+                  Deny
+                </Button>
+                <Button size="sm" disabled={!!busy} onClick={() => void answer(approval.id, true)}>
+                  {approval.scope === 'turn' ? 'Allow for this turn' : 'Allow once'}
+                </Button>
+              </>
+            }
           >
-            <div className="flex items-center gap-2">
-              <ShieldAlert size={16} className="shrink-0 text-warning" aria-hidden="true" />
-              <h3 className={requestTitleClass}>{approval.title}</h3>
-            </div>
-            <div className="prose-ui" data-size="sm">
-              <pre className={outputClass + ' max-h-40'}>{approval.detail}</pre>
-            </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <Button
-                size="sm"
-                variant="ghost"
-                className="mr-auto"
-                disabled={!!busy}
-                onClick={() =>
-                  void answer(approval.id, false).then((done) => {
-                    if (done) onInstead();
-                  })
-                }
-              >
-                Tell {agent} what to do instead
-              </Button>
-              <Button
-                size="sm"
-                variant="outline"
-                disabled={!!busy}
-                onClick={() => void answer(approval.id, false)}
-              >
-                Deny
-              </Button>
-              <Button
-                size="sm"
-                autoFocus
-                disabled={!!busy}
-                onClick={() => void answer(approval.id, true)}
-              >
-                {approval.scope === 'turn' ? 'Allow for this turn' : 'Allow once'}
-              </Button>
-            </div>
-          </section>
+            {approval.detail &&
+              (isPatch(approval.detail) ? (
+                <DiffBlock patch={approval.detail} className="max-h-40" />
+              ) : (
+                <div className="prose-ui" data-size="sm">
+                  <pre className={outputClass + ' max-h-40'}>{approval.detail}</pre>
+                </div>
+              ))}
+          </ChatCard>
         ))}
       {error && (
         <p role="alert" className="field-error">

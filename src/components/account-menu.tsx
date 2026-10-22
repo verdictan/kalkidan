@@ -5,10 +5,8 @@ import {
   ChevronsUpDown,
   CircleAlert,
   ExternalLink,
-  Laptop,
   LogIn,
   LogOut,
-  MoreHorizontal,
   Settings2,
   UserRound,
   BellRing,
@@ -25,7 +23,6 @@ import { shortcutLabel } from '../lib/platform';
 import { cn } from '../lib/utils';
 import { useVerdictanStatus } from '../hooks/use-verdictan-status';
 import { userGuideUrl } from './about-section';
-import { openComputers } from './computers-page';
 import { openDiagnostics } from './diagnostics-section';
 import { GetStartedMenuItem } from './onboarding';
 import { Hint } from './hint';
@@ -93,38 +90,39 @@ function NotificationItem({ api, open }: { api: API; open: boolean }) {
     }
   }
   return (
-    <DropdownMenuCheckboxItem
-      checked={on}
-      // The switch shows the state. The check mark of the item does not show.
-      className="account-menu-switch-item pl-2"
-      aria-label="Tell me when an agent finishes or needs me"
-      title="Tell me when an agent finishes or needs me. Only when Kalkidan is in the background."
-      onSelect={(event) => {
-        event.preventDefault();
-        void toggle();
-      }}
-    >
-      <BellRing className="size-4" />
-      Notifications
-      <Switch
+    <Hint label="Tell me when an agent finishes or needs me. Only when Kalkidan is in the background.">
+      <DropdownMenuCheckboxItem
         checked={on}
-        tabIndex={-1}
-        aria-hidden="true"
-        className="pointer-events-none ml-auto"
-      />
-    </DropdownMenuCheckboxItem>
+        // The switch shows the state. The check mark of the item does not show.
+        indicator={false}
+        className="account-menu-switch-item"
+        aria-label="Tell me when an agent finishes or needs me"
+        onSelect={(event) => {
+          event.preventDefault();
+          void toggle();
+        }}
+      >
+        <BellRing className="size-4" />
+        Notifications
+        <Switch
+          checked={on}
+          tabIndex={-1}
+          aria-hidden="true"
+          className="pointer-events-none ml-auto"
+        />
+      </DropdownMenuCheckboxItem>
+    </Hint>
   );
 }
 
-/** The items that every account menu shows: Computers, Preferences, diagnostics and help. */
+/**
+ * The items that every account menu shows: Preferences, diagnostics and help. Computers is in
+ * the sidebar, so the menu does not repeat it.
+ */
 function AppItems() {
   return (
     <>
       <GetStartedMenuItem />
-      <DropdownMenuItem onSelect={() => openComputers()}>
-        <Laptop className="size-4" />
-        Computers
-      </DropdownMenuItem>
       <DropdownMenuItem onSelect={() => openSettings()}>
         <Settings2 className="size-4" />
         Preferences…
@@ -157,10 +155,10 @@ function useMenuOpen() {
 }
 
 /**
- * The account row in the sidebar footer: one 48px trigger that fills the row. Signed in, it
- * shows the initials, the name and the organization, and opens the account menu:
- * notifications, Computers, Preferences, help, and Sign out. Signed out, it is the
- * one "Sign in" of the app, with a "…" menu for the same app items.
+ * The account row in the sidebar footer: one 48px trigger that fills the row, in both states.
+ * Signed in, it shows the initials, the name and the organization, and opens the account menu:
+ * notifications, Preferences, help, and Sign out. Signed out, it shows "Sign in", and the same
+ * menu starts with "Sign in".
  */
 export function AccountMenu({ api }: { api: API }) {
   const { status, supported } = useVerdictanStatus(api);
@@ -188,37 +186,40 @@ export function AccountMenu({ api }: { api: API }) {
   }
   if (!signedIn) {
     const authorizing = status?.phase === 'authorizing';
+    const label = supported ? (authorizing ? 'Finish signing in…' : 'Sign in') : 'Kalkidan';
+    // The same trigger as when signed in. "Sign in" is the first item of the menu.
     return (
       <div className="account-menu" data-state="signed-out">
-        {supported ? (
-          <button
-            type="button"
-            className="account-menu-trigger row-focus"
-            onClick={() => startSignIn('login')}
-          >
-            <Avatar text="" className="account-menu-avatar-empty" />
-            <span className="min-w-0 flex-1 truncate text-left text-sm font-medium">
-              {authorizing ? 'Finish signing in…' : 'Sign in'}
-            </span>
-            <LogIn className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
-          </button>
-        ) : (
-          <span className="flex-1" />
-        )}
         <DropdownMenu open={open} onOpenChange={setOpen}>
-          <Hint label="Preferences and help">
-            <DropdownMenuTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon-sm"
-                className="text-muted-foreground"
-                aria-label="Preferences and help"
-              >
-                <MoreHorizontal />
-              </Button>
-            </DropdownMenuTrigger>
-          </Hint>
-          <DropdownMenuContent side="top" align="end" className="account-menu-content w-72">
+          <DropdownMenuTrigger asChild>
+            <button
+              type="button"
+              className="account-menu-trigger row-focus"
+              aria-label={supported ? `${label}, Preferences and help` : 'Preferences and help'}
+            >
+              <Avatar text="" className="account-menu-avatar-empty" />
+              <span className="min-w-0 flex-1 truncate text-left text-sm font-medium">{label}</span>
+              <ChevronsUpDown
+                className="size-4 shrink-0 text-muted-foreground"
+                aria-hidden="true"
+              />
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent
+            side="top"
+            align="start"
+            // The menu stays inside the sidebar: as wide as the footer row.
+            className="account-menu-content w-[calc(var(--navigation-width)-var(--space-6))]"
+          >
+            {supported && (
+              <>
+                <DropdownMenuItem onSelect={() => startSignIn('login')}>
+                  <LogIn className="size-4" />
+                  {label}
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+              </>
+            )}
             <NotificationItem api={api} open={open} />
             <DropdownMenuSeparator />
             <AppItems />
@@ -250,7 +251,12 @@ export function AccountMenu({ api }: { api: API }) {
             <ChevronsUpDown className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
           </button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent side="top" align="start" className="account-menu-content w-72">
+        <DropdownMenuContent
+          side="top"
+          align="start"
+          // The menu stays inside the sidebar: as wide as the footer row.
+          className="account-menu-content w-[calc(var(--navigation-width)-var(--space-6))]"
+        >
           <DropdownMenuLabel className="account-menu-header">
             <Avatar text={avatar} className="size-8" />
             <span className="min-w-0">
@@ -373,7 +379,7 @@ export function SignInFlow({ api }: { api: API }) {
   if (typeof api.verdictanStatus !== 'function') return null;
   return (
     <Dialog open={!!request} onOpenChange={(open) => !open && setRequest(undefined)}>
-      <DialogContent size="md" className="sign-in-dialog">
+      <DialogContent size="sm">
         <DialogTitle className="sr-only">
           {request?.intent === 'register' ? 'Create a Verdictan account' : 'Sign in to Verdictan'}
         </DialogTitle>

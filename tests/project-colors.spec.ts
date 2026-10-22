@@ -9,7 +9,8 @@ test('right click sets matching project folder colors and resets them', async ({
   for (const name of ['Red', 'Yellow', 'Blue', 'Green', 'Indigo', 'Violet'])
     await expect(page.getByRole('menuitemradio', { name, exact: true })).toBeVisible();
   await page.getByRole('menuitemradio', { name: 'Violet', exact: true }).click();
-  const icon = page.locator('.project-tree .project-folder-icon').first();
+  // The folder icon of the project row takes the project color.
+  const icon = page.locator('.project-tree .tree-toggle svg').first();
   await expect(icon).toHaveCSS('color', 'rgb(147, 51, 234)');
   await expect(page.locator('.project-symbol')).toHaveCSS('color', 'rgb(147, 51, 234)');
   await project.click({ button: 'right' });

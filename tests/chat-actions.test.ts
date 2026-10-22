@@ -47,7 +47,8 @@ test('the actions keep the fixed groups and order', () => {
   assert.deepEqual(ids({ ...ready, open: true }, 'menu-bar'), [
     ['open', ['open-beside', 'open-window']],
     ['organize', ['rename', 'pin', 'link-task', 'notes']],
-    ['work', ['commit', 'create-pull-request', 'duplicate', 'fork', 'show-folder']],
+    // "Fork chat…" is the one way to copy a chat. Duplicate shows nowhere.
+    ['work', ['commit', 'create-pull-request', 'fork', 'show-folder']],
     ['share', ['share', 'copy-markdown', 'usage-history']],
     ['developer', ['developer']],
     ['archive', ['archive']],
@@ -66,11 +67,10 @@ test('the actions keep the fixed groups and order', () => {
   assert.deepEqual(children('developer'), ['copy-id', 'copy-path', 'open-vscode', 'open-cursor']);
 });
 
-test('the chat menus show ten items in two levels', () => {
+test('the chat menus show their items in two levels', () => {
   assert.deepEqual(ids(ready), [
-    ['open', ['open']],
     ['organize', ['rename', 'pin', 'link-task', 'notes']],
-    ['work', ['duplicate', 'fork', 'open-in']],
+    ['work', ['fork', 'open-beside', 'open-in']],
     ['share', ['export', 'usage-history']],
     ['archive', ['archive']],
   ]);
@@ -79,7 +79,6 @@ test('the chat menus show ten items in two levels', () => {
     'open-vscode',
     'open-cursor',
     'open-window',
-    'open-beside',
   ]);
   assert.deepEqual(submenuIds('export', ready), [
     'export-markdown',
@@ -87,7 +86,6 @@ test('the chat menus show ten items in two levels', () => {
     'copy-markdown',
     'save-to-docs',
   ]);
-  assert.deepEqual(submenuIds('duplicate', ready), ['duplicate-here', 'duplicate-branch']);
   // Commit and the pull request are in the changes row of the chat, not in these menus.
   const all = chatActionMenu('list', ready, 'mac').flatMap((group) => group.items);
   assert.ok(!all.some((item) => ['commit', 'create-pull-request'].includes(item.id)));
@@ -96,10 +94,11 @@ test('the chat menus show ten items in two levels', () => {
     for (const child of item.children || []) assert.equal(child.children, undefined);
 });
 
-test('the chat row menu and the chat header menu show the same actions, except Open', () => {
+test('the chat row menu and the chat header menu show the same actions', () => {
+  // A click on a row opens the chat, so the row menu has no Open.
   const list = ids(ready, 'list');
   const header = ids({ ...ready, open: true }, 'header');
-  assert.deepEqual(list.slice(1), header);
+  assert.deepEqual(list, header);
   assert.deepEqual(submenuIds('open-in', ready), submenuIds('open-in', { ...ready, open: true }));
   // The menu bar and the palette act on the open chat. They show the same actions.
   assert.deepEqual(
@@ -110,9 +109,9 @@ test('the chat row menu and the chat header menu show the same actions, except O
 
 test('actions hide only when they cannot apply', () => {
   const linked = ids({ ...ready, linkedTask: true });
-  assert.deepEqual(linked[1], ['organize', ['rename', 'pin', 'open-linked-task', 'notes']]);
+  assert.deepEqual(linked[0], ['organize', ['rename', 'pin', 'open-linked-task', 'notes']]);
   // Without a board, there is no task to link.
-  assert.deepEqual(ids({ ...ready, board: false })[1], ['organize', ['rename', 'pin', 'notes']]);
+  assert.deepEqual(ids({ ...ready, board: false })[0], ['organize', ['rename', 'pin', 'notes']]);
   assert.ok(
     !chatActionMenu('menu-bar', { ...ready, open: true, board: false }, 'mac')
       .flatMap((group) => group.items)
@@ -173,7 +172,7 @@ test('blocked actions are disabled with a reason', () => {
   // A new chat cannot export or duplicate before its first message.
   const draft = sessionActionState({ ...session, id: 'draft-1' }, { repository: true });
   assert.equal(draft.saved, false);
-  for (const id of ['duplicate', 'share', 'copy-markdown', 'open-window', 'developer'])
+  for (const id of ['fork', 'share', 'copy-markdown', 'open-window', 'developer'])
     assert.equal(item(draft, id).reason, reasons.firstMessage, id);
   assert.equal(item(ready, 'create-pull-request').disabled, false);
   assert.equal(

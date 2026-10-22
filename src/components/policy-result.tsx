@@ -18,6 +18,8 @@ import { agentErrorMessage } from '../lib/agent-errors';
 import type { API } from '../types';
 import { Button } from './ui/button';
 import { Textarea } from './ui/textarea';
+import { ChatCard } from './chat-card';
+import { Hint } from './hint';
 
 type ReviewAPI = Pick<
   API,
@@ -122,7 +124,6 @@ export function PolicyResultCard({
   const escalated = policy.decision === 'escalated';
   const shown = hidden ? undefined : review;
   const details: [string, string | undefined][] = [
-    ['Reason', policy.reason],
     ['Reason code', policy.reasonCode || shown?.reasonCode],
     ['Policy version', policy.policyVersion || shown?.policyVersion],
     ['Request ID', policy.requestId],
@@ -131,87 +132,97 @@ export function PolicyResultCard({
   const retry = !!onRetry && canRetry(policy, shown);
   const actions = shown && openReview(shown.status) ? shown.actions : [];
   return (
-    <section className="policy-result" aria-label="Policy result" role="status">
-      <ShieldAlert className="policy-result-icon" aria-hidden="true" />
-      <div className="grid min-w-0 gap-2">
-        <p className="policy-result-title">
-          {escalated ? 'This request needs a review' : 'The policy refused this request'}
-        </p>
-        <p className="policy-result-body">
-          {escalated
-            ? 'The policy sent this request to a reviewer. The agent did not get an answer.'
-            : 'The policy did not allow this request. The agent did not get an answer.'}
-        </p>
-        <dl className="policy-result-details">
-          {details
-            .filter(([, value]) => !!value)
-            .map(([label, value]) => (
-              <div key={label}>
-                <dt>{label}</dt>
-                <dd>{label === 'Reason' ? value : <code className="font-mono">{value}</code>}</dd>
-              </div>
-            ))}
-          {shown && (
-            <div>
-              <dt>Review status</dt>
-              <dd data-status={shown.status}>{reviewStatusWords[shown.status]}</dd>
-            </div>
-          )}
-        </dl>
-        {actions.length > 0 && (
-          <div className="grid gap-2">
-            <Textarea
-              aria-label="Review reason"
-              placeholder="Give a reason for your decision"
-              value={reason}
-              maxLength={2000}
-              onChange={(event) => setReason(event.target.value)}
-            />
-            <div className="flex flex-wrap gap-2">
-              {actions.map((action) => (
-                <Button
-                  key={action}
-                  size="sm"
-                  variant={action === 'approve' ? 'default' : 'outline'}
-                  disabled={!!deciding || !reason.trim()}
-                  onClick={() => void decide(action)}
-                >
-                  {deciding === action ? 'Saving…' : action === 'approve' ? 'Approve' : 'Deny'}
+    <ChatCard
+      tone="danger"
+      icon={ShieldAlert}
+      label="Policy result"
+      role="status"
+      title={escalated ? 'Request needs a review' : 'Request refused by policy'}
+      actions={
+        (retry || (shown?.consoleUrl && api.verdictanReviewOpen) || (reviewable && !hidden)) && (
+          <>
+            {reviewable && !hidden && (
+              <Button
+                size="sm"
+                variant="ghost"
+                className="mr-auto"
+                disabled={loading}
+                onClick={() => void refresh()}
+              >
+                <RefreshCw aria-hidden="true" />
+                {loading ? 'Refreshing…' : 'Refresh status'}
+              </Button>
+            )}
+            {shown?.consoleUrl && api.verdictanReviewOpen && (
+              <Button size="sm" variant="outline" onClick={() => void openConsole()}>
+                <ExternalLink aria-hidden="true" />
+                Open review in Console
+              </Button>
+            )}
+            {retry && (
+              <Hint label="Send again makes a new request. The current policy checks it again.">
+                <Button size="sm" variant="outline" disabled={busy} onClick={onRetry}>
+                  Send again
                 </Button>
+              </Hint>
+            )}
+          </>
+        )
+      }
+    >
+      <p className="chat-card-body">
+        {policy.reason ||
+          (escalated
+            ? 'The policy sent this request to a reviewer. The agent did not get an answer.'
+            : 'The agent did not get an answer.')}
+        {shown && ` Review status: ${reviewStatusWords[shown.status]}.`}
+      </p>
+      {details.some(([, value]) => !!value) && (
+        <details className="agent-error-details">
+          <summary>Details</summary>
+          <dl className="policy-result-details">
+            {details
+              .filter(([, value]) => !!value)
+              .map(([label, value]) => (
+                <div key={label}>
+                  <dt>{label}</dt>
+                  <dd>
+                    <code className="font-mono">{value}</code>
+                  </dd>
+                </div>
               ))}
-            </div>
+          </dl>
+        </details>
+      )}
+      {actions.length > 0 && (
+        <div className="grid gap-2">
+          <Textarea
+            aria-label="Review reason"
+            placeholder="Give a reason for your decision"
+            value={reason}
+            maxLength={2000}
+            onChange={(event) => setReason(event.target.value)}
+          />
+          <div className="chat-card-actions">
+            {actions.map((action) => (
+              <Button
+                key={action}
+                size="sm"
+                variant={action === 'approve' ? 'default' : 'outline'}
+                disabled={!!deciding || !reason.trim()}
+                onClick={() => void decide(action)}
+              >
+                {deciding === action ? 'Saving…' : action === 'approve' ? 'Approve' : 'Deny'}
+              </Button>
+            ))}
           </div>
-        )}
-        <div className="flex flex-wrap gap-2">
-          {retry && (
-            <Button size="sm" disabled={busy} onClick={onRetry}>
-              Send again
-            </Button>
-          )}
-          {shown?.consoleUrl && api.verdictanReviewOpen && (
-            <Button size="sm" variant="outline" onClick={() => void openConsole()}>
-              <ExternalLink aria-hidden="true" />
-              Open review in Console
-            </Button>
-          )}
-          {reviewable && !hidden && (
-            <Button size="sm" variant="ghost" disabled={loading} onClick={() => void refresh()}>
-              <RefreshCw aria-hidden="true" />
-              {loading ? 'Refreshing…' : 'Refresh status'}
-            </Button>
-          )}
         </div>
-        {retry && (
-          <p className="policy-result-note">
-            Send again makes a new request. The current policy checks it again.
-          </p>
-        )}
-        {error && (
-          <p className="policy-result-error" role="alert">
-            {error}
-          </p>
-        )}
-      </div>
-    </section>
+      )}
+      {error && (
+        <p className="field-error" role="alert">
+          {error}
+        </p>
+      )}
+    </ChatCard>
   );
 }

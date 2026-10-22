@@ -71,9 +71,10 @@ import { DataNoticeDialog, useDataNotice } from './components/data-settings';
 import { ProxySignInDialog } from './components/proxy-sign-in';
 import { AccountMenu, SessionBanner, SignInFlow } from './components/account-menu';
 import { BoardSettingsHost } from './components/board-settings-dialog';
+import { openConnectBoard } from './components/tracker-project-picker';
 import { NewChatButton, recentRepo } from './components/new-chat-button';
 import { TreeActionsMenu } from './components/tree-context-menu';
-import { ProjectOverview, type OverviewTab } from './components/project-overview';
+import { ProjectOverview, WaitingPage } from './components/project-overview';
 import { Hint } from './components/hint';
 import { CreateProject } from './components/create-project';
 import {
@@ -133,12 +134,14 @@ import {
   Folder,
   FolderOpen,
   LayoutGrid,
+  LoaderCircle,
   Pencil,
   Trash,
   Download,
   Layers2,
   type LucideIcon,
 } from 'lucide-react';
+import { ConfirmDialog } from './components/confirm-dialog';
 import { Button } from './components/ui/button';
 import { Input } from './components/ui/input';
 import {
@@ -155,7 +158,7 @@ import { Textarea } from './components/ui/textarea';
 import { EmptyState } from './components/ui/empty-state';
 import { EntityIcon } from './components/ui/entity-icon';
 import { PageHeader, SectionHeader } from './components/ui/page-header';
-import { SessionBrowser, showSessionScope } from './components/session-browser';
+import { SessionBrowser } from './components/session-browser';
 import { ProjectTrackerPanel } from './components/project-tracker';
 import { Choice } from './components/choice';
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from './components/ui/collapsible';
@@ -232,6 +235,7 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
   const home = route.kind === 'home';
   const sessionsPage = route.kind === 'sessions';
   const computersPage = route.kind === 'computers';
+  const waitingPage = route.kind === 'waiting';
   const chatOpen = route.kind === 'conversation';
   const boardGroup = basePage.kind === 'project' ? basePage.groupId : null;
   const projectPage: ProjectPage = basePage.kind === 'project' ? basePage.page : 'board';
@@ -352,7 +356,6 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
   const dataNotice = useDataNotice(api, signedIn && !preview);
 
   // The project page that the Projects overview shows: the projects, or "My work".
-  const [overviewTab, setOverviewTab] = useState<OverviewTab>('projects');
   // The title of the open doc page, for the breadcrumb. The docs page reports it.
   const [docTitle, setDocTitle] = useState<{
     groupId: string;
@@ -1010,10 +1013,9 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
   function openAllSessions() {
     navigate({ kind: 'sessions' });
   }
-  /** Opens All chats on the chats that wait for the user. */
+  /** Opens the one "Waiting for you" page. */
   function openWaiting() {
-    showSessionScope('all-sessions', 'waiting');
-    navigate({ kind: 'sessions' });
+    navigate({ kind: 'waiting' });
   }
   // The row that the Computers page moves to, for example 'managed-agent-setup'.
   const [computersAnchor, setComputersAnchor] = useState<string>();
@@ -1080,8 +1082,9 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
   function newChat(agent: Agent = preferredAgent) {
     const chatRepo = chatOpen && chatSession ? sessionRepo(chatSession, data.projects) : undefined;
     if (chatRepo) return startSession(agent, chatRepo, chatSession?.cwd);
-    if (!home && !boardGroup && !sessionsPage && project) return startSession(agent);
-    const group = !home && !sessionsPage ? currentProjectGroup() : undefined;
+    if (!home && !boardGroup && !sessionsPage && !waitingPage && project)
+      return startSession(agent);
+    const group = !home && !sessionsPage && !waitingPage ? currentProjectGroup() : undefined;
     if (group) return newChatIn(group, agent);
     const repo = recentRepo(data.projects, data.sessions);
     if (repo) return startSession(agent, repo);
@@ -1213,7 +1216,7 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
         }
         showToast({
           message: 'Add a code folder to this project first. Agents work in a code folder.',
-          actions: [{ label: 'Add a code folder', onClick: () => addCodeFolder(group?.id) }],
+          actions: [{ label: 'Add code folder…', onClick: () => addCodeFolder(group?.id) }],
         });
         return;
       }
@@ -1258,8 +1261,9 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
   const projectGroup = project
     ? data.groups?.find((g) => g.repoIds.includes(project.id))
     : undefined;
-  // The title bar shows a trail only on a doc page ("Knowledge › Page title") and on a code
-  // folder page ("Atlas › atlas-web"). On other pages, the title and the tabs say where you are.
+  // The title bar shows one trail on every page, from the route: "Projects › Atlas › Tasks",
+  // "Projects › Atlas › atlas-web", "All chats". Ancestors are muted links. The current page
+  // is in the foreground. A chat has its own trail (agent-workspace.tsx).
   const trailGroup = currentGroup || projectGroup;
   const pageNames: Record<ProjectPage, string> = {
     board: 'Overview',
@@ -1274,32 +1278,41 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
     (knowledgeSection || 'pages') === 'pages' &&
     docTitle?.groupId === currentGroup.id &&
     !!docTitle.docId;
-  const pageTrail: Crumb[] =
-    currentGroup && docOpen
-      ? [
-          {
-            label: 'Knowledge',
-            name: `${currentGroup.name} Knowledge`,
-            open: () => openGroup(currentGroup, 'knowledge', 'pages'),
-          },
-          { label: docTitle!.title, name: docTitle!.title },
-        ]
-      : !home && !sessionsPage && !computersPage && !currentGroup && project
-        ? [
-            ...(trailGroup
-              ? [
-                  {
-                    label: trailGroup.name,
-                    name: `${trailGroup.name} project`,
-                    open: () => openGroup(trailGroup),
-                    optional: true,
-                  },
-                ]
-              : []),
-            { label: project.name, name: project.name },
-          ]
-        : [];
-  const viewTrail: Crumb[] = pageTrail;
+  const page = (label: string): Crumb => ({ label, name: label });
+  const projectsCrumb: Crumb = { label: 'Projects', name: 'Projects', open: openOverview };
+  // In a narrow title bar, the project crumb hides first. "Projects" and the page stay.
+  const groupCrumb = (group: ProjectGroup): Crumb => ({
+    label: group.name,
+    name: `${group.name} project`,
+    open: () => openGroup(group),
+    optional: true,
+  });
+  const viewTrail: Crumb[] = home
+    ? [page('Projects')]
+    : sessionsPage
+      ? [page('All chats')]
+      : computersPage
+        ? [page('Computers')]
+        : waitingPage
+          ? [page('Waiting for you')]
+          : currentGroup
+            ? [
+                projectsCrumb,
+                groupCrumb(currentGroup),
+                ...(docOpen
+                  ? [
+                      {
+                        label: 'Knowledge',
+                        name: `${currentGroup.name} Knowledge`,
+                        open: () => openGroup(currentGroup, 'knowledge', 'pages'),
+                      },
+                      page(docTitle!.title),
+                    ]
+                  : [page(pageNames[projectPage])]),
+              ]
+            : project
+              ? [projectsCrumb, ...(trailGroup ? [groupCrumb(trailGroup)] : []), page(project.name)]
+              : [];
   openRef.current = (session: Session) => openConversation(session);
   function openConversation(session: Session, parentPage?: WorkspacePage) {
     const repo = sessionRepo(session, data.projects);
@@ -1753,7 +1766,7 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
               },
               {
                 key: 'docs-to-issues',
-                label: inProject(actionGroup, 'Create tasks from a doc…'),
+                label: inProject(actionGroup, 'Make tasks from a page…'),
                 keywords: 'issues plan docs',
                 icon: <FileInput />,
                 run: () => planningTool(actionGroup, 'docs-to-issues'),
@@ -1788,15 +1801,10 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
           : [
               {
                 key: 'connect-board',
-                label: inProject(actionGroup, 'Connect a board…'),
+                label: inProject(actionGroup, 'Connect board…'),
                 keywords: 'github projects tasks tracker',
                 icon: <Layers2 />,
-                run: () =>
-                  window.dispatchEvent(
-                    new CustomEvent('kalkidan-open-project-settings', {
-                      detail: { groupId: actionGroup.id, section: 'board' },
-                    }),
-                  ),
+                run: () => openConnectBoard({ groupId: actionGroup.id }),
               },
             ]),
         {
@@ -1889,9 +1897,8 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
         ...data.projects.map((repo) => ({
           key: 'new-chat-in-' + repo.id,
           label: `New chat in ${repo.name}`,
-          keywords: `start chat agent code folder ${
-            data.groups?.find((g) => g.repoIds.includes(repo.id))?.name || ''
-          }`,
+          // Only the code folder name finds it, not the name of its project.
+          keywords: 'start chat agent code folder',
           icon: <MessageSquare />,
           run: () => startSession(preferredAgent, repo),
         })),
@@ -1904,18 +1911,11 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
     ...projectPageActions,
     {
       key: 'add-folder',
-      label: 'Add a code folder…',
-      keywords: 'repository import open folder',
+      label: 'Add code folder…',
+      keywords: 'repository import open folder clone github',
       shortcut: shortcutLabel(['mod', 'shift'], 'O'),
       icon: <FolderPlus />,
       run: () => addCodeFolder(),
-    },
-    {
-      key: 'clone-github',
-      label: 'Clone from GitHub…',
-      keywords: 'repository import code folder',
-      icon: <FolderGit2 />,
-      run: () => addCodeFolder(undefined, 'github'),
     },
     {
       key: 'new-project',
@@ -1948,10 +1948,7 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
       label: 'Waiting for you',
       keywords: 'portfolio overview assigned my work needs you',
       icon: <LayoutGrid />,
-      run: () => {
-        setOverviewTab('waiting');
-        openOverview();
-      },
+      run: openWaiting,
     },
     ...(!signedIn
       ? [
@@ -1973,7 +1970,7 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
       : []),
     {
       key: 'settings',
-      label: 'Preferences',
+      label: 'Preferences…',
       keywords: 'settings preferences',
       shortcut: shortcutLabel(['mod'], ','),
       icon: <Settings2 />,
@@ -2090,7 +2087,7 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
     const members = group ? data.projects.filter((p) => group.repoIds.includes(p.id)) : [];
     const repo =
       chatRepo ||
-      (!home && !boardGroup && !sessionsPage && project) ||
+      (!home && !boardGroup && !sessionsPage && !waitingPage && project) ||
       recentRepo(members.length ? members : data.projects, data.sessions);
     void routeEvents.current.newSession({
       groupId: group?.id,
@@ -2110,11 +2107,11 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
           ...(boardReady ? [] : ['connect-board']),
           'project-settings',
         ]
-      : project && !home && !sessionsPage
-        ? ['new-chat', 'branch-copy', 'terminal', 'all-sessions']
+      : project && !home && !sessionsPage && !waitingPage
+        ? ['new-chat', 'branch-copy', 'terminal']
         : data.groups?.length
-          ? ['new-chat', 'new-project', 'all-sessions', 'settings']
-          : ['new-project', 'add-folder', 'clone-github', 'settings'];
+          ? ['new-chat', 'new-project', 'settings']
+          : ['new-project', 'add-folder', 'settings'];
   if (!signedIn) suggestedKeys.push('sign-in');
   const suggestedActions = suggestedKeys
     .map((key) => searchActions.find((action) => action.key === key))
@@ -2136,6 +2133,7 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
   );
   // The main checkout is the first entry of `git worktree list`. It cannot be removed.
   const mainCheckout = git?.worktrees[0]?.path;
+  const mainBranch = git?.worktrees[0]?.branch;
   function worktreeRepository(path: string) {
     return data.projects.find((p) => p.path === path && p.hostId === project?.hostId);
   }
@@ -2263,7 +2261,7 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
             ...(linked && treeRepo
               ? [
                   {
-                    label: 'Delete this branch copy…',
+                    label: 'Delete branch copy…',
                     icon: <Trash2 className="size-4" />,
                     destructive: true,
                     separator: true,
@@ -2336,7 +2334,8 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
           {navigationToggle}
           <div className="navigation-history" role="group" aria-label="Navigation history">
             <Hint
-              label={`Go back (${isMac ? shortcutLabel(['mod'], '[') : shortcutLabel(['alt'], '←')})`}
+              label="Go back"
+              shortcut={isMac ? shortcutLabel(['mod'], '[') : shortcutLabel(['alt'], '←')}
             >
               <Button
                 variant="ghost"
@@ -2349,7 +2348,8 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
               </Button>
             </Hint>
             <Hint
-              label={`Go forward (${isMac ? shortcutLabel(['mod'], ']') : shortcutLabel(['alt'], '→')})`}
+              label="Go forward"
+              shortcut={isMac ? shortcutLabel(['mod'], ']') : shortcutLabel(['alt'], '→')}
             >
               <Button
                 variant="ghost"
@@ -2465,6 +2465,7 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
           onAllSessions={openAllSessions}
           allSessionsCurrent={sessionsPage && !chatOpen}
           onWaiting={openWaiting}
+          waitingCurrent={waitingPage && !chatOpen}
           onComputers={() => openComputers()}
           computersCurrent={computersPage && !chatOpen}
           openChats={openChats}
@@ -2481,8 +2482,8 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
             ),
             ...data.sessions,
           ]}
-          selected={home || sessionsPage || computersPage ? '' : selected}
-          activeGroup={home || sessionsPage || computersPage ? null : boardGroup}
+          selected={home || sessionsPage || computersPage || waitingPage ? '' : selected}
+          activeGroup={home || sessionsPage || computersPage || waitingPage ? null : boardGroup}
           activeSession={chatOpen ? chatSession : null}
           busy={busy}
           onSelect={openProject}
@@ -2562,12 +2563,16 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
                     repos={data.projects}
                     sessions={data.sessions}
                     query=""
-                    activity={sessionActivity}
                     boards={boards}
-                    tab={overviewTab}
-                    onTabChange={setOverviewTab}
                     onRefresh={refresh}
                     onSelect={(group) => openGroup(group)}
+                  />
+                ) : waitingPage ? (
+                  <WaitingPage
+                    api={api}
+                    groups={data.groups || []}
+                    repos={data.projects}
+                    sessions={data.sessions}
                     onResume={openConversation}
                   />
                 ) : computersPage ? (
@@ -2576,6 +2581,7 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
                   <section className="page" aria-label="All chats">
                     <PageHeader
                       title="All chats"
+                      reserveSubtitle
                       actions={<NewChatButton repos={data.projects} sessions={data.sessions} />}
                     />
                     <SessionBrowser
@@ -2633,7 +2639,6 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
                         onOpenSession={openConversation}
                         onRepo={openProject}
                         onAddFolder={() => addCodeFolder(boardGroup)}
-                        onCloneFromGitHub={() => addCodeFolder(boardGroup, 'github')}
                       />
                     ) : projectPage === 'chats' ? (
                       <ProjectChats
@@ -2674,7 +2679,6 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
                         onRepo={openProject}
                         onTask={(repo, agent, task) => newSession(agent, repo, task)}
                         onAddFolder={() => addCodeFolder(boardGroup)}
-                        onCloneFromGitHub={() => addCodeFolder(boardGroup, 'github')}
                         onNewSession={(repo, agent) => startSession(agent, repo)}
                         onOpenSession={openConversation}
                         onOpenDocs={(pageId) =>
@@ -2693,13 +2697,19 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
                   <section className="page">
                     <PageHeader
                       icon={
-                        <EntityIcon size="lg">
+                        <EntityIcon>
                           <GitBranch />
                         </EntityIcon>
                       }
                       title={project.name}
                       subtitle={
                         <>
+                          {mainBranch && (
+                            <>
+                              <span className="shrink-0">{mainBranch}</span>
+                              <span aria-hidden="true">·</span>
+                            </>
+                          )}
                           {project.hostId && (
                             <span className="inline-flex shrink-0 items-center gap-1.5">
                               SSH · {host?.name || 'Remote host'} · {host?.status || 'disconnected'}
@@ -2739,7 +2749,7 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
                       }
                       actions={
                         <>
-                          <NewChatButton repos={[project]} sessions={sessions} />
+                          <NewChatButton repos={[project]} sessions={sessions} variant="outline" />
                           <TreeActionsMenu
                             label="Repository actions"
                             size="md"
@@ -2796,11 +2806,8 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
                       }
                     />
                     <div className="repository-overview">
-                      {/* The main folder first, without a count. Branch copies show only when
-                          there is one or more. */}
-                      {git?.worktrees
-                        .filter((tree) => tree.path === mainCheckout)
-                        .map((tree) => worktreeRow(tree))}
+                      {/* The header shows the branch and the path of the main folder. Branch
+                          copies show only when there is one or more. */}
                       {repositoryState.status === 'refreshing' && (
                         <p className="help-text" role="status">
                           Updating project details…
@@ -2853,7 +2860,7 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
                         <div className="flex flex-wrap justify-center gap-2">
                           {data.groups?.length ? (
                             <Button size="lg" onClick={() => addCodeFolder()}>
-                              <FolderPlus /> Add a code folder
+                              <FolderPlus /> Add code folder…
                             </Button>
                           ) : (
                             <AddRepository
@@ -2863,7 +2870,7 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
                               onRefresh={reload}
                               onNotice={notify}
                             >
-                              <FolderPlus /> Add a code folder
+                              <FolderPlus /> Add code folder…
                             </AddRepository>
                           )}
                           <Button variant="outline" size="lg" onClick={() => setCreateOpen(true)}>
@@ -2954,6 +2961,7 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
         api={api}
         groups={data.groups || []}
         activeGroupId={currentProjectGroup()?.id}
+        onChanged={() => reload()}
       />
       <ShortcutsSheet
         open={shortcutsOpen}
@@ -3008,32 +3016,61 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
         }}
       />
       {/* Work started here continues after the dialog closes and reports through a toast. */}
-      <Dialog open={modal !== null} onOpenChange={(open) => !open && setModal(null)}>
-        <DialogContent
-          size={shownModal === 'remove' || shownModal === 'remove-worktree' ? 'sm' : 'md'}
-          layout={shownModal === 'edit' || shownModal === 'worktree' ? 'scroll' : 'simple'}
-          onCloseAutoFocus={restoreTriggerFocus}
-        >
+      <ConfirmDialog
+        open={modal === 'remove'}
+        title="Remove code folder"
+        description={`Kalkidan stops showing ${modalProject?.name || 'this code folder'}. The folder, its files and its chats stay on disk.`}
+        confirmLabel="Remove code folder"
+        destructive
+        busy={modalBusy}
+        onCancel={() => setModal(null)}
+        onConfirm={() => {
+          const removed = modalProject?.name || 'Code folder';
+          void runModal(async () => {
+            await api.remove(modalRepo);
+            setModal(null);
+          }, `${removed} removed from Kalkidan.`);
+        }}
+      >
+        {modalError && (
+          <p role="alert" className="field-error">
+            {modalError}
+          </p>
+        )}
+      </ConfirmDialog>
+      <ConfirmDialog
+        open={modal === 'remove-worktree'}
+        title="Delete branch copy"
+        description={
+          worktreeTarget?.dirty
+            ? `${worktreeTarget.branch} has changes that are not committed. If you delete it, the changes are lost.`
+            : `Kalkidan deletes the folder of ${worktreeTarget?.branch || 'the branch copy'}. The branch and its commits stay in the repository.`
+        }
+        confirmLabel="Delete branch copy"
+        destructive
+        busy={modalBusy}
+        onCancel={() => setModal(null)}
+        onConfirm={removeWorktree}
+      >
+        {modalError && (
+          <p role="alert" className="field-error">
+            {modalError}
+          </p>
+        )}
+      </ConfirmDialog>
+      <Dialog
+        open={modal === 'edit' || modal === 'worktree'}
+        onOpenChange={(open) => !open && setModal(null)}
+      >
+        <DialogContent size="md" layout="scroll" onCloseAutoFocus={restoreTriggerFocus}>
           <DialogHeader>
             <DialogTitle>
-              {shownModal === 'worktree'
-                ? 'Create a branch copy'
-                : shownModal === 'edit'
-                  ? 'Edit code folder'
-                  : shownModal === 'remove'
-                    ? `Remove ${modalProject?.name || 'code folder'} from Kalkidan?`
-                    : `Delete branch copy ${worktreeTarget?.branch || ''}?`}
+              {shownModal === 'worktree' ? 'New branch copy' : 'Edit code folder'}
             </DialogTitle>
             <DialogDescription>
               {shownModal === 'worktree'
                 ? `${branchCopyHelp} Kalkidan adds the folder to the project.`
-                : shownModal === 'edit'
-                  ? 'Change the name, the project and the notes of this code folder.'
-                  : shownModal === 'remove'
-                    ? 'Kalkidan stops showing this code folder. The folder, its files, and its sessions stay on disk.'
-                    : worktreeTarget?.dirty
-                      ? 'This branch copy has changes that are not committed. If you delete it, the changes are lost.'
-                      : 'Kalkidan deletes the branch copy folder. The branch and its commits stay in the repository.'}
+                : 'Change the name, the project and the notes of this code folder.'}
             </DialogDescription>
           </DialogHeader>
           {shownModal === 'worktree' && (
@@ -3117,14 +3154,13 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
                   </div>
                   <Button
                     type="button"
-                    variant="outline"
-                    className="text-destructive hover:text-destructive"
+                    variant="destructive-outline"
                     onClick={() => {
                       setModalError('');
                       setModal('remove');
                     }}
                   >
-                    <Trash2 /> Remove from Kalkidan…
+                    <Trash2 /> Remove code folder…
                   </Button>
                 </div>
                 {modalError && (
@@ -3141,12 +3177,7 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
             </p>
           )}
           <DialogFooter>
-            <Button
-              type="button"
-              variant="outline"
-              autoFocus={shownModal === 'remove' || shownModal === 'remove-worktree'}
-              onClick={() => setModal(null)}
-            >
+            <Button type="button" variant="outline" onClick={() => setModal(null)}>
               Cancel
             </Button>
             {shownModal === 'edit' && (
@@ -3160,39 +3191,10 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
                 </Button>
               </Hint>
             )}
-            {shownModal === 'remove' && (
-              <Button
-                type="button"
-                variant="destructive"
-                disabled={modalBusy}
-                onClick={() => {
-                  const removed = modalProject?.name || 'Code folder';
-                  void runModal(async () => {
-                    await api.remove(modalRepo);
-                    setModal(null);
-                  }, `${removed} removed from Kalkidan.`);
-                }}
-              >
-                Remove from Kalkidan
-              </Button>
-            )}
-            {shownModal === 'remove-worktree' && (
-              <Button
-                type="button"
-                variant="destructive"
-                disabled={modalBusy}
-                onClick={removeWorktree}
-              >
-                {worktreeTarget?.dirty ? 'Delete anyway' : 'Delete branch copy'}
-              </Button>
-            )}
             {shownModal === 'worktree' && (
-              <Button
-                type="submit"
-                form="repository-dialog-form"
-                disabled={modalBusy || !branch.trim()}
-              >
-                {modalBusy ? 'Creating…' : 'Create branch copy'}
+              <Button type="submit" form="repository-dialog-form" disabled={!branch.trim()}>
+                {modalBusy && <LoaderCircle className="animate-spin" aria-hidden="true" />}
+                Create branch copy
               </Button>
             )}
           </DialogFooter>

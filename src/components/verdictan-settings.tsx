@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
-import { Laptop } from 'lucide-react';
+import { Building2, Laptop } from 'lucide-react';
 import type { API } from '../api/contracts';
 import type { AgentInstallation } from '../domain/conversation';
 import {
@@ -40,8 +40,8 @@ import {
   teamPolicyLabel,
 } from './verdictan-setup';
 import { AgentProgramsDialog } from './agent-programs';
-import { startSignIn } from './sign-in-steps';
 import { SettingsRow, StatusBadge } from './settings-disclosure';
+import { ConfirmDialog } from './confirm-dialog';
 import { Alert, AlertDescription } from './ui/alert';
 import { AgentIcon } from './ui/agent-icon';
 import { Button } from './ui/button';
@@ -51,10 +51,10 @@ import {
   DialogBody,
   DialogContent,
   DialogDescription,
-  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from './ui/dialog';
+import { SegmentedControl } from './ui/segmented-control';
 import { EntityIcon } from './ui/entity-icon';
 import { Progress } from './ui/progress';
 import { showToast } from './ui/toast';
@@ -368,7 +368,7 @@ export function ThisComputerRow({ api, runtime }: { api: API; runtime: RuntimeSt
           <Laptop />
         </EntityIcon>
       }
-      label="This computer"
+      label="Managed agents"
       help={
         account?.keychainWaiting ? (
           <span role="status" data-testid="keychain-waiting">
@@ -520,52 +520,38 @@ export function RegionDialog({
   }, [open, current]);
   const changes = !!current && !!choice && choice !== current;
   return (
-    <Dialog open={open} onOpenChange={(next) => !next && !busy && onCancel()}>
-      <DialogContent size="sm" layout="scroll">
-        <DialogHeader>
-          <DialogTitle>{current ? 'Change region' : 'Choose a region'}</DialogTitle>
-          <DialogDescription>
-            Use the region of your organization. Each region keeps a separate sign-in.
-          </DialogDescription>
-        </DialogHeader>
-        <DialogBody className="grid gap-3">
-          <fieldset className="grid gap-2">
-            <legend className="sr-only">Region</legend>
-            {regions.map((region) => (
-              <CheckboxRow
-                key={region}
-                type="radio"
-                name="settings-region"
-                checked={choice === region}
-                onChange={() => setChoice(region)}
-                label={regionNames[region]}
-                description={region === current ? 'The region now' : undefined}
-              />
-            ))}
-          </fieldset>
-          {changes && (
-            <Alert size="sm" role="note">
-              <AlertDescription className="text-xs leading-4">
-                Changing the region stops running agents and disconnects SSH hosts.
-                {signedIn ? ' You sign in again in the new region.' : ''}
-              </AlertDescription>
-            </Alert>
-          )}
-        </DialogBody>
-        <DialogFooter>
-          <Button variant="outline" disabled={busy} onClick={onCancel}>
-            Cancel
-          </Button>
-          <Button
-            variant={changes ? 'destructive' : 'default'}
-            disabled={busy || !choice || choice === current}
-            onClick={() => choice && onConfirm(choice)}
-          >
-            {busy ? 'Changing…' : changes ? 'Stop work and change' : 'Use this region'}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+    <ConfirmDialog
+      open={open}
+      title={current ? 'Change region' : 'Choose a region'}
+      description="Use the region of your organization. Each region keeps a separate sign-in."
+      confirmLabel={current ? 'Change region' : 'Choose region'}
+      destructive={changes}
+      busy={busy}
+      confirmDisabled={!choice || choice === current}
+      onCancel={onCancel}
+      onConfirm={() => choice && onConfirm(choice)}
+    >
+      <fieldset className="grid gap-2">
+        <legend className="sr-only">Region</legend>
+        {regions.map((region) => (
+          <CheckboxRow
+            key={region}
+            type="radio"
+            name="settings-region"
+            checked={choice === region}
+            onChange={() => setChoice(region)}
+            label={regionNames[region]}
+            description={region === current ? 'The region now' : undefined}
+          />
+        ))}
+      </fieldset>
+      {changes && (
+        <p role="note" className="form-help mt-0">
+          Changing the region stops running agents and disconnects SSH hosts.
+          {signedIn ? ' You sign in again in the new region.' : ''}
+        </p>
+      )}
+    </ConfirmDialog>
   );
 }
 
@@ -656,31 +642,15 @@ function setupLine(setup: VerdictanSetup, agent: ManagedAgentKind) {
 
 /**
  * The coding agent rows of the Computers page: one row for Codex and one for Claude Code with the
- * program version, the default model, and the state. A warning shows only when the agent
- * cannot run, with one outline action. "Choose…" picks the program on this computer. Under
- * each row, "Organization setup" opens the team, policy and connection choices in place.
+ * program version, the default model, and the state. "Install…" or "Locate…" opens the program
+ * of that agent on this computer. The organization setup of both agents is one row below them.
  */
-export function AgentRows({ api, open, anchor }: { api: API; open: boolean; anchor?: string }) {
+export function AgentRows({ api, open }: { api: API; open: boolean }) {
   const account = useAccountStatus(api, open);
   const status = account.status;
-  const signedIn = status?.phase === 'authenticated';
-  const [setup, setSetup] = useState<VerdictanSetup>();
-  const [setupFailed, setSetupFailed] = useState(false);
+  const setup = useOrganizationSetup(api, open, status?.phase === 'authenticated');
   const [programs, setPrograms] = useState<AgentInstallation[]>();
-  const [expanded, setExpanded] = useState<ManagedAgentKind>();
-  const [programsOpen, setProgramsOpen] = useState(false);
-  const readSetup = useCallback(() => {
-    if (!signedIn) return;
-    void Promise.resolve()
-      .then(() => api.verdictanSetup())
-      .then(
-        (value) => {
-          setSetup(value);
-          setSetupFailed(false);
-        },
-        () => setSetupFailed(true),
-      );
-  }, [api, signedIn]);
+  const [programAgent, setProgramAgent] = useState<ManagedAgentKind>();
   const readPrograms = useCallback(() => {
     void Promise.resolve()
       .then(() => api.agentInstallations())
@@ -692,95 +662,173 @@ export function AgentRows({ api, open, anchor }: { api: API; open: boolean; anch
         () => {},
       );
   }, [api]);
-  useRefreshTriggers(api, open && signedIn, readSetup);
   useRefreshTriggers(undefined, open, readPrograms);
-  // A link to the managed setup opens the setup of the first agent that needs it.
-  const linked = useRef(false);
-  useEffect(() => {
-    if (linked.current || anchor !== settingsAnchors.managedSetup || !setup) return;
-    linked.current = true;
-    const first = (['codex', 'claude'] as const).find(
-      (agent) => !setup.selections[agent] || selectionIssue(setup, setup.selections[agent]),
-    );
-    if (first) setExpanded(first);
-  }, [anchor, setup]);
   const agents: ManagedAgentKind[] = ['codex', 'claude'];
   return (
     <>
       {agents.map((agent) => {
         const program = programs?.find((item) => item.agent === agent);
-        const state = agentRowState(agent, status, setup, program, !!account.error, setupFailed);
+        const state = agentRowState(
+          agent,
+          status,
+          setup.value,
+          program,
+          !!account.error,
+          setup.failed,
+        );
         const name = managedAgentNames[agent];
-        const editing = expanded === agent;
+        const missing = program?.status === 'missing';
         return (
           <SettingsRow
             key={agent}
-            id={agent === 'codex' ? settingsAnchors.managedSetup : agentProgramAnchor(agent)}
+            id={agentProgramAnchor(agent)}
             icon={
               <EntityIcon>
                 <AgentIcon agent={agent} />
               </EntityIcon>
             }
             label={name}
-            help={state.help || undefined}
-            extra={
-              signedIn && setup ? (
-                <div className="grid gap-3">
-                  <div className="flex min-w-0 items-center gap-3">
-                    <span className="min-w-0 flex-1">
-                      <span className="settings-row-label block">Organization setup</span>
-                      <span className="settings-row-help block">
-                        {setupLine(setup, agent) || 'Not chosen'}
-                      </span>
-                    </span>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      aria-expanded={editing}
-                      aria-label={`${editing ? 'Hide' : 'Change'} the organization setup of ${name}`}
-                      onClick={() => setExpanded(editing ? undefined : agent)}
-                    >
-                      {editing ? 'Done' : state.action === 'setup' ? 'Set up…' : 'Change…'}
-                    </Button>
-                  </div>
-                  {editing && (
-                    <VerdictanSetupForm
-                      api={api}
-                      agent={agent}
-                      onSetup={(value) => {
-                        setSetup(value);
-                        notifyManagedAgentsChanged();
-                      }}
-                    />
-                  )}
-                </div>
-              ) : undefined
+            help={
+              state.action === 'sign-in'
+                ? [state.help, 'Sign in to Verdictan to use it'].filter(Boolean).join(' · ')
+                : state.help || undefined
             }
           >
             <StatusBadge status={state.status} />
-            {state.action === 'sign-in' ? (
-              <Button variant="outline" size="sm" onClick={() => startSignIn('login')}>
-                Sign in
-              </Button>
-            ) : (
-              <Button
-                variant="outline"
-                size="sm"
-                aria-label={`Choose the ${name} program`}
-                onClick={() => setProgramsOpen(true)}
-              >
-                Choose…
-              </Button>
-            )}
+            <Button
+              variant="outline"
+              size="sm"
+              aria-label={`${missing ? 'Install' : 'Locate'} the ${name} program`}
+              onClick={() => setProgramAgent(agent)}
+            >
+              {missing ? 'Install…' : 'Locate…'}
+            </Button>
           </SettingsRow>
         );
       })}
       <AgentProgramsDialog
         api={api}
-        open={programsOpen}
-        onOpenChange={setProgramsOpen}
+        agent={programAgent}
+        open={!!programAgent}
+        onOpenChange={(next) => !next && setProgramAgent(undefined)}
         onChecked={(list) => setPrograms(list)}
       />
+    </>
+  );
+}
+
+/** Reads the setup of the organization while somebody is signed in. */
+function useOrganizationSetup(api: API, open: boolean, signedIn: boolean) {
+  const [value, setValue] = useState<VerdictanSetup>();
+  const [failed, setFailed] = useState(false);
+  const read = useCallback(() => {
+    if (!signedIn) return;
+    void Promise.resolve()
+      .then(() => api.verdictanSetup())
+      .then(
+        (next) => {
+          setValue(next);
+          setFailed(false);
+        },
+        () => setFailed(true),
+      );
+  }, [api, signedIn]);
+  useRefreshTriggers(api, open && signedIn, read);
+  useEffect(() => {
+    const onChange = () => read();
+    window.addEventListener(managedAgentsChangedEvent, onChange);
+    return () => window.removeEventListener(managedAgentsChangedEvent, onChange);
+  }, [read]);
+  return { value, setValue, failed };
+}
+
+/**
+ * The one "Organization setup" row of this computer: the team, policy, connection and default
+ * model of Codex and Claude Code. "Set up…" or "Change…" opens the setup in a dialog. A link to
+ * the managed setup opens the dialog at the first agent that needs it.
+ */
+export function OrganizationSetupRow({
+  api,
+  open,
+  anchor,
+}: {
+  api: API;
+  open: boolean;
+  anchor?: string;
+}) {
+  const account = useAccountStatus(api, open);
+  const signedIn = account.status?.phase === 'authenticated';
+  const setup = useOrganizationSetup(api, open, signedIn);
+  const [editing, setEditing] = useState<ManagedAgentKind>();
+  const agents: ManagedAgentKind[] = ['codex', 'claude'];
+  const needs = setup.value
+    ? agents.find(
+        (agent) =>
+          !setup.value!.selections[agent] ||
+          selectionIssue(setup.value!, setup.value!.selections[agent]),
+      )
+    : undefined;
+  const linked = useRef(false);
+  useEffect(() => {
+    if (linked.current || anchor !== settingsAnchors.managedSetup || !setup.value) return;
+    linked.current = true;
+    if (needs) setEditing(needs);
+  }, [anchor, setup.value]);
+  if (!signedIn || !setup.value) return null;
+  const help = agents
+    .map((agent) => {
+      const line = setupLine(setup.value!, agent);
+      return `${managedAgentNames[agent]}: ${line || 'Not chosen'}`;
+    })
+    .join(' · ');
+  return (
+    <>
+      <SettingsRow
+        id={settingsAnchors.managedSetup}
+        icon={
+          <EntityIcon>
+            <Building2 />
+          </EntityIcon>
+        }
+        label="Organization setup"
+        help={help}
+      >
+        {needs && <StatusBadge status={{ label: 'Needs setup', tone: 'warning' }} />}
+        <Button variant="outline" size="sm" onClick={() => setEditing(needs || 'codex')}>
+          {needs ? 'Set up…' : 'Change…'}
+        </Button>
+      </SettingsRow>
+      <Dialog open={!!editing} onOpenChange={(next) => !next && setEditing(undefined)}>
+        <DialogContent size="sm" layout="scroll">
+          <DialogHeader>
+            <DialogTitle>Organization setup</DialogTitle>
+            <DialogDescription>
+              Each choice saves at once. Undo shows after each change.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogBody className="grid content-start gap-4">
+            <SegmentedControl
+              size="sm"
+              label="Agent"
+              className="justify-self-start"
+              value={editing || 'codex'}
+              onChange={(value) => setEditing(value)}
+              options={agents.map((agent) => ({ value: agent, label: managedAgentNames[agent] }))}
+            />
+            {editing && (
+              <VerdictanSetupForm
+                key={editing}
+                api={api}
+                agent={editing}
+                onSetup={(value) => {
+                  setup.setValue(value);
+                  notifyManagedAgentsChanged();
+                }}
+              />
+            )}
+          </DialogBody>
+        </DialogContent>
+      </Dialog>
     </>
   );
 }

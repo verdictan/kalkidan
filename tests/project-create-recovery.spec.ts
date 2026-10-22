@@ -22,7 +22,12 @@ test('reopening an uncertain project creation resumes its original request', asy
     };
   });
   await page.goto('/');
-  await page.getByRole('button', { name: 'New project', exact: true }).first().click();
+  // Without projects, the Projects page offers "New empty project".
+  const newProject = page
+    .getByRole('main')
+    .getByRole('button', { name: /^New (empty )?project$/ })
+    .first();
+  await newProject.click();
   const dialog = page.getByRole('dialog', { name: 'New project', exact: true });
   await dialog
     .getByRole('textbox', { name: 'Project name', exact: true })
@@ -30,7 +35,7 @@ test('reopening an uncertain project creation resumes its original request', asy
   await dialog.getByRole('button', { name: 'Create project', exact: true }).click();
   await expect(dialog.getByRole('alert')).toContainText('Response lost');
   await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
-  await page.getByRole('button', { name: 'New project', exact: true }).first().click();
+  await newProject.click();
   await expect(dialog.getByRole('textbox', { name: 'Project name', exact: true })).toHaveValue(
     'Recovered project',
   );

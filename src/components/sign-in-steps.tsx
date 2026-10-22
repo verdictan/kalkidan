@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { ChevronDown, Clock, Copy, ExternalLink, Globe, LoaderCircle, X } from 'lucide-react';
+import { ChevronDown, Clock, Copy, ExternalLink, LoaderCircle, X } from 'lucide-react';
 import type { API } from '../api/contracts';
 import type { VerdictanAccountPage, VerdictanSetup, VerdictanStatus } from '../domain/verdictan';
 import {
@@ -33,9 +33,11 @@ import {
   useVerdictanStatus,
 } from '../hooks/use-verdictan-status';
 import { Button } from './ui/button';
+import { EntityIcon } from './ui/entity-icon';
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuItem,
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,
   DropdownMenuShortcut,
@@ -378,6 +380,19 @@ export function SignInSteps({
     }
   }
 
+  // In the dialog, the close button is the Cancel of the browser sign-in.
+  const waitingNow = useRef(false);
+  waitingNow.current = view === 'waiting' || !!preparing;
+  useEffect(
+    () => () => {
+      if (mode === 'dialog' && waitingNow.current)
+        void Promise.resolve()
+          .then(() => api.verdictanCancel())
+          .catch(() => {});
+    },
+    [],
+  );
+
   // Try again by itself when the connection comes back.
   useEffect(() => {
     if (view !== 'error' || !isOffline(errorCode)) return;
@@ -426,7 +441,8 @@ export function SignInSteps({
   const settingUp = view === 'setup';
   const progress = runtimeProgress(runtime.status);
   const installing = runtime.busy && !runtime.installed;
-  const busyLabel = settingUp
+  // A wait shows a spinner and a line of text, never a disabled button.
+  const statusLine = settingUp
     ? 'Setting up agents…'
     : waiting
       ? 'Waiting for your browser…'
@@ -435,14 +451,31 @@ export function SignInSteps({
           ? `Getting ready… ${progress}%`
           : 'Getting ready…'
         : '';
+  const idle = !statusLine;
   const host = urlHost(status?.authorization?.url) || (region ? regionConsoleHosts[region] : '');
   const lead = waiting
     ? status?.authorization
       ? `Kalkidan opened ${host}. This window updates when you finish.`
       : 'Kalkidan opens your browser. This window updates when you finish.'
     : mode === 'window'
-      ? 'Run Codex and Claude Code on your code, with the rules of your organization.'
+      ? 'Run Codex and Claude Code on your code, with the rules of your organization. Chats need a sign-in.'
       : 'Chats run as managed agents through your Verdictan account.';
+  /** Stops the preparation or the browser sign-in, and shows the start again. */
+  function stop() {
+    void cancel();
+    setView('start');
+  }
+  /** "Set up later" saves the region that the Welcome screen shows, then continues. */
+  async function skip() {
+    if (region && status?.region !== region) {
+      try {
+        account.setStatus(await api.verdictanSetRegion(region));
+      } catch {
+        /* Preferences shows "Not chosen". The user can choose the region there. */
+      }
+    }
+    onSkip?.();
+  }
   return (
     <Screen mode={mode} className="sign-in-start">
       {mode === 'window' ? (
@@ -455,9 +488,9 @@ export function SignInSteps({
           height="48"
         />
       ) : (
-        <span className="sign-in-icon" aria-hidden="true">
-          <img src="./brand/kalkidan-mark.svg" alt="" width="40" height="40" />
-        </span>
+        <EntityIcon size="lg" className="sign-in-icon">
+          <img src="./brand/kalkidan-mark.svg" alt="" width="28" height="28" />
+        </EntityIcon>
       )}
       <h1 className="sign-in-title">
         {waiting
@@ -469,25 +502,32 @@ export function SignInSteps({
       <p className="sign-in-lead" role={waiting ? 'status' : undefined}>
         {lead}
       </p>
+      {statusLine && (
+        <p className="sign-in-status" role="status" aria-live="polite">
+          <LoaderCircle className="animate-spin" aria-hidden="true" />
+          {statusLine}
+        </p>
+      )}
       <div className="sign-in-actions">
-        {busyLabel ? (
-          <Button size="lg" className="w-full" disabled aria-live="polite">
-            <LoaderCircle className="animate-spin" aria-hidden="true" /> {busyLabel}
-          </Button>
-        ) : (
+        {idle && (
           <Button size="lg" className="w-full" onClick={() => void begin('login')}>
             Sign in with Verdictan
           </Button>
         )}
-        {mode === 'window' && onSkip && !waiting && !settingUp && (
-          <Button
-            size="lg"
-            variant="ghost"
-            className="w-full"
-            disabled={!!preparing}
-            onClick={onSkip}
-          >
+        {waiting && !!status?.authorization && (
+          <Button size="lg" className="w-full" onClick={() => void reopen()}>
+            <ExternalLink /> Open browser again
+          </Button>
+        )}
+        {idle && mode === 'window' && onSkip && (
+          <Button size="lg" variant="ghost" className="w-full" onClick={() => void skip()}>
             Set up later
+          </Button>
+        )}
+        {/* Every wait can be cancelled. In the dialog, the close button also cancels. */}
+        {(preparing || (waiting && mode === 'window')) && (
+          <Button size="lg" variant="ghost" className="w-full" onClick={stop}>
+            Cancel
           </Button>
         )}
       </div>
@@ -495,44 +535,36 @@ export function SignInSteps({
         <WaitingActions
           expiresAt={status?.authorization?.expiresAt}
           startedAt={startedAt}
-          opened={!!status?.authorization}
           canCopy={!!(status?.authorization?.url || lastUrl)}
-          onReopen={() => void reopen()}
           onCopy={() => void copyLink()}
-          onCancel={() => {
-            void cancel();
-            if (mode === 'dialog') onFinished({ signedIn: false });
-            else setView('start');
-          }}
         />
       )}
-      {!waiting && !settingUp && (
-        <p className="sign-in-note">
-          No account?{' '}
-          <button
-            type="button"
-            className="text-link"
-            disabled={!!preparing}
-            onClick={() => void begin('register')}
-          >
-            Create one
-          </button>
+      {idle && (
+        <p className="sign-in-note sign-in-region" role="group" aria-label="Account and region">
+          <span>
+            No account?{' '}
+            <Button
+              type="button"
+              variant="link"
+              className="text-foreground underline"
+              onClick={() => void begin('register')}
+            >
+              Create one
+            </Button>
+          </span>
+          <span aria-hidden="true">·</span>
+          <RegionMenu
+            value={region}
+            open={regionMenuOpen}
+            onOpenChange={(open) => {
+              setRegionMenuOpen(open);
+              // Closing the menu without a choice drops the waiting sign-in.
+              if (!open && !region) pendingIntent.current = undefined;
+            }}
+            onChange={(value) => void chooseRegion(value)}
+          />
         </p>
       )}
-      {!settingUp && (
-        <RegionMenu
-          value={region}
-          disabled={!!preparing}
-          open={regionMenuOpen}
-          onOpenChange={(open) => {
-            setRegionMenuOpen(open);
-            // Closing the menu without a choice drops the waiting sign-in.
-            if (!open && !region) pendingIntent.current = undefined;
-          }}
-          onChange={(value) => void chooseRegion(value)}
-        />
-      )}
-      {!settingUp && <AccountHelp api={api} />}
     </Screen>
   );
 }
@@ -566,32 +598,33 @@ function Screen({
   );
 }
 
-/** "Region European Union ▾": the region as plain text with an inline menu. */
+/** "Region: European Union ▾": the region as plain text with an inline menu. */
 function RegionMenu({
   value,
-  disabled,
   open,
   onOpenChange,
   onChange,
 }: {
   value?: Region;
-  disabled: boolean;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onChange: (region: Region) => void;
 }) {
   return (
-    <p className="sign-in-region" role="group" aria-label="Region">
-      <Globe aria-hidden="true" />
-      <span>Region</span>
+    <span className="sign-in-region-group">
+      <span>Region:</span>
       <DropdownMenu open={open} onOpenChange={onOpenChange}>
         <DropdownMenuTrigger asChild>
-          <button type="button" className="sign-in-region-trigger" disabled={disabled}>
+          <button
+            type="button"
+            className="sign-in-region-trigger"
+            aria-label={`Region: ${value ? regionNames[value] : 'Choose'}`}
+          >
             {value ? regionNames[value] : 'Choose'}
             <ChevronDown aria-hidden="true" />
           </button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="center" className="min-w-64">
+        <DropdownMenuContent align="center" width="wide">
           <DropdownMenuRadioGroup
             value={value || ''}
             onValueChange={(next) => onChange(next as Region)}
@@ -605,50 +638,39 @@ function RegionMenu({
           </DropdownMenuRadioGroup>
         </DropdownMenuContent>
       </DropdownMenu>
-    </p>
+    </span>
   );
 }
 
-/** The quiet actions under the waiting button, and the time that the link stays valid. */
+/** "Copy link" and the time that the link stays valid, under the waiting actions. */
 function WaitingActions({
   expiresAt,
   startedAt,
-  opened,
   canCopy,
-  onReopen,
   onCopy,
-  onCancel,
 }: {
   expiresAt?: string;
   startedAt: number;
-  opened: boolean;
   canCopy: boolean;
-  onReopen: () => void;
   onCopy: () => void;
-  onCancel: () => void;
 }) {
   const [shownAt] = useState(() => Date.now());
   const left = useCountdown(
     expiresAt ? Date.parse(expiresAt) : (startedAt || shownAt) + authorizationWindowMs,
   );
   return (
-    <>
-      <div className="sign-in-row">
-        <Button variant="ghost" size="sm" disabled={!opened} onClick={onReopen}>
-          <ExternalLink /> Open browser again
-        </Button>
-        <Button variant="ghost" size="sm" disabled={!canCopy} onClick={onCopy}>
-          <Copy /> Copy link
-        </Button>
-        <Button variant="ghost" size="sm" onClick={onCancel}>
-          Cancel
-        </Button>
-      </div>
-      <p className="sign-in-note sign-in-meta">
-        <Clock aria-hidden="true" />
-        The link stops working in {formatCountdown(left)}
-      </p>
-    </>
+    <p className="sign-in-note sign-in-meta">
+      <Clock aria-hidden="true" />
+      The link stops working in {formatCountdown(left)}
+      {canCopy && (
+        <>
+          <span aria-hidden="true">·</span>
+          <Button type="button" variant="ghost" size="xs" onClick={onCopy}>
+            <Copy /> Copy link
+          </Button>
+        </>
+      )}
+    </p>
   );
 }
 
@@ -664,20 +686,20 @@ function ErrorView({
 }) {
   return (
     <Screen mode={mode} className="sign-in-error">
-      <span className="sign-in-icon" data-tone="warning" aria-hidden="true">
+      <EntityIcon size="lg" color="var(--warning)" className="sign-in-icon">
         <X />
-      </span>
+      </EntityIcon>
       <h1 className="sign-in-title" role="alert">
         {copy.title}
       </h1>
       <p className="sign-in-lead">{copy.body}</p>
       <div className="sign-in-row">
-        <Button onClick={copy.primary.run}>{copy.primary.label}</Button>
         {copy.secondary && (
-          <Button variant="ghost" onClick={copy.secondary.run}>
+          <Button variant="outline" onClick={copy.secondary.run}>
             {copy.secondary.label}
           </Button>
         )}
+        <Button onClick={copy.primary.run}>{copy.primary.label}</Button>
       </div>
       {api && <AccountHelp api={api} />}
     </Screen>
@@ -685,8 +707,9 @@ function ErrorView({
 }
 
 /**
- * Help for an account that cannot finish the sign-in: a new verification email, or account
- * recovery. The Verdictan console does the work in the browser. Kalkidan never sees a password.
+ * Help for an account that cannot finish the sign-in, after a failure: one "Trouble signing
+ * in?" menu with a new verification email and account recovery. The Verdictan console does the
+ * work in the browser. Kalkidan never sees a password.
  */
 function AccountHelp({ api }: { api: API }) {
   if (typeof api.verdictanOpenAccountPage !== 'function') return null;
@@ -700,17 +723,20 @@ function AccountHelp({ api }: { api: API }) {
         }),
     );
   return (
-    <p className="sign-in-note sign-in-help" role="group" aria-label="Account help">
-      <span>Did not get the verification email?</span>{' '}
-      <button type="button" className="text-link" onClick={() => open('verify')}>
-        Send it again
-      </button>
-      <span aria-hidden="true"> · </span>
-      <span>Cannot sign in?</span>{' '}
-      <button type="button" className="text-link" onClick={() => open('recover')}>
-        Recover your account
-      </button>
-    </p>
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button type="button" variant="ghost" size="sm" className="text-muted-foreground">
+          Trouble signing in?
+          <ChevronDown aria-hidden="true" />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="center" width="wide">
+        <DropdownMenuItem onSelect={() => open('verify')}>
+          Send the verification email again
+        </DropdownMenuItem>
+        <DropdownMenuItem onSelect={() => open('recover')}>Recover your account</DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 

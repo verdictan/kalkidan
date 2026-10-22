@@ -1,12 +1,5 @@
-import { type Page } from '@playwright/test';
 import { test, expect } from './helpers/app';
 import { openCodeFolder } from './helpers/navigation';
-/** Opens a submenu of the open chat menu, such as "Open in", with the keyboard. */
-async function openChatSubmenu(page: Page, name: string) {
-  await page.getByRole('menuitem', { name, exact: true }).hover();
-  await page.keyboard.press('ArrowRight');
-  await expect(page.getByRole('menu')).toHaveCount(2);
-}
 async function openSession(page: any) {
   await page.goto('/');
   await page.locator('.project-tree').getByRole('button', { name: 'Atlas', exact: true }).click();
@@ -24,8 +17,8 @@ test('session actions rename, pin, fork, and open an independent side session', 
   await menu();
   await page.screenshot({ animations: 'disabled', path: 'test-results/conversation-actions.png' });
   await page.getByRole('menuitem', { name: /^Rename/ }).click();
-  await page.getByLabel('Session name').fill('Release review');
-  await page.getByRole('button', { name: 'Save name' }).click();
+  await page.getByLabel('Chat name').fill('Release review');
+  await page.getByRole('button', { name: 'Rename', exact: true }).click();
   await expect(page.locator('.conversation-toolbar-title')).toContainText('Release review');
   await menu();
   await page.getByRole('menuitem', { name: /^Pin/ }).click();
@@ -36,17 +29,21 @@ test('session actions rename, pin, fork, and open an independent side session', 
   ).toBeVisible();
   await menu();
   await expect(page.getByRole('menuitem', { name: /^Unpin/ })).toBeVisible();
-  // The keyboard opens the Duplicate chat submenu. Its first item, Continue here, has the focus.
-  await openChatSubmenu(page, 'Duplicate chat');
-  await expect(page.getByRole('menuitem', { name: 'Continue here' })).toBeFocused();
-  await page.keyboard.press('Enter');
-  await expect(page.locator('.conversation-toolbar-title:visible')).toContainText(
-    'Fork of Release review',
+  // "Fork chat…" is the one way to copy a chat. Its dialog forks to this folder first.
+  await page.getByRole('menuitem', { name: 'Fork chat…', exact: true }).click();
+  const fork = page.getByRole('dialog', { name: 'Fork chat', exact: true });
+  await expect(fork.getByRole('button', { name: 'This folder', exact: true })).toHaveAttribute(
+    'aria-pressed',
+    'true',
   );
-  // The side chat is in the "Open in" submenu.
+  await fork.getByRole('button', { name: 'Fork chat', exact: true }).click();
+  await expect(fork).toHaveCount(0);
+  await expect(page.locator('.conversation-toolbar-title:visible')).toContainText(
+    'Release review (fork)',
+  );
+  // "Open side chat" is at the top level of the menu.
   await menu();
-  await openChatSubmenu(page, 'Open in');
-  await page.getByRole('menuitem', { name: /Open a second chat beside this one/ }).click();
+  await page.getByRole('menuitem', { name: /^Open side chat/ }).click();
   await expect(page.getByLabel('Message agent')).toHaveCount(3);
   await expect(page.getByRole('button', { name: 'Close side chat' })).toBeVisible();
   await page.screenshot({ animations: 'disabled', path: 'test-results/side-session.png' });

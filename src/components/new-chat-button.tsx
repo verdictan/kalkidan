@@ -12,6 +12,7 @@ import { sessionRepo } from '../lib/session-repository';
 import { shortcutLabel } from '../lib/platform';
 import type { Agent, Project, Session } from '../types';
 import { Hint } from './hint';
+import { MenuChoiceItem } from './action-menu';
 import { AgentIcon } from './ui/agent-icon';
 import { Button } from './ui/button';
 import {
@@ -20,7 +21,6 @@ import {
   DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuRadioGroup,
-  DropdownMenuRadioItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from './ui/dropdown-menu';
@@ -92,11 +92,8 @@ export function NewChatButton({
   return (
     <div className="split-button" role="group" aria-label="New chat">
       <Hint
-        label={
-          target
-            ? `${agentLabel(agent)} in ${target.name} (${shortcutLabel(['mod'], 'N')})`
-            : 'Add a code folder first'
-        }
+        label={target ? `${agentLabel(agent)} in ${target.name}` : 'Add code folder first'}
+        shortcut={target ? shortcutLabel(['mod'], 'N') : undefined}
       >
         <Button
           variant={variant}
@@ -122,7 +119,7 @@ export function NewChatButton({
             </Button>
           </DropdownMenuTrigger>
         </Hint>
-        <DropdownMenuContent align="end" className="min-w-60">
+        <DropdownMenuContent align="end" width="wide">
           <DropdownMenuLabel>Agent</DropdownMenuLabel>
           <DropdownMenuRadioGroup
             value={agent}
@@ -132,17 +129,16 @@ export function NewChatButton({
             }}
           >
             {agentCatalog.map(({ id }) => (
-              <DropdownMenuRadioItem
+              <MenuChoiceItem
                 key={id}
                 value={id}
                 disabled={!agentInstalled(id)}
-                title={agentInstalled(id) ? undefined : `Install ${agentLabel(id)} in Computers`}
                 // The menu stays open, so the user can choose a code folder next.
                 onSelect={(event) => event.preventDefault()}
               >
-                <AgentIcon agent={id} className="size-4" />
+                <AgentIcon agent={id} />
                 {agentMenuLabel(id, agentLabel(id))}
-              </DropdownMenuRadioItem>
+              </MenuChoiceItem>
             ))}
           </DropdownMenuRadioGroup>
           <DropdownMenuSeparator />
@@ -150,14 +146,14 @@ export function NewChatButton({
           {repos.length ? (
             repos.map((repo) => (
               <DropdownMenuItem key={repo.id} onSelect={() => start(repo)}>
-                <FolderGit2 className="size-4" />
-                <span className="min-w-0 flex-1 truncate">{repo.name}</span>
+                <FolderGit2 />
+                {repo.name}
               </DropdownMenuItem>
             ))
           ) : (
             <DropdownMenuItem onSelect={() => start(null)}>
-              <FolderGit2 className="size-4" />
-              Add a code folder…
+              <FolderGit2 />
+              Add code folder…
             </DropdownMenuItem>
           )}
           {missing && (
@@ -168,7 +164,7 @@ export function NewChatButton({
                   window.dispatchEvent(new CustomEvent('kalkidan-open-computers', { detail: {} }))
                 }
               >
-                <Monitor className="size-4" />
+                <Monitor />
                 Install agents…
               </DropdownMenuItem>
             </>

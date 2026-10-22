@@ -46,8 +46,14 @@ test('Memory is a section of the Knowledge tab and shows facts by topic without 
   const topic = rail(page).getByRole('button', { name: /^Authentication( \d+)?$/ });
   await topic.click();
   await expect(topic).toHaveAttribute('aria-current', 'page');
-  await expect(panel.getByRole('region', { name: /^Authentication/ })).toBeVisible();
+  // A topic filters the list. The pane title names the topic, and "All facts" shows all again.
+  await expect(panel.getByRole('heading', { level: 2 })).toHaveText('Authentication');
+  await expect(panel.getByRole('region', { name: /^Testing/ })).toHaveCount(0);
+  await expect(panel.locator('.memory-fact').first()).toBeVisible();
   await expect(panel.getByRole('textbox')).toHaveCount(0);
+  await panel.getByRole('button', { name: 'All facts', exact: true }).click();
+  await expect(panel.getByRole('heading', { level: 2 })).toHaveText('Memory');
+  await expect(panel.getByRole('region', { name: /^Testing/ })).toBeVisible();
 });
 
 test('Memory renders agent files and refreshes changes without open edit fields', async ({

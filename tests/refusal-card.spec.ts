@@ -49,7 +49,7 @@ async function refuseWith(page: Page, code: string, extra: Record<string, unknow
   const composer = page.getByLabel('Message agent');
   await composer.fill('Reply OK.');
   await composer.press('Enter');
-  return page.locator('.chat-message.user .chat-send-failure');
+  return page.locator('.chat-message.user + .chat-card');
 }
 
 test('a gateway readiness refusal names the computer and offers no runtime install', async ({

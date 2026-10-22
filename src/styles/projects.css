@@ -2,6 +2,19 @@
   height: 100dvh;
   display: flex;
   flex-direction: column;
+  /* The side padding of the page frame, and the x of the page content in the main area: the
+     padding, or more when the window is wider than the 1120px page. The title bar trail and
+     the project frame use the same x as `.page`. */
+  --frame-x: var(--page-padding-x);
+  --content-x: max(
+    var(--frame-x),
+    calc((100vw - var(--navigation-width) - var(--page-max-width)) / 2 + var(--frame-x))
+  );
+}
+@media (max-width: 1023px) {
+  .app-shell {
+    --frame-x: var(--space-4);
+  }
 }
 .app-shell > main {
   flex: 1;
@@ -15,8 +28,9 @@
   flex-shrink: 0;
   display: flex;
   align-items: stretch;
-  border-bottom: 1px solid var(--border);
-  background: var(--chrome);
+  /* The edge is drawn inside the 48px bar, so the controls center on whole pixels. */
+  box-shadow: inset 0 -1px var(--border);
+  background: var(--navigation);
   -webkit-app-region: drag;
 }
 .topbar-brand {
@@ -30,8 +44,8 @@
   justify-content: flex-start;
   gap: var(--space-1);
   /* The 16px toggle icon lines up with the sidebar icon column (12px panel + 8px row inset). */
-  padding-inline: 14px;
-  background: var(--chrome);
+  padding-inline: var(--space-3);
+  background: var(--navigation);
 }
 .navigation-history {
   display: flex;
@@ -46,8 +60,19 @@
   align-items: center;
   justify-content: space-between;
   gap: var(--space-2);
-  /* The trail starts at the x of the page title: the page padding. */
-  padding-inline: var(--page-padding-x) var(--space-3);
+  /* The trail starts at the x of the page title, and ends at the right content edge. */
+  padding-inline: var(--content-x);
+}
+/* A chat fills the main area, so its trail and actions use the page padding. */
+.conversation-open .topbar-content {
+  padding-inline: var(--frame-x);
+}
+/* With the sidebar hidden, the bar starts after the brand buttons. */
+.navigation-collapsed .topbar-content {
+  padding-left: max(var(--space-3), calc(var(--content-x) - var(--topbar-brand-width)));
+}
+.navigation-collapsed.conversation-open .topbar-content {
+  padding-left: var(--frame-x);
 }
 .topbar-actions {
   margin-left: auto;
@@ -77,6 +102,9 @@
     100vw - env(titlebar-area-x, 0px) - env(titlebar-area-width, calc(100vw - 140px))
   );
 }
+:root:not([data-platform='mac']) .desktop-titlebar .topbar-content {
+  padding-right: var(--space-3);
+}
 /* The trail to the page. Its text starts 12px after the sidebar edge, the same place as
    the session breadcrumb. */
 .topbar-title {
@@ -94,6 +122,7 @@
 .topbar-title > svg {
   flex-shrink: 0;
 }
+/* Ancestors are muted. The current page (.topbar-crumb-current) is in the foreground. */
 .topbar-crumb {
   min-width: 0;
   overflow: hidden;
@@ -102,7 +131,7 @@
   border: 0;
   border-radius: var(--radius-sm);
   background: none;
-  color: inherit;
+  color: var(--muted-foreground);
   font: inherit;
   cursor: default;
   -webkit-app-region: no-drag;
@@ -114,8 +143,19 @@
   outline: none;
   box-shadow: var(--focus-ring);
 }
+/* The brand buttons when the sidebar is hidden: toggle, back and forward (and the menu button
+   on Windows and Linux). A fixed width lets the trail compute the content x. */
+.navigation-collapsed {
+  --topbar-brand-width: calc(var(--space-3) * 2 + var(--control-sm) * 3 + var(--space-1) * 2);
+}
+[data-platform='mac']:not([data-fullscreen='true']) .desktop-app.navigation-collapsed {
+  --topbar-brand-width: calc(96px + var(--space-3) + var(--control-sm) * 3 + var(--space-1) * 2);
+}
+:root:not([data-platform='mac']) .desktop-app.navigation-collapsed {
+  --topbar-brand-width: calc(var(--space-3) * 2 + var(--control-sm) * 4 + var(--space-1) * 3);
+}
 .navigation-collapsed .topbar-brand {
-  width: auto;
+  width: var(--topbar-brand-width);
   /* The brand covers the bottom edge of the title bar. Draw the edge on it too. */
   border-bottom: 1px solid var(--border);
 }
@@ -130,14 +170,14 @@
 /* "Skip to content": hidden until it has the keyboard focus. */
 .skip-link {
   position: fixed;
-  z-index: 100;
+  z-index: var(--z-titlebar);
   top: 8px;
   left: 8px;
-  padding: 6px 12px;
+  padding: var(--space-2) var(--space-3);
   border-radius: var(--radius-md);
   background: var(--popover, var(--background));
   color: var(--foreground);
-  font-size: 13px;
+  font-size: var(--text-sm);
   line-height: 20px;
   box-shadow: var(--focus-ring);
   transform: translateY(-200%);
@@ -165,6 +205,9 @@ main:focus {
   background: var(--navigation);
   display: flex;
   flex-direction: column;
+  /* Rows on the grey sidebar need stronger fills than rows on the white page. */
+  --row-hover: var(--sidebar-hover);
+  --row-selected: var(--sidebar-selected);
 }
 .library-panel[hidden] {
   display: none;
@@ -175,14 +218,16 @@ main:focus {
   align-items: center;
   gap: var(--space-2);
   width: 100%;
-  height: 32px;
+  height: var(--row-height);
   margin: 0 0 var(--space-3);
+  /* The same columns as the nav rows: a 16px icon at 8px, the label at 32px, the key at the
+     4px end inset. */
   padding: 0 var(--space-1) 0 var(--space-2);
-  border: 1px solid transparent;
+  border: 0;
   border-radius: var(--radius-md);
   background: color-mix(in srgb, var(--secondary) 60%, transparent);
   color: var(--muted-foreground);
-  font-size: 13px;
+  font-size: var(--text-sm);
   text-align: left;
   cursor: default;
 }
@@ -191,14 +236,13 @@ main:focus {
   color: var(--foreground);
 }
 .search-trigger:focus-visible {
-  border-color: var(--ring);
   box-shadow: var(--focus-ring);
   outline: none;
 }
 .search-trigger-icon {
   flex-shrink: 0;
-  width: 14px;
-  height: 14px;
+  width: 16px;
+  height: 16px;
 }
 .search-trigger-label {
   flex: 1;
@@ -210,6 +254,11 @@ main:focus {
 .search-trigger .search-kbd {
   flex-shrink: 0;
   font-family: inherit;
+}
+/* The keys in the sidebar (⌘K, ⌘N) have no fill at rest and a fill on hover. */
+.search-trigger:not(:hover, :focus-visible) .search-kbd,
+.tree-new-chat:not(:hover, :focus-within) .tree-kbd {
+  background: transparent;
 }
 .navigation-collapsed {
   --navigation-width: 0px;
@@ -228,34 +277,23 @@ main:focus {
   justify-content: space-between;
   height: var(--control-sm);
   padding: 0 var(--space-1) 0 var(--space-2);
+  /* 12px between the groups of the sidebar: the nav rows, Pinned and the projects. */
+  margin-top: var(--space-3);
   color: var(--muted-foreground);
-}
-.tree-section {
-  margin-bottom: var(--space-3);
-}
-.tree-projects-heading {
-  margin-top: var(--space-1);
 }
 .tree-projects-heading > h2 {
   margin: 0;
 }
-/* The count of the "Waiting for you" row. */
-.tree-count {
-  flex-shrink: 0;
-  color: var(--warning);
-  font-size: var(--text-xs);
-  line-height: 16px;
-  font-variant-numeric: tabular-nums;
-}
-/* Explorer rows: one shape for every row. 8px inset, a 16px icon slot, an 8px gap, so every
-   first-level label starts 44px from the sidebar edge (12px panel padding + 32px). Each level
-   adds 16px. Rows have a 6px radius and draw the keyboard focus ring inside. */
+/* Tree rows (projects and their chats) are 28px. The nav rows above them are 32px NavRows.
+   8px inset, a 16px icon slot, an 8px gap, so every first-level label starts 44px from the
+   sidebar edge (12px panel padding + 32px). Each level adds 16px. Rows have an 8px radius and
+   draw the keyboard focus ring inside. */
 .tree-row {
   display: flex;
   align-items: center;
   gap: var(--space-1);
   min-width: 0;
-  height: var(--row-height);
+  height: var(--control-sm);
   padding: 0 var(--space-1) 0 var(--space-2);
   border-radius: var(--radius-md);
 }
@@ -284,18 +322,16 @@ main:focus {
 .tree-row strong {
   font-weight: 400;
 }
-/* A project that holds the current page or chat: a weak highlight. The chat row, when it
-   shows, has the strong one. */
-.tree-row.contains-current {
-  background: var(--surface-hover);
-}
+/* One strong highlight in the tree. A project that holds the current chat shows only its
+   label in the foreground. The chat row has the fill. */
 .tree-row.contains-current .tree-label {
   color: var(--foreground);
 }
 .project-group {
   margin-bottom: var(--space-1);
 }
-/* The icon slot of a project row is its collapse button. Hover or focus shows the chevron. */
+/* The icon slot of a project row is its collapse button. It always shows the folder: open
+   when the project is expanded, closed when it is collapsed. */
 .tree-toggle {
   position: relative;
   height: 16px;
@@ -305,34 +341,9 @@ main:focus {
   padding: 0;
   border-radius: var(--radius-sm);
 }
-.tree-toggle .tree-chevron {
-  position: absolute;
-  inset: 0;
-  margin: auto;
-  opacity: 0;
-  color: var(--muted-foreground);
-}
-.project-group-heading:hover .tree-toggle .project-folder-icon,
-.tree-toggle:focus-visible .project-folder-icon,
-.tree-toggle[data-state='closed'] .project-folder-icon {
-  opacity: 0;
-}
-.project-group-heading:hover .tree-toggle .tree-chevron,
-.tree-toggle:focus-visible .tree-chevron,
-.tree-toggle[data-state='closed'] .tree-chevron {
-  opacity: 1;
-}
-.tree-toggle[data-state='closed'] .tree-chevron {
-  transform: rotate(-90deg);
-}
-/* A collapsed project shows its folder icon again when the row is not hovered. */
-.project-group-heading:not(:hover) .tree-toggle[data-state='closed']:not(:focus-visible) {
-  .project-folder-icon {
-    opacity: 1;
-  }
-  .tree-chevron {
-    opacity: 0;
-  }
+.tree-toggle:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
 }
 .project-group-children {
   position: relative;
@@ -352,14 +363,13 @@ main:focus {
 }
 /* Second level: the recent chats of a project, and the empty and clone rows. */
 .tree-session-row,
-.tree-empty,
 .tree-cloning {
   padding-left: calc(var(--space-2) + 16px);
 }
-/* Chats under a project are lighter and shorter than the project rows. */
+/* Chats under a project are a little lighter than the project rows. Only their meta is
+   muted. */
 .tree-session-row {
-  height: var(--control-sm);
-  color: var(--muted-foreground);
+  color: color-mix(in oklch, var(--foreground) 80%, transparent);
 }
 .tree-session-row:hover,
 .tree-session-row.selected {
@@ -381,17 +391,10 @@ main:focus {
   font-size: var(--text-xs);
   line-height: 16px;
 }
-.tree-empty,
 .tree-cloning {
   height: var(--control-sm);
   gap: var(--space-2);
   color: var(--muted-foreground);
-  font-size: var(--text-xs);
-  line-height: 16px;
-}
-.tree-empty-action {
-  height: auto;
-  padding: 0;
   font-size: var(--text-xs);
   line-height: 16px;
 }
@@ -403,7 +406,7 @@ main:focus {
 .tree-host-dot {
   width: 6px;
   height: 6px;
-  border-radius: 50%;
+  border-radius: var(--radius-full);
   background: var(--muted-foreground);
 }
 .tree-host-dot.host-connected {
@@ -438,8 +441,16 @@ main:focus {
   padding: 0;
 }
 /* The table stays inside the page column. */
+/* The Projects table bleeds 8px at both sides, like the list rows: the text stays on the
+   content edges and the row hover goes 8px past them, with an 8px radius. */
 .project-directory {
-  margin-inline: 0;
+  margin-inline: calc(-1 * var(--space-2));
+}
+.project-row > td:first-child {
+  border-radius: var(--radius-md) 0 0 var(--radius-md);
+}
+.project-row > td:last-child {
+  border-radius: 0 var(--radius-md) var(--radius-md) 0;
 }
 .project-directory table {
   table-layout: fixed;
@@ -467,7 +478,7 @@ main:focus {
   height: var(--row-height-lg);
 }
 .project-row > td {
-  padding-block: 6px;
+  padding-block: 0;
 }
 .project-directory .project-open > .min-w-0 {
   overflow-wrap: anywhere;
@@ -483,38 +494,6 @@ main:focus {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
-}
-.session-title {
-  color: var(--foreground);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.session-title span {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.session-meta {
-  color: var(--muted-foreground);
-  font-size: 12px;
-  line-height: 16px;
-  margin-top: 2px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.session-meta time {
-  font-variant-numeric: tabular-nums;
-}
-.session-note {
-  color: var(--muted-foreground);
-  font-size: 12px;
-  line-height: 16px;
-  margin-top: 4px;
-  max-height: 48px;
-  overflow: hidden;
-  white-space: pre-wrap;
 }
 .session-actions {
   display: flex;
@@ -539,25 +518,10 @@ main:focus {
   vertical-align: -2px;
   margin-right: 2px;
 }
-.session-archived-link {
-  margin-top: var(--space-2);
-  padding-inline: 0;
-}
-/* Session and branch copy rows: 48px, 6px block padding, like the other list rows. */
-.session-list > .list-row,
-.worktree.list-row {
-  min-height: var(--row-height-lg);
-  padding-block: 6px;
-}
 /* A multi-line branch copy row keeps its icon at the first line. */
 .worktree.list-row {
   align-items: flex-start;
-}
-.section-help {
-  margin: calc(-1 * var(--space-2)) 0 var(--space-2);
-  color: var(--muted-foreground);
-  font-size: var(--text-xs);
-  line-height: 16px;
+  padding-block: var(--space-2);
 }
 .worktree-preview {
   display: grid;
@@ -591,13 +555,13 @@ main:focus {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 13px;
+  font-size: var(--text-sm);
   line-height: 20px;
   font-weight: 500;
 }
 .worktree .worktree-path {
   display: block;
-  font-size: 12px;
+  font-size: var(--text-xs);
   line-height: 16px;
   color: var(--muted-foreground);
   overflow: hidden;
@@ -667,9 +631,42 @@ main:focus {
 }
 /* Search shrinks before the view labels do. */
 .tracker-search {
-  flex: 1 1 160px;
+  flex: 1 1 120px;
   min-width: 120px;
   max-width: 240px;
+}
+/* "Syncing…" or "Could not sync" and Try again, after the view switch. */
+.tracker-sync-state {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  color: var(--muted-foreground);
+  font-size: var(--text-xs);
+  line-height: 16px;
+  white-space: nowrap;
+}
+.tracker-sync-state > svg {
+  width: 12px;
+  height: 12px;
+}
+.tracker-sync-error {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  border-radius: var(--radius-xs);
+  color: var(--destructive);
+  outline: none;
+}
+.tracker-sync-error:focus-visible {
+  box-shadow: var(--focus-ring);
+}
+.tracker-sync-error > svg {
+  width: 14px;
+  height: 14px;
+}
+/* A failed action shows above the toolbar, 16px from it. */
+.tracker-alert {
+  margin-bottom: var(--space-4);
 }
 /* The board "⋯" button shows an amber dot when a GitHub change needs a check. */
 .tracker-board-menu {
@@ -678,12 +675,8 @@ main:focus {
 }
 .tracker-board-dot {
   position: absolute;
-  top: 4px;
-  right: 4px;
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--warning);
+  top: var(--space-1);
+  right: var(--space-1);
   pointer-events: none;
 }
 .tracker-read-only {
@@ -694,10 +687,10 @@ main:focus {
   box-shadow: var(--focus-ring);
 }
 /*
- * In a narrow window (below about 1100px, where the board is narrower than 860px) the Board,
- * List and Roadmap options show only their icons.
+ * In a narrow window (where the board is narrower than 720px) the Board, List and Roadmap
+ * options show only their icons. Search shrinks first.
  */
-@container tracker (max-width: 860px) {
+@container tracker (max-width: 720px) {
   .tracker-view-label {
     position: absolute;
     width: 1px;
@@ -730,7 +723,7 @@ main:focus {
   background: none;
   color: var(--muted-foreground);
   font: inherit;
-  font-size: 13px;
+  font-size: var(--text-sm);
   line-height: 20px;
   font-weight: 500;
   cursor: pointer;
@@ -741,7 +734,7 @@ main:focus {
   color: var(--foreground);
 }
 .project-tab:focus-visible {
-  box-shadow: var(--focus-ring);
+  box-shadow: var(--focus-ring-inset);
 }
 .project-tab[aria-current='page'] {
   color: var(--foreground);
@@ -749,11 +742,12 @@ main:focus {
 .project-tab[aria-current='page']::after {
   content: '';
   position: absolute;
-  right: 0;
+  /* The underline is as wide as the label, so it starts on the content edge. */
+  right: var(--space-1);
   bottom: -1px;
-  left: 0;
+  left: var(--space-1);
   height: 2px;
-  border-radius: 2px;
+  border-radius: var(--radius-xs);
   background: var(--foreground);
 }
 .tracker-view-filter {
@@ -776,26 +770,6 @@ main:focus {
   gap: var(--space-2);
   margin-left: auto;
   min-width: 0;
-}
-.tracker-count {
-  color: var(--muted-foreground);
-  font-size: 12px;
-  line-height: 16px;
-  white-space: nowrap;
-  font-variant-numeric: tabular-nums;
-}
-.tracker-filter-count {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 16px;
-  height: 16px;
-  padding: 0 4px;
-  border-radius: var(--radius-sm);
-  background: var(--secondary);
-  font-size: 11px;
-  line-height: 16px;
-  font-variant-numeric: tabular-nums;
 }
 .tracker-filters {
   display: flex;
@@ -849,15 +823,19 @@ main:focus {
     transparent
   );
 }
+/* Up to four columns share the board width. More columns keep 260 to 360px and scroll. */
 .tracker-column {
   display: flex;
   flex-direction: column;
-  flex: 1 1 260px;
+  flex: 1 1 0;
   min-width: 260px;
-  max-width: 360px;
   min-height: 0;
   border-radius: var(--radius-lg);
   background: transparent;
+}
+.tracker-board[data-many] .tracker-column {
+  flex-basis: 260px;
+  max-width: 360px;
 }
 .tracker-column-heading {
   /* Keeps the screen reader task count inside the scrolling board. */
@@ -870,15 +848,9 @@ main:focus {
 }
 .tracker-column-heading h4 {
   min-width: 0;
-  font-size: 13px;
+  font-size: var(--text-sm);
   line-height: 20px;
   font-weight: 600;
-}
-.tracker-column-heading > span {
-  color: var(--muted-foreground);
-  font-size: 12px;
-  line-height: 16px;
-  font-variant-numeric: tabular-nums;
 }
 .tracker-column-add {
   margin-left: auto;
@@ -890,32 +862,57 @@ main:focus {
   flex: 1 1 auto;
   min-height: 0;
   gap: var(--space-2);
-  padding: 0 var(--space-1) var(--space-2);
+  /* A 4px inset on all sides, so the focus ring of the first card is not cut off. */
+  margin-top: calc(-1 * var(--space-1));
+  padding: var(--space-1) var(--space-1) var(--space-2);
   overflow-y: auto;
 }
 /* The title field that the column "+" adds at the top of the column. */
 .tracker-inline-add {
   flex-shrink: 0;
 }
-/* In a narrow window the columns shrink, so the Done column stays in view longer. */
-@container tracker (max-width: 1000px) {
-  .tracker-column {
-    flex-basis: 220px;
-    min-width: 220px;
-  }
+/* An empty column is a drop target: a dashed box that says "No tasks". */
+.tracker-column-empty {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  min-height: var(--space-16);
+  margin: 0;
+  padding: 0 var(--space-3);
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-lg);
+  color: var(--muted-foreground);
+  font-size: var(--text-xs);
+  line-height: 16px;
+  text-align: center;
 }
-@container tracker (max-width: 900px) {
-  .tracker-column {
-    flex-basis: 200px;
-    min-width: 200px;
-  }
+/* The first load: three columns with two grey cards. */
+.tracker-skeleton .tracker-column {
+  gap: var(--space-2);
+  padding-inline: var(--space-1);
+}
+.tracker-skeleton-heading,
+.tracker-skeleton-card {
+  border-radius: var(--radius-lg);
+  background: var(--secondary);
+}
+.tracker-skeleton-heading {
+  width: 30%;
+  height: var(--space-4);
+  margin-block: var(--space-2) var(--space-4);
+  border-radius: var(--radius-sm);
+}
+.tracker-skeleton-card {
+  height: 74px;
 }
 .tracker-task {
   position: relative;
   transition: border-color var(--motion-fast);
 }
-/* One selection mark: a 1px ring and the selected surface. */
-.tracker-task[data-selected] {
+/* One selection mark: a 1px ring and the selected surface. Hover keeps it. */
+.tracker-task[data-selected],
+.tracker-task[data-selected]:hover {
   border-color: var(--ring);
   background: var(--surface-selected);
 }
@@ -943,8 +940,8 @@ thead .tracker-task-select:focus-visible {
   opacity: 1;
 }
 /*
- * "Start" and the card menu show on hover, on focus and while the menu is open. The first
- * Todo card always shows Start.
+ * "Start" and the card menu show on hover, on focus and while the menu is open. While the user
+ * selects, cards show only the select box.
  */
 .tracker-task-actions {
   display: inline-flex;
@@ -959,8 +956,11 @@ thead .tracker-task-select:focus-visible {
 }
 .tracker-task:hover .tracker-task-actions,
 .tracker-task:focus-within .tracker-task-actions,
-.tracker-task .tracker-task-actions:has([data-state='open'], [data-always]) {
+.tracker-task .tracker-task-actions:has([data-state='open']) {
   display: inline-flex;
+}
+[data-selecting] .tracker-task .tracker-task-actions {
+  display: none;
 }
 .tracker-task .tracker-task-menu {
   opacity: 0;
@@ -1000,11 +1000,11 @@ thead .tracker-task-select:focus-visible {
   height: 20px;
   padding: 0 var(--space-2);
   border: 0;
-  border-radius: 999px;
-  background: var(--primary-subtle);
-  color: var(--link);
+  border-radius: var(--radius-full);
+  background: var(--secondary);
+  color: var(--foreground);
   font: inherit;
-  font-size: 11px;
+  font-size: var(--text-2xs);
   line-height: 16px;
   font-weight: 500;
   white-space: nowrap;
@@ -1036,7 +1036,6 @@ button.tracker-task-chip:focus-visible {
   font-weight: 500;
 }
 .tracker-task-chats .activity-dot,
-.tracker-chat-state .activity-dot,
 .list-box-row .activity-dot {
   margin-left: 0;
 }
@@ -1049,27 +1048,27 @@ button.tracker-task-chip:focus-visible {
   color: var(--foreground);
 }
 .tracker-task-pr[data-state='open'] svg {
-  color: var(--success);
+  color: var(--warning);
 }
 .tracker-task-pr[data-state='merged'] svg {
-  color: var(--link);
+  color: var(--success);
 }
 /* The actions for the selected tasks float at the bottom of the board. The toolbar stays. */
 .tracker-selection-bar {
   position: absolute;
   bottom: var(--space-4);
   left: 50%;
-  z-index: 20;
+  z-index: var(--z-sticky);
   display: flex;
   align-items: center;
   gap: var(--space-1);
   max-width: calc(100% - var(--space-8));
-  min-height: 40px;
+  min-height: var(--control-lg);
   padding: var(--space-1) var(--space-1) var(--space-1) var(--space-3);
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   background: var(--popover);
-  box-shadow: var(--shadow-popover);
+  box-shadow: var(--shadow-md);
   transform: translateX(-50%);
   overflow-x: auto;
   scrollbar-width: none;
@@ -1077,16 +1076,27 @@ button.tracker-task-chip:focus-visible {
 .tracker-selection-clear {
   color: var(--muted-foreground);
 }
+.tracker-selection-note {
+  padding-inline: var(--space-2);
+  color: var(--muted-foreground);
+  font-size: var(--text-xs);
+  line-height: 16px;
+  white-space: nowrap;
+}
 .tracker-selection-count {
   flex-shrink: 0;
-  font-size: 13px;
+  font-size: var(--text-sm);
   line-height: 20px;
   font-weight: 600;
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
 }
-.tracker-list-check {
-  width: 28px;
+/* The select boxes of the list sit in the gutter, 4px left of the titles. */
+.tracker-list-title {
+  position: relative;
+}
+.tracker-list {
+  max-width: 1120px;
 }
 /* Each task row has one 1px line under it. The status group rows have none (see the JSX). */
 .tracker-list-row > td {
@@ -1104,7 +1114,7 @@ button.tracker-task-chip:focus-visible {
   align-items: center;
   gap: var(--space-1);
   min-width: 0;
-  font-size: 12px;
+  font-size: var(--text-xs);
   line-height: 16px;
 }
 .tracker-task:hover {
@@ -1113,7 +1123,7 @@ button.tracker-task-chip:focus-visible {
 .tracker-task-meta {
   margin: 0;
   color: var(--muted-foreground);
-  font-size: 12px;
+  font-size: var(--text-xs);
   line-height: 16px;
   overflow-wrap: anywhere;
 }
@@ -1147,7 +1157,9 @@ button.tracker-task-chip:focus-visible {
   flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;
-  padding-bottom: var(--space-4);
+  /* The gutter keeps the select boxes inside the scroll area. */
+  margin-left: calc(-1 * var(--space-5));
+  padding: 0 0 var(--space-4) var(--space-5);
 }
 /* The task detail opens as a drawer on the right side. */
 .tracker-issue-body {
@@ -1167,12 +1179,13 @@ button.tracker-task-chip:focus-visible {
   align-items: center;
   justify-content: space-between;
   gap: var(--space-3);
-  height: 48px;
-  padding: 0 var(--space-4) 0 var(--space-6);
+  height: var(--row-height-lg);
+  /* 24px on both sides: Close ends on the content edge of the body and the footer. */
+  padding: 0 var(--space-6);
   border-bottom: 1px solid var(--border);
   background: var(--card);
   color: var(--muted-foreground);
-  font-size: 12px;
+  font-size: var(--text-xs);
   line-height: 16px;
 }
 .tracker-issue-nav > div {
@@ -1181,29 +1194,37 @@ button.tracker-task-chip:focus-visible {
   align-items: center;
   gap: var(--space-1);
 }
+/*
+ * One property list for the task sheet: a 120px name column, a 12px gap, then the value. The
+ * project fields and the issue values under Details use the same rows.
+ */
 .tracker-issue-properties {
+  display: grid;
+  gap: var(--space-1);
+}
+.tracker-property-row {
   display: grid;
   grid-template-columns: 120px minmax(0, 1fr);
   align-items: center;
-  row-gap: var(--space-1);
-  margin: 0;
-  font-size: 13px;
+  column-gap: var(--space-3);
+  min-height: var(--control-sm);
+  font-size: var(--text-sm);
   line-height: 20px;
 }
-.tracker-issue-properties dt {
+.tracker-property-label {
+  min-width: 0;
   color: var(--muted-foreground);
-  font-size: 12px;
+  font-size: var(--text-xs);
   line-height: 16px;
 }
-.tracker-issue-properties dd {
+.tracker-property-value {
   display: flex;
   align-items: center;
   min-width: 0;
-  min-height: var(--control-sm);
-  margin: 0;
 }
-.tracker-issue-properties .tracker-issue-pr {
-  gap: var(--space-2);
+/* A ghost select shows its value in line with the other values (its padding and border). */
+.tracker-property-choice {
+  margin-left: calc(1px - var(--space-3));
 }
 /* The title, its edit button and ↗ to the issue on GitHub. */
 .tracker-issue-title-row {
@@ -1214,11 +1235,11 @@ button.tracker-task-chip:focus-visible {
 }
 .tracker-issue-title {
   min-width: 0;
-  margin: -2px -4px;
-  padding: 2px 4px;
+  margin: 0 calc(-1 * var(--space-1));
+  padding: 0 var(--space-1);
   border-radius: var(--radius-sm);
-  font-size: 20px;
-  line-height: 28px;
+  font-size: var(--text-lg);
+  line-height: 24px;
   font-weight: 600;
   overflow-wrap: anywhere;
   outline: none;
@@ -1247,19 +1268,21 @@ button.tracker-task-chip:focus-visible {
 .tracker-editable[data-empty] {
   color: var(--muted-foreground);
 }
-.tracker-edit-button {
+.tracker-edit-button,
+.tracker-issue-link {
+  flex-shrink: 0;
   margin-top: 2px;
+}
+.tracker-edit-button {
   opacity: 0;
 }
 .tracker-issue-title-row:hover .tracker-edit-button,
 .tracker-edit-button:focus-visible {
   opacity: 1;
 }
-.tracker-issue-title-row > :last-child:not(.tracker-edit-button, .tracker-issue-title) {
-  margin-top: 2px;
-}
 .tracker-edit-title {
-  font-size: 16px;
+  font-size: var(--text-lg);
+  line-height: 24px;
   font-weight: 600;
 }
 /* Lists, code, quotes and links come from .prose-ui. */
@@ -1269,84 +1292,36 @@ button.tracker-task-chip:focus-visible {
 .tracker-issue-description > :last-child {
   margin-bottom: 0;
 }
-/* Context: the linked chats and docs as property rows. */
-.tracker-context {
-  display: grid;
-  gap: var(--space-1);
-}
+/* The linked chats and docs: tags, then "Link chat" or a +. */
 .tracker-context-values {
+  display: flex;
   flex-wrap: wrap;
-  gap: var(--space-1);
-  padding-block: 2px;
-}
-.tracker-context-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-1);
-  max-width: 100%;
-  height: 24px;
-  padding: 0 var(--space-2);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  background: none;
-  color: inherit;
-  font: inherit;
-  font-size: 12px;
-  line-height: 16px;
-  outline: none;
-}
-button.tracker-context-chip:hover,
-.tracker-context-open:hover {
-  background: var(--surface-hover);
-}
-.tracker-context-chip:focus-visible,
-.tracker-context-open:focus-visible,
-.tracker-context-remove:focus-visible {
-  box-shadow: var(--focus-ring);
-}
-.tracker-context-chip[data-removable] {
-  padding: 0;
-}
-.tracker-context-open {
-  display: inline-flex;
   align-items: center;
   gap: var(--space-1);
   min-width: 0;
-  height: 100%;
-  padding: 0 var(--space-1) 0 var(--space-2);
-  border: 0;
-  border-radius: inherit;
-  background: none;
-  color: inherit;
-  font: inherit;
-  outline: none;
+  padding-block: 2px;
 }
-.tracker-context-chip svg {
-  flex-shrink: 0;
-  width: 14px;
-  height: 14px;
-  color: var(--muted-foreground);
-}
-.tracker-context-remove {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 20px;
-  height: 20px;
-  margin-right: 2px;
+/* The name in a tag opens the chat or the page. */
+.tracker-context-open {
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  padding: 0;
   border: 0;
   border-radius: var(--radius-xs);
   background: none;
-  color: var(--muted-foreground);
+  color: inherit;
+  font: inherit;
+  text-overflow: ellipsis;
+  cursor: pointer;
   outline: none;
 }
-.tracker-context-remove:hover {
-  background: var(--surface-hover);
-  color: var(--foreground);
+.tracker-context-open:hover {
+  text-decoration: underline;
+  text-underline-offset: 2px;
 }
-.tracker-context-remove svg {
-  width: 12px;
-  height: 12px;
+.tracker-context-open:focus-visible {
+  box-shadow: var(--focus-ring);
 }
 /* The footer: where the agent works, "Change", and Start. */
 .tracker-issue-footer {
@@ -1361,32 +1336,24 @@ button.tracker-context-chip:hover,
 .tracker-start-row {
   display: flex;
   align-items: center;
+  justify-content: flex-end;
   gap: var(--space-3);
   min-width: 0;
 }
+/* Where the agent works: a full-width line above Start. */
 .tracker-start-where {
   display: flex;
-  flex: 1 1 auto;
   align-items: center;
   gap: var(--space-2);
   min-width: 0;
   color: var(--muted-foreground);
-  font-size: 12px;
+  font-size: var(--text-xs);
   line-height: 16px;
 }
 .tracker-start-where svg {
   flex-shrink: 0;
   width: 14px;
   height: 14px;
-}
-.tracker-start-where .text-link {
-  border: 0;
-  background: none;
-  font: inherit;
-  cursor: pointer;
-}
-.tracker-start-where .text-link:disabled {
-  opacity: 0.5;
 }
 /* "Change": plain 32px radio rows with no borders. */
 .tracker-start-options {
@@ -1404,30 +1371,50 @@ button.tracker-context-chip:hover,
   margin-bottom: var(--space-1);
   padding: 0;
 }
+.tracker-start-options-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: var(--text-xs);
+  line-height: 16px;
+}
 .tracker-radio-row {
   display: flex;
   align-items: center;
   gap: var(--space-2);
   min-width: 0;
-  min-height: 32px;
-  font-size: 13px;
+  min-height: var(--row-height);
+  font-size: var(--text-sm);
   line-height: 20px;
 }
 .tracker-start-options fieldset:disabled .tracker-radio-row {
   opacity: 0.5;
 }
-/* "Code folder: atlas-web ▾" in the New task dialog. */
-.tracker-new-folder {
+/* "Details": the GitHub fields, the issue and its comments, folded. A section title, no fill. */
+.tracker-details-trigger {
   display: flex;
   align-items: center;
-  gap: var(--space-1);
-  color: var(--muted-foreground);
-  font-size: 12px;
-  line-height: 16px;
-}
-/* "Details": the GitHub fields, the issue and its comments, folded. */
-.tracker-details .tool-section-trigger {
+  gap: var(--space-2);
   width: 100%;
+  min-height: var(--control-sm);
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--foreground);
+  font: inherit;
+  font-size: var(--text-sm);
+  line-height: 20px;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+  outline: none;
+}
+.tracker-details-trigger:focus-visible {
+  box-shadow: var(--focus-ring);
+}
+.tracker-details-trigger > svg {
+  color: var(--muted-foreground);
 }
 
 /* Roadmap: one row per task. The title column lines up with the axis label. */
@@ -1440,14 +1427,10 @@ button.tracker-context-chip:hover,
 .tracker-roadmap-fields {
   display: flex;
   flex-wrap: wrap;
-  gap: var(--space-3);
-}
-.tracker-roadmap-field {
-  display: inline-flex;
   align-items: center;
   gap: var(--space-2);
   color: var(--muted-foreground);
-  font-size: 12px;
+  font-size: var(--text-xs);
   line-height: 16px;
 }
 .tracker-roadmap-chart {
@@ -1468,10 +1451,10 @@ button.tracker-context-chip:hover,
   min-height: var(--row-height);
 }
 .tracker-roadmap-axis {
-  min-height: 24px;
+  min-height: var(--control-xs);
   border-bottom: 1px solid var(--border);
   color: var(--muted-foreground);
-  font-size: 12px;
+  font-size: var(--text-xs);
   line-height: 16px;
 }
 .tracker-roadmap-label {
@@ -1488,7 +1471,7 @@ button.tracker-context-chip:hover,
   background: none;
   color: inherit;
   font: inherit;
-  font-size: 13px;
+  font-size: var(--text-sm);
   line-height: 20px;
   text-align: left;
   cursor: pointer;
@@ -1503,7 +1486,7 @@ button.tracker-context-chip:hover,
 .tracker-roadmap-track {
   position: relative;
   height: 100%;
-  min-height: 24px;
+  min-height: var(--control-xs);
 }
 .tracker-roadmap-tick {
   position: absolute;
@@ -1538,12 +1521,11 @@ button.tracker-context-chip:hover,
 }
 .tracker-roadmap-undated {
   display: grid;
-  gap: var(--space-2);
+  gap: var(--space-1);
 }
-.tracker-roadmap-undated .list-box {
-  max-height: none;
-  margin: 0;
-  list-style: none;
+/* Undated rows have no track: the title takes the full row. */
+.tracker-roadmap-undated .tracker-roadmap-row {
+  grid-template-columns: minmax(0, 1fr);
 }
 /* A saved GitHub view uses the same board columns and table as the main board. */
 .tracker-saved-view {
@@ -1560,7 +1542,7 @@ button.tracker-context-chip:hover,
   display: grid;
   gap: 2px;
   margin: var(--space-1) 0 0;
-  font-size: 12px;
+  font-size: var(--text-xs);
   line-height: 16px;
 }
 .tracker-view-fields > div {
@@ -1605,85 +1587,17 @@ button.tracker-context-chip:hover,
 .project-home-section {
   min-width: 0;
 }
-.project-home-empty {
-  margin: 0;
-  color: var(--muted-foreground);
-  font-size: 12px;
-  line-height: 16px;
+.project-home-empty-state {
+  justify-items: start;
+  padding: 0;
+  text-align: left;
 }
-.home-composer {
-  display: grid;
-  gap: var(--space-2);
-  padding: var(--space-3) var(--space-3) var(--space-2);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-xl);
-  background: var(--card, var(--background));
-  box-shadow: var(--shadow-sm, none);
-}
-.home-composer:focus-within {
-  border-color: var(--ring);
-}
-.home-composer-input {
-  width: 100%;
-  min-height: 40px;
-  resize: none;
-  border: 0;
-  padding: 0 var(--space-1);
-  background: none;
-  color: var(--foreground);
-  font: inherit;
-  font-size: 13px;
-  line-height: 20px;
-  outline: none;
-}
-.home-composer-input::placeholder {
-  color: var(--muted-foreground);
-}
-.home-composer-bar {
-  display: flex;
-  align-items: center;
-  gap: var(--space-1);
-  min-width: 0;
-}
-.home-composer-bar > button {
-  max-width: 40%;
-}
-.home-composer-send {
-  margin-left: auto;
-}
-/* Code folders: compact one-line rows. */
+/* Code folders: ListRow, 48px, a 28px tile, name over path. */
 .folder-list {
+  display: grid;
   margin: 0;
   padding: 0;
   list-style: none;
-}
-.folder-row {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  width: calc(100% + 2 * var(--space-2));
-  height: var(--row-height);
-  margin-inline: calc(-1 * var(--space-2));
-  padding: 0 var(--space-2);
-  border: 0;
-  border-radius: var(--radius-md);
-  background: none;
-  color: inherit;
-  font: inherit;
-  font-size: 13px;
-  line-height: 20px;
-  text-align: left;
-  cursor: default;
-}
-.folder-row:focus-visible {
-  outline: none;
-  box-shadow: inset 0 0 0 2px var(--focus-color);
-}
-.folder-row svg {
-  flex-shrink: 0;
-  width: 16px;
-  height: 16px;
-  color: var(--muted-foreground);
 }
 /* One chat row on every page (ChatRow): 48px, a 28px tile at the page edge, the title over
    "Agent · folder · time". The hover fill goes 8px past the text edges. ⋯ shows on hover. */
@@ -1721,7 +1635,7 @@ button.tracker-context-chip:hover,
   outline: none;
 }
 .chat-row:has(.chat-row-open:focus-visible) {
-  box-shadow: inset 0 0 0 2px var(--focus-color);
+  box-shadow: var(--focus-ring-inset);
 }
 .chat-row-text {
   display: grid;
@@ -1733,14 +1647,14 @@ button.tracker-context-chip:hover,
   align-items: center;
   gap: var(--space-2);
   min-width: 0;
-  font-size: 13px;
+  font-size: var(--text-sm);
   line-height: 20px;
   font-weight: 500;
 }
 .chat-row-meta {
   overflow: hidden;
   color: var(--muted-foreground);
-  font-size: 12px;
+  font-size: var(--text-xs);
   line-height: 16px;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1803,16 +1717,6 @@ button.tracker-context-chip:hover,
   padding-top: var(--space-3);
   border-top: 1px solid var(--border);
 }
-.sidebar-get-started {
-  display: flex;
-  align-items: center;
-  gap: var(--space-1);
-}
-.sidebar-setup-count {
-  color: var(--muted-foreground);
-  font-size: var(--text-xs);
-  line-height: 16px;
-}
 .sidebar-footer-row {
   display: flex;
   align-items: center;
@@ -1839,13 +1743,18 @@ button.tracker-context-chip:hover,
 }
 /* Help › Keyboard shortcuts: two columns of groups, no row borders, 24px between groups. */
 .shortcuts-sheet {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-  gap: var(--space-6) var(--space-8);
-  align-items: start;
+  /* Two columns that fill from top to bottom, so no column has a gap under a short group. */
+  columns: 2;
+  column-gap: var(--space-8);
+}
+.shortcuts-sheet > section {
+  break-inside: avoid;
+}
+.shortcuts-sheet > section:not(:last-child) {
+  padding-bottom: var(--space-6);
 }
 .shortcuts-title {
-  margin-bottom: var(--space-2);
+  margin-bottom: var(--space-1);
   font-size: var(--text-sm);
   line-height: 20px;
   font-weight: 600;
@@ -1859,7 +1768,7 @@ button.tracker-context-chip:hover,
   align-items: center;
   justify-content: space-between;
   gap: var(--space-4);
-  min-height: 28px;
+  min-height: var(--control-xs);
   font-size: var(--text-xs);
   line-height: 16px;
 }
@@ -1873,7 +1782,7 @@ button.tracker-context-chip:hover,
 
 .sidebar-resizer {
   position: fixed;
-  z-index: 30;
+  z-index: var(--z-sticky);
   top: var(--titlebar-height);
   bottom: 0;
   left: calc(var(--navigation-width) - 3px);
@@ -1918,12 +1827,12 @@ button.tracker-context-chip:hover,
 }
 .command-palette-input {
   width: 100%;
-  height: 48px;
+  height: var(--row-height-lg);
   padding: 0 44px 0 calc(var(--space-4) + 24px);
   border: 0;
   background: transparent;
   color: var(--foreground);
-  font-size: 15px;
+  font-size: var(--text-base);
   outline: none;
 }
 .command-palette-input::placeholder {
@@ -1959,7 +1868,7 @@ button.tracker-context-chip:hover,
 }
 .workspace-search-results .search-status {
   padding: var(--space-1) var(--space-2);
-  font-size: 12px;
+  font-size: var(--text-xs);
   line-height: 16px;
   color: var(--muted-foreground);
 }
@@ -1971,10 +1880,10 @@ button.tracker-context-chip:hover,
   align-items: center;
   gap: var(--space-2);
   width: 100%;
-  min-height: 32px;
+  min-height: var(--row-height);
   padding: 0 var(--space-2);
   border-radius: var(--radius-md);
-  font-size: 13px;
+  font-size: var(--text-sm);
   line-height: 20px;
   white-space: nowrap;
   cursor: default;
@@ -1982,9 +1891,9 @@ button.tracker-context-chip:hover,
 .workspace-search-results .search-option:hover {
   background: var(--surface-hover);
 }
+/* The active result: the first one by default, then the one that the arrow keys move to. */
 .workspace-search-results .search-option[aria-selected='true'] {
   background: var(--surface-selected);
-  box-shadow: inset 2px 0 0 var(--ring);
 }
 .search-option-title {
   flex: 0 1 auto;
@@ -1994,7 +1903,7 @@ button.tracker-context-chip:hover,
 }
 .search-option-title .activity-dot {
   display: inline-block;
-  margin-left: 6px;
+  margin-left: var(--space-2);
   vertical-align: 1px;
 }
 .search-option-detail {
@@ -2023,73 +1932,12 @@ button.tracker-context-chip:hover,
   padding: var(--space-1) var(--space-2);
 }
 
-/* Recent sessions on the overview page. The rows match the project table rows: the same
-   left edge, height, divider and hover. */
-.project-recent {
-  margin-top: var(--section-gap);
-}
-.project-recent-list {
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-.project-recent-list > li + li {
-  border-top: 1px solid var(--border);
-}
-.project-recent-row {
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
-  /* The hover fill bleeds 8px past the text edge, like the project table. */
-  width: calc(100% + 2 * var(--space-2));
-  margin-inline: calc(-1 * var(--space-2));
-  min-height: var(--row-height-lg);
-  padding: 6px var(--space-2);
-  border: 0;
-  border-radius: var(--radius-md);
-  background: none;
-  color: inherit;
-  font: inherit;
-  text-align: left;
-  cursor: default;
-}
-.project-recent-row:focus-visible {
-  outline: none;
-  box-shadow: inset 0 0 0 2px var(--focus-color);
-}
-.project-recent-text {
-  flex: 1;
-  min-width: 0;
-  display: grid;
-}
-.project-recent-title {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  min-width: 0;
-  overflow: hidden;
-  white-space: nowrap;
-  font-size: 13px;
-  line-height: 20px;
-  font-weight: 500;
-}
-.project-recent-meta,
-.project-recent-time {
-  font-size: 12px;
-  line-height: 16px;
-  color: var(--muted-foreground);
-}
-.project-recent-time {
-  flex-shrink: 0;
-  font-variant-numeric: tabular-nums;
-}
-
 .worktree-sessions {
   display: flex;
   flex-wrap: wrap;
   gap: var(--space-1);
   /* The ghost chips bleed so their icons line up with the branch name. */
-  margin: var(--space-1) 0 0 -6px;
+  margin: var(--space-1) 0 0 calc(-1 * var(--space-2));
 }
 .worktree-sessions:empty {
   display: none;
@@ -2114,86 +1962,24 @@ button.tracker-context-chip:hover,
   /* The docs layout follows its own width, not the window width. */
   container-type: inline-size;
 }
-.docs-layout {
-  display: grid;
-  grid-template-columns: var(--docs-library-width, 240px) minmax(0, 1fr);
-  flex: 1 1 auto;
-  min-height: 0;
-  /* The page list starts at the page edge, under the project name and the tabs. */
-  padding-left: var(--page-padding-x);
-}
-/* No page list: before the first page, or while the user hides the list. */
-.docs-layout[data-library] {
-  grid-template-columns: minmax(0, 1fr);
-}
-.docs-layout[data-library='none'] {
-  padding-left: 0;
-}
-/* The page list: a header, a tree that scrolls, and Deleted pages at the bottom. */
-.docs-library {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-  min-width: 0;
-  min-height: 0;
-  padding: var(--space-4) var(--space-2) var(--space-2) 0;
-  border-right: 1px solid var(--border);
-  background: transparent;
-}
-.docs-library-resizer {
-  position: absolute;
-  z-index: 6;
-  top: 0;
-  right: -3px;
-  bottom: 0;
-  width: 6px;
-  cursor: col-resize;
-  touch-action: none;
-  user-select: none;
-}
-.docs-library-resizer:hover,
-.docs-library-resizer:focus-visible,
-.docs-library-resizer[data-dragging] {
-  background: var(--ring);
-  outline: none;
-}
-.docs-layout:has(.docs-library-resizer[data-dragging]) {
-  cursor: col-resize;
-  user-select: none;
-}
-.wiki-pages-label {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  min-height: var(--control-sm);
-  padding: 0 0 0 var(--space-2);
-}
-.wiki-tree-scroll {
-  flex: 1 1 auto;
-  min-height: 0;
-  overflow-y: auto;
-}
+
 .wiki-page-tree,
 .wiki-tree-children {
   list-style: none;
   padding: 0;
   margin: 0;
 }
-/* A top-level page icon is at the rail edge. A child page is 16px further in. */
-.wiki-tree-children {
-  margin-left: var(--space-4);
-}
+/* All page rows have the full rail width. The icon of a subpage is 16px further in (--depth). */
 .wiki-tree-row {
   display: flex;
   align-items: center;
-  gap: var(--space-1);
+  gap: var(--space-2);
   min-width: 0;
   height: var(--row-height);
-  padding-inline: var(--space-2);
+  padding-inline: calc(var(--space-2) + var(--depth, 0) * var(--space-4)) var(--space-2);
   border-radius: var(--radius-md);
   color: var(--foreground);
-  font-size: 13px;
+  font-size: var(--text-sm);
   line-height: 20px;
 }
 .wiki-tree-row:hover {
@@ -2239,10 +2025,7 @@ button.wiki-tree-icon:focus-visible {
   outline: none;
 }
 .wiki-tree-row:has(.doc-tree-page:focus-visible) {
-  box-shadow: inset 0 0 0 2px var(--focus-color);
-}
-.wiki-tree-row {
-  gap: var(--space-2);
+  box-shadow: var(--focus-ring-inset);
 }
 .wiki-tree-row[data-drop='before'] {
   box-shadow: inset 0 2px var(--ring);
@@ -2250,40 +2033,7 @@ button.wiki-tree-icon:focus-visible {
 .wiki-tree-row[data-drop='after'] {
   box-shadow: inset 0 -2px var(--ring);
 }
-.wiki-tree-actions {
-  flex-shrink: 0;
-  display: flex;
-  opacity: 0;
-}
-.wiki-tree-row:hover .wiki-tree-actions,
-.wiki-tree-row:has(:focus-visible) .wiki-tree-actions,
-.wiki-tree-row[data-selected='true'] .wiki-tree-actions,
-.wiki-tree-actions:has([data-state='open']) {
-  opacity: 1;
-}
-@media (hover: none) {
-  .wiki-tree-actions {
-    opacity: 1;
-  }
-}
-/* Deleted pages: the same row as a page in the list, in the muted color. */
-.docs-trash-row {
-  flex-shrink: 0;
-  gap: var(--space-2);
-  width: 100%;
-  color: var(--muted-foreground);
-  text-align: left;
-}
-.docs-trash-row:hover {
-  color: var(--foreground);
-}
-.docs-trash-row:focus-visible {
-  outline: none;
-  box-shadow: inset 0 0 0 2px var(--focus-color);
-}
-.docs-trash-row:disabled {
-  opacity: 0.5;
-}
+
 /* The dialog body scrolls, so the list has no height limit. */
 .wiki-deleted-list {
   list-style: none;
@@ -2304,16 +2054,21 @@ button.wiki-tree-icon:focus-visible {
 .doc-workspace {
   min-width: 0;
   overflow-y: auto;
+  /* Focus and "find" scroll targets stay clear of the sticky document bar. */
+  scroll-padding-top: var(--control-lg);
 }
 /*
- * The document bar: the ancestor pages on the left, save state, view and actions on the right.
- * Its content has the same column as the page text (.wiki-page).
+ * The document bar: the ancestor pages on the left, save state and actions on the right. Its
+ * row is the first row of the pane, like the pane headers, and has the page text column.
+ * After a scroll, only its 28px row stays at the top.
  */
 .wiki-document-bar {
-  height: var(--control-lg);
   position: sticky;
-  top: 0;
-  z-index: 5;
+  top: calc(-1 * var(--space-4));
+  z-index: var(--z-sticky);
+  /* The divider shows after a scroll. It overlaps the page, so the text does not move by 1px. */
+  margin-bottom: -1px;
+  padding: var(--space-4) var(--pane-inset) 0;
   background: var(--background);
   border-bottom: 1px solid transparent;
   transition: border-color var(--motion-fast);
@@ -2325,10 +2080,8 @@ button.wiki-tree-icon:focus-visible {
   display: flex;
   align-items: center;
   gap: var(--space-3);
-  height: 100%;
-  max-width: calc(var(--reading-width) + 2 * var(--space-12));
-  margin: 0 auto;
-  padding: 0 var(--space-12);
+  height: var(--control-sm);
+  max-width: var(--reading-width);
 }
 .wiki-breadcrumbs {
   display: flex;
@@ -2336,7 +2089,7 @@ button.wiki-tree-icon:focus-visible {
   align-items: center;
   gap: var(--space-1);
   min-width: 0;
-  font-size: 13px;
+  font-size: var(--text-sm);
   line-height: 20px;
   color: var(--muted-foreground);
 }
@@ -2364,7 +2117,7 @@ button.wiki-tree-icon:focus-visible {
 }
 .wiki-document-actions > [role='status'] {
   color: var(--muted-foreground);
-  font-size: 12px;
+  font-size: var(--text-xs);
   line-height: 16px;
 }
 .doc-alert-body {
@@ -2378,11 +2131,12 @@ button.wiki-tree-icon:focus-visible {
   gap: var(--space-2);
   margin-left: auto;
 }
-/* The text column is the reading width. The padding is outside it. */
+/* The text column is the reading width, on the left edge of the pane column. */
 .wiki-page {
-  max-width: calc(var(--reading-width) + 2 * var(--space-12));
-  margin: 0 auto;
-  padding: var(--space-4) var(--space-12) var(--space-24);
+  padding: var(--space-4) var(--pane-inset) var(--space-16);
+}
+.wiki-page > * {
+  max-width: var(--reading-width);
 }
 /* The page title is a plain text field. It looks like the first heading of the page. */
 .doc-title {
@@ -2394,13 +2148,13 @@ button.wiki-tree-icon:focus-visible {
   outline: none;
   background: transparent;
   color: var(--foreground);
-  font-size: 32px;
-  line-height: 40px;
+  font-size: var(--text-2xl);
+  line-height: 32px;
   font-weight: 600;
   letter-spacing: -0.01em;
 }
 .doc-title::placeholder {
-  color: var(--subtle-foreground);
+  color: var(--muted-foreground);
 }
 .wiki-writing-area {
   position: relative;
@@ -2414,8 +2168,23 @@ button.wiki-tree-icon:focus-visible {
 .wiki-prose > :first-child {
   margin-top: 0;
 }
-.wiki-prose :is(h1, h2, h3) {
-  letter-spacing: -0.01em;
+/* The heading scale under the 24/32 page title: H1 20/28, H2 16/24, H3 13/20 muted. Larger
+   gaps above a heading than under it show which text it starts. */
+.wiki-prose h1 {
+  margin: var(--space-8) 0 var(--space-2);
+  font-size: var(--text-xl);
+  line-height: 28px;
+}
+.wiki-prose h2 {
+  margin: var(--space-6) 0 var(--space-2);
+  font-size: var(--text-lg);
+  line-height: 24px;
+}
+.wiki-prose h3 {
+  margin: var(--space-6) 0 var(--space-1);
+  color: var(--muted-foreground);
+  font-size: var(--text-sm);
+  line-height: 20px;
 }
 .wiki-prose li :is(p, ul, ol) {
   margin: 0;
@@ -2446,8 +2215,8 @@ button.wiki-tree-icon:focus-visible {
   width: 16px;
   height: 16px;
   margin: 0;
-  border: 1px solid var(--border-strong, var(--border));
-  border-radius: 4px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-xs);
   background-color: var(--background);
   cursor: pointer;
   outline: none;
@@ -2513,14 +2282,14 @@ button.wiki-tree-icon:focus-visible {
 }
 /* The format toolbar and the slash menu use the menu tokens. */
 .wiki-bubble {
-  z-index: 20;
+  z-index: var(--z-dropdown);
   display: flex;
   gap: 2px;
   padding: var(--space-1);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   background: var(--popover);
-  box-shadow: var(--shadow-popover);
+  box-shadow: var(--shadow-md);
 }
 .wiki-bubble button[aria-pressed='true'] {
   background: var(--surface-selected);
@@ -2548,7 +2317,7 @@ button.wiki-tree-icon:focus-visible {
   border-radius: var(--radius-lg);
   background: var(--popover);
   color: var(--popover-foreground);
-  box-shadow: var(--shadow-popover);
+  box-shadow: var(--shadow-md);
 }
 .wiki-bubble-menu > button {
   display: flex;
@@ -2557,7 +2326,7 @@ button.wiki-tree-icon:focus-visible {
   height: var(--control-sm);
   padding: 0 var(--space-2);
   border-radius: var(--radius-sm);
-  font-size: 13px;
+  font-size: var(--text-sm);
   text-align: left;
   outline: none;
 }
@@ -2573,7 +2342,7 @@ button.wiki-tree-icon:focus-visible {
 }
 .wiki-slash {
   position: fixed;
-  z-index: 50;
+  z-index: var(--z-dropdown);
   width: 320px;
   /* 12 rows, 2 group labels and the padding fit without a scroll bar. */
   max-height: min(400px, calc(100vh - 16px));
@@ -2583,18 +2352,7 @@ button.wiki-tree-icon:focus-visible {
   border-radius: var(--radius-lg);
   background: var(--popover);
   color: var(--popover-foreground);
-  box-shadow: var(--shadow-popover);
-}
-.wiki-slash-label,
-.wiki-slash-empty {
-  padding: 6px var(--space-2) var(--space-1);
-  color: var(--muted-foreground);
-  font-size: 12px;
-  line-height: 16px;
-  font-weight: 500;
-}
-.wiki-slash-empty {
-  font-weight: 400;
+  box-shadow: var(--shadow-md);
 }
 .wiki-slash button {
   display: flex;
@@ -2605,7 +2363,7 @@ button.wiki-tree-icon:focus-visible {
   padding: 0 var(--space-2);
   border-radius: var(--radius-sm);
   text-align: left;
-  font-size: 13px;
+  font-size: var(--text-sm);
 }
 .wiki-slash button[aria-selected='true'] {
   background: var(--surface-selected);
@@ -2614,31 +2372,38 @@ button.wiki-tree-icon:focus-visible {
   flex-shrink: 0;
   color: var(--muted-foreground);
 }
-.wiki-slash button > span {
+.wiki-slash button > span:not(.wiki-slash-hint, .wiki-slash-path) {
   flex: 1;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-/* The Markdown shortcut of a block: plain muted text, no box. */
+/* The Markdown shortcut of a block: plain muted text, no box, at the end of the row. */
 .wiki-slash-hint {
   flex-shrink: 0;
+  margin-left: auto;
   color: var(--muted-foreground);
   font-family: var(--font-mono, ui-monospace, monospace);
-  font-size: 12px;
+  font-size: var(--text-xs);
   line-height: 16px;
+}
+/* The parent pages of a page in the "[[" menu. */
+.wiki-slash-path {
+  max-width: 45%;
+  overflow: hidden;
+  color: var(--muted-foreground);
+  font-size: var(--text-xs);
+  line-height: 16px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .wiki-outline {
   display: none;
 }
+/* The Markdown view grows with its text. */
 .wiki-source {
-  width: 100%;
-  min-height: 432px;
-  outline: 0;
-  resize: vertical;
-  background: transparent;
-  font-size: 13px;
+  resize: none;
   line-height: 20px;
 }
 /* The board tasks that link to the page, under the title. */
@@ -2649,7 +2414,7 @@ button.wiki-tree-icon:focus-visible {
   gap: var(--space-1) var(--space-2);
   margin-bottom: var(--space-6);
   color: var(--muted-foreground);
-  font-size: 12px;
+  font-size: var(--text-xs);
   line-height: 16px;
 }
 .doc-tasks-label {
@@ -2670,8 +2435,11 @@ button.doc-task-chip {
   align-items: center;
   gap: var(--space-1);
   min-width: 0;
-  height: 100%;
   padding: 0 var(--space-2);
+}
+/* The button inside a chip fills it. "Link task" is a chip itself: 24px, radius 8. */
+.doc-task-chip > button:first-child {
+  height: 100%;
   border-radius: inherit;
 }
 .doc-task-chip > button:hover,
@@ -2727,25 +2495,33 @@ button.doc-task-chip[data-add] {
 }
 .doc-read-count {
   color: var(--muted-foreground);
-  font-size: 12px;
+  font-size: var(--text-xs);
   line-height: 16px;
   white-space: nowrap;
 }
-/* Create tasks from a doc page: how the page splits into tasks. */
+/* Make tasks from a page: how the page splits into tasks. */
 .docs-plan-split {
-  display: grid;
-  gap: var(--space-2);
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
 }
 /*
  * The Knowledge tab: a 220px rail (search, pages, memory topics, insight views) and the pane.
- * Below 1100px the rail folds into the "Knowledge" switcher and shows over the pane.
+ * When the tab is narrower than 720px (the pane would be under 500px), the rail folds into the
+ * switcher and shows over the pane. At a 980px window the rail stays.
+ * Every pane (pages, memory, search, insights) has one column: at most 960px, centered, with
+ * at least 32px on each side. Text panes use the first 752px of it, so all sections start at the
+ * same x. Each pane's first row is 16px under the top, at the same y as the rail search.
  */
 .knowledge-root {
   display: flex;
   height: 100%;
   min-height: 0;
+  container-type: inline-size;
 }
 .project-docs.knowledge {
+  --knowledge-column: 960px;
+  --pane-inset: max(var(--space-8), calc((100% - var(--knowledge-column)) / 2));
   position: relative;
   display: grid;
   flex: 1;
@@ -2759,7 +2535,7 @@ button.doc-task-chip[data-add] {
   flex-direction: column;
   grid-row: 1 / -1;
   min-height: 0;
-  padding: var(--space-4) var(--space-3) var(--space-2) 0;
+  padding: var(--space-4) var(--space-4) var(--space-2) 0;
   border-right: 1px solid var(--border);
   background: var(--background);
 }
@@ -2782,34 +2558,19 @@ button.doc-task-chip[data-add] {
   align-items: center;
   justify-content: space-between;
   min-height: var(--control-sm);
-  padding-left: var(--space-2);
-}
-.knowledge-rail-actions {
-  display: flex;
-  align-items: center;
-  gap: 2px;
+  /* The 14px "+" icon ends on the same x as the counts of the rows. */
+  padding-inline: var(--space-2) var(--space-1);
 }
 .knowledge-rail-list {
   list-style: none;
   margin: 0;
   padding: 0;
 }
-.knowledge-rail-row {
-  width: 100%;
-}
 .knowledge-rail-muted {
-  gap: var(--space-2);
-  width: 100%;
   color: var(--muted-foreground);
 }
-.knowledge-rail-count {
-  flex-shrink: 0;
-  color: var(--muted-foreground);
-  font-size: 12px;
-  line-height: 16px;
-  font-variant-numeric: tabular-nums;
-}
-.knowledge-rail-count[data-tone='warning'] {
+/* GitHub changes to check: a warning count. */
+.knowledge-rail-checks .count {
   color: var(--warning);
   font-weight: 600;
 }
@@ -2828,10 +2589,15 @@ button.doc-task-chip[data-add] {
 .knowledge-error {
   grid-column: 2;
   width: auto;
-  margin: var(--space-3) var(--space-6) 0;
+  max-width: var(--reading-width);
+  margin: var(--space-4) var(--pane-inset) 0;
 }
 .knowledge-pane {
-  padding: var(--space-4) var(--space-8) var(--space-12);
+  padding: var(--space-4) var(--pane-inset) var(--space-12);
+}
+/* Text panes have the reading width. Insights use the whole column. */
+.knowledge-pane > :is(.project-memory, .knowledge-results, .knowledge-pane-bar) {
+  max-width: var(--reading-width);
 }
 .knowledge-pane-bar {
   margin-bottom: var(--space-4);
@@ -2840,26 +2606,25 @@ button.doc-task-chip[data-add] {
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  min-height: var(--control-lg);
+  min-height: var(--control-sm);
   margin-bottom: var(--space-4);
 }
 .knowledge-pane-title {
   margin: 0;
-  font-size: 16px;
-  line-height: 24px;
+  font-size: var(--text-xl);
+  line-height: 28px;
   font-weight: 600;
 }
 .knowledge-pane-count,
 .knowledge-results-count {
   margin: 0;
   color: var(--muted-foreground);
-  font-size: 12px;
+  font-size: var(--text-xs);
   line-height: 16px;
 }
 .knowledge-insight {
   display: grid;
   align-content: start;
-  max-width: 960px;
 }
 .knowledge-result-group + .knowledge-result-group {
   margin-top: var(--space-4);
@@ -2870,7 +2635,6 @@ button.doc-task-chip[data-add] {
 .knowledge-result {
   display: flex;
   gap: var(--space-3);
-  max-width: 760px;
   margin: 0 calc(-1 * var(--space-2));
   padding: var(--space-2);
   border-radius: var(--radius-md);
@@ -2886,25 +2650,28 @@ button.doc-task-chip[data-add] {
 }
 .knowledge-result-title {
   display: block;
-  font-size: 13px;
+  font-size: var(--text-sm);
   line-height: 20px;
 }
 .knowledge-result-detail {
   display: -webkit-box;
   overflow: hidden;
   color: var(--muted-foreground);
-  font-size: 12px;
+  font-size: var(--text-xs);
   line-height: 16px;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
 }
 .knowledge-result mark {
-  border-radius: 2px;
+  border-radius: var(--radius-xs);
   background: color-mix(in srgb, var(--warning) 30%, transparent);
   color: inherit;
 }
-@media (max-width: 1099px) {
+@container (max-width: 719px) {
+  /* With no rail, the pane text starts at the tab edge. The pane bleeds 8px into the page
+     padding, so hover fills and focus rings are not clipped. */
   .project-docs.knowledge {
+    --pane-inset: var(--space-2);
     grid-template-columns: minmax(0, 1fr);
     padding-left: 0;
   }
@@ -2913,31 +2680,32 @@ button.doc-task-chip[data-add] {
   .knowledge-error {
     grid-column: 1;
   }
+  .knowledge .doc-workspace,
+  .knowledge-pane {
+    margin-inline: calc(-1 * var(--space-2));
+  }
+  /* The rail opens under the switcher: 4px under its 28px row, at its left edge. */
   .knowledge-rail {
     position: absolute;
-    z-index: 20;
-    top: var(--space-2);
+    z-index: var(--z-sticky);
+    top: calc(var(--space-4) + var(--control-sm) + var(--space-1));
     bottom: var(--space-2);
-    left: var(--space-4);
+    left: calc(-1 * var(--space-2));
     display: none;
-    width: 240px;
+    width: 220px;
     padding: var(--space-3);
     border: 1px solid var(--border);
     border-radius: var(--radius-lg);
     background: var(--popover);
-    box-shadow: var(--shadow-popover);
+    box-shadow: var(--shadow-md);
   }
   .knowledge[data-rail-open='true'] .knowledge-rail {
     display: flex;
   }
 }
-@container (min-width: 1200px) {
-  /* Room for the outline on the right, only when the page has an outline. */
-  .wiki-page:has(.wiki-outline),
-  .doc-editor:has(.wiki-outline) .wiki-document-bar-inner {
-    max-width: calc(var(--reading-width) + 2 * var(--space-12) + 200px);
-    padding-right: calc(var(--space-12) + 200px);
-  }
+/* The outline shows in the rest of the 960px column, right of the text: the pane is at least
+   960 + 2 × 32px wide, next to the 220px rail. */
+@container (min-width: 1244px) {
   .wiki-outline {
     display: flex;
     flex-direction: column;
@@ -2947,7 +2715,7 @@ button.doc-task-chip[data-add] {
     width: 152px;
     gap: var(--space-2);
     color: var(--muted-foreground);
-    font-size: 12px;
+    font-size: var(--text-xs);
     line-height: 16px;
   }
   .wiki-outline > span {
@@ -2964,35 +2732,7 @@ button.doc-task-chip[data-add] {
     color: var(--foreground);
   }
 }
-@container (max-width: 760px) {
-  .docs-layout {
-    grid-template-columns: min(var(--docs-library-width, 240px), 200px) minmax(0, 1fr);
-  }
-  .wiki-page {
-    padding: var(--space-8) var(--space-8) var(--space-16);
-  }
-  .wiki-document-bar-inner {
-    padding: 0 var(--space-8);
-  }
-}
-@container (max-width: 640px) {
-  /* The same edge as the project header at this width. */
-  .docs-layout {
-    padding-left: var(--space-4);
-  }
-}
 @container (max-width: 600px) {
-  .docs-layout {
-    grid-template-columns: min(var(--docs-library-width, 240px), 180px) minmax(0, 1fr);
-  }
-  .wiki-page,
-  .wiki-document-bar-inner {
-    padding-inline: var(--space-5);
-  }
-  .doc-title {
-    font-size: 24px;
-    line-height: 32px;
-  }
   .wiki-document-actions > [role='status'] {
     display: none;
   }
@@ -3007,141 +2747,12 @@ button.doc-task-chip[data-add] {
   display: inline-flex;
 }
 .repository-session-filter {
-  width: 200px;
+  width: 240px;
 }
 .repository-overview-section {
   min-width: 0;
 }
 
-/* Project settings: the Preferences shell (.settings-dialog, .settings-nav, .settings-nav-item,
-   .settings-main-title) with "Label — control" rows on the right. */
-.project-settings-dialog.settings-dialog {
-  display: grid;
-  height: min(560px, calc(100dvh - 2rem));
-  grid-template-columns: 180px minmax(0, 1fr);
-  grid-template-rows: minmax(0, 1fr);
-}
-@media (max-width: 760px) {
-  .project-settings-dialog.settings-dialog {
-    grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: auto minmax(0, 1fr);
-  }
-}
-.project-settings-dialog .settings-nav-title:has(+ .project-settings-subtitle) {
-  margin-bottom: 0;
-}
-.project-settings-subtitle {
-  margin: 0 0 var(--space-2);
-  padding: 0 var(--space-2);
-  overflow: hidden;
-  font-size: 12px;
-  line-height: 16px;
-  color: var(--muted-foreground);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.project-settings-body {
-  min-height: 0;
-  padding: 0 var(--space-6) var(--space-6);
-  overflow-y: auto;
-}
-.project-settings-group-label {
-  margin: 0 0 var(--space-1);
-  font-size: 11px;
-  line-height: 16px;
-  font-weight: 600;
-  color: var(--muted-foreground);
-}
-.project-settings-rows {
-  border-top: 1px solid var(--border);
-}
-/* The Danger zone is 24px below the rows above it: the gap of the section. */
-.project-settings-danger {
-  margin-top: 0;
-}
-.project-settings-row {
-  display: flex;
-  align-items: center;
-  gap: var(--space-4);
-  min-height: 48px;
-  padding: var(--space-2) 0;
-  border-bottom: 1px solid var(--border);
-}
-/* The "⋯" of a row shows on hover, on focus, and while its menu is open. */
-.project-settings-row-menu {
-  opacity: 0;
-}
-.project-settings-row-hover:is(:hover, :focus-within) .project-settings-row-menu,
-.project-settings-row-menu[data-state='open'] {
-  opacity: 1;
-}
-.project-settings-links {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-4);
-}
-.project-settings-link {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-1);
-  border-radius: var(--radius-sm);
-  font-size: 12px;
-  line-height: 16px;
-  color: var(--muted-foreground);
-  text-decoration: none;
-  outline: none;
-}
-.project-settings-link:hover {
-  color: var(--foreground);
-}
-.project-settings-link:focus-visible {
-  box-shadow: var(--focus-ring);
-}
-.project-settings-link svg {
-  width: 12px;
-  height: 12px;
-}
-.project-settings-row-icon {
-  display: grid;
-  flex: none;
-  place-items: center;
-  width: 28px;
-  height: 28px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  background: var(--surface-hover);
-  color: var(--muted-foreground);
-}
-.project-settings-row-icon svg {
-  width: 16px;
-  height: 16px;
-}
-.project-settings-row-label {
-  flex: 1;
-  min-width: 0;
-}
-.project-settings-row-name {
-  display: block;
-  overflow: hidden;
-  font-size: var(--text-sm);
-  line-height: 20px;
-  font-weight: 500;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.project-settings-row-help {
-  font-size: var(--text-xs);
-  line-height: 16px;
-  color: var(--muted-foreground);
-}
-.project-settings-row-control {
-  display: flex;
-  flex: none;
-  align-items: center;
-  justify-content: flex-end;
-  gap: var(--space-2);
-  max-width: 60%;
-}
 /* A board picker list: a check marks the selected row. No list border and no fill. */
 .tracker-picker-list {
   padding: 0;
@@ -3167,7 +2778,7 @@ button.doc-task-chip[data-add] {
 }
 .project-settings-colors button[aria-pressed='true'] {
   background: var(--surface-selected);
-  box-shadow: inset 0 0 0 1px var(--ring);
+  box-shadow: inset 0 0 0 1px var(--border-strong);
 }
 /* A destructive action with its description, below the form fields. */
 .danger-zone {
@@ -3190,28 +2801,18 @@ button.doc-task-chip[data-add] {
   color: var(--muted-foreground);
 }
 
-/* Memory: all facts in one list, grouped by topic. */
+/* Memory: all facts in one list, grouped by topic. A topic name is a 13px muted heading, under
+   the 20px pane title. */
 .memory-list {
   display: grid;
-  gap: var(--space-8);
-  max-width: var(--reading-width);
+  gap: var(--space-6);
 }
 .memory-topic-title {
-  display: flex;
-  align-items: baseline;
-  gap: var(--space-2);
   margin: 0 0 var(--space-2);
-  font-size: 16px;
-  line-height: 24px;
-  font-weight: 600;
-  scroll-margin-top: var(--space-4);
-}
-.memory-topic-count {
   color: var(--muted-foreground);
-  font-size: 12px;
-  line-height: 16px;
-  font-weight: 400;
-  font-variant-numeric: tabular-nums;
+  font-size: var(--text-sm);
+  line-height: 20px;
+  font-weight: 600;
 }
 .memory-facts {
   display: grid;
@@ -3245,7 +2846,7 @@ button.doc-task-chip[data-add] {
   gap: 0 var(--space-2);
   margin: var(--space-1) 0 0;
   color: var(--muted-foreground);
-  font-size: 12px;
+  font-size: var(--text-xs);
   line-height: 16px;
 }
 .memory-fact-meta > * + *::before {
@@ -3271,13 +2872,12 @@ button.doc-task-chip[data-add] {
   flex: 1;
 }
 .memory-new {
-  max-width: var(--reading-width);
-  margin-bottom: var(--space-8);
+  margin-bottom: var(--space-6);
 }
 .memory-status {
   margin: 0;
   color: var(--muted-foreground);
-  font-size: 12px;
+  font-size: var(--text-xs);
   line-height: 16px;
 }
 .memory-form {
@@ -3288,11 +2888,6 @@ button.doc-task-chip[data-add] {
   display: flex;
   justify-content: flex-end;
   gap: var(--space-2);
-}
-.memory-status .text-link,
-.memory-fact-meta .text-link {
-  font-size: inherit;
-  line-height: inherit;
 }
 
 /* Planning tools and the Insights page: one review row, one selected-task list and one
@@ -3325,7 +2920,7 @@ button.doc-task-chip[data-add] {
 .review-row-title {
   min-width: 0;
   overflow-wrap: anywhere;
-  font-size: 13px;
+  font-size: var(--text-sm);
   line-height: 20px;
   font-weight: 500;
 }
@@ -3333,7 +2928,7 @@ button.doc-task-chip[data-add] {
   min-width: 0;
   overflow-wrap: anywhere;
   color: var(--muted-foreground);
-  font-size: 12px;
+  font-size: var(--text-xs);
   line-height: 16px;
 }
 .review-row-aside {
@@ -3342,8 +2937,8 @@ button.doc-task-chip[data-add] {
   align-items: center;
   gap: var(--space-2);
   min-height: 20px;
-  color: var(--subtle-foreground);
-  font-size: 12px;
+  color: var(--muted-foreground);
+  font-size: var(--text-xs);
   line-height: 16px;
 }
 .review-row-link {
@@ -3367,45 +2962,28 @@ button.doc-task-chip[data-add] {
   gap: var(--space-2);
   padding-top: var(--space-1);
 }
+.selected-tasks-summary {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: var(--control-sm);
+  font-size: var(--text-sm);
+  line-height: 20px;
+}
 .selected-tasks {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: var(--space-1);
   max-height: 120px;
   overflow-y: auto;
   margin: 0;
   padding: 0;
   list-style: none;
 }
-.selected-task {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
+.selected-tasks > li {
+  display: flex;
+  min-width: 0;
   max-width: 280px;
-  height: var(--control-xs);
-  padding-inline: var(--space-2) 4px;
-  border-radius: 999px;
-  background: var(--secondary);
-  font-size: 12px;
-  line-height: 16px;
-}
-.selected-task-remove {
-  display: inline-flex;
-  flex-shrink: 0;
-  align-items: center;
-  justify-content: center;
-  width: 16px;
-  height: 16px;
-  border-radius: 999px;
-  color: var(--muted-foreground);
-}
-.selected-task-remove:hover {
-  background: var(--surface-hover);
-  color: var(--foreground);
-}
-.selected-task-remove:focus-visible {
-  outline: none;
-  box-shadow: var(--focus-ring);
 }
 /* Short form fields in two columns of at most 360px. */
 .planning-form-grid {
@@ -3442,7 +3020,7 @@ button.doc-task-chip[data-add] {
 .tool-section-title {
   flex: 1;
   min-width: 0;
-  font-size: 13px;
+  font-size: var(--text-sm);
   line-height: 20px;
   font-weight: 600;
 }
@@ -3455,7 +3033,7 @@ button.doc-task-chip[data-add] {
 .tool-section-content {
   display: grid;
   gap: var(--space-2);
-  padding: var(--space-2) var(--space-2) var(--space-2) 30px;
+  padding: var(--space-2) var(--space-2) var(--space-2) var(--space-8);
 }
 .planning-pre {
   max-height: 240px;
@@ -3465,7 +3043,7 @@ button.doc-task-chip[data-add] {
   border-radius: var(--radius-md);
   background: var(--secondary);
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: var(--text-xs);
   line-height: 16px;
   white-space: pre-wrap;
 }
@@ -3482,11 +3060,7 @@ button.doc-task-chip[data-add] {
 .project-insights-sections .section-header {
   margin-bottom: 0;
 }
-/* Managed-agent usage on the Insights page. */
-.project-usage-intro {
-  max-width: 640px;
-  margin: 0;
-}
+
 .project-usage-stats {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
@@ -3538,15 +3112,9 @@ button.doc-task-chip[data-add] {
 .project-usage-chip {
   padding: 2px var(--space-2);
   border: 1px solid var(--border);
-  border-radius: 999px;
+  border-radius: var(--radius-full);
   font-size: var(--text-xs);
   color: var(--muted-foreground);
-}
-.health-dot {
-  width: 8px;
-  height: 8px;
-  flex-shrink: 0;
-  border-radius: 999px;
 }
 .count-list {
   display: grid;
@@ -3562,7 +3130,7 @@ button.doc-task-chip[data-add] {
   padding-inline: var(--space-3);
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
-  font-size: 13px;
+  font-size: var(--text-sm);
   line-height: 20px;
 }
 .count-item-label {
@@ -3607,7 +3175,7 @@ button.doc-task-chip[data-add] {
   cursor: default;
 }
 .insight-tile-value {
-  font-size: 20px;
+  font-size: var(--text-xl);
   line-height: 28px;
   font-weight: 600;
   font-variant-numeric: tabular-nums;
@@ -3618,42 +3186,73 @@ button.doc-task-chip[data-add] {
 .insight-tile-label {
   overflow: hidden;
   color: var(--muted-foreground);
-  font-size: 12px;
+  font-size: var(--text-xs);
   line-height: 16px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* Make tasks: one line for each task. "More" shows its description, parent and blockers. */
+.issue-plan-list {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
 .issue-plan-entry {
   display: grid;
+  gap: var(--space-2);
+}
+.issue-plan-line {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.issue-plan-details {
+  display: grid;
   gap: var(--space-3);
+  padding-left: var(--space-8);
 }
 
-/* Settings: a 720px dialog with a section list on the left and one column of rows. */
-.settings-page [role='tabpanel'] {
-  max-width: var(--dialog-lg);
-}
+/* The one settings shell (settings-disclosure.tsx SettingsShell): Preferences and Project
+   settings. Sections on the left, one section on the right. The height fits the content, from
+   400px up to 80% of the window. */
 .settings-dialog {
-  height: min(560px, calc(100dvh - 2rem));
-  grid-template-columns: 188px minmax(0, 1fr);
-  grid-template-rows: minmax(0, 1fr);
+  display: flex;
+  min-height: min(400px, calc(100dvh - 2rem));
+  max-height: min(80vh, calc(100dvh - 2rem));
 }
 .settings-nav {
   display: flex;
+  flex: none;
   flex-direction: column;
   gap: 2px;
+  width: 188px;
   min-height: 0;
-  padding: var(--space-5) var(--space-3) var(--space-4);
+  padding: var(--space-6) var(--space-3) var(--space-4);
   border-right: 1px solid var(--border);
   background: var(--navigation);
   border-radius: var(--radius-xl) 0 0 var(--radius-xl);
 }
+/* The dialog name: a group label on the 28px title row of the section title. */
 .settings-nav-title {
+  display: flex;
+  align-items: center;
+  min-height: var(--control-sm);
+  padding: 0 var(--space-2);
+}
+.settings-nav-subtitle {
   margin: 0 0 var(--space-2);
   padding: 0 var(--space-2);
-  font-size: 12px;
+  overflow: hidden;
+  font-size: var(--text-xs);
   line-height: 16px;
-  font-weight: 600;
   color: var(--muted-foreground);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.settings-nav-title + .settings-nav-subtitle {
+  margin-top: calc(var(--space-1) * -1);
 }
 .settings-nav-item {
   display: flex;
@@ -3662,12 +3261,16 @@ button.doc-task-chip[data-add] {
   height: var(--row-height);
   padding: 0 var(--space-2);
   border-radius: var(--radius-md);
-  font-size: 13px;
+  font-size: var(--text-sm);
   line-height: 20px;
   text-align: left;
   color: var(--muted-foreground);
   outline: none;
   transition: background-color var(--motion-fast);
+}
+.settings-nav-title + .settings-nav-item,
+.settings-nav-subtitle + .settings-nav-item {
+  margin-top: var(--space-2);
 }
 .settings-nav-item svg {
   width: 16px;
@@ -3679,71 +3282,73 @@ button.doc-task-chip[data-add] {
   color: var(--foreground);
 }
 .settings-nav-item:focus-visible {
-  box-shadow: var(--focus-ring);
+  box-shadow: var(--focus-ring-inset);
+}
+.settings-nav[data-pointer] .settings-nav-item:focus-visible {
+  box-shadow: none;
 }
 .settings-nav-item[data-state='active'] {
   background: var(--surface-selected);
   color: var(--foreground);
   font-weight: 500;
 }
-.settings-nav-version {
-  margin-top: auto;
-  padding: 0 var(--space-2);
-  font-size: 12px;
-  line-height: 16px;
-  color: var(--muted-foreground);
-}
 .settings-main {
-  display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
+  display: flex;
+  flex: 1;
+  flex-direction: column;
   min-width: 0;
   min-height: 0;
 }
+/* The section title has the metrics of DialogHeader: 24px top, a 28px row, 16px below. The
+   close button is on the same row. */
 .settings-main-title {
+  flex: none;
   margin: 0;
-  padding: var(--space-5) var(--space-12) var(--space-3) var(--space-6);
-  font-size: 16px;
+  padding: calc(var(--space-6) + 2px) var(--space-16) calc(var(--space-4) + 2px) var(--space-6);
+  font-size: var(--text-lg);
   line-height: 24px;
   font-weight: 600;
   outline: none;
 }
-.settings-scroll {
+.settings-body {
+  flex: 1 1 auto;
   min-height: 0;
-  overflow-y: auto;
   padding: 0 var(--space-6) var(--space-6);
+  overflow-y: auto;
 }
 .settings-panel {
   display: grid;
   align-content: start;
-  gap: var(--space-4);
-  min-width: 0;
-  max-width: var(--dialog-lg);
+  gap: var(--space-6);
   outline: none;
 }
-/* One row: label and one line of help on the left, the control on the right. */
+/* A group of rows with a group label above it. */
+.settings-group {
+  display: grid;
+  gap: var(--space-1);
+  min-width: 0;
+}
+/* SettingsRow: 48px, 16px between the icon, the text and the control. Dividers between rows. */
 .settings-rows {
   display: grid;
   min-width: 0;
   margin: 0;
   padding: 0;
-  border-top: 1px solid var(--border);
   list-style: none;
 }
 .settings-row {
   display: flex;
   align-items: center;
-  gap: var(--space-3);
+  gap: var(--space-4);
   min-width: 0;
-  min-height: 52px;
-  padding: var(--space-2) 0;
+  min-height: var(--row-height-lg);
+  padding: var(--space-1) 0;
   border-bottom: 1px solid var(--border);
   outline: none;
   scroll-margin-top: var(--space-2);
 }
-.settings-row:focus-visible,
-.settings-group:focus-visible {
-  box-shadow: var(--focus-ring);
-  border-radius: var(--radius-md);
+.settings-row:last-child {
+  border-bottom: 0;
 }
 .settings-row-text {
   display: grid;
@@ -3751,13 +3356,13 @@ button.doc-task-chip[data-add] {
   min-width: 0;
 }
 .settings-row-label {
-  font-size: 13px;
+  font-size: var(--text-sm);
   line-height: 20px;
   font-weight: 500;
   overflow-wrap: anywhere;
 }
 .settings-row-help {
-  font-size: 12px;
+  font-size: var(--text-xs);
   line-height: 16px;
   color: var(--muted-foreground);
   overflow-wrap: anywhere;
@@ -3772,7 +3377,7 @@ button.doc-task-chip[data-add] {
   max-width: 60%;
 }
 .settings-row-value {
-  font-size: 12px;
+  font-size: var(--text-xs);
   line-height: 16px;
   color: var(--muted-foreground);
 }
@@ -3783,103 +3388,39 @@ button.doc-task-chip[data-add] {
   padding: 0 0 var(--space-3);
   border-bottom: 1px solid var(--border);
 }
-.settings-row-extra[data-indent] {
-  padding-left: 40px;
+.settings-row-extra:last-child {
+  border-bottom: 0;
 }
-.settings-row + .settings-row-extra {
-  margin-top: -1px;
-  border-top: 0;
+.settings-row-extra[data-indent] {
+  padding-left: calc(var(--control-sm) + var(--space-4));
 }
 .settings-row:has(+ .settings-row-extra) {
   border-bottom-color: transparent;
 }
-.settings-avatar {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 40px;
-  height: 40px;
-  flex-shrink: 0;
-  border-radius: 999px;
-  background: var(--surface-selected);
-  font-size: 13px;
-  line-height: 20px;
-  font-weight: 600;
+/* A row action that shows on hover, on focus, and while its menu is open. */
+.settings-row-hover-action {
+  opacity: 0;
 }
-.settings-group {
-  display: grid;
-  gap: var(--space-2);
-  min-width: 0;
-  align-content: start;
-  outline: none;
+.settings-row:is(:hover, :focus-within) .settings-row-hover-action,
+.settings-row-hover-action[data-state='open'] {
+  opacity: 1;
 }
-/* Preferences (settings-dialog.tsx): one short sheet, three small groups of rows. */
-.preferences-dialog {
-  max-height: min(560px, calc(100dvh - 2rem));
-}
-.preferences-title {
-  font-size: 16px;
-  line-height: 24px;
-  outline: none;
-}
-.preferences-body {
-  display: grid;
-  align-content: start;
-  gap: var(--space-4);
-}
-.preferences-group {
-  display: grid;
-  gap: var(--space-1);
-  min-width: 0;
-}
-.preferences-group-label,
-.computers-group-label {
-  margin: 0;
-  font-size: 12px;
-  line-height: 16px;
-  font-weight: 600;
-  color: var(--muted-foreground);
-}
-.preferences-body .settings-row {
-  min-height: 44px;
-}
-/* Computers page (computers-page.tsx): groups of rows in one bordered card each. */
+/* Computers page (computers-page.tsx): groups of flat rows under a group label. */
 .computers-groups {
   display: grid;
   gap: var(--space-6);
   min-width: 0;
 }
-.computers-group {
-  display: grid;
-  gap: var(--space-2);
-  min-width: 0;
-}
-.computers-card {
-  padding: 0 var(--space-4);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  background: var(--card);
-}
-.computers-card > :last-child {
-  border-bottom: 0;
-}
 .computers-add {
   display: grid;
   gap: var(--space-2);
-  padding: var(--space-3) 0;
+  padding: var(--space-2) 0;
 }
 .computers-add-form {
   display: flex;
   align-items: center;
-  gap: var(--space-2);
+  gap: var(--space-4);
   min-width: 0;
-}
-.computers-add-icon {
-  width: 16px;
-  height: 16px;
-  flex-shrink: 0;
-  margin-inline: var(--space-2) var(--space-2);
-  color: var(--primary);
 }
 .computers-add-form input {
   flex: 1;
@@ -3887,11 +3428,11 @@ button.doc-task-chip[data-add] {
 }
 @media (max-width: 760px) {
   .settings-dialog {
-    grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: auto minmax(0, 1fr);
+    flex-direction: column;
   }
   .settings-nav {
     flex-direction: row;
+    width: auto;
     overflow-x: auto;
     padding: var(--space-3);
     border-right: 0;
@@ -3899,12 +3440,12 @@ button.doc-task-chip[data-add] {
     border-radius: var(--radius-xl) var(--radius-xl) 0 0;
   }
   .settings-nav-title,
-  .settings-nav-version {
+  .settings-nav-subtitle {
     display: none;
   }
 }
 
-/* Shell: breadcrumbs, sidebar rows, "Needs you" and project home additions. */
+/* Shell: breadcrumbs, sidebar rows and the "Waiting for you" page. */
 .topbar-content {
   container: topbar / inline-size;
 }
@@ -3927,20 +3468,16 @@ button.doc-task-chip[data-add] {
 .conversation-trail .conversation-toolbar-title {
   min-width: min(24ch, 100%);
 }
-.tree-task-number,
-.session-task-number {
+.tree-task-number {
   flex-shrink: 0;
   color: var(--muted-foreground);
-  font-size: 12px;
+  font-size: var(--text-xs);
   line-height: 16px;
   font-variant-numeric: tabular-nums;
 }
-.session-title .session-task-number {
-  font-weight: 400;
-}
 .tree-more-row .tree-label {
   color: var(--muted-foreground);
-  font-size: 12px;
+  font-size: var(--text-xs);
 }
 .tree-more-row:hover .tree-label {
   color: var(--foreground);
@@ -3951,103 +3488,9 @@ button.doc-task-chip[data-add] {
   position: absolute;
   inset: -4px;
 }
-.project-overview-tabs {
-  margin-bottom: var(--space-4);
-}
-.project-needs-you {
-  margin-bottom: var(--space-6);
-}
-.needs-you-list {
-  display: grid;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-}
-.needs-you-row {
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
-  min-height: var(--row-height-lg);
-  padding: 6px var(--space-3);
-}
-.needs-you-row + .needs-you-row {
-  border-top: 1px solid var(--border);
-}
-.needs-you-text {
-  display: grid;
-  flex: 1;
-  min-width: 0;
-}
-.needs-you-title {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: 13px;
-  line-height: 20px;
-  font-weight: 500;
-}
-.needs-you-meta {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--muted-foreground);
-  font-size: 12px;
-  line-height: 16px;
-}
-.needs-you-row .activity-dot {
-  margin-left: 0;
-}
-.project-home-status-list li {
-  display: block;
-}
-.project-home-status {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  width: calc(100% + 2 * var(--space-2));
-  min-height: 28px;
-  margin-inline: calc(-1 * var(--space-2));
-  padding: 4px var(--space-2);
-  border: 0;
-  border-radius: var(--radius-md);
-  background: none;
-  color: inherit;
-  font: inherit;
-  font-size: 13px;
-  line-height: 20px;
-  text-align: left;
-  cursor: default;
-}
-.project-home-status:focus-visible {
-  outline: none;
-  box-shadow: var(--focus-ring);
-}
-.project-home-status-chevron {
-  width: 14px;
-  height: 14px;
-  flex-shrink: 0;
-  color: var(--muted-foreground);
-  opacity: 0;
-}
-.project-home-status:hover .project-home-status-chevron,
-.project-home-status:focus-visible .project-home-status-chevron {
-  opacity: 1;
-}
-.project-home-progress {
-  display: grid;
-  gap: var(--space-1);
-}
-.project-home-doc .activity-dot {
-  margin-left: auto;
-}
-.project-home-inline-icon {
-  display: inline-block;
-  width: 14px;
-  height: 14px;
-  margin-right: 6px;
-  vertical-align: -2px;
+/* The "Waiting for you" page: chats, then the assigned tasks. */
+.waiting-section + .waiting-section {
+  margin-top: var(--section-gap);
 }
 /* Project pages: one header and one tab bar that stay in the same place on each tab. Only the
    page below the tab bar scrolls. */
@@ -4062,63 +3505,44 @@ button.doc-task-chip[data-add] {
   height: 100%;
   min-height: 0;
 }
+/* The head and the body have the edges of .page: the content is 1120px wide at most and
+   centered, with the page padding at the sides (16px below a 1024px window). */
+.project-frame-head,
+.project-frame-body {
+  padding-inline: max(var(--frame-x), calc((100% - var(--page-max-width)) / 2 + var(--frame-x)));
+}
 .project-frame-head {
   flex-shrink: 0;
-  padding: var(--page-padding-top) var(--page-padding-x) 0;
+  padding-top: var(--page-padding-top);
 }
 .project-frame-head .project-tabs {
   margin-bottom: 0;
 }
-/* A compact project header: a 28px icon inline with the 20px title. */
-.project-frame-head .project-header {
-  /* The same height with or without the counts line, so the tabs stay in place on each tab. */
-  min-height: 62px;
-  padding-bottom: var(--space-4);
-}
+/* The content of each tab starts 16px under the tabs. */
 .project-frame-body {
   flex: 1;
   min-height: 0;
   overflow: auto;
-  padding: var(--space-6) var(--page-padding-x) var(--space-12);
-}
-.project-frame[data-page='tasks'] .project-frame-body {
-  padding-top: var(--space-4);
+  padding-block: var(--space-4) var(--page-padding-bottom);
 }
 .project-frame-body > .page {
   max-width: none;
   padding: 0;
 }
-/* Knowledge has its own rail and scroll areas. */
+/* The board and Knowledge fill the height. Their columns and rails scroll on their own. */
+.project-frame[data-page='tasks'] .project-frame-body {
+  padding-bottom: 0;
+}
 .project-frame[data-page='knowledge'] .project-frame-body {
-  padding-block: 0;
+  padding-bottom: 0;
   overflow: hidden;
 }
-@container (max-width: 640px) {
-  .project-frame-head,
-  .project-frame-body {
-    padding-inline: var(--space-4);
-  }
-}
-/* The slots that pages fill: text after the board line, and actions before Project settings. */
-.project-header-meta,
-.project-header-slot {
-  display: contents;
-}
+
 .project-header-host {
   display: inline-flex;
   align-items: center;
   gap: 6px;
   min-width: 0;
-}
-.project-page-summary {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 6px;
-  margin-bottom: var(--space-4);
-  color: var(--muted-foreground);
-  font-size: 12px;
-  line-height: 16px;
 }
 .search-option-icon {
   display: inline-flex;
@@ -4134,7 +3558,7 @@ button.doc-task-chip[data-add] {
 .welcome {
   position: fixed;
   inset: 0;
-  z-index: 40;
+  z-index: var(--z-dropdown);
   display: grid;
   grid-template-rows: var(--titlebar-height) minmax(0, 1fr);
   background: var(--background);
@@ -4158,7 +3582,7 @@ button.doc-task-chip[data-add] {
   align-items: center;
   gap: var(--space-2);
   color: var(--muted-foreground);
-  font-size: 12px;
+  font-size: var(--text-xs);
   line-height: 16px;
 }
 .sign-in-screen {
@@ -4180,50 +3604,29 @@ button.doc-task-chip[data-add] {
 }
 .sign-in-mark {
   width: 48px;
-  height: 48px;
+  height: var(--space-12);
   margin-bottom: var(--space-2);
   border-radius: var(--radius-xl);
 }
 .sign-in-icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 48px;
-  height: 48px;
   margin-bottom: var(--space-2);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-xl);
-  background: var(--card);
-  color: var(--muted-foreground);
-}
-.sign-in-icon svg {
-  width: 24px;
-  height: 24px;
-}
-.sign-in-icon img {
-  width: 32px;
-  height: 32px;
-  border-radius: var(--radius-lg);
-}
-.sign-in-icon[data-tone='warning'] {
-  color: var(--warning, var(--muted-foreground));
 }
 .sign-in-title {
   margin: 0;
-  font-size: 20px;
+  font-size: var(--text-xl);
   line-height: 28px;
   font-weight: 600;
   letter-spacing: -0.01em;
 }
 .sign-in-screen[data-mode='dialog'] .sign-in-title {
-  font-size: 16px;
+  font-size: var(--text-lg);
   line-height: 24px;
 }
 .sign-in-lead {
-  max-width: 400px;
+  max-width: 440px;
   margin: 0;
   color: var(--muted-foreground);
-  font-size: 13px;
+  font-size: var(--text-sm);
   line-height: 20px;
 }
 .sign-in-actions {
@@ -4237,20 +3640,36 @@ button.doc-task-chip[data-add] {
   display: flex;
   flex-wrap: wrap;
   justify-content: center;
-  gap: var(--space-1);
+  gap: var(--space-2);
 }
-/* "Region European Union ▾": muted text with an inline menu. */
-.sign-in-region {
+/* "Getting ready… 62%" or "Waiting for your browser…": a spinner and one line of text. */
+.sign-in-status {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  min-height: 28px;
-  margin: 0;
-  color: var(--muted-foreground);
-  font-size: 12px;
-  line-height: 16px;
+  gap: var(--space-2);
+  margin: var(--space-2) 0 0;
+  font-size: var(--text-sm);
+  line-height: 20px;
 }
-.sign-in-region svg,
+.sign-in-status svg {
+  width: 16px;
+  height: 16px;
+  color: var(--muted-foreground);
+}
+/* "No account? Create one · Region: European Union ▾" on one line. */
+.sign-in-region {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  min-height: var(--control-sm);
+}
+.sign-in-region-group {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+}
 .sign-in-meta svg {
   width: 12px;
   height: 12px;
@@ -4260,11 +3679,16 @@ button.doc-task-chip[data-add] {
   display: inline-flex;
   align-items: center;
   gap: 2px;
-  margin: 0 -4px;
-  padding: 2px 4px;
+  margin: 0 calc(var(--space-1) * -1);
+  padding: 2px var(--space-1);
   border-radius: var(--radius-sm);
   color: var(--foreground);
   font-weight: 500;
+}
+.sign-in-region-trigger svg {
+  width: 12px;
+  height: 12px;
+  color: var(--muted-foreground);
 }
 .sign-in-region-trigger:hover,
 .sign-in-region-trigger[data-state='open'] {
@@ -4274,24 +3698,21 @@ button.doc-task-chip[data-add] {
   box-shadow: var(--focus-ring);
   outline: none;
 }
-.sign-in-region-trigger:disabled {
-  opacity: 0.5;
-}
 .sign-in-note {
-  max-width: 400px;
+  max-width: 440px;
   margin: 0;
   color: var(--muted-foreground);
-  font-size: 12px;
+  font-size: var(--text-xs);
   line-height: 16px;
 }
 .sign-in-meta {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 6px;
+  gap: var(--space-2);
 }
-.sign-in-dialog {
-  padding-top: var(--space-8);
+.sign-in-screen[data-mode='dialog'] .sign-in-actions {
+  max-width: none;
 }
 
 /* Account menu and session banner (account-menu.tsx). One 48px trigger fills the footer row. */
@@ -4302,14 +3723,15 @@ button.doc-task-chip[data-add] {
   gap: var(--space-1);
   min-width: 0;
 }
+/* The 24px avatar is centered on the 16px nav icons, and the text starts at the nav labels. */
 .account-menu-trigger {
   display: flex;
   flex: 1;
   align-items: center;
-  gap: var(--space-2);
+  gap: var(--space-1);
   min-width: 0;
-  height: 48px;
-  padding: 0 var(--space-2);
+  height: var(--row-height-lg);
+  padding: 0 var(--space-2) 0 var(--space-1);
   border-radius: var(--radius-md);
   color: var(--foreground);
   -webkit-app-region: no-drag;
@@ -4323,18 +3745,18 @@ button.doc-task-chip[data-add] {
   flex-shrink: 0;
   align-items: center;
   justify-content: center;
-  width: 28px;
-  height: 28px;
-  border-radius: 999px;
+  width: 24px;
+  height: 24px;
+  border-radius: var(--radius-full);
   background: var(--secondary);
   color: var(--secondary-foreground);
-  font-size: 11px;
+  font-size: var(--text-2xs);
   line-height: 16px;
   font-weight: 600;
 }
 .account-menu-avatar svg {
-  width: 16px;
-  height: 16px;
+  width: 14px;
+  height: 14px;
 }
 .account-menu-avatar-empty {
   background: transparent;
@@ -4346,13 +3768,10 @@ button.doc-task-chip[data-add] {
   align-items: center;
   gap: var(--space-2);
   padding: var(--space-2);
-  font-size: 12px;
+  font-size: var(--text-xs);
   line-height: 16px;
   font-weight: 400;
   letter-spacing: 0;
-}
-.account-menu-switch-item > span:first-child {
-  display: none !important;
 }
 .account-menu-switch-item {
   height: 32px;
@@ -4406,16 +3825,26 @@ button.doc-task-chip[data-add] {
   width: 24px;
   height: 24px;
   border: 1px solid var(--border);
-  border-radius: 999px;
+  border-radius: var(--radius-full);
   color: var(--muted-foreground);
-  font-size: 12px;
+  font-size: var(--text-xs);
   font-weight: 600;
   font-variant-numeric: tabular-nums;
 }
+/* A done step: a foreground check on a muted circle, and a muted title. */
 .onboarding-step-number[data-done] {
   border-color: transparent;
-  background: var(--primary);
-  color: var(--primary-foreground);
+  background: var(--secondary);
+  color: var(--foreground);
+}
+.onboarding-step-title {
+  font-size: var(--text-sm);
+  line-height: 24px;
+  font-weight: 600;
+}
+.onboarding-step-toggle[data-done] .onboarding-step-title {
+  color: var(--muted-foreground);
+  font-weight: 500;
 }
 .onboarding-step-toggle {
   display: flex;
@@ -4428,7 +3857,6 @@ button.doc-task-chip[data-add] {
 }
 .onboarding-step-toggle:disabled {
   cursor: default;
-  opacity: 0.6;
 }
 .onboarding-step-toggle:focus-visible {
   box-shadow: var(--focus-ring);
@@ -4443,7 +3871,7 @@ button.doc-task-chip[data-add] {
   padding: var(--space-2) var(--space-3);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
-  font-size: 12px;
+  font-size: var(--text-xs);
   line-height: 16px;
 }
 .onboarding-managed p {
@@ -4467,20 +3895,13 @@ button.doc-task-chip[data-add] {
 /* "Setting up agents · 62%" in the sidebar footer while the runtime installs. */
 .onboarding-setup-progress {
   display: grid;
-  gap: 6px;
+  gap: var(--space-2);
   padding: var(--space-1) var(--space-2);
   color: var(--muted-foreground);
-  font-size: 11px;
+  font-size: var(--text-2xs);
   line-height: 16px;
 }
 
-/* Sidebar: "New chat ⌘N" at the top. The key shows on the right. */
-.tree-new-chat .tree-kbd {
-  margin-left: auto;
-}
-.tree-new-chat:not(:hover, :focus-within) .tree-kbd {
-  background: transparent;
-}
 /* Chat rows: the title gets the full row. The … button shows over its end on hover. */
 .tree-row.session-row {
   position: relative;
@@ -4490,76 +3911,34 @@ button.doc-task-chip[data-add] {
   top: 50%;
   right: var(--space-1);
   transform: translateY(-50%);
+  --overlay-fill: color-mix(in oklch, var(--foreground) 6%, var(--navigation));
   border-radius: var(--radius-sm);
-  background: color-mix(in oklch, var(--foreground) 4%, var(--navigation));
-  box-shadow: -8px 0 8px -2px color-mix(in oklch, var(--foreground) 4%, var(--navigation));
+  background: var(--overlay-fill);
+}
+/* The title fades out under the overlay. */
+.tree-row-overlay::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  right: 100%;
+  bottom: 0;
+  width: var(--space-2);
+  background: linear-gradient(to right, transparent, var(--overlay-fill));
+  pointer-events: none;
 }
 .tree-row.selected .tree-row-overlay {
-  background: color-mix(in oklch, var(--foreground) 7%, var(--navigation));
-  box-shadow: -8px 0 8px -2px color-mix(in oklch, var(--foreground) 7%, var(--navigation));
+  --overlay-fill: color-mix(in oklch, var(--foreground) 9%, var(--navigation));
 }
-/* Docs under a project: one closed row, then its pages one level deeper. */
-.tree-docs-chevron {
-  margin-left: auto;
-  color: var(--muted-foreground);
-  transition: transform var(--motion-fast);
+/* While the … button shows, the short labels at the row end ("Draft", #N) step aside for it. */
+.tree-row.session-row:is(:hover, :focus-within, .selected) :is(.tree-secondary, .tree-task-number) {
+  visibility: hidden;
 }
-.tree-docs-row:not(:hover, :focus-within) .tree-docs-chevron {
-  opacity: 0;
-}
-.tree-doc-row {
-  padding-left: calc(var(--space-2) + 40px);
-}
-.tree-new-project {
-  justify-self: start;
-  margin: var(--space-1) 0 0 var(--space-2);
-}
+
 .tree-no-match {
   padding: var(--space-2);
   color: var(--muted-foreground);
   font-size: var(--text-xs);
   line-height: 16px;
-}
-/* Project pages: the toolbar row under the tabs holds the controls of the tab. The header
-   above stays the same on every tab. Without controls, the row takes no room. */
-.project-toolbar {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--space-2);
-  min-height: var(--control-md);
-  padding-top: var(--space-3);
-}
-.project-toolbar:has(.project-toolbar-meta:empty):has(.project-toolbar-end:empty):not(
-    :has(.project-toolbar-board)
-  ) {
-  display: none;
-}
-.project-toolbar-start {
-  display: flex;
-  flex: 1 1 auto;
-  align-items: center;
-  gap: 6px;
-  min-width: 0;
-  color: var(--muted-foreground);
-  font-size: var(--text-xs);
-  line-height: 16px;
-}
-.project-toolbar-board {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  min-width: 0;
-  color: var(--foreground);
-}
-.project-toolbar-meta,
-.project-toolbar-end {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-}
-.project-toolbar-end {
-  margin-left: auto;
 }
 /* The count of GitHub changes that need a check, on the Insights tab. */
 .project-tab-badge {
@@ -4568,12 +3947,12 @@ button.doc-task-chip[data-add] {
   justify-content: center;
   min-width: 16px;
   height: 16px;
-  margin-left: 6px;
+  margin-left: var(--space-2);
   padding: 0 4px;
-  border-radius: 999px;
+  border-radius: var(--radius-full);
   background: var(--warning);
   color: var(--warning-foreground, var(--background));
-  font-size: 11px;
+  font-size: var(--text-2xs);
   line-height: 16px;
   font-weight: 500;
   vertical-align: 1px;

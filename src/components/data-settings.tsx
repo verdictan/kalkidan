@@ -1,4 +1,5 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useState } from 'react';
+import { LoaderCircle } from 'lucide-react';
 import type { API } from '../types';
 import {
   dataDisclosure,
@@ -117,16 +118,6 @@ export function DataNoticeDialog({ open, onDone }: { open: boolean; onDone: () =
   );
 }
 
-/** One group of the "Your data" dialog with a small label, as in Preferences. */
-function DataGroup({ label, children }: { label: string; children: ReactNode }) {
-  return (
-    <section className="preferences-group" aria-label={label}>
-      <h3 className="preferences-group-label">{label}</h3>
-      {children}
-    </section>
-  );
-}
-
 /** The "Your data" dialog of Preferences. */
 export function DataDialog({
   api,
@@ -139,11 +130,11 @@ export function DataDialog({
 }) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent size="lg" layout="scroll" aria-describedby="data-dialog-description">
+      <DialogContent size="md" layout="scroll" aria-describedby="data-dialog-description">
         <DialogHeader>
           <DialogTitle>Your data</DialogTitle>
           <DialogDescription id="data-dialog-description">
-            What Kalkidan keeps, where, and for how long.
+            What Kalkidan keeps on this computer, where it goes, and for how long.
           </DialogDescription>
         </DialogHeader>
         <DialogBody>
@@ -192,10 +183,7 @@ export function DataSection({ api, open }: { api: API; open: boolean }) {
   const over = usage ? usage.total > usage.limit : false;
   return (
     <div className="grid gap-6">
-      <DataGroup label="Where your data goes">
-        <DataDisclosure headingLevel={4} />
-      </DataGroup>
-      <DataGroup label="Data on this computer">
+      <div className="grid gap-2">
         <SettingsRows label="Data on this computer">
           <SettingsRow
             label="Disk use"
@@ -217,10 +205,11 @@ export function DataSection({ api, open }: { api: API; open: boolean }) {
           />
           <SettingsRow
             label="Export"
-            help="Copies your chat history, project documents, and settings to a folder. Credentials and passwords are not copied."
+            help="Chat history, project documents, and settings. No credentials."
           >
             <Button
               variant="outline"
+              size="sm"
               disabled={!supported || !!busy}
               onClick={() =>
                 void run('export', async () => {
@@ -229,29 +218,19 @@ export function DataSection({ api, open }: { api: API; open: boolean }) {
                 })
               }
             >
-              {busy === 'export' ? 'Exporting…' : 'Export…'}
+              {busy === 'export' && <LoaderCircle className="animate-spin" aria-hidden="true" />}
+              Export…
             </Button>
           </SettingsRow>
           <SettingsRow
             label="Delete caches and logs"
-            help="Removes the browser caches, operation logs, and old runtime versions."
+            help="Browser caches, operation logs, and old runtime versions"
           >
             <Button
               variant="outline"
+              size="sm"
               disabled={!supported || !!busy}
               onClick={() => setConfirm('caches-and-logs')}
-            >
-              Delete…
-            </Button>
-          </SettingsRow>
-          <SettingsRow
-            label="Delete chat history"
-            help="Removes the agent conversations, session notes, and run outcomes on this computer."
-          >
-            <Button
-              variant="destructive"
-              disabled={!supported || !!busy}
-              onClick={() => setConfirm('chat-history')}
             >
               Delete…
             </Button>
@@ -278,8 +257,26 @@ export function DataSection({ api, open }: { api: API; open: boolean }) {
             {error}
           </p>
         )}
-      </DataGroup>
-      <DataGroup label="Retention">
+      </div>
+      <SettingsRows title="Danger zone">
+        <SettingsRow
+          label="Delete chat history"
+          help="Agent conversations, session notes, and run outcomes on this computer"
+        >
+          <Button
+            variant="destructive-outline"
+            size="sm"
+            disabled={!supported || !!busy}
+            onClick={() => setConfirm('chat-history')}
+          >
+            Delete chat history…
+          </Button>
+        </SettingsRow>
+      </SettingsRows>
+      <div className="grid">
+        <SettingsDisclosure title="Where your data goes">
+          <DataDisclosure headingLevel={4} />
+        </SettingsDisclosure>
         <SettingsDisclosure title="What each store keeps, and for how long">
           <div className="grid gap-3 text-sm">
             {storePolicies.map((store) => (
@@ -304,7 +301,7 @@ export function DataSection({ api, open }: { api: API; open: boolean }) {
             ))}
           </ul>
         </SettingsDisclosure>
-      </DataGroup>
+      </div>
       <ConfirmDialog
         open={confirm === 'chat-history'}
         title="Delete chat history?"

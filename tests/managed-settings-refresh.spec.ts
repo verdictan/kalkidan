@@ -55,25 +55,33 @@ async function fixture(page: Page, extra: string) {
 }
 
 /**
- * Opens the organization setup of Codex in place under its row on the Computers page. Returns
- * the part under the row that holds the setup form.
+ * Opens the organization setup dialog from its row on the Computers page and shows the setup of
+ * Codex. Returns the dialog.
  */
 async function openSetup(page: Page) {
   const computers = await openComputersPage(page);
   await computers
-    .getByRole('button', { name: 'Change the organization setup of Codex', exact: true })
+    .getByRole('group', { name: 'Organization setup', exact: true })
+    .getByRole('button', { name: /^(Set up|Change)…$/ })
     .click();
-  const hide = page.getByRole('button', {
-    name: 'Hide the organization setup of Codex',
-    exact: true,
-  });
-  await expect(hide).toBeVisible();
-  return computers.locator('.settings-row-extra').filter({ has: hide });
+  const dialog = page.getByRole('dialog', { name: 'Organization setup', exact: true });
+  await expect(dialog).toBeVisible();
+  const codex = dialog.getByRole('button', { name: 'Codex', exact: true });
+  await codex.click();
+  await expect(codex).toHaveAttribute('aria-pressed', 'true');
+  return dialog;
 }
 
-/** The row of this computer on the Computers page, with the managed agents runtime. */
+/** Opens Preferences at the Connections tab, which holds the region. */
+async function openConnections(page: Page) {
+  const preferences = await openPreferences(page);
+  await preferences.getByRole('tab', { name: 'Connections', exact: true }).click();
+  return preferences;
+}
+
+/** The managed agents runtime row of this computer on the Computers page. */
 const localRuntime = (settings: Locator) =>
-  settings.getByRole('group', { name: 'This computer', exact: true });
+  settings.getByRole('group', { name: 'Managed agents', exact: true });
 
 test('the runtime step shows the install and its result without a manual refresh', async ({
   page,
@@ -164,22 +172,24 @@ test('a region change shows its progress and no errors, then clears them', async
       },
     };`,
   );
-  const managed = await openPreferences(page);
+  const managed = await openConnections(page);
   const region = managed.getByRole('group', { name: 'Region', exact: true });
   await expect(region).toContainText('Not chosen');
   await region.getByRole('button', { name: 'Change the region', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: 'Choose a region' });
   await dialog.getByRole('radio', { name: 'European Union' }).check();
-  await dialog.getByRole('button', { name: 'Use this region', exact: true }).click();
-  // The change runs. The region dialog shows its progress until the change finishes.
-  await expect(dialog.getByRole('button', { name: 'Changing…' })).toBeDisabled();
+  const confirm = dialog.getByRole('button', { name: 'Choose region', exact: true });
+  await confirm.click();
+  // The change runs. The region dialog stays busy until the change finishes.
+  await expect(confirm).toBeDisabled();
+  await expect(dialog.getByRole('button', { name: 'Cancel', exact: true })).toBeDisabled();
   // Give the failed reads time to arrive. They must not show as errors.
   await page.waitForTimeout(1500);
   const body = page.locator('body');
   await expect(body).not.toContainText('Could not read the account status');
   await expect(body).not.toContainText('This computer is not available');
   await expect(body).not.toContainText('Error invoking remote method');
-  await expect(dialog.getByRole('button', { name: 'Changing…' })).toBeDisabled();
+  await expect(confirm).toBeDisabled();
   await page.evaluate(() => (window as any).finishSwitch());
   await expect(dialog).toHaveCount(0);
   await expect(region).toContainText('European Union');
@@ -211,7 +221,7 @@ test('a stale account read error goes away after a read that works', async ({ pa
       },
     };`,
   );
-  const settings = await openPreferences(page);
+  const settings = await openConnections(page);
   await expect(settings).toContainText('Could not read the account status.');
   await page.evaluate(() => (window as any).recover());
   await expect(settings.getByRole('group', { name: 'Region', exact: true })).toContainText(
@@ -238,6 +248,8 @@ test('setup keeps the existing policies when the default cannot be made', async 
     `let loads = 0;
     window.loads = () => loads;
     window.saved = [];
+    // Like the desktop: a saved selection is in the next read of the setup.
+    let selections = {};
     const setup = () => ({
       status: 'selection_required',
       policyReadiness: 'default_creatable',
@@ -249,7 +261,7 @@ test('setup keeps the existing policies when the default cannot be made', async 
         { configuration_id: ids.cfg, configuration_version_id: ids.cfgv2 },
       ],
       providerConnections: [{ provider_connection_id: ids.team, provider: 'openai' }],
-      selections: {},
+      selections,
     });
     return {
       ${signedIn}
@@ -259,7 +271,8 @@ test('setup keeps the existing policies when the default cannot be made', async 
       },
       verdictanSelect: async (agent, selection) => {
         window.saved.push([agent, selection]);
-        return { ...setup(), selections: { [agent]: selection } };
+        selections = { ...selections, [agent]: selection };
+        return setup();
       },
     };`,
   );
@@ -277,6 +290,8 @@ test('setup keeps the existing policies when the default cannot be made', async 
   await setup.getByRole('textbox', { name: 'Default model' }).fill('gpt-5');
   await setup.getByRole('textbox', { name: 'Default model' }).press('Enter');
   await expect(page.getByText('Saved the Codex setup', { exact: true })).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(setup).toHaveCount(0);
   await expect(
     computersPage(page).getByRole('group', { name: 'Codex', exact: true }).getByRole('status'),
   ).toHaveText('Ready');
