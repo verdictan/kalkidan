@@ -536,16 +536,10 @@ Push to `main` or `master` to validate and publish Kalkidan. No release tag or m
 4. Packaged desktop tests check launch, IPC, repository discovery, commands, and the terminal.
 5. The publisher uploads all eight files and SHA-256 checksums to [GitHub releases](https://github.com/verdictan/packages/releases?q=kalkidan). It updates the [Homebrew cask](https://github.com/verdictan/homebrew-tap/blob/main/Casks/kalkidan.rb), [kalkidan.json](https://github.com/verdictan/packages/blob/main/kalkidan.json), and the GitHub latest-release pointer.
 
-The in-app desktop update reads the GitHub release, the per-asset `digest`, and
-`SHA256SUMS.txt`. Keep these release rules: publish the macOS ZIP files, the
-Windows NSIS installer, the Linux AppImage, and `SHA256SUMS.txt` in each release;
-keep the asset names `Kalkidan-VERSION-OS-ARCH.EXT`; and do not mark Kalkidan
-releases as drafts or prereleases. The release does not need `latest*.yml` or
-`.blockmap` files. To move to `electron-updater` later, the
-`verdictan/jenkins-library` `kalkidan-release` job must publish
-`latest-mac.yml`, `latest.yml`, `latest-linux.yml`, and the `.blockmap` files
-(build with `--publish never` and upload them), and macOS releases must be
-signed, because Squirrel.Mac rejects unsigned updates.
+Kalkidan does not update itself. The app does not read the release feed. Users
+install each new release with Homebrew or from the releases page. Keep the asset
+names `Kalkidan-VERSION-OS-ARCH.EXT` and publish `SHA256SUMS.txt`, so users can
+check each download.
 
 Each release uses `VERSION-build.TIMESTAMP.COMMIT`. Downloads include macOS Apple Silicon and Intel DMG/ZIP files, Windows x64 NSIS/ZIP files, and Linux x64 AppImage/DEB files. The installers are unsigned. macOS installers are not notarized. DEB files are standalone downloads, not an APT repository.
 
@@ -631,39 +625,21 @@ it does not automatically move the issue to Done.
 
 ## Updates and recovery
 
-Settings shows the running desktop build, the available release, the managed
-runtime, and SSH helper versions.
+Settings › General › About shows the version and the build of the running
+app. Settings › Computers shows the managed runtime and the SSH helper of each
+computer.
+A dot on the Settings button in the sidebar shows that an SSH helper or a
+managed runtime has an update. Select the button to open Settings › Computers.
 
-To update the desktop app:
+Kalkidan does not update itself. To update the desktop app:
 
-1. Open **Settings > Updates**.
-2. On the **Kalkidan** card, select **Download VERSION**. Kalkidan downloads the release file for
-   this computer and shows the progress.
-3. Kalkidan compares the file with the published `SHA256SUMS.txt` file and the
-   GitHub asset digest. A file that does not match is deleted.
-4. Select **Restart to update**. If agents run on this computer, Kalkidan asks
-   before it stops them. Kalkidan never restarts without this step.
-
-These install kinds update in the app:
-
-| Install kind                                      | Update method                                                    |
-| ------------------------------------------------- | ---------------------------------------------------------------- |
-| macOS app in a folder that your account can write | Kalkidan replaces the app bundle with the verified ZIP contents. |
-| Windows installer (per-user)                      | Kalkidan runs the verified installer silently.                   |
-| Linux AppImage in a folder that you can write     | Kalkidan replaces the AppImage file.                             |
-
-These install kinds show the reason and a link to the release page:
-
-- A macOS app that runs from the disk image or from a translocated location.
-  Move Kalkidan to the Applications folder and open it again.
-- A Windows ZIP copy or an installation for all users.
-- A Linux DEB package. Install the new DEB file with your package manager.
-
-The macOS and Windows releases are unsigned. The in-app update does not need a
-signature: it checks the SHA-256 checksum and the bundle identifier and version.
-If macOS does not let Kalkidan replace the app, the previous version starts
-again and Settings shows the release page. A Homebrew cask installation can
-update in the app; `brew upgrade` also continues to work.
+1. Quit Kalkidan.
+2. If you installed Kalkidan with Homebrew, run `brew upgrade --cask kalkidan`.
+3. If you did not, download the installer for your computer from the
+   [releases page](https://github.com/verdictan/packages/releases?q=kalkidan).
+   Compare its SHA-256 checksum with the release's `SHA256SUMS.txt` file. Then
+   install it.
+4. Open Kalkidan. Your projects, chats, and settings stay on disk.
 
 Managed runtime installation verifies the Verdictan release signature and the
 archive digest. Kalkidan installs new signed releases automatically when no
