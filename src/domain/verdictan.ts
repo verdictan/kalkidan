@@ -79,6 +79,11 @@ export interface VerdictanAPI {
     agent: 'codex' | 'claude',
     selection: VerdictanSelection,
   ): Promise<VerdictanSetup>;
+  /**
+   * Sets the agent that new chats on a computer use: 'local' or the SSH host ID. Existing chats
+   * keep their agent. Older desktop apps do not have it.
+   */
+  verdictanSetComputerAgent?(computer: string, agentId: string): Promise<VerdictanSetup>;
   verdictanStatus(): Promise<VerdictanStatus>;
   verdictanCheck(): Promise<VerdictanStatus>;
   verdictanAuthorize(intent: 'login' | 'register'): Promise<VerdictanStatus>;
@@ -163,7 +168,9 @@ export interface VerdictanSelection {
   /**
    * An agent from `setup.inspect` `agents`. When it is set, the host attaches to this agent and
    * its deployed configuration applies. `teamId` is then the team of the agent, and both policy
-   * IDs are empty. Missing: the team and policy choice of older runtimes.
+   * IDs are empty. A saved selection has no agent: each computer has one agent for Codex and
+   * Claude Code (`computerAgents`). A launch adds the agent of the computer or of the chat.
+   * Missing in a launch: the team and policy choice of older runtimes.
    */
   agentId?: string;
 }
@@ -260,7 +267,24 @@ export interface VerdictanSetup {
   providerConnections: { provider_connection_id: string; provider: string; name?: string }[];
   /** Models that the organization allows: one list, or one list for each agent. */
   allowedModels?: string[] | Partial<Record<'codex' | 'claude', string[]>>;
+  /** The model access and the default model of each coding agent. */
   selections: Partial<Record<'codex' | 'claude', VerdictanSelection>>;
+  /**
+   * The agent of each computer, by computer ID: 'local' or the SSH host ID. Codex and Claude
+   * Code on the computer both use it for new chats. A computer that is not in the list uses
+   * `defaultAgentId`, else the Kalkidan agent.
+   */
+  computerAgents?: Record<string, string>;
+  /**
+   * The agent that Codex and Claude Code both used before each computer had its own agent.
+   * Missing when they used different agents. Then the Kalkidan agent applies.
+   */
+  defaultAgentId?: string;
+  /**
+   * The agent of each coding agent before each computer had its own agent. Chats from that
+   * time have no agent in their binding. They keep this agent.
+   */
+  legacyAgents?: Partial<Record<'codex' | 'claude', string>>;
 }
 
 /**
@@ -400,6 +424,8 @@ export function selectionIssue(
   selection: VerdictanSelection | undefined,
 ): string | undefined {
   if (!selection) return 'desktop.setup_selection_required';
+  // With the agent choice, the agent belongs to the computer. See `computerAgentIssue`.
+  if (usesAgentChoice(setup) && !selection.agentId) return undefined;
   if (selection.agentId) {
     if (setup.agents?.some((agent) => agent.agent_id === selection.agentId)) return undefined;
     return defaultRemoved(setup) && selection.agentId === setup.bootstrap?.agent_id
@@ -423,10 +449,8 @@ function selectionFields(value: VerdictanSelection) {
   };
 }
 /**
- * True when the form `value` is the saved selection. A selection that was saved before the
- * runtime sent agents has no agent. The form then shows the Kalkidan agent of the same team.
- * When the saved selection uses the default policy, or the configuration of that agent, it is
- * the same setup.
+ * True when the form `value` is the saved selection. With the agent choice, the agent belongs
+ * to the computer, so only the model access and the model count.
  */
 export function sameSelection(
   setup: VerdictanSetup,
@@ -436,18 +460,11 @@ export function sameSelection(
   if (!saved) return false;
   const a = selectionFields(saved);
   const b = selectionFields(value);
-  const same = (keys: (keyof typeof a)[]) => keys.every((key) => a[key] === b[key]);
-  const others = ['teamId', 'providerAccessMode', 'providerConnectionId', 'model'] as const;
-  if (same([...others, 'configurationId', 'configurationVersionId', 'agentId'])) return true;
-  if (a.agentId || !b.agentId || b.configurationId || b.configurationVersionId) return false;
-  if (!usesAgentChoice(setup) || selectionIssue(setup, saved)) return false;
-  const agent = setup.agents!.find((item) => item.agent_id === b.agentId);
-  if (!agent?.default || agent.team_id !== a.teamId) return false;
-  const policy =
-    usesDefaultPolicy(saved) ||
-    (a.configurationId === agent.configuration_id &&
-      a.configurationVersionId === agent.configuration_version_id);
-  return policy && same([...others]);
+  const access = ['providerAccessMode', 'providerConnectionId', 'model'] as const;
+  const keys: (keyof typeof a)[] = usesAgentChoice(setup)
+    ? [...access]
+    : [...access, 'teamId', 'configurationId', 'configurationVersionId', 'agentId'];
+  return keys.every((key) => a[key] === b[key]);
 }
 export type ManagedAgentKind = 'codex' | 'claude';
 const agentProviders: Record<ManagedAgentKind, string> = { codex: 'openai', claude: 'anthropic' };
@@ -482,28 +499,15 @@ export function initialSelection(
   const saved = setup.selections[agent];
   const issue = saved && selectionIssue(setup, saved);
   const agentChoice = usesAgentChoice(setup);
-  if (saved && !issue && !!saved.agentId === agentChoice) return saved;
+  if (saved && !issue && !saved.agentId && !agentChoice) return saved;
   const connections = setup.providerConnections.filter((p) => p.provider === agentProviders[agent]);
   // A saved selection that needs a new agent or policy keeps its access and model.
   const { agentId: _agent, ...kept } = saved || {
     ...emptySelection,
     providerConnectionId: connections.length === 1 ? connections[0].provider_connection_id : '',
   };
-  if (agentChoice) {
-    // The Kalkidan agent is preselected. When it is gone, the user must choose an agent.
-    const removed = defaultRemoved(setup);
-    const pick = issue
-      ? undefined
-      : setup.agents!.find((a) => a.default) ||
-        (setup.agents!.length === 1 && !removed ? setup.agents![0] : undefined);
-    return {
-      ...kept,
-      agentId: pick?.agent_id || '',
-      teamId: pick?.team_id || '',
-      configurationId: '',
-      configurationVersionId: '',
-    };
-  }
+  // With the agent choice, the agent belongs to the computer. The selection has the access only.
+  if (agentChoice) return { ...kept, teamId: '', configurationId: '', configurationVersionId: '' };
   // With a default, empty policy IDs select it. Otherwise the only policy, when there is one.
   const fallback = !defaultRemoved(setup) && !!setup.defaultPolicy;
   const [policy] = !fallback && setup.policies.length === 1 ? setup.policies : [];
@@ -523,10 +527,9 @@ export function completeSelection(
   const agentChoice = usesAgentChoice(setup);
   const defaultPolicy = defaultRemoved(setup) ? undefined : setup.defaultPolicy;
   return (
-    !!value.teamId &&
-    (agentChoice
-      ? !!setup.agents?.some((a) => a.agent_id === value.agentId)
-      : !!value.configurationVersionId || (!!defaultPolicy && usesDefaultPolicy(value))) &&
+    (agentChoice ||
+      (!!value.teamId &&
+        (!!value.configurationVersionId || (!!defaultPolicy && usesDefaultPolicy(value))))) &&
     (isSubscriptionMode(value.providerAccessMode)
       ? subscriptionAgent[value.providerAccessMode] === agent &&
         !!setup.providerAccessModes?.includes(value.providerAccessMode)
@@ -560,10 +563,56 @@ export function recommendedSelection(
       : {};
   const model = value.model || (setupAllowedModels(setup, agent) ?? models)[0] || '';
   const next: VerdictanSelection = { ...value, ...access, model };
-  // The agent ID goes only with the agent choice.
-  if (!usesAgentChoice(setup)) delete next.agentId;
   return completeSelection(setup, agent, next) ? next : undefined;
 }
+/** The computer ID of this computer. An SSH host has its host ID. */
+export const localComputer = 'local';
+/**
+ * The ID of the agent that new chats on a computer use: the choice of the computer, the agent
+ * that both coding agents used before, or the Kalkidan agent. Empty when the user must choose.
+ */
+export function computerAgentId(setup: VerdictanSetup, computer: string) {
+  const saved = setup.computerAgents?.[computer] || setup.defaultAgentId;
+  if (saved) return saved;
+  const agents = setup.agents || [];
+  const pick =
+    agents.find((a) => a.default) ||
+    (agents.length === 1 && !defaultRemoved(setup) ? agents[0] : undefined);
+  return pick?.agent_id || '';
+}
+/** The agent record of an agent ID, or nothing when the user cannot use the agent now. */
+export const findAgent = (setup: VerdictanSetup, agentId: string | undefined) =>
+  agentId ? setup.agents?.find((a) => a.agent_id === agentId) : undefined;
+/** The code that stops new chats on a computer, or nothing when its agent can work. */
+export function computerAgentIssue(setup: VerdictanSetup, computer: string): string | undefined {
+  if (!usesAgentChoice(setup)) return undefined;
+  const id = computerAgentId(setup, computer);
+  if (!id)
+    return defaultRemoved(setup)
+      ? 'desktop.setup_default_removed'
+      : 'desktop.setup_selection_required';
+  if (findAgent(setup, id)) return undefined;
+  return defaultRemoved(setup) && id === setup.bootstrap?.agent_id
+    ? 'desktop.setup_default_removed'
+    : 'desktop.setup_agent_unavailable';
+}
+/** The visible name of the agent of a computer, or nothing when it is not available. */
+export function computerAgentLabel(setup: VerdictanSetup, computer: string) {
+  const agents = setup.agents || [];
+  const index = agents.findIndex((a) => a.agent_id === computerAgentId(setup, computer));
+  return index >= 0 ? agentLabels(agents)[index] : undefined;
+}
+/** The selection of a coding agent with an agent. The deployed policy of the agent applies. */
+export function withAgent(selection: VerdictanSelection, agent: VerdictanAgent) {
+  return {
+    ...selection,
+    agentId: agent.agent_id,
+    teamId: agent.team_id,
+    configurationId: '',
+    configurationVersionId: '',
+  };
+}
+
 /**
  * The words of the sign-out confirmation, for example "Sign out stops 2 running agents and
  * disconnects 1 SSH host. Your projects and chats stay on this computer."
@@ -687,8 +736,22 @@ export const managedErrors: Record<string, ManagedErrorInfo> = {
     section: 'agents',
   },
   'desktop.setup_agent_unavailable': {
-    message: 'The agent that you chose is not available now. Choose another agent.',
-    section: 'agents',
+    message:
+      'The agent of this computer is not available now. Change the agent in Settings › Computers.',
+    section: 'computers',
+  },
+  'desktop.chat_agent_unavailable': {
+    message:
+      'The agent of this chat is not available now. Start a new chat. It uses the agent of this computer.',
+  },
+  'desktop.resource_conflict': {
+    message:
+      'Verdictan cannot run a second agent on this computer yet. Use the same agent as the other chats on this computer, or ask an administrator to update Verdictan.',
+    section: 'computers',
+  },
+  'desktop.scope_mismatch': {
+    message:
+      'Verdictan cannot use this computer for a second project yet. Continue in the first project, or ask an administrator to update Verdictan.',
   },
   'desktop.setup_resource_unavailable': {
     message: 'The agent that you chose is not available now. Choose another agent.',
@@ -1127,7 +1190,7 @@ export interface ManagedLaunchBlock {
   path?: string;
 }
 const setupChoice =
-  'Choose an authorized agent or policy, provider access, and model for this agent in managed agent setup.';
+  'Choose an authorized agent or policy, provider access, and model for this coding agent in managed agent setup.';
 const signInAgain = 'Sign in to Verdictan again. Then send your message again.';
 const runtimeRepair = 'Install or update the Verdictan runtime on the machine where work runs.';
 const supportedAgent = `Install Codex ${agentMinimumVersions.codex} or later, or Claude Code ${agentMinimumVersions.claude_code} or later, on the machine where work runs.`;
@@ -1194,7 +1257,19 @@ const launchBlocks: Record<string, [ManagedSetupStep, string]> = {
   ],
   'desktop.setup_agent_unavailable': [
     'agent-setup',
-    'The agent that you chose is not available now. Choose another agent.',
+    'The agent of this computer is not available now. Change the agent in Settings › Computers.',
+  ],
+  'desktop.chat_agent_unavailable': [
+    'agent-setup',
+    'The agent of this chat is not available now. Start a new chat. It uses the agent of this computer.',
+  ],
+  'desktop.resource_conflict': [
+    'agent-setup',
+    'Verdictan cannot run a second agent on this computer yet. Use the same agent as the other chats on this computer, or ask an administrator to update Verdictan.',
+  ],
+  'desktop.scope_mismatch': [
+    'status',
+    'Verdictan cannot use this computer for a second project yet. Continue in the first project, or ask an administrator to update Verdictan.',
   ],
   'desktop.setup_resource_unavailable': [
     'agent-setup',

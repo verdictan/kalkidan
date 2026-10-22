@@ -9,6 +9,8 @@ import { useRemoteHosts } from './remote-host-picker';
 import { AddHostRow, HelperDetails, HostRow, useHelperUpdates } from './computers-settings';
 import { AgentRows, RuntimeHistory, ThisComputerRow, useRuntimeStatus } from './verdictan-settings';
 import { SettingsDisclosure, SettingsRow } from './settings-disclosure';
+import { ComputerAgentRow } from './computer-agent';
+import { localComputer } from '../domain/verdictan';
 import { PageHeader } from './ui/page-header';
 
 /** The anchor that the next Computers page should move to. `openComputers` sets it. */
@@ -84,8 +86,9 @@ function ProxySignIns({ api }: { api: API }) {
 }
 
 /**
- * The Computers page: where the agents run. "This computer" has the managed agents runtime and
- * one row for each agent with its program, model and organization setup. "SSH hosts" has one
+ * The Computers page: where Codex and Claude Code run. "This computer" has the managed agents
+ * runtime, the agent of the computer with "Change agent", and one row for each coding agent with
+ * its program, model and organization setup. Each SSH host also has its agent. "SSH hosts" has one
  * row for each host with its state and a "…" menu, and an always-visible field to add a host:
  * type the target, press Add, and the new row checks the connection. A Details fold at the end
  * has the install history and the helper builds.
@@ -171,10 +174,11 @@ export function ComputersPage({
   const details = !!runtime.status?.history.length || !!runtime.status?.latest || !!hosts.length;
   return (
     <section ref={root} className="page computers-page" aria-label="Computers">
-      <PageHeader title="Computers" subtitle="Where your agents run" />
+      <PageHeader title="Computers" subtitle="Where Codex and Claude Code run" />
       <div className="computers-groups">
         <ComputersGroup label="This computer">
           <ThisComputerRow api={api} runtime={runtime} />
+          <ComputerAgentRow api={api} open computer={localComputer} name="this computer" />
           <AgentRows api={api} open anchor={focusId} />
         </ComputersGroup>
         <ComputersGroup label="SSH hosts">

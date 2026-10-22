@@ -1,5 +1,12 @@
 // Plain words for managed-agent and update states. The UI never shows the raw API values.
-import { managedErrorInfo, managedErrors, selectionIssue, serviceName } from '../domain/verdictan';
+import {
+  computerAgentIssue,
+  localComputer,
+  managedErrorInfo,
+  managedErrors,
+  selectionIssue,
+  serviceName,
+} from '../domain/verdictan';
 import type { VerdictanSetup, VerdictanStatus } from '../domain/verdictan';
 import type {
   ComponentUpdateStatus,
@@ -284,9 +291,18 @@ export function managedSteps(
       ? runtimeReady(runtime)
       : !!status && status.phase !== 'missing' && status.phase !== 'checking',
     signedIn,
-    // A saved choice that needs a new agent, for example a removed default, is not done.
-    codex: signedIn && !!setup && !selectionIssue(setup, setup.selections.codex),
-    claude: signedIn && !!setup && !selectionIssue(setup, setup.selections.claude),
+    // A saved choice that needs a new agent, for example a removed default, is not done. The
+    // agent of this computer is for both coding agents.
+    codex:
+      signedIn &&
+      !!setup &&
+      !selectionIssue(setup, setup.selections.codex) &&
+      !computerAgentIssue(setup, localComputer),
+    claude:
+      signedIn &&
+      !!setup &&
+      !selectionIssue(setup, setup.selections.claude) &&
+      !computerAgentIssue(setup, localComputer),
   };
 }
 

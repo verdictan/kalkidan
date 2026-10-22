@@ -35,6 +35,14 @@ export interface ConversationBinding {
   configuration_id: string;
   configuration_version_id: string;
   cwd: string;
+  /**
+   * The Verdictan agent of the chat. It is set when the chat starts and never changes. A resume
+   * uses it, also after the computer changed its agent. Missing in chats from older versions
+   * and with the team and policy choice of older runtimes.
+   */
+  agent_id?: string;
+  /** The gateway that Verdictan gave for the agent on this computer. */
+  gateway_id?: string;
 }
 const ids = [
   'organization_id',
@@ -53,6 +61,9 @@ export function validateBinding(value: unknown): asserts value is ConversationBi
       (id) => id !== undefined && !/^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/.test(id),
     ) ||
     !ids.every((key) => uuid(v[key])) ||
+    (v.agent_id !== undefined && !uuid(v.agent_id)) ||
+    (v.gateway_id !== undefined &&
+      (typeof v.gateway_id !== 'string' || !/^[A-Za-z0-9_-]{1,128}$/.test(v.gateway_id))) ||
     !providerAccessModes.includes(v.provider_access_mode || 'byok') ||
     (v.provider_access_mode === 'codex_subscription'
       ? v.provider_connection_id !== '' || v.provider !== 'openai' || v.agent_kind !== 'codex'
@@ -131,12 +142,43 @@ export function parseBindingSummary(value: unknown): BindingSummary | null {
     return null;
   return bindingSummary(v as ConversationBinding);
 }
+/** The agents of one account. IDs only. */
+export interface AccountAgents {
+  /** The agent of each computer that has its own choice: 'local' or the SSH host ID. */
+  computers: Record<string, string>;
+  /** The agent that Codex and Claude Code both used before each computer had one. */
+  default?: string;
+  /** The agent of each coding agent before each computer had one. Older chats keep it. */
+  legacy: Partial<Record<'codex' | 'claude', string>>;
+}
 interface Store {
   schema: 1;
   installationId: string;
   hosts: Record<string, string>;
   selections: Record<string, Partial<Record<'codex' | 'claude', VerdictanSelection>>>;
+  /** Missing in stores of older versions. The first read of an account adds it. */
+  agents?: Record<string, AccountAgents>;
   bindings: Record<string, ConversationBinding>;
+}
+/**
+ * The agents of an account. The first read moves the agents of the earlier coding agent
+ * selections: when Codex and Claude Code used the same agent, every computer keeps it. Else
+ * the Kalkidan agent applies. Older chats keep the agent of their coding agent.
+ */
+function accountAgents(value: Store, account: string) {
+  value.agents ||= {};
+  if (!value.agents[account]) {
+    const picks = value.selections[account] || {};
+    const codex = picks.codex?.agentId;
+    const claude = picks.claude?.agentId;
+    value.agents[account] = {
+      computers: {},
+      ...(codex && codex === claude ? { default: codex } : {}),
+      legacy: { ...(codex ? { codex } : {}), ...(claude ? { claude } : {}) },
+    };
+    for (const pick of Object.values(picks)) if (pick) delete pick.agentId;
+  }
+  return value.agents[account];
 }
 export const identityKey = (...parts: string[]) =>
   createHash('sha256').update(JSON.stringify(parts)).digest('hex');
@@ -200,6 +242,7 @@ export class BindingStore {
   forgetHost(hostKey: string) {
     return this.transaction((value) => {
       delete value.hosts[identityKey(hostKey)];
+      for (const agents of Object.values(value.agents || {})) delete agents.computers[hostKey];
     });
   }
   /**
@@ -214,8 +257,21 @@ export class BindingStore {
   selections(account: string) {
     return this.transaction((v) => v.selections[account] || {}, false);
   }
+  /** The agents of the computers of an account. Only the first read writes the store. */
+  async agents(account: string): Promise<AccountAgents> {
+    const saved = await this.transaction((v) => v.agents?.[account], false);
+    return saved ?? this.transaction((v) => accountAgents(v, account));
+  }
+  /** Sets the agent that new chats on a computer use. Existing chats keep their agent. */
+  setComputerAgent(account: string, computer: string, agentId: string) {
+    return this.transaction((v) => {
+      accountAgents(v, account).computers[computer] = agentId;
+    });
+  }
   select(account: string, agent: 'codex' | 'claude', selection: VerdictanSelection) {
     return this.transaction((v) => {
+      // Move the earlier agent first, so that older chats keep it.
+      accountAgents(v, account);
       (v.selections[account] ||= {})[agent] = structuredClone(selection);
     });
   }

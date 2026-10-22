@@ -638,7 +638,7 @@ function setupLine(setup: VerdictanSetup, agent: ManagedAgentKind) {
 }
 
 /**
- * The agent rows of the Computers page: one row for Codex and one for Claude Code with the
+ * The coding agent rows of the Computers page: one row for Codex and one for Claude Code with the
  * program version, the default model, and the state. A warning shows only when the agent
  * cannot run, with one outline action. "Choose…" picks the program on this computer. Under
  * each row, "Organization setup" opens the team, policy and connection choices in place.

@@ -579,6 +579,9 @@ app.whenReady().then(async () => {
   });
   handle('verdictan-setup', () => verdictan!.setup.status());
   handle('verdictan-select', (agent, selection) => verdictan!.setup.select(agent, selection));
+  handle('verdictan-set-computer-agent', (computer, agentId) =>
+    verdictan!.setup.setComputerAgent(computer, agentId),
+  );
   const accountStatus = () => ({ ...verdictan!.account.status(), region: verdictan!.region });
   handle('verdictan-status', accountStatus);
   handle('verdictan-set-region', async (region: VerdictanRegion) => {

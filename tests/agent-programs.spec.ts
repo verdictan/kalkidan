@@ -100,7 +100,7 @@ async function installWorkspace(page: Page) {
 /** Opens the agent programs of an SSH host from its row on the Computers page. */
 async function openHostPrograms(page: Page, settings: Locator, host: string) {
   await settings.getByRole('button', { name: `Actions for ${host}`, exact: true }).click();
-  await page.getByRole('menuitem', { name: 'Agent programs…', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Coding agent programs…', exact: true }).click();
   return page.getByRole('dialog', { name: `Agent programs on ${host}`, exact: true });
 }
 

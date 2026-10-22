@@ -302,7 +302,7 @@ test('the menu of a host opens its agent programs', async ({ page }) => {
     .getByRole('group', { name: 'devbox', exact: true })
     .getByRole('button', { name: 'Actions for devbox' })
     .click();
-  await page.getByRole('menuitem', { name: 'Agent programs…' }).click();
+  await page.getByRole('menuitem', { name: 'Coding agent programs…' }).click();
   const programs = page.getByRole('dialog', { name: 'Agent programs on devbox' });
   await expect(programs.getByRole('list', { name: 'Agents on devbox' })).toBeVisible();
   await programs.getByRole('button', { name: 'Done', exact: true }).click();

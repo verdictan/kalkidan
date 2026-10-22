@@ -1,7 +1,6 @@
 import { discoverRuntime } from '../updates/runtime-feed';
 import { verdictanRegion, type VerdictanRegion } from './region';
 import { RemoteAccountBroker } from './remote-broker';
-import type { VerdictanSetup } from '../../src/domain/verdictan';
 import type { DesktopClient } from './protocol';
 import { BindingStore } from './bindings';
 import { VerdictanSetupService } from './setup';
@@ -29,7 +28,8 @@ export function createVerdictanServices(options: {
   openBrowser(url: string): Promise<unknown>;
   changed?(): void;
   client?: () => Promise<DesktopClient>;
-  selections?: () => Promise<VerdictanSetup['selections']>;
+  /** On an SSH host: the saved choices that the desktop sends. See `VerdictanChoices`. */
+  selections?: () => Promise<unknown>;
   identities?: () => Promise<{ installationId: string; hostId: string }>;
   /**
    * The fetch for release discovery and downloads. The desktop uses the Chromium network stack,

@@ -2,8 +2,6 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import type { API } from '../api/contracts';
 import type { ModelOption } from '../domain/conversation';
 import {
-  agentConfigurationLabel,
-  agentLabels,
   bootstrapAdminNotice,
   completeSelection,
   connectionLabels,
@@ -61,15 +59,10 @@ export function accessLabel(agent: ManagedAgentKind, selection: VerdictanSelecti
 
 /**
  * The team and policy of a saved selection in plain words, for example "Platform team ·
- * Kalkidan default". With the agent choice, it is the name of the agent.
+ * Kalkidan default". With the agent choice, it is empty: the agent belongs to the computer.
  */
 export function teamPolicyLabel(setup: VerdictanSetup, selection: VerdictanSelection | undefined) {
-  if (!selection) return '';
-  if (usesAgentChoice(setup)) {
-    const agents = setup.agents || [];
-    const index = agents.findIndex((a) => a.agent_id === selection.agentId);
-    return index >= 0 ? agentLabels(agents)[index] : '';
-  }
+  if (!selection || usesAgentChoice(setup)) return '';
   const teamIndex = setup.teams.findIndex((t) => t.team_id === selection.teamId);
   const team = teamIndex >= 0 ? teamLabels(setup.teams)[teamIndex] : '';
   const policyIndex = setup.policies.findIndex(
@@ -159,8 +152,9 @@ function setupNotice(
 }
 
 /**
- * The organization setup of one managed agent, inline under its row on the Computers page:
- * the agent or the team and policy, the model access, the connection, and the default model.
+ * The organization setup of one coding agent, inline under its row on the Computers page: the
+ * team and policy (older runtimes only), the model access, the connection, and the default
+ * model. The agent is not here: each computer has one agent for Codex and Claude Code.
  * A list with only one choice does not show. A complete selection saves at once, with Undo in
  * the toast. The choices load on open and when the window gets focus.
  */
@@ -217,12 +211,9 @@ export function VerdictanSetupForm({
     setSaving(true);
     setError('');
     try {
-      // The agent ID goes only with the agent choice. The team and policy choice omits it.
-      const { agentId, ...rest } = next;
-      const result = await api.verdictanSelect(
-        agent,
-        usesAgentChoice(setup) && agentId ? { ...rest, agentId } : rest,
-      );
+      // The agent belongs to the computer, so the selection has no agent.
+      const { agentId: _agent, ...rest } = next;
+      const result = await api.verdictanSelect(agent, rest);
       setSetup(result);
       onSetup?.(result);
       if (undo) {
@@ -252,8 +243,6 @@ export function VerdictanSetupForm({
   const busy = loading || saving;
   const agentChoice = usesAgentChoice(setup);
   const removed = defaultRemoved(setup);
-  const agents = setup?.agents || [];
-  const chosenAgent = agents.find((a) => a.agent_id === selection.agentId);
   const connections =
     setup?.providerConnections.filter((p) => p.provider === agentProvider[agent]) || [];
   // Each agent can use only its own subscription mode, and only when the runtime offers it.
@@ -271,7 +260,6 @@ export function VerdictanSetupForm({
     teams: teamLabels(setup.teams),
     policies: policyLabels(policies),
     connections: connectionLabels(connections),
-    agents: agentLabels(agents),
   };
   const policyValue = usesDefaultPolicy(selection)
     ? defaultPolicy
@@ -312,7 +300,6 @@ export function VerdictanSetupForm({
   const showTeam = !agentChoice && (setup?.teams.length || 0) !== 1;
   const policyCount = policies.length + (defaultPolicy ? 1 : 0);
   const showPolicy = !agentChoice && policyCount !== 1;
-  const showAgent = agentChoice && (agents.length !== 1 || !chosenAgent);
   const showConnection = !subscription && connections.length !== 1;
   const showModel = modelOptions.length !== 1 || selection.model !== modelOptions[0]?.value;
   const pending = complete(selection) && changedFrom(selection);
@@ -342,35 +329,6 @@ export function VerdictanSetupForm({
         )}
         {setup && (
           <div className="grid gap-3 sm:grid-cols-2">
-            {showAgent && (
-              <Field label="Agent">
-                <Choice
-                  className="w-full"
-                  label="Agent"
-                  value={chosenAgent ? chosenAgent.agent_id : ''}
-                  disabled={busy}
-                  onChange={(value) => {
-                    // The agent sets the team. Its deployed policy applies, so no policy IDs.
-                    const next = agents.find((a) => a.agent_id === value);
-                    commit({
-                      ...selection,
-                      agentId: next?.agent_id || '',
-                      teamId: next?.team_id || '',
-                      configurationId: '',
-                      configurationVersionId: '',
-                    });
-                  }}
-                  options={[
-                    { value: '', label: 'Choose an agent' },
-                    ...agents.map((item, index) => ({
-                      value: item.agent_id,
-                      label: labels!.agents[index],
-                      description: agentConfigurationLabel(item),
-                    })),
-                  ]}
-                />
-              </Field>
-            )}
             {showTeam && (
               <Field label="Team">
                 <Choice
@@ -503,9 +461,6 @@ export function VerdictanSetupForm({
             )}
             {!showModel && (
               <p className="form-help mt-0">Default model: {modelOptions[0]?.label}</p>
-            )}
-            {agentChoice && chosenAgent && agentConfigurationLabel(chosenAgent) && (
-              <p className="form-help mt-0">Policy: {agentConfigurationLabel(chosenAgent)}</p>
             )}
           </div>
         )}

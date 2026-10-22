@@ -425,6 +425,7 @@ export async function desktopFixture(platform = 'linux', failure = '') {
         }),
         status: asyncRecord('verdictanSetup'),
         select: asyncRecord('verdictanSelect'),
+        setComputerAgent: asyncRecord('verdictanSetComputerAgent'),
         applyRecommended: asyncRecord('verdictanApplyRecommended'),
       },
       launch: { prepare: asyncRecord('managedPrepare') },

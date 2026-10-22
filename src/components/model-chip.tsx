@@ -3,7 +3,6 @@ import type { API } from '../api/contracts';
 import {
   completeSelection,
   initialSelection,
-  usesAgentChoice,
   type ManagedAgentKind,
   type VerdictanSetup,
 } from '../domain/verdictan';
@@ -120,11 +119,7 @@ async function saveForNewChats(agent: string, model: string, agentName: string) 
       const current = initialSelection(setup, kind);
       const next = { ...current, model };
       if (completeSelection(setup, kind, next)) {
-        const { agentId, ...rest } = next;
-        await api.verdictanSelect(
-          kind,
-          usesAgentChoice(setup) && agentId ? { ...rest, agentId } : rest,
-        );
+        await api.verdictanSelect(kind, next);
         setupCache.delete(api);
         notifyManagedAgentsChanged();
         saved = true;

@@ -15,6 +15,7 @@ import {
   useRuntimeStatus,
 } from './verdictan-settings';
 import { AgentProgramsDialog } from './agent-programs';
+import { ComputerAgentRow } from './computer-agent';
 import { ConfirmDialog } from './confirm-dialog';
 import { CopyValue, SettingsRow, StatusBadge } from './settings-disclosure';
 import { Button } from './ui/button';
@@ -305,7 +306,7 @@ export function HostRow({
             )}
             <DropdownMenuItem onSelect={() => setPrograms(true)}>
               <Bot />
-              Agent programs…
+              Coding agent programs…
             </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem
@@ -322,6 +323,7 @@ export function HostRow({
           </DropdownMenuContent>
         </DropdownMenu>
       </SettingsRow>
+      <ComputerAgentRow api={api} open={open} computer={host.id} name={host.name} />
       <ConfirmDialog
         open={confirm === 'disconnect'}
         title={`Disconnect ${host.name}?`}
