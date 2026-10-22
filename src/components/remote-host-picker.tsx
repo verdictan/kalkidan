@@ -193,7 +193,7 @@ export function HelperUpdateButton({
   api: API;
   host: RemoteHost;
   setup: HostSetupState;
-  /** The element ID. Settings › Updates moves the focus to it. */
+  /** The element ID. A link to Settings › Computers can move the focus to it. */
   id?: string;
   /** An update is available. The button is the primary action. */
   available?: boolean;

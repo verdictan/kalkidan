@@ -72,7 +72,6 @@ const anchorSections: Record<string, SettingsSection> = {
 const legacySections: Record<string, SettingsSection> = {
   accounts: 'account',
   'managed-agents': 'agents',
-  updates: 'about',
   remote: 'computers',
   'remote-hosts': 'computers',
 };
@@ -97,6 +96,9 @@ export function settingsTarget(
   }
   if (section === 'managed-agents')
     return { tab: 'agents', anchor: id || settingsAnchors.managedSetup };
+  // The Updates tab was removed. Kalkidan does not update itself. The runtime and the SSH
+  // helpers update in Computers.
+  if (section === 'updates') return { tab: 'computers', anchor: id || runtimeAnchor() };
   if (section && legacySections[section]) return { tab: legacySections[section], anchor: id };
   return { tab: isSettingsSection(section) ? section : 'general', anchor: id };
 }

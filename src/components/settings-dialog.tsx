@@ -11,7 +11,6 @@ import {
   type SettingsSection,
   type SettingsTab,
 } from '../domain/settings-route';
-import { useUpdateStatus } from '../hooks/use-update-status';
 import {
   applyAppearance,
   readAppearance,
@@ -35,7 +34,7 @@ import {
 import { displayVersion } from '../lib/verdictan-labels';
 import { isMac } from '../lib/platform';
 import { BrowserSettingsDialog } from './browser-menu';
-import { AboutSection } from './component-updates';
+import { AboutSection } from './about-section';
 import { ComputersSection } from './computers-settings';
 import { SettingsRow, SettingsRows } from './settings-disclosure';
 import { AccountSection, AgentsSection } from './verdictan-settings';
@@ -96,7 +95,6 @@ export function SettingsDialog({
   const [active, setActive] = useState<SettingsSection>(target.tab);
   const [focusId, setFocusId] = useState(target.anchor);
   const [version, setVersion] = useState('');
-  const updates = useUpdateStatus(api);
   const scroller = useRef<HTMLDivElement>(null);
   const title = useRef<HTMLHeadingElement>(null);
   // A new request opens its section. Reopening the dialog uses the request again. The state
@@ -117,12 +115,12 @@ export function SettingsDialog({
     if (open && nav.current?.contains(document.activeElement) && item) item.focus();
   }, [lastRequest]);
   useEffect(() => {
-    if (!open || version || typeof api.componentUpdates !== 'function') return;
+    // Some test stubs do not report a version.
+    if (!open || version || typeof api.appVersion !== 'function') return;
     void Promise.resolve()
-      .then(() => api.componentUpdates(false))
+      .then(() => api.appVersion())
       .then(
-        (value) =>
-          value.desktop.runningVersion && setVersion(displayVersion(value.desktop.runningVersion)),
+        (value) => value.version && setVersion(displayVersion(value.version)),
         () => {},
       );
   }, [api, open]);
@@ -190,13 +188,6 @@ export function SettingsDialog({
                 >
                   {sectionIcons[item.value]}
                   <span className="min-w-0 flex-1 truncate">{item.label}</span>
-                  {item.value === 'about' && updates.available && (
-                    <span
-                      className="size-1.5 shrink-0 rounded-full bg-[var(--link)]"
-                      role="img"
-                      aria-label="Update ready"
-                    />
-                  )}
                 </TabsPrimitive.Trigger>
               ))}
             </TabsPrimitive.List>

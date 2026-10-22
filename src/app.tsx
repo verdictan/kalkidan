@@ -23,7 +23,6 @@ import { ShortcutsSheet } from './components/shortcuts-sheet';
 import { branchCopyHelp } from './components/session-menu';
 import { useSidebarOpen, useSidebarWidth } from './hooks/use-sidebar-width';
 import { useProjectBoards, sessionTask } from './hooks/use-project-boards';
-import { useUpdateStatus } from './hooks/use-update-status';
 import { setPendingDraft } from './lib/pending-draft';
 import { applyAppearance, saveAppearance, type Appearance } from './lib/appearance';
 import { ProjectFrame } from './components/project-header';
@@ -571,7 +570,6 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
       if (group) openGroup(group, goPage[command]);
       else openOverview();
     } else if (command === 'all-sessions') openAllSessions();
-    else if (command === 'check-updates') openSettings('about');
     else if (command === 'sign-in') signIn('login');
     else if (isChatCommand(command) || command.startsWith('session-')) sessionCommand(command);
   };
@@ -859,7 +857,6 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
     if (repo) repoActivity[repo.id] = strongestActivity([repoActivity[repo.id], item.state])!;
   }
   const boards = useProjectBoards(api, data.groups || [], revision);
-  const updates = useUpdateStatus(api);
   // OS notifications: an agent asks for approval, asks a question, or finishes while the
   // window is not focused. A run that finishes out of view is marked for "Needs you".
   const previousActivity = useRef(new Map<string, SessionActivity>());
@@ -1905,13 +1902,6 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
       icon: <FolderGit2 />,
       run: () => openSettings('account'),
     },
-    {
-      key: 'check-updates',
-      label: 'Check for updates',
-      keywords: 'version upgrade',
-      icon: <Download />,
-      run: () => openSettings('about'),
-    },
     ...(
       [
         ['light', Sun],
@@ -2323,10 +2313,7 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
             className={sidebarAction}
           />
           <div className="sidebar-footer-row">
-            <AccountMenu
-              api={api}
-              updateLabel={updates.available ? updates.label || 'An update is ready' : undefined}
-            />
+            <AccountMenu api={api} />
           </div>
         </div>
       </nav>

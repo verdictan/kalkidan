@@ -21,7 +21,7 @@ test('Settings has five sections in order', () => {
   assert.equal(isSettingsSection('computers'), true);
   assert.equal(isSettingsSection('remote'), false);
   assert.equal(isSettingsSection('accounts'), false);
-  assert.equal(settingsTabLabel('updates'), 'About');
+  assert.equal(settingsTabLabel('updates'), 'Computers');
   assert.equal(settingsTabLabel('accounts'), 'Account');
 });
 
@@ -29,7 +29,7 @@ test('older section names and anchors open their new section', () => {
   assert.deepEqual(settingsTarget(), { tab: 'general', anchor: undefined });
   assert.deepEqual(settingsTarget('unknown'), { tab: 'general', anchor: undefined });
   assert.deepEqual(settingsTarget('accounts'), { tab: 'account', anchor: undefined });
-  assert.deepEqual(settingsTarget('updates'), { tab: 'about', anchor: undefined });
+  assert.deepEqual(settingsTarget('updates'), { tab: 'computers', anchor: 'runtime-local' });
   assert.deepEqual(settingsTarget('remote-hosts'), { tab: 'computers', anchor: undefined });
   assert.deepEqual(settingsTarget('about'), { tab: 'about', anchor: undefined });
   assert.deepEqual(settingsTarget(undefined, 'settings-about'), {
@@ -73,8 +73,10 @@ test('older section names and anchors open their new section', () => {
     tab: 'computers',
     anchor: 'helper-update-h1',
   });
+  // The removed Updates tab opens Computers, at the runtime of this computer by default.
+  assert.deepEqual(settingsTarget('updates'), { tab: 'computers', anchor: 'runtime-local' });
   assert.deepEqual(settingsTarget('updates', 'unknown-anchor'), {
-    tab: 'about',
+    tab: 'computers',
     anchor: 'unknown-anchor',
   });
 });

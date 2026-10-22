@@ -559,34 +559,14 @@ export const demo: API = {
     demoWrite(demoNotificationsKey, next);
     return next;
   },
-  componentUpdates: async () => ({
-    desktop: {
-      installedVersion: 'Browser preview',
-      runningVersion: 'Browser preview',
-      runningBuild: 'preview',
-      discovery: 'unsupported',
-      stale: false,
-      install: {
-        kind: 'development',
-        selfUpdate: false,
-        reason: 'The browser preview cannot install updates. Open the desktop app.',
-      },
-    },
-    helpers: [],
-  }),
+  appVersion: async () => ({ version: 'Browser preview', build: 'preview', packaged: false }),
+  helperUpdates: async () => [],
   runtimeUpdateStatus: async (hostId) => demoRuntime(hostId),
   runtimeUpdateCheck: async (hostId) => demo.runtimeUpdateStatus(hostId),
   runtimeUpdateInstall: async () => {
     throw new Error('Runtime installation requires the desktop application.');
   },
   runtimeUpdateCancel: async (hostId) => demo.runtimeUpdateStatus(hostId),
-  desktopUpdateDownload: async () => {
-    throw new Error('Desktop updates require the desktop application.');
-  },
-  desktopUpdateCancel: async () => (await demo.componentUpdates()).desktop,
-  desktopUpdateRestart: async () => {
-    throw new Error('Desktop updates require the desktop application.');
-  },
   memoryList: async () => ({
     pages: demoMemory.map((entry) => ({
       topic: entry.topic,

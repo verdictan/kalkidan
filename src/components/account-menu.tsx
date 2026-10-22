@@ -74,17 +74,12 @@ function Avatar({ text, className }: { text: string; className?: string }) {
 }
 
 /** The help items that every account menu shows. */
-function HelpItems({ updateLabel }: { updateLabel?: string }) {
+function HelpItems() {
   return (
     <>
-      <DropdownMenuItem onSelect={() => openSettings(updateLabel ? 'about' : undefined)}>
+      <DropdownMenuItem onSelect={() => openSettings()}>
         <Settings2 className="size-4" />
         Settings
-        {updateLabel && (
-          <span className="account-menu-update" title={updateLabel}>
-            Update
-          </span>
-        )}
         <DropdownMenuShortcut>{shortcutLabel(['mod'], ',')}</DropdownMenuShortcut>
       </DropdownMenuItem>
       <DropdownMenuItem onSelect={showShortcuts}>
@@ -114,10 +109,8 @@ function HelpItems({ updateLabel }: { updateLabel?: string }) {
  * The account button in the sidebar footer, with its menu. Signed in: initials, name and
  * organization. Signed out: a "Sign in" button and a menu for Settings and help. It replaces
  * the Settings and Keyboard shortcuts buttons of the footer; both are in its menu.
- *
- * `updateLabel` is set when a desktop update is ready. Settings then opens About.
  */
-export function AccountMenu({ api, updateLabel }: { api: API; updateLabel?: string }) {
+export function AccountMenu({ api }: { api: API }) {
   const { status, supported } = useVerdictanStatus(api);
   const names = accountNames(status);
   const signedIn = status?.phase === 'authenticated';
@@ -157,8 +150,7 @@ export function AccountMenu({ api, updateLabel }: { api: API; updateLabel?: stri
                 className={cn('text-muted-foreground', !supported && 'ml-auto')}
                 aria-label="Settings and help"
               >
-                {updateLabel ? <Settings2 /> : <MoreHorizontal />}
-                {updateLabel && <span className="sidebar-update-dot" aria-hidden="true" />}
+                <MoreHorizontal />
               </Button>
             </DropdownMenuTrigger>
           </Hint>
@@ -176,7 +168,7 @@ export function AccountMenu({ api, updateLabel }: { api: API; updateLabel?: stri
                 <DropdownMenuSeparator />
               </>
             )}
-            <HelpItems updateLabel={updateLabel} />
+            <HelpItems />
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
@@ -200,7 +192,6 @@ export function AccountMenu({ api, updateLabel }: { api: API; updateLabel?: stri
                 {names.organization || 'Verdictan'}
               </span>
             </span>
-            {updateLabel && <span className="sidebar-update-dot" aria-hidden="true" />}
             <ChevronsUpDown className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
           </button>
         </DropdownMenuTrigger>
@@ -254,7 +245,7 @@ export function AccountMenu({ api, updateLabel }: { api: API; updateLabel?: stri
               <ExternalLink className="ml-auto size-4" aria-label="Opens in the browser" />
             </DropdownMenuItem>
           )}
-          <HelpItems updateLabel={updateLabel} />
+          <HelpItems />
           <DropdownMenuSeparator />
           <DropdownMenuItem disabled={signingOut} onSelect={() => void signOut()}>
             <LogOut className="size-4" />

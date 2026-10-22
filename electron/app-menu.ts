@@ -89,7 +89,6 @@ export function appMenuTemplate({
             label: appName,
             submenu: [
               { role: 'about', label: `About ${appName}` },
-              { label: 'Check for updates…', click: command('check-updates') },
               separator,
               { label: 'Settings…', accelerator: 'Cmd+,', click: command('settings') },
               { label: 'Sign in to Verdictan…', click: command('sign-in') },
@@ -240,12 +239,6 @@ export function appMenuTemplate({
       submenu: [
         { label: 'Get started', click: command('get-started') },
         { label: 'Keyboard shortcuts', accelerator: 'CmdOrCtrl+/', click: command('shortcuts') },
-        ...(mac
-          ? []
-          : ([
-              separator,
-              { label: 'Check for updates…', click: command('check-updates') },
-            ] satisfies MenuItemConstructorOptions[])),
         separator,
         {
           label: `${appName} user guide`,

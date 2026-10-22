@@ -95,27 +95,22 @@ async function fixture(page: Page, extra = '') {
         return structuredClone(setup);
       },
       runtimeUpdateStatus: async (hostId = 'local') => runtime(hostId),
-      componentUpdates: async () => ({
-        desktop: {
-          installedVersion: '0.1.0-build.100.aaaaaaaaaaaa',
-          runningVersion: '0.1.0-build.100.aaaaaaaaaaaa',
-          runningBuild: 'c'.repeat(64),
-          discovery: 'current',
-          stale: false,
-          install: { kind: 'mac-app', selfUpdate: true },
-        },
-        helpers: [
-          {
-            hostId: 'h1',
-            name: 'devbox',
-            connected: true,
-            installed: 'a'.repeat(64),
-            running: 'a'.repeat(64),
-            approved: 'a'.repeat(64),
-            discovery: 'current',
-          },
-        ],
+      appVersion: async () => ({
+        version: '0.1.0-build.100.aaaaaaaaaaaa',
+        build: 'c'.repeat(64),
+        packaged: true,
       }),
+      helperUpdates: async () => [
+        {
+          hostId: 'h1',
+          name: 'devbox',
+          connected: true,
+          installed: 'a'.repeat(64),
+          running: 'a'.repeat(64),
+          approved: 'a'.repeat(64),
+          discovery: 'current',
+        },
+      ],
     };
     w.workspace = Object.assign(base, new Function(extra)());
   }, extra);
@@ -169,9 +164,6 @@ test('each entry point opens Settings on the right section', async ({ page }) =>
   await page.evaluate(() => (window as any).menuListeners.forEach((l: any) => l('settings')));
   await expectTab(page, 'General');
   await close(page);
-  await page.evaluate(() => (window as any).menuListeners.forEach((l: any) => l('check-updates')));
-  await expectTab(page, 'About');
-  await close(page);
   // An event from another part of the app, with an older section name.
   await openWith(page, { section: 'remote' });
   await expectTab(page, 'Computers');
@@ -181,12 +173,17 @@ test('each entry point opens Settings on the right section', async ({ page }) =>
   await close(page);
   // Search.
   await page.keyboard.press('ControlOrMeta+k');
-  await page.getByRole('combobox', { name: 'Search or run a command' }).fill('Check for updates');
+  await page.getByRole('combobox', { name: 'Search or run a command' }).fill('Connect GitHub');
   await page
-    .getByRole('option', { name: /Check for updates/ })
+    .getByRole('option', { name: /Connect GitHub/ })
     .first()
     .click();
-  await expectTab(page, 'About');
+  await expectTab(page, 'Account');
+  await close(page);
+  // Kalkidan does not update itself. Search has no command that checks for updates.
+  await page.keyboard.press('ControlOrMeta+k');
+  await page.getByRole('combobox', { name: 'Search or run a command' }).fill('Check for updates');
+  await expect(page.getByRole('option', { name: /Check for updates/ })).toHaveCount(0);
 });
 
 test('a deep link opens its section', async ({ page }) => {
@@ -262,6 +259,10 @@ test('each section shows its content', async ({ page }) => {
   const devbox = computers.getByRole('group', { name: 'devbox' });
   await expect(devbox).toContainText('Connected');
   await expect(devbox).toContainText('u@devbox · linux · Node.js v22.3.0');
+  // A host checks its managed runtime each time it connects.
+  await expect(devbox).toContainText(
+    'Managed agents 0.6.4 · Checked for updates when it connected',
+  );
   const buildbox = computers.getByRole('group', { name: 'buildbox' });
   await expect(buildbox.getByRole('button', { name: 'Reconnect' })).toBeVisible();
   await expect(settings.getByRole('button', { name: 'Add SSH host', exact: true })).toBeVisible();
@@ -271,15 +272,24 @@ test('each section shows its content', async ({ page }) => {
   );
   await page.screenshot({ path: 'test-results/settings-computers.png', fullPage: true });
 
-  // About: the app version, the agent tools, and help.
+  // About: the app version, the release page, the agent tools, and help.
   await settingsTab(page, 'About').click();
   const about = settings.getByRole('list', { name: 'About' });
-  await expect(about.getByTestId('settings-version')).toHaveText(/^Version 0\.1\.0/);
-  await expect(about.getByRole('button', { name: 'Check for updates' })).toBeEnabled();
+  await expect(about.getByTestId('settings-version')).toHaveText('Version 0.1.0 · Build ccccccc');
+  // Kalkidan does not update itself. "Check for updates" opens the release page.
+  await expect(about.getByRole('link', { name: /Check for updates/ })).toHaveAttribute(
+    'href',
+    'https://github.com/verdictan/packages/releases?q=kalkidan',
+  );
+  await expect(about.getByRole('group', { name: 'Update Kalkidan' })).toContainText(
+    'brew upgrade --cask kalkidan',
+  );
   await expect(about.getByRole('group', { name: 'Agent tools' })).toContainText('Up to date');
   await expect(about.getByRole('link', { name: 'User guide' })).toBeVisible();
   await expect(about.getByRole('link', { name: 'Report an issue' })).toBeVisible();
-  await page.screenshot({ path: 'test-results/settings-updates.png', fullPage: true });
+  await advanced().click();
+  await expect(settings.getByRole('group', { name: 'Build' })).toContainText('c'.repeat(64));
+  await page.screenshot({ path: 'test-results/settings-about.png', fullPage: true });
 });
 
 test('links in Agents and Computers move between the sections', async ({ page }) => {
@@ -320,7 +330,7 @@ test('About opens Computers when the agent tools need attention', async ({ page 
       }),
     };`,
   );
-  await openWith(page, { section: 'updates' });
+  await openWith(page, { section: 'about' });
   await expectTab(page, 'About');
   const tools = settingsPage(page).getByRole('group', { name: 'Agent tools' });
   await expect(tools).toContainText('Not installed');
@@ -336,6 +346,17 @@ test('About opens Computers when the agent tools need attention', async ({ page 
   await expect(settingsPage(page).locator('#computer-local')).toBeFocused();
 });
 
+test('the older Updates section and deep link open Computers', async ({ page }) => {
+  await fixture(page);
+  await openWith(page, { section: 'updates' });
+  await expectTab(page, 'Computers');
+  await expect(settingsTab(page, 'Updates')).toHaveCount(0);
+  // The runtime of this computer is in its row, so the row gets the focus.
+  await expect(settingsPage(page).locator('#computer-local')).toBeFocused();
+  await page.goto('/#settings=updates');
+  await expectTab(page, 'Computers');
+});
+
 test('a helper update shows on the host row, and its link focuses the host menu', async ({
   page,
 }) => {
@@ -348,31 +369,21 @@ test('a helper update shows on the host row, and its link focuses the host menu'
         w.installs.push(id);
         return (await w.workspace.remoteHosts()).find((host) => host.id === id);
       },
-      componentUpdates: async () => ({
-        desktop: {
-          installedVersion: '0.1.0-build.100.aaaaaaaaaaaa',
-          runningVersion: '0.1.0-build.100.aaaaaaaaaaaa',
-          runningBuild: 'c'.repeat(64),
-          discovery: 'current',
-          stale: false,
-          install: { kind: 'mac-app', selfUpdate: true },
+      helperUpdates: async () => [
+        {
+          hostId: 'h1',
+          name: 'devbox',
+          connected: true,
+          installed: 'a'.repeat(64),
+          running: 'a'.repeat(64),
+          approved: 'd'.repeat(64),
+          discovery: 'available',
         },
-        helpers: [
-          {
-            hostId: 'h1',
-            name: 'devbox',
-            connected: true,
-            installed: 'a'.repeat(64),
-            running: 'a'.repeat(64),
-            approved: 'd'.repeat(64),
-            discovery: 'available',
-          },
-        ],
-      }),
+      ],
     };`,
   );
   // About says that a helper update waits.
-  await openWith(page, { section: 'updates' });
+  await openWith(page, { section: 'about' });
   const tools = settingsPage(page).getByRole('group', { name: 'Agent tools' });
   await expect(tools).toContainText('Update waiting');
   await expect(tools).toContainText('An SSH helper update waits for active work to stop.');
@@ -438,41 +449,22 @@ test('a managed setup choice saves at once and Undo restores the choice before',
   await expect(model).not.toContainText('mini');
 });
 
-test('a development build says that updates are off', async ({ page }) => {
+test('About marks a development build', async ({ page }) => {
   await fixture(
     page,
     `return {
-      componentUpdates: async () => ({
-        desktop: {
-          installedVersion: '0.1.0',
-          runningVersion: '0.1.0',
-          runningBuild: 'c'.repeat(64),
-          discovery: 'available',
-          stale: false,
-          release: {
-            version: '0.1.0-build.200.bbbbbbbbbbbb',
-            id: '9',
-            url: 'https://github.com/verdictan/packages/releases/tag/kalkidan-v0.1.0',
-            sha256: 'a'.repeat(64),
-            publishedAt: '2026-10-21T00:00:00Z',
-          },
-          install: { kind: 'development', selfUpdate: false, reason: 'Development builds do not update themselves.' },
-        },
-        helpers: [],
-      }),
+      appVersion: async () => ({ version: '0.1.0', build: 'c'.repeat(64), packaged: false }),
     };`,
   );
-  await openWith(page, { section: 'updates' });
+  await openWith(page, { section: 'about' });
   await expectTab(page, 'About');
   const settings = settingsPage(page);
-  const app = settings.getByRole('group', { name: 'Kalkidan', exact: true });
-  await expect(app).toContainText('Updates are off in a development build.');
-  await expect(app).toContainText('Updates off');
-  await expect(app.getByRole('button', { name: 'Check for updates' })).toBeDisabled();
-  // A development build shows no update banner and no download.
-  await expect(settings.getByRole('region', { name: 'Kalkidan update' })).toHaveCount(0);
-  await expect(settings.getByRole('link', { name: /Download/ })).toHaveCount(0);
-  await expect(settings.getByRole('button', { name: /Download/ })).toHaveCount(0);
+  await expect(settings.getByTestId('settings-version')).toHaveText(
+    'Version 0.1.0 · Build ccccccc · Development build',
+  );
+  // Kalkidan does not update itself. Settings has no update button and no download.
+  await expect(settings.getByRole('button', { name: /update|download|restart/i })).toHaveCount(0);
+  await expect(settings.getByRole('link', { name: /Check for updates/ })).toBeVisible();
 });
 
 test('Computers adds a host and checks it at once', async ({ page }) => {

@@ -563,8 +563,9 @@ export function accountLabel(account?: Pick<VerdictanAccount, 'organizationName'
  * square brackets: "Managed agents are not set up. … [desktop.runtime_missing]". Read the code
  * with `managedErrorCode`. Show the message without the brackets, and never show a code alone.
  *
- * `section` is the Settings section that fixes the error. `retry` is true when the same action
- * can work a second time without a change.
+ * `section` is the Settings section that fixes the error. 'runtime' is the managed runtime in
+ * Settings › Computers. `retry` is true when the same action can work a second time without a
+ * change.
  *
  * There is no fallback to an unmanaged local agent. Each local chat starts through managed agents,
  * so the policy and the inference guard always apply. When managed agents are not set up, the chat

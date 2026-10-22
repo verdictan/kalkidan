@@ -50,8 +50,6 @@ const sectionActions: Record<string, AgentErrorAction> = {
   accounts: { label: 'Open account settings', section: 'account', kind: 'settings' },
   agents: { label: 'Open agent settings', section: 'agents', kind: 'settings' },
   computers: { label: 'Open computer settings', section: 'computers', kind: 'settings' },
-  updates: { label: 'Check for updates', section: 'about', kind: 'settings' },
-  about: { label: 'Check for updates', section: 'about', kind: 'settings' },
 };
 // Codes that a Verdictan sign-in fixes, with the words for the chat.
 const signInCodes: Record<string, string> = {

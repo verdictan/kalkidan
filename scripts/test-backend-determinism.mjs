@@ -11,7 +11,6 @@ const nativeTests = new Set([
   'remote-node.test.ts',
   'worktree-sessions.test.ts',
   'worktree-operation.test.ts',
-  'desktop-self-update-native.test.ts',
   // These start real programs (git, agent executables), so npm test runs them instead.
   'mention-files.test.ts',
   'agent-programs-backend.test.ts',

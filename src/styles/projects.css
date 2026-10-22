@@ -3294,14 +3294,6 @@ thead .tracker-task-select:focus-visible {
 .settings-advanced-box .settings-row:last-child {
   border-bottom: 0;
 }
-.settings-banner {
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
-  padding: var(--space-3);
-  border-radius: var(--radius-lg);
-  background: var(--muted);
-}
 .settings-group {
   display: grid;
   gap: var(--space-2);
@@ -3374,13 +3366,6 @@ thead .tracker-task-select:focus-visible {
   content: '';
   position: absolute;
   inset: -4px;
-}
-.sidebar-update-dot {
-  width: 6px;
-  height: 6px;
-  margin-left: auto;
-  border-radius: 999px;
-  background: var(--link);
 }
 .project-overview-tabs {
   margin-bottom: var(--space-4);
@@ -3889,14 +3874,6 @@ thead .tracker-task-select:focus-visible {
   color: var(--muted-foreground);
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-.account-menu-update {
-  padding: 0 6px;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--link) 15%, transparent);
-  color: var(--link);
-  font-size: 11px;
-  line-height: 16px;
 }
 .session-banner {
   display: flex;

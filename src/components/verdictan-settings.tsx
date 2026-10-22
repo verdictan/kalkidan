@@ -14,7 +14,6 @@ import type { ComponentUpdateStatus } from '../domain/updates';
 import { checkAgentVersion, nativeAgentKind } from '../domain/agent-version';
 import { agentProgramAnchor } from '../domain/agent-programs';
 import { useRefreshTriggers } from '../hooks/use-refresh-triggers';
-import { notifyUpdatesChanged } from '../hooks/use-update-status';
 import {
   accountChanging,
   accountNames,
@@ -166,7 +165,6 @@ export function useRuntimeStatus(api: API, open: boolean, host: string) {
     try {
       const result = await api[method](host);
       if (id === generation.current) setStatus(result);
-      notifyUpdatesChanged();
     } catch (failure) {
       if (id === generation.current)
         if (accountChanging(failure)) {

@@ -1,12 +1,7 @@
 // Plain words for managed-agent and update states. The UI never shows the raw API values.
 import { managedErrorInfo, managedErrors, selectionIssue, serviceName } from '../domain/verdictan';
 import type { VerdictanSetup, VerdictanStatus } from '../domain/verdictan';
-import type {
-  ComponentUpdateStatus,
-  DesktopUpdateStatus,
-  HelperUpdateStatus,
-  UpdatePhase,
-} from '../domain/updates';
+import type { ComponentUpdateStatus, HelperUpdateStatus, UpdatePhase } from '../domain/updates';
 
 /** The Badge variant for a status. */
 export type StatusTone = 'success' | 'warning' | 'muted' | 'destructive' | 'secondary';
@@ -140,26 +135,6 @@ export function runtimeStatusLabel(status: ComponentUpdateStatus | undefined): S
   if (runtimeOutdated(status)) return { label: 'Update ready', tone: 'warning' };
   if (status.discovery === 'failed') return { label: 'Check failed', tone: 'destructive' };
   return { label: 'Ready', tone: 'success' };
-}
-
-/** The desktop app state in Settings › About. */
-export function desktopStatusLabel(desktop: DesktopUpdateStatus): StatusLabel {
-  switch (desktop.discovery) {
-    case 'available':
-      return desktop.release
-        ? { label: `Version ${displayVersion(desktop.release.version)} available`, tone: 'warning' }
-        : { label: 'Update available', tone: 'warning' };
-    case 'current':
-      return { label: 'Up to date', tone: 'success' };
-    case 'checking':
-      return { label: 'Checking…', tone: 'secondary' };
-    case 'failed':
-      return { label: 'Check failed', tone: 'destructive' };
-    case 'unsupported':
-      return { label: 'Desktop app only', tone: 'muted' };
-    default:
-      return { label: 'Not checked', tone: 'muted' };
-  }
 }
 
 /** The SSH helper state in Settings › Computers. */

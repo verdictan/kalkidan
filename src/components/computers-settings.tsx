@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
 import { Bot, Download, Plus, RotateCw, Server, Trash2, Unplug } from 'lucide-react';
 import type { API, RemoteHost } from '../types';
-import type { ComponentInventory, HelperUpdateStatus } from '../domain/updates';
+import type { ComponentUpdateStatus, HelperUpdateStatus } from '../domain/updates';
 import { computerAnchor, helperUpdateAnchor } from '../domain/settings-route';
-import { helperStatusLabel, shortId } from '../lib/verdictan-labels';
+import { displayVersion, helperStatusLabel, shortId } from '../lib/verdictan-labels';
 import { errorMessage } from '../lib/errors';
 import { useRefreshTriggers } from '../hooks/use-refresh-triggers';
 import {
@@ -46,26 +46,26 @@ import { EntityIcon } from './ui/entity-icon';
 import { MoreButton } from './ui/more-button';
 
 /**
- * The update state of the helper on each SSH host, by host ID, and the desktop inventory. It
- * reads again when a host changes, when the section opens, and on window focus.
+ * The update state of the helper on each SSH host, by host ID. It reads again when a host
+ * changes, when the section opens, and on window focus.
  */
 function useHelperUpdates(api: API, open: boolean, hosts: RemoteHost[]) {
-  const [inventory, setInventory] = useState<ComponentInventory>();
   const key = hosts.map((h) => `${h.id}:${h.status}:${h.installedDigest || ''}`).join(',');
+  const [helpers, setHelpers] = useState<Record<string, HelperUpdateStatus>>({});
   const read = () => {
-    // Older desktop builds do not report component versions.
-    if (typeof api.componentUpdates !== 'function') return;
+    // Some test stubs do not report helper versions.
+    if (typeof api.helperUpdates !== 'function') return;
     void Promise.resolve()
-      .then(() => api.componentUpdates(false))
-      .then(setInventory, () => setInventory(undefined));
+      .then(() => api.helperUpdates())
+      .then(
+        (value) => setHelpers(Object.fromEntries(value.map((h) => [h.hostId, h]))),
+        () => setHelpers({}),
+      );
   };
   useRefreshTriggers(undefined, open, read);
   useEffect(() => {
     if (open) read();
   }, [key]);
-  const helpers: Record<string, HelperUpdateStatus> = Object.fromEntries(
-    (inventory?.helpers || []).map((h) => [h.hostId, h]),
-  );
   return helpers;
 }
 
@@ -242,16 +242,36 @@ function HelperDetails({ host, helper }: { host: RemoteHost; helper?: HelperUpda
   );
 }
 
-/** The help line of a host row. */
-function hostHelp(host: RemoteHost, busy: string) {
+/**
+ * The managed runtime line of a connected host. A host checks its runtime each time it
+ * connects, and a newer signed release installs without a chat. Empty when the row shows the
+ * runtime below it, for example during an install or after an error.
+ */
+function hostRuntimeText(status: ComponentUpdateStatus | undefined) {
+  if (!status) return '';
+  if (status.discovery === 'checking') return 'Checking managed agents for updates…';
+  if (!status.installed) return '';
+  return `Managed agents ${displayVersion(status.installed.version)} · Checked for updates when it connected`;
+}
+
+/** The help line of a host row. A connected host also shows its managed runtime. */
+function hostHelp(host: RemoteHost, busy: string, runtime = '') {
   if (busy) return busy;
   if (host.setup && !['ready', 'failed'].includes(host.setup.phase))
     return helperSetupText(host.setup);
   switch (host.status) {
-    case 'connected':
-      return [host.target, host.platform, host.node ? `Node.js ${host.node}` : '']
+    case 'connected': {
+      const line = [host.target, host.platform, host.node ? `Node.js ${host.node}` : '']
         .filter(Boolean)
         .join(' · ');
+      if (!runtime) return line;
+      return (
+        <span className="grid">
+          <span>{line}</span>
+          <span>{runtime}</span>
+        </span>
+      );
+    }
     case 'retry-wait':
       return host.retryAt
         ? `Connection lost. Kalkidan tries again at ${new Date(host.retryAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}.`
@@ -311,7 +331,7 @@ function HostRow({
           </EntityIcon>
         }
         label={host.name}
-        help={hostHelp(host, setup.busy)}
+        help={hostHelp(host, setup.busy, runtimeNeedsUser ? '' : hostRuntimeText(runtime.status))}
         extra={
           setup.error || runtimeNeedsUser || (host.status === 'checked' && !host.version) ? (
             <div className="grid gap-2">

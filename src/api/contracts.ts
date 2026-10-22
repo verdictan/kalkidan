@@ -362,7 +362,6 @@ export const menuCommands = [
   'go-memory',
   'go-insights',
   'all-sessions',
-  'check-updates',
   'sign-in',
   // The Chat menu sends the commands of the chat action list.
   ...chatCommands,

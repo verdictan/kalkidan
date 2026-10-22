@@ -134,13 +134,14 @@ test('Settings separates account sign-in from execution readiness and shows upda
   expect(await page.evaluate(() => (window as any).runtimeFixture.update.operation.phase)).toBe(
     'canceled',
   );
-  // Updates are in About, with one Check for updates button.
+  // Kalkidan does not update itself. About links to the release page.
   await settings.getByRole('tab', { name: 'About', exact: true }).click();
   await expect(
     settings
       .getByRole('tabpanel', { name: 'About' })
-      .getByRole('button', { name: 'Check for updates' }),
-  ).toBeVisible();
+      .getByRole('link', { name: /Check for updates/ }),
+  ).toHaveAttribute('href', /verdictan\/packages\/releases/);
+  await expect(settings.getByRole('tab', { name: 'Updates' })).toHaveCount(0);
 });
 
 test('Settings requires an explicit EU or US region before sign-in', async ({ page }) => {

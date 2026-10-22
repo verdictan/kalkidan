@@ -189,6 +189,7 @@ export async function desktopFixture(platform = 'linux', failure = '') {
     load = asyncRecord('remoteLoad');
     connectSaved = asyncRecord('remoteAutoConnect');
     list = () => hosts;
+    busy = () => false;
     add = asyncRecord('remoteAdd');
     check = asyncRecord('remoteCheck');
     install = asyncRecord('remoteInstall');
@@ -197,6 +198,7 @@ export async function desktopFixture(platform = 'linux', failure = '') {
     remove = asyncRecord('remoteRemove');
     close = record('remoteClose');
     onRunEnded = record('remoteRunEnded');
+    onConnected = record('remoteConnected');
     agentInstallations = asyncRecord('remoteAgentInstallations');
     chooseAgentExecutable = asyncRecord('remoteAgentChoice');
     call = async (host: string, method: string, args: any[]) => {
@@ -299,6 +301,7 @@ export async function desktopFixture(platform = 'linux', failure = '') {
         return '[projects."/discovered"]';
       },
       writeFile: asyncRecord('writeFile'),
+      rm: asyncRecord('rm'),
       stat: async () => ({ isDirectory: () => state.directory }),
       realpath: async (path: string) => {
         if (state.missingPath === path) throw Error('missing folder');
@@ -306,7 +309,13 @@ export async function desktopFixture(platform = 'linux', failure = '') {
       },
     },
     'node:os': { homedir: () => '/fixture' },
-    'node:crypto': { randomUUID: () => `id-${++sequence}` },
+    'node:crypto': {
+      randomUUID: () => `id-${++sequence}`,
+      createHash: () => {
+        const hash = { update: () => hash, digest: () => 'f'.repeat(64) };
+        return hash;
+      },
+    },
     'node:child_process': {
       spawn: () => {
         const child = Object.assign(new EventEmitter(), { unref: record('unref') });
