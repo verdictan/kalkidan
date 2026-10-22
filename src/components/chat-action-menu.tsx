@@ -1,4 +1,4 @@
-import { Fragment, createElement, type ReactElement, type ReactNode } from 'react';
+import { Fragment, createElement, useRef, type ReactElement, type ReactNode } from 'react';
 import {
   AppWindow,
   Archive,
@@ -212,6 +212,7 @@ export function ChatActionsDropdown({
   onOpenChange?: (open: boolean) => void;
   footer?: ReactNode;
 }) {
+  const menu = useMenuRun(onRun);
   return (
     <DropdownMenu.Root onOpenChange={onOpenChange}>
       <Hint label={label} disabled={disabled}>
@@ -225,17 +226,39 @@ export function ChatActionsDropdown({
           sideOffset={6}
           collisionPadding={menuCollisionPadding}
           aria-label={label}
+          onCloseAutoFocus={menu.onCloseAutoFocus}
           className={cn(
             menuContentClass,
             'w-80 max-h-(--radix-dropdown-menu-content-available-height) origin-(--radix-dropdown-menu-content-transform-origin)',
           )}
         >
-          <Items parts={DropdownMenu} groups={groups} onRun={onRun} />
+          <Items parts={DropdownMenu} groups={groups} onRun={menu.run} />
           {footer}
         </DropdownMenu.Content>
       </DropdownMenu.Portal>
     </DropdownMenu.Root>
   );
+}
+
+/**
+ * Actions that move the focus to a new place, such as a side chat. After them the menu does
+ * not give the focus back to its trigger, so the trigger shows no tooltip over the new place.
+ */
+const focusMoves = new Set(['open-beside']);
+
+/** Runs a menu action and tells the menu whether to give the focus back to its trigger. */
+function useMenuRun(onRun: (item: ChatMenuItem) => void) {
+  const moved = useRef(false);
+  return {
+    run: (item: ChatMenuItem) => {
+      moved.current = focusMoves.has(item.id);
+      onRun(item);
+    },
+    onCloseAutoFocus: (event: Event) => {
+      if (moved.current) event.preventDefault();
+      moved.current = false;
+    },
+  };
 }
 
 /** The right-click menu of a chat row. Shift+F10 and the menu key open it too. */
@@ -250,6 +273,7 @@ export function ChatContextMenu({
   onRun: (item: ChatMenuItem) => void;
   label?: string;
 }) {
+  const menu = useMenuRun(onRun);
   return (
     <ContextMenu.Root>
       <ContextMenu.Trigger
@@ -275,12 +299,13 @@ export function ChatContextMenu({
         <ContextMenu.Content
           collisionPadding={menuCollisionPadding}
           aria-label={label}
+          onCloseAutoFocus={menu.onCloseAutoFocus}
           className={cn(
             menuContentClass,
             'w-80 max-h-(--radix-context-menu-content-available-height) origin-(--radix-context-menu-content-transform-origin)',
           )}
         >
-          <Items parts={ContextMenu} groups={groups} onRun={onRun} />
+          <Items parts={ContextMenu} groups={groups} onRun={menu.run} />
         </ContextMenu.Content>
       </ContextMenu.Portal>
     </ContextMenu.Root>
