@@ -32,6 +32,8 @@ const api: API = {
   verdictanReopenBrowser: () => ipcRenderer.invoke('verdictan-reopen-browser'),
   verdictanOpenConsole: () => ipcRenderer.invoke('verdictan-open-console'),
   verdictanApplyRecommended: () => ipcRenderer.invoke('verdictan-apply-recommended'),
+  chatPolicyResults: (agent, id, hostId) =>
+    ipcRenderer.invoke('chat-policy-results', agent, id, hostId),
   verdictanReviewInspect: (id, region) =>
     ipcRenderer.invoke('verdictan-review-inspect', id, region),
   verdictanReviewOpen: (id, region) => ipcRenderer.invoke('verdictan-review-open', id, region),

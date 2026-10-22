@@ -2,7 +2,7 @@ import type { BuiltinAgent } from '../config/agents';
 import type { TrackerItem } from './tracker';
 import type { ManagedSetupStep } from './verdictan';
 import type { ChatOutcome } from './chat-outcome';
-import type { PolicyRegion, PolicyResult } from './policy-result';
+import type { PolicyRecord } from './policy-result';
 export interface ChatOptions {
   operationId?: string;
   forkFrom?: string;
@@ -119,8 +119,8 @@ export interface ChatRun {
   /** With a version refusal: the path of the agent program that the launch checked. */
   agentPath?: string;
   sessionReady?: boolean;
-  /** The policy result of the first refused or escalated request in this run. */
-  policy?: PolicyResult & { region?: PolicyRegion };
+  /** The policy results of the refused or escalated requests in this run, oldest first. */
+  policies?: PolicyRecord[];
 }
 export interface AgentQuestion {
   id: string;

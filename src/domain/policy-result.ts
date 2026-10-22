@@ -112,6 +112,88 @@ export function parsePolicyResult(input: {
   return result;
 }
 
+/**
+ * One policy result of a chat, as the app shows and saves it. It has only the gateway fields
+ * that the user may see, the account region, and the time. It never has the review state:
+ * the app reads the review again, with the permissions of the user at that time.
+ */
+export interface PolicyRecord extends PolicyResult {
+  region?: PolicyRegion;
+  /** The time of the result, as an ISO string. */
+  at: string;
+}
+/** A run keeps this many policy results. */
+export const runPolicyLimit = 20;
+/** A chat keeps and shows this many policy results. */
+export const chatPolicyLimit = 50;
+
+/**
+ * Returns a valid policy record, or undefined. It keeps only the known, safe fields. Use it for
+ * each record from storage or from another computer.
+ */
+export function validPolicyRecord(value: unknown): PolicyRecord | undefined {
+  const input = record(value);
+  if (!input) return undefined;
+  if (input.decision !== 'refused' && input.decision !== 'escalated') return undefined;
+  if (input.retry !== 'after_review' && input.retry !== 'denied') return undefined;
+  if (typeof input.at !== 'string' || Number.isNaN(Date.parse(input.at))) return undefined;
+  const result: PolicyRecord = {
+    decision: input.decision,
+    retry: input.retry,
+    at: new Date(input.at).toISOString(),
+  };
+  if (input.requestId !== undefined) {
+    if (!isRequestId(input.requestId)) return undefined;
+    result.requestId = input.requestId;
+  }
+  const reason = safeText(input.reason);
+  if (reason) result.reason = reason;
+  const reasonCode = safeToken(input.reasonCode);
+  if (reasonCode) result.reasonCode = reasonCode;
+  const policyVersion = safeToken(input.policyVersion);
+  if (policyVersion) result.policyVersion = policyVersion;
+  if (isPolicyRegion(input.region)) result.region = input.region;
+  // A refusal has no review. An escalation without a request ID has no review to wait for.
+  if (result.decision === 'refused' || !result.requestId) result.retry = 'denied';
+  return result;
+}
+
+/** The identity of a policy record. A later copy of the same result replaces the earlier one. */
+const recordKey = (value: PolicyRecord) => `${value.requestId || ''}|${value.at}`;
+
+/**
+ * Adds policy records to a list. Records that are not valid are dropped. The same request ID
+ * keeps one record. The list keeps the newest `limit` records, oldest first.
+ */
+export function addPolicyRecords(
+  list: readonly PolicyRecord[] | undefined,
+  added: readonly unknown[],
+  limit = runPolicyLimit,
+): PolicyRecord[] {
+  const next = new Map<string, PolicyRecord>();
+  for (const value of [...(list || []), ...added]) {
+    const valid = validPolicyRecord(value);
+    if (!valid) continue;
+    const key = valid.requestId ? `request|${valid.requestId}` : recordKey(valid);
+    next.delete(key);
+    next.set(key, valid);
+  }
+  return [...next.values()].sort((a, b) => a.at.localeCompare(b.at)).slice(-limit);
+}
+
+/**
+ * The policy records of a run from another computer. The account is the account of this
+ * desktop, so each record gets the region of this desktop, not the region that the other
+ * computer sent.
+ */
+export function remotePolicyRecords(value: unknown, region: unknown): PolicyRecord[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const records = addPolicyRecords([], value.slice(0, runPolicyLimit * 2)).map(
+    ({ region: _region, ...rest }) => (isPolicyRegion(region) ? { ...rest, region } : rest),
+  );
+  return records.length ? records : undefined;
+}
+
 /** The states of a review. Other values show as `unknown`. */
 export type ReviewStatus = 'pending' | 'claimed' | 'approved' | 'denied' | 'resolved' | 'unknown';
 /** A decision of a reviewer. */

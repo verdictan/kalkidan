@@ -33,7 +33,7 @@ export function allowedInference(
 export async function inferenceGuard(
   address: string,
   access: boolean | ProviderAccessMode = false,
-  /** Receives the policy result of the first refused or escalated response. */
+  /** Receives the policy result of each refused or escalated response. */
   onPolicy?: (result: PolicyResult) => void,
 ) {
   // `true` is the original Codex subscription flag.
@@ -53,7 +53,6 @@ export async function inferenceGuard(
     // The reason for the first refusal in this turn. Later requests repeat it, so the user sees
     // why the turn stopped and not only that it stopped.
     refusal = '';
-  let policyReported = false;
   /**
    * Reads a refused body for the reason, and a policy decision for the policy result. The pipe to
    * the agent continues: this only reads a bounded copy of the bytes.
@@ -67,10 +66,7 @@ export async function inferenceGuard(
     response.on('end', () => {
       if (refused) refusal ||= refusalReason(text);
       const policy = parsePolicyResult({ headers: response.headers, body: text });
-      if (policy && !policyReported) {
-        policyReported = true;
-        onPolicy?.(policy);
-      }
+      if (policy) onPolicy?.(policy);
     });
   };
   const pending = new Set<ClientRequest>(),

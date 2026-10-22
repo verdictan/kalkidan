@@ -9,6 +9,7 @@ import {
   type ToolRequest,
 } from './conversation-tools';
 import { PolicyResultCard } from './policy-result';
+import { addPolicyRecords, chatPolicyLimit, type PolicyRecord } from '../domain/policy-result';
 import { AgentActivity } from './agent-activity';
 import {
   Dialog,
@@ -627,10 +628,36 @@ export function Conversation({
     text: string;
     prompt: string;
   } | null>(null);
+  // The saved policy results of this chat. They stay after a restart. A finished run with
+  // policy results reads them again.
+  const [savedPolicies, setSavedPolicies] = useState<PolicyRecord[]>([]);
+  // The saved chat ID of the last run with policy results, and a count that reads them again.
+  const [policyChat, setPolicyChat] = useState<string>();
+  const [policyReads, setPolicyReads] = useState(0);
+  useEffect(() => {
+    const id = policyChat || session.id;
+    if (!api.chatPolicyResults || id.startsWith('draft-')) return;
+    let current = true;
+    api
+      .chatPolicyResults(session.agent, id, session.hostId)
+      .then((records) => {
+        if (current) setSavedPolicies(addPolicyRecords([], records, chatPolicyLimit));
+      })
+      .catch(() => {
+        /* The chat shows the results of the current run only. */
+      });
+    return () => {
+      current = false;
+    };
+  }, [api, session.agent, session.id, session.hostId, policyChat, policyReads]);
   function finishRun(next: ChatRun) {
     if (finished.current.has(next.id)) return;
     finished.current.add(next.id);
     syncStartedTask(next);
+    if (next.policies?.length) {
+      if (next.sessionReady && next.sessionId) setPolicyChat(next.sessionId);
+      setPolicyReads((count) => count + 1);
+    }
 
     if (session.projectId && !providerSession.current && next.sessionReady && next.sessionId) {
       providerSession.current = next.sessionId;
@@ -986,6 +1013,15 @@ export function Conversation({
     !!session.hostId &&
     !!error &&
     /host|ssh|disconnect|not connected|connection|ECONNRESET|EPIPE|timed out/i.test(error);
+  // Saved results and the results of the current run, without copies, oldest first.
+  const shownPolicies = addPolicyRecords(savedPolicies, run?.policies || [], chatPolicyLimit);
+  const latestRunPolicy = run?.policies?.length
+    ? [...shownPolicies]
+        .reverse()
+        .find((policy) =>
+          run.policies!.some((own) => own.at === policy.at && own.requestId === policy.requestId),
+        )
+    : undefined;
   // Desktop codes and agent errors show as plain words with an action.
   const errorInfo: AgentError | null = error
     ? run?.errorCode === 'managed_launch_blocked' && run.error === error
@@ -1387,15 +1423,20 @@ export function Conversation({
               <span role="status">{activityText}</span>
             </div>
           )}
-          {run?.policy && (
+          {shownPolicies.map((policy) => (
             <PolicyResultCard
-              key={`${run.id}:${run.policy.requestId || ''}`}
+              key={`${policy.requestId || ''}:${policy.at}`}
               api={api}
-              policy={run.policy}
+              policy={policy}
               busy={!!active || starting}
-              onRetry={() => void send({ allowEdits: runEdits.current })}
+              // Only the last message can go again. Results of earlier runs offer no retry.
+              onRetry={
+                policy === latestRunPolicy
+                  ? () => void send({ allowEdits: runEdits.current })
+                  : undefined
+              }
             />
-          )}
+          ))}
           {run?.status === 'stopped' && (
             <p className="chat-context-note">Response stopped. Send another message to continue.</p>
           )}

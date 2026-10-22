@@ -5,7 +5,7 @@ import {
   type NativeAgentKind,
 } from './agent-version';
 import { safeProgramPath } from './agent-programs';
-import type { PolicyRegion, PolicyReview, ReviewDecision } from './policy-result';
+import type { PolicyRecord, PolicyRegion, PolicyReview, ReviewDecision } from './policy-result';
 import { runtimeAnchor, settingsAnchors, type SettingsSection } from './settings-route';
 
 /** Safe desktop state. Account and runtime credentials never cross renderer IPC. */
@@ -91,6 +91,8 @@ export interface VerdictanAPI {
    * preselection that Settings shows. Returns the new setup.
    */
   verdictanApplyRecommended(): Promise<VerdictanSetup>;
+  /** The saved policy results of a chat, oldest first. Older desktop apps do not have it. */
+  chatPolicyResults?(agent: string, id: string, hostId?: string): Promise<PolicyRecord[]>;
   /** Reads the current state of a policy review. Older desktop apps do not have it. */
   verdictanReviewInspect?(requestId: string, region: PolicyRegion): Promise<PolicyReview>;
   /** Opens the checked Console record of a policy review. The renderer sends no URL. */

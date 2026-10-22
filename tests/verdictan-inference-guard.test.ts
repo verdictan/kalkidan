@@ -277,3 +277,26 @@ test('a provider error without a policy decision reports no policy result', asyn
     await f.guard.close();
   }
 });
+
+test('each escalation in a turn reports its own policy result', async () => {
+  const results: { requestId?: string }[] = [];
+  const f = await fixture((policy) => results.push(policy as { requestId?: string }));
+  try {
+    const ids = ['a'.repeat(32), 'b'.repeat(32)];
+    for (const [index, id] of ids.entries()) {
+      const reply = f.send();
+      f.respond(index, 200, '{}', {
+        'content-type': 'application/json',
+        'x-verdictan-verdict': 'ESCALATE',
+        'x-request-id': id,
+      });
+      await reply.done;
+    }
+    assert.deepEqual(
+      results.map((result) => result.requestId),
+      ids,
+    );
+  } finally {
+    await f.guard.close();
+  }
+});

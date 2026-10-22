@@ -1,13 +1,21 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import {
+  addPolicyRecords,
   canRetry,
   parsePolicyResult,
   parsePolicyReview,
   returnAction,
+  remotePolicyRecords,
   reviewConsoleLink,
+  validPolicyRecord,
   type PolicyResult,
 } from '../src/domain/policy-result';
+import { PolicyResults } from '../electron/policy-results';
+import type { ChatRun } from '../src/types';
 import { PolicyReviews } from '../electron/verdictan/policy-review';
 import type {
   DesktopClient,
@@ -236,4 +244,159 @@ test('a review decision sends the reviewer fields and never a URL or a prompt', 
     expected_revision: 'rev1',
   });
   assert.equal(f.opened.length, 0);
+});
+
+test('a policy record keeps only the safe fields that the user saw', () => {
+  const at = '2026-10-22T10:00:00.000Z';
+  assert.deepEqual(
+    validPolicyRecord({
+      decision: 'escalated',
+      retry: 'after_review',
+      requestId,
+      reasonCode: 'needs_review',
+      policyVersion: 'cfgv_7',
+      region: 'eu',
+      at,
+      escalationId,
+      prompt: 'Read the customer table.',
+      status: 'approved',
+    }),
+    {
+      decision: 'escalated',
+      retry: 'after_review',
+      requestId,
+      reasonCode: 'needs_review',
+      policyVersion: 'cfgv_7',
+      region: 'eu',
+      at,
+    },
+  );
+  // A refusal never permits a retry, whatever the stored value says.
+  assert.equal(
+    validPolicyRecord({ decision: 'refused', retry: 'after_review', at })?.retry,
+    'denied',
+  );
+  for (const bad of [
+    null,
+    { decision: 'allowed', retry: 'denied', at },
+    { decision: 'refused', retry: 'denied', at: 'yesterday' },
+    { decision: 'refused', retry: 'denied', at, requestId: '../x' },
+  ])
+    assert.equal(validPolicyRecord(bad), undefined);
+});
+
+test('a chat keeps every policy result, one per request, oldest first', () => {
+  const other = 'f'.repeat(32);
+  const list = addPolicyRecords(
+    [{ decision: 'refused', retry: 'denied', requestId, at: '2026-10-22T10:00:00.000Z' }],
+    [
+      {
+        decision: 'escalated',
+        retry: 'after_review',
+        requestId: other,
+        at: '2026-10-22T10:02:00.000Z',
+      },
+      {
+        decision: 'refused',
+        retry: 'denied',
+        requestId,
+        reasonCode: 'pii',
+        at: '2026-10-22T10:01:00.000Z',
+      },
+      { decision: 'nope' },
+    ],
+  );
+  assert.deepEqual(
+    list.map((record) => [record.requestId, record.reasonCode]),
+    [
+      [requestId, 'pii'],
+      [other, undefined],
+    ],
+  );
+  const many = Array.from({ length: 30 }, (_, index) => ({
+    decision: 'refused',
+    retry: 'denied',
+    at: new Date(Date.UTC(2026, 9, 22, 10, index)).toISOString(),
+  }));
+  const kept = addPolicyRecords([], many, 20);
+  assert.equal(kept.length, 20);
+  assert.equal(kept[0].at, many[10].at);
+});
+
+test('results from another computer get the region of this desktop', () => {
+  const at = '2026-10-22T10:00:00.000Z';
+  assert.deepEqual(
+    remotePolicyRecords(
+      [{ decision: 'escalated', retry: 'after_review', requestId, region: 'us', at, token: 'x' }],
+      'eu',
+    ),
+    [{ decision: 'escalated', retry: 'after_review', requestId, region: 'eu', at }],
+  );
+  assert.deepEqual(
+    remotePolicyRecords([{ decision: 'refused', retry: 'denied', region: 'us', at }], undefined),
+    [{ decision: 'refused', retry: 'denied', at }],
+  );
+  assert.equal(remotePolicyRecords('not a list', 'eu'), undefined);
+  assert.equal(remotePolicyRecords([{ bad: true }], 'eu'), undefined);
+});
+
+test('saved policy results stay after a restart and hold only safe fields', async (t) => {
+  const root = await mkdtemp(join(tmpdir(), 'kalkidan-policy-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const file = join(root, 'policy-results.json');
+  const store = new PolicyResults(file);
+  await store.load();
+  const run = (changes: Partial<ChatRun>, extra: Record<string, unknown> = {}) => ({
+    state: {
+      id: 'run-1',
+      agent: 'codex' as const,
+      status: 'completed' as const,
+      sessionId: 'saved-1',
+      sessionReady: true,
+      ...changes,
+    },
+    sessionId: 'saved-1',
+    create: false,
+    ...extra,
+  });
+  const first = {
+    decision: 'refused',
+    retry: 'denied',
+    requestId,
+    reason: 'No customer data.',
+    at: '2026-10-22T10:00:00.000Z',
+  };
+  const second = {
+    decision: 'escalated',
+    retry: 'after_review',
+    requestId: 'f'.repeat(32),
+    region: 'eu',
+    at: '2026-10-22T10:05:00.000Z',
+    escalationId,
+    prompt: 'secret prompt',
+  };
+  await store.finished(run({ policies: [first as any] }));
+  await store.finished(run({ id: 'run-2', policies: [second as any] }));
+  // A remote chat ID has the host prefix.
+  await store.finished(run({ policies: [first as any] }, { hostId: 'host1' }));
+  // A new chat that did not save its session keeps nothing.
+  await store.finished(
+    run({ sessionReady: false, sessionId: 'draft-1', policies: [first as any] }, { create: true }),
+  );
+  const raw = await readFile(file, 'utf8');
+  assert.doesNotMatch(raw, /secret prompt|escalationId|esc_/);
+  const restarted = new PolicyResults(file);
+  await restarted.load();
+  assert.deepEqual(
+    restarted.list('codex', 'saved-1').map((record) => record.requestId),
+    [requestId, 'f'.repeat(32)],
+  );
+  assert.equal(restarted.list('codex', 'saved-1')[0].reason, 'No customer data.');
+  assert.equal(restarted.list('codex', 'host1::saved-1').length, 1);
+  assert.deepEqual(restarted.list('codex', 'draft-1'), []);
+  assert.deepEqual(restarted.list('codex', '../x'), []);
+  await writeFile(file, '{bad json');
+  const damaged = new PolicyResults(file);
+  await damaged.load();
+  assert.deepEqual(damaged.list('codex', 'saved-1'), []);
 });
