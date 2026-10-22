@@ -13,6 +13,7 @@ import { isMac } from '../lib/platform';
 import { BrowserSettingsDialog } from './browser-menu';
 import { openComputers } from './computers-page';
 import { VersionRow } from './about-section';
+import { DataDialog } from './data-settings';
 import { GitHubRow, useGitHubServices } from './github-account';
 import { SettingsRow, SettingsRows } from './settings-disclosure';
 import { startSignIn } from './sign-in-steps';
@@ -29,9 +30,9 @@ export function openAccountMenu() {
 }
 
 /**
- * Preferences (⌘,): one short sheet with six rows in three groups. Chats: the access of new
- * chats and Enter to send. Connections: the region and GitHub. This app: the built-in browser
- * and the version. The agent and the model are in the composer chip, the theme, notifications
+ * Preferences (⌘,): one short sheet with seven rows in three groups. Chats: the access of new
+ * chats and Enter to send. Connections: the region and GitHub. This app: the built-in browser,
+ * your data, and the version. The agent and the model are in the composer chip, the theme, notifications
  * and sign-out are in the account menu, and the hosts are on the Computers page.
  *
  * Older requests still work. `section` and `anchor` go through `settingsPlace`: a request for
@@ -134,7 +135,7 @@ function savedToast(message: string, undo: () => void) {
   showToast({ message, actions: [{ label: 'Undo', onClick: undo }] });
 }
 
-/** The six rows of Preferences. */
+/** The seven rows of Preferences. */
 function PreferenceRows({
   api,
   open,
@@ -148,6 +149,7 @@ function PreferenceRows({
   const [enterToSend, setEnterToSend] = useState(readEnterToSend);
   const [browserOpen, setBrowserOpen] = useState(false);
   const [regionOpen, setRegionOpen] = useState(false);
+  const [dataOpen, setDataOpen] = useState(false);
   const services = useGitHubServices(api, open);
   const { status, busy, error, changing, run } = account;
   useEffect(
@@ -227,9 +229,19 @@ function PreferenceRows({
             Manage…
           </Button>
         </SettingsRow>
+        <SettingsRow
+          id={settingsAnchors.data}
+          label="Your data"
+          help="Where your data goes, disk use, export, and deletion"
+        >
+          <Button variant="outline" size="sm" onClick={() => setDataOpen(true)}>
+            Manage…
+          </Button>
+        </SettingsRow>
         <VersionRow api={api} open={open} />
       </PreferenceGroup>
       <BrowserSettingsDialog api={api} open={browserOpen} onOpenChange={setBrowserOpen} />
+      <DataDialog api={api} open={dataOpen} onOpenChange={setDataOpen} />
       <RegionDialog
         open={regionOpen}
         current={status?.region}

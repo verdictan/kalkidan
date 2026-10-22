@@ -3,7 +3,7 @@ import type { BrowserProfile } from './browser-profile';
 import { BrowserWindow, WebContentsView, dialog, session, type WebContents } from 'electron';
 import type { BrowserSelection, BrowserBounds } from '../src/types';
 /** The session of the browser previews. It keeps cookies and the cache. */
-const previewPartition = 'persist:kalkidan-preview';
+export const previewPartition = 'persist:kalkidan-preview';
 /** Profile actions that need no open page. */
 const profileActions = new Set(['settings', 'import', 'clear', 'download', 'delete-password']);
 

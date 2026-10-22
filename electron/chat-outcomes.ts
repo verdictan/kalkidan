@@ -159,6 +159,15 @@ export class ChatOutcomes {
     this.writes = task;
     return task;
   }
+  /** Removes all outcomes. */
+  clear() {
+    this.entries = new Map();
+    const task = this.writes
+      .catch(() => {})
+      .then(() => writeJSON(this.file, { version: 1, outcomes: [] }));
+    this.writes = task;
+    return task;
+  }
   /** Keeps the outcome of a run that ended. Does nothing for a draft that did not save. */
   finished(run: FinishedChatRun) {
     const record = outcomeRecord(run);

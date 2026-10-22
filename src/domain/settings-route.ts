@@ -63,6 +63,8 @@ export const settingsAnchors = {
   github: 'settings-github',
   /** The agent rows of the Computers page. */
   agents: 'settings-agents',
+  /** The "Your data" row of Preferences: the data notice, disk use, export, and deletion. */
+  data: 'settings-data',
 } as const;
 
 /** The section of each anchor that is not a computer, runtime, or agent anchor. */
@@ -114,7 +116,7 @@ export function settingsTarget(
 /**
  * The places that hold the settings now:
  * - 'preferences': the Preferences sheet (⌘,). It has the chat rows, the region, GitHub, the
- *   built-in browser and the version.
+ *   built-in browser, your data, and the version.
  * - 'computers': the Computers page. It has this computer, the agents with their programs and
  *   organization setup, and the SSH hosts.
  * - 'account-menu': the account menu in the sidebar footer. It has the theme, the
@@ -129,6 +131,7 @@ const preferenceAnchors = new Set<string>([
   settingsAnchors.region,
   settingsAnchors.github,
   settingsAnchors.about,
+  settingsAnchors.data,
 ]);
 
 /**

@@ -115,6 +115,10 @@ test('settings requests go to Preferences, the Computers page, or the account me
     place: 'preferences',
     anchor: 'settings-github',
   });
+  assert.deepEqual(settingsPlace(undefined, 'settings-data'), {
+    place: 'preferences',
+    anchor: 'settings-data',
+  });
   // The agents section opens the agent rows of the Computers page.
   assert.deepEqual(settingsPlace('agents'), { place: 'computers', anchor: 'settings-agents' });
   assert.deepEqual(settingsPlace('managed-agents'), {

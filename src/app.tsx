@@ -62,6 +62,7 @@ import {
 import { useTracker } from './hooks/use-tracker';
 import { SettingsDialog } from './components/settings-dialog';
 import { Welcome, useWelcomeGate } from './components/welcome';
+import { DataNoticeDialog, useDataNotice } from './components/data-settings';
 import { AccountMenu, SessionBanner, SignInFlow } from './components/account-menu';
 import { BoardSettingsHost } from './components/board-settings-dialog';
 import { NewChatButton, recentRepo } from './components/new-chat-button';
@@ -340,6 +341,8 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
       stop?.();
     };
   }, [api]);
+  // The data notice: once, after the first sign-in and before the first request.
+  const dataNotice = useDataNotice(api, signedIn && !preview);
 
   // The project page that the Projects overview shows: the projects, or "My work".
   const [overviewTab, setOverviewTab] = useState<OverviewTab>('projects');
@@ -2913,7 +2916,8 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
           if (!open) returnFocus();
         }}
       />
-      {onboardingOpen && (
+      <DataNoticeDialog open={dataNotice.show} onDone={() => void dataNotice.acknowledge()} />
+      {onboardingOpen && !dataNotice.show && (
         <Onboarding
           api={api}
           data={data}
