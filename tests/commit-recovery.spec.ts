@@ -1,8 +1,9 @@
+import { type Page } from '@playwright/test';
 import { test, expect } from './helpers/app';
 import { openCodeFolder } from './helpers/navigation';
-test('a failed pull request keeps the successful commit and retries only the pull request', async ({
-  page,
-}) => {
+
+/** A chat with one changed file. The first pull request fails, and the next one opens. */
+async function stubPublish(page: Page) {
   await page.addInitScript(() => {
     let committed = false;
     (window as any).operations = [];
@@ -38,6 +39,7 @@ test('a failed pull request keeps the successful commit and retries only the pul
       workingFiles: async () => (committed ? [] : [{ path: 'file.ts', status: 'modified' }]),
       gitPublishStatus: async () => null,
       gitPublish: async (_id: string, request: any) => {
+        ((window as any).requests ||= []).push(request);
         if (!committed) {
           (window as any).operations.push('commit');
           committed = true;
@@ -78,6 +80,12 @@ test('a failed pull request keeps the successful commit and retries only the pul
       },
     };
   });
+}
+
+test('a failed pull request keeps the successful commit and retries only the pull request', async ({
+  page,
+}) => {
+  await stubPublish(page);
   await page.goto('/');
   await openCodeFolder(page);
   await page.getByRole('button', { name: 'Resume Implement feature', exact: true }).click();
@@ -95,4 +103,28 @@ test('a failed pull request keeps the successful commit and retries only the pul
   await expect(dialog.getByRole('link', { name: 'View pull request #1' })).toBeVisible();
   await expect(dialog.getByRole('alert')).toHaveCount(0);
   expect(await page.evaluate(() => (window as any).operations)).toEqual(['commit', 'pr', 'pr']);
+});
+
+test('a pull request can open as a draft', async ({ page }) => {
+  await stubPublish(page);
+  await page.goto('/');
+  await openCodeFolder(page);
+  await page.getByRole('button', { name: 'Resume Implement feature', exact: true }).click();
+  await page
+    .getByRole('group', { name: 'Changes from this chat' })
+    .getByRole('button', { name: 'Create pull request', exact: true })
+    .click();
+  const dialog = page.getByRole('dialog', { name: 'Create pull request' });
+  await dialog.getByRole('checkbox', { name: 'Draft', exact: true }).check();
+  await dialog.getByRole('button', { name: 'Create draft', exact: true }).click();
+  await expect(dialog.getByRole('alert')).toContainText('GitHub unavailable');
+  await dialog.getByRole('button', { name: 'Create draft', exact: true }).click();
+  await expect(dialog.getByRole('link', { name: 'View pull request #1' })).toBeVisible();
+  const requests = await page.evaluate(() => (window as any).requests);
+  expect(requests.map((request: any) => request.pullRequest?.draft)).toEqual([true, true]);
+  await expect(page.getByText(/created draft pull request #1/).first()).toBeVisible();
+  // The choice stays for the next pull request on this computer.
+  expect(await page.evaluate(() => localStorage.getItem('kalkidan-pull-request-draft'))).toBe(
+    'true',
+  );
 });

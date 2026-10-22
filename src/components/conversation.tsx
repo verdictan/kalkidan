@@ -383,8 +383,18 @@ export function Conversation({
   async function refreshPullRequest(current = pullRequest) {
     if (!current || !repositoryId || !api.pullRequestStatus) return current;
     const status = await api.pullRequestStatus(repositoryId, current.url);
-    const next = { ...current, state: status.state, number: status.number || current.number };
-    if (next.state !== current.state || next.number !== current.number) {
+    const { draft: _draft, ...rest } = current;
+    const next = {
+      ...rest,
+      state: status.state,
+      number: status.number || current.number,
+      ...(status.draft ? { draft: true } : {}),
+    };
+    if (
+      next.state !== current.state ||
+      next.number !== current.number ||
+      !!next.draft !== !!current.draft
+    ) {
       setPullRequest(next);
       void saveOrganization({ pullRequest: next }).catch(() => {
         /* The chip shows the new state. The next read saves it again. */
@@ -1361,8 +1371,14 @@ export function Conversation({
   // The chat menu shows "Mark task done" only when the chat can mark it.
   useEffect(() => {
     if (!visible) return;
-    reportChatMenuState({ canMarkDone: canMarkDone && !taskBusy });
-  }, [visible, canMarkDone, taskBusy]);
+    reportChatMenuState({
+      canMarkDone: canMarkDone && !taskBusy,
+      sessionId: session.id,
+      linkedTask: !!taskId,
+      pullRequest: !!pullRequest?.url,
+      ...(pullRequest?.number ? { pullRequestNumber: pullRequest.number } : {}),
+    });
+  }, [visible, canMarkDone, taskBusy, session.id, taskId, pullRequest?.url, pullRequest?.number]);
   // A merged pull request finishes the linked task.
   const closedOnMerge = useRef('');
   useEffect(() => {

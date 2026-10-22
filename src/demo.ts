@@ -812,6 +812,7 @@ export const demo: API = {
       parentId,
       markdown: '',
       revision: crypto.randomUUID(),
+      updatedAt: Date.now(),
     };
     (demoDocs[group] ||= []).push(doc);
     persistDocs();
@@ -822,7 +823,7 @@ export const demo: API = {
     const index = pages.findIndex((p) => p.id === doc.id);
     if (index < 0 || pages[index].revision !== doc.revision)
       throw new Error('Page changed. Reopen it before saving.');
-    pages[index] = { ...doc, revision: crypto.randomUUID() };
+    pages[index] = { ...doc, revision: crypto.randomUUID(), updatedAt: Date.now() };
     persistDocs();
     return structuredClone(pages[index]);
   },

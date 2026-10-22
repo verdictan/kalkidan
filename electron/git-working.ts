@@ -300,6 +300,7 @@ export interface PullRequestState {
   state: 'open' | 'merged' | 'closed';
   number: number;
   title?: string;
+  draft?: boolean;
 }
 
 /** Reads the state of a pull request with `gh pr view`. `url` must be a pull request link. */
@@ -315,7 +316,7 @@ export async function pullRequestStatus(
   try {
     ({ stdout } = await exec(
       gh.path,
-      [...(gh.args || []), 'pr', 'view', url, '--json', 'state,number,title'],
+      [...(gh.args || []), 'pr', 'view', url, '--json', 'state,number,title,isDraft'],
       { cwd, env: { ...gh.env, GIT_TERMINAL_PROMPT: '0' }, timeout: 30000, maxBuffer: 256 * 1024 },
     ));
   } catch (error: any) {
@@ -335,5 +336,6 @@ export async function pullRequestStatus(
     state: state as PullRequestState['state'],
     number: value.number,
     ...(typeof value.title === 'string' ? { title: value.title.slice(0, 300) } : {}),
+    ...(value.isDraft === true ? { draft: true } : {}),
   };
 }

@@ -124,6 +124,8 @@ test('project Board and Docs pages support live Markdown, subpages and persisten
   await openProjectTab(page, 'Docs');
   await openPage(page, 'Engineering handbook');
   await expect(page.getByRole('heading', { name: 'Getting started' })).toBeVisible();
+  // After a reload, the page shows when it last changed, from the stored page.
+  await expect(page.locator('.doc-meta')).toContainText(/edited/i);
   await page.getByLabel('Page title', { exact: true }).fill('Team handbook');
   await expectSaved(page, 'Team handbook');
   await openPage(page, 'Setup');

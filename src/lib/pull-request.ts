@@ -76,9 +76,10 @@ export function pullRequestActionLabel(pr: SessionPullRequest | undefined) {
   return pr.number ? `View pull request #${pr.number}` : 'View pull request';
 }
 
-/** For example "PR #12 · Open". */
+/** For example "PR #12 · Open", or "PR #12 · Draft". */
 export function pullRequestLabel(pr: SessionPullRequest) {
   const name = pr.number ? `PR #${pr.number}` : 'Pull request';
+  if (pr.state === 'open' && pr.draft) return `${name} · Draft`;
   return pr.state ? `${name} · ${stateLabels[pr.state]}` : name;
 }
 

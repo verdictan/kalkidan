@@ -41,7 +41,9 @@ test('project roots isolate data, preserve legacy revisions, and reject collisio
       (id) => id === 'atlas',
       async () => join(root, 'docs'),
     );
-    assert.deepEqual(await current.list('atlas'), [page]);
+    // The import copies the files, so the change time is the time of the copy.
+    const withoutTime = ({ updatedAt: _time, ...rest }: { updatedAt?: number }) => rest;
+    assert.deepEqual((await current.list('atlas')).map(withoutTime), [withoutTime(page)]);
     assert.equal((await readdir(join(root, 'docs', '.trash'))).length, 1);
     await current.save('atlas', { ...page, markdown: 'New location' });
     assert.equal((await old.list('atlas'))[0].markdown, '');

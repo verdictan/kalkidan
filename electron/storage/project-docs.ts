@@ -69,6 +69,7 @@ export class ProjectDocs {
       ...orderOf(meta.order),
       markdown: text.slice(end + 1),
       revision: hash(text),
+      updatedAt: Math.round(info.mtimeMs),
     };
     // Only cache a stable read; external edits must invalidate the entry.
     if (this.stamp(await lstat(path)) === stamp) {
@@ -182,10 +183,10 @@ export class ProjectDocs {
     task.then(clean, clean);
     return task;
   }
-  private async write(dir: string, doc: ProjectDoc) {
+  private async write(dir: string, doc: ProjectDoc): Promise<ProjectDoc> {
     if (!doc.title.trim() || doc.title.length > 200 || doc.markdown.length > 2000000)
       throw new Error('Enter a title up to 200 characters and content under 2 MB');
-    const { order: requested, ...rest } = doc;
+    const { order: requested, updatedAt: _previous, ...rest } = doc;
     const order = orderOf(requested);
     const text =
       '<!-- kalkidan ' +
@@ -200,7 +201,8 @@ export class ProjectDocs {
     } finally {
       await rm(temp, { force: true });
     }
-    return { ...rest, ...order, title: doc.title.trim(), revision: hash(text) };
+    const updatedAt = Math.round((await lstat(file)).mtimeMs);
+    return { ...rest, ...order, title: doc.title.trim(), revision: hash(text), updatedAt };
   }
   create(group: string, title: string, parentId: string | null) {
     return this.change(group, async () => {

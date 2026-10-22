@@ -275,6 +275,11 @@ test('general conversations can add task context later', async ({ page }) => {
   await expect(page.getByRole('menuitem').first()).toBeVisible();
   await expect(page.getByRole('menuitem', { name: 'Link a task…', exact: true })).toHaveCount(0);
   await page.keyboard.press('Escape');
+  // The chat menu shows the link before the first message saves it.
+  await page.getByRole('button', { name: 'Chat actions', exact: true }).click();
+  await expect(page.getByRole('menuitem', { name: 'Open linked task', exact: true })).toBeVisible();
+  await expect(page.getByRole('menuitem', { name: 'Link task…', exact: true })).toHaveCount(0);
+  await page.keyboard.press('Escape');
 });
 
 test('project opens its board and filters tasks by repository', async ({ page }) => {
@@ -348,4 +353,94 @@ test('project board moves tasks and starts work in the selected repository', asy
   await expect(page.getByLabel('Message agent')).toContainText('Build the project overview');
   // The folder pill of the new chat names the selected code folder.
   await expect(page.getByRole('button', { name: /^Code folder: atlas-web/ })).toBeVisible();
+});
+
+test('a task linked to a new chat stays linked after the first message', async ({ page }) => {
+  await page.addInitScript(() => {
+    const repo = {
+      id: 'r',
+      name: 'Repo',
+      path: '/tmp/repo',
+      notes: '',
+      favorite: false,
+      addedAt: '',
+    };
+    const sessions: any[] = [];
+    const task = {
+      id: 'task-1',
+      title: 'Build the overview',
+      status: 'Todo',
+      url: 'https://github.com/o/r/issues/1',
+      number: 1,
+      repository: 'o/r',
+      kind: 'Issue',
+    };
+    let run: any;
+    (window as any).saved = [];
+    (window as any).workspace = {
+      snapshot: async () => ({
+        projects: [repo],
+        groups: [
+          {
+            id: 'g',
+            name: 'Atlas',
+            repoIds: ['r'],
+            github: { id: 'p', title: 'Roadmap', url: 'https://github.com/orgs/o/projects/1' },
+          },
+        ],
+        sessions: structuredClone(sessions),
+        warnings: [],
+        platform: 'darwin',
+      }),
+      git: async () => null,
+      transcript: async () => ({ messages: [], truncated: false }),
+      trackerBoard: async () => ({ items: [task], fields: [] }),
+      chatCreate: async () =>
+        (run = {
+          id: 'run',
+          agent: 'codex',
+          sessionId: 'new-s',
+          sessionReady: true,
+          status: 'completed',
+          messages: [{ id: 'm', role: 'assistant', text: 'Done' }],
+          approvals: [],
+          tools: [],
+        }),
+      chatStart: async () => run,
+      chatStatus: async () => run,
+      updateSession: async (agent: string, id: string, changes: any) => {
+        (window as any).saved.push({ id, ...changes });
+        let session = sessions.find((s) => s.agent === agent && s.id === id);
+        if (!session) {
+          session = {
+            id,
+            agent,
+            title: 'Fix it',
+            cwd: '/tmp/repo',
+            updatedAt: new Date().toISOString(),
+          };
+          sessions.push(session);
+        }
+        session.organization = { ...session.organization, ...changes };
+      },
+    };
+  });
+  await page.goto('/');
+  await openCodeFolder(page);
+  await newChat(page);
+  await page.getByLabel('Message agent').fill('Fix it');
+  await page.getByRole('button', { name: 'Add context', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Link a task…', exact: true }).click();
+  await page.getByRole('combobox', { name: 'Chat task' }).click();
+  await page.getByRole('option', { name: 'Build the overview', exact: true }).click();
+  await page.getByRole('button', { name: 'Save task link', exact: true }).click();
+  await page.getByRole('button', { name: 'Send', exact: true }).click();
+  await expect(page.getByText('Done', { exact: true })).toBeVisible();
+  // The first message saves the link on the new chat.
+  await expect
+    .poll(() => page.evaluate(() => (window as any).saved))
+    .toContainEqual(expect.objectContaining({ id: 'new-s', taskId: 'task-1' }));
+  await page.getByRole('button', { name: 'Chat actions', exact: true }).click();
+  await expect(page.getByRole('menuitem', { name: 'Open linked task', exact: true })).toBeVisible();
+  await expect(page.getByRole('menuitem', { name: 'Link task…', exact: true })).toHaveCount(0);
 });

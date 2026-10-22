@@ -24,6 +24,15 @@ test('pull request number and label', () => {
   assert.equal(pullRequestNumber('https://github.com/a/b/pull/42'), 42);
   assert.equal(pullRequestNumber('https://github.com/a/b'), undefined);
   assert.equal(pullRequestLabel({ url: 'u', number: 12, state: 'open' }), 'PR #12 · Open');
+  assert.equal(
+    pullRequestLabel({ url: 'u', number: 12, state: 'open', draft: true }),
+    'PR #12 · Draft',
+  );
+  // A merged pull request is not a draft, even when an old value says so.
+  assert.equal(
+    pullRequestLabel({ url: 'u', number: 12, state: 'merged', draft: true }),
+    'PR #12 · Merged',
+  );
 });
 
 test('desktop codes become plain words with a Settings action', () => {

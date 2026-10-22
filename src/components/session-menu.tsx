@@ -64,12 +64,21 @@ export function sendSessionCommand(command: string) {
 
 /**
  * The event that the open chat view sends with what only it knows, for example that its linked
- * task can be marked done. detail: { canMarkDone: boolean }.
+ * task can be marked done. The chat also sends its task link and pull request: a new chat saves
+ * them with its first message, so the saved chat can show them later than the chat view.
  */
 export const chatMenuStateEvent = 'kalkidan-chat-menu-state';
-let lastChatMenuState = { canMarkDone: false };
+export interface ChatViewMenuState {
+  canMarkDone: boolean;
+  /** The chat that sends the state. The menu of another chat ignores the task and the PR. */
+  sessionId?: string;
+  linkedTask?: boolean;
+  pullRequestNumber?: number;
+  pullRequest?: boolean;
+}
+let lastChatMenuState: ChatViewMenuState = { canMarkDone: false };
 /** The visible chat view calls it. The menu reads the last value when it mounts. */
-export function reportChatMenuState(state: { canMarkDone: boolean }) {
+export function reportChatMenuState(state: ChatViewMenuState) {
   lastChatMenuState = state;
   window.dispatchEvent(new CustomEvent(chatMenuStateEvent, { detail: state }));
 }
@@ -131,11 +140,12 @@ export function SessionMenu({
   // True when Git reports no changes and no commits for a pull request.
   const [noBranchWork, setNoBranchWork] = useState<boolean>();
   // The chat view tells whether its linked task can be marked done now.
-  const [canMarkDone, setCanMarkDone] = useState(lastChatMenuState.canMarkDone);
+  const [view, setView] = useState(lastChatMenuState);
+  const canMarkDone = view.canMarkDone;
   useEffect(() => {
-    setCanMarkDone(lastChatMenuState.canMarkDone);
+    setView(lastChatMenuState);
     const read = (event: Event) =>
-      setCanMarkDone(!!(event as CustomEvent<{ canMarkDone?: boolean }>).detail?.canMarkDone);
+      setView((event as CustomEvent<ChatViewMenuState>).detail || { canMarkDone: false });
     window.addEventListener(chatMenuStateEvent, read);
     return () => window.removeEventListener(chatMenuStateEvent, read);
   }, [session.id]);
@@ -187,6 +197,13 @@ export function SessionMenu({
     noChanges,
     noBranchWork,
     canMarkDone,
+    ...(view.sessionId === session.id
+      ? {
+          linkedTask: !!view.linkedTask,
+          pullRequest: !!view.pullRequest,
+          ...(view.pullRequestNumber ? { pullRequestNumber: view.pullRequestNumber } : {}),
+        }
+      : {}),
   });
   const groups = chatActionMenu('header', state, platform);
   const action = (kind: Parameters<API['sessionAction']>[1]) =>
@@ -428,6 +445,22 @@ export function CommitDialog({
   const operationId = useRef<string | null>(null);
   // On the default branch, "Create pull request" makes this branch first.
   const [branchName, setBranchName] = useState('');
+  // The last draft choice stays on this computer.
+  const [draft, setDraft] = useState(() => {
+    try {
+      return localStorage.getItem('kalkidan-pull-request-draft') === 'true';
+    } catch {
+      return false;
+    }
+  });
+  function chooseDraft(next: boolean) {
+    setDraft(next);
+    try {
+      localStorage.setItem('kalkidan-pull-request-draft', String(next));
+    } catch {
+      // The choice applies to this dialog only.
+    }
+  }
   // A draft task cannot be closed by a pull request. It can change to an issue first.
   const draftTask = !!task && !closesTask(task) && task.kind === 'DraftIssue';
   const [repositories, setRepositories] = useState<string[] | null>(null);
@@ -565,6 +598,7 @@ export function CommitDialog({
               pullRequest: {
                 title: message.trim().split('\n')[0],
                 body: description ?? pullRequestBody,
+                ...(draft ? { draft: true } : {}),
               },
             }
           : {}),
@@ -575,9 +609,15 @@ export function CommitDialog({
       setResult(next);
       onCommitted?.();
       const number = next.url ? pullRequestNumber(next.url) : undefined;
-      if (pullRequest && next.url) onPullRequest?.({ url: next.url, number, state: 'open' });
-      const opened =
-        pullRequest && next.url ? (number ? `pull request #${number}` : 'a pull request') : '';
+      if (pullRequest && next.url)
+        onPullRequest?.({
+          url: next.url,
+          number,
+          state: 'open',
+          ...(draft ? { draft: true } : {}),
+        });
+      const kind = draft ? 'draft pull request' : 'pull request';
+      const opened = pullRequest && next.url ? (number ? `${kind} #${number}` : `a ${kind}`) : '';
       if (next.commit || opened)
         showToast({
           message: next.commit
@@ -843,6 +883,16 @@ export function CommitDialog({
             </Button>
           ) : (
             <>
+              {pullRequestIntent && (
+                <label className="mr-auto flex items-center gap-2 text-sm">
+                  <Checkbox
+                    checked={draft}
+                    disabled={busy || !!result?.url}
+                    onChange={(e) => chooseDraft(e.target.checked)}
+                  />
+                  Draft
+                </label>
+              )}
               <Button variant="outline" disabled={busy} onClick={() => onOpenChange(false)}>
                 Cancel
               </Button>
@@ -861,7 +911,7 @@ export function CommitDialog({
                   onClick={() => void createPullRequest()}
                 >
                   <GitPullRequest aria-hidden="true" />
-                  Create pull request
+                  {draft ? 'Create draft' : 'Create pull request'}
                 </Button>
               ) : (
                 <Button
