@@ -1,5 +1,5 @@
 /** The sections of the Settings dialog, in order. */
-export type SettingsSection = 'general' | 'account' | 'agents' | 'computers' | 'about';
+export type SettingsSection = 'general' | 'account' | 'agents' | 'computers' | 'data' | 'about';
 
 /**
  * A section name that other parts of the app can send. It includes the names of the older
@@ -12,6 +12,7 @@ export const settingsSections: { value: SettingsSection; label: string }[] = [
   { value: 'account', label: 'Account' },
   { value: 'agents', label: 'Agents' },
   { value: 'computers', label: 'Computers' },
+  { value: 'data', label: 'Data' },
   { value: 'about', label: 'About' },
 ];
 
@@ -55,6 +56,8 @@ export const settingsAnchors = {
   managedSetup: 'managed-agent-setup',
   notifications: 'settings-notifications',
   services: 'settings-connected-services',
+  dataNotice: 'settings-data-notice',
+  localData: 'settings-local-data',
 } as const;
 
 /** The section of each anchor that is not a computer, runtime, or agent anchor. */
@@ -66,6 +69,8 @@ const anchorSections: Record<string, SettingsSection> = {
   [settingsAnchors.defaultAgent]: 'general',
   [settingsAnchors.notifications]: 'general',
   [settingsAnchors.about]: 'about',
+  [settingsAnchors.dataNotice]: 'data',
+  [settingsAnchors.localData]: 'data',
 };
 
 /** The older section and tab names, and the section that now holds each one. */

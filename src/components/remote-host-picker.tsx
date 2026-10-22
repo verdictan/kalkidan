@@ -144,12 +144,12 @@ export function useHostSetup(
     if (host && host.status !== 'connected')
       await act('Connecting…', () => api.remoteConnect(start.id), 'connect');
   }
-  async function remove(host: RemoteHost) {
+  async function remove(host: RemoteHost, options?: { deleteHostData?: boolean }) {
     setBusy('Removing host…');
     onBusy?.(true);
     setRemoveError('');
     try {
-      await api.remoteRemove(host.id);
+      await api.remoteRemove(host.id, options);
       onRemoved(host.id);
       return true;
     } catch (e) {

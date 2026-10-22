@@ -61,7 +61,7 @@ import type { MenuCommand, Session } from '../src/types';
 import { PtyTerminal } from './pty-terminal';
 import { RemoteHosts } from './remote-hosts';
 import { CommandTerminal, repositoryDiff } from './conversation-tools';
-import { AnnotationBrowser } from './annotation-browser';
+import { AnnotationBrowser, previewPartition } from './annotation-browser';
 import {
   app,
   BrowserWindow,
@@ -73,7 +73,10 @@ import {
   nativeTheme,
   powerMonitor,
   Notification,
+  session,
 } from 'electron';
+import { LocalData } from './storage/local-data';
+import { localDataCheckIntervalMs } from '../src/domain/data-policy';
 import { existsSync } from 'node:fs';
 import { readFile, writeFile, stat, realpath, rm } from 'node:fs/promises';
 import { join, basename } from 'node:path';
@@ -541,6 +544,8 @@ app.whenReady().then(async () => {
   );
   handle('first-run-state', () => preferences.firstRun());
   handle('set-welcome-done', () => preferences.setWelcomeDone());
+  handle('data-notice-state', () => preferences.dataNotice());
+  handle('set-data-notice-seen', () => preferences.setDataNoticeSeen());
   handle('notification-preferences', () => preferences.notifications());
   handle('set-notification-preferences', (value: unknown) => preferences.setNotifications(value));
   handle('verdictan-logout', async () => {
@@ -715,6 +720,56 @@ app.whenReady().then(async () => {
     join(app.getPath('userData'), 'sessions.json'),
     chatOutcomes,
   );
+  // The disk limit, export, and deletion of the data folder. Chromium owns its cache files
+  // while the app runs, so the caches clear through the Electron sessions.
+  const localData = new LocalData({
+    root: dataRoot,
+    clearBrowserCaches: async () => {
+      for (const target of [session.defaultSession, session.fromPartition(previewPartition)]) {
+        await target.clearCache();
+        await target.clearCodeCaches({});
+      }
+    },
+  });
+  const checkLimit = () =>
+    void localData.enforceLimit().catch((error) => console.warn('Disk limit not applied', error));
+  setTimeout(checkLimit, 60_000).unref();
+  setInterval(checkLimit, localDataCheckIntervalMs).unref();
+  handle('local-data-usage', () => localData.usage());
+  handle('local-data-enforce-limit', () => localData.enforceLimit());
+  handle('local-data-export', async () => {
+    const parent = BrowserWindow.getFocusedWindow() || undefined;
+    const options = {
+      title: 'Export Kalkidan data',
+      buttonLabel: 'Export',
+      properties: ['openDirectory', 'createDirectory'] as ('openDirectory' | 'createDirectory')[],
+    };
+    const result = parent
+      ? await dialog.showOpenDialog(parent, options)
+      : await dialog.showOpenDialog(options);
+    if (result.canceled || !result.filePaths[0]) return null;
+    const exported = await localData.export(result.filePaths[0]);
+    shell.showItemInFolder(exported.path);
+    return exported;
+  });
+  handle('local-data-delete', async (kind: unknown) => {
+    if (kind !== 'chat-history' && kind !== 'caches-and-logs')
+      throw new Error('Invalid data deletion request.');
+    if (kind === 'chat-history') {
+      if (
+        chatRunner.runningCount() > 0 ||
+        remote.list().some((host) => host.status === 'connected')
+      )
+        throw new Error('Stop the running agents and disconnect the SSH hosts first.');
+      await verdictan!.managed.stopAll();
+      await Promise.all([
+        sessionLibrary.clear(),
+        chatOutcomes.clear(),
+        verdictan!.bindings.clearConversations(),
+      ]);
+    }
+    return localData.delete(kind);
+  });
   await chatOutcomes.load().catch((error) => console.warn('Chat outcomes not loaded', error));
   try {
     await sessionLibrary.load();
@@ -859,10 +914,29 @@ app.whenReady().then(async () => {
   handle('remote-install', (id) => remote.install(id));
   handle('remote-connect', (id) => remote.connect(id));
   handle('remote-disconnect', (id) => remote.disconnect(id));
-  handle('remote-remove', async (id) => {
+  handle('remote-remove', async (id, options?: { deleteHostData?: unknown }) => {
     if (projectGroups.groups.some((g) => g.hostId === id) || projects.some((p) => p.hostId === id))
       throw new Error('Move or remove the projects on this host first.');
+    // Delete the Kalkidan data on the host first. It needs the connection.
+    if (options?.deleteHostData === true) {
+      if (remote.list().find((item) => item.id === id)?.status !== 'connected')
+        throw new Error('Connect the host to delete its Kalkidan data, or remove it without.');
+      await remote.call(id, 'kalkidan-data-remove', []).catch((error: Error) => {
+        // An older helper does not have the operation. Nothing on the host changed.
+        if (/unknown|unsupported/i.test(error?.message || ''))
+          throw new Error('Update the helper on this host first, or remove it without its data.');
+        throw error;
+      });
+    }
+    // Revoke the host identity in Verdictan, so that its credentials stop working. A host
+    // that never ran managed work has no identity.
+    const identity = await verdictan?.bindings.knownIdentities(id);
+    if (identity && verdictan?.account.status()?.phase === 'authenticated')
+      await verdictan.managed
+        .revokeHost(identity.installationId, identity.hostId)
+        .catch((error) => console.warn('Host revocation failed', error));
     await remote.remove(id);
+    if (identity) await verdictan?.bindings.forgetHost(id);
   });
   handle('directory-list', (path, hostId) =>
     hostId ? remote.call(hostId, 'directory-list', [path]) : listDirectory(path),

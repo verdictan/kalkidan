@@ -364,7 +364,7 @@ The browser preview stores documents in local browser storage.
 
 ## Local data and privacy
 
-Kalkidan has no hosted backend. It stores project and session metadata on your computer.
+Kalkidan sends model requests through Verdictan, the gateway control plane, in the region that you select. Verdictan does not keep your projects. Before the first request, Kalkidan shows what stays on the execution host, what goes to the model provider, and what Verdictan keeps in your region. Settings › Data shows it again. For the full retention, export, deletion, and revocation policy, see [Data, retention, and user control](data-and-retention.md).
 
 Agent operations use installed CLIs on the selected machine. GitHub Project operations use GitHub CLI on your computer. These tools connect to their services with your existing accounts.
 
@@ -380,6 +380,8 @@ App metadata and Electron browser storage use `~/.kalkidan/`.
 | `projects.json`       | Registered repository folders and metadata                         |
 | `project-groups.json` | Project groups and GitHub Project connections                      |
 | `sessions.json`       | Titles, pins, collections, notes, archives, and task connections   |
+
+These are some of the files. The [data policy](data-and-retention.md#local-stores-on-this-computer-kalkidan) lists all stores. The data folder can use up to 2 GB. Settings › Data shows the disk use, and lets you export your data and delete chat history, caches, and logs.
 
 On first launch, Kalkidan checks the operating system's application-data folder for an existing `kalkidan`, `common-ground`, or `Common Ground` directory. It moves that directory to `~/.kalkidan` if the destination does not exist. It never overwrites an existing destination.
 
