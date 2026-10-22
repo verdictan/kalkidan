@@ -201,8 +201,10 @@ export interface VerdictanSetup {
   /**
    * Why the one-time bootstrap did not run. `team_required`: the administrator has no team
    * that can hold the Kalkidan agent. `failed`: another failure; Refresh tries again.
+   * `runtime_too_old`: the runtime has neither `setup.bootstrap` nor a usable
+   * `setup.ensure_default`, so it cannot run the setup. See `supportWindow.runtime.setupMinimum`.
    */
-  bootstrapIssue?: 'team_required' | 'failed';
+  bootstrapIssue?: 'team_required' | 'failed' | 'runtime_too_old';
   /**
    * Agents that the user can attach a host to. Missing when the runtime does not send the
    * list (older runtimes); then the team and policy choice applies.

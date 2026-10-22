@@ -27,6 +27,7 @@ import {
   type VerdictanSetup,
   type VerdictanSelection,
 } from '../domain/verdictan';
+import { runtimeSetupNotice } from '../domain/compatibility';
 import { useRefreshTriggers } from '../hooks/use-refresh-triggers';
 import { Alert, AlertDescription } from './ui/alert';
 import { Button } from './ui/button';
@@ -128,7 +129,9 @@ function setupNotice(
       text:
         setup.bootstrapIssue === 'team_required'
           ? 'Kalkidan could not finish its setup. You need a team that can make and deploy agents. Ask an organization administrator to add you to one.'
-          : 'Kalkidan could not finish its setup now. Kalkidan tries again when you open this window again.',
+          : setup.bootstrapIssue === 'runtime_too_old'
+            ? runtimeSetupNotice
+            : 'Kalkidan could not finish its setup now. Kalkidan tries again when you open this window again.',
     };
   if (recovery)
     return {

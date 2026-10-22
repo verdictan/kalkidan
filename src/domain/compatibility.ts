@@ -13,10 +13,13 @@ export const supportWindow = {
     supported: ['0.6.8', '0.6.9', '0.6.10'] as readonly string[],
     minimum: '0.6.8',
     newestVerified: '0.6.10',
+    /** The oldest runtime that can run the one-time Kalkidan setup (`setup.bootstrap`). */
+    setupMinimum: '0.6.6',
     noticeDays: 90,
     deprecations: [
       {
-        minimum: '0.6.6',
+        // Each version older than the window, also versions before 0.6.6.
+        minimum: '0.0.0',
         maximum: '0.6.7',
         replacement: '0.6.8',
         deprecated: '2026-10-22',
@@ -93,3 +96,6 @@ export function protocolSupported(min: number, max: number) {
   const current = supportWindow.protocol.current;
   return min <= current && current <= max;
 }
+
+/** The Settings text when the runtime is too old to run the Kalkidan setup. */
+export const runtimeSetupNotice = `This Verdictan runtime cannot finish the Kalkidan setup. The setup needs runtime ${supportWindow.runtime.setupMinimum} or later. Update the runtime in Settings › Computers, then open this window again.`;

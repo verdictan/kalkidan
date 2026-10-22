@@ -43,26 +43,29 @@ A release newer than `0.6.10` is supported. The window moves when Verdictan publ
 
 ## Deprecation schedule
 
-| Component         | Versions           | Deprecated  | End of support | Replacement      |
-| ----------------- | ------------------ | ----------- | -------------- | ---------------- |
-| Verdictan runtime | `0.6.6` to `0.6.7` | 2026-10-22  | 2027-01-20     | `0.6.8` or later |
-| Desktop protocol  | `1`                | Not planned | Not planned    | —                |
+| Component         | Versions                    | Deprecated  | End of support | Replacement      |
+| ----------------- | --------------------------- | ----------- | -------------- | ---------------- |
+| Verdictan runtime | Each version before `0.6.8` | 2026-10-22  | 2027-01-20     | `0.6.8` or later |
+| Desktop protocol  | `1`                         | Not planned | Not planned    | —                |
 
-Until 2027-01-20, Kalkidan runs `0.6.6` and `0.6.7` and shows a warning. On that date, it refuses them.
+Until 2027-01-20, Kalkidan runs each version before `0.6.8` and shows a warning. On that date, it refuses them.
 
-Versions older than `0.6.6` are not in the schedule. They do not have `setup.bootstrap`, so the
-current Kalkidan setup does not complete with them. Kalkidan refuses them now.
+Versions older than `0.6.6` have no `setup.bootstrap`, so they cannot run the one-time Kalkidan
+setup. Kalkidan does not refuse them before 2027-01-20. When the setup cannot finish, Settings ›
+Agents shows: "This Verdictan runtime cannot finish the Kalkidan setup. The setup needs runtime
+0.6.6 or later. Update the runtime in Settings › Computers, then open this window again."
+An organization that finished the setup earlier can still run agents with these versions.
 
 ## Enforcement
 
-| Check                                                     | Where                                                                              | Result                                                                           |
-| --------------------------------------------------------- | ---------------------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
-| Runtime older than the window and not deprecated          | `assertRuntimeSupported` in `electron/verdictan/account.ts`, at each account check | `desktop.runtime_version_unsupported`. Managed agents stop.                      |
-| Deprecated runtime after its end-of-support date          | The same check                                                                     | `desktop.runtime_version_unsupported`                                            |
-| The same checks before activation of a downloaded runtime | Install probe in `electron/verdictan/service.ts`                                   | Kalkidan does not activate the release.                                          |
-| Protocol range without version 1                          | `parseCapabilities`                                                                | `desktop.protocol_unsupported`                                                   |
-| Agent below its minimum                                   | `src/domain/agent-version.ts`, at each launch                                      | `desktop.codex_version_unsupported` or `desktop.claude_code_version_unsupported` |
-| Kalkidan below the minimum desktop version                | Verdictan API and release manifest                                                 | Verdictan refuses the session.                                                   |
+| Check                                                                | Where                                                                              | Result                                                                                          |
+| -------------------------------------------------------------------- | ---------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| Runtime older than the window after its end of support               | `assertRuntimeSupported` in `electron/verdictan/account.ts`, at each account check | `desktop.runtime_version_unsupported`. Managed agents stop.                                     |
+| Runtime without `setup.bootstrap` or a usable `setup.ensure_default` | `electron/verdictan/setup.ts`                                                      | Settings › Agents says that the setup needs runtime 0.6.6 or later. The runtime is not refused. |
+| The same checks before activation of a downloaded runtime            | Install probe in `electron/verdictan/service.ts`                                   | Kalkidan does not activate the release.                                                         |
+| Protocol range without version 1                                     | `parseCapabilities`                                                                | `desktop.protocol_unsupported`                                                                  |
+| Agent below its minimum                                              | `src/domain/agent-version.ts`, at each launch                                      | `desktop.codex_version_unsupported` or `desktop.claude_code_version_unsupported`                |
+| Kalkidan below the minimum desktop version                           | Verdictan API and release manifest                                                 | Verdictan refuses the session.                                                                  |
 
 The message for an unsupported runtime is:
 "Kalkidan does not support this Verdictan runtime version. Update the runtime to 0.6.8 or later in Settings › Computers."

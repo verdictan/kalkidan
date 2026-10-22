@@ -1,6 +1,51 @@
 [
   {
     "schema_version": 1,
+    "correlation_id": "runtime-0-6-5",
+    "sequence": 1,
+    "event": "capabilities",
+    "data": {
+      "cli_version": "0.6.5",
+      "protocol_min": 1,
+      "protocol_max": 1,
+      "capabilities": [
+        "authorization.browser.pkce",
+        "authorization.secure_storage",
+        "authorization.cancel",
+        "account.inspect",
+        "inventory.inspect",
+        "session.renew",
+        "session.logout",
+        "diagnostics.preview",
+        "diagnostics.export",
+        "runtime.renew",
+        "runtime.provision",
+        "runtime.export.protected_pipe",
+        "runtime.revoke",
+        "provider_access.codex_subscription",
+        "provider_access.claude_subscription",
+        "review.inspect",
+        "setup.inspect",
+        "setup.ensure_default",
+        "hosts.inspect",
+        "host.revoke",
+        "resources.provision"
+      ],
+      "managed_execution_ready": false,
+      "tested_agents": [
+        {
+          "kind": "codex",
+          "version": "0.163.0-alpha.10.2"
+        },
+        {
+          "kind": "claude_code",
+          "version": "2.1.304"
+        }
+      ]
+    }
+  },
+  {
+    "schema_version": 1,
     "correlation_id": "runtime-0-6-6",
     "sequence": 1,
     "event": "capabilities",

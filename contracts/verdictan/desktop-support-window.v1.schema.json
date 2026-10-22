@@ -232,6 +232,9 @@
             ],
             "additionalProperties": false
           }
+        },
+        "setup_minimum": {
+          "$ref": "#/$defs/version"
         }
       },
       "required": [
@@ -241,7 +244,8 @@
         "deprecation_notice_days",
         "capabilities_fixture",
         "versions",
-        "deprecations"
+        "deprecations",
+        "setup_minimum"
       ],
       "additionalProperties": false
     },

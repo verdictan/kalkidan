@@ -63,6 +63,7 @@ test('the support window agrees with its schema and with the Kalkidan rules', ()
     [...supportWindow.runtime.supported],
   );
   assert.equal(window.runtime.deprecation_notice_days, supportWindow.runtime.noticeDays);
+  assert.equal(window.runtime.setup_minimum, supportWindow.runtime.setupMinimum);
   assert.equal(window.runtime.newest_verified, supportWindow.runtime.newestVerified);
   assert.deepEqual(
     window.runtime.deprecations.map((entry: any) => ({
@@ -126,11 +127,12 @@ for (const protocol of window.protocol.supported as number[]) {
   });
 }
 
-test('a runtime below the minimum is refused with plain words', () => {
+test('a runtime older than the window is refused with plain words after its notice', () => {
   const [fixture] = read('fixtures/auth-desktop.events.json');
   const capabilities = parseCapabilities({ ...fixture.data, cli_version: '0.6.5' });
+  assertRuntimeSupported(capabilities, Date.parse('2026-10-22T00:00:00Z'));
   assert.throws(
-    () => assertRuntimeSupported(capabilities, Date.parse('2026-10-22T00:00:00Z')),
+    () => assertRuntimeSupported(capabilities, Date.parse('2027-01-20T00:00:00Z')),
     (error: unknown) =>
       error instanceof DesktopProtocolError &&
       error.code === 'desktop.runtime_version_unsupported' &&
@@ -160,7 +162,7 @@ test('a protocol range without version 1 has its own code', () => {
 });
 
 test('a deprecated runtime gets a warning until its end-of-support date', () => {
-  for (const version of ['0.6.6', '0.6.7']) {
+  for (const version of ['0.1.0', '0.6.5', '0.6.6', '0.6.7']) {
     const during = runtimeCompatibility(version, Date.parse('2027-01-19T23:59:00Z'));
     assert.equal(during.status, 'deprecated', version);
     assert.equal(during.endOfSupport, '2027-01-20');
@@ -169,8 +171,10 @@ test('a deprecated runtime gets a warning until its end-of-support date', () => 
     assert.equal(after.status, 'unsupported', version);
     assert.match(after.message, /stopped on 2027-01-20/);
   }
-  assert.equal(runtimeCompatibility('0.6.5').status, 'unsupported');
-  assert.match(runtimeCompatibility('0.6.5').message, /oldest version that Kalkidan supports/);
+  assert.equal(
+    runtimeCompatibility('0.6.5', Date.parse('2027-02-01T00:00:00Z')).status,
+    'unsupported',
+  );
   assert.equal(runtimeCompatibility('not a version').status, 'unknown');
   assert.equal(runtimeCompatibility('0.7.0-rc.1').status, 'supported');
 });
@@ -216,17 +220,27 @@ for (const entry of window.runtime.versions)
     assertRuntimeSupported(capabilities);
   });
 
-test('the deprecated releases still parse, and their status is deprecated', () => {
-  const events = read(window.runtime.capabilities_fixture);
-  for (const entry of supportWindow.runtime.deprecations)
-    for (const version of [entry.minimum, entry.maximum]) {
-      const event = events.find((value: any) => value.data.cli_version === version);
-      const capabilities = parseCapabilities(event.data);
-      assert.equal(
-        runtimeCompatibility(capabilities.cliVersion, Date.parse('2026-10-22T00:00:00Z')).status,
-        'deprecated',
-      );
-    }
+test('each recorded release before the window still runs, with a warning, until 2027-01-20', () => {
+  const older = read(window.runtime.capabilities_fixture).filter(
+    (event: any) =>
+      (compareVersionCores(event.data.cli_version, supportWindow.runtime.minimum) ?? 0) < 0,
+  );
+  assert.deepEqual(
+    older.map((event: any) => event.data.cli_version),
+    ['0.6.5', '0.6.6', '0.6.7'],
+  );
+  for (const event of older) {
+    const capabilities = parseCapabilities(event.data);
+    const during = Date.parse('2027-01-19T12:00:00Z');
+    assert.equal(runtimeCompatibility(capabilities.cliVersion, during).status, 'deprecated');
+    assertRuntimeSupported(capabilities, during);
+    assert.throws(() => assertRuntimeSupported(capabilities, Date.parse('2027-01-20T00:00:00Z')));
+    // Only releases from the setup minimum on can run the one-time Kalkidan setup.
+    assert.equal(
+      capabilities.capabilities.includes('setup.bootstrap'),
+      (compareVersionCores(capabilities.cliVersion, supportWindow.runtime.setupMinimum) ?? -1) >= 0,
+    );
+  }
 });
 
 /** The JSON lines that DesktopProtocol writes for each request. Nothing answers them. */

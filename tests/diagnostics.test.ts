@@ -110,12 +110,15 @@ function report(overrides: Partial<DiagnosticsReport> = {}): DiagnosticsReport {
       capabilities: [],
     },
     runtimes: [
-      runtimeSupport({
-        hostId: 'local',
-        name: 'This computer',
-        connected: true,
-        installed: '0.6.5',
-      }),
+      runtimeSupport(
+        {
+          hostId: 'local',
+          name: 'This computer',
+          connected: true,
+          installed: '0.6.5',
+        },
+        Date.parse('2027-02-01T00:00:00Z'),
+      ),
       runtimeSupport({
         hostId: 'h1',
         name: 'devbox',

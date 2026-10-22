@@ -1,7 +1,7 @@
 {
   "repository": "verdictan/work",
   "path": "cli/docs/contracts",
-  "commit": "fa25fd25c4c46bae23668cf23a2c215e3aa322f5",
+  "commit": "5330d1b4abd78d0f9ff7054ddfa3b2ffe01ff7b9",
   "files": {
     "auth-desktop.event.v1.schema.json": "643c54aeb2924bb3d587c9ca497e86857cc9f7c5bba2e69529956a09ec1228c6",
     "auth-desktop.protected-credentials.v1.schema.json": "700c145bc42a97c1afab22de6d5c48fe5d59f8eac4e5fbf8a5dd2bcd0cce8157",
@@ -16,8 +16,8 @@
     "desktop-resume-result.v1.schema.json": "51120dc551ea44b33517af90350bfddc6371dc52e3fd230c1e51711b057b724d",
     "desktop-snapshot.v1.schema.json": "b4a16f028229a275e82a818113e74e1a82aaa57e82beb684023d0f91b7867821",
     "desktop-support-bundle.v1.schema.json": "febbb0367b385c5d72deec5a48b9ef12095f4216404a91d30039cfcfb608cf4b",
-    "desktop-support-window.v1.json": "a1cdf0bcdbedb0e51a0f301926676a8a6b9cc184686b68b7bd2f095f1cc9bb40",
-    "desktop-support-window.v1.schema.json": "86a23900d22430472b0ec772d5db02c5dadf2d8aa628ede6dda313cd4af8ee61",
+    "desktop-support-window.v1.json": "830aeddc0441b11d51962dd1fa57f3db8da627df563923f1518da02dc6e94643",
+    "desktop-support-window.v1.schema.json": "418526728cef7f4b0b2cff7fde2ce4f5fc211e8a83d42972c12559e4bbff68ca",
     "desktop-update-operation.v1.schema.json": "8d823b2155ab06fd6d5f2230367ec061dcba54965f65dfef79731d2742b94a13",
     "fixtures/auth-desktop.events.json": "a948544f018e2320f777e3a7aa96dd4373aef2885e4e103946100e4d953892a6",
     "fixtures/auth-desktop.requests.json": "433a10abd264f13f735ce16284f5d6d3079e33189fcec001bf1bd22a37915be2",
@@ -37,7 +37,7 @@
     "fixtures/gateway-supervise.events.json": "a5cb79f03c95e421f94712fa3ab4f6543e5def23c3ed606d25792ec2888fec06",
     "fixtures/gateway-supervise.requests.json": "b476973a5d63325b345e3bc99c7c2b0be1d20e52dbc3c93e8d224311427df012",
     "fixtures/project-services.requests.json": "bbf241239fe90a3b18af195721c7a27ac00e303f95f246975a575764e988386a",
-    "fixtures/runtime-capabilities.json": "90a57dacf179cc7528051f61d1d8bbafa0795950afe3ee3b321aac0eafaaf36c",
+    "fixtures/runtime-capabilities.json": "ad430543affa2815257fc25bff26e0718748b4ed347c8399e5d5dbd8b224c152",
     "gateway-supervise.event.v1.schema.json": "564631a793d04fe90854038ffd478a94f1ff6e6b520a58f547ee1ef44572efb0",
     "gateway-supervise.request.v1.schema.json": "843fe2396ab3e238cc38ab661a44b38d1097ea007361f8c677f603bff46ad5ad"
   }
