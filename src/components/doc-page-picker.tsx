@@ -117,7 +117,9 @@ export function DocPagePicker({
       <DialogContent size="md" layout="scroll" onCloseAutoFocus={onCloseAutoFocus}>
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
-          <DialogDescription>Search the doc pages of this project.</DialogDescription>
+          <DialogDescription className="sr-only">
+            Search the doc pages of this project.
+          </DialogDescription>
           <SearchInput
             className="mt-3"
             aria-label="Search doc pages"
@@ -170,7 +172,7 @@ export function DocPagePicker({
             </div>
           ) : (
             <EmptyState compact>
-              {pages.length ? 'No pages match your search.' : 'This project has no doc pages yet.'}
+              {pages.length ? 'No pages match your search.' : 'No pages yet.'}
             </EmptyState>
           )}
         </DialogBody>

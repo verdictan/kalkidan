@@ -7,7 +7,6 @@ import {
   Code,
   Copy,
   CopyPlus,
-  Ellipsis,
   ExternalLink,
   FileCode,
   FileDown,
@@ -27,6 +26,7 @@ import {
   Pin,
   PinOff,
   Share2,
+  SquareArrowOutUpRight,
   SquareCode,
   FileText,
   type LucideIcon,
@@ -78,7 +78,8 @@ const icons: Partial<Record<ChatActionId, LucideIcon>> = {
   'copy-path': FolderInput,
   'open-vscode': SquareCode,
   'open-cursor': MousePointerClick,
-  more: Ellipsis,
+  'open-in': SquareArrowOutUpRight,
+  export: Share2,
   archive: Archive,
 };
 function iconOf(item: ChatMenuItem) {

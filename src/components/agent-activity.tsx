@@ -1,5 +1,18 @@
 import { Fragment, useEffect, useRef, useState } from 'react';
-import { BookOpen, ChevronRight, FileDiff, FileText, Gauge, Save, ShieldCheck } from 'lucide-react';
+import {
+  BookOpen,
+  ChevronRight,
+  FilePen,
+  FileText,
+  Gauge,
+  LoaderCircle,
+  Save,
+  Search,
+  ShieldAlert,
+  ShieldCheck,
+  SquareTerminal,
+  Wrench,
+} from 'lucide-react';
 import type { API, ChatRun, GovernanceEvidence, ToolActivity } from '../types';
 import type { DocPassage } from '../domain/docs';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from './ui/collapsible';
@@ -121,7 +134,12 @@ function ManagedRun({
                 <Button
                   variant="chip"
                   size="xs"
-                  onClick={() => openProjectPage(groupId, 'insights', taskId ? { taskId } : {})}
+                  onClick={() =>
+                    openProjectPage(groupId, 'knowledge', {
+                      section: 'insights',
+                      ...(taskId ? { taskId } : {}),
+                    })
+                  }
                 >
                   <Gauge aria-hidden="true" />
                   {usageLabel}
@@ -192,8 +210,8 @@ function MemoryUse({ tools, groupId }: { tools: ToolActivity[]; groupId?: string
         <Button
           variant="chip"
           size="xs"
-          aria-label={`Memory: ${summary}. Open the Memory page`}
-          onClick={() => openProjectPage(groupId, 'memory')}
+          aria-label={`Memory: ${summary}. Open Memory`}
+          onClick={() => openProjectPage(groupId, 'knowledge', { section: 'memory' })}
         >
           <BookOpen aria-hidden="true" />
           Memory: {summary}
@@ -208,7 +226,7 @@ function MemoryUse({ tools, groupId }: { tools: ToolActivity[]; groupId?: string
               variant="chip"
               size="xs"
               className="max-w-56"
-              onClick={() => openProjectPage(groupId, 'memory', { topic })}
+              onClick={() => openProjectPage(groupId, 'knowledge', { section: 'memory', topic })}
             >
               {kind === 'saved' ? <Save aria-hidden="true" /> : <BookOpen aria-hidden="true" />}
               <span className="truncate">{topic}</span>
@@ -234,7 +252,8 @@ function DocsUse({ passages, groupId }: { passages: DocPassage[]; groupId?: stri
               size="xs"
               className="max-w-64"
               onClick={() =>
-                openProjectPage(groupId, 'docs', {
+                openProjectPage(groupId, 'knowledge', {
+                  section: 'pages',
                   docId: passage.id,
                   heading: passage.heading || undefined,
                 })
@@ -254,26 +273,174 @@ function DocsUse({ passages, groupId }: { passages: DocPassage[]; groupId?: stri
   );
 }
 
+/** The added and removed line counts of a diff, for the right side of a step. */
+function diffCounts(diff: string) {
+  let added = 0;
+  let removed = 0;
+  for (const line of diff.split('\n')) {
+    if (line.startsWith('+') && !line.startsWith('+++')) added++;
+    else if (line.startsWith('-') && !line.startsWith('---')) removed++;
+  }
+  return { added, removed };
+}
+
+/** The added and removed lines of runs: the run diff, else the diffs of its steps. */
+export function runLineCounts(runs: ChatRun[]) {
+  let added = 0;
+  let removed = 0;
+  for (const run of runs)
+    for (const diff of run.diff ? [run.diff] : (run.tools || []).map((tool) => tool.diff || '')) {
+      const counts = diffCounts(diff);
+      added += counts.added;
+      removed += counts.removed;
+    }
+  return { added, removed };
+}
+
+/** The icon of a step: a file edit, a command, a read, a search, memory or another tool. */
+function StepIcon({ tool }: { tool: ToolActivity }) {
+  const props = { className: 'agent-step-icon', 'aria-hidden': true } as const;
+  if (memoryKind(tool)) return <BookOpen {...props} />;
+  if (tool.diff) return <FilePen {...props} />;
+  const title = tool.title.trim();
+  if (/^(read|view|open)\b/i.test(title)) return <FileText {...props} />;
+  if (/^(search|grep|glob|find|rg)\b|search/i.test(title)) return <Search {...props} />;
+  if (
+    /^(\$|npm|npx|pnpm|yarn|git|node|python3?|bash|sh|zsh|make|cargo|go|ls|cat|cd|rm|mv|cp|mkdir)\b|^(bash|shell|command)/i.test(
+      title,
+    )
+  )
+    return <SquareTerminal {...props} />;
+  return <Wrench {...props} />;
+}
+
+/** One 24px line for a step: icon, title and the result on the right. A click shows its output. */
+function StepLine({ tool }: { tool: ToolActivity }) {
+  const memory = memoryKind(tool);
+  const live = tool.status === 'inProgress';
+  const failed = tool.status === 'failed' || tool.status === 'declined';
+  const counts = tool.diff ? diffCounts(tool.diff) : null;
+  const output = tool.diff || tool.detail;
+  const line = (
+    <>
+      {live ? (
+        <LoaderCircle className="agent-step-icon animate-spin" aria-hidden="true" />
+      ) : (
+        <StepIcon tool={tool} />
+      )}
+      <span className="agent-step-title">{memory ? memoryTitles[memory] : tool.title}</span>
+      <span className="agent-step-result">
+        {failed ? (
+          toolStatusLabels[tool.status]
+        ) : live ? (
+          <span className="sr-only">{toolStatusLabels.inProgress}</span>
+        ) : counts && (counts.added || counts.removed) ? (
+          <>
+            {!!counts.added && <span className="diff-count-add">+{counts.added}</span>}
+            {!!counts.removed && <span className="diff-count-remove"> −{counts.removed}</span>}
+          </>
+        ) : null}
+      </span>
+    </>
+  );
+  if (!output)
+    return (
+      <div className="agent-step" data-failed={failed || undefined}>
+        {line}
+      </div>
+    );
+  return (
+    <Collapsible>
+      <CollapsibleTrigger className="agent-step" data-failed={failed || undefined}>
+        {line}
+      </CollapsibleTrigger>
+      <CollapsibleContent className="prose-ui agent-step-output" data-size="sm">
+        <pre className={outputClass}>{output}</pre>
+      </CollapsibleContent>
+    </Collapsible>
+  );
+}
+
+/**
+ * The activity of one run, under the answer it belongs to: the managed run line, the docs and
+ * memory that the agent used, and the steps folded to "N steps · M files edited". The live step
+ * always shows.
+ */
 export function AgentActivity({
-  api,
   run,
-  onUpdate,
   groupId,
   taskId,
   docPassages = [],
-  onReviewChanges,
 }: {
-  api: API;
   run: ChatRun;
-  onUpdate: (run: ChatRun) => void;
   /** The project of the chat. Memory, docs and usage chips open its pages. */
   groupId?: string;
   /** The linked task. The usage chip opens its history. */
   taskId?: string;
   /** The doc passages that Kalkidan gave to the agent for "@docs". */
   docPassages?: DocPassage[];
-  /** Opens the Changes tool on a file. */
-  onReviewChanges?: (path?: string) => void;
+}) {
+  const tools = run.tools || [];
+  const paths = run.diff || tools.some((tool) => tool.diff) ? changedPaths(run) : [];
+  const live = run.status === 'running' ? tools.filter((tool) => tool.status === 'inProgress') : [];
+  const summary = [
+    plural(tools.length, 'step'),
+    paths.length && `${plural(paths.length, 'file')} edited`,
+  ]
+    .filter(Boolean)
+    .join(' · ');
+  if (!run.governance && !docPassages.length && !tools.length) return null;
+  return (
+    <div className="agent-activity">
+      {run.governance && <ManagedRun evidence={run.governance} groupId={groupId} taskId={taskId} />}
+      {(!!docPassages.length || !!tools.length) && (
+        <>
+          <DocsUse passages={docPassages} groupId={groupId} />
+          <MemoryUse tools={tools} groupId={groupId} />
+        </>
+      )}
+      {!!tools.length && (
+        <Collapsible className="agent-steps">
+          <CollapsibleTrigger className="agent-steps-fold group">
+            <ChevronRight
+              aria-hidden="true"
+              className="size-3.5 transition-transform group-data-[state=open]:rotate-90"
+            />
+            {summary}
+          </CollapsibleTrigger>
+          <CollapsibleContent className="agent-step-list">
+            {tools.map((tool) => (
+              <StepLine key={tool.id} tool={tool} />
+            ))}
+          </CollapsibleContent>
+          {/* The live step shows also while the steps are folded. */}
+          <div className="agent-step-list agent-step-live" aria-live="polite">
+            {live.map((tool) => (
+              <StepLine key={tool.id} tool={tool} />
+            ))}
+          </div>
+        </Collapsible>
+      )}
+    </div>
+  );
+}
+
+/**
+ * The approval and question cards of a run. They dock above the composer, so they never scroll
+ * away. "Tell {agent} what to do instead" denies the request and puts the cursor in the
+ * composer.
+ */
+export function RunRequests({
+  api,
+  run,
+  onUpdate,
+  onInstead,
+}: {
+  api: API;
+  run: ChatRun;
+  onUpdate: (run: ChatRun) => void;
+  /** Moves the cursor to the composer after "Tell {agent} what to do instead". */
+  onInstead: () => void;
 }) {
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState('');
@@ -295,124 +462,74 @@ export function AgentActivity({
     try {
       await api.chatApprove(run.id, id, allow);
       onUpdate(await api.chatStatus(run.id));
+      return true;
     } catch (e) {
       setError(errorMessage(e));
+      return false;
     } finally {
       setBusy(null);
     }
   }
-  const paths = run.diff || run.tools?.some((tool) => tool.diff) ? changedPaths(run) : [];
+  const agent = agentLabel(run.agent);
+  const running = run.status === 'running';
   return (
-    <div className="agent-activity space-y-3">
-      {run.governance && <ManagedRun evidence={run.governance} groupId={groupId} taskId={taskId} />}
-      <AgentQuestions api={api} run={run} onUpdate={onUpdate} />
+    <>
       <div aria-live="polite" className="sr-only">
         {announcement}
       </div>
-      {pending.map((approval) => (
-        <section
-          key={approval.id}
-          aria-label="Agent approval"
-          data-approval-pending=""
-          tabIndex={-1}
-          className={requestCardClass}
-        >
-          <div className="flex items-center gap-2">
-            <ShieldCheck size={16} className="shrink-0" aria-hidden="true" />
-            <h3 className={requestTitleClass}>{approval.title}</h3>
-          </div>
-          <p className="text-xs text-muted-foreground">
-            {agentLabel(run.agent)} is waiting.{' '}
-            {approval.scope === 'turn'
-              ? 'Permissions apply until this turn ends.'
-              : 'Approval applies only to this request.'}
-          </p>
-          <div className="prose-ui" data-size="sm">
-            <pre className={outputClass}>{approval.detail}</pre>
-          </div>
-          <div className="flex gap-2">
-            <Button
-              size="sm"
-              disabled={!!busy || run.status !== 'running'}
-              onClick={() => void answer(approval.id, true)}
-            >
-              {approval.scope === 'turn' ? 'Allow for this turn' : 'Allow once'}
-            </Button>
-            <Button
-              size="sm"
-              variant="outline"
-              disabled={!!busy || run.status !== 'running'}
-              onClick={() => void answer(approval.id, false)}
-            >
-              Deny
-            </Button>
-          </div>
-        </section>
-      ))}
+      {running && <AgentQuestions api={api} run={run} onUpdate={onUpdate} pendingOnly />}
+      {running &&
+        pending.map((approval) => (
+          <section
+            key={approval.id}
+            aria-label="Agent approval"
+            className={requestCardClass + ' request-card-approval'}
+          >
+            <div className="flex items-center gap-2">
+              <ShieldAlert size={16} className="shrink-0 text-warning" aria-hidden="true" />
+              <h3 className={requestTitleClass}>{approval.title}</h3>
+            </div>
+            <div className="prose-ui" data-size="sm">
+              <pre className={outputClass + ' max-h-40'}>{approval.detail}</pre>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                size="sm"
+                variant="ghost"
+                className="mr-auto"
+                disabled={!!busy}
+                onClick={() =>
+                  void answer(approval.id, false).then((done) => {
+                    if (done) onInstead();
+                  })
+                }
+              >
+                Tell {agent} what to do instead
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={!!busy}
+                onClick={() => void answer(approval.id, false)}
+              >
+                Deny
+              </Button>
+              <Button
+                size="sm"
+                autoFocus
+                disabled={!!busy}
+                onClick={() => void answer(approval.id, true)}
+              >
+                {approval.scope === 'turn' ? 'Allow for this turn' : 'Allow once'}
+              </Button>
+            </div>
+          </section>
+        ))}
       {error && (
         <p role="alert" className="field-error">
           {error}
         </p>
       )}
-      {(!!docPassages.length || !!run.tools?.length) && (
-        <div className="grid gap-1.5">
-          <DocsUse passages={docPassages} groupId={groupId} />
-          <MemoryUse tools={run.tools || []} groupId={groupId} />
-        </div>
-      )}
-      {!!run.tools?.length && (
-        <Collapsible>
-          <CollapsibleTrigger asChild>
-            <Button variant="ghost" size="sm" className="group gap-2 text-muted-foreground">
-              <ChevronRight
-                aria-hidden="true"
-                className="size-3.5 transition-transform group-data-[state=open]:rotate-90"
-              />
-              Activity · {run.tools.length} {run.tools.length === 1 ? 'step' : 'steps'}
-            </Button>
-          </CollapsibleTrigger>
-          <CollapsibleContent className="space-y-2 pt-2">
-            {run.tools.map((tool) => {
-              const memory = memoryKind(tool);
-              return (
-                <Collapsible key={tool.id} className="rounded-lg bg-muted">
-                  <CollapsibleTrigger asChild>
-                    <Button
-                      variant="ghost"
-                      className="h-auto w-full justify-between gap-3 whitespace-normal rounded-lg p-3 text-left"
-                    >
-                      <span className="min-w-0 break-words">
-                        {memory ? memoryTitles[memory] : tool.title}
-                      </span>
-                      <span className="shrink-0 text-xs text-muted-foreground">
-                        {toolStatusLabels[tool.status] || words(tool.status)}
-                      </span>
-                    </Button>
-                  </CollapsibleTrigger>
-                  <CollapsibleContent className="prose-ui px-3 pb-3" data-size="sm">
-                    <pre className={outputClass}>
-                      {tool.diff || tool.detail || 'No additional output.'}
-                    </pre>
-                  </CollapsibleContent>
-                </Collapsible>
-              );
-            })}
-          </CollapsibleContent>
-        </Collapsible>
-      )}
-      {(run.diff || paths.length > 0) && onReviewChanges && (
-        <div className="flex flex-wrap items-center gap-2">
-          <Hint label="Open the Changes tool on the files that this answer changed">
-            <Button variant="outline" size="sm" onClick={() => onReviewChanges(paths[0])}>
-              <FileDiff aria-hidden="true" />
-              Review in Changes
-            </Button>
-          </Hint>
-          {!!paths.length && (
-            <span className="text-xs text-muted-foreground">{plural(paths.length, 'file')}</span>
-          )}
-        </div>
-      )}
-    </div>
+    </>
   );
 }

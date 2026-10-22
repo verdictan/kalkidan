@@ -44,37 +44,51 @@ export { expect };
 export const sidebar = (page: Page) =>
   page.getByRole('navigation', { name: 'Projects and repositories' });
 
-/** The Settings dialog. */
+/** The Preferences sheet (⌘,). It replaced the Settings dialog. */
 export const settingsDialog = (page: Page) =>
-  page.getByRole('dialog', { name: 'Settings', exact: true });
+  page.getByRole('dialog', { name: 'Preferences', exact: true });
+export const preferencesDialog = settingsDialog;
 
-/** A section tab of the Settings dialog: General, Account, Agents, Computers, Diagnostics or About. */
-export const settingsTab = (page: Page, name: string) =>
-  settingsDialog(page)
-    .getByRole('tablist', { name: 'Settings sections' })
-    .getByRole('tab', { name, exact: true });
+/** The Computers page: this computer, the agents and the SSH hosts. */
+export const computersPage = (page: Page) =>
+  page.getByRole('region', { name: 'Computers', exact: true });
 
-/**
- * Opens Settings from the account menu in the sidebar footer, as a user does. With `section`,
- * it then selects that section. Returns the dialog.
- */
-export async function openSettings(page: Page, section?: string): Promise<Locator> {
+/** Opens an item of the account menu in the sidebar footer, as a user does. */
+export async function openAccountMenuItem(page: Page, name: string | RegExp) {
   const footer = sidebar(page).locator('.account-menu');
-  // The footer shows "Settings and help" until the account status loads, then the account
-  // button. Both menus have Settings. Try again when the button changes during the click.
-  const trigger = footer.getByRole('button', { name: /^(Account: .*|Settings and help)$/ });
-  const item = page.getByRole('menuitem', { name: /^Settings/ });
+  // The footer shows "Preferences and help" until the account status loads, then the account
+  // button. Try again when the button changes during the click.
+  const trigger = footer.getByRole('button', { name: /^(Account: .*|Preferences and help)$/ });
+  const item = page.getByRole('menuitem', { name });
   await expect(async () => {
     if (!(await item.isVisible())) await trigger.first().click({ timeout: 2000 });
     await item.click({ timeout: 2000 });
   }).toPass({ timeout: 15000 });
+}
+
+/** Opens Preferences from the account menu and returns the sheet. */
+export async function openPreferences(page: Page): Promise<Locator> {
+  await openAccountMenuItem(page, /^Preferences…/);
   const dialog = settingsDialog(page);
   await expect(dialog).toBeVisible();
-  if (section) {
-    await settingsTab(page, section).click();
-    await expect(settingsTab(page, section)).toHaveAttribute('aria-selected', 'true');
-  }
   return dialog;
+}
+
+/** Opens the Computers page from the sidebar and returns it. */
+export async function openComputersPage(page: Page): Promise<Locator> {
+  await sidebar(page).getByRole('button', { name: 'Computers', exact: true }).click();
+  const region = computersPage(page);
+  await expect(region).toBeVisible();
+  return region;
+}
+
+/**
+ * Opens the place that now holds an older Settings section: 'Agents' and 'Computers' open the
+ * Computers page, every other section opens Preferences.
+ */
+export async function openSettings(page: Page, section?: string): Promise<Locator> {
+  if (section === 'Agents' || section === 'Computers') return openComputersPage(page);
+  return openPreferences(page);
 }
 
 /** The command palette dialog. */
@@ -112,19 +126,4 @@ export async function openMoreChatActions(page: Page) {
   await page.getByRole('menuitem', { name: 'More', exact: true }).hover();
   await page.keyboard.press('ArrowRight');
   await expect(page.getByRole('menu')).toHaveCount(2);
-}
-
-/**
- * Opens the setup sheet of a managed agent from its row in Settings › Agents ("Fix…" or
- * "Change…"). Returns the sheet, for example the dialog "Codex setup".
- */
-export async function openAgentSetup(page: Page, agent: 'Codex' | 'Claude Code' = 'Codex') {
-  const settings = await openSettings(page, 'Agents');
-  await settings
-    .getByRole('group', { name: agent, exact: true })
-    .getByRole('button', { name: new RegExp(`^(Fix|Change) ${agent}$`) })
-    .click();
-  const sheet = page.getByRole('dialog', { name: `${agent} setup`, exact: true });
-  await expect(sheet).toBeVisible();
-  return sheet;
 }

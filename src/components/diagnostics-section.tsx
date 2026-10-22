@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import type { API } from '../types';
 import type {
   AgentDiagnostics,
@@ -11,14 +11,10 @@ import { agentCatalog } from '../config/agents';
 import { useRefreshTriggers } from '../hooks/use-refresh-triggers';
 import { errorMessage } from '../lib/errors';
 import { accountPhaseLabels, displayVersion, type StatusLabel } from '../lib/verdictan-labels';
-import {
-  CopyValue,
-  SettingsGroup,
-  SettingsRow,
-  SettingsRows,
-  StatusBadge,
-} from './settings-disclosure';
+import { CopyValue, SettingsRow, SettingsRows, StatusBadge } from './settings-disclosure';
+import { SectionHeader } from './ui/page-header';
 import { Button } from './ui/button';
+import { Dialog, DialogBody, DialogContent, DialogHeader, DialogTitle } from './ui/dialog';
 import { showToast } from './ui/toast';
 
 const runtimeLabels: Record<RuntimeDiagnostics['support'], StatusLabel> = {
@@ -52,7 +48,7 @@ const duration = (ms?: number) =>
         : `${Math.round(ms / 60000)} min`;
 
 /**
- * Settings › Diagnostics: the versions of each component, the connection state, the recent
+ * Diagnostics: the versions of each component, the connection state, the recent
  * correlation IDs, and the local measurements. The support bundle is redacted. The user
  * previews it first and then exports it to a file. Kalkidan sends nothing.
  */
@@ -113,7 +109,7 @@ export function DiagnosticsSection({ api, open = true }: { api: API; open?: bool
   const measurements = report?.measurements;
   return (
     <>
-      <SettingsGroup
+      <DiagnosticsGroup
         title="Versions"
         actions={
           <Button variant="ghost" size="sm" onClick={read}>
@@ -157,8 +153,8 @@ export function DiagnosticsSection({ api, open = true }: { api: API; open?: bool
             </SettingsRow>
           ))}
         </SettingsRows>
-      </SettingsGroup>
-      <SettingsGroup title="Connection">
+      </DiagnosticsGroup>
+      <DiagnosticsGroup title="Connection">
         <SettingsRows label="Connection">
           <SettingsRow
             label="Verdictan"
@@ -182,8 +178,8 @@ export function DiagnosticsSection({ api, open = true }: { api: API; open?: bool
             {phase && <StatusBadge status={phase} />}
           </SettingsRow>
         </SettingsRows>
-      </SettingsGroup>
-      <SettingsGroup title="Correlation IDs">
+      </DiagnosticsGroup>
+      <DiagnosticsGroup title="Correlation IDs">
         <SettingsRows label="Correlation IDs">
           {report && !report.correlations.length && (
             <SettingsRow
@@ -206,8 +202,8 @@ export function DiagnosticsSection({ api, open = true }: { api: API; open?: bool
             />
           ))}
         </SettingsRows>
-      </SettingsGroup>
-      <SettingsGroup title="Local measurements">
+      </DiagnosticsGroup>
+      <DiagnosticsGroup title="Local measurements">
         <SettingsRows label="Local measurements">
           <SettingsRow
             label="Telemetry is off"
@@ -233,8 +229,8 @@ export function DiagnosticsSection({ api, open = true }: { api: API; open?: bool
                 );
               })}
         </SettingsRows>
-      </SettingsGroup>
-      <SettingsGroup title="Support bundle">
+      </DiagnosticsGroup>
+      <DiagnosticsGroup title="Support bundle">
         <SettingsRows label="Support bundle">
           <SettingsRow
             label="Support bundle"
@@ -265,7 +261,7 @@ export function DiagnosticsSection({ api, open = true }: { api: API; open?: bool
             </Button>
           </SettingsRow>
         </SettingsRows>
-      </SettingsGroup>
+      </DiagnosticsGroup>
     </>
   );
 }
@@ -283,4 +279,52 @@ function runtimeHelp(runtime: RuntimeDiagnostics, minimum: string) {
     runtime.error || '',
   ];
   return parts.filter(Boolean).join(' · ');
+}
+
+/** Opens the Diagnostics dialog. The account menu sends this. */
+export function openDiagnostics() {
+  window.dispatchEvent(new Event('kalkidan-open-diagnostics'));
+}
+
+/** Help › Diagnostics: the diagnostics rows in one dialog. */
+export function DiagnosticsDialog({ api }: { api: API }) {
+  const [open, setOpen] = useState(false);
+  useEffect(() => {
+    const show = () => setOpen(true);
+    window.addEventListener('kalkidan-open-diagnostics', show);
+    return () => window.removeEventListener('kalkidan-open-diagnostics', show);
+  }, []);
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogContent
+        size="lg"
+        layout="scroll"
+        aria-describedby={undefined}
+        className="max-h-[min(720px,calc(100dvh-48px))]"
+      >
+        <DialogHeader>
+          <DialogTitle>Diagnostics</DialogTitle>
+        </DialogHeader>
+        <DialogBody>{open && <DiagnosticsSection api={api} open={open} />}</DialogBody>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/** One group of diagnostics rows with a small header. */
+function DiagnosticsGroup({
+  title,
+  actions,
+  children,
+}: {
+  title: string;
+  actions?: ReactNode;
+  children: ReactNode;
+}) {
+  return (
+    <section aria-label={title} className="mb-4">
+      <SectionHeader size="sm" title={title} actions={actions} className="mb-0" />
+      {children}
+    </section>
+  );
 }

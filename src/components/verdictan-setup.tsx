@@ -17,7 +17,6 @@ import {
   policyLabels,
   policyRecovery,
   sameSelection,
-  selectionIssue,
   setupAllowedModels,
   teamLabels,
   usesAgentChoice,
@@ -31,15 +30,6 @@ import { runtimeSetupNotice } from '../domain/compatibility';
 import { useRefreshTriggers } from '../hooks/use-refresh-triggers';
 import { Alert, AlertDescription } from './ui/alert';
 import { Button } from './ui/button';
-import {
-  Dialog,
-  DialogBody,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from './ui/dialog';
 import { Input } from './ui/input';
 import { showToast } from './ui/toast';
 import { Choice } from './choice';
@@ -169,58 +159,19 @@ function setupNotice(
 }
 
 /**
- * The setup sheet of one managed agent: the agent or the team and policy, the model access,
- * the connection, and the model. A list with only one choice does not show. A complete
- * selection saves at once, with Undo in the toast. The choices load when the sheet opens and
- * when the window gets focus.
+ * The organization setup of one managed agent, inline under its row on the Computers page:
+ * the agent or the team and policy, the model access, the connection, and the default model.
+ * A list with only one choice does not show. A complete selection saves at once, with Undo in
+ * the toast. The choices load on open and when the window gets focus.
  */
-export function AgentSetupDialog({
-  api,
-  agent,
-  open,
-  onOpenChange,
-  onSetup,
-}: {
-  api: API;
-  agent: ManagedAgentKind;
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  onSetup?: (setup: VerdictanSetup) => void;
-}) {
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent size="md" layout="scroll">
-        <DialogHeader>
-          <DialogTitle>{managedAgentNames[agent]} setup</DialogTitle>
-          <DialogDescription>
-            The default model and access for new {managedAgentNames[agent]} chats. Kalkidan saves
-            each change at once.
-          </DialogDescription>
-        </DialogHeader>
-        {open && (
-          <VerdictanSetupForm
-            api={api}
-            agent={agent}
-            onSetup={onSetup}
-            onDone={() => onOpenChange(false)}
-          />
-        )}
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-/** The body and the footer of the setup sheet. */
 export function VerdictanSetupForm({
   api,
   agent,
   onSetup,
-  onDone,
 }: {
   api: API;
   agent: ManagedAgentKind;
   onSetup?: (setup: VerdictanSetup) => void;
-  onDone: () => void;
 }) {
   const [setup, setSetup] = useState<VerdictanSetup>();
   const [selection, setSelection] = useState<VerdictanSelection>(emptySelection);
@@ -343,7 +294,6 @@ export function VerdictanSetupForm({
       : [],
   );
   const saved = setup?.selections[agent];
-  const savedIssue = setup && saved ? selectionIssue(setup, saved) : undefined;
   const changedFrom = (value: VerdictanSelection) => !setup || !sameSelection(setup, saved, value);
   const complete = (value: VerdictanSelection) => !!setup && completeSelection(setup, agent, value);
   // A list with only one model selects it.
@@ -365,11 +315,10 @@ export function VerdictanSetupForm({
   const showAgent = agentChoice && (agents.length !== 1 || !chosenAgent);
   const showConnection = !subscription && connections.length !== 1;
   const showModel = modelOptions.length !== 1 || selection.model !== modelOptions[0]?.value;
-  const ready = !!saved && !changedFrom(selection) && !savedIssue;
   const pending = complete(selection) && changedFrom(selection);
   return (
     <>
-      <DialogBody className="grid content-start gap-4" aria-busy={loading}>
+      <div className="grid content-start gap-3" aria-busy={loading}>
         {error ? (
           <Alert size="sm" variant="destructive">
             <AlertDescription className="text-xs leading-4">
@@ -388,11 +337,11 @@ export function VerdictanSetupForm({
         )}
         {!setup && loading && (
           <p role="status" className="form-help mt-0">
-            Loading the choices of your organization…
+            Loading…
           </p>
         )}
         {setup && (
-          <div className="grid gap-3">
+          <div className="grid gap-3 sm:grid-cols-2">
             {showAgent && (
               <Field label="Agent">
                 <Choice
@@ -556,35 +505,29 @@ export function VerdictanSetupForm({
               <p className="form-help mt-0">Default model: {modelOptions[0]?.label}</p>
             )}
             {agentChoice && chosenAgent && agentConfigurationLabel(chosenAgent) && (
-              <p className="form-help mt-0">
-                Policy: {agentConfigurationLabel(chosenAgent)}. Your organization changes it in
-                Verdictan.
-              </p>
+              <p className="form-help mt-0">Policy: {agentConfigurationLabel(chosenAgent)}</p>
             )}
           </div>
         )}
-      </DialogBody>
-      <DialogFooter className="items-center">
-        <span role="status" className="mr-auto text-xs leading-4 text-muted-foreground">
-          {saving
-            ? 'Saving…'
-            : ready
-              ? `${managedAgentNames[agent]} is ready.`
-              : setup && !pending
-                ? 'Make all the choices. Kalkidan then saves them.'
-                : ''}
-        </span>
-        {pending ? (
-          // A selection that Kalkidan chose, or a save that failed. The user confirms it.
-          <Button disabled={busy} onClick={() => void save(selection)}>
-            Use this setup
-          </Button>
-        ) : (
-          <Button variant={ready ? 'default' : 'outline'} onClick={onDone}>
-            Done
-          </Button>
+        {(saving || pending) && (
+          <div className="flex items-center justify-end gap-2">
+            <span role="status" className="mr-auto text-xs leading-4 text-muted-foreground">
+              {saving ? 'Saving…' : ''}
+            </span>
+            {pending && (
+              // A selection that Kalkidan chose, or a save that failed. The user confirms it.
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={busy}
+                onClick={() => void save(selection)}
+              >
+                Save
+              </Button>
+            )}
+          </div>
         )}
-      </DialogFooter>
+      </div>
     </>
   );
 }

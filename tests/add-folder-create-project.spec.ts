@@ -5,16 +5,17 @@ test('a project created from Add code folders closes the flow and opens the new 
   page,
 }) => {
   await page.goto('/');
-  // An empty project shows "Add a code folder" on its overview.
+  // An empty project shows an "Add" menu in the Code folders section of its overview.
   await page.getByRole('main').getByRole('button', { name: 'New project', exact: true }).click();
   const create = page.getByRole('dialog', { name: 'New project', exact: true });
   await create.getByLabel('Project name', { exact: true }).fill('Empty');
   await create.getByRole('button', { name: 'Create project', exact: true }).click();
   await expect(create).not.toBeVisible();
   await page
-    .getByRole('region', { name: 'Project tracker' })
-    .getByRole('button', { name: 'Add a code folder', exact: true })
+    .getByRole('region', { name: 'Code folders', exact: true })
+    .getByRole('button', { name: 'Add', exact: true })
     .click();
+  await page.getByRole('menuitem', { name: 'Choose a folder…', exact: true }).click();
 
   const add = page.getByRole('dialog', { name: 'Add code folders', exact: true });
   await expect(add.getByRole('combobox', { name: 'Add to project' })).toContainText('Empty');

@@ -69,7 +69,7 @@ An organization that finished the setup earlier can still run agents with these 
 
 The message for an unsupported runtime is:
 "Kalkidan does not support this Verdictan runtime version. Update the runtime to 0.6.8 or later in Settings › Computers."
-Settings › Diagnostics shows the version of each runtime and its status: Supported, Deprecated, or Not supported.
+Diagnostics in the account menu shows the version of each runtime and its status: Supported, Deprecated, or Not supported.
 
 ## Contract checks in CI
 

@@ -78,11 +78,11 @@ function scanTitle(scan: FolderScan | null) {
 
 function scanDescription(scan: FolderScan | null) {
   return scan?.repositories.length
-    ? 'Each repository becomes a code folder in the project. Clear the ones you do not want.'
+    ? 'Each repository becomes a code folder in the project.'
     : 'Kalkidan looked in this folder and its subfolders. You can add the folder anyway.';
 }
 
-/** The check box list of found repositories, with Select all and Select none. */
+/** The check box list of found repositories, with one Select all / Select none toggle. */
 function RepositoryChecklist({
   scan,
   selection,
@@ -94,6 +94,7 @@ function RepositoryChecklist({
 }) {
   const { selected, setSelected, toggle, repositories, available } = selection;
   const count = selected.size;
+  const all = available.length > 0 && count === available.length;
   if (!repositories.length) return null;
   return (
     <div className={cn('grid content-start gap-2', className)}>
@@ -101,13 +102,11 @@ function RepositoryChecklist({
         <Button
           variant="ghost"
           size="xs"
-          disabled={!available.length || count === available.length}
-          onClick={() => setSelected(new Set(available.map((repo) => repo.path)))}
+          className="-ml-2"
+          disabled={!available.length}
+          onClick={() => setSelected(all ? new Set() : new Set(available.map((repo) => repo.path)))}
         >
-          Select all
-        </Button>
-        <Button variant="ghost" size="xs" disabled={!count} onClick={() => setSelected(new Set())}>
-          Select none
+          {all ? 'Select none' : 'Select all'}
         </Button>
         <span className="ml-auto text-xs text-muted-foreground" aria-live="polite">
           {count} of {available.length} selected

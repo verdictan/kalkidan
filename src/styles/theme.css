@@ -147,7 +147,8 @@
   --border: #d8dee4;
   --ring: #8c959f;
   --destructive: #cf222e;
-  --navigation: #f6f8fa;
+  /* A little darker than the frame, so the two separate without a heavy border. */
+  --navigation: #f3f5f7;
   --subtle-foreground: #6e7781;
   --popover: #ffffff;
   --success: #1a7f37;

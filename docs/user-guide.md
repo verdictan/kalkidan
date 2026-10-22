@@ -496,20 +496,20 @@ On Linux, the file must belong to you and must not be readable by other users.
 
 Kalkidan supports the current Verdictan runtime release and the two releases before it (now 0.6.8 to 0.6.10). Older versions work with a warning until 2027-01-20. The one-time setup needs 0.6.6 or later. See [Compatibility](compatibility.md) for the support window and the deprecation dates.
 
-1. Open **Settings** › **Diagnostics**. Find the runtime that shows **Not supported** or **Deprecated**.
+1. Open the account menu in the sidebar footer. Select **Diagnostics**. Find the runtime that shows **Not supported** or **Deprecated**.
 2. Open **Settings** › **Computers**. Update the runtime on that computer.
-3. Open **Settings** › **Diagnostics** again. Select **Check again**.
+3. Open **Diagnostics** in the account menu again. Select **Check again**.
 
 ### Send diagnostics to support
 
 Kalkidan sends no telemetry. To give support the versions, the connection state, and the correlation IDs:
 
-1. Open **Settings** › **Diagnostics**.
+1. Open the account menu in the sidebar footer. Select **Diagnostics**.
 2. In **Support bundle**, select **Preview**. Kalkidan removes credentials, tokens, keys, e-mail addresses, and your home folder.
 3. Read the preview. Then select **Export…** and choose a file.
 4. Attach the file to your support request.
 
-![Settings › Diagnostics with runtime and agent versions](images/diagnostics.png)
+![Diagnostics with runtime and agent versions](images/diagnostics.png)
 
 [Operational targets](operational-targets.md) describes the local measurements in the bundle.
 

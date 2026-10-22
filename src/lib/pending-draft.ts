@@ -10,6 +10,8 @@ export interface PendingDraft {
   groupId?: string;
   /** A board item to link to the chat. */
   taskId?: string;
+  /** Send the prompt at once as the first message. */
+  send?: boolean;
 }
 
 const drafts = new Map<string, PendingDraft>();

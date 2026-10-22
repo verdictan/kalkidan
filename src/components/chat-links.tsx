@@ -60,9 +60,10 @@ export const openSettings = (section?: string, anchor?: string) =>
   });
 export const openTask = (groupId: string, itemId: string) =>
   dispatchApp('kalkidan-open-task', { groupId, itemId });
+/** Opens a project page. Pages, memory and insights are sections of Knowledge. */
 export const openProjectPage = (
   groupId: string,
-  page: 'board' | 'tasks' | 'docs' | 'memory' | 'insights',
+  page: 'board' | 'tasks' | 'chats' | 'knowledge',
   extra: Record<string, unknown> = {},
 ) => dispatchApp('kalkidan-open-project-page', { groupId, page, ...extra });
 export const openExternal = (url: string) => window.open(url, '_blank', 'noreferrer');
@@ -517,7 +518,8 @@ export function SaveToDocsDialog({
         actions: [
           {
             label: 'Open',
-            onClick: () => openProjectPage(groupId, 'docs', { docId: saved.id }),
+            onClick: () =>
+              openProjectPage(groupId, 'knowledge', { section: 'pages', docId: saved.id }),
           },
         ],
       });

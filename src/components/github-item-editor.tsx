@@ -8,7 +8,7 @@ import {
   Check,
   CircleCheck,
   CircleDot,
-  Pencil,
+  ChevronRight,
   Trash2,
 } from 'lucide-react';
 import type { API, TrackerBoard, TrackerItem } from '../types';
@@ -16,9 +16,9 @@ import type { TrackerField } from '../domain/tracker';
 import type { ProjectFieldValue, ProjectItemAction } from '../domain/github-mutations';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
-import { Textarea } from './ui/textarea';
 import { CheckboxRow } from './ui/checkbox';
 import { SectionHeader } from './ui/page-header';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from './ui/collapsible';
 import { Alert, AlertDescription } from './ui/alert';
 import { showToast } from './ui/toast';
 import {
@@ -44,8 +44,9 @@ import { errorMessage } from '../lib/errors';
 import { timestamp } from '../lib/github-labels';
 
 /**
- * The GitHub part of the task sheet: item actions, project fields, the issue or pull request,
- * and its relationships. Fields save on Enter, on blur or on a choice. A failed write keeps the
+ * The GitHub part of the task sheet, folded under "Details": project fields, draft conversion,
+ * the issue or pull request, and its relationships. The sheet itself edits the title and the
+ * description. Fields save on Enter, on blur or on a choice. A failed write keeps the
  * value in the field, so the user can try again.
  */
 export function GitHubItemEditor({
@@ -64,9 +65,6 @@ export function GitHubItemEditor({
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const pending = useRef(false);
-  const [editing, setEditing] = useState(false);
-  const [title, setTitle] = useState(item.title);
-  const [body, setBody] = useState(item.body);
   const [repository, setRepository] = useState(item.repository || '');
   async function run(action: () => Promise<void>, done?: string) {
     if (pending.current) return false;
@@ -100,151 +98,88 @@ export function GitHubItemEditor({
     />
   );
   return (
-    <section
-      className="grid gap-5 border-t pt-4"
-      aria-label="GitHub item properties"
-      aria-busy={busy}
-    >
-      {error && (
-        <Alert variant="destructive" size="sm">
-          <AlertDescription>{error}</AlertDescription>
-        </Alert>
-      )}
-      {!!fields.length && (
-        <section aria-label="Project fields" className="grid gap-2">
-          <SectionHeader size="sm" as="h4" className="mb-0" title="Fields" />
-          <div className="grid gap-2">
-            {fields.map((field) => (
-              <FieldEditor
-                key={`${item.id}:${field.id}`}
-                field={field}
-                item={item}
-                disabled={busy}
-                onSave={(value) => run(() => api.trackerField(groupId, item.id, field.id, value))}
-              />
-            ))}
-          </div>
-        </section>
-      )}
-      {item.kind === 'DraftIssue' && (
-        <section aria-label="Draft" className="grid gap-3">
-          <SectionHeader
-            size="sm"
-            as="h4"
-            className="mb-0"
-            title="Draft"
-            actions={
-              !editing && (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  disabled={busy}
-                  onClick={() => {
-                    setTitle(item.title);
-                    setBody(item.body);
-                    setEditing(true);
-                  }}
-                >
-                  <Pencil />
-                  Edit
-                </Button>
-              )
-            }
-          />
-          {editing && (
+    <Collapsible className="tool-section tracker-details" aria-busy={busy}>
+      <CollapsibleTrigger className="tool-section-trigger group">
+        <ChevronRight
+          size={14}
+          aria-hidden="true"
+          className="shrink-0 transition-transform duration-[var(--motion-fast)] group-data-[state=open]:rotate-90"
+        />
+        <span className="tool-section-title">Details</span>
+      </CollapsibleTrigger>
+      <CollapsibleContent>
+        <section className="grid gap-5 pt-2" aria-label="GitHub item properties">
+          {error && (
+            <Alert variant="destructive" size="sm">
+              <AlertDescription>{error}</AlertDescription>
+            </Alert>
+          )}
+          {!!fields.length && (
+            <section aria-label="Project fields" className="grid gap-2">
+              <SectionHeader size="sm" as="h4" className="mb-0" title="Fields" />
+              <div className="grid gap-2">
+                {fields.map((field) => (
+                  <FieldEditor
+                    key={`${item.id}:${field.id}`}
+                    field={field}
+                    item={item}
+                    disabled={busy}
+                    onSave={(value) =>
+                      run(() => api.trackerField(groupId, item.id, field.id, value))
+                    }
+                  />
+                ))}
+              </div>
+            </section>
+          )}
+          {item.kind === 'DraftIssue' && (
             <form
-              className="grid gap-3"
+              className="grid gap-2"
+              aria-label="Convert to an issue"
               onSubmit={(event) => {
                 event.preventDefault();
-                if (title.trim())
-                  void act({ kind: 'edit-draft', title, body }, 'Draft saved.').then(
-                    (ok) => ok && setEditing(false),
+                if (/^[\w.-]+\/[\w.-]+$/.test(repository.trim()))
+                  void act(
+                    { kind: 'convert', repository: repository.trim() },
+                    'Draft converted to an issue.',
                   );
               }}
             >
-              <label className="form-label">
-                Title
+              <span className="form-label">Convert to an issue</span>
+              <div className="flex gap-2">
                 <Input
-                  aria-label="Draft title"
-                  autoFocus
-                  value={title}
-                  maxLength={256}
+                  aria-label="Issue repository"
+                  className="min-w-0 flex-1"
+                  placeholder="owner/repository"
+                  value={repository}
                   disabled={busy}
-                  onChange={(e) => setTitle(e.target.value)}
+                  onChange={(e) => setRepository(e.target.value)}
                 />
-              </label>
-              <label className="form-label">
-                Description
-                <Textarea
-                  aria-label="Draft description"
-                  rows={5}
-                  value={body}
-                  maxLength={20000}
-                  disabled={busy}
-                  onChange={(e) => setBody(e.target.value)}
-                />
-              </label>
-              <div className="flex justify-end gap-2">
                 <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  disabled={busy}
-                  onClick={() => setEditing(false)}
+                  type="submit"
+                  variant="outline"
+                  disabled={busy || !/^[\w.-]+\/[\w.-]+$/.test(repository.trim())}
                 >
-                  Cancel
-                </Button>
-                <Button type="submit" variant="outline" size="sm" disabled={busy || !title.trim()}>
-                  Save draft
+                  Convert to issue
                 </Button>
               </div>
             </form>
           )}
-          <form
-            className="grid gap-2"
-            onSubmit={(event) => {
-              event.preventDefault();
-              if (/^[\w.-]+\/[\w.-]+$/.test(repository.trim()))
-                void act(
-                  { kind: 'convert', repository: repository.trim() },
-                  'Draft converted to an issue.',
-                );
-            }}
-          >
-            <span className="form-label">Convert to an issue</span>
-            <div className="flex gap-2">
-              <Input
-                aria-label="Issue repository"
-                className="min-w-0 flex-1"
-                placeholder="owner/repository"
-                value={repository}
-                disabled={busy}
-                onChange={(e) => setRepository(e.target.value)}
-              />
-              <Button
-                type="submit"
-                variant="outline"
-                disabled={busy || !/^[\w.-]+\/[\w.-]+$/.test(repository.trim())}
-              >
-                Convert to issue
-              </Button>
-            </div>
-          </form>
+          {content && typeof api.trackerContent === 'function' ? (
+            <GitHubContentEditor
+              key={item.id}
+              api={api}
+              groupId={groupId}
+              itemId={item.id}
+              onSaved={onSaved}
+              beforeComments={relations}
+            />
+          ) : (
+            relations
+          )}
         </section>
-      )}
-      {content && typeof api.trackerContent === 'function' ? (
-        <GitHubContentEditor
-          key={item.id}
-          api={api}
-          groupId={groupId}
-          itemId={item.id}
-          onSaved={onSaved}
-          beforeComments={relations}
-        />
-      ) : (
-        relations
-      )}
-    </section>
+      </CollapsibleContent>
+    </Collapsible>
   );
 }
 

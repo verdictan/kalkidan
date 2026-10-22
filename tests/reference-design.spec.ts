@@ -1,7 +1,6 @@
 import { test, expect, newChat, openSettings, settingsDialog } from './helpers/app';
-import { openTool } from './helpers/tools';
 import { openCodeFolder } from './helpers/navigation';
-test('dark desktop workflow preserves drafts across resizable tool panes and the launcher', async ({
+test('dark desktop workflow preserves drafts across the title bar tools and resizable panes', async ({
   page,
 }) => {
   await page.goto('/');
@@ -31,31 +30,37 @@ test('dark desktop workflow preserves drafts across resizable tool panes and the
     animations: 'disabled',
     path: 'test-results/reference-conversation.png',
   });
-  // The title bar groups the session tools. Each tool has one button there.
-  const sessionTools = page
-    .locator('.topbar')
-    .getByRole('group', { name: 'Session tools', exact: true });
-  await expect(sessionTools.getByRole('button', { name: 'Terminal', exact: true })).toHaveCount(1);
-  await expect(sessionTools.getByRole('button', { name: 'Browser', exact: true })).toHaveCount(1);
+  // The title bar groups the tools. Each tool has one button there.
+  const toolButtons = page.locator('.topbar').getByRole('group', { name: 'Tools', exact: true });
+  const terminal = toolButtons.getByRole('button', { name: 'Terminal', exact: true });
+  const browser = toolButtons.getByRole('button', { name: 'Browser', exact: true });
+  await expect(terminal).toHaveCount(1);
+  await expect(browser).toHaveCount(1);
   // In the composer, the shortcut goes to the text field. Move the focus out first.
   await page.getByLabel('Message agent').blur();
   await page.keyboard.press('ControlOrMeta+t');
   const tools = page.getByRole('region', { name: 'Repository tools', exact: true });
-  await expect(tools.getByRole('heading', { name: 'Tools', exact: true })).toBeVisible();
+  await expect(tools).toBeVisible();
+  await expect(terminal).toHaveAttribute('aria-pressed', 'true');
   await expect(page.getByLabel('Message agent')).toBeVisible();
   await page.screenshot({ animations: 'disabled', path: 'test-results/reference-new-tab.png' });
-  await page.getByRole('button', { name: 'Hide tools', exact: true }).click();
+  // Select the shown tool again to hide the tools. The draft stays.
+  await terminal.click();
+  await expect(terminal).toHaveAttribute('aria-pressed', 'false');
+  await expect(tools).toBeHidden();
   await expect(page.getByLabel('Message agent')).toHaveValue(
     'Keep this plan while I inspect the app.',
   );
   await page.keyboard.press('Control+Backquote');
-  await expect(page.getByLabel('Interactive terminal')).toBeVisible();
-  await expect(tools.getByRole('alert')).toContainText('Open the desktop app');
-  await openTool(page, 'Browser');
+  await expect(page.getByLabel('Interactive terminal').first()).toBeVisible();
+  await expect(tools.getByRole('alert').first()).toContainText('Open the desktop app');
+  await browser.click();
+  await expect(browser).toHaveAttribute('aria-pressed', 'true');
   const bounds = await page.getByLabel('Embedded browser').boundingBox();
   expect(bounds!.height).toBeGreaterThan(500);
   await page.screenshot({ animations: 'disabled', path: 'test-results/reference-browser.png' });
-  await page.getByRole('button', { name: 'Hide tools', exact: true }).click();
+  await browser.click();
+  await expect(tools).toBeHidden();
   await page.setViewportSize({ width: 961, height: 988 });
   await expect(page.getByLabel('Message agent')).toHaveValue(
     'Keep this plan while I inspect the app.',

@@ -9,7 +9,7 @@ Target values: **proposed**. A product owner must approve each value.
 
 Kalkidan sends no telemetry. The measurement hooks write only to
 `<data folder>/diagnostics/measurements.json` on this computer.
-Correlation IDs stay in memory. Settings › Diagnostics shows all of it.
+Correlation IDs stay in memory. Diagnostics in the account menu shows all of it.
 A support bundle includes a summary only when the user previews it and then exports it.
 Fleet-wide numbers need an opt-in consent flow first. This change adds no such flow.
 
@@ -30,7 +30,7 @@ They help to explain the targets above.
 
 ## How to read the numbers
 
-1. Open Settings › Diagnostics. The "Local measurements" group shows the median and the
+1. Open the account menu in the sidebar footer, and select Diagnostics. The "Local measurements" group shows the median and the
    95th percentile of each sample, with the counts of sessions, crashes, and turns.
 2. To share them, select Preview in "Support bundle", read the bundle, and then select Export.
 3. A team that collects bundles from consenting users can calculate the fleet targets.

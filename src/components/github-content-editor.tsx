@@ -9,7 +9,7 @@ import {
 } from 'react';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { Pencil, Plus, X } from 'lucide-react';
+import { Plus, X } from 'lucide-react';
 import type { API } from '../types';
 import type { GitHubContentSnapshot, GitHubContentAction } from '../domain/github-content';
 import { Button } from './ui/button';
@@ -183,7 +183,7 @@ function ChipList({
 
 /**
  * The issue or pull request of a task: description, assignees, labels, details, checks, review
- * and comments. Content shows read only. "Edit" opens the title and description editor.
+ * and comments. The task sheet shows and edits the title and the description.
  */
 export function GitHubContentEditor({
   api,
@@ -204,9 +204,6 @@ export function GitHubContentEditor({
   const [writeError, setWriteError] = useState('');
   const [busy, setBusy] = useState(false);
   const [revision, setRevision] = useState(0);
-  const [editing, setEditing] = useState(false);
-  const [title, setTitle] = useState('');
-  const [body, setBody] = useState('');
   const [comment, setComment] = useState('');
   const [reviewer, setReviewer] = useState('');
   const [reviewBody, setReviewBody] = useState('');
@@ -334,79 +331,6 @@ export function GitHubContentEditor({
           <AlertDescription>{writeError}</AlertDescription>
         </Alert>
       )}
-      <Section
-        title="Description"
-        actions={
-          value.permissions.edit &&
-          !editing && (
-            <Button
-              variant="ghost"
-              size="sm"
-              disabled={locked}
-              onClick={() => {
-                setTitle(value.title);
-                setBody(value.body);
-                setEditing(true);
-              }}
-            >
-              <Pencil />
-              Edit
-            </Button>
-          )
-        }
-      >
-        {editing ? (
-          <form
-            className="grid gap-3"
-            onSubmit={(event) => {
-              event.preventDefault();
-              if (!title.trim()) return;
-              void change({ kind: 'edit', title, body }, 'Changes saved.').then(
-                (ok) => ok && setEditing(false),
-              );
-            }}
-          >
-            <label className="form-label">
-              Title
-              <Input
-                aria-label="Issue title"
-                autoFocus
-                value={title}
-                maxLength={256}
-                disabled={locked}
-                onChange={(e) => setTitle(e.target.value)}
-              />
-            </label>
-            <label className="form-label">
-              Description
-              <Textarea
-                aria-label="Issue description"
-                rows={6}
-                value={body}
-                maxLength={20000}
-                disabled={locked}
-                onChange={(e) => setBody(e.target.value)}
-              />
-            </label>
-            <div className="flex justify-end gap-2">
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                disabled={locked}
-                onClick={() => setEditing(false)}
-              >
-                Cancel
-              </Button>
-              <Button type="submit" variant="outline" size="sm" disabled={locked || !title.trim()}>
-                {busy ? 'Saving…' : 'Save'}
-              </Button>
-            </div>
-          </form>
-        ) : (
-          <MarkdownBody empty="No description.">{value.body}</MarkdownBody>
-        )}
-      </Section>
       <Section title="Assignees" count={value.assignees.length}>
         <ChipList
           noun="assignee"

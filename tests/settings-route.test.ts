@@ -5,6 +5,7 @@ import {
   isSettingsSection,
   helperUpdateAnchor,
   runtimeAnchor,
+  settingsPlace,
   settingsSections,
   settingsTabLabel,
   settingsTarget,
@@ -16,7 +17,7 @@ import type { Session } from '../src/domain/conversation';
 test('Settings has five sections in order', () => {
   assert.deepEqual(
     settingsSections.map((section) => section.label),
-    ['General', 'Account', 'Agents', 'Computers', 'Diagnostics', 'About'],
+    ['General', 'Account', 'Agents', 'Computers', 'About'],
   );
   assert.equal(isSettingsSection('computers'), true);
   assert.equal(isSettingsSection('remote'), false);
@@ -100,4 +101,32 @@ test('the Settings route has a key per tab and is not saved for the next launch'
   });
   assert.deepEqual(saved && 'parent' in saved && saved.parent, { kind: 'home' });
   assert.equal(restoreRoute({ kind: 'settings', tab: 'general' }, [], [], []), null);
+});
+
+test('settings requests go to Preferences, the Computers page, or the account menu', () => {
+  assert.deepEqual(settingsPlace(), { place: 'preferences', anchor: undefined });
+  assert.deepEqual(settingsPlace('general'), { place: 'preferences', anchor: undefined });
+  assert.deepEqual(settingsPlace('about'), { place: 'preferences', anchor: undefined });
+  assert.deepEqual(settingsPlace('account', 'verdictan-region'), {
+    place: 'preferences',
+    anchor: 'verdictan-region',
+  });
+  assert.deepEqual(settingsPlace('account', 'settings-connected-services'), {
+    place: 'preferences',
+    anchor: 'settings-github',
+  });
+  assert.deepEqual(settingsPlace('agents'), { place: 'computers', anchor: undefined });
+  assert.deepEqual(settingsPlace('managed-agents'), {
+    place: 'computers',
+    anchor: 'managed-agent-setup',
+  });
+  assert.deepEqual(settingsPlace('updates'), { place: 'computers', anchor: 'runtime-local' });
+  assert.deepEqual(settingsPlace('remote'), { place: 'computers', anchor: undefined });
+  assert.deepEqual(settingsPlace(undefined, 'settings-default-agent'), {
+    place: 'computers',
+    anchor: 'settings-agents',
+  });
+  assert.deepEqual(settingsPlace('general', 'settings-notifications'), {
+    place: 'account-menu',
+  });
 });

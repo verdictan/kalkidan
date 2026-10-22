@@ -222,15 +222,49 @@ export function newChat(detail: {
 }) {
   window.dispatchEvent(new CustomEvent('kalkidan-new-session', { detail }));
 }
-export function openInsights(groupId: string) {
+export function openInsights(
+  groupId: string,
+  view?: 'board' | 'github' | 'usage' | 'knowledge',
+  taskId?: string,
+) {
   window.dispatchEvent(
-    new CustomEvent('kalkidan-open-project-page', { detail: { groupId, page: 'insights' } }),
+    new CustomEvent('kalkidan-open-project-page', {
+      detail: { groupId, page: 'knowledge', section: 'insights', view, taskId },
+    }),
   );
 }
 export function openTasksPage(groupId: string) {
   window.dispatchEvent(
     new CustomEvent('kalkidan-open-project-page', { detail: { groupId, page: 'tasks' } }),
   );
+}
+
+/** The event that opens the "Check" popover of the board "⋯" menu. The detail is `{ groupId }`. */
+export const checkWritesEvent = 'kalkidan-check-github-writes';
+/** Opens the Tasks page and the list of GitHub changes to check. */
+export function openWriteCheck(groupId: string) {
+  openTasksPage(groupId);
+  setTimeout(
+    () => window.dispatchEvent(new CustomEvent(checkWritesEvent, { detail: { groupId } })),
+    250,
+  );
+}
+
+/**
+ * "Status: Todo → Done" for a review row. When neither value is known, it is only
+ * "Status changed".
+ */
+export function fieldChangeText(
+  field: TrackerField | undefined,
+  before: ProjectFieldValue,
+  value: ProjectFieldValue,
+) {
+  const name = field?.name || 'Field';
+  const from = describeFieldValue(field, before);
+  const to = describeFieldValue(field, value);
+  return from.startsWith('Unknown') && to.startsWith('Unknown')
+    ? `${name} changed`
+    : `${name}: ${from} → ${to}`;
 }
 
 /** Words for a field value, for the review rows. */
@@ -259,15 +293,18 @@ export function describeFieldValue(field: TrackerField | undefined, value: Proje
 export const githubWritesEvent = 'kalkidan-github-writes';
 
 /**
- * Tells the user that GitHub writes have no confirmed result. The toast opens the write history
- * on the Insights page. Tools call it when a write ends with an unknown result.
+ * Tells the user that GitHub writes have no confirmed result. "Check" opens the Tasks page,
+ * where the board "⋯" menu lists them. Tools call it when a write ends with an unknown result.
  */
 export function notifyGitHubWrites(groupId: string, count: number) {
   window.dispatchEvent(new CustomEvent(githubWritesEvent, { detail: { groupId } }));
   if (count < 1) return;
   showToast({
-    message: `Check ${plural(count, 'GitHub change')}. Kalkidan could not confirm the result.`,
-    actions: [{ label: 'Review', onClick: () => openInsights(groupId) }],
+    message:
+      count === 1
+        ? '1 change may not have reached GitHub.'
+        : `${count} changes may not have reached GitHub.`,
+    actions: [{ label: 'Check', onClick: () => openWriteCheck(groupId) }],
     duration: 10000,
   });
 }

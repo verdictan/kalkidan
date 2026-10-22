@@ -32,12 +32,13 @@ export function useWelcomeGate(api: API, preview = false) {
 }
 
 /**
- * The full-window first screen: sign in or create a Verdictan account, then set up. The shell
- * shows it instead of the workspace (no sidebar), before onboarding.
+ * The full-window first screen: one card to sign in or create a Verdictan account. The shell
+ * shows it instead of the workspace (no sidebar).
  *
- * `onDone` receives `signedIn: true` after the sign-in and setup ("Choose a code folder"). The
- * shell then opens onboarding at the code folder step. After "Set up later" it receives
- * `signedIn: false`, and the app opens signed out with the SessionBanner.
+ * `onDone` receives `signedIn: true` right after the sign-in. The shell then opens the empty
+ * workspace at "Open a code folder", with no onboarding dialog. The setup of the agents
+ * continues in the background, and the sidebar footer shows its progress. After "Set up later"
+ * it receives `signedIn: false`, and the app opens signed out with the SessionBanner.
  */
 export function Welcome({ api, onDone }: { api: API; onDone: (result: SignInResult) => void }) {
   async function finish(result: SignInResult) {
