@@ -149,11 +149,6 @@ export interface AgentAPI {
   ): Promise<void>;
   chatStop(runId: string): Promise<void>;
   updateSession(agent: Agent, id: string, changes: SessionOrganization): Promise<void>;
-  /**
-   * The current Verdictan agent of a computer. No host ID means this computer. Null when the
-   * computer has no agent yet. Older desktop apps do not have it.
-   */
-  computerAgent?(hostId?: string): Promise<{ name: string } | null>;
 }
 export interface BrowserAPI {
   browserAction(id: string, action: string, value?: unknown): Promise<any>;

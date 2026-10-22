@@ -55,8 +55,46 @@ async function withChat(page: Page, options: { messages?: number; readOnly?: boo
         readOnly && id === 'source'
           ? { state: 'other', scope: 'organization' }
           : { state: 'unmanaged' },
-      computerAgent: async (hostId?: string) => ({
-        name: hostId ? `${hostId} agent` : 'Mac agent',
+      // A new chat of each coding agent uses the agent of its selection.
+      verdictanSetup: async () => ({
+        status: 'ready',
+        teams: [],
+        policies: [],
+        providerConnections: [],
+        agents: [
+          {
+            agent_id: 'a1',
+            team_id: 't',
+            name: 'Release bot',
+            configuration_id: 'c',
+            configuration_version_id: 'v',
+          },
+          {
+            agent_id: 'a2',
+            team_id: 't',
+            name: 'Review bot',
+            configuration_id: 'c',
+            configuration_version_id: 'v',
+          },
+        ],
+        selections: {
+          codex: {
+            teamId: 't',
+            agentId: 'a1',
+            configurationId: '',
+            configurationVersionId: '',
+            providerConnectionId: '',
+            model: '',
+          },
+          claude: {
+            teamId: 't',
+            agentId: 'a2',
+            configurationId: '',
+            configurationVersionId: '',
+            providerConnectionId: '',
+            model: '',
+          },
+        },
       }),
       remoteCall: async (_hostId: string, method: string, args: any[]) => {
         if (method === 'models') return [];
@@ -124,7 +162,7 @@ test('a chat forks to another coding agent on an SSH host with its full history'
   );
   await expect(fork.getByRole('combobox', { name: 'Computer' })).toHaveText('This Mac (this chat)');
   await expect(fork.getByTestId('fork-agent')).toHaveText(
-    'Verdictan agent: Mac agent. The fork uses the current agent of this Mac.',
+    'Verdictan agent: Release bot. The fork uses the current agent of this Mac.',
   );
   await expect(fork.getByRole('status')).toHaveText(
     'The fork gets all 2 messages of this chat as context.',
@@ -142,7 +180,7 @@ test('a chat forks to another coding agent on an SSH host with its full history'
   await fork.getByRole('combobox', { name: 'Coding agent' }).click();
   await page.getByRole('option', { name: 'Claude Code', exact: true }).click();
   await expect(fork.getByTestId('fork-agent')).toHaveText(
-    'Verdictan agent: h agent. The fork uses the current agent of Development. Claude Code gets the history of the Codex chat as context.',
+    'Verdictan agent: Review bot. The fork uses the current agent of Development. Claude Code gets the history of the Codex chat as context.',
   );
   await expect(fork.getByRole('alert')).toHaveCount(0);
   await fork.getByRole('button', { name: 'Fork chat', exact: true }).click();

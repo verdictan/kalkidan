@@ -30,12 +30,12 @@ export interface ForkChoice {
 const thisComputer = 'local';
 
 /**
- * The name of the current Verdictan agent of a computer, or undefined when Kalkidan cannot
- * read it. A desktop app with one agent for each computer has `computerAgent`. Older apps use
- * the agent of the selection of the coding agent.
+ * The name of the Verdictan agent that a new chat uses, or undefined when Kalkidan cannot read
+ * it. The fork uses the same agent as any new chat on the computer.
+ * TODO(#68): use `computerAgentLabel(setup, hostId ?? localComputer)` when one agent for each
+ * computer is on main.
  */
-async function currentAgentName(api: API, hostId: string | undefined, agent: Agent) {
-  if (api.computerAgent) return (await api.computerAgent(hostId))?.name || undefined;
+async function currentAgentName(api: API, agent: Agent) {
   if (typeof api.verdictanSetup !== 'function') return undefined;
   const setup = await api.verdictanSetup();
   const chosen = setup.selections[agent]?.agentId;
@@ -118,7 +118,7 @@ export function ForkChatDialog({
     if (!session) return;
     setAgentName(undefined);
     let live = true;
-    currentAgentName(api, hostId, agent).then(
+    currentAgentName(api, agent).then(
       (name) => live && setAgentName(name),
       () => {
         /* The dialog shows the general text. */
