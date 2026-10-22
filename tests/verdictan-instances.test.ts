@@ -11,7 +11,6 @@ const agentA = '44444444-4444-4444-8444-444444444444';
 const agentB = '55555555-5555-4555-8555-555555555555';
 const apiOrigin = 'https://api.eu.verdictan.com';
 const agent = { kind: 'codex' as const, version: '0.163.0-alpha.10.2' };
-const tick = (ms = 20) => new Promise((resolve) => setTimeout(resolve, ms));
 
 function fixture({ supported = true, idleMs = 0, inPlace = true } = {}) {
   const ports: Record<string, number> = { 'gw-a': 47011, 'gw-b': 47012 };
@@ -93,11 +92,14 @@ function fixture({ supported = true, idleMs = 0, inPlace = true } = {}) {
         },
         endpoint: () => options.instance?.address ?? 'http://127.0.0.1:1',
       };
+      // Settles when the shared gateway stops this chat.
+      gateway.stopped = new Promise((resolve) => (gateway.signal = resolve));
       // As the real gateway: a moved gateway stops the chat with its own code.
       options.instance?.subscribe((reason) => {
         gateway.lost = reason ?? 'stopped';
         if (reason === 'moved') options.lost?.(undefined, 'desktop.gateway_moved');
         else options.lost?.(reason);
+        gateway.signal();
       });
       gateways.push(gateway);
       return gateway;
@@ -151,7 +153,7 @@ test('the chats of one agent attach their own runtimes to one gateway', async ()
   assert.equal(f.sent('runtime.detach').length, 1);
   assert.equal(f.instances.size(), 2);
   await f.runtimes.release(second.session_id);
-  await tick();
+  await f.instances.idleStop('gw-a');
   assert.deepEqual(
     f.sent('gateway.detach').map((r: any) => r.gateway_id),
     ['gw-a'],
@@ -171,7 +173,7 @@ test('a revoked runtime stops its chat only', async () => {
     { runtime_id: runtimeId, reason: 'runtime_revoked' },
     { gateway_id: 'gw-a', runtime_id: runtimeId, runtime_generation: 1 },
   );
-  await tick(5);
+  await f.gateways[0].stopped;
   assert.equal(f.gateways[0].lost, 'runtime_revoked');
   assert.equal(f.gateways[1].lost, undefined);
   assert.equal(f.instances.size(), 1);
@@ -211,7 +213,7 @@ test('a crash attaches each gateway and runtime again on the same port', async (
   const a = f.chat(agentA, 'gw-a');
   await f.runtimes.start(a, agent, async () => {});
   f.process.children[0].emit('close');
-  await tick();
+  await f.instances.settled();
   // A new process: the gateway, then the runtime with a new export. The chat continues.
   assert.equal(f.process.launches.length, 2);
   assert.equal(f.sent('gateway.attach', 1).length, 1);
@@ -220,7 +222,7 @@ test('a crash attaches each gateway and runtime again on the same port', async (
   assert.equal(f.provisions(), 1);
   // A second crash in one minute stops the chats. Check status allows a new start.
   f.process.children[1].emit('close');
-  await tick();
+  await f.instances.settled();
   assert.equal(f.gateways[0].lost, 'stopped');
   assert.equal(f.instances.supervisor.failed, true);
   f.runtimes.resetSupervisor();
@@ -237,7 +239,7 @@ test('a restore on a new port stops the coding agents, and the next turn continu
   // The old port is not free after the crash. The supervisor gives a new one.
   f.ports['gw-a'] = 47020;
   f.process.children[0].emit('close');
-  await tick();
+  await f.instances.settled();
   // The coding agent stops with the reason. Its runtime is not attached again, and no
   // request is sent again.
   assert.deepEqual(stops, ['desktop.gateway_moved']);

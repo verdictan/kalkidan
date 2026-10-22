@@ -36,12 +36,56 @@ export interface InstanceOptions {
  */
 export class GatewayInstances {
   private gateways = new Map<string, Gateway>();
+  /** Work that runs without a caller, for example a restore after a crash. */
+  private work = new Set<Promise<unknown>>();
+  /** For each gateway with a running idle timer: settles when the gateway stopped. */
+  private idleStops = new Map<string, Promise<void>>();
   readonly supervisor: GatewaySupervisor;
   constructor(private options: InstanceOptions) {
     this.supervisor = new GatewaySupervisor({
       ...options.supervisor,
-      lost: (gateways, repeated) => void this.restore(gateways, repeated),
+      lost: (gateways, repeated) => this.track(this.restore(gateways, repeated)),
     });
+  }
+  private track(work: Promise<unknown>) {
+    const done = work.catch(() => {}).finally(() => this.work.delete(done));
+    this.work.add(done);
+  }
+  /**
+   * Settles when the work that runs without a caller is complete: a restore after a crash, and
+   * the stop of a gateway that stopped. A timer of an idle gateway does not count.
+   */
+  async settled() {
+    while (this.work.size) await Promise.all([...this.work]);
+  }
+  /** Settles when an idle gateway stopped. Missing when its timer does not run. */
+  idleStop(gatewayId: string) {
+    return this.idleStops.get(gatewayId);
+  }
+  /** Stops the idle timer of a gateway, for example when a new chat uses the gateway. */
+  private cancelIdle(gateway: Gateway) {
+    clearTimeout(gateway.idle);
+    gateway.idle = undefined;
+    this.idleStops.delete(gateway.gatewayId);
+  }
+  /**
+   * Starts the timer that stops a gateway without runtimes. The timer keeps the process
+   * alive, so that a caller that waits for `idleStop` gets the stop.
+   */
+  private schedule(gateway: Gateway) {
+    this.cancelIdle(gateway);
+    const stopped = new Promise<void>((resolve) => {
+      gateway.idle = setTimeout(
+        () =>
+          void this.stop(gateway).finally(() => {
+            if (this.idleStops.get(gateway.gatewayId) === stopped)
+              this.idleStops.delete(gateway.gatewayId);
+            resolve();
+          }),
+        this.options.idleMs ?? gatewayIdleMs,
+      );
+    });
+    this.idleStops.set(gateway.gatewayId, stopped);
   }
   /** The number of gateways that run. */
   size() {
@@ -67,7 +111,7 @@ export class GatewayInstances {
       };
       this.gateways.set(credentials.gateway_id, gateway);
     }
-    clearTimeout(gateway.idle);
+    this.cancelIdle(gateway);
     const runtime = { listeners: new Set<Lost>() };
     gateway.runtimes.set(credentials.runtime_id, runtime);
     const current = gateway;
@@ -119,11 +163,11 @@ export class GatewayInstances {
   private lose(gateway: Gateway, reason?: 'moved') {
     if (this.gateways.get(gateway.gatewayId) !== gateway) return;
     this.gateways.delete(gateway.gatewayId);
-    clearTimeout(gateway.idle);
+    this.cancelIdle(gateway);
     for (const runtime of gateway.runtimes.values())
       for (const lost of [...runtime.listeners]) lost(reason);
     gateway.runtimes.clear();
-    void this.supervisor.detachGateway(gateway.gatewayId).catch(() => {});
+    this.track(this.supervisor.detachGateway(gateway.gatewayId));
   }
   private async release(gateway: Gateway, runtimeId: string) {
     if (!gateway.runtimes.delete(runtimeId)) return;
@@ -131,14 +175,13 @@ export class GatewayInstances {
     if (gateway.runtimes.size || this.gateways.get(gateway.gatewayId) !== gateway) return;
     // A gateway that did not open leaves nothing to keep.
     if (!gateway.address) return this.stop(gateway);
-    clearTimeout(gateway.idle);
-    gateway.idle = setTimeout(() => void this.stop(gateway), this.options.idleMs ?? gatewayIdleMs);
-    gateway.idle.unref?.();
+    this.schedule(gateway);
   }
   /** Stops a gateway without runtimes. */
   private async stop(gateway: Gateway) {
     if (gateway.runtimes.size || this.gateways.get(gateway.gatewayId) !== gateway) return;
     this.gateways.delete(gateway.gatewayId);
+    // `idleStop` stays until the stop is complete.
     clearTimeout(gateway.idle);
     await this.supervisor.detachGateway(gateway.gatewayId).catch(() => {});
   }
@@ -158,6 +201,8 @@ export class GatewayInstances {
       this.options.failed?.();
       return;
     }
+    // The restore of each gateway is complete before `settled` settles.
+    const restored: Promise<void>[] = [];
     for (const gateway of gateways) {
       const address = gateway.address;
       gateway.ready = this.open(gateway).then(
@@ -167,11 +212,7 @@ export class GatewayInstances {
             gateway.runtimes.clear();
             for (const runtime of runtimes)
               for (const lost of [...runtime.listeners]) lost('moved');
-            gateway.idle = setTimeout(
-              () => void this.stop(gateway),
-              this.options.idleMs ?? gatewayIdleMs,
-            );
-            gateway.idle.unref?.();
+            this.schedule(gateway);
             return;
           }
           const client = await this.options.client();
@@ -190,11 +231,13 @@ export class GatewayInstances {
         },
         () => this.lose(gateway),
       );
+      restored.push(gateway.ready);
     }
+    await Promise.all(restored);
   }
   /** Stops each gateway and the supervisor, for example when the app quits. */
   async stopAll() {
-    for (const gateway of this.gateways.values()) clearTimeout(gateway.idle);
+    for (const gateway of this.gateways.values()) this.cancelIdle(gateway);
     this.gateways.clear();
     await this.supervisor.shutdown();
   }
