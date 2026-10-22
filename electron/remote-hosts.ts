@@ -35,9 +35,23 @@ const flags = [
   '-o',
   'ServerAliveCountMax=3',
 ];
+/** A run on a host, as the app knows it. */
+interface RemoteRun {
+  hostId: string;
+  state: ChatRun;
+  create?: boolean;
+  sessionId?: string;
+  reported?: boolean;
+  /** True while the app has no connection to the host. The run continues on the host. */
+  detached?: boolean;
+}
+/** The calls that act on one run. Without a connection, the app has only the last state. */
+const methodsOfRun = ['chatStatus', 'chatStop', 'chatApprove', 'chatRespond'];
 interface Connection {
   brokerPending: Set<string>;
   child: ChildProcessWithoutNullStreams;
+  /** True when a different app connection took the helper. Then the app does not retry. */
+  replaced?: boolean;
   pending: Map<
     string,
     { resolve: (v: any) => void; reject: (e: Error) => void; timer: ReturnType<typeof setTimeout> }
@@ -54,10 +68,7 @@ export class RemoteHosts {
   private stopped = new Set<string>();
   private closing = false;
   private reconciling?: Promise<void>;
-  private runs = new Map<
-    string,
-    { hostId: string; state: ChatRun; create?: boolean; sessionId?: string; reported?: boolean }
-  >();
+  private runs = new Map<string, RemoteRun>();
   private runEnded?: (run: {
     hostId: string;
     state: ChatRun;
@@ -79,12 +90,57 @@ export class RemoteHosts {
     host.status = 'connected';
     delete host.error;
     if (before !== 'connected') {
+      void this.reattach(host.id);
       try {
         this.connected?.(host.id);
       } catch {
         // A listener error must not break the connection.
       }
     }
+  }
+  /**
+   * Attaches again to the runs of a host that connected. A run continues on the host when the
+   * connection stops, so the host has the current state of each run. The helper lists the runs
+   * that still work, also the runs of an earlier app session. A run that the helper does not
+   * know any more ended without a known outcome.
+   */
+  private async reattach(hostId: string) {
+    let live: unknown = [];
+    try {
+      live = await this.call(hostId, 'chat-runs', []);
+    } catch {
+      // An older helper does not list its runs. Its runs stop with the connection.
+    }
+    const ids = new Set(
+      [...this.runs.values()]
+        .filter((run) => run.hostId === hostId && run.detached)
+        .map((run) => run.state.id),
+    );
+    for (const value of Array.isArray(live) ? live.slice(0, 100) : []) {
+      const run = value as { id?: unknown; sessionId?: unknown; create?: unknown };
+      if (typeof run?.id !== 'string' || !/^[a-zA-Z0-9_-]{1,160}$/.test(run.id)) continue;
+      ids.add(run.id);
+      const key = JSON.stringify([hostId, run.id]);
+      if (!this.runs.has(key) && typeof run.sessionId === 'string')
+        this.runs.set(key, {
+          hostId,
+          state: { id: run.id, sessionId: run.sessionId, status: 'running' } as ChatRun,
+          sessionId: run.sessionId,
+          create: run.create === true,
+        });
+    }
+    for (const id of ids) await this.call(hostId, 'chatStatus', [id]).catch(() => {});
+    this.changed();
+  }
+  /** The runs that work on a host: the provider session ID and the run ID of each run. */
+  liveRuns(hostId: string) {
+    const runs = new Map<string, string>();
+    for (const run of this.runs.values()) {
+      const sessionId = run.state.sessionId || run.sessionId;
+      if (run.hostId === hostId && run.state.status === 'running' && sessionId)
+        runs.set(sessionId, run.state.id);
+    }
+    return runs;
   }
   private reportRun(entry: {
     hostId: string;
@@ -107,7 +163,11 @@ export class RemoteHosts {
       // The outcome is status data only. It must not change the run.
     }
   }
-  private interruptRuns(hostId: string) {
+  /**
+   * The connection to a host stopped. The runs continue on the host, so they stay running. The
+   * app shows the last state that it received, and attaches again when the host connects.
+   */
+  private detachRuns(hostId: string) {
     for (const run of this.runs.values()) {
       if (
         run.hostId !== hostId ||
@@ -115,25 +175,35 @@ export class RemoteHosts {
           (!run.state.governance || run.state.governance.finalized))
       )
         continue;
+      run.detached = true;
       run.state = {
         ...run.state,
-        status: 'failed',
-        errorCode: 'transport_lost',
-        governance: run.state.governance
-          ? { ...run.state.governance, status: 'unavailable', finalized: true }
-          : undefined,
-        activity: 'Connection lost',
-        error:
-          'The remote connection was lost. Reconnect and reopen the saved session to continue.',
-        approvals: run.state.approvals?.map((a) =>
-          a.status === 'pending' ? { ...a, status: 'expired' } : a,
-        ),
-        requests: run.state.requests?.map((r) =>
-          ['pending', 'submitting'].includes(r.status) ? { ...r, status: 'expired' } : r,
-        ),
+        hostDetached: true,
+        activity: 'Running on the SSH host. Kalkidan connects again to follow this run.',
       };
-      this.reportRun(run);
     }
+  }
+  /** The host does not know the run any more, so its outcome is not known. */
+  private loseRun(run: RemoteRun) {
+    run.detached = false;
+    run.state = {
+      ...run.state,
+      status: 'failed',
+      errorCode: 'transport_lost',
+      hostDetached: false,
+      governance: run.state.governance
+        ? { ...run.state.governance, status: 'unavailable', finalized: true }
+        : undefined,
+      activity: 'Connection lost',
+      error: 'The remote connection was lost. Reconnect and reopen the saved session to continue.',
+      approvals: run.state.approvals?.map((a) =>
+        a.status === 'pending' ? { ...a, status: 'expired' } : a,
+      ),
+      requests: run.state.requests?.map((r) =>
+        ['pending', 'submitting'].includes(r.status) ? { ...r, status: 'expired' } : r,
+      ),
+    };
+    this.reportRun(run);
   }
   private waiters = new Map<
     string,
@@ -556,7 +626,9 @@ export class RemoteHosts {
       [
         ...flags,
         host.target,
-        remoteNodeCommand(`"$HOME/.local/share/kalkidan/agents/${host.version}/agent.cjs"`),
+        remoteNodeCommand(
+          `"$HOME/.local/share/kalkidan/agents/${host.version}/agent.cjs" --attach`,
+        ),
       ],
       { stdio: ['pipe', 'pipe', 'pipe'] },
     );
@@ -572,7 +644,7 @@ export class RemoteHosts {
     const fail = (error: Error) => {
       if (this.connections.get(id) !== connection) return;
       this.connections.delete(id);
-      this.interruptRuns(id);
+      this.detachRuns(id);
       host.status = host.status === 'connecting' ? 'error' : 'disconnected';
       host.error = error.message.trim();
       for (const p of connection.pending.values()) {
@@ -581,7 +653,14 @@ export class RemoteHosts {
       }
       connection.pending.clear();
       connection.child.kill();
-      this.scheduler.failed(id, error.message);
+      if (connection.replaced) {
+        // A different app follows the runs of this host now. A retry would take them back.
+        this.stopped.add(id);
+        this.scheduler.stop(id);
+        host.status = 'error';
+        host.error =
+          'A different Kalkidan app connected to this host. Reconnect to follow its runs here.';
+      } else this.scheduler.failed(id, error.message);
       this.changed();
     };
     child.stderr.on(
@@ -598,6 +677,10 @@ export class RemoteHosts {
       try {
         const result = JSON.parse(line);
         if (this.connections.get(id) !== connection) return;
+        if (result.event === 'helper-replaced') {
+          connection.replaced = true;
+          return;
+        }
         if (
           result.event === 'project-resource-changed' &&
           typeof result.groupId === 'string' &&
@@ -677,7 +760,8 @@ export class RemoteHosts {
     }
   }
   call(id: string, method: string, args: any[]): Promise<any> {
-    const previous = this.runs.get(JSON.stringify([id, args[0]]))?.state;
+    const known = this.runs.get(JSON.stringify([id, args[0]]));
+    const previous = known?.state;
     if (previous?.errorCode === 'transport_lost') {
       if (method === 'chatStatus') return Promise.resolve(structuredClone(previous));
       if (['chatApprove', 'chatRespond'].includes(method))
@@ -685,6 +769,12 @@ export class RemoteHosts {
       if (method === 'chatStop') return Promise.resolve();
     }
     const connection = this.connections.get(id);
+    if (known?.detached && !connection && methodsOfRun.includes(method)) {
+      if (method === 'chatStatus') return Promise.resolve(structuredClone(known.state));
+      return Promise.reject(
+        new Error('The run continues on the SSH host. Connect the host again to control it.'),
+      );
+    }
     if (!connection)
       return Promise.reject(new Error('Host is offline. Connect it from Settings → Remote hosts.'));
     return new Promise<any>((resolve, reject) => {
@@ -713,34 +803,51 @@ export class RemoteHosts {
           this.scheduler.failed(id, 'SSH transport failed.');
         }
       }
-    }).then((result) => {
-      if (
-        ['chatCreate', 'chatStart', 'chatStatus'].includes(method) &&
-        result &&
-        typeof result.id === 'string'
-      ) {
-        const key = JSON.stringify([id, result.id]);
-        const state = structuredClone(result) as ChatRun;
-        const previous = this.runs.get(key);
-        const entry = {
-          hostId: id,
-          state,
-          create:
-            method === 'chatCreate' ? true : method === 'chatStart' ? false : previous?.create,
-          sessionId:
-            method === 'chatStart' && typeof args[1] === 'string' ? args[1] : previous?.sessionId,
-          reported: previous?.reported,
-        };
-        this.runs.set(key, entry);
-        if (this.connections.get(id) !== connection) this.interruptRuns(id);
-        else this.reportRun(entry);
-        for (const [old, value] of this.runs)
-          if (this.runs.size > 30 && value.state.status !== 'running' && old !== key)
-            this.runs.delete(old);
-        return structuredClone(this.runs.get(key)!.state);
-      }
-      return result;
-    });
+    }).then(
+      (result) => this.observeRun(id, connection, method, args, result),
+      (error: Error) => {
+        // The helper does not know a run that continued without the app: it stopped. Then the
+        // outcome of the run is not known.
+        const run = this.runs.get(JSON.stringify([id, args[0]]));
+        if (
+          method === 'chatStatus' &&
+          run &&
+          (run.detached || run.state.status === 'running') &&
+          /no longer available/i.test(error.message)
+        ) {
+          this.loseRun(run);
+          return structuredClone(run.state);
+        }
+        throw error;
+      },
+    );
+  }
+  private observeRun(id: string, connection: Connection, method: string, args: any[], result: any) {
+    if (
+      ['chatCreate', 'chatStart', 'chatStatus'].includes(method) &&
+      result &&
+      typeof result.id === 'string'
+    ) {
+      const key = JSON.stringify([id, result.id]);
+      const state = structuredClone(result) as ChatRun;
+      const previous = this.runs.get(key);
+      const entry = {
+        hostId: id,
+        state,
+        create: method === 'chatCreate' ? true : method === 'chatStart' ? false : previous?.create,
+        sessionId:
+          method === 'chatStart' && typeof args[1] === 'string' ? args[1] : previous?.sessionId,
+        reported: previous?.reported,
+      };
+      this.runs.set(key, entry);
+      if (this.connections.get(id) !== connection) this.detachRuns(id);
+      else this.reportRun(entry);
+      for (const [old, value] of this.runs)
+        if (this.runs.size > 30 && value.state.status !== 'running' && old !== key)
+          this.runs.delete(old);
+      return structuredClone(this.runs.get(key)!.state);
+    }
+    return result;
   }
   disconnect(id: string) {
     this.installations.get(id)?.abort();
@@ -752,7 +859,7 @@ export class RemoteHosts {
     this.closeConnection(id);
   }
   private closeConnection(id: string) {
-    this.interruptRuns(id);
+    this.detachRuns(id);
     const connection = this.connections.get(id);
     if (connection) {
       this.connections.delete(id);

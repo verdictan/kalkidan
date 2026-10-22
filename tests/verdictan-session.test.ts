@@ -57,7 +57,10 @@ function fixture(now = () => Date.parse('2026-10-20T00:00:00Z')) {
     requests.push(JSON.parse(line));
   };
   child.stdin.destroy = () => {};
-  child.kill = () => {};
+  let kills = 0;
+  child.kill = () => {
+    kills++;
+  };
   let sequence = 0;
   const client = new DesktopProtocol(
     resolve('fixture-verdictan'),
@@ -69,6 +72,7 @@ function fixture(now = () => Date.parse('2026-10-20T00:00:00Z')) {
   return {
     client,
     requests,
+    kills: () => kills,
     reply(event: string, data: any, index = requests.length - 1) {
       child.stdout.emit(
         'data',
@@ -250,6 +254,103 @@ test('renewal on wake renews a valid session and marks a past session as expired
   now = Date.parse('2026-10-20T03:00:00Z');
   const status = await account.autoRenew();
   assert.equal(status.phase, 'expired');
+});
+
+/** An account owner that starts a new fake runtime CLI for each connection. */
+function refusingAccount(t: any, now = () => Date.parse('2026-10-20T00:00:00Z')) {
+  const started: ReturnType<typeof fixture>[] = [];
+  const account = new VerdictanAccountService({
+    apiOrigin,
+    consoleOrigin,
+    connect: async () => {
+      const next = fixture(now);
+      started.push(next);
+      return next.client;
+    },
+    openBrowser: async () => {},
+    now,
+  });
+  t.after(() => account.dispose());
+  const refused = { code: 'desktop.secure_storage_unavailable' };
+  return { account, started, refused, last: () => started.at(-1)! };
+}
+
+test('a refused keychain prompt stops the runtime, and Check status starts it again', async (t) => {
+  const { account, started, refused, last } = refusingAccount(t);
+  const check = account.check();
+  await drain();
+  // The user refuses the keychain prompt that the status read shows.
+  last().reply('error', refused);
+  const failed = await check;
+  assert.equal(failed.phase, 'error');
+  assert.equal(failed.error, 'desktop.secure_storage_unavailable');
+  assert.equal(started.length, 1);
+  assert.equal(last().kills(), 1, 'The refused runtime process stops');
+  // Automatic work does not start the runtime again, so the system does not ask again.
+  await assert.rejects(account.runtimeClient(), /desktop\.secure_storage_unavailable/);
+  assert.equal((await account.autoRenew()).phase, 'error');
+  assert.equal(started.length, 1, 'No new keychain prompt without a user action');
+  // Check status starts a new runtime process. The user allows access this time.
+  const retry = account.check();
+  await drain();
+  assert.equal(started.length, 2);
+  last().reply('account.status', authenticated('2026-10-20T01:00:00Z'));
+  await drain();
+  last().reply('capabilities', capabilities);
+  const status = await retry;
+  assert.equal(status.phase, 'authenticated');
+  assert.equal(status.error, undefined);
+  const client = await account.runtimeClient();
+  assert.equal(typeof client.request, 'function');
+  assert.equal(started.length, 2);
+});
+
+test('a refused keychain prompt during a launch or a renewal does not ask again by itself', async (t) => {
+  mock.timers.enable({ apis: ['setTimeout', 'Date'], now: Date.parse('2026-10-20T00:00:00Z') });
+  t.after(() => mock.timers.reset());
+  const { account, started, refused, last } = refusingAccount(t, () => Date.now());
+  const check = account.check();
+  await drain();
+  last().reply('account.status', authenticated('2026-10-20T01:00:00Z'));
+  await drain();
+  last().reply('capabilities', capabilities);
+  assert.equal((await check).phase, 'authenticated');
+  // A launch reads the runtime credentials. The user refuses the keychain prompt.
+  const launch = (await account.runtimeClient()).request('setup.inspect');
+  await drain();
+  last().reply('error', refused);
+  await assert.rejects(launch, /desktop\.secure_storage_unavailable/);
+  assert.equal(account.status().phase, 'error');
+  assert.equal(account.status().error, 'desktop.secure_storage_unavailable');
+  assert.equal(last().kills(), 1);
+  // The renewal timer and the next launches do not start the runtime again.
+  mock.timers.tick(3600_000);
+  await drain();
+  await assert.rejects(account.runtimeClient(), /desktop\.secure_storage_unavailable/);
+  assert.equal(started.length, 1);
+  // Check status asks again. A second refusal also stops, and no loop of prompts starts.
+  const second = account.check();
+  await drain();
+  assert.equal(started.length, 2);
+  last().reply('error', refused);
+  assert.equal((await second).error, 'desktop.secure_storage_unavailable');
+  mock.timers.tick(10 * renewRetryMs);
+  await drain();
+  assert.equal(started.length, 2);
+  // The third try succeeds.
+  const third = account.check();
+  await drain();
+  last().reply('account.status', authenticated('2026-10-20T02:00:00Z'));
+  await drain();
+  last().reply('capabilities', capabilities);
+  assert.equal((await third).phase, 'authenticated');
+  assert.equal(started.length, 3);
+});
+
+test('the keychain refusal tells the user what happened and what to do', () => {
+  const message = managedErrorInfo('desktop.secure_storage_unavailable').message;
+  assert.match(message, /did not get access to the system keychain/);
+  assert.match(message, /Select Check status/);
 });
 
 test('preferences persist the first run and the notification choices', async (t) => {

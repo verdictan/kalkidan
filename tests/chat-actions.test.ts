@@ -118,16 +118,10 @@ test('actions hide only when they cannot apply', () => {
       .flatMap((group) => group.items)
       .some((item) => item.id === 'link-task'),
   );
-  // Without managed agents, or on a remote computer, there is no usage history.
-  for (const state of [
-    { ...ready, usageHistory: false },
-    { ...ready, remote: true },
-  ])
-    assert.ok(
-      !ids(state)
-        .flatMap(([, items]) => items)
-        .includes('usage-history'),
-    );
+  // Without managed agents there is no usage history. A chat on an SSH host has one.
+  const allIds = (state: typeof ready) => ids(state).flatMap(([, items]) => items);
+  assert.ok(!allIds({ ...ready, usageHistory: false }).includes('usage-history'));
+  assert.ok(allIds({ ...ready, remote: true }).includes('usage-history'));
   // With a pull request, View pull request #N replaces Create pull request.
   const withPullRequest = chatActionMenu(
     'menu-bar',

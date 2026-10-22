@@ -37,6 +37,8 @@ export interface Session {
   organization?: SessionOrganization;
   /** How the latest run of this chat ended. The main process keeps it. */
   outcome?: ChatOutcome;
+  /** A run of this chat that still runs on its SSH host. The chat view attaches to it. */
+  liveRunId?: string;
   projectId?: string;
   task?: TrackerItem;
   initialPrompt?: string;
@@ -66,6 +68,11 @@ export interface ChatApproval {
 }
 export interface GovernanceEvidence {
   finalized?: boolean;
+  /**
+   * Set when the gateway removed policy decision or trail events from its full or expired disk
+   * queue during this conversation. Usage records stay until Verdictan receives them.
+   */
+  bufferWarning?: { droppedEvents: number; expiredEvents: number };
   status: 'loading' | 'current' | 'reconciling' | 'unavailable';
   requests: {
     id: string;
@@ -110,6 +117,11 @@ export interface ChatRun {
   error?: string;
   /** `desktop.*` codes are managed agent errors. See managedErrors in verdictan.ts. */
   errorCode?: 'session_busy' | 'transport_lost' | 'managed_launch_blocked' | `desktop.${string}`;
+  /**
+   * True while the desktop has no connection to the SSH host of a run that continues there.
+   * The state is the last state that the desktop received.
+   */
+  hostDetached?: boolean;
   /** With `managed_launch_blocked`: the setup step that can remove the block. */
   managedSetup?: ManagedSetupStep;
   /** With `managed_launch_blocked`: the safe code that stopped the launch. */
@@ -167,4 +179,17 @@ export interface GitHubCliStatus {
   path?: string;
   /** The GitHub login of the signed-in GitHub CLI account. Only when the status is ready. */
   login?: string;
+}
+
+/** The warning when the gateway removed policy records that Verdictan did not receive. */
+export function eventBufferWarning(warning: NonNullable<GovernanceEvidence['bufferWarning']>) {
+  const removed = warning.droppedEvents + warning.expiredEvents;
+  const records = removed === 1 ? '1 policy record' : `${removed.toLocaleString()} policy records`;
+  const cause =
+    warning.droppedEvents && warning.expiredEvents
+      ? 'the event buffer was full, and some records were older than 30 days'
+      : warning.droppedEvents
+        ? 'the event buffer was full'
+        : 'the records were older than 30 days';
+  return `Verdictan did not receive ${records}, because ${cause}. Usage records stay until Verdictan receives them. Check the network connection.`;
 }

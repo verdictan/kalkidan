@@ -127,10 +127,12 @@ export interface ChatStatusInfo {
 }
 /** The status of a chat row from its live state, its stored outcome and the store. */
 export function chatStatusInfo(
-  session: Pick<Session, 'agent' | 'id' | 'outcome'>,
+  session: Pick<Session, 'agent' | 'id' | 'outcome' | 'liveRunId'>,
   live: SessionActivityState | undefined,
   store: Pick<ActivityState, 'finished' | 'drafts'>,
 ): ChatStatusInfo | undefined {
+  // A run that continues on an SSH host is work in progress, also when its chat is not open.
+  if (!live && session.liveRunId) return { state: 'running', label: 'Running on the SSH host.' };
   const outcome = session.outcome || store.drafts[activityKey(session.agent, session.id)];
   const status = chatRowStatus({
     live,
@@ -145,15 +147,17 @@ export function chatStatusInfo(
 /** A function that gives the status of a chat row. It reads the store. */
 export function useChatStatus() {
   const store = useActivityState();
-  return (session: Pick<Session, 'agent' | 'id' | 'outcome'>, live?: SessionActivityState) =>
-    chatStatusInfo(session, live, store);
+  return (
+    session: Pick<Session, 'agent' | 'id' | 'outcome' | 'liveRunId'>,
+    live?: SessionActivityState,
+  ) => chatStatusInfo(session, live, store);
 }
 /** The status dot of one chat row. */
 export function ChatStatusDot({
   session,
   live,
 }: {
-  session: Pick<Session, 'agent' | 'id' | 'outcome'>;
+  session: Pick<Session, 'agent' | 'id' | 'outcome' | 'liveRunId'>;
   live?: SessionActivityState;
 }) {
   const info = chatStatusInfo(session, live, useActivityState());

@@ -1,7 +1,12 @@
 // Plain words for managed-agent and update states. The UI never shows the raw API values.
 import { managedErrorInfo, managedErrors, selectionIssue, serviceName } from '../domain/verdictan';
 import type { VerdictanSetup, VerdictanStatus } from '../domain/verdictan';
-import type { ComponentUpdateStatus, HelperUpdateStatus, UpdatePhase } from '../domain/updates';
+import type {
+  ComponentUpdateStatus,
+  HelperUpdateStatus,
+  RuntimeTransferProgress,
+  UpdatePhase,
+} from '../domain/updates';
 
 /** The Badge variant for a status. */
 export type StatusTone = 'success' | 'warning' | 'muted' | 'destructive' | 'secondary';
@@ -82,6 +87,25 @@ export function runtimeProgressLabel(
   const verb = progressVerbs[phase as UpdatePhase] || updatePhaseLabel(phase);
   const target = `${verb} version ${displayVersion(version)}`;
   return percent === undefined ? `${target}…` : `${target} · ${Math.round(percent)}%`;
+}
+
+/** The help line of a copy of the runtime to an SSH host, with its progress. */
+export function transferProgressLabel(progress: RuntimeTransferProgress) {
+  const percent = transferPercent(progress);
+  const step = {
+    downloading: 'Downloading managed agents on this computer',
+    verifying: 'Checking the signature on this computer',
+    copying: 'Copying managed agents to the host',
+    installing: 'The host checks and installs managed agents',
+  }[progress.phase];
+  return percent === undefined ? `${step}…` : `${step} · ${Math.round(percent)}%`;
+}
+
+/** The percent of a copy step that moves bytes, or undefined. */
+export function transferPercent(progress: RuntimeTransferProgress) {
+  if (!['downloading', 'copying'].includes(progress.phase) || progress.totalBytes <= 0)
+    return undefined;
+  return Math.min(100, (progress.bytes / progress.totalBytes) * 100);
 }
 
 /** Phases in which an install or update is still running. */
@@ -205,7 +229,8 @@ export function accountNames(status: VerdictanStatus | undefined) {
 
 /** Plain words for desktop.* account error codes. */
 const accountErrors: Record<string, string> = {
-  'desktop.secure_storage_unavailable': 'Unlock your system keyring, then try again.',
+  'desktop.secure_storage_unavailable':
+    'Kalkidan did not get access to the system keychain. Select Check status, then allow access.',
   'desktop.browser_failed': 'The browser did not open. Select Sign in again.',
   'desktop.region_mismatch':
     'The saved account is in a different region. Sign out before you change the region.',

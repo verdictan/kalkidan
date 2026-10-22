@@ -9,6 +9,7 @@ import { RuntimeInstaller, type RuntimeInstallerOptions } from '../electron/verd
 import { downloadRuntime } from '../electron/verdictan/download';
 import { extractRuntime } from '../electron/verdictan/archive';
 import { releaseDownloadOrigins } from '../electron/verdictan/release';
+import { DesktopProtocolError } from '../electron/verdictan/protocol';
 import { releaseFixture, signBundle, testKeys } from './helpers/verdictan-fixture';
 
 async function fixture(t: any) {
@@ -346,6 +347,53 @@ test('a failed automatic update does not start again for the same release', asyn
   await f.installer.check(true);
   assert.equal(f.installer.status().installing, undefined);
   assert.equal(f.downloads(), 2);
+});
+test('a refused keychain prompt fails the update once, and Retry asks again', async (t) => {
+  const f = await fixture(t);
+  await f.installer.install();
+  await f.upgrade(false);
+  const options = (f.installer as any).options as RuntimeInstallerOptions;
+  // Each probe of the new version starts it. On macOS, the system then shows a keychain prompt.
+  let refuse: 'all' | 'activation' | 'none' = 'all';
+  let prompts = 0;
+  const installer = new RuntimeInstaller({
+    ...options,
+    changed: undefined,
+    probe: async (path, version) => {
+      await options.probe(path, version);
+      if (version !== '0.2.2') return;
+      prompts++;
+      if (refuse === 'all' || (refuse === 'activation' && path.includes('/versions/')))
+        throw new DesktopProtocolError('desktop.secure_storage_unavailable');
+    },
+  });
+  // The check starts the automatic update. The user refuses the prompt.
+  await installer.check(true);
+  const failed = await installer.install();
+  assert.equal(failed.operation?.phase, 'failed', JSON.stringify(failed));
+  assert.match(failed.operation!.error!, /did not get access to the system keychain/);
+  assert.match(failed.operation!.error!, /Select Retry/);
+  assert.equal(failed.installed?.version, '0.2.1');
+  assert.equal(failed.canInstall, true);
+  // Checks and a restart do not try the same release again, so the prompt does not repeat.
+  await installer.check(true);
+  await installer.check(true);
+  assert.equal(installer.status().installing, undefined);
+  assert.equal(prompts, 1);
+  const restarted = new RuntimeInstaller({ ...options, changed: undefined });
+  await restarted.check(true);
+  assert.match(restarted.status().operation!.error!, /system keychain/);
+  // The user refuses the prompt during activation. The previous version stays.
+  refuse = 'activation';
+  const rolledBack = await installer.install();
+  assert.equal(rolledBack.operation?.phase, 'rolled-back', JSON.stringify(rolledBack));
+  assert.match(rolledBack.operation!.error!, /system keychain\. The previous version was restored/);
+  assert.equal(rolledBack.installed?.version, '0.2.1');
+  // Retry in Settings installs again, and the user allows access.
+  refuse = 'none';
+  const updated = await installer.install();
+  assert.equal(updated.operation?.phase, 'completed', JSON.stringify(updated));
+  assert.equal(updated.installed?.version, '0.2.2');
 });
 test('without a known release, the status gives the reason', async (t) => {
   const f = await fixture(t);

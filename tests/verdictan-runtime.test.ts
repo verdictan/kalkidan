@@ -2,6 +2,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { ManagedRuntimes } from '../electron/verdictan/runtime';
 import type { RuntimeProvision } from '../electron/verdictan/protocol';
+import { mkdtemp, rm, stat } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 const id = '11111111-1111-4111-8111-111111111111';
 const agent = { kind: 'codex' as const, version: '0.163.0-alpha.10.2' };
 const binding: RuntimeProvision = {
@@ -24,7 +27,7 @@ function deferred<T>() {
 async function drain() {
   for (let i = 0; i < 30; i++) await Promise.resolve();
 }
-function fixture(revoked: string[] = []) {
+function fixture(revoked: string[] = [], eventDirectory?: string) {
   const calls: string[] = [];
   const requests: any[] = [];
   const gateways: any[] = [];
@@ -81,6 +84,7 @@ function fixture(revoked: string[] = []) {
     client: async () => client,
     executable: async () => '/fixture/verdictan',
     revoked: (reason) => revoked.push(reason),
+    eventDirectory,
     gateway(options) {
       const gateway: any = {
         async readiness() {
@@ -96,6 +100,7 @@ function fixture(revoked: string[] = []) {
           calls.push('stop-gateway');
         },
         lost: options.lost,
+        eventDirectory: options.eventDirectory,
       };
       calls.push('start-gateway');
       gateways.push(gateway);
@@ -190,11 +195,19 @@ test('revocation failure stays unconfirmed and permits only explicit retry', asy
   const f = fixture();
   await f.start();
   f.fail('runtime.revoke');
+  const before = f.calls.length;
   await assert.rejects(f.owner.revoke(id), /transport_lost/);
   assert.equal(f.owner.status()[0].phase, 'revocation-pending');
+  // Without an app, the host still releases the runtime at once: the gateway stops first.
+  assert.ok(f.calls.slice(before).includes('stop-gateway'));
+  // A helper without the app keeps the release, and retries it when the app connects.
+  assert.equal(f.owner.releasing(), 1);
+  await f.owner.retryReleases();
+  assert.equal(f.owner.status()[0].phase, 'revocation-pending');
   f.fail();
-  await f.owner.revoke(id);
-  assert.equal(f.owner.status()[0].phase, 'revoked');
+  await f.owner.retryReleases();
+  assert.equal(f.owner.releasing(), 0);
+  assert.equal(f.owner.status().length, 0);
 });
 test('shutdown invalidates in-flight provisioning and prevents late supervisor startup', async () => {
   const f = fixture();
@@ -348,4 +361,16 @@ test('runtime start refuses an agent below the Kalkidan minimum before any provi
     assert.deepEqual(f.calls, []);
     assert.deepEqual(f.owner.status(), []);
   }
+});
+
+test('each gateway keeps its event queue in a private folder that survives a restart', async (t) => {
+  const root = await mkdtemp(join(tmpdir(), 'runtime-events-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const directory = join(root, '.kalkidan', 'runtime', 'verdictan', 'events');
+  const f = fixture([], directory);
+  await f.start();
+  assert.equal(f.gateways[0].eventDirectory, directory);
+  const info = await stat(directory);
+  assert.ok(info.isDirectory());
+  assert.equal(info.mode & 0o777, 0o700);
 });

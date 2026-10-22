@@ -1,0 +1,2637 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Implemented auth desktop protocol 1 events",
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "correlation_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{1,128}$"
+    },
+    "sequence": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "event": {
+      "enum": [
+        "capabilities",
+        "authorization.started",
+        "authorization.completed",
+        "authorization.canceled",
+        "authorization.cancel_completed",
+        "account.status",
+        "account.inspected",
+        "session.renewed",
+        "session.logged_out",
+        "error",
+        "runtime.provisioning_result",
+        "runtime.provisioned",
+        "runtime.exported",
+        "runtime.revoked",
+        "review.inspected",
+        "setup.inspected",
+        "setup.default_ensured",
+        "setup.bootstrapped",
+        "resources.provisioned",
+        "diagnostics.previewed",
+        "diagnostics.exported",
+        "runtime.renewed",
+        "hosts.inspected",
+        "host.revoked",
+        "inventory.inspected",
+        "project.permissions_result",
+        "history.list_result",
+        "review.list_result",
+        "review.decide_result",
+        "context.settings_result",
+        "context.configure_result",
+        "context.search_result",
+        "context.list_result",
+        "context.publish_result",
+        "context.delete_result",
+        "operation.inspect_result",
+        "secure_storage.waiting"
+      ]
+    },
+    "data": {
+      "type": "object",
+      "properties": {
+        "runtime_credential": false,
+        "inference_credential": false,
+        "api_token": false,
+        "apiToken": false,
+        "token": false,
+        "refresh_token": false
+      }
+    }
+  },
+  "required": [
+    "schema_version",
+    "correlation_id",
+    "sequence",
+    "event",
+    "data"
+  ],
+  "additionalProperties": true,
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "event": {
+            "const": "capabilities"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "data": {
+            "type": "object",
+            "properties": {
+              "cli_version": {
+                "type": "string"
+              },
+              "protocol_min": {
+                "const": 1
+              },
+              "protocol_max": {
+                "const": 1
+              },
+              "capabilities": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "managed_execution_ready": {
+                "const": false
+              },
+              "tested_agents": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "kind": {
+                      "enum": [
+                        "codex",
+                        "claude_code"
+                      ]
+                    },
+                    "version": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "version"
+                  ],
+                  "additionalProperties": false
+                },
+                "$comment": "Informational. The native agent versions that the release acceptance evidence used. It is not an allowlist or a minimum, and clients must not gate readiness or dispatch on it."
+              },
+              "agent_version_policy": {
+                "$comment": "Current brokers send informational. Brokers up to CLI 0.6.6 omit it; treat an absent value as informational.",
+                "const": "informational"
+              }
+            },
+            "required": [
+              "cli_version",
+              "protocol_min",
+              "protocol_max",
+              "capabilities",
+              "managed_execution_ready",
+              "tested_agents"
+            ],
+            "additionalProperties": true
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "event": {
+            "const": "authorization.started"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "data": {
+            "type": "object",
+            "properties": {
+              "authorization_url": {
+                "type": "string",
+                "format": "uri"
+              },
+              "expires_in_seconds": {
+                "const": 300
+              }
+            },
+            "required": [
+              "authorization_url",
+              "expires_in_seconds"
+            ],
+            "additionalProperties": true
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "event": {
+            "const": "authorization.completed"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "data": {
+            "type": "object",
+            "properties": {
+              "user_id": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "organization_id": {
+                "type": "string"
+              },
+              "api_url": {
+                "type": "string"
+              },
+              "expires_at": {
+                "type": "string",
+                "format": "date-time"
+              }
+            },
+            "required": [
+              "user_id",
+              "organization_id",
+              "api_url",
+              "expires_at"
+            ],
+            "additionalProperties": true
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "event": {
+            "const": "authorization.canceled"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "data": {
+            "type": "object",
+            "properties": {},
+            "required": [],
+            "additionalProperties": true
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "event": {
+            "const": "authorization.cancel_completed"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "data": {
+            "type": "object",
+            "properties": {},
+            "required": [],
+            "additionalProperties": true
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "event": {
+            "const": "account.status"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "data": {
+            "type": "object",
+            "properties": {
+              "state": {
+                "enum": [
+                  "authorizing",
+                  "signed_out",
+                  "expired",
+                  "authenticated"
+                ]
+              },
+              "user_id": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "organization_id": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "api_url": {
+                "type": "string"
+              },
+              "expires_at": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "format": "date-time"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "state",
+              "user_id",
+              "organization_id",
+              "api_url",
+              "expires_at"
+            ],
+            "additionalProperties": true
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "event": {
+            "const": "account.inspected"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "data": {
+            "type": "object",
+            "properties": {
+              "user_id": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "organization_id": {
+                "type": "string"
+              },
+              "organization_name": {
+                "type": "string"
+              },
+              "role": {
+                "type": "string"
+              },
+              "team_ids": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "capabilities": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "api_url": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "user_id",
+              "organization_id",
+              "organization_name",
+              "role",
+              "team_ids",
+              "capabilities",
+              "api_url"
+            ],
+            "additionalProperties": true
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "event": {
+            "const": "session.renewed"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "data": {
+            "type": "object",
+            "properties": {
+              "expires_at": {
+                "type": "string",
+                "format": "date-time"
+              }
+            },
+            "required": [
+              "expires_at"
+            ],
+            "additionalProperties": true
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "event": {
+            "const": "session.logged_out"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "data": {
+            "type": "object",
+            "properties": {
+              "remote_revoked": {
+                "type": "boolean"
+              },
+              "execution_blocked": {
+                "const": true
+              }
+            },
+            "required": [
+              "remote_revoked",
+              "execution_blocked"
+            ],
+            "additionalProperties": true
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "event": {
+            "const": "error"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "data": {
+            "type": "object",
+            "properties": {
+              "code": {
+                "type": "string",
+                "pattern": "^desktop\\.[a-z_]+$"
+              },
+              "category": {
+                "enum": [
+                  "authentication",
+                  "installation",
+                  "compatibility",
+                  "permission",
+                  "outage",
+                  "rate_limit",
+                  "identity",
+                  "setup"
+                ]
+              },
+              "message": {
+                "type": "string"
+              },
+              "correlation_id": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9_-]{1,128}$"
+              },
+              "retryable": {
+                "type": "boolean"
+              },
+              "recovery_action": {
+                "enum": [
+                  "unlock_secure_storage",
+                  "restart_authorization",
+                  "update_desktop",
+                  "contact_organization_owner",
+                  "retry_setup",
+                  "sign_out",
+                  "inspect_operation",
+                  "refresh_resource",
+                  "refresh_project_scope",
+                  "refresh_capabilities",
+                  "stop_gateway",
+                  "update_runtime",
+                  "sign_in_native_claude_on_execution_host",
+                  "inspect_runtime",
+                  "check_native_compatibility",
+                  "reauthorize_new_session",
+                  "verify_native_account",
+                  "repair_managed_launch",
+                  "open_authorized_setup"
+                ]
+              }
+            },
+            "required": [
+              "code",
+              "category",
+              "message",
+              "correlation_id",
+              "retryable",
+              "recovery_action"
+            ],
+            "additionalProperties": true
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "event": {
+            "enum": [
+              "runtime.provisioning_result",
+              "runtime.provisioned",
+              "runtime.renewed"
+            ]
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "data": {
+            "oneOf": [
+              {
+                "type": "object",
+                "required": [
+                  "runtime_id",
+                  "session_id",
+                  "gateway_id",
+                  "runtime_registration_id",
+                  "agent_id",
+                  "org_id",
+                  "region_id",
+                  "provider_connection_id",
+                  "expires_at",
+                  "status",
+                  "readiness",
+                  "credentials_stored",
+                  "generation"
+                ],
+                "properties": {
+                  "runtime_id": {
+                    "type": "string"
+                  },
+                  "session_id": {
+                    "type": "string"
+                  },
+                  "gateway_id": {
+                    "type": "string"
+                  },
+                  "runtime_registration_id": {
+                    "type": "string"
+                  },
+                  "agent_id": {
+                    "type": "string"
+                  },
+                  "org_id": {
+                    "type": "string"
+                  },
+                  "region_id": {
+                    "type": "string"
+                  },
+                  "provider_connection_id": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "expires_at": {
+                    "type": "string"
+                  },
+                  "status": {
+                    "const": "provisioned"
+                  },
+                  "readiness": {
+                    "const": "gateway_preflight_required"
+                  },
+                  "credentials_stored": {
+                    "const": true
+                  },
+                  "generation": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "provider_access_mode": {
+                    "enum": [
+                      "byok",
+                      "codex_subscription",
+                      "claude_subscription"
+                    ]
+                  }
+                },
+                "additionalProperties": true,
+                "allOf": [
+                  {
+                    "if": {
+                      "required": [
+                        "provider_access_mode"
+                      ],
+                      "properties": {
+                        "provider_access_mode": {
+                          "enum": [
+                            "codex_subscription",
+                            "claude_subscription"
+                          ]
+                        }
+                      }
+                    },
+                    "then": {
+                      "properties": {
+                        "provider_connection_id": {
+                          "type": "null"
+                        }
+                      }
+                    },
+                    "else": {
+                      "properties": {
+                        "provider_connection_id": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  }
+                ]
+              },
+              {
+                "type": "object",
+                "required": [
+                  "runtime_id",
+                  "status",
+                  "credentials_recoverable",
+                  "execution_blocked",
+                  "recovery_action"
+                ],
+                "properties": {
+                  "runtime_id": {
+                    "type": "string",
+                    "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+                  },
+                  "status": {
+                    "const": "reconciliation_required"
+                  },
+                  "credentials_recoverable": {
+                    "const": false
+                  },
+                  "execution_blocked": {
+                    "const": true
+                  },
+                  "recovery_action": {
+                    "const": "revoke_runtime_then_authorize_new_session"
+                  }
+                },
+                "additionalProperties": true
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "event": {
+            "const": "runtime.exported"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "runtime_id",
+              "credentials_exported"
+            ],
+            "properties": {
+              "runtime_id": {
+                "type": "string",
+                "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+              },
+              "credentials_exported": {
+                "const": true
+              }
+            },
+            "additionalProperties": true
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "event": {
+            "const": "runtime.revoked"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "runtime_id",
+              "revoked"
+            ],
+            "properties": {
+              "runtime_id": {
+                "type": "string",
+                "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+              },
+              "revoked": {
+                "const": true
+              }
+            },
+            "additionalProperties": true
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "event": {
+            "const": "review.inspected"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "escalation_id",
+              "status",
+              "resolution",
+              "reason_code",
+              "request_id",
+              "console_url",
+              "replays_request",
+              "changes_policy",
+              "retry_requires_new_evaluation"
+            ],
+            "properties": {
+              "escalation_id": {
+                "type": "string",
+                "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+              },
+              "status": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "pattern": "^[A-Za-z0-9_.:-]{1,128}$"
+              },
+              "resolution": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "pattern": "^[A-Za-z0-9_.:-]{1,128}$"
+              },
+              "reason_code": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "pattern": "^[A-Za-z0-9_.:-]{1,128}$"
+              },
+              "request_id": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "pattern": "^[A-Za-z0-9_.:-]{1,128}$"
+              },
+              "console_url": {
+                "type": "string",
+                "format": "uri"
+              },
+              "replays_request": {
+                "const": false
+              },
+              "changes_policy": {
+                "const": false
+              },
+              "retry_requires_new_evaluation": {
+                "const": true
+              }
+            },
+            "additionalProperties": true
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "event": {
+            "const": "setup.inspected"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "data": {
+            "type": "object",
+            "properties": {
+              "schema_version": {
+                "const": 1
+              },
+              "org_id": {
+                "type": "string"
+              },
+              "user_id": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "status": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "pattern": "^[A-Za-z0-9_.:-]{1,128}$"
+              },
+              "recovery_action": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "pattern": "^[A-Za-z0-9_.:-]{1,128}$"
+              },
+              "dispatch_allowed": {
+                "const": false
+              },
+              "readiness": {
+                "type": "object",
+                "properties": {
+                  "account": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "pattern": "^[A-Za-z0-9_.:-]{1,128}$"
+                  },
+                  "organization": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "pattern": "^[A-Za-z0-9_.:-]{1,128}$"
+                  },
+                  "permission": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "pattern": "^[A-Za-z0-9_.:-]{1,128}$"
+                  },
+                  "provider_access": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "pattern": "^[A-Za-z0-9_.:-]{1,128}$"
+                  },
+                  "model_permission": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "pattern": "^[A-Za-z0-9_.:-]{1,128}$"
+                  },
+                  "policy": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "pattern": "^[A-Za-z0-9_.:-]{1,128}$"
+                  },
+                  "bootstrap": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "pattern": "^[A-Za-z0-9_.:-]{1,128}$",
+                    "description": "bootstrapped, bootstrap_available, bootstrap_requires_admin, or unknown."
+                  },
+                  "installation": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "pattern": "^[A-Za-z0-9_.:-]{1,128}$"
+                  },
+                  "runtime": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "pattern": "^[A-Za-z0-9_.:-]{1,128}$"
+                  }
+                },
+                "required": [],
+                "additionalProperties": true
+              },
+              "candidates": {
+                "type": "array",
+                "maxItems": 50,
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "agent_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "pattern": "^[A-Za-z0-9_.:-]{1,128}$"
+                    },
+                    "gateway_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "pattern": "^[A-Za-z0-9_.:-]{1,128}$"
+                    },
+                    "region_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "pattern": "^[A-Za-z0-9_.:-]{1,128}$"
+                    },
+                    "host_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "pattern": "^[A-Za-z0-9_.:-]{1,128}$"
+                    },
+                    "installation_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "pattern": "^[A-Za-z0-9_.:-]{1,128}$"
+                    },
+                    "policy": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "pattern": "^[A-Za-z0-9_.:-]{1,128}$"
+                    },
+                    "capture": {
+                      "type": "object",
+                      "properties": {
+                        "source": {
+                          "enum": [
+                            "agent_deployment",
+                            null
+                          ]
+                        },
+                        "enabled": {
+                          "type": [
+                            "boolean",
+                            "null"
+                          ]
+                        },
+                        "mode": {
+                          "enum": [
+                            "raw",
+                            "full",
+                            "full_payload",
+                            "metadata_only",
+                            "disabled",
+                            null
+                          ]
+                        },
+                        "required_audit": {
+                          "type": [
+                            "boolean",
+                            "null"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "source",
+                        "enabled",
+                        "mode",
+                        "required_audit"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [],
+                  "additionalProperties": true
+                }
+              },
+              "provider_connections": {
+                "type": "array",
+                "maxItems": 50,
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "provider_connection_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "pattern": "^[A-Za-z0-9_.:-]{1,128}$"
+                    },
+                    "provider": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "pattern": "^[A-Za-z0-9_.:-]{1,128}$"
+                    }
+                  },
+                  "required": [],
+                  "additionalProperties": true
+                }
+              },
+              "discovery_limit": {
+                "const": 50
+              },
+              "teams": {
+                "type": "array",
+                "maxItems": 50,
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "team_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "pattern": "^[A-Za-z0-9_.:-]{1,128}$"
+                    },
+                    "name": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 128,
+                      "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u2028\\u2029\\u061c\\u200e\\u200f\\u202a-\\u202e\\u2066-\\u2069]+$",
+                      "description": "Optional team name. Present only when the API returns a readable name. Never an identifier."
+                    }
+                  },
+                  "required": [
+                    "team_id"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "policies": {
+                "type": "array",
+                "maxItems": 50,
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "configuration_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "pattern": "^[A-Za-z0-9_.:-]{1,128}$"
+                    },
+                    "configuration_version_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "pattern": "^[A-Za-z0-9_.:-]{1,128}$"
+                    },
+                    "name": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 128,
+                      "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u2028\\u2029\\u061c\\u200e\\u200f\\u202a-\\u202e\\u2066-\\u2069]+$",
+                      "description": "Optional configuration name. Never an identifier."
+                    },
+                    "version_name": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 128,
+                      "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u2028\\u2029\\u061c\\u200e\\u200f\\u202a-\\u202e\\u2066-\\u2069]+$",
+                      "description": "Optional configuration version label, such as a semantic version."
+                    },
+                    "default": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "configuration_id",
+                    "configuration_version_id",
+                    "default"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "data_handling": {
+                "type": "object",
+                "properties": {
+                  "source": {
+                    "enum": [
+                      "organization_controls",
+                      null
+                    ]
+                  },
+                  "history_default_capture_mode": {
+                    "enum": [
+                      "raw",
+                      "full",
+                      "full_payload",
+                      "metadata_only",
+                      "disabled",
+                      null
+                    ]
+                  },
+                  "effective_capture": {
+                    "enum": [
+                      "select_runtime",
+                      null
+                    ]
+                  },
+                  "callback_message_logging_disabled": {
+                    "type": [
+                      "boolean",
+                      "null"
+                    ]
+                  },
+                  "redact_user_identifiers": {
+                    "type": [
+                      "boolean",
+                      "null"
+                    ]
+                  },
+                  "user_can_change_in_desktop": {
+                    "const": false
+                  },
+                  "retention": {
+                    "type": "object",
+                    "properties": {
+                      "audit_days": {
+                        "type": [
+                          "integer",
+                          "null"
+                        ],
+                        "minimum": 0
+                      },
+                      "history": {
+                        "enum": [
+                          "per_entry_expiry",
+                          null
+                        ]
+                      },
+                      "provider": {
+                        "enum": [
+                          "provider_policy",
+                          null
+                        ]
+                      }
+                    },
+                    "required": [
+                      "audit_days",
+                      "history",
+                      "provider"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                "required": [
+                  "source",
+                  "history_default_capture_mode",
+                  "effective_capture",
+                  "callback_message_logging_disabled",
+                  "redact_user_identifiers",
+                  "user_can_change_in_desktop",
+                  "retention"
+                ],
+                "additionalProperties": false
+              },
+              "billing": {
+                "type": "object",
+                "properties": {
+                  "payer": {
+                    "enum": [
+                      "organization_provider_connection",
+                      null
+                    ]
+                  },
+                  "provider_connection_id": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "pattern": "^[A-Za-z0-9_.:-]{1,128}$"
+                  },
+                  "currency": {
+                    "enum": [
+                      "USD",
+                      null
+                    ]
+                  },
+                  "pricing": {
+                    "enum": [
+                      "model_selection_required",
+                      null
+                    ]
+                  },
+                  "authorized_limit": {
+                    "type": "null"
+                  },
+                  "estimate_freshness": {
+                    "enum": [
+                      "request_authorization",
+                      null
+                    ]
+                  },
+                  "provider_charges": {
+                    "enum": [
+                      "provider_authority",
+                      null
+                    ]
+                  },
+                  "platform_fees": {
+                    "enum": [
+                      "separate",
+                      null
+                    ]
+                  }
+                },
+                "required": [
+                  "payer",
+                  "provider_connection_id",
+                  "currency",
+                  "pricing",
+                  "authorized_limit",
+                  "estimate_freshness",
+                  "provider_charges",
+                  "platform_fees"
+                ],
+                "additionalProperties": false
+              },
+              "default_configuration": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "configuration_id": {
+                        "type": "string",
+                        "pattern": "^[A-Za-z0-9_.:-]{1,128}$"
+                      },
+                      "configuration_version_id": {
+                        "type": "string",
+                        "pattern": "^[A-Za-z0-9_.:-]{1,128}$"
+                      },
+                      "name": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 128,
+                        "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u2028\\u2029\\u061c\\u200e\\u200f\\u202a-\\u202e\\u2066-\\u2069]+$",
+                        "description": "Optional configuration name. Never an identifier."
+                      },
+                      "version_name": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 128,
+                        "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u2028\\u2029\\u061c\\u200e\\u200f\\u202a-\\u202e\\u2066-\\u2069]+$",
+                        "description": "Optional configuration version label, such as a semantic version."
+                      },
+                      "marker": {
+                        "const": "kalkidan_default"
+                      }
+                    },
+                    "required": [
+                      "configuration_id",
+                      "configuration_version_id",
+                      "marker"
+                    ],
+                    "additionalProperties": false
+                  }
+                ]
+              },
+              "bootstrap": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "status": {
+                        "enum": [
+                          "bootstrapped",
+                          "adopted"
+                        ]
+                      },
+                      "bootstrapped_at": {
+                        "type": "string",
+                        "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d{1,9})?Z$"
+                      },
+                      "configuration_id": {
+                        "type": "string",
+                        "pattern": "^[A-Za-z0-9_.:-]{1,128}$"
+                      },
+                      "configuration_version_id": {
+                        "type": "string",
+                        "pattern": "^[A-Za-z0-9_.:-]{1,128}$"
+                      },
+                      "configuration_status": {
+                        "enum": [
+                          "available",
+                          "deleted"
+                        ]
+                      },
+                      "agent_id": {
+                        "type": "string",
+                        "pattern": "^[A-Za-z0-9_.:-]{1,128}$"
+                      },
+                      "agent_status": {
+                        "enum": [
+                          "available",
+                          "inactive",
+                          "deleted"
+                        ]
+                      },
+                      "team_id": {
+                        "type": [
+                          "string",
+                          "null"
+                        ],
+                        "pattern": "^[A-Za-z0-9_.:-]{1,128}$"
+                      },
+                      "name": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 128,
+                        "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u2028\\u2029\\u061c\\u200e\\u200f\\u202a-\\u202e\\u2066-\\u2069]+$",
+                        "description": "Optional configuration name. Never an identifier."
+                      },
+                      "version_name": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 128,
+                        "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u2028\\u2029\\u061c\\u200e\\u200f\\u202a-\\u202e\\u2066-\\u2069]+$",
+                        "description": "Optional label of the recorded configuration version."
+                      },
+                      "agent_name": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 128,
+                        "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u2028\\u2029\\u061c\\u200e\\u200f\\u202a-\\u202e\\u2066-\\u2069]+$",
+                        "description": "Optional agent name. Never an identifier."
+                      }
+                    },
+                    "required": [
+                      "status",
+                      "bootstrapped_at",
+                      "configuration_id",
+                      "configuration_version_id",
+                      "configuration_status",
+                      "agent_id",
+                      "agent_status",
+                      "team_id"
+                    ],
+                    "additionalProperties": false,
+                    "description": "The one-time Kalkidan organization bootstrap record. Verdictan never recreates a deleted configuration or agent; the status fields then report deleted."
+                  }
+                ]
+              },
+              "agents": {
+                "type": "array",
+                "maxItems": 50,
+                "description": "Agents that the user may attach a host to with resources.provision agent_id. The bootstrapped Kalkidan agent is first, with default true.",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "agent_id": {
+                      "type": "string",
+                      "pattern": "^[A-Za-z0-9_.:-]{1,128}$"
+                    },
+                    "team_id": {
+                      "type": "string",
+                      "pattern": "^[A-Za-z0-9_.:-]{1,128}$"
+                    },
+                    "name": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 128,
+                      "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u2028\\u2029\\u061c\\u200e\\u200f\\u202a-\\u202e\\u2066-\\u2069]+$",
+                      "description": "Optional agent name. Never an identifier."
+                    },
+                    "configuration_id": {
+                      "type": "string",
+                      "pattern": "^[A-Za-z0-9_.:-]{1,128}$"
+                    },
+                    "configuration_version_id": {
+                      "type": "string",
+                      "pattern": "^[A-Za-z0-9_.:-]{1,128}$"
+                    },
+                    "configuration_name": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 128,
+                      "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u2028\\u2029\\u061c\\u200e\\u200f\\u202a-\\u202e\\u2066-\\u2069]+$",
+                      "description": "Optional name of the deployed configuration."
+                    },
+                    "version_name": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 128,
+                      "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u2028\\u2029\\u061c\\u200e\\u200f\\u202a-\\u202e\\u2066-\\u2069]+$",
+                      "description": "Optional label of the deployed version."
+                    },
+                    "default": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "agent_id",
+                    "team_id",
+                    "configuration_id",
+                    "configuration_version_id",
+                    "default"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            },
+            "required": [
+              "schema_version",
+              "org_id",
+              "user_id",
+              "status",
+              "recovery_action",
+              "dispatch_allowed",
+              "readiness",
+              "candidates",
+              "provider_connections",
+              "discovery_limit",
+              "teams",
+              "policies",
+              "default_configuration",
+              "bootstrap",
+              "agents"
+            ],
+            "additionalProperties": true
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "event": {
+            "const": "setup.default_ensured"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "data": {
+            "type": "object",
+            "properties": {
+              "schema_version": {
+                "const": 1
+              },
+              "status": {
+                "enum": [
+                  "created",
+                  "existing"
+                ]
+              },
+              "configuration_id": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9_.:-]{1,128}$"
+              },
+              "configuration_version_id": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9_.:-]{1,128}$"
+              },
+              "name": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128,
+                "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u2028\\u2029\\u061c\\u200e\\u200f\\u202a-\\u202e\\u2066-\\u2069]+$",
+                "description": "Optional configuration name. Never an identifier."
+              },
+              "version_name": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128,
+                "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u2028\\u2029\\u061c\\u200e\\u200f\\u202a-\\u202e\\u2066-\\u2069]+$",
+                "description": "Optional configuration version label, such as a semantic version."
+              },
+              "marker": {
+                "const": "kalkidan_default"
+              },
+              "provider_restriction": {
+                "const": "none"
+              },
+              "mandatory_gateway": {
+                "const": true
+              }
+            },
+            "required": [
+              "schema_version",
+              "status",
+              "configuration_id",
+              "configuration_version_id",
+              "marker",
+              "provider_restriction",
+              "mandatory_gateway"
+            ],
+            "additionalProperties": false
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "event": {
+            "const": "setup.bootstrapped"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "data": {
+            "type": "object",
+            "properties": {
+              "schema_version": {
+                "const": 1
+              },
+              "status": {
+                "enum": [
+                  "bootstrapped",
+                  "already_bootstrapped"
+                ]
+              },
+              "configuration_id": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9_.:-]{1,128}$"
+              },
+              "configuration_version_id": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9_.:-]{1,128}$"
+              },
+              "agent_id": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9_.:-]{1,128}$"
+              },
+              "name": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128,
+                "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u2028\\u2029\\u061c\\u200e\\u200f\\u202a-\\u202e\\u2066-\\u2069]+$",
+                "description": "Optional configuration name. Never an identifier."
+              },
+              "version_name": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128,
+                "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u2028\\u2029\\u061c\\u200e\\u200f\\u202a-\\u202e\\u2066-\\u2069]+$",
+                "description": "Optional configuration version label, such as a semantic version."
+              },
+              "agent_name": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128,
+                "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u2028\\u2029\\u061c\\u200e\\u200f\\u202a-\\u202e\\u2066-\\u2069]+$",
+                "description": "Optional agent name. Never an identifier."
+              },
+              "default_upgraded": {
+                "type": "boolean"
+              },
+              "bootstrap": {
+                "type": "object",
+                "properties": {
+                  "status": {
+                    "enum": [
+                      "bootstrapped",
+                      "adopted"
+                    ]
+                  },
+                  "bootstrapped_at": {
+                    "type": "string",
+                    "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d{1,9})?Z$"
+                  },
+                  "configuration_id": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z0-9_.:-]{1,128}$"
+                  },
+                  "configuration_version_id": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z0-9_.:-]{1,128}$"
+                  },
+                  "configuration_status": {
+                    "enum": [
+                      "available",
+                      "deleted"
+                    ]
+                  },
+                  "agent_id": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z0-9_.:-]{1,128}$"
+                  },
+                  "agent_status": {
+                    "enum": [
+                      "available",
+                      "inactive",
+                      "deleted"
+                    ]
+                  },
+                  "team_id": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "pattern": "^[A-Za-z0-9_.:-]{1,128}$"
+                  },
+                  "name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 128,
+                    "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u2028\\u2029\\u061c\\u200e\\u200f\\u202a-\\u202e\\u2066-\\u2069]+$",
+                    "description": "Optional configuration name. Never an identifier."
+                  },
+                  "version_name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 128,
+                    "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u2028\\u2029\\u061c\\u200e\\u200f\\u202a-\\u202e\\u2066-\\u2069]+$",
+                    "description": "Optional label of the recorded configuration version."
+                  },
+                  "agent_name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 128,
+                    "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u2028\\u2029\\u061c\\u200e\\u200f\\u202a-\\u202e\\u2066-\\u2069]+$",
+                    "description": "Optional agent name. Never an identifier."
+                  }
+                },
+                "required": [
+                  "status",
+                  "bootstrapped_at",
+                  "configuration_id",
+                  "configuration_version_id",
+                  "configuration_status",
+                  "agent_id",
+                  "agent_status",
+                  "team_id"
+                ],
+                "additionalProperties": false,
+                "description": "The one-time Kalkidan organization bootstrap record. Verdictan never recreates a deleted configuration or agent; the status fields then report deleted."
+              },
+              "marker": {
+                "const": "kalkidan_default"
+              },
+              "provider_restriction": {
+                "const": "none"
+              },
+              "mandatory_gateway": {
+                "const": true
+              }
+            },
+            "required": [
+              "schema_version",
+              "status",
+              "configuration_id",
+              "configuration_version_id",
+              "agent_id",
+              "default_upgraded",
+              "bootstrap",
+              "marker",
+              "provider_restriction",
+              "mandatory_gateway"
+            ],
+            "additionalProperties": false
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "event": {
+            "const": "resources.provisioned"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "data": {
+            "type": "object",
+            "properties": {
+              "schema_version": {
+                "const": 1
+              },
+              "status": {
+                "enum": [
+                  "created",
+                  "existing"
+                ]
+              },
+              "agent_id": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9_.:-]{1,128}$"
+              },
+              "gateway_id": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9_.:-]{1,128}$"
+              },
+              "runtime_registration_id": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9_.:-]{1,128}$"
+              },
+              "region_id": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9_.:-]{1,128}$"
+              },
+              "installation_id": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9_.:-]{1,128}$"
+              },
+              "host_id": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9_.:-]{1,128}$"
+              },
+              "configuration_id": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9_.:-]{1,128}$"
+              },
+              "configuration_version_id": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9_.:-]{1,128}$"
+              },
+              "configuration_source": {
+                "enum": [
+                  "selected",
+                  "kalkidan_default",
+                  "agent_deployment"
+                ]
+              },
+              "agent_source": {
+                "enum": [
+                  "host",
+                  "kalkidan_default_agent",
+                  "selected_agent"
+                ],
+                "description": "host: a new agent for this host. kalkidan_default_agent: the host gateway is attached to the bootstrapped Kalkidan agent. selected_agent: the host gateway is attached to the requested agent_id."
+              }
+            },
+            "required": [
+              "schema_version",
+              "status",
+              "agent_id",
+              "gateway_id",
+              "runtime_registration_id",
+              "region_id",
+              "installation_id",
+              "host_id",
+              "configuration_id",
+              "configuration_version_id",
+              "configuration_source",
+              "agent_source"
+            ],
+            "additionalProperties": false
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "event": {
+            "const": "diagnostics.previewed"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "data": {
+            "type": "object",
+            "properties": {
+              "schema_version": {
+                "const": 1
+              },
+              "preview_id": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{64}$"
+              },
+              "export_requires_confirmation": {
+                "const": true
+              },
+              "bundle": {
+                "type": "object",
+                "properties": {
+                  "schema_version": {
+                    "const": 1
+                  },
+                  "kind": {
+                    "const": "desktop.support_bundle"
+                  },
+                  "uploaded": {
+                    "const": false
+                  },
+                  "capture": {
+                    "const": "minimal_metadata"
+                  },
+                  "identifiers": {
+                    "type": "object",
+                    "properties": {
+                      "installation_id": {
+                        "type": "string",
+                        "format": "uuid"
+                      },
+                      "host_id": {
+                        "type": "string",
+                        "format": "uuid"
+                      },
+                      "project_id": {
+                        "type": "string",
+                        "format": "uuid"
+                      },
+                      "conversation_id": {
+                        "type": "string",
+                        "format": "uuid"
+                      },
+                      "turn_id": {
+                        "type": "string",
+                        "format": "uuid"
+                      },
+                      "session_id": {
+                        "type": "string",
+                        "format": "uuid"
+                      },
+                      "runtime_id": {
+                        "type": "string",
+                        "format": "uuid"
+                      },
+                      "request_id": {
+                        "type": "string",
+                        "format": "uuid"
+                      },
+                      "attempt_id": {
+                        "type": "string",
+                        "format": "uuid"
+                      },
+                      "escalation_id": {
+                        "type": "string",
+                        "format": "uuid"
+                      },
+                      "organization_id": {
+                        "type": "string",
+                        "format": "uuid"
+                      },
+                      "user_id": {
+                        "type": "string",
+                        "format": "uuid"
+                      },
+                      "region_id": {
+                        "type": "string",
+                        "format": "uuid"
+                      },
+                      "provider_connection_id": {
+                        "type": "string",
+                        "format": "uuid"
+                      },
+                      "correlation_id": {
+                        "type": "string",
+                        "format": "uuid"
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  "versions": {
+                    "type": "object",
+                    "properties": {
+                      "cli": {
+                        "type": "string",
+                        "pattern": "^\\d{1,6}\\.\\d{1,6}\\.\\d{1,6}$"
+                      },
+                      "desktop": {
+                        "type": "string",
+                        "pattern": "^\\d{1,6}\\.\\d{1,6}\\.\\d{1,6}$"
+                      },
+                      "agent": {
+                        "type": "string",
+                        "pattern": "^\\d{1,6}\\.\\d{1,6}\\.\\d{1,6}$"
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  "components": {
+                    "type": "array",
+                    "maxItems": 9,
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "component": {
+                          "enum": [
+                            "desktop",
+                            "cli",
+                            "api",
+                            "console",
+                            "gateway",
+                            "provider",
+                            "event_upload",
+                            "credential_store",
+                            "ssh"
+                          ]
+                        },
+                        "state": {
+                          "enum": [
+                            "ready",
+                            "unavailable",
+                            "blocked",
+                            "expired",
+                            "unknown"
+                          ]
+                        },
+                        "error_code": {
+                          "enum": [
+                            "desktop.auth_expired",
+                            "desktop.permission_denied",
+                            "desktop.secure_storage_unavailable",
+                            "desktop.region_mismatch",
+                            "desktop.gateway_unavailable",
+                            "desktop.version_unsupported",
+                            "desktop.resume_incompatible",
+                            "setup.permission_required",
+                            "provider.access_missing",
+                            "pricing.unavailable",
+                            "budget.depleted",
+                            "rate_limited",
+                            "policy.denied",
+                            "policy.review_required",
+                            "audit.delivery_failed",
+                            "component.unavailable",
+                            null
+                          ]
+                        }
+                      },
+                      "required": [
+                        "component",
+                        "state",
+                        "error_code"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "platform": {
+                    "enum": [
+                      "darwin",
+                      "linux",
+                      "win32",
+                      null
+                    ]
+                  },
+                  "architecture": {
+                    "enum": [
+                      "arm64",
+                      "x64",
+                      null
+                    ]
+                  }
+                },
+                "required": [
+                  "schema_version",
+                  "kind",
+                  "uploaded",
+                  "capture",
+                  "identifiers",
+                  "versions",
+                  "components",
+                  "platform",
+                  "architecture"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "schema_version",
+              "preview_id",
+              "export_requires_confirmation",
+              "bundle"
+            ],
+            "additionalProperties": false
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "event": {
+            "const": "diagnostics.exported"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "data": {
+            "type": "object",
+            "properties": {
+              "schema_version": {
+                "const": 1
+              },
+              "preview_id": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{64}$"
+              },
+              "content_type": {
+                "const": "application/json"
+              },
+              "filename": {
+                "const": "verdictan-support.json"
+              },
+              "content": {
+                "type": "string",
+                "maxLength": 16384
+              }
+            },
+            "required": [
+              "schema_version",
+              "preview_id",
+              "content_type",
+              "filename",
+              "content"
+            ],
+            "additionalProperties": false
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "event": {
+            "const": "hosts.inspected"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "data": {
+            "type": "object",
+            "properties": {
+              "schema_version": {
+                "const": 1
+              },
+              "hosts": {
+                "type": "array",
+                "maxItems": 100,
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "installation_id": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "host_id": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "status": {
+                      "enum": [
+                        "active",
+                        "revoked"
+                      ]
+                    },
+                    "active_runtime_count": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "revoked_at": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "pattern": "^[0-9T :.+Z-]{10,64}$"
+                    }
+                  },
+                  "required": [
+                    "installation_id",
+                    "host_id",
+                    "status",
+                    "active_runtime_count",
+                    "revoked_at"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "limit": {
+                "const": 100
+              },
+              "has_more": {
+                "type": "boolean"
+              },
+              "next_cursor": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "pattern": "^[A-Za-z0-9_-]{1,2048}$"
+              }
+            },
+            "required": [
+              "schema_version",
+              "hosts",
+              "limit",
+              "has_more",
+              "next_cursor"
+            ],
+            "additionalProperties": false
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "event": {
+            "const": "host.revoked"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "data": {
+            "type": "object",
+            "properties": {
+              "installation_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "host_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "revoked": {
+                "const": true
+              }
+            },
+            "required": [
+              "installation_id",
+              "host_id",
+              "revoked"
+            ],
+            "additionalProperties": false
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "event": {
+            "const": "inventory.inspected"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "data": {
+            "title": "Captured running CLI identity",
+            "type": "object",
+            "required": [
+              "schema_version",
+              "component",
+              "cli_version",
+              "source_revision",
+              "executable_sha256",
+              "packaged",
+              "protocol_min",
+              "protocol_max"
+            ],
+            "properties": {
+              "schema_version": {
+                "const": 1
+              },
+              "component": {
+                "const": "verdictan-cli"
+              },
+              "cli_version": {
+                "type": "string",
+                "pattern": "^\\d+\\.\\d+\\.\\d+(?:-[0-9A-Za-z.-]+)?$"
+              },
+              "source_revision": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "pattern": "^[a-f0-9]{40}$"
+              },
+              "executable_sha256": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "pattern": "^[a-f0-9]{64}$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "packaged": {
+                "type": "boolean"
+              },
+              "protocol_min": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "protocol_max": {
+                "type": "integer",
+                "minimum": 1
+              }
+            },
+            "additionalProperties": true
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "event": {
+            "enum": [
+              "project.permissions_result",
+              "review.list_result",
+              "review.decide_result",
+              "context.settings_result",
+              "context.configure_result",
+              "context.search_result",
+              "context.list_result",
+              "context.publish_result",
+              "context.delete_result",
+              "operation.inspect_result"
+            ]
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "data": {
+            "type": "object",
+            "properties": {
+              "project_scope": {
+                "type": "object",
+                "properties": {
+                  "organization_id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 256
+                  },
+                  "project_id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 256
+                  }
+                },
+                "required": [
+                  "organization_id",
+                  "project_id"
+                ],
+                "additionalProperties": false
+              },
+              "actor_id": {
+                "type": "string"
+              },
+              "revision": {
+                "type": "string"
+              },
+              "observed_at": {
+                "type": "string",
+                "format": "date-time"
+              }
+            },
+            "required": [
+              "project_scope",
+              "actor_id",
+              "revision",
+              "observed_at"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "event": {
+            "const": "history.list_result"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "data": {
+            "type": "object",
+            "properties": {
+              "history_scope": {
+                "type": "object",
+                "properties": {
+                  "organization_id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 256
+                  },
+                  "project_id": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$"
+                  },
+                  "conversation_id": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$"
+                  },
+                  "task_id": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$"
+                  },
+                  "run_id": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$"
+                  }
+                },
+                "required": [
+                  "organization_id"
+                ],
+                "minProperties": 2,
+                "additionalProperties": false
+              },
+              "actor_id": {
+                "type": "string"
+              },
+              "observed_at": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "as_of": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "items": {
+                "type": "array",
+                "maxItems": 25,
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "organization_id": {
+                      "type": "string"
+                    },
+                    "project_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "conversation_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "task_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "run_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "turn_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "session_id": {
+                      "type": "string"
+                    },
+                    "runtime_id": {
+                      "type": "string"
+                    },
+                    "agent_kind": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "request_id": {
+                      "type": "string"
+                    },
+                    "decision_outcome": {
+                      "type": "string"
+                    },
+                    "policy_revision": {
+                      "type": "string"
+                    },
+                    "reason_code": {
+                      "type": "string"
+                    },
+                    "review_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "review_status": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "review_decision": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "audit_id": {
+                      "type": "string"
+                    },
+                    "timestamp": {
+                      "type": "string",
+                      "format": "date-time"
+                    },
+                    "provider": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "model": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "timings": {
+                      "type": "object"
+                    },
+                    "usage": {
+                      "type": "object",
+                      "properties": {
+                        "currency": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "measured_cost": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "input_tokens": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "output_tokens": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "cached_input_tokens": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "total_tokens": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "settlement_state": {
+                          "type": "string"
+                        },
+                        "source": {
+                          "enum": [
+                            "usage_authorization_ledger",
+                            "gateway_usage_audit",
+                            "unavailable"
+                          ]
+                        },
+                        "provider_charge": {
+                          "const": "not_reported"
+                        }
+                      },
+                      "required": [
+                        "currency",
+                        "measured_cost",
+                        "input_tokens",
+                        "output_tokens",
+                        "total_tokens",
+                        "settlement_state",
+                        "source"
+                      ]
+                    },
+                    "settlement": {
+                      "type": "object",
+                      "properties": {
+                        "state": {
+                          "type": "string"
+                        },
+                        "released_at": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "settled_at": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "corrected": {
+                          "type": "boolean"
+                        }
+                      },
+                      "required": [
+                        "state",
+                        "released_at",
+                        "settled_at",
+                        "corrected"
+                      ]
+                    },
+                    "revision": {
+                      "type": "string"
+                    },
+                    "observed_at": {
+                      "type": "string",
+                      "format": "date-time"
+                    }
+                  },
+                  "required": [
+                    "organization_id",
+                    "project_id",
+                    "conversation_id",
+                    "task_id",
+                    "run_id",
+                    "request_id",
+                    "decision_outcome",
+                    "policy_revision",
+                    "reason_code",
+                    "review_id",
+                    "audit_id",
+                    "model",
+                    "usage",
+                    "settlement",
+                    "revision",
+                    "observed_at"
+                  ]
+                }
+              },
+              "next_cursor": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "consistency": {
+                "const": "current_ledger"
+              },
+              "replay_executes_requests": {
+                "const": false
+              }
+            },
+            "required": [
+              "history_scope",
+              "actor_id",
+              "observed_at",
+              "as_of",
+              "items",
+              "next_cursor",
+              "consistency"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "event": {
+            "const": "secure_storage.waiting"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "data": {
+            "type": "object",
+            "description": "Progress only. A secure-storage call for this correlation ID has waited longer than 2000 ms, for example while macOS shows a Keychain access prompt. The operation continues. Its normal result or error event follows. The broker emits at most one waiting event for each call.",
+            "properties": {
+              "operation": {
+                "enum": [
+                  "read",
+                  "write",
+                  "delete"
+                ]
+              },
+              "elapsed_ms": {
+                "type": "integer",
+                "minimum": 0
+              }
+            },
+            "required": [
+              "operation",
+              "elapsed_ms"
+            ],
+            "additionalProperties": false
+          }
+        }
+      }
+    }
+  ]
+}

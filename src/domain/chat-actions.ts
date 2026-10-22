@@ -372,8 +372,8 @@ export const chatActions: readonly ChatActionDefinition[] = [
     group: 'share',
     keywords: 'tokens cost requests managed',
     command: 'session-usage-history',
-    // The history needs managed agents on this computer.
-    visible: ({ state }) => state.usageHistory && !state.remote,
+    // The history needs managed agents. A chat on an SSH host has a history too.
+    visible: ({ state }) => state.usageHistory,
     enabled: all(checks.saved),
   }),
   define({

@@ -1,3 +1,4 @@
+import { constants } from 'node:fs';
 import { EventEmitter } from 'node:events';
 import { resolve } from 'node:path';
 import { backendLoader } from './backend-loader';
@@ -23,8 +24,17 @@ export async function desktopFixture(platform = 'linux', failure = '') {
     missingPath: '',
     configError: false,
     stopError: false,
+    // The answers of an SSH host and of the account for the usage and outcome handlers.
+    runOutcomes: undefined as unknown,
+    remoteBinding: null as unknown,
+    localBinding: null as unknown,
+    ptyShells: [] as unknown,
   };
   let sequence = 0;
+  const account = {
+    org: '00000000-0000-4000-8000-000000000001',
+    user: '00000000-0000-4000-8000-000000000002',
+  };
   const record =
     (name: string, result: any = undefined) =>
     (...args: any[]) => {
@@ -183,7 +193,9 @@ export async function desktopFixture(platform = 'linux', failure = '') {
   class Remote {
     load = asyncRecord('remoteLoad');
     connectSaved = asyncRecord('remoteAutoConnect');
+    hosts = hosts;
     list = () => hosts;
+    liveRuns = () => new Map([['s', 'live-run']]);
     busy = () => false;
     add = asyncRecord('remoteAdd');
     check = asyncRecord('remoteCheck');
@@ -196,13 +208,20 @@ export async function desktopFixture(platform = 'linux', failure = '') {
     onConnected = record('remoteConnected');
     agentInstallations = asyncRecord('remoteAgentInstallations');
     chooseAgentExecutable = asyncRecord('remoteAgentChoice');
+    reconcile = asyncRecord('remoteReconcile');
     call = async (host: string, method: string, args: any[]) => {
       calls.push(['remote', host, method, args]);
       if (state.remoteError) throw Error(state.remoteError);
       if (method === 'transcript') return { messages: [] };
+      if (method === 'hello') return { platform: 'linux', arch: 'x64', systemVersion: '6.12.0' };
       if (method === 'snapshot')
         return { sessions: [{ ...sessions[0], cwd: '/remote' }], warnings: ['warning'] };
       if (method === 'project-prepare') return '/remote-new';
+      if (method === 'run-outcomes') return state.runOutcomes;
+      if (method === 'ptyList') return state.ptyShells;
+      if (method === 'chatStatus')
+        return { id: args[0], sessionId: 's', status: 'running', messages: [] };
+      if (method === 'conversation-binding') return state.remoteBinding;
       if (method === 'git') return { branch: 'main', changes: 0, worktrees: [] };
       if (method === 'repository-snapshot') return { sessions: [sessions[0]], git: null };
       if (['validate', 'clone', 'worktree'].includes(method))
@@ -258,12 +277,19 @@ export async function desktopFixture(platform = 'linux', failure = '') {
       if (request.path) await this.options.add(request.path, request.groupId);
     };
   }
+  const power = new EventEmitter();
   const stubs: Record<string, unknown> = {
     electron: {
       app,
       BrowserWindow: Window,
       nativeTheme: theme,
-      powerMonitor: new EventEmitter(),
+      powerMonitor: power,
+      net: {
+        isOnline: () => true,
+        request: () => {
+          throw new Error('No network in desktop backend tests.');
+        },
+      },
       ipcMain: { handle: (name: string, fn: Function) => handlers.set(name, fn) },
       dialog: {
         showErrorBox: record('errorBox'),
@@ -283,7 +309,7 @@ export async function desktopFixture(platform = 'linux', failure = '') {
       },
       clipboard: { writeText: record('clipboard') },
     },
-    'node:fs': { existsSync: () => true },
+    'node:fs': { existsSync: () => true, constants },
     'node:fs/promises': {
       readFile: async (path: string) => {
         if (path.endsWith('verdictan-region.json')) return JSON.stringify({ region: 'eu' });
@@ -296,6 +322,10 @@ export async function desktopFixture(platform = 'linux', failure = '') {
         return '[projects."/discovered"]';
       },
       writeFile: asyncRecord('writeFile'),
+      // No saved proxy sign-in exists.
+      open: async () => {
+        throw Object.assign(new Error('missing'), { code: 'ENOENT' });
+      },
       rm: asyncRecord('rm'),
       stat: async () => ({ isDirectory: () => state.directory }),
       realpath: async (path: string) => {
@@ -332,6 +362,7 @@ export async function desktopFixture(platform = 'linux', failure = '') {
       },
       managed: {
         stopAll: asyncRecord('managedStopAll'),
+        checkExpiry: record('managedCheckExpiry'),
         revokeHost: asyncRecord('managedRevokeHost'),
       },
       bindings: {
@@ -339,6 +370,7 @@ export async function desktopFixture(platform = 'linux', failure = '') {
           hostKey === 'other' ? { installationId: 'installation', hostId: 'other-id' } : null,
         forgetHost: asyncRecord('forgetHost'),
         clearConversations: asyncRecord('clearConversations'),
+        read: asyncRecord('bindingRead', () => state.localBinding),
       },
       account: {
         status: record('verdictanStatus'),
@@ -352,6 +384,40 @@ export async function desktopFixture(platform = 'linux', failure = '') {
         autoRenew: asyncRecord('verdictanAutoRenew'),
       },
       setup: {
+        inspect: async () => ({
+          account: {
+            apiUrl: 'https://api.test',
+            organizationId: account.org,
+            userId: account.user,
+          },
+          client: {
+            request: async (operation: string, parameters: any) => {
+              calls.push(['account', operation]);
+              if (operation === 'capabilities')
+                return {
+                  data: {
+                    cli_version: '1.0.0',
+                    protocol_min: 1,
+                    protocol_max: 1,
+                    capabilities: ['history.list'],
+                    managed_execution_ready: true,
+                    tested_agents: [],
+                  },
+                };
+              return {
+                data: {
+                  actor_id: account.user,
+                  history_scope: parameters.history_scope,
+                  observed_at: '2026-10-21T12:00:00.000Z',
+                  as_of: null,
+                  items: [],
+                  next_cursor: null,
+                  replay_executes_requests: false,
+                },
+              };
+            },
+          },
+        }),
         status: asyncRecord('verdictanSetup'),
         select: asyncRecord('verdictanSelect'),
         applyRecommended: asyncRecord('verdictanApplyRecommended'),
@@ -359,6 +425,15 @@ export async function desktopFixture(platform = 'linux', failure = '') {
       launch: { prepare: asyncRecord('managedPrepare') },
       remoteBroker: { reset: record('brokerReset'), request: asyncRecord('brokerRequest') },
     }),
+  });
+  stub('verdictan/transfer', {
+    transferRuntime: async (options: any) => {
+      calls.push(['runtimeTransfer', options.host, options.desktopVersion]);
+      options.progress?.({ phase: 'copying', bytes: 5, totalBytes: 10 });
+      await (state as any).duringCopy?.();
+      await options.call('begin', ['discovered', 'files']);
+      return { hostId: 'copied' };
+    },
   });
   stub('storage/data-directory', { dataDirectory: () => '/fixture' });
   stub('project-groups', { ProjectGroups: Groups });
@@ -519,5 +594,5 @@ export async function desktopFixture(platform = 'linux', failure = '') {
       handlers.get(name)!({ sender: w.webContents, senderFrame: w.webContents.mainFrame }, ...args),
     );
   }
-  return { calls, windows, handlers, state, groups, sessions, app, theme, invoke };
+  return { calls, windows, handlers, state, groups, sessions, app, theme, invoke, account, power };
 }

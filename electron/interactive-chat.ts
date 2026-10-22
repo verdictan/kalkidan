@@ -14,6 +14,7 @@ import { startMemoryTools, type ManagedProjectContext } from './agents/memory-to
 import { parseQuestions, validateAnswers } from './agents/questions';
 import { DesktopProtocolError } from './verdictan/protocol';
 import { managedLaunchBlock } from '../src/domain/verdictan';
+import { journal } from './diagnostics/journal';
 
 /** A run that ended, for the chat outcome store. */
 export interface RunEnded {
@@ -47,6 +48,9 @@ interface Active {
   questions: Map<string, { wireId: string | number; input: any }>;
   stopped: boolean;
   finishing: boolean;
+  /** For the local stream and turn measurements. */
+  startedAt: number;
+  firstOutput?: boolean;
   stderr: string;
   messageId: string;
   memoryScope?: MemoryScope;
@@ -126,6 +130,7 @@ export class InteractiveChatRunner {
       questions: new Map(),
       stopped: false,
       finishing: false,
+      startedAt: Date.now(),
       stderr: '',
       messageId: 'assistant',
     };
@@ -420,6 +425,10 @@ export class InteractiveChatRunner {
   }
   private message(run: Active, id: string, text: string, append = false) {
     if (!text) return;
+    if (!this.internal && !run.firstOutput) {
+      run.firstOutput = true;
+      journal.sample('stream_first_output_ms', Date.now() - run.startedAt);
+    }
     const existing = run.state.messages.find((m) => m.id === id);
     if (this.internal && text.length + (append ? existing?.text.length || 0 : 0) > 16000) {
       run.state.error = 'Memory extraction exceeded its output limit.';
@@ -818,6 +827,13 @@ export class InteractiveChatRunner {
           ? 'Stopped'
           : 'Response failed';
     this.clearPending(run);
+    if (!this.internal)
+      journal.turnEnded(
+        status,
+        Date.now() - run.startedAt,
+        run.state.governance?.requests.map((request) => request.id),
+        run.state.id,
+      );
     if (!this.internal && this.onEnded) {
       try {
         this.onEnded({ state: run.state, sessionId: run.session.id, create: run.create });
@@ -932,6 +948,17 @@ export class InteractiveChatRunner {
   }
   runningCount() {
     return [...this.runs.values()].filter((run) => run.state.status === 'running').length;
+  }
+  /** The runs that are still working, with the session that each run started with. */
+  running() {
+    return [...this.runs.values()]
+      .filter((run) => run.state.status === 'running')
+      .map((run) => ({
+        id: run.state.id,
+        agent: run.session.agent,
+        sessionId: run.state.sessionId || run.session.id,
+        create: run.create,
+      }));
   }
   dispose() {
     for (const controller of this.extractionStops.keys()) controller.abort();

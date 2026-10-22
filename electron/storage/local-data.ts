@@ -412,6 +412,8 @@ export class LocalData {
 const hostOwnedEntries = [
   'managed-agent-homes',
   'operations',
+  // The socket folder of the helper. The helper stops after the removal.
+  'run',
   'runtime',
   'docs',
   'verdictan-bindings.json',

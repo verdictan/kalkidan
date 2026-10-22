@@ -1,0 +1,710 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Implemented auth desktop protocol 1 request",
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "correlation_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{1,128}$"
+    },
+    "operation": {
+      "enum": [
+        "capabilities",
+        "authorization.start",
+        "authorization.cancel",
+        "status",
+        "account.inspect",
+        "session.renew",
+        "session.logout",
+        "runtime.provision",
+        "runtime.export",
+        "runtime.revoke",
+        "review.inspect",
+        "setup.inspect",
+        "setup.ensure_default",
+        "setup.bootstrap",
+        "resources.provision",
+        "diagnostics.preview",
+        "diagnostics.export",
+        "runtime.renew",
+        "hosts.inspect",
+        "host.revoke",
+        "inventory.inspect",
+        "project.permissions",
+        "history.list",
+        "review.list",
+        "review.decide",
+        "context.settings",
+        "context.configure",
+        "context.search",
+        "context.list",
+        "context.publish",
+        "context.delete",
+        "operation.inspect"
+      ]
+    },
+    "intent": {
+      "enum": [
+        "login",
+        "register"
+      ]
+    },
+    "parameters": {
+      "type": "object"
+    },
+    "runtime_id": {
+      "type": "string",
+      "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+    },
+    "escalation_id": {
+      "type": "string",
+      "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+    },
+    "preview_id": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "confirmed": {
+      "const": true
+    },
+    "gateway_stopped": {
+      "const": true
+    },
+    "installation_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "host_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "cursor": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{1,1024}$"
+    },
+    "project_scope": {
+      "type": "object",
+      "properties": {
+        "organization_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "project_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        }
+      },
+      "required": [
+        "organization_id",
+        "project_id"
+      ],
+      "additionalProperties": false
+    },
+    "task_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256
+    },
+    "operation_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "expected_revision": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256
+    },
+    "decision": {
+      "enum": [
+        "approve",
+        "deny"
+      ]
+    },
+    "reason": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 2000
+    },
+    "enabled": {
+      "type": "boolean"
+    },
+    "query": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 8000
+    },
+    "limit": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 25
+    },
+    "max_characters": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 8000
+    },
+    "source": {
+      "type": "object"
+    },
+    "content": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 8000
+    },
+    "knowledge_id": {
+      "type": "string"
+    },
+    "history_scope": {
+      "type": "object",
+      "properties": {
+        "organization_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "project_id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$"
+        },
+        "conversation_id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$"
+        },
+        "task_id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$"
+        },
+        "run_id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$"
+        }
+      },
+      "required": [
+        "organization_id"
+      ],
+      "minProperties": 2,
+      "additionalProperties": false
+    }
+  },
+  "required": [
+    "schema_version",
+    "correlation_id",
+    "operation"
+  ],
+  "additionalProperties": true,
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "operation": {
+            "const": "runtime.provision"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "parameters"
+        ],
+        "properties": {
+          "parameters": {
+            "type": "object",
+            "required": [
+              "installation_id",
+              "host_id",
+              "session_id",
+              "agent_id",
+              "gateway_id",
+              "provider",
+              "model"
+            ],
+            "properties": {
+              "installation_id": {
+                "type": "string",
+                "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+              },
+              "host_id": {
+                "type": "string",
+                "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+              },
+              "session_id": {
+                "type": "string",
+                "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+              },
+              "agent_id": {
+                "type": "string",
+                "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+              },
+              "provider_connection_id": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "gateway_id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128
+              },
+              "provider": {
+                "type": "string",
+                "pattern": "^[a-z0-9][a-z0-9_-]{0,63}$"
+              },
+              "model": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 256
+              },
+              "provider_access_mode": {
+                "enum": [
+                  "byok",
+                  "codex_subscription",
+                  "claude_subscription"
+                ]
+              }
+            },
+            "additionalProperties": false,
+            "allOf": [
+              {
+                "if": {
+                  "required": [
+                    "provider_access_mode"
+                  ],
+                  "properties": {
+                    "provider_access_mode": {
+                      "enum": [
+                        "codex_subscription",
+                        "claude_subscription"
+                      ]
+                    }
+                  }
+                },
+                "then": {
+                  "properties": {
+                    "provider_connection_id": {
+                      "type": "null"
+                    }
+                  },
+                  "allOf": [
+                    {
+                      "if": {
+                        "properties": {
+                          "provider_access_mode": {
+                            "const": "claude_subscription"
+                          }
+                        }
+                      },
+                      "then": {
+                        "properties": {
+                          "provider": {
+                            "const": "anthropic"
+                          }
+                        }
+                      },
+                      "else": {
+                        "properties": {
+                          "provider": {
+                            "const": "openai"
+                          }
+                        }
+                      }
+                    }
+                  ]
+                },
+                "else": {
+                  "required": [
+                    "provider_connection_id"
+                  ],
+                  "properties": {
+                    "provider_connection_id": {
+                      "type": "string",
+                      "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "operation": {
+            "enum": [
+              "runtime.export",
+              "runtime.revoke"
+            ]
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "runtime_id"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "operation": {
+            "const": "review.inspect"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "escalation_id"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "operation": {
+            "const": "resources.provision"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "parameters"
+        ],
+        "properties": {
+          "parameters": {
+            "type": "object",
+            "required": [
+              "installation_id",
+              "host_id",
+              "team_id"
+            ],
+            "properties": {
+              "installation_id": {
+                "type": "string",
+                "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+              },
+              "host_id": {
+                "type": "string",
+                "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+              },
+              "team_id": {
+                "type": "string",
+                "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+              },
+              "configuration_id": {
+                "type": "string",
+                "pattern": "^(?:cfg_[0-9a-fA-F]{32}|[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+              },
+              "configuration_version_id": {
+                "type": "string",
+                "pattern": "^(?:cfgv_[0-9a-fA-F]{32}|[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+              },
+              "agent_id": {
+                "type": "string",
+                "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+                "description": "Optional agent from setup.inspected agents. Its deployed configuration applies. Do not combine with configuration fields."
+              }
+            },
+            "additionalProperties": false,
+            "dependentRequired": {
+              "configuration_id": [
+                "configuration_version_id"
+              ],
+              "configuration_version_id": [
+                "configuration_id"
+              ]
+            },
+            "description": "Omit the configuration fields and agent_id to use the default: the bootstrapped Kalkidan agent when the user may use it in team_id, else a new host agent with the default Kalkidan configuration. Supply agent_id to attach the host to that agent. Supply both configuration fields to create a host agent with that version.",
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "agent_id",
+                    "configuration_id"
+                  ]
+                },
+                {
+                  "required": [
+                    "agent_id",
+                    "configuration_version_id"
+                  ]
+                }
+              ]
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "operation": {
+            "const": "setup.bootstrap"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "team_id": {
+                "type": "string",
+                "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+                "description": "Optional team of the Kalkidan agent. Without it, Verdictan uses the oldest team of the administrator that permits agent creation and deployment."
+              }
+            },
+            "additionalProperties": false
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "operation": {
+            "const": "diagnostics.export"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "preview_id",
+          "confirmed"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "operation": {
+            "const": "runtime.renew"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "runtime_id",
+          "gateway_stopped"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "operation": {
+            "const": "host.revoke"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "installation_id",
+          "host_id"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "operation": {
+            "const": "project.permissions"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "project_scope"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "operation": {
+            "const": "history.list"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "history_scope"
+        ],
+        "not": {
+          "anyOf": [
+            {
+              "required": [
+                "project_scope"
+              ]
+            },
+            {
+              "required": [
+                "task_id"
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "operation": {
+            "const": "review.list"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "project_scope"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "operation": {
+            "const": "review.decide"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "project_scope",
+          "escalation_id",
+          "decision",
+          "reason",
+          "operation_id",
+          "expected_revision"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "operation": {
+            "const": "context.settings"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "project_scope"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "operation": {
+            "const": "context.configure"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "project_scope",
+          "enabled",
+          "operation_id",
+          "expected_revision"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "operation": {
+            "const": "context.search"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "project_scope",
+          "query",
+          "limit",
+          "max_characters"
+        ],
+        "properties": {
+          "limit": {
+            "maximum": 10
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "operation": {
+            "const": "context.list"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "project_scope"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "operation": {
+            "const": "context.publish"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "project_scope",
+          "source",
+          "content",
+          "operation_id",
+          "expected_revision"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "operation": {
+            "const": "context.delete"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "project_scope",
+          "knowledge_id",
+          "operation_id",
+          "expected_revision"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "operation": {
+            "const": "operation.inspect"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "project_scope",
+          "operation_id"
+        ]
+      }
+    }
+  ]
+}

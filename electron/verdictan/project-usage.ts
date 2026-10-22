@@ -10,7 +10,10 @@ import { DesktopProtocolError } from './protocol';
 
 export interface UsageBinding {
   billing: ProjectUsageBilling;
+  /** The folder of the chat, on the computer that runs the chat. */
   cwd: string;
+  /** The Verdictan conversation. Two chats with the same conversation count one time only. */
+  conversationId?: string;
 }
 /** The signed-in Verdictan account. `key` identifies the account for the cache. */
 export interface UsageAccount {
@@ -32,8 +35,13 @@ export interface ProjectUsageSource {
     sessionId: string,
     account: UsageAccount,
   ) => Promise<UsageBinding | null>;
-  /** True when the folder is in a local code folder of the project. */
-  inProject: (groupId: string, cwd: string) => Promise<boolean>;
+  /**
+   * True when the folder is in a code folder of the project. For a chat on an SSH host,
+   * `hostId` is the host, and the folder is a folder on that host.
+   */
+  inProject: (groupId: string, cwd: string, hostId?: string) => Promise<boolean>;
+  /** The name of an SSH host, for the label of its chats. */
+  hostName?: (hostId: string) => string | undefined;
   now?: () => string;
   /** Milliseconds since the epoch, for the cache. */
   clock?: () => number;
@@ -48,7 +56,14 @@ export const usageConcurrency = 4;
 /** A chat result stays in the cache for this time. */
 export const usageCacheMs = 60_000;
 
-type ChatResult = { kind: 'chat'; usage: ProjectUsageChat } | { kind: 'unmanaged' };
+type ChatResult =
+  { kind: 'chat'; usage: ProjectUsageChat; conversationId?: string } | { kind: 'unmanaged' };
+
+/** The SSH host of a chat. A remote session ID has the form `<hostId>::<provider ID>`. */
+export function chatHost(sessionId: string) {
+  const index = sessionId.indexOf('::');
+  return index > 0 ? sessionId.slice(0, index) : undefined;
+}
 
 function validRef(value: unknown): value is { agent: 'codex' | 'claude'; sessionId: string } {
   const ref = value as ProjectUsageChatRef;
@@ -64,8 +79,11 @@ function validRef(value: unknown): value is { agent: 'codex' | 'claude'; session
 
 /**
  * Reads the Verdictan history of the chats of a project. Only chats with a binding for the
- * current account and a folder in the project count. When no chat history can be read, the
- * first error goes to the caller, so that the page can tell why the history is unavailable.
+ * current account and a folder in the project count. A chat on an SSH host counts when its
+ * folder is in a code folder of the project on that host. Two chats with the same Verdictan
+ * conversation count one time only: the first chat in the request keeps the history. When no
+ * chat history can be read, the first error goes to the caller, so that the page can tell why
+ * the history is unavailable.
  *
  * The reader reads up to `usageConcurrency` chats at the same time. It keeps the result of
  * each chat for `usageCacheMs`. The cache is for one account only: a different account clears
@@ -142,9 +160,15 @@ export class ProjectUsageReader {
       observedAt,
     };
     let firstError: unknown;
+    const conversations = new Set<string>();
     for (const item of results) {
-      if (item.kind === 'chat') result.chats.push(structuredClone(item.usage));
-      else if (item.kind === 'unmanaged') result.unmanaged++;
+      if (item.kind === 'chat') {
+        if (item.conversationId) {
+          if (conversations.has(item.conversationId)) continue;
+          conversations.add(item.conversationId);
+        }
+        result.chats.push(structuredClone(item.usage));
+      } else if (item.kind === 'unmanaged') result.unmanaged++;
       else {
         firstError ??= item.error;
         result.failed++;
@@ -159,12 +183,16 @@ export class ProjectUsageReader {
     account: UsageAccount,
   ): Promise<ChatResult | { kind: 'failed'; error: unknown }> {
     const binding = await this.source.binding(chat.agent, chat.sessionId, account);
-    if (!binding || !(await this.source.inProject(groupId, binding.cwd)))
+    const hostId = chatHost(chat.sessionId);
+    if (!binding || !(await this.source.inProject(groupId, binding.cwd, hostId)))
       return { kind: 'unmanaged' };
+    const hostName = hostId ? this.source.hostName?.(hostId) : undefined;
     const usage: ProjectUsageChat = {
       agent: chat.agent,
       sessionId: chat.sessionId,
       billing: binding.billing,
+      ...(hostId ? { hostId } : {}),
+      ...(hostName ? { hostName } : {}),
       entries: [],
       complete: false,
     };
@@ -184,7 +212,11 @@ export class ProjectUsageReader {
         }
         cursor = next.cursor;
       }
-      return { kind: 'chat', usage };
+      return {
+        kind: 'chat',
+        usage,
+        ...(binding.conversationId ? { conversationId: binding.conversationId } : {}),
+      };
     } catch (error) {
       return { kind: 'failed', error };
     }

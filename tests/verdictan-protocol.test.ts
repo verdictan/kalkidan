@@ -56,7 +56,7 @@ function fixture() {
   };
 }
 const capabilities = {
-  cli_version: '0.2.1',
+  cli_version: '0.6.10',
   protocol_min: 1,
   protocol_max: 1,
   capabilities: ['authorization.browser.pkce'],
@@ -204,7 +204,9 @@ test('a launch waits for a running status check and refuses during sign-in', asy
   await drain();
   f.reply('capabilities', capabilities);
   await checked;
-  assert.equal(await client, f.client);
+  // The account owner watches each result of the client, so the client is a wrapper.
+  assert.equal(typeof (await client).request, 'function');
+  assert.equal(launched, true);
   void account.authorize('login').catch(() => undefined);
   await assert.rejects(account.runtimeClient(), /operation_in_progress/);
 });

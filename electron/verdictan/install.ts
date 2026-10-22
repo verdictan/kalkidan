@@ -16,10 +16,17 @@ import {
   type RuntimeDiscovery,
   type VerifiedRuntimeRelease,
 } from './release';
-import { fetchRuntimeRelease, type SignedRuntimeRelease } from './release-source';
+import {
+  fetchRuntimeRelease,
+  verifyReleaseFiles,
+  type ReleaseFiles,
+  type SignedRuntimeRelease,
+} from './release-source';
 import { releasePublicKey, verifySignedFile } from './signature';
-import { downloadRuntime } from './download';
+import { downloadRuntime, verifyRuntimeArchive } from './download';
+import { isReleaseNetworkError } from './network';
 import { extractRuntime } from './archive';
+import { keychainRefusedCode, managedErrorText } from '../../src/domain/verdictan';
 
 interface Receipt {
   schema: 1;
@@ -56,6 +63,15 @@ export interface RuntimeInstallerOptions {
   changed?(): void;
   now?: () => number;
   request?: typeof fetch;
+  /** True when the desktop can copy a release to this host over SSH. */
+  transferable?: boolean;
+}
+/** A release that the desktop downloaded, verified, and copied to this host. */
+export interface TransferredRuntime {
+  discovered: RuntimeDiscovery;
+  files: ReleaseFiles;
+  /** The received archive. It must be in the managed runtime directory. */
+  archive: string;
 }
 const terminal = new Set<UpdatePhase>([
   'completed',
@@ -162,6 +178,15 @@ export class RuntimeInstaller {
     if (this.installRunning) result.installing = true;
     const current = !!result.latest && result.installed?.sha256 === result.latest.sha256;
     result.canInstall = !!result.latest && !current && !busy;
+    // A host that cannot reach the release server can get a copy from the desktop over SSH.
+    if (
+      this.options.transferable &&
+      !busy &&
+      !current &&
+      (isReleaseNetworkError(result.error) ||
+        (result.operation?.phase === 'failed' && isReleaseNetworkError(result.operation.error)))
+    )
+      result.canTransfer = true;
     result.reason = result.canInstall
       ? undefined
       : !result.latest
@@ -297,21 +322,69 @@ export class RuntimeInstaller {
     });
     return task;
   }
+  /**
+   * Verify the signed files of a release that the desktop wants to copy to this host. This uses
+   * no network. It applies the checkpoint of this host, so an older release cannot replace it.
+   */
+  async verifyTransfer(discovered: RuntimeDiscovery, files: ReleaseFiles) {
+    await this.prepare();
+    if (!this.installPending) await this.readState();
+    if (this.installPending)
+      throw new Error('An install or check is in progress. Wait for it to finish.');
+    return verifyReleaseFiles(discovered, files, {
+      now: Math.floor(this.now() / 1000),
+      desktopVersion: this.options.desktopVersion,
+      os: this.options.os,
+      arch: this.options.arch,
+      systemVersion: this.options.systemVersion,
+      checkpoint: this.state.checkpoint || this.state.active?.checkpoint,
+      key: this.options.key,
+    });
+  }
+  /**
+   * Install a release that the desktop copied to this host. The host verifies the signed files and
+   * the archive again. It does not trust the verification of the desktop.
+   */
+  installTransferred(source: TransferredRuntime) {
+    if (this.installPending)
+      return Promise.reject(
+        new Error('An install or check is in progress. Wait for it to finish.'),
+      );
+    this.installRunning = true;
+    const task = this.performInstall(source);
+    this.installPending = task;
+    void task.finally(() => {
+      if (this.installPending === task) this.installPending = undefined;
+    });
+    return task;
+  }
   async start() {
     await this.check();
     // Installation outlives the IPC request. Reconnect reads its host-side journal.
     void this.install().catch(() => {});
     return this.status();
   }
-  private async performInstall() {
+  private async performInstall(source?: TransferredRuntime) {
+    let transferred: ComponentRelease | undefined;
     try {
       await this.prepare();
       await withDirectoryLock(this.options.root, async (assertOwned) => {
         this.assertOwned = assertOwned;
         await this.readState(true);
-        const release = await this.resolve();
+        const release = source
+          ? verifyReleaseFiles(source.discovered, source.files, {
+              now: Math.floor(this.now() / 1000),
+              desktopVersion: this.options.desktopVersion,
+              os: this.options.os,
+              arch: this.options.arch,
+              systemVersion: this.options.systemVersion,
+              checkpoint: this.state.checkpoint || this.state.active?.checkpoint,
+              key: this.options.key,
+            })
+          : await this.resolve();
         this.latest = release;
         const target = releaseIdentity(release);
+        if (source) transferred = target;
         this.state.checkpoint = release.checkpoint;
         this.state.revoked = release.revoked;
         if (this.state.active?.release.sha256 === target.sha256) {
@@ -372,22 +445,29 @@ export class RuntimeInstaller {
             const archive = join(staging, 'runtime.archive');
             const payload = join(staging, 'payload');
             await mkdir(payload, { mode: 0o700 });
-            await this.phase('downloading');
-            let notified = 0;
-            await downloadRuntime(
-              release.artifact,
-              archive,
-              releaseDownloadOrigins,
-              abort.signal,
-              (bytes) => {
-                this.state.operation!.receivedBytes = bytes;
-                if (bytes - notified >= 1024 * 1024) {
-                  notified = bytes;
-                  this.options.changed?.();
-                }
-              },
-              this.options.request,
-            );
+            if (source) {
+              // The copy is complete. Check its size and digest, then its signature below.
+              await rename(source.archive, archive);
+              this.state.operation!.receivedBytes = release.artifact.size;
+              await verifyRuntimeArchive(release.artifact, archive);
+            } else {
+              await this.phase('downloading');
+              let notified = 0;
+              await downloadRuntime(
+                release.artifact,
+                archive,
+                releaseDownloadOrigins,
+                abort.signal,
+                (bytes) => {
+                  this.state.operation!.receivedBytes = bytes;
+                  if (bytes - notified >= 1024 * 1024) {
+                    notified = bytes;
+                    this.options.changed?.();
+                  }
+                },
+                this.options.request,
+              );
+            }
             await this.phase('verifying');
             await verifySignedFile(
               archive,
@@ -439,8 +519,8 @@ export class RuntimeInstaller {
             assertOwned();
             this.state.staged = undefined;
             await this.phase('completed');
-          } catch {
-            await this.rollback();
+          } catch (error) {
+            await this.rollback(error);
           }
         } catch (error) {
           await this.phase(
@@ -463,11 +543,28 @@ export class RuntimeInstaller {
     } finally {
       this.assertOwned = undefined;
       this.installRunning = false;
+      if (source) await rm(source.archive, { force: true });
+    }
+    if (transferred) {
+      // This host cannot reach the release server, so the copied release is the newest known.
+      this.view = {
+        ...this.view,
+        latest: transferred,
+        discovery:
+          this.state.active?.release.sha256 === transferred.sha256 ? 'current' : 'available',
+        lastAttemptAt: this.now(),
+        lastSuccessAt: this.now(),
+        stale: false,
+        error: undefined,
+      };
+      this.options.changed?.();
+      return this.status();
     }
     await this.check(true);
     return this.status();
   }
-  private async rollback() {
+  /** `cause` is the failure of the new version. A refused keychain prompt keeps its own words. */
+  private async rollback(cause?: unknown) {
     await this.phase('rolling-back');
     this.state.active = undefined;
     await this.persist();
@@ -480,7 +577,9 @@ export class RuntimeInstaller {
       this.state.active = old;
       await this.phase(
         'rolled-back',
-        'Runtime activation failed. The previous installation was restored.',
+        keychainRefused(cause)
+          ? keychainRollbackError
+          : 'Runtime activation failed. The previous installation was restored.',
       );
     } catch (error) {
       await this.phase('rollback-failed', safeInstallError(error));
@@ -648,7 +747,17 @@ async function fileDigest(path: string) {
     await file.close();
   }
 }
+/** True when the system keychain refused the runtime, for example after a refused prompt. */
+function keychainRefused(error: unknown) {
+  return error instanceof Error && error.message === managedErrorText(keychainRefusedCode);
+}
+/** Retry in Settings › Computers starts the install again, and the system asks again. */
+const keychainInstallError =
+  'The new runtime did not get access to the system keychain. Select Retry, then allow access when the system asks.';
+const keychainRollbackError =
+  'The new runtime did not get access to the system keychain. The previous version was restored. Select Retry, then allow access when the system asks.';
 function safeInstallError(error: unknown) {
+  if (keychainRefused(error)) return keychainInstallError;
   if (
     error instanceof Error &&
     /^(?:The |This |Runtime |Release |Invalid |No |Update |Storage |Cannot )/.test(error.message)

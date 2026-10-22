@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   ProjectUsageReader,
+  chatHost,
   usageCacheMs,
   usageConcurrency,
   type ProjectUsageSource,
@@ -456,4 +457,75 @@ test('a usage error offers only an action that can fix it', async () => {
   assert.deepEqual(usageErrorAction('Sign in. [desktop.auth_expired]'), { kind: 'sign-in' });
   assert.deepEqual(usageErrorAction('Stopped. [desktop.browser_failed]'), { kind: 'retry' });
   assert.equal(usageErrorAction('Missing. [desktop.runtime_missing]').kind, 'settings');
+});
+
+test('the reader counts chats on SSH hosts, labels each chat and counts a conversation once', async () => {
+  const projects: [string, string, string | undefined][] = [];
+  const { usage, calls } = reader({
+    binding: async (_agent, sessionId) =>
+      sessionId === 'h1::unbound'
+        ? null
+        : {
+            billing: 'metered',
+            cwd: sessionId.startsWith('h1::') ? '/srv/app' : '/repo',
+            // A chat with the same conversation as an earlier chat counts once.
+            conversationId: ['a', 'h1::copy'].includes(sessionId)
+              ? 'conversation-a'
+              : `conversation-${sessionId}`,
+          },
+    inProject: async (groupId, cwd, hostId) => {
+      projects.push([groupId, cwd, hostId]);
+      return hostId === 'h1' ? cwd === '/srv/app' : cwd === '/repo';
+    },
+    hostName: (hostId) => (hostId === 'h1' ? 'Build server' : undefined),
+  });
+  const result = await usage.read('g', [
+    { agent: 'codex', sessionId: 'a' },
+    { agent: 'codex', sessionId: 'h1::remote' },
+    { agent: 'codex', sessionId: 'h1::copy' },
+    { agent: 'codex', sessionId: 'h1::unbound' },
+    { agent: 'claude', sessionId: 'h2::other' },
+  ]);
+  assert.deepEqual(
+    result.chats.map((chat) => [chat.sessionId, chat.hostId, chat.hostName]),
+    [
+      ['a', undefined, undefined],
+      ['h1::remote', 'h1', 'Build server'],
+      // A host without a known name has no name. The page shows a general label.
+      ['h2::other', 'h2', undefined],
+    ],
+  );
+  assert.equal(result.unmanaged, 1);
+  // The project check gets the host of the chat.
+  assert.deepEqual(
+    projects.find(([, , host]) => host === 'h1'),
+    ['g', '/srv/app', 'h1'],
+  );
+  assert.deepEqual(
+    projects.find(([, , host]) => !host),
+    ['g', '/repo', undefined],
+  );
+  // The conversation of the copy is read, but its requests do not count again.
+  assert.ok(calls.some((call) => call.kind === 'conversation' && call.sessionId === 'h1::copy'));
+  const summary = summarizeProjectUsage(result, now);
+  assert.deepEqual(
+    summary.chats.map((chat) => chat.host),
+    ['This computer', 'Build server', 'SSH host'],
+  );
+  assert.equal(summary.requests, 6);
+  // A cached read keeps the same result.
+  const again = await usage.read('g', [
+    { agent: 'codex', sessionId: 'a' },
+    { agent: 'codex', sessionId: 'h1::copy' },
+  ]);
+  assert.deepEqual(
+    again.chats.map((chat) => chat.sessionId),
+    ['a'],
+  );
+});
+
+test('the host of a session ID is the part before the separator', () => {
+  assert.equal(chatHost('h1::abc'), 'h1');
+  assert.equal(chatHost('abc'), undefined);
+  assert.equal(chatHost('::abc'), undefined);
 });

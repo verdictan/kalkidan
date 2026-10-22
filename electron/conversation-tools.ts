@@ -76,6 +76,10 @@ export class CommandTerminal {
     const timer = setTimeout(() => kill('SIGKILL'), 1000);
     timer.unref();
   }
+  /** The number of commands that still run. */
+  runningCount() {
+    return [...this.runs.values()].filter((run) => run.state.status === 'running').length;
+  }
   stopAll() {
     for (const id of this.runs.keys()) this.stop(id);
   }

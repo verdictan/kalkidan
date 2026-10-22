@@ -6,6 +6,7 @@ export const sessionHostMethods = [
   'ptyWrite',
   'ptyResize',
   'ptyClose',
+  'ptyAttach',
   'models',
   'transcript',
   'chatCreate',

@@ -494,6 +494,27 @@ macOS Keychain or from `~/.claude/.credentials.json` on Linux. If the message sa
 that the sign-in format is not supported, update Claude Code and run `/login`.
 On Linux, the file must belong to you and must not be readable by other users.
 
+### Kalkidan does not support the Verdictan runtime version
+
+Kalkidan supports the current Verdictan runtime release and the two releases before it (now 0.6.9 to 0.6.11). Older versions work with a warning until 2027-01-20. The one-time setup needs 0.6.6 or later. See [Compatibility](compatibility.md) for the support window and the deprecation dates.
+
+1. Open the account menu in the sidebar footer. Select **Diagnostics**. Find the runtime that shows **Not supported** or **Deprecated**.
+2. Open **Settings** › **Computers**. Update the runtime on that computer.
+3. Open **Diagnostics** in the account menu again. Select **Check again**.
+
+### Send diagnostics to support
+
+Kalkidan sends no telemetry. To give support the versions, the connection state, and the correlation IDs:
+
+1. Open the account menu in the sidebar footer. Select **Diagnostics**.
+2. In **Support bundle**, select **Preview**. Kalkidan removes credentials, tokens, keys, e-mail addresses, and your home folder.
+3. Read the preview. Then select **Export…** and choose a file.
+4. Attach the file to your support request.
+
+![Diagnostics with runtime and agent versions](images/diagnostics.png)
+
+[Operational targets](operational-targets.md) describes the local measurements in the bundle.
+
 ### Unsupported features
 
 Kalkidan does not support cloud-only sessions, conversion between agent conversation formats, or worktree removal. GitHub Enterprise and classic GitHub Projects are also unsupported.
@@ -648,6 +669,12 @@ archive digest. Kalkidan installs new signed releases automatically when no
 managed agent runs. It records progress and supports cancellation and rollback. Finish active work
 before updating an SSH helper. Externally installed Codex and Claude Code remain
 under their installer or package manager.
+
+If an SSH host cannot reach the release server, its row shows the error and
+**Copy from this computer**. This computer then downloads and verifies the
+release, and copies it to the host over the SSH connection. The host verifies
+it again before it installs. For proxies, enterprise certificates, sleep, and
+headless Linux hosts, see [Network and platform conditions](network-and-platform.md).
 
 Remote hosts connect in the background. Retry state does not block local project
 navigation. Explicit disconnect stops retries for the current app session.

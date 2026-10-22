@@ -281,9 +281,13 @@ export class VerdictanSetupService {
     if (capabilities.includes('setup.bootstrap'))
       return bootstrap ? this.bootstrap(first) : first.setup;
     // Older runtimes have no `setup.bootstrap`. `setup.ensure_default` runs the same bootstrap.
-    if (first.setup.policyReadiness !== 'default_creatable') return first.setup;
-    if (!capabilities.includes('setup.ensure_default')) return first.setup;
-    return this.ensureDefault(first);
+    if (
+      first.setup.policyReadiness === 'default_creatable' &&
+      capabilities.includes('setup.ensure_default')
+    )
+      return this.ensureDefault(first);
+    // A deprecated runtime still runs until its end of support, but it cannot run the setup.
+    return { ...first.setup, bootstrapIssue: 'runtime_too_old' };
   }
   /** The team for the Kalkidan agent: the team of a saved selection, when there is one. */
   private bootstrapTeam(setup: VerdictanSetup): DesktopParameters | undefined {

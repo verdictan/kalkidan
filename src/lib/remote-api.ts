@@ -19,6 +19,7 @@ export function sessionAPI(api: API, session: Session): API {
     ptyWrite: (id, input) => call('ptyWrite', id, input),
     ptyResize: (id, cols, rows) => call('ptyResize', id, cols, rows),
     ptyClose: (id) => call('ptyClose', id),
+    ptyAttach: (cwd) => call('ptyAttach', cwd),
     models: (agent) => call('models', agent),
     transcript: (agent, id) => call('transcript', agent, provider(id)),
     chatCreate: (_id, agent, prompt, edits, options) =>

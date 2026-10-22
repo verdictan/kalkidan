@@ -1,9 +1,10 @@
 import {
+  keychainRefusedCode,
   signOutDetail,
   verdictanAccountPageUrl,
   type VerdictanStatus,
 } from '../src/domain/verdictan';
-import { identityKey } from './verdictan/bindings';
+import { identityKey, parseBindingSummary, type BindingSummary } from './verdictan/bindings';
 import {
   savedVerdictanRegion,
   saveVerdictanRegion,
@@ -12,7 +13,7 @@ import {
 } from './verdictan/region';
 import { ProjectServices } from './verdictan/project-services';
 import { ManagedHistory } from './verdictan/managed-history';
-import { ProjectUsageReader } from './verdictan/project-usage';
+import { ProjectUsageReader, chatHost } from './verdictan/project-usage';
 import { DesktopProtocolError } from './verdictan/protocol';
 import { ParallelDispatch } from './operations/parallel-dispatch';
 import { TaskExecutions } from './operations/task-execution';
@@ -28,6 +29,7 @@ import { PolicyReviews } from './verdictan/policy-review';
 import { PolicyResults } from './policy-results';
 import { remotePolicyRecords } from '../src/domain/policy-result';
 import { createVerdictanServices } from './verdictan/service';
+import { checkHostRuntimes } from './verdictan/remote-check';
 import { spawn } from 'node:child_process';
 import { appMenuTemplate } from './app-menu';
 import { parseChatActionState, type ChatActionState } from '../src/domain/chat-actions';
@@ -77,14 +79,24 @@ import {
   nativeTheme,
   powerMonitor,
   Notification,
+  net,
+  safeStorage,
   session,
 } from 'electron';
+import { ProxyAuthenticator, ProxyCredentialStore, ProxyPrompts } from './proxy-credentials';
+import { chromiumFetch, withReleaseErrors } from './verdictan/network';
+import { transferRuntime } from './verdictan/transfer';
+import type { RuntimeTransferProgress } from '../src/domain/updates';
+import { NetworkWatcher, recoverConnections } from './platform-events';
 import { LocalData } from './storage/local-data';
 import { localDataCheckIntervalMs } from '../src/domain/data-policy';
 import { existsSync } from 'node:fs';
 import { readFile, writeFile, stat, realpath, rm } from 'node:fs/promises';
 import { join, basename } from 'node:path';
 import { homedir } from 'node:os';
+import { journal } from './diagnostics/journal';
+import { collectDiagnostics, SupportBundles } from './diagnostics/report';
+import { hostSystemVersion } from './verdictan/system-version';
 import { randomUUID } from 'node:crypto';
 import { pathToFileURL } from 'node:url';
 import * as TOML from '@iarna/toml';
@@ -189,6 +201,12 @@ function notifyVerdictan() {
   lastPhase = phase;
   if (status?.phase === 'authenticated') {
     void preferences.setSignedIn().catch(() => {});
+    journal.connected();
+    if (!journal.setupDone)
+      void verdictan?.installer
+        .check()
+        .then((runtime) => runtime?.installed && journal.setupCompleted())
+        .catch(() => {});
     // The browser sign-in finished. Bring Kalkidan to the front again.
     if (previousPhase.startsWith('["authorizing"')) focusMainWindow();
   }
@@ -336,9 +354,9 @@ function handle(channel: string, fn: (...args: any[]) => any) {
         const remoteMethod = channel === 'remote-call' ? args[1] : '';
         const kind =
           ['chat-create', 'chat-start'].includes(channel) ||
-          ['chatCreate', 'chatStart'].includes(remoteMethod)
+          ['chatCreate', 'chatStart', 'chatStatus'].includes(remoteMethod)
             ? 'chat'
-            : channel === 'pty-open' || remoteMethod === 'ptyOpen'
+            : channel === 'pty-open' || ['ptyOpen', 'ptyAttach'].includes(remoteMethod)
               ? 'pty'
               : channel === 'terminal-start' || remoteMethod === 'terminalStart'
                 ? 'terminal'
@@ -349,19 +367,20 @@ function handle(channel: string, fn: (...args: any[]) => any) {
             id: result.id,
             hostId: remoteMethod ? args[0] : undefined,
           } as const;
-          if (
-            [...owned].some(
-              ([window, resources]) =>
-                window !== owner &&
-                resources.some(
-                  (value) =>
-                    value.kind === resource.kind &&
-                    value.id === resource.id &&
-                    value.hostId === resource.hostId,
-                ),
-            )
-          )
-            throw new Error('This operation belongs to another window.');
+          const elsewhere = [...owned].some(
+            ([window, resources]) =>
+              window !== owner &&
+              resources.some(
+                (value) =>
+                  value.kind === resource.kind &&
+                  value.id === resource.id &&
+                  value.hostId === resource.hostId,
+              ),
+          );
+          // A run on an SSH host continues without its window. The window that reads it next
+          // owns it, so that the user can answer its approvals there.
+          if (remoteMethod === 'chatStatus' && elsewhere) return result;
+          if (elsewhere) throw new Error('This operation belongs to another window.');
           if (windows.has(owner)) {
             if (
               !owned
@@ -412,20 +431,11 @@ function stopResource(resource: {
   id: string;
   hostId?: string;
 }) {
+  // A run, a terminal or a PTY on an SSH host continues when its window closes, also when the
+  // app quits. The next window attaches to it again. Only the user stops it.
+  if (resource.hostId) return;
   try {
-    if (resource.hostId) {
-      void remote
-        .call(
-          resource.hostId,
-          resource.kind === 'chat'
-            ? 'chatStop'
-            : resource.kind === 'pty'
-              ? 'ptyClose'
-              : 'terminalStop',
-          [resource.id],
-        )
-        .catch(() => {});
-    } else if (resource.kind === 'chat') chatRunner.stop(resource.id);
+    if (resource.kind === 'chat') chatRunner.stop(resource.id);
     else if (resource.kind === 'pty') pty.close(resource.id);
     else terminal.stop(resource.id);
   } catch {
@@ -436,12 +446,72 @@ async function git(path: string, args: string[]) {
   return (await exec('git', ['-C', path, ...args], { timeout: 15000, maxBuffer: 2 * 1024 * 1024 }))
     .stdout;
 }
+app.on('will-quit', () => journal.close());
+// Local crash counts for docs/operational-targets.md. Kalkidan sends no telemetry.
+const crashReasons = new Set([
+  'abnormal-exit',
+  'crashed',
+  'oom',
+  'launch-failed',
+  'integrity-failure',
+]);
+app.on('render-process-gone', (_event, _contents, details) => {
+  if (crashReasons.has(details.reason)) journal.crash();
+});
+app.on('child-process-gone', (_event, details) => {
+  if (crashReasons.has(details.reason)) journal.crash();
+});
 app.whenReady().then(async () => {
-  powerMonitor.on('resume', () => {
-    void remote?.reconcile().catch(() => {});
-    // The session timer does not run while the computer sleeps. Renew the session now.
-    void verdictan?.account.autoRenew().catch(() => {});
+  await journal.open(join(dataRoot, 'diagnostics', 'measurements.json'));
+  // Timers do not run while the computer sleeps, and a network change closes connections. After
+  // either, stop expired gateways, check the SSH hosts, renew the session, and retry a failed
+  // runtime check. Nothing replays a request.
+  const recover = () =>
+    void recoverConnections({
+      checkExpiry: () => verdictan?.managed.checkExpiry(),
+      reconcileHosts: async () => remote?.reconcile(),
+      renewAccount: async () => verdictan?.account.autoRenew(),
+      checkRuntime: async () => verdictan?.installer.check(),
+    });
+  powerMonitor.on('resume', recover);
+  const network = new NetworkWatcher(
+    () => net.isOnline(),
+    (reason) => {
+      if (reason !== 'offline') recover();
+    },
+  );
+  network.start();
+  app.on('will-quit', () => network.close());
+  // A proxy that asks for a sign-in gets the saved one, or the user gets a prompt in the window.
+  // The password goes only through IPC and the OS secret store. TLS verification does not change.
+  const proxyCredentials = new ProxyCredentialStore(
+    join(dataRoot, 'proxy-credentials.json'),
+    safeStorage,
+  );
+  const proxyPrompts = new ProxyPrompts((request) => {
+    const window = [...windows].find((item) => !item.isDestroyed());
+    if (!window) return false;
+    window.webContents.send('proxy-login', request);
+    return true;
   });
+  const proxyAuthenticator = new ProxyAuthenticator(
+    proxyCredentials,
+    (challenge, canSave) => proxyPrompts.ask(challenge, canSave),
+    broadcastVerdictanChanged,
+  );
+  handle('proxy-login-answer', (id: unknown, answer: unknown) => proxyPrompts.answer(id, answer));
+  handle('proxy-sign-ins', () => proxyCredentials.list());
+  handle('proxy-sign-in-remove', async (proxy: unknown) => {
+    if (typeof proxy !== 'string' || proxy.length > 300) throw new Error('Invalid proxy.');
+    proxyAuthenticator.forget(proxy);
+    await proxyCredentials.remove(proxy);
+  });
+  // Release requests use the Chromium network stack, with the system proxy and certificates.
+  const releaseRequest = withReleaseErrors(
+    chromiumFetch(net, {
+      proxyLogin: (challenge, retry) => proxyAuthenticator.login(challenge, retry),
+    }),
+  );
   const makeVerdictan = (region: VerdictanRegion | undefined) =>
     createVerdictanServices({
       region,
@@ -451,6 +521,7 @@ app.whenReady().then(async () => {
       desktopVersion: app.getVersion(),
       busy: () => chatRunner.runningCount() > 0,
       openBrowser: (url) => shell.openExternal(url),
+      request: releaseRequest,
     });
   verdictan = makeVerdictan(await savedVerdictanRegion(dataRoot));
   // The first launch installs the managed agents runtime in the background. Settings shows
@@ -564,7 +635,17 @@ app.whenReady().then(async () => {
       return { state: 'unknown' };
     }
   });
-  handle('verdictan-check', () => withRegion(verdictan!.account.check()));
+  handle('verdictan-check', async () => {
+    const status = await withRegion(verdictan!.account.check());
+    // Check status also starts the runtime again on each SSH host. When this computer refused
+    // the keychain, the hosts cannot reach the account, so they wait for the next check.
+    if (status.error === keychainRefusedCode) return status;
+    const keychainHosts = await checkHostRuntimes(
+      remote.list().filter((host) => host.status === 'connected'),
+      (hostId, method, args) => remote.call(hostId, method, args),
+    );
+    return keychainHosts.length ? { ...status, keychainHosts } : status;
+  });
   handle('verdictan-authorize', (intent) => withRegion(verdictan!.account.authorize(intent)));
   handle('verdictan-cancel', () => withRegion(verdictan!.account.cancel()));
   handle('verdictan-renew', () => withRegion(verdictan!.account.renew()));
@@ -648,17 +729,23 @@ app.whenReady().then(async () => {
       broadcastVerdictanChanged();
     }
   });
+  // The progress of each copy of the runtime to an SSH host. Status reads of the host add it.
+  const transferProgress = new Map<string, RuntimeTransferProgress>();
   for (const action of ['status', 'check', 'install', 'cancel'] as const) {
     handle(`runtime-update-${action}`, async (hostId?: string) => {
       if (hostId && hostId !== 'local') {
         if (typeof hostId !== 'string' || !remote.list().some((host) => host.id === hostId))
           throw new Error('Remote host not found.');
-        return remote.call(hostId, 'runtime-update', [
+        const status = await remote.call(hostId, 'runtime-update', [
           action,
           app.getVersion(),
           hostId,
           verdictan!.region,
         ]);
+        const copy = transferProgress.get(hostId);
+        return copy && status && typeof status === 'object'
+          ? { ...status, transfer: copy }
+          : status;
       }
       if (action === 'status') return verdictan!.installer.check();
       if (action === 'check') return verdictan!.installer.check(true);
@@ -666,6 +753,53 @@ app.whenReady().then(async () => {
       return verdictan!.installer.start();
     });
   }
+  // A host that cannot reach the release server gets a copy from this computer over SSH. This
+  // computer verifies the release first, and the host verifies it again before it installs.
+  const transfers = new Map<string, Promise<unknown>>();
+  handle('runtime-update-transfer', async (hostId: string) => {
+    if (typeof hostId !== 'string' || !remote.list().some((host) => host.id === hostId))
+      throw new Error('Remote host not found.');
+    if (transfers.has(hostId)) throw new Error('A copy to this host is in progress.');
+    let notified = 0;
+    let lastPhase = '';
+    const task = (async () => {
+      const hello = await remote.call(hostId, 'hello', []);
+      if (typeof hello?.systemVersion !== 'string')
+        throw new Error('Update the Kalkidan helper on this host to copy the runtime.');
+      return transferRuntime({
+        host: { platform: hello.platform, arch: hello.arch, systemVersion: hello.systemVersion },
+        desktopVersion: app.getVersion(),
+        directory: app.getPath('temp'),
+        request: releaseRequest,
+        progress: (update) => {
+          transferProgress.set(hostId, update);
+          // Settings reads the status again. Send at most four updates each second.
+          const now = Date.now();
+          if (update.phase !== lastPhase || now - notified >= 250) {
+            lastPhase = update.phase;
+            notified = now;
+            broadcastVerdictanChanged();
+          }
+        },
+        call: (operation, args) =>
+          remote.call(hostId, 'runtime-transfer', [
+            operation,
+            app.getVersion(),
+            hostId,
+            verdictan!.region,
+            ...args,
+          ]),
+      });
+    })();
+    transfers.set(hostId, task);
+    try {
+      return await task;
+    } finally {
+      transfers.delete(hostId);
+      transferProgress.delete(hostId);
+      broadcastVerdictanChanged();
+    }
+  });
   if (!app.isPackaged && existsSync(appIcon)) app.dock?.setIcon(appIcon);
   // Kalkidan has only a light theme. Native menus, dialogs and the title bar use light colors.
   nativeTheme.themeSource = 'light';
@@ -882,6 +1016,8 @@ app.whenReady().then(async () => {
   handle('pty-write', (id, input) => pty.write(id, input));
   handle('pty-resize', (id, cols, rows) => pty.resize(id, cols, rows));
   handle('pty-close', (id) => pty.close(id));
+  // A shell on this computer stops with the app, so there is no shell to attach to again.
+  handle('pty-attach', () => null);
   ipcMain.handle('browser-action', (event, id, action, value) => {
     const owner = [...windows].find(
       (w) => w.webContents === event.sender && event.senderFrame === w.webContents.mainFrame,
@@ -976,6 +1112,21 @@ app.whenReady().then(async () => {
   // installs without a chat or a visit to Settings. The check is the same status call that a
   // chat start makes. A host with no region yet, or no runtime, only reports its status.
   remote.onConnected((hostId) => {
+    // The host keeps the outcome of each run, also a run that ended when the app was closed or
+    // the connection was lost. The status dots then show the real outcome. An older helper
+    // does not have the outcomes; then the outcomes stay as they are.
+    void remote
+      .call(hostId, 'run-outcomes', [])
+      .then((value) => chatOutcomes.recover(hostId, value))
+      .then((changed) => {
+        if (!changed) return;
+        for (const window of windows)
+          if (!window.isDestroyed()) window.webContents.send('remote-hosts-changed');
+      })
+      .catch((error) => {
+        if (!/Unsupported remote operation/.test(String(error?.message)))
+          console.warn('Remote run outcomes not recovered', error?.message);
+      });
     if (!verdictan) return;
     void remote
       .call(hostId, 'runtime-update', ['status', app.getVersion(), hostId, verdictan.region])
@@ -1056,6 +1207,24 @@ app.whenReady().then(async () => {
   async function remoteHostCall(hostId: string, method: string, args: any[]) {
     if (!remoteMethods.has(method) || !Array.isArray(args))
       throw new Error('Unsupported remote operation');
+    if (method === 'ptyAttach') {
+      // A shell of this folder that continues on the host, and that no window owns. The newest
+      // shell comes first.
+      const shells = await remote.call(hostId, 'ptyList', []).catch(() => []);
+      const free = (Array.isArray(shells) ? shells : [])
+        .filter(
+          (shell: { id?: unknown; cwd?: unknown }) =>
+            typeof shell?.id === 'string' &&
+            shell.cwd === args[0] &&
+            ![...owned.values()].some((resources) =>
+              resources.some(
+                (value) => value.kind === 'pty' && value.id === shell.id && value.hostId === hostId,
+              ),
+            ),
+        )
+        .at(-1);
+      return free ? { id: free.id as string } : null;
+    }
     if (['ptyOpen', 'chatCreate', 'terminalStart', 'repositoryDiff'].includes(method)) {
       const path = args[0];
       if (
@@ -1433,11 +1602,14 @@ app.whenReady().then(async () => {
     for (const host of connected) {
       const cached = remoteSnapshots.read(host.id, () => remote.call(host.id, 'snapshot', []));
       if (cached.value) {
+        // A run that continues on the host marks its chat, so the chat view attaches to it.
+        const live = remote.liveRuns(host.id);
         remoteSessions.push(
           ...cached.value.sessions.map((session: any) => ({
             ...session,
             id: host.id + '::' + session.id,
             hostId: host.id,
+            ...(live.has(session.id) ? { liveRunId: live.get(session.id) } : {}),
           })),
         );
         warnings.push(...cached.value.warnings.map((warning) => host.name + ': ' + warning));
@@ -1786,6 +1958,56 @@ app.whenReady().then(async () => {
   handle('agent-installations', (hostId?: string | null) =>
     hostId ? remote.agentInstallations(hostId) : agentInstallations(),
   );
+  const collect = () =>
+    collectDiagnostics({
+      app: async () => ({
+        version: app.getVersion(),
+        build: await appBuild,
+        packaged: app.isPackaged,
+      }),
+      platform: process.platform,
+      arch: process.arch,
+      osVersion: hostSystemVersion(),
+      account: () => ({ ...verdictan!.account.status(), region: verdictan!.region }),
+      hosts: () =>
+        remote.list().map((host) => ({
+          id: host.id,
+          name: host.name,
+          connected: host.status === 'connected',
+          ...(host.installedDigest || host.version
+            ? { helper: host.installedDigest || host.version }
+            : {}),
+        })),
+      runtime: (hostId) =>
+        hostId
+          ? remote.call(hostId, 'runtime-update', [
+              'status',
+              app.getVersion(),
+              hostId,
+              verdictan!.region,
+            ])
+          : verdictan!.installer.check(),
+      agents: (hostId) => (hostId ? remote.agentInstallations(hostId) : agentInstallations()),
+      journal,
+    });
+  const supportBundles = new SupportBundles(collect, homedir());
+  handle('diagnostics', collect);
+  handle('support-bundle-preview', () => supportBundles.preview());
+  // Export only after a preview, and only to the file that the user chooses.
+  handle('support-bundle-export', (digest: unknown) =>
+    supportBundles.export(digest, async (name) => {
+      const parent = BrowserWindow.getFocusedWindow() || undefined;
+      const options = {
+        title: 'Export support bundle',
+        defaultPath: join(app.getPath('downloads'), name),
+        filters: [{ name: 'JSON', extensions: ['json'] }],
+      };
+      const result = parent
+        ? await dialog.showSaveDialog(parent, options)
+        : await dialog.showSaveDialog(options);
+      return result.canceled ? undefined : result.filePath;
+    }),
+  );
   handle('agent-executable-choose', (agent, path, hostId?: string | null) =>
     hostId ? remote.chooseAgentExecutable(hostId, agent, path) : chooseAgentExecutable(agent, path),
   );
@@ -2111,6 +2333,21 @@ app.whenReady().then(async () => {
       throw Error('Select a project document to publish verified source content.');
     return projectServices.request(id, request);
   });
+  /**
+   * The Verdictan binding of a chat. The binding of a chat on an SSH host stays on that host, so
+   * the host sends a summary. A host that is offline, or a helper that is too old, gives null.
+   */
+  async function chatBinding(agent: string, sessionId: string): Promise<BindingSummary | null> {
+    const kind = agent === 'codex' ? 'codex' : agent === 'claude' ? 'claude_code' : '';
+    if (!kind) return null;
+    const hostId = chatHost(sessionId);
+    if (!hostId) return verdictan!.bindings.read(kind, sessionId);
+    if (!remote.hosts.some((host) => host.id === hostId)) return null;
+    const value = await remote
+      .call(hostId, 'conversation-binding', [kind, providerSessionId(hostId, sessionId)])
+      .catch(() => null);
+    return parseBindingSummary(value);
+  }
   const managedHistory = new ManagedHistory(async (target) => {
     const { client, account } = await verdictan!.setup.inspect();
     const base = {
@@ -2131,9 +2368,7 @@ app.whenReady().then(async () => {
       return { ...base, keys: { project_id: board.project.id, task_id: target.taskId } };
     }
     // The chat binding holds the conversation key. The renderer sends only the chat.
-    const kind =
-      target.agent === 'codex' ? 'codex' : target.agent === 'claude' ? 'claude_code' : '';
-    const binding = kind ? await verdictan!.bindings.read(kind, target.sessionId) : null;
+    const binding = await chatBinding(target.agent, target.sessionId);
     if (
       !binding ||
       binding.organization_id !== account.organizationId ||
@@ -2154,11 +2389,9 @@ app.whenReady().then(async () => {
       };
     },
     history: (target) => managedHistory.list(target),
+    hostName: (hostId) => remote.hosts.find((host) => host.id === hostId)?.name,
     binding: async (agent, sessionId, account) => {
-      const binding = await verdictan!.bindings.read(
-        agent === 'codex' ? 'codex' : 'claude_code',
-        sessionId,
-      );
+      const binding = await chatBinding(agent, sessionId);
       if (
         !binding ||
         binding.organization_id !== account.organizationId ||
@@ -2167,14 +2400,27 @@ app.whenReady().then(async () => {
         return null;
       return {
         cwd: binding.cwd,
+        conversationId: binding.conversation_id,
         billing: binding.provider_access_mode?.endsWith('_subscription')
           ? 'subscription'
           : 'metered',
       };
     },
-    inProject: async (groupId, cwd) => {
+    inProject: async (groupId, cwd, hostId) => {
       const group = projectGroups.groups.find((group) => group.id === groupId);
-      if (!group || group.hostId) return false;
+      if (!group) return false;
+      // A chat on an SSH host counts only for a project on the same host. The host resolved the
+      // folder of the chat, so the saved folders of the project compare directly.
+      if (hostId || group.hostId)
+        return (
+          group.hostId === hostId &&
+          projects.some(
+            (repo) =>
+              repo.hostId === hostId &&
+              group.repoIds.includes(repo.id) &&
+              pathContains(repo.path, cwd),
+          )
+        );
       for (const repo of projects)
         if (!repo.hostId && group.repoIds.includes(repo.id)) {
           const path = await realpath(repo.path).catch(() => repo.path);

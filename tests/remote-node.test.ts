@@ -28,3 +28,12 @@ test('SSH bootstrap discovers Node outside PATH and preserves arguments and RPC 
     await rm(home, { recursive: true, force: true });
   }
 });
+
+test('SSH bootstrap turns on the HTTPS_PROXY support of Node.js for the helper', async () => {
+  const { stdout } = await exec(
+    '/bin/sh',
+    ['-c', remoteNodeCommand("-e 'console.log(process.env.NODE_USE_ENV_PROXY)'")],
+    { env: { ...process.env, NODE_USE_ENV_PROXY: '' } },
+  );
+  assert.equal(stdout.trim(), '1');
+});
