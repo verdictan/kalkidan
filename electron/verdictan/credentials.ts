@@ -16,6 +16,13 @@ export interface RuntimeCredentials {
   inference_credential: string;
   generation: number;
 }
+/** The longest life of a runtime credential from the Verdictan API. */
+export const credentialLifetimeMs = 900000;
+/**
+ * Proposal: the clock difference that Kalkidan accepts between this computer and Verdictan. The
+ * runtime itself still expires at the time that Verdictan sets.
+ */
+export const clockSkewMs = 300000;
 export const uuid = (value: unknown): value is string =>
   typeof value === 'string' &&
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
@@ -69,7 +76,10 @@ export function parseRuntimeCredentials(value: unknown, now = Date.now()): Runti
   if (origin.protocol !== 'https:' || origin.origin !== v.api_url)
     throw new DesktopProtocolError('desktop.invalid_runtime_credential');
   const remaining = Date.parse(v.expires_at) - now;
-  if (!Number.isFinite(remaining) || remaining <= 0 || remaining > 900000)
+  if (!Number.isFinite(remaining) || remaining <= 0)
     throw new DesktopProtocolError('desktop.runtime_expired');
+  // A credential lives at most 15 minutes. When this clock is slow, more time seems to remain.
+  if (remaining > credentialLifetimeMs + clockSkewMs)
+    throw new DesktopProtocolError('desktop.clock_skew');
   return v;
 }

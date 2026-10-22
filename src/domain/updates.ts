@@ -57,6 +57,11 @@ export interface ComponentUpdateStatus {
    * again until it is false.
    */
   installing?: boolean;
+  /**
+   * True when an SSH host cannot reach the release server. The desktop can then download and
+   * verify the release, and copy it to the host over the SSH connection.
+   */
+  canTransfer?: boolean;
 }
 export interface UpdatesAPI {
   /** The version and build of the running Kalkidan app. */
@@ -67,6 +72,8 @@ export interface UpdatesAPI {
   runtimeUpdateCheck(hostId?: string): Promise<ComponentUpdateStatus>;
   runtimeUpdateInstall(hostId?: string): Promise<ComponentUpdateStatus>;
   runtimeUpdateCancel(hostId?: string): Promise<ComponentUpdateStatus>;
+  /** Download and verify the release on this computer, then copy it to an SSH host. */
+  runtimeUpdateTransfer(hostId: string): Promise<ComponentUpdateStatus>;
 }
 
 /** The running Kalkidan app, for Settings › General › About. */

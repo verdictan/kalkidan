@@ -131,7 +131,8 @@ test('protected credential parser rejects stale, overlong, foreign-origin and ma
     { runtime_id: 'bad' },
     { runtime_credential: 'secret' },
     { expires_at: '2026-10-20T00:00:00Z' },
-    { expires_at: '2026-10-20T00:16:00Z' },
+    // 15 minutes of life plus 5 minutes of clock difference is the longest that is accepted.
+    { expires_at: '2026-10-20T00:20:01Z' },
     { api_url: 'http://api.verdictan.com' },
     { api_url: 'https://api.verdictan.com/path' },
     { password: 'secret' },
@@ -145,6 +146,8 @@ test('gateway uses only fd3 for credentials and checks live authority for every 
   const route = await f.gateway.nativeRoute(agent, correlation);
   assert.equal(JSON.stringify(f.launches).includes(credentials.runtime_credential), false);
   assert.deepEqual(f.launches[0][1], ['gateway', 'supervise']);
+  // Kalkidan sets the disk limit of the durable event queue for each gateway.
+  assert.equal(f.launches[0][2].env.VERDICTAN_EVENT_WAL_MAX_BYTES, '268435456');
   assert.equal(route.env.OPENAI_API_KEY, credentials.inference_credential);
   assert.match(route.args.join(' '), /request_max_retries=0,stream_max_retries=0/);
   assert.match(route.args.join(' '), /x-verdictan-desktop-agent-version/);
@@ -219,6 +222,8 @@ test('readiness relays only known safe gateway codes and never the gateway text'
       503,
       'desktop.secure_storage_unavailable',
     ],
+    // The durable event queue of the gateway is full.
+    [{ error: { code: 'desktop.event_buffer_full' } }, 503, 'desktop.event_buffer_full'],
     [{ error: { code: 'desktop.unknown_gateway_code' } }, 503, 'desktop.readiness_failed'],
     [{ error: { code: 'not a code' } }, 500, 'desktop.readiness_failed'],
     [{ error: 'raw text' }, 500, 'desktop.readiness_failed'],

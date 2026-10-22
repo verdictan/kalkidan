@@ -664,6 +664,16 @@ export const managedErrors: Record<string, ManagedErrorInfo> = {
     message: 'Managed agents access for this computer expired. Renew it in Settings.',
     section: 'computers',
   },
+  'desktop.event_buffer_full': {
+    message:
+      'The event buffer of managed agents is full. New requests stop until Verdictan receives the stored events. Check the network connection, then try again.',
+    section: 'computers',
+  },
+  'desktop.clock_skew': {
+    message:
+      'The clock of this computer is wrong. Set the date and time to update automatically, then try again.',
+    section: 'computers',
+  },
   'desktop.invalid_runtime_credential': {
     message: 'Managed agents access for this computer is not valid. Renew it in Settings.',
     section: 'computers',
@@ -1136,6 +1146,7 @@ const recoverySteps: Record<SubscriptionRecoveryAction, ManagedSetupStep> = {
 // Codes that a second try can fix. No Settings step helps.
 const transientRefusals = new Set([
   'desktop.event_authority_unavailable',
+  'desktop.event_buffer_full',
   'desktop.request_timeout',
   'desktop.operation_in_progress',
   'desktop.runtime_starting',
@@ -1161,6 +1172,7 @@ const statusRefusals = new Set([
 ]);
 // Codes of a computer that cannot isolate agents. No Settings step and no second try helps.
 const platformRefusals = new Set([
+  'desktop.clock_skew',
   'desktop.process_isolation_unavailable',
   'desktop.isolation_scope_invalid',
   'desktop.loopback_required',
@@ -1225,6 +1237,10 @@ function refusalWords(
     case 'desktop.readiness_failed':
     case 'desktop.readiness_required':
       return `The managed agents check on ${where} did not pass. Check the status in Settings › Accounts, then try again.`;
+    case 'desktop.event_buffer_full':
+      return `The event buffer on ${where} is full. New requests stop until Verdictan receives the stored events. Check the network connection of ${where}, then try again.`;
+    case 'desktop.clock_skew':
+      return `The clock of ${where} is wrong. Set the date and time to update automatically, then try again.`;
     case 'desktop.secure_storage_unavailable':
       return `The system keychain on ${where} is locked or waits for your approval. Unlock it or allow access, then try again.`;
     case 'desktop.event_authority_unavailable':

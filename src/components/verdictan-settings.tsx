@@ -155,7 +155,11 @@ export function useRuntimeStatus(api: API, open: boolean, host: string) {
     return () => clearInterval(timer);
   }, [open, running, read]);
   async function action(
-    method: 'runtimeUpdateCheck' | 'runtimeUpdateInstall' | 'runtimeUpdateCancel',
+    method:
+      | 'runtimeUpdateCheck'
+      | 'runtimeUpdateInstall'
+      | 'runtimeUpdateCancel'
+      | 'runtimeUpdateTransfer',
   ) {
     if (pending.current && method !== 'runtimeUpdateCancel') return;
     pending.current = true;
@@ -170,7 +174,12 @@ export function useRuntimeStatus(api: API, open: boolean, host: string) {
         if (accountChanging(failure)) {
           setChanging(true);
           retry.current = setTimeout(read, changeRetryMs);
-        } else setError('The install did not finish. Try again.');
+        } else
+          setError(
+            method === 'runtimeUpdateTransfer'
+              ? 'The copy from this computer did not finish. Try again.'
+              : 'The install did not finish. Try again.',
+          );
     } finally {
       pending.current = false;
       setBusy(false);
@@ -263,16 +272,28 @@ export function RuntimeControl({ runtime, name }: { runtime: RuntimeState; name:
       ) : view.running ? (
         cancel
       ) : view.failure ? (
-        <Button
-          variant="outline"
-          size="sm"
-          disabled={busy}
-          onClick={() =>
-            void action(view.installable ? 'runtimeUpdateInstall' : 'runtimeUpdateCheck')
-          }
-        >
-          Retry
-        </Button>
+        <>
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={busy}
+            onClick={() =>
+              void action(view.installable ? 'runtimeUpdateInstall' : 'runtimeUpdateCheck')
+            }
+          >
+            Retry
+          </Button>
+          {status?.canTransfer && (
+            <Button
+              size="sm"
+              disabled={busy}
+              aria-label={`Copy managed agents from this computer to ${name}`}
+              onClick={() => void action('runtimeUpdateTransfer')}
+            >
+              Copy from this computer
+            </Button>
+          )}
+        </>
       ) : view.installable && (!status?.installed || view.outdated) ? (
         <Button size="sm" disabled={busy} onClick={() => void action('runtimeUpdateInstall')}>
           {status?.installed ? 'Update now' : 'Install'}

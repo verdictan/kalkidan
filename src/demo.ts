@@ -567,6 +567,9 @@ export const demo: API = {
     throw new Error('Runtime installation requires the desktop application.');
   },
   runtimeUpdateCancel: async (hostId) => demo.runtimeUpdateStatus(hostId),
+  runtimeUpdateTransfer: async () => {
+    throw new Error('Runtime installation requires the desktop application.');
+  },
   memoryList: async () => ({
     pages: demoMemory.map((entry) => ({
       topic: entry.topic,

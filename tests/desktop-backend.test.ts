@@ -442,3 +442,30 @@ test('desktop reports its own version and the helper state without an update ser
   for (const name of ['component-updates', 'desktop-update-download', 'desktop-update-restart'])
     assert.equal(f.handlers.has(name), false, name);
 });
+
+test('after a wake, the desktop stops expired gateways, then checks hosts, session, and runtime', async () => {
+  const f = await desktopFixture();
+  const start = f.calls.length;
+  f.power.emit('resume');
+  await new Promise((done) => setImmediate(done));
+  const names = f.calls.slice(start).map((call) => call[0]);
+  assert.equal(names[0], 'managedCheckExpiry');
+  for (const name of ['remoteReconcile', 'verdictanAutoRenew', 'runtimeCheck'])
+    assert.ok(names.includes(name), name);
+});
+
+test('the runtime copy reaches only a known SSH host and uses its helper', async () => {
+  const f = await desktopFixture();
+  await assert.rejects(f.invoke('runtime-update-transfer', 'unknown'), /not found/);
+  await assert.rejects(f.invoke('runtime-update-transfer', 42), /not found/);
+  assert.deepEqual(await f.invoke('runtime-update-transfer', 'host'), { hostId: 'copied' });
+  assert.deepEqual(f.calls.find((call) => call[0] === 'runtimeTransfer')?.[1], {
+    platform: 'linux',
+    arch: 'x64',
+    systemVersion: '6.12.0',
+  });
+  const copy = f.calls.find((call) => call[0] === 'remote' && call[2] === 'runtime-transfer');
+  assert.equal(copy?.[1], 'host');
+  assert.deepEqual(copy?.[3].slice(0, 1), ['begin']);
+  assert.deepEqual(copy?.[3].slice(-2), ['discovered', 'files']);
+});

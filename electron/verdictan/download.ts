@@ -1,5 +1,7 @@
 import { createHash } from 'node:crypto';
+import { constants } from 'node:fs';
 import { open } from 'node:fs/promises';
+import { releaseNetworkError } from './network';
 import { releaseURL, type InstallArtifact } from './release';
 
 /** Send a GET request. Follow at most 5 redirects, and only to approved HTTPS origins. */
@@ -14,11 +16,15 @@ async function requestRelease(
   if (!origins.has(url.origin)) throw new Error('The release download origin is not approved.');
   let response: Response | undefined;
   for (let redirects = 0; redirects <= 5; redirects++) {
-    response = await request(url, {
-      redirect: 'manual',
-      signal,
-      headers: { 'Accept-Encoding': 'identity' },
-    });
+    try {
+      response = await request(url, {
+        redirect: 'manual',
+        signal,
+        headers: { 'Accept-Encoding': 'identity' },
+      });
+    } catch (error) {
+      throw releaseNetworkError(error) ?? error;
+    }
     if (![301, 302, 303, 307, 308].includes(response.status)) break;
     await response.body?.cancel();
     const location = response.headers.get('location');
@@ -41,6 +47,15 @@ async function requestRelease(
   return response as Response & { body: ReadableStream<Uint8Array> };
 }
 
+/** Read the next part of a response. A lost connection gets plain words. */
+async function readChunk(reader: ReadableStreamDefaultReader<Uint8Array>) {
+  try {
+    return await reader.read();
+  } catch (error) {
+    throw releaseNetworkError(error) ?? error;
+  }
+}
+
 /** Download a small release file, such as a manifest or a signature, into memory. */
 export async function downloadReleaseFile(
   url: string,
@@ -55,7 +70,7 @@ export async function downloadReleaseFile(
   let received = 0;
   try {
     while (true) {
-      const { done, value } = await reader.read();
+      const { done, value } = await readChunk(reader);
       if (done) break;
       received += value.byteLength;
       if (received > limit) throw new Error('The release file exceeds its size limit.');
@@ -104,7 +119,7 @@ export async function downloadRuntime(
     output = await open(file, 'wx', 0o600);
     while (true) {
       signal.throwIfAborted();
-      const { done, value } = await reader.read();
+      const { done, value } = await readChunk(reader);
       if (done) break;
       received += value.byteLength;
       if (received > artifact.size) throw new Error('The runtime download exceeds its size limit.');
@@ -124,5 +139,24 @@ export async function downloadRuntime(
   } finally {
     await reader.cancel().catch(() => {});
     await output?.close();
+  }
+}
+
+/**
+ * Check the size and the SHA-256 digest of a runtime archive that came from another computer, for
+ * example a copy over SSH. The signature check comes after this check.
+ */
+export async function verifyRuntimeArchive(artifact: InstallArtifact, file: string) {
+  const input = await open(file, constants.O_RDONLY | constants.O_NOFOLLOW);
+  try {
+    const stat = await input.stat();
+    if (!stat.isFile() || stat.size !== artifact.size)
+      throw new Error('The copied runtime size does not match the published release.');
+    const checksum = createHash('sha256');
+    for await (const bytes of input.createReadStream({ autoClose: false })) checksum.update(bytes);
+    if (checksum.digest('hex') !== artifact.sha256)
+      throw new Error('The copied runtime checksum failed.');
+  } finally {
+    await input.close();
   }
 }

@@ -191,6 +191,10 @@ export class ManagedRuntimes {
       throw new DesktopProtocolError('desktop.gateway_unavailable');
     return item.gateway.endpoint();
   }
+  /** Stop each gateway whose credential expired while the computer slept. */
+  checkExpiry() {
+    for (const item of this.records.values()) item.gateway?.checkExpiry();
+  }
   async release(sessionId: string) {
     try {
       await this.revoke(sessionId);

@@ -42,6 +42,7 @@ const api: API = {
   runtimeUpdateCheck: (hostId) => ipcRenderer.invoke('runtime-update-check', hostId),
   runtimeUpdateInstall: (hostId) => ipcRenderer.invoke('runtime-update-install', hostId),
   runtimeUpdateCancel: (hostId) => ipcRenderer.invoke('runtime-update-cancel', hostId),
+  runtimeUpdateTransfer: (hostId) => ipcRenderer.invoke('runtime-update-transfer', hostId),
   memoryList: (group) => ipcRenderer.invoke('memory-list', group),
   projectResourceRevision: (group, kind) =>
     ipcRenderer.invoke('project-resource-revision', group, kind),

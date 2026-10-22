@@ -201,10 +201,12 @@ export async function desktopFixture(platform = 'linux', failure = '') {
     onConnected = record('remoteConnected');
     agentInstallations = asyncRecord('remoteAgentInstallations');
     chooseAgentExecutable = asyncRecord('remoteAgentChoice');
+    reconcile = asyncRecord('remoteReconcile');
     call = async (host: string, method: string, args: any[]) => {
       calls.push(['remote', host, method, args]);
       if (state.remoteError) throw Error(state.remoteError);
       if (method === 'transcript') return { messages: [] };
+      if (method === 'hello') return { platform: 'linux', arch: 'x64', systemVersion: '6.12.0' };
       if (method === 'snapshot')
         return { sessions: [{ ...sessions[0], cwd: '/remote' }], warnings: ['warning'] };
       if (method === 'project-prepare') return '/remote-new';
@@ -263,12 +265,19 @@ export async function desktopFixture(platform = 'linux', failure = '') {
       if (request.path) await this.options.add(request.path, request.groupId);
     };
   }
+  const power = new EventEmitter();
   const stubs: Record<string, unknown> = {
     electron: {
       app,
       BrowserWindow: Window,
       nativeTheme: theme,
-      powerMonitor: new EventEmitter(),
+      powerMonitor: power,
+      net: {
+        isOnline: () => true,
+        request: () => {
+          throw new Error('No network in desktop backend tests.');
+        },
+      },
       ipcMain: { handle: (name: string, fn: Function) => handlers.set(name, fn) },
       dialog: {
         showErrorBox: record('errorBox'),
@@ -335,7 +344,10 @@ export async function desktopFixture(platform = 'linux', failure = '') {
         install: asyncRecord('runtimeInstall'),
         cancel: record('runtimeCancel'),
       },
-      managed: { stopAll: asyncRecord('managedStopAll') },
+      managed: {
+        stopAll: asyncRecord('managedStopAll'),
+        checkExpiry: record('managedCheckExpiry'),
+      },
       account: {
         status: record('verdictanStatus'),
         check: asyncRecord('verdictanCheck'),
@@ -355,6 +367,13 @@ export async function desktopFixture(platform = 'linux', failure = '') {
       launch: { prepare: asyncRecord('managedPrepare') },
       remoteBroker: { reset: record('brokerReset'), request: asyncRecord('brokerRequest') },
     }),
+  });
+  stub('verdictan/transfer', {
+    transferRuntime: async (options: any) => {
+      calls.push(['runtimeTransfer', options.host, options.desktopVersion]);
+      await options.call('begin', ['discovered', 'files']);
+      return { hostId: 'copied' };
+    },
   });
   stub('storage/data-directory', { dataDirectory: () => '/fixture' });
   stub('storage/appearance', {
@@ -522,5 +541,5 @@ export async function desktopFixture(platform = 'linux', failure = '') {
       handlers.get(name)!({ sender: w.webContents, senderFrame: w.webContents.mainFrame }, ...args),
     );
   }
-  return { calls, windows, handlers, state, groups, sessions, app, theme, invoke };
+  return { calls, windows, handlers, state, groups, sessions, app, theme, invoke, power };
 }

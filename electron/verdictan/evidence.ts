@@ -1,6 +1,7 @@
 import type { GovernanceEvidence } from '../../src/domain/conversation';
 import { DesktopProtocolError } from './protocol';
 import { isSubscriptionBilling } from '../../src/domain/verdictan';
+import { eventBufferLimits } from './event-buffer';
 const safe = (v: unknown): v is string =>
   typeof v === 'string' && /^[A-Za-z0-9][A-Za-z0-9._:/-]{0,255}$/.test(v);
 const measurement = (v: unknown) =>
@@ -55,7 +56,9 @@ export class RuntimeEvidence {
   private row(id: string) {
     let row = this.state.requests.find((r) => r.id === id);
     if (!row) {
-      if (this.state.requests.length >= 300) this.state.requests.shift();
+      // The list is full. The oldest row goes first, and the newest rows stay.
+      if (this.state.requests.length >= eventBufferLimits.rowsPerConversation)
+        this.state.requests.shift();
       row = {
         id,
         policy: null,
@@ -156,9 +159,9 @@ export class RuntimeEvidence {
         typeof data.gap !== 'boolean' ||
         typeof data.reconciliation_required !== 'boolean' ||
         typeof data.has_more !== 'boolean' ||
-        data.retention_seconds !== 900 ||
+        data.retention_seconds !== eventBufferLimits.expirySeconds ||
         !Array.isArray(data.events) ||
-        data.events.length > 100
+        data.events.length > eventBufferLimits.eventsPerPage
       )
         throw new DesktopProtocolError('desktop.events_invalid');
       const reset =

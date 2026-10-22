@@ -73,7 +73,11 @@ import {
   nativeTheme,
   powerMonitor,
   Notification,
+  net,
 } from 'electron';
+import { chromiumFetch, withReleaseErrors } from './verdictan/network';
+import { transferRuntime } from './verdictan/transfer';
+import { NetworkWatcher, recoverConnections } from './platform-events';
 import { existsSync } from 'node:fs';
 import { readFile, writeFile, stat, realpath, rm } from 'node:fs/promises';
 import { join, basename } from 'node:path';
@@ -425,11 +429,27 @@ async function git(path: string, args: string[]) {
 }
 const appearanceFile = join(dataRoot, 'appearance.json');
 app.whenReady().then(async () => {
-  powerMonitor.on('resume', () => {
-    void remote?.reconcile().catch(() => {});
-    // The session timer does not run while the computer sleeps. Renew the session now.
-    void verdictan?.account.autoRenew().catch(() => {});
-  });
+  // Timers do not run while the computer sleeps, and a network change closes connections. After
+  // either, stop expired gateways, check the SSH hosts, renew the session, and retry a failed
+  // runtime check. Nothing replays a request.
+  const recover = () =>
+    void recoverConnections({
+      checkExpiry: () => verdictan?.managed.checkExpiry(),
+      reconcileHosts: async () => remote?.reconcile(),
+      renewAccount: async () => verdictan?.account.autoRenew(),
+      checkRuntime: async () => verdictan?.installer.check(),
+    });
+  powerMonitor.on('resume', recover);
+  const network = new NetworkWatcher(
+    () => net.isOnline(),
+    (reason) => {
+      if (reason !== 'offline') recover();
+    },
+  );
+  network.start();
+  app.on('will-quit', () => network.close());
+  // Release requests use the Chromium network stack, with the system proxy and certificates.
+  const releaseRequest = withReleaseErrors(chromiumFetch(net));
   const makeVerdictan = (region: VerdictanRegion | undefined) =>
     createVerdictanServices({
       region,
@@ -439,6 +459,7 @@ app.whenReady().then(async () => {
       desktopVersion: app.getVersion(),
       busy: () => chatRunner.runningCount() > 0,
       openBrowser: (url) => shell.openExternal(url),
+      request: releaseRequest,
     });
   verdictan = makeVerdictan(await savedVerdictanRegion(dataRoot));
   // The first launch installs the managed agents runtime in the background. Settings shows
@@ -599,6 +620,39 @@ app.whenReady().then(async () => {
       return verdictan!.installer.start();
     });
   }
+  // A host that cannot reach the release server gets a copy from this computer over SSH. This
+  // computer verifies the release first, and the host verifies it again before it installs.
+  const transfers = new Map<string, Promise<unknown>>();
+  handle('runtime-update-transfer', async (hostId: string) => {
+    if (typeof hostId !== 'string' || !remote.list().some((host) => host.id === hostId))
+      throw new Error('Remote host not found.');
+    if (transfers.has(hostId)) throw new Error('A copy to this host is in progress.');
+    const task = (async () => {
+      const hello = await remote.call(hostId, 'hello', []);
+      if (typeof hello?.systemVersion !== 'string')
+        throw new Error('Update the Kalkidan helper on this host to copy the runtime.');
+      return transferRuntime({
+        host: { platform: hello.platform, arch: hello.arch, systemVersion: hello.systemVersion },
+        desktopVersion: app.getVersion(),
+        directory: app.getPath('temp'),
+        request: releaseRequest,
+        call: (operation, args) =>
+          remote.call(hostId, 'runtime-transfer', [
+            operation,
+            app.getVersion(),
+            hostId,
+            verdictan!.region,
+            ...args,
+          ]),
+      });
+    })();
+    transfers.set(hostId, task);
+    try {
+      return await task;
+    } finally {
+      transfers.delete(hostId);
+    }
+  });
   if (!app.isPackaged && existsSync(appIcon)) app.dock?.setIcon(appIcon);
   // Apply the saved appearance before the first window opens, so it opens in the right colors.
   nativeTheme.themeSource = await readAppearanceMode(appearanceFile);
