@@ -352,6 +352,25 @@ export class VerdictanAccountService {
       }
     });
   }
+  /**
+   * Verdictan revoked the account session of this device, for example with "Revoke device" in
+   * the Console. Sign out at once, so that the local account credentials are removed. Kalkidan
+   * does not wait for the next renewal. A failed sign-out keeps the expired state.
+   */
+  async revokedRemotely() {
+    if (this.state.phase !== 'authenticated') return this.status();
+    try {
+      return await this.logout();
+    } catch {
+      return this.set({
+        ...this.state,
+        phase: 'expired',
+        account: this.state.account && { ...this.state.account, state: 'expired' },
+        capabilities: this.state.capabilities && sessionCapabilities(this.state.capabilities),
+        executionReady: false,
+      });
+    }
+  }
   dispose() {
     this.disposed = true;
     clearTimeout(this.renewTimer);

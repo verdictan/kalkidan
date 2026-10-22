@@ -6,7 +6,6 @@ import { projectFieldText, projectViewRows } from '../domain/project-view';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
 import { Card, CardContent } from './ui/card';
-import { EmptyState } from './ui/empty-state';
 import { SectionHeader } from './ui/page-header';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table';
 import { Hint } from './hint';
@@ -62,11 +61,6 @@ function SavedViewBoard({
               aria-label={tasks.length ? `${name} tasks` : undefined}
             >
               {tasks.map(card)}
-              {!tasks.length && (
-                <EmptyState compact className="tracker-column-empty">
-                  No tasks
-                </EmptyState>
-              )}
             </div>
           </section>
         );

@@ -9,27 +9,32 @@ import {
   type RefObject,
 } from 'react';
 import {
+  Brain,
   Clock,
   FileText,
   Folder,
   FolderGit2,
-  LayoutGrid,
   ListTodo,
-  MessagesSquare,
+  MessageSquarePlus,
   Search,
   X,
   Zap,
 } from 'lucide-react';
-import { agentLabel } from '../config/agents';
 import { trackerConnection, type TrackerItem } from '../domain/tracker';
 import type { DocPassage, ProjectDocMetadata } from '../domain/docs';
+import type { MemoryEntry } from '../domain/memory';
 import { sessionAPI } from '../lib/remote-api';
 import { sessionRepo } from '../lib/session-repository';
 import { trackerClient } from '../lib/tracker-client';
 import { isMac, plural, shortcutLabel } from '../lib/platform';
 import type { API, Project, ProjectGroup, Session } from '../types';
 import { relativeTime } from '../lib/relative-time';
-import { ChatStatusDot, activityKey, type SessionActivityState } from './activity-dot';
+import {
+  ChatStatusDot,
+  activityKey,
+  waitsForUser,
+  type SessionActivityState,
+} from './activity-dot';
 import { AgentIcon } from './ui/agent-icon';
 import { Button } from './ui/button';
 import { Dialog, DialogContent, DialogTitle } from './ui/dialog';
@@ -53,45 +58,70 @@ export interface SearchAction {
   run: () => void;
 }
 
-/** A place that the user opened before, for "Recent" in an empty search. */
+/** A chat, task or page that the user opened before, for "Recent" in an empty search. */
 export interface RecentPlace {
   key: string;
   label: string;
-  /** The project or agent, shown after the label. */
+  /** The project and the kind or agent, shown after the label. */
   context?: string;
-  kind: 'home' | 'sessions' | 'project' | 'repository' | 'conversation';
+  kind: 'chat' | 'task' | 'doc';
   agent?: string;
   open: () => void;
+}
+
+/** The words of a text, for word-start matching. "Re-check auth_flow" → re, check, auth, flow. */
+const wordsOf = (text: string) =>
+  text
+    .toLocaleLowerCase()
+    .split(/[^\p{L}\p{N}#]+/u)
+    .filter(Boolean);
+/**
+ * True when each word of the query starts a word of the text: "auth" finds "Authentication" and
+ * "auth tokens", but not "OAuth". A query with one word of 3 or more letters also finds a
+ * longer word that contains it, so "#12" and "12" find "Task #12".
+ */
+export function wordStartMatch(text: string, term: string) {
+  const words = wordsOf(text);
+  const parts = wordsOf(term);
+  if (!parts.length) return false;
+  return parts.every((part) =>
+    words.some((word) => word.startsWith(part) || word.replace(/^#/, '').startsWith(part)),
+  );
 }
 
 /** The heading and the excerpt of a doc passage, for the result row. */
 const snippetOf = (passage?: DocPassage) =>
   passage ? [passage.heading, passage.excerpt].filter(Boolean).join(' · ') || undefined : undefined;
 
-/** Shows each match of `term` in `text` with a subtle highlight. */
+/** Shows the start of each word that a query word matches, with a subtle highlight. */
 function Highlight({ text, term }: { text: string; term: string }) {
-  if (!term) return <>{text}</>;
+  const parts = wordsOf(term).sort((a, b) => b.length - a.length);
+  if (!parts.length) return <>{text}</>;
   const lower = text.toLocaleLowerCase();
-  const parts: ReactNode[] = [];
+  const out: ReactNode[] = [];
   let from = 0;
-  for (let index = lower.indexOf(term); index >= 0; index = lower.indexOf(term, from)) {
-    if (index > from) parts.push(text.slice(from, index));
-    parts.push(<mark key={index}>{text.slice(index, index + term.length)}</mark>);
-    from = index + term.length;
+  let plain = 0;
+  while (from < text.length) {
+    // A match starts at the start of a word only.
+    const start = from === 0 || /[^\p{L}\p{N}]/u.test(text[from - 1]);
+    const part = start ? parts.find((item) => lower.startsWith(item, from)) : undefined;
+    if (part) {
+      if (from > plain) out.push(text.slice(plain, from));
+      out.push(<mark key={from}>{text.slice(from, from + part.length)}</mark>);
+      from += part.length;
+      plain = from;
+    } else from++;
   }
-  if (from < text.length) parts.push(text.slice(from));
-  return <>{parts}</>;
+  if (plain < text.length) out.push(text.slice(plain));
+  return <>{out}</>;
 }
 
-/** The icon of a recent place. */
+/** The icon of a recent chat, task or page. */
 function RecentIcon({ place }: { place: RecentPlace }) {
-  if (place.kind === 'conversation' && place.agent)
+  if (place.kind === 'chat' && place.agent)
     return <AgentIcon agent={place.agent} className="size-3.5" />;
-  if (place.kind === 'repository') return <FolderGit2 />;
-  if (place.kind === 'sessions') return <MessagesSquare />;
-  if (place.kind === 'project' && place.label === 'Docs') return <FileText />;
-  if (place.kind === 'project') return <Folder />;
-  if (place.kind === 'home') return <LayoutGrid />;
+  if (place.kind === 'task') return <ListTodo />;
+  if (place.kind === 'doc') return <FileText />;
   return <Clock />;
 }
 
@@ -124,7 +154,9 @@ export function WorkspaceSearch({
   sessions,
   onProject,
   onDoc,
+  onMemory,
   onTask,
+  onAsk,
   onRepository,
   onSession,
   actions = [],
@@ -147,8 +179,12 @@ export function WorkspaceSearch({
   activity?: Record<string, SessionActivityState>;
   /** Opens a docs page of a project. */
   onDoc?: (group: ProjectGroup, doc: ProjectDocMetadata) => void;
+  /** Opens a memory topic of a project. */
+  onMemory?: (group: ProjectGroup, entry: MemoryEntry) => void;
   /** Opens a task on the project board. */
   onTask?: (group: ProjectGroup, task: TrackerItem) => void;
+  /** Starts a chat with the query as its first message. Mod+Enter runs it. */
+  onAsk?: (prompt: string) => void;
   api: API;
   projects: Project[];
   groups: ProjectGroup[];
@@ -162,7 +198,7 @@ export function WorkspaceSearch({
   const inputRef = useRef<HTMLInputElement>(null);
   const [query, setQuery] = useState('');
   const term = query.trim().toLocaleLowerCase();
-  const matches = (text: string) => text.toLocaleLowerCase().includes(term);
+  const matches = (text: string) => wordStartMatch(text, term);
   const [history, setHistory] = useState<{ session: Session; excerpt: string }[]>([]);
   const [busy, setBusy] = useState(false);
   const [partial, setPartial] = useState(0);
@@ -215,6 +251,7 @@ export function WorkspaceSearch({
   // sessions. Failures, docs and tasks stay cached until the search is cleared.
   const transcripts = useRef(new Map<string, Transcript | 'failed'>());
   const docs = useRef(new Map<string, ProjectDocMetadata[]>());
+  const memory = useRef(new Map<string, MemoryEntry[]>());
   const tasks = useRef(new Map<string, TrackerItem[]>());
   const [, setLoaded] = useState(0);
   const searching = term.length > 0;
@@ -223,6 +260,7 @@ export function WorkspaceSearch({
     for (const [key, value] of transcripts.current)
       if (value === 'failed') transcripts.current.delete(key);
     docs.current.clear();
+    memory.current.clear();
     tasks.current.clear();
   }, [searching]);
   // Load the docs and tasks of each project once for each search.
@@ -240,6 +278,18 @@ export function WorkspaceSearch({
           })
           .catch(() => {
             /* A project without docs gives no results. */
+          });
+      }
+      if (onMemory && !memory.current.has(group.id) && typeof api.memoryEntries === 'function') {
+        memory.current.set(group.id, []);
+        Promise.resolve()
+          .then(() => api.memoryEntries(group.id))
+          .then((entries) => {
+            memory.current.set(group.id, entries);
+            if (live) setLoaded((value) => value + 1);
+          })
+          .catch(() => {
+            /* A project without memory gives no results. */
           });
       }
       const connection = trackerConnection(group);
@@ -385,7 +435,17 @@ export function WorkspaceSearch({
           .map((task) => ({ group, task })),
       )
     : [];
-  const repoMatches = term ? projects.filter((p) => matches(p.name + ' ' + p.path)) : [];
+  // One row for each memory topic whose name or facts match.
+  const memoryMatches = term
+    ? groups.flatMap((group) => {
+        const topics = new Map<string, MemoryEntry[]>();
+        for (const entry of memory.current.get(group.id) || [])
+          if (matches(entry.topic + ' ' + entry.content))
+            topics.set(entry.topic, [...(topics.get(entry.topic) || []), entry]);
+        return [...topics.values()].map((entries) => ({ group, entry: entries[0], entries }));
+      })
+    : [];
+  const repoMatches = term ? projects.filter((p) => matches(p.name)) : [];
   const sessionMatches = term
     ? sessions.filter((s) =>
         matches(
@@ -399,9 +459,15 @@ export function WorkspaceSearch({
         ),
       )
     : [];
+  // One row for each label: two actions with the same words are one result.
   const actionMatches = term
-    ? actions.filter((action) => matches(action.label + ' ' + (action.keywords || '')))
+    ? actions.filter(
+        (action, index, list) =>
+          matches(action.label + ' ' + (action.keywords || '')) &&
+          list.findIndex((item) => item.label === action.label) === index,
+      )
     : [];
+  const ask = term && onAsk ? query.trim() : '';
   const title = (s: Session) => s.organization?.title || s.title;
   const sessionKey = (s: Session) => s.hostId + ':' + s.agent + ':' + s.id;
   // One row for each session. A message match shows its excerpt in the session row.
@@ -414,29 +480,34 @@ export function WorkspaceSearch({
   ];
   const projectOf = (repo?: Project) =>
     repo ? groups.find((g) => g.repoIds.includes(repo.id))?.name : undefined;
-  const context = (...parts: (string | undefined)[]) => parts.filter(Boolean).join(' › ');
   const options: SearchOption[] = showStart
     ? [
         ...recent.map((place) => ({ key: 'recent:' + place.key, open: place.open })),
         ...suggested.map((action) => ({ key: 'suggested:' + action.key, open: action.run })),
       ]
     : [
-        ...projectMatches.map((g) => ({ key: 'project:' + g.id, open: () => onProject(g) })),
-        ...repoMatches.map((p) => ({ key: 'repo:' + p.id, open: () => onRepository(p) })),
+        // The order of the groups: Chats, Tasks, Docs and memory, Projects, then Actions.
         ...sessionResults.map((s) => ({
           key: 'session:' + sessionKey(s),
           open: () => onSession(s),
-        })),
-        ...docMatches.map(({ group, doc }) => ({
-          key: `doc:${group.id}:${doc.id}`,
-          open: () => onDoc?.(group, doc),
         })),
         ...taskMatches.map(({ group, task }) => ({
           key: `task:${group.id}:${task.id}`,
           open: () => onTask?.(group, task),
         })),
+        ...docMatches.map(({ group, doc }) => ({
+          key: `doc:${group.id}:${doc.id}`,
+          open: () => onDoc?.(group, doc),
+        })),
+        ...memoryMatches.map(({ group, entry }) => ({
+          key: `memory:${group.id}:${entry.topic}`,
+          open: () => onMemory?.(group, entry),
+        })),
+        ...projectMatches.map((g) => ({ key: 'project:' + g.id, open: () => onProject(g) })),
+        ...repoMatches.map((p) => ({ key: 'repo:' + p.id, open: () => onRepository(p) })),
         // Commands come last, so Enter on a name opens the item, not a command.
         ...actionMatches.map((action) => ({ key: 'action:' + action.key, open: action.run })),
+        ...(ask ? [{ key: 'ask', open: () => onAsk?.(ask) }] : []),
       ];
   /** Closes the palette, then opens the result. */
   function choose(option: SearchOption) {
@@ -495,9 +566,12 @@ export function WorkspaceSearch({
   }
   const kbd = (keys?: string) => keys && <kbd className="kbd">{keys}</kbd>;
   const total = options.length;
+  // "Ask an agent" is always offered. It is not a match.
+  const found = total - (ask ? 1 : 0);
   const shortTerm = term.length < 2;
   const expanded = !!term || showStart;
   const shortcut = shortcutLabel(['mod'], 'K');
+  const askKeys = shortcutLabel(['mod'], '↵');
   return (
     <>
       <button
@@ -511,7 +585,7 @@ export function WorkspaceSearch({
         onClick={() => onOpenChange(true)}
       >
         <Search className="search-trigger-icon" aria-hidden="true" />
-        <span className="search-trigger-label">Search or run…</span>
+        <span className="search-trigger-label">Search</span>
         <kbd className="kbd search-kbd" aria-hidden="true">
           {shortcut}
         </kbd>
@@ -562,6 +636,11 @@ export function WorkspaceSearch({
                   setActive((current) =>
                     current < 0 && step < 0 ? total - 1 : (current + step + total) % total,
                   );
+                } else if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
+                  // Mod+Enter turns the query into a new chat.
+                  if (!ask) return;
+                  event.preventDefault();
+                  choose({ key: 'ask', open: () => onAsk?.(ask) });
                 } else if (event.key === 'Enter') {
                   const target = activeOption || options[0];
                   if (!target) return;
@@ -619,42 +698,14 @@ export function WorkspaceSearch({
           ) : term ? (
             <section className="workspace-search-results" aria-label="Search results">
               <p role="status" className="search-status">
-                {shortTerm && !total
+                {shortTerm && !found
                   ? 'Type at least two characters to search message text.'
-                  : busy && !total
+                  : busy && !found
                     ? 'Searching chat messages…'
-                    : plural(total, 'match', 'matches') +
+                    : plural(found, 'match', 'matches') +
                       (busy ? ' · Searching chat messages…' : '')}
               </p>
               <div id={listId} role="listbox" aria-label="Results">
-                {!!projectMatches.length &&
-                  group(
-                    'projects',
-                    'Projects',
-                    projectMatches.map((g) =>
-                      row('project:' + g.id, {
-                        icon: <Folder />,
-                        title: <Highlight text={g.name} term={term} />,
-                        detail: plural(g.repoIds.length, 'code folder'),
-                        meta: 'Project',
-                        tooltip: g.name,
-                      }),
-                    ),
-                  )}
-                {!!repoMatches.length &&
-                  group(
-                    'repositories',
-                    'Code folders',
-                    repoMatches.map((p) =>
-                      row('repo:' + p.id, {
-                        icon: <FolderGit2 />,
-                        title: <Highlight text={p.name} term={term} />,
-                        detail: projectOf(p),
-                        meta: 'Code folder',
-                        tooltip: p.path,
-                      }),
-                    ),
-                  )}
                 {!!sessionResults.length &&
                   group(
                     'sessions',
@@ -664,32 +715,46 @@ export function WorkspaceSearch({
                       const found = excerpts.get(sessionKey(s));
                       // Skip an excerpt that only repeats the title.
                       const excerpt = found?.replace(/^…|…$/g, '') === title(s) ? undefined : found;
-                      const where = context(projectOf(repo), repo?.name);
-                      const when = relativeTime(s.updatedAt);
+                      const live = activity[activityKey(s.agent, s.id)];
+                      const state = s.organization?.archived
+                        ? 'Archived'
+                        : waitsForUser(live)
+                          ? 'Waiting for you'
+                          : live === 'running'
+                            ? 'Working'
+                            : relativeTime(s.updatedAt);
+                      const where = [projectOf(repo), state].filter(Boolean).join(' · ');
                       return row('session:' + sessionKey(s), {
                         icon: <AgentIcon agent={s.agent} className="size-3.5" />,
                         title: (
                           <>
                             <Highlight text={title(s)} term={term} />
-                            {s.organization?.archived ? ' · Archived' : ''}
-                            <ChatStatusDot
-                              session={s}
-                              live={activity[activityKey(s.agent, s.id)]}
-                            />
+                            <ChatStatusDot session={s} live={live} />
                           </>
                         ),
                         detail: excerpt ? <Highlight text={excerpt} term={term} /> : where,
-                        meta: [agentLabel(s.agent), when].filter(Boolean).join(' · '),
                         className: excerpt ? 'history-search-hit' : undefined,
                         tooltip: [title(s), where, excerpt].filter(Boolean).join('\n'),
                       });
                     }),
                   )}
-                {!!docMatches.length &&
+                {!!taskMatches.length &&
                   group(
-                    'docs',
-                    'Docs',
-                    docMatches.map(({ group: owner, doc, snippet }) =>
+                    'tasks',
+                    'Tasks',
+                    taskMatches.map(({ group: owner, task }) => {
+                      const label = `${task.number ? `#${task.number} ` : ''}${task.title}`;
+                      return row(`task:${owner.id}:${task.id}`, {
+                        icon: <ListTodo />,
+                        title: <Highlight text={label} term={term} />,
+                        detail: [owner.name, task.status].filter(Boolean).join(' · '),
+                        tooltip: label,
+                      });
+                    }),
+                  )}
+                {!!(docMatches.length || memoryMatches.length) &&
+                  group('docs', 'Docs and memory', [
+                    ...docMatches.map(({ group: owner, doc, snippet }) =>
                       row(`doc:${owner.id}:${doc.id}`, {
                         icon: <FileText />,
                         title: <Highlight text={doc.title || 'Untitled'} term={term} />,
@@ -697,42 +762,62 @@ export function WorkspaceSearch({
                           snippet && snippet !== doc.title ? (
                             <Highlight text={snippet} term={term} />
                           ) : (
-                            owner.name
+                            `${owner.name} · Page`
                           ),
-                        meta: 'Doc',
                         tooltip: [doc.title, owner.name].filter(Boolean).join(' · '),
                       }),
                     ),
-                  )}
-                {!!taskMatches.length &&
-                  group(
-                    'tasks',
-                    'Tasks',
-                    taskMatches.map(({ group: owner, task }) =>
-                      row(`task:${owner.id}:${task.id}`, {
-                        icon: <ListTodo />,
-                        title: <Highlight text={task.title} term={term} />,
-                        detail: context(owner.name, task.number ? '#' + task.number : undefined),
-                        meta: 'Task',
-                        tooltip: task.title,
+                    ...memoryMatches.map(({ group: owner, entry, entries }) =>
+                      row(`memory:${owner.id}:${entry.topic}`, {
+                        icon: <Brain />,
+                        title: <Highlight text={entry.topic} term={term} />,
+                        detail: `${owner.name} · Memory · ${plural(entries.length, 'fact')}`,
+                        tooltip: entries.map((item) => item.content).join('\n'),
                       }),
                     ),
-                  )}
-                {!!actionMatches.length &&
-                  group(
-                    'actions',
-                    'Actions',
-                    actionMatches.map((action) =>
+                  ])}
+                {!!(projectMatches.length || repoMatches.length) &&
+                  group('projects', 'Projects', [
+                    ...projectMatches.map((g) =>
+                      row('project:' + g.id, {
+                        icon: <Folder />,
+                        title: <Highlight text={g.name} term={term} />,
+                        detail: plural(g.repoIds.length, 'code folder'),
+                        tooltip: g.name,
+                      }),
+                    ),
+                    ...repoMatches.map((p) =>
+                      row('repo:' + p.id, {
+                        icon: <FolderGit2 />,
+                        title: <Highlight text={p.name} term={term} />,
+                        detail: [projectOf(p), 'Code folder'].filter(Boolean).join(' · '),
+                        tooltip: p.path,
+                      }),
+                    ),
+                  ])}
+                {!!(actionMatches.length || ask) &&
+                  group('actions', 'Actions', [
+                    ...actionMatches.map((action) =>
                       row('action:' + action.key, {
                         icon: action.icon || <Zap />,
                         title: <Highlight text={action.label} term={term} />,
-                        meta: kbd(action.shortcut) || 'Action',
+                        meta: kbd(action.shortcut),
                         tooltip: action.label,
                       }),
                     ),
-                  )}
+                    ...(ask
+                      ? [
+                          row('ask', {
+                            icon: <MessageSquarePlus />,
+                            title: `Ask an agent: “${ask}”`,
+                            meta: kbd(askKeys),
+                            tooltip: ask,
+                          }),
+                        ]
+                      : []),
+                  ])}
               </div>
-              {!shortTerm && !busy && !total && <p className="search-status">No matches found.</p>}
+              {!shortTerm && !busy && !found && <p className="search-status">No matches found.</p>}
               {!!failed && (
                 <p role="alert" className="field-error search-error">
                   {plural(failed, 'chat')} could not be searched. Check the host connection and try
@@ -747,7 +832,7 @@ export function WorkspaceSearch({
             </section>
           ) : (
             <p className="workspace-search-results search-status">
-              Type to search projects, chats, docs, tasks and actions.
+              Search chats, tasks, pages, memory and actions.
             </p>
           )}
           <div className="command-palette-footer" aria-hidden="true">
@@ -756,8 +841,13 @@ export function WorkspaceSearch({
               <kbd className="kbd">↓</kbd> Move
             </span>
             <span>
-              <kbd className="kbd">Enter</kbd> Open
+              <kbd className="kbd">↵</kbd> Open
             </span>
+            {onAsk && (
+              <span>
+                <kbd className="kbd">{askKeys}</kbd> Start a chat
+              </span>
+            )}
             <span>
               <kbd className="kbd">Esc</kbd> Close
             </span>

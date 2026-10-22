@@ -76,6 +76,8 @@ test('GitHub inspector edits fields, retains a failed draft, and restores archiv
     .click();
   await page.getByRole('button', { name: 'Plan work', exact: true }).click();
   const dialog = page.getByRole('dialog');
+  // The GitHub fields are in the collapsed Details part of the task sheet.
+  await dialog.getByRole('button', { name: 'Details', exact: true }).click();
   const estimate = dialog.getByRole('spinbutton', { name: 'Estimate', exact: true });
   // Fields save on Enter. A failed write keeps the value, so Enter tries again.
   await estimate.fill('5');
@@ -95,8 +97,12 @@ test('GitHub inspector edits fields, retains a failed draft, and restores archiv
   await actions.click();
   await expect(page.getByRole('menuitem', { name: 'Archive item', exact: true })).toBeVisible();
   await page.keyboard.press('Escape');
-  await page.keyboard.press('Escape');
-  await expect(page.getByText('· 1 restricted', { exact: false })).toBeVisible();
+  await expect(page.getByRole('menu')).toHaveCount(0);
+  await dialog.getByRole('button', { name: 'Close task', exact: true }).click();
+  await expect(dialog).toHaveCount(0);
+  // The board menu tells how many tasks the user cannot see.
+  await page.getByRole('button', { name: 'Board actions', exact: true }).click();
+  await expect(page.getByRole('menu')).toContainText('Roadmap #1 · 1 hidden');
   expect(await page.evaluate(() => (window as any).calls)).toEqual([
     ['g', 'I', 'estimate', { number: 5 }],
     ['g', 'I', 'estimate', { number: 5 }],

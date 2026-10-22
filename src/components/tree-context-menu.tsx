@@ -1,4 +1,15 @@
-import { Check, Palette } from 'lucide-react';
+import {
+  Check,
+  FilePlus2,
+  FolderGit2,
+  FolderPlus,
+  ListPlus,
+  MessageSquarePlus,
+  Palette,
+  PenLine,
+  Settings2,
+  Unplug,
+} from 'lucide-react';
 import { projectColors, type ProjectColor } from '../domain/project-colors';
 import { Fragment, type ReactElement, type ReactNode } from 'react';
 import { ContextMenu, DropdownMenu as Menu } from 'radix-ui';
@@ -34,6 +45,8 @@ export interface TreeAction {
   reason?: string;
   /** Draws a separator above this item. */
   separator?: boolean;
+  /** Shows the Color submenu just before this item and its separator. */
+  colorBefore?: boolean;
 }
 /** The folder color choices of a project menu. */
 export interface FolderColorChoice {
@@ -78,6 +91,106 @@ function ColorItems({
       ))}
     </parts.RadioGroup>
   );
+}
+
+/** The Color submenu of a right-click menu. */
+function ContextColor({ folderColor }: { folderColor: FolderColorChoice }) {
+  return (
+    <ContextMenu.Sub>
+      <ContextMenu.SubTrigger className={menuItemClass}>
+        <Palette className="size-4" />
+        <span className="flex-1">Color</span>
+      </ContextMenu.SubTrigger>
+      <ContextMenu.Portal>
+        <ContextMenu.SubContent
+          collisionPadding={menuCollisionPadding}
+          className={menuContentClass}
+        >
+          <ColorItems parts={ContextMenu} folderColor={folderColor} />
+        </ContextMenu.SubContent>
+      </ContextMenu.Portal>
+    </ContextMenu.Sub>
+  );
+}
+
+/** The Color submenu of a ⋯ menu. */
+function DropdownColor({ folderColor }: { folderColor: FolderColorChoice }) {
+  return (
+    <DropdownMenuSub>
+      <DropdownMenuSubTrigger>
+        <Palette className="size-4" />
+        Color
+      </DropdownMenuSubTrigger>
+      <DropdownMenuSubContent>
+        <ColorItems parts={Menu} folderColor={folderColor} />
+      </DropdownMenuSubContent>
+    </DropdownMenuSub>
+  );
+}
+
+/** What the one project menu does. The sidebar row and the project header use the same menu. */
+export interface ProjectMenuHandlers {
+  onNewChat(): void;
+  onNewTask(): void;
+  onNewPage(): void;
+  onAddFolder(): void;
+  onCloneFromGitHub(): void;
+  onRename(): void;
+  onSettings(): void;
+  /** Shows "Reconnect to host" for a remote project whose host is not connected. */
+  reconnect?: { host: string; disabled?: boolean; run(): void };
+  busy?: boolean;
+}
+
+/**
+ * The items of the one project menu, in this order: New chat, New task, New page — Add code
+ * folder, Clone from GitHub — Rename, Color — Project settings. Give the color choice to the
+ * menu as `folderColor`. The Color submenu then shows after "Rename".
+ */
+export function projectMenuActions(handlers: ProjectMenuHandlers): TreeAction[] {
+  const icon = (Icon: typeof Palette) => <Icon className="size-4" />;
+  return [
+    { label: 'New chat', icon: icon(MessageSquarePlus), action: handlers.onNewChat },
+    { label: 'New task', icon: icon(ListPlus), action: handlers.onNewTask },
+    { label: 'New page', icon: icon(FilePlus2), action: handlers.onNewPage },
+    {
+      label: 'Add code folder…',
+      icon: icon(FolderPlus),
+      separator: true,
+      disabled: handlers.busy,
+      action: handlers.onAddFolder,
+    },
+    {
+      label: 'Clone from GitHub…',
+      icon: icon(FolderGit2),
+      disabled: handlers.busy,
+      action: handlers.onCloneFromGitHub,
+    },
+    ...(handlers.reconnect
+      ? [
+          {
+            label: `Reconnect to ${handlers.reconnect.host}`,
+            icon: icon(Unplug),
+            disabled: handlers.reconnect.disabled,
+            action: handlers.reconnect.run,
+          },
+        ]
+      : []),
+    {
+      label: 'Rename…',
+      icon: icon(PenLine),
+      separator: true,
+      disabled: handlers.busy,
+      action: handlers.onRename,
+    },
+    {
+      label: 'Project settings…',
+      icon: icon(Settings2),
+      separator: true,
+      colorBefore: true,
+      action: handlers.onSettings,
+    },
+  ];
 }
 
 /** The label of an item, with the reason of a disabled item as a second line. */
@@ -137,6 +250,7 @@ export function TreeContextMenu({
         >
           {actions.map((item) => (
             <Fragment key={item.label}>
+              {item.colorBefore && folderColor && <ContextColor folderColor={folderColor} />}
               {item.separator && <ContextMenu.Separator className={menuSeparatorClass} />}
               <ContextMenu.Item
                 disabled={item.disabled}
@@ -153,23 +267,10 @@ export function TreeContextMenu({
               </ContextMenu.Item>
             </Fragment>
           ))}
-          {folderColor && (
+          {folderColor && !actions.some((item) => item.colorBefore) && (
             <>
               <ContextMenu.Separator className={menuSeparatorClass} />
-              <ContextMenu.Sub>
-                <ContextMenu.SubTrigger className={menuItemClass}>
-                  <Palette className="size-4" />
-                  <span className="flex-1">Folder color</span>
-                </ContextMenu.SubTrigger>
-                <ContextMenu.Portal>
-                  <ContextMenu.SubContent
-                    collisionPadding={menuCollisionPadding}
-                    className={menuContentClass}
-                  >
-                    <ColorItems parts={ContextMenu} folderColor={folderColor} />
-                  </ContextMenu.SubContent>
-                </ContextMenu.Portal>
-              </ContextMenu.Sub>
+              <ContextColor folderColor={folderColor} />
             </>
           )}
         </ContextMenu.Content>
@@ -210,6 +311,7 @@ export function TreeActionsMenu({
       <DropdownMenuContent align={align} aria-label={label}>
         {actions.map((item) => (
           <Fragment key={item.label}>
+            {item.colorBefore && folderColor && <DropdownColor folderColor={folderColor} />}
             {item.separator && <DropdownMenuSeparator />}
             <DropdownMenuItem
               variant={item.destructive ? 'destructive' : 'default'}
@@ -222,18 +324,10 @@ export function TreeActionsMenu({
             </DropdownMenuItem>
           </Fragment>
         ))}
-        {folderColor && (
+        {folderColor && !actions.some((item) => item.colorBefore) && (
           <>
             <DropdownMenuSeparator />
-            <DropdownMenuSub>
-              <DropdownMenuSubTrigger>
-                <Palette className="size-4" />
-                Folder color
-              </DropdownMenuSubTrigger>
-              <DropdownMenuSubContent>
-                <ColorItems parts={Menu} folderColor={folderColor} />
-              </DropdownMenuSubContent>
-            </DropdownMenuSub>
+            <DropdownColor folderColor={folderColor} />
           </>
         )}
       </DropdownMenuContent>

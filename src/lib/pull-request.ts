@@ -111,3 +111,19 @@ export async function moveTaskToReview(api: API, group: ProjectGroup | undefined
   if (item.statusId !== option.id) await client.status(group.id, taskId, option.id);
   return option.name;
 }
+
+/**
+ * The branch name that "Create pull request" suggests on the default branch, for example
+ * "kalkidan/add-sign-in-tests" for the chat "Add sign-in tests".
+ */
+export function suggestedBranch(title: string) {
+  const slug = title
+    .normalize('NFKD')
+    .replace(/[̀-ͯ]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+  // A long title ends at a whole word.
+  const short = slug.length > 48 ? slug.slice(0, 48).replace(/-[^-]*$/, '') : slug;
+  return `kalkidan/${short && !/^new(-[a-z]+)?-(chat|session)$/.test(short) ? short : 'changes'}`;
+}

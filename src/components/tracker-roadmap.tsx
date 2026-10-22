@@ -83,10 +83,7 @@ export function TrackerRoadmap({
         icon={<CalendarRange />}
         title="Add dates to see a roadmap"
         action={onAddDateFields && <Button onClick={onAddDateFields}>Add date fields</Button>}
-      >
-        The roadmap shows each task from its start date to its end date. The board has no date
-        fields yet.
-      </EmptyState>
+      />
     );
   return (
     <section aria-label="Project roadmap" className="tracker-roadmap">
@@ -171,17 +168,11 @@ export function TrackerRoadmap({
           </ul>
         </div>
       ) : (
-        <EmptyState icon={<CalendarX />} title="No dated tasks">
-          No task has a start and an end date in these fields. Set the dates in a task, or choose
-          other fields.
-        </EmptyState>
+        <EmptyState icon={<CalendarX />} title="No dated tasks" />
       )}
       {undated.length > 0 && (
         <section className="tracker-roadmap-undated" aria-label="Tasks without dates">
           <SectionHeader size="sm" title="No dates" count={undated.length} />
-          <p className="form-help m-0">
-            These tasks have no dates, or the end date is before the start date.
-          </p>
           <ul className="list-box">
             {undated.map((row) => (
               <li key={row.item.id}>

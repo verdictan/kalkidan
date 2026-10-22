@@ -89,7 +89,8 @@ export function ProjectServicesPanel({
 }: {
   api: API;
   groupId: string;
-  board: TrackerBoard;
+  /** The board gives the task filter. Without a board, the services show for all tasks. */
+  board?: TrackerBoard;
 }) {
   const [documents, setDocuments] = useState<ProjectDocMetadata[]>([]);
   const [document, setDocument] = useState<ProjectDoc>();
@@ -157,30 +158,23 @@ export function ProjectServicesPanel({
       ? `${operationLabel(pending?.operation)}: ${words(value.state)}.`
       : `${operationLabel(pending?.operation)}: done.`;
   return (
-    <section aria-labelledby="services-title" className="grid gap-3">
-      <SectionHeader
-        title={<span id="services-title">Managed agent services</span>}
-        actions={
-          <Button
-            size="sm"
-            variant="outline"
-            disabled={busy}
-            onClick={() =>
-              void run(async () => {
-                setStatus(await api.projectServicesStatus(groupId));
-                setResult(undefined);
-                setPending(undefined);
-              })
-            }
-          >
-            {status ? 'Check again' : 'Check project services'}
-          </Button>
-        }
-      />
-      <p className="form-help">
-        Usage history, reviews and shared knowledge for managed agents in this project. The
-        organization sets the policy in Verdictan.
-      </p>
+    <section aria-label="Agent services" className="grid gap-3">
+      <div className="flex items-center gap-2">
+        <Button
+          size="sm"
+          variant="outline"
+          disabled={busy}
+          onClick={() =>
+            void run(async () => {
+              setStatus(await api.projectServicesStatus(groupId));
+              setResult(undefined);
+              setPending(undefined);
+            })
+          }
+        >
+          {status ? 'Check again' : 'Check project services'}
+        </Button>
+      </div>
       {status && !status.available && !status.historyList && (
         <Alert size="sm">
           <AlertDescription>
@@ -252,7 +246,7 @@ export function ProjectServicesPanel({
                   }}
                   options={[
                     ...(kind === 'reviews' ? [{ value: '', label: 'All tasks' }] : []),
-                    ...board.items.map((item) => ({ value: item.id, label: item.title })),
+                    ...(board?.items || []).map((item) => ({ value: item.id, label: item.title })),
                   ]}
                 />
               </label>

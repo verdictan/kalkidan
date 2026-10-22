@@ -15,6 +15,7 @@ import {
   importLegacyDocs,
 } from './storage/project-location';
 import { memoryDirectory, readProjectMemory } from './storage/project-memory';
+import { contextUsage, normalizeUsage, readCounts } from './storage/context-usage';
 import { projectMemory } from './storage/managed-memory';
 import { resourceRevision } from './storage/resource-revision';
 import { remoteProtocolVersion } from '../src/domain/host';
@@ -53,6 +54,7 @@ import {
   worktreePreview,
 } from './git-working';
 import { scanRepositories } from './repository-scan';
+import { LocalData, removeHostData } from './storage/local-data';
 import { existsSync } from 'node:fs';
 const publishOperations = new PublishOperations(
   join(homedir(), '.kalkidan', 'operations', 'publish'),
@@ -94,6 +96,8 @@ async function source(agent: string, id: string) {
   if (!session) throw new Error('Remote session not found. Refresh history.');
   return { session, path: sources.get(`${agent}:${id}`) };
 }
+// The data folder on the host has the same disk limit as on the desktop.
+void new LocalData({ root: join(homedir(), '.kalkidan') }).enforceLimit().catch(() => {});
 const agentStarts = new AgentStarts(
   join(homedir(), '.kalkidan', 'operations', 'agent-start'),
   (id) => chats.status(id),
@@ -110,6 +114,15 @@ async function dispatch(method: string, args: any[]): Promise<any> {
           canRelease = true;
         });
       return { run, canRelease };
+    }
+    case 'kalkidan-data-remove': {
+      // The host is being removed. Stop the work on it, then remove only Kalkidan's data.
+      if (chats.runningCount() > 0) throw new Error('Stop the running agents on this host first.');
+      chats.dispose();
+      await verdictanRuntime?.managed.stopAll();
+      verdictanRuntime?.account.reset();
+      verdictanRuntime = undefined;
+      return removeHostData(homedir());
     }
     case 'managed-stop':
       chats.dispose();
@@ -183,6 +196,8 @@ async function dispatch(method: string, args: any[]): Promise<any> {
       if (c === 'list') return readProjectMemory(root);
       if (c === 'entries') return projectMemory(root).list();
       if (c === 'forget') return projectMemory(root).forget(d[0], d[1]);
+      if (c === 'usage') return contextUsage(root, d?.[0], d?.[1]);
+      if (c === 'counts') return readCounts(root);
       if (c === 'save') {
         if (!d?.[0] || typeof d[0] !== 'object') throw new Error('Enter a memory entry to save.');
         return projectMemory(root).save(d[0]);
@@ -412,6 +427,7 @@ async function dispatch(method: string, args: any[]): Promise<any> {
                 root: await folder(f.root),
                 groupId: f.groupId,
                 prompt: f.prompt,
+                read: normalizeUsage(f.read),
                 changed: () =>
                   process.stdout.write(
                     JSON.stringify({
@@ -440,6 +456,7 @@ async function dispatch(method: string, args: any[]): Promise<any> {
                 root: await folder(f.root),
                 groupId: f.groupId,
                 prompt: f.prompt,
+                read: normalizeUsage(f.read),
                 changed: () =>
                   process.stdout.write(
                     JSON.stringify({

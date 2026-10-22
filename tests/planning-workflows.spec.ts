@@ -12,20 +12,38 @@ async function openTool(page: Page, tool: string, titles: string[]) {
     await page.getByRole('checkbox', { name: `Select ${title}`, exact: true }).check();
   const bar = page.getByRole('toolbar', { name: 'Selected tasks' });
   const button = bar.getByRole('button', { name: tool, exact: true });
-  // The frequent tools are buttons. The other tools are in the More menu.
+  // The frequent tools are buttons. The other tools are in the "⋯" menu.
   if (await button.count()) await button.click();
   else {
-    await bar.getByRole('button', { name: 'More', exact: true }).click();
+    await bar
+      .getByRole('button', { name: 'More actions for the selected tasks', exact: true })
+      .click();
     await page.getByRole('menuitem', { name: tool, exact: true }).click();
   }
 }
-/** Opens the Insights page of the project. */
-async function openInsights(page: Page) {
+/** Opens a view of Knowledge › Insights of the project. */
+async function openInsights(page: Page, view: 'Agent usage' | 'Agent knowledge') {
   await page
     .getByRole('navigation', { name: 'Project page', exact: true })
-    .getByRole('button', { name: 'Insights', exact: true })
+    .getByRole('button', { name: 'Knowledge', exact: true })
+    .click();
+  await page
+    .getByRole('complementary', { name: 'Knowledge sections' })
+    .getByRole('button', { name: view, exact: true })
     .click();
 }
+/** Opens the Projects page from the sidebar. */
+async function openProjects(page: Page) {
+  await page
+    .getByRole('navigation', { name: 'Projects and repositories' })
+    .getByRole('button', { name: 'Projects', exact: true })
+    .click();
+}
+/** The Agent usage view of Insights. */
+const usageView = (page: Page) =>
+  page.locator('.knowledge-insight').filter({
+    has: page.getByRole('heading', { name: 'Agent usage', exact: true }),
+  });
 test.beforeEach(async ({ page }) => {
   await page.addInitScript(() => {
     localStorage.setItem('kalkidan:onboarding:v1', 'dismissed');
@@ -323,11 +341,13 @@ test('explicit Docs selection previews source text and relationships before issu
   await second.getByRole('checkbox', { name: '1. Implement service', exact: true }).check();
   await dialog.getByRole('button', { name: 'Review 2 tasks' }).click();
   await expect(dialog).toContainText('Acceptance criteria B.');
-  await expect(dialog.getByRole('button', { name: 'Create 2 tasks' })).toBeDisabled();
+  // The Review step is the check. Nothing is written before Create.
+  await expect(
+    dialog.getByRole('checkbox', {
+      name: 'I checked the descriptions, the repository and the links',
+    }),
+  ).toHaveCount(0);
   expect(await page.evaluate(() => (window as any).planningWrites)).toEqual([]);
-  await dialog
-    .getByRole('checkbox', { name: 'I checked the descriptions, the repository and the links' })
-    .check();
   await dialog.getByRole('button', { name: 'Create 2 tasks' }).click();
   await expect(dialog.getByText('Created', { exact: true })).toHaveCount(2);
   const request = (await page.evaluate(() => (window as any).planningWrites))[0][2];
@@ -364,10 +384,11 @@ test('readiness retains missing evidence and shows Jenkins sources without chang
   expect(await page.evaluate(() => (window as any).planningWrites)).toEqual([]);
 });
 test('portfolio preserves source projects and filters personal assignments', async ({ page }) => {
-  await page.getByRole('button', { name: 'Projects overview', exact: true }).click();
+  // The tasks of all projects are in the Waiting for you view of the Projects page.
+  await openProjects(page);
   await page
-    .getByRole('group', { name: 'Projects overview view' })
-    .getByRole('button', { name: 'My work', exact: true })
+    .getByRole('group', { name: 'Projects view' })
+    .getByRole('button', { name: 'Waiting for you', exact: true })
     .click();
   const work = page.getByRole('region', { name: 'My work' });
   const whose = work.getByRole('group', { name: 'Whose tasks' });
@@ -383,7 +404,8 @@ test('portfolio preserves source projects and filters personal assignments', asy
 test('project reviews require an explicit reason and confirmation before the broker mutation', async ({
   page,
 }) => {
-  await openInsights(page);
+  // The managed agent services are in Knowledge › Insights › Agent knowledge.
+  await openInsights(page, 'Agent knowledge');
   await page.getByRole('button', { name: 'Check project services' }).click();
   await choose(page, 'Project service view', 'Reviews and approvals');
   await page.getByRole('button', { name: 'Load current data' }).click();
@@ -411,8 +433,8 @@ test('project reviews require an explicit reason and confirmation before the bro
   expect(mutation.fields.operation_id).toMatch(/^[a-f0-9-]{36}$/);
 });
 test('saved task usage keeps unavailable cost and tokens unknown', async ({ page }) => {
-  await openInsights(page);
-  const usage = page.getByRole('region', { name: 'Usage', exact: true });
+  await openInsights(page, 'Agent usage');
+  const usage = usageView(page);
   await usage.getByRole('combobox', { name: 'Task', exact: true }).click();
   await page.getByRole('option', { name: 'Independent issue', exact: true }).click();
   const record = usage.locator('dl.meta-list');
@@ -424,7 +446,7 @@ test('a usage link from a chat opens Insights at the task without the task sheet
   page,
 }) => {
   // Chats send this event from their usage chip. The project page is not open yet.
-  await page.getByRole('button', { name: 'Projects overview', exact: true }).click();
+  await openProjects(page);
   await page.evaluate(() =>
     window.dispatchEvent(
       new CustomEvent('kalkidan-open-project-page', {
@@ -432,7 +454,7 @@ test('a usage link from a chat opens Insights at the task without the task sheet
       }),
     ),
   );
-  const usage = page.getByRole('region', { name: 'Usage', exact: true });
+  const usage = usageView(page);
   await expect(usage.getByRole('combobox', { name: 'Task', exact: true })).toContainText(
     'Independent issue',
   );
@@ -442,10 +464,13 @@ test('a usage link from a chat opens Insights at the task without the task sheet
 test('task history from Verdictan shows each request without IDs and restarts to refresh', async ({
   page,
 }) => {
-  await openInsights(page);
+  // The managed agent services are in Knowledge › Insights › Agent knowledge.
+  await openInsights(page, 'Agent knowledge');
   await page.getByRole('button', { name: 'Check project services' }).click();
   await choose(page, 'Project service task', 'Independent issue');
-  const services = page.getByRole('region', { name: 'Managed agent services' });
+  const services = page
+    .getByRole('region', { name: 'Agent knowledge', exact: true })
+    .getByRole('region', { name: 'Agent services', exact: true });
   const request = services.locator('.review-row').first();
   await expect(request).toContainText('Request 1');
   await expect(request).toContainText('Allowed');

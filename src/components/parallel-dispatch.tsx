@@ -184,7 +184,7 @@ export function DispatchTool({
               items={issues}
               onRemove={onRemove}
               limit={dispatchLimit}
-              label="Issues to run"
+              label="Tasks to start"
             />
             {others.length > 0 && (
               <Alert size="sm">
@@ -248,10 +248,6 @@ export function DispatchTool({
                 )}
               </section>
             )}
-            <p className="form-help">
-              Each issue gets its own branch copy and its own chat. The agent can edit files in that
-              copy only. Chats start when a place is free.
-            </p>
           </>
         )}
         {plan && (

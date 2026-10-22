@@ -401,20 +401,18 @@ try {
   );
   await page.evaluate(() => window.workspace.browserClose());
   // Exercise the actual dock and native view geometry together, not only bridge calls.
-  // Tools open from the title bar launcher: "New tool tab", then the tool row.
-  const openTool = async (name) => {
-    await page.getByRole('button', { name: 'New tool tab', exact: true }).click();
-    await page
-      .getByRole('region', { name: 'Repository tools', exact: true })
-      .getByRole('button', { name, exact: true })
-      .click();
-  };
+  // Tools open from the "Tools" group in the title bar. The selected tool hides the tools.
+  const toolButton = (name) =>
+    page
+      .getByRole('group', { name: 'Tools', exact: true })
+      .getByRole('button', { name, exact: true });
+  const openTool = (name) => toolButton(name).click();
   // This test checks the workspace, not the first-run Welcome screen.
   await page.evaluate(() => window.workspace.setWelcomeDone());
   await page.reload();
   // The sidebar shows projects and chats only. Open the code folder from the project overview.
   await page.locator('.project-tree .project-select').first().click();
-  await page.locator('.project-home-open').first().click();
+  await page.locator('.project-home-section .folder-row').first().click();
   // "New chat" starts a chat with the default agent, the first installed agent.
   await page.getByRole('button', { name: 'New chat', exact: true }).first().click();
   await openTool('Browser');
@@ -444,7 +442,7 @@ try {
   await page.locator('.xterm-helper-textarea').fill("printf 'dock-%s' works");
   await page.locator('.xterm-helper-textarea').press('Enter');
   await expect(page.getByLabel('Interactive terminal')).toContainText('dock-works');
-  await page.getByRole('button', { name: 'Hide tools', exact: true }).click();
+  await toolButton('Terminal').click();
 
   await assert.rejects(
     page.evaluate((id) => window.workspace.moveRepo(id, null), id),

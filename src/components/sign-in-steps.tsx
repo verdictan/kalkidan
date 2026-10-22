@@ -1,19 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import {
-  AppWindow,
-  Check,
-  ChevronLeft,
-  Circle,
-  Clock,
-  Copy,
-  ExternalLink,
-  FolderOpen,
-  Globe,
-  LoaderCircle,
-  X,
-} from 'lucide-react';
+import { ChevronDown, Clock, Copy, ExternalLink, Globe, LoaderCircle, X } from 'lucide-react';
 import type { API } from '../api/contracts';
-import type { AgentInstallation } from '../types';
 import type { VerdictanAccountPage, VerdictanSetup, VerdictanStatus } from '../domain/verdictan';
 import {
   isSubscriptionMode,
@@ -21,15 +8,12 @@ import {
   managedErrorCode,
   managedErrorInfo,
 } from '../domain/verdictan';
-import { checkAgentVersion, nativeAgentKind } from '../domain/agent-version';
-import { agentCatalog } from '../config/agents';
 import {
   accountChanging,
   accountNames,
   allowedModels,
   providerName,
   runtimeBusy,
-  updatePhaseLabel,
   verdictanErrorMessage,
 } from '../lib/verdictan-labels';
 import {
@@ -41,18 +25,22 @@ import {
   urlHost,
   type Region,
 } from '../lib/region-suggestion';
-import { isMac } from '../lib/platform';
 import { cn } from '../lib/utils';
 import {
   runtimeProgress,
   useRuntimeStatus,
   useVerdictanStatus,
 } from '../hooks/use-verdictan-status';
-import { Alert, AlertDescription, AlertTitle } from './ui/alert';
-import { Badge } from './ui/badge';
 import { Button } from './ui/button';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuShortcut,
+  DropdownMenuTrigger,
+} from './ui/dropdown-menu';
 import { Progress } from './ui/progress';
-import { Radio } from './ui/checkbox';
 import { showToast } from './ui/toast';
 
 export type SignInIntent = 'login' | 'register';
@@ -62,12 +50,13 @@ export interface SignInResult {
   signedIn: boolean;
 }
 
-type View = 'start' | 'region' | 'waiting' | 'error' | 'setup';
+type View = 'start' | 'waiting' | 'setup' | 'error';
 
-const computerName = isMac ? 'this Mac' : 'this computer';
 // The runtime waits 310 seconds for the browser. Use it when the status has no end time.
 const authorizationWindowMs = 310_000;
 const installPollMs = 1500;
+// The longest wait for the setup of the organization after the sign-in. It continues after.
+const setupWaitMs = 8000;
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 /** Opens the new Settings dialog at a section. */
@@ -136,8 +125,10 @@ function failureCode(error: unknown) {
 }
 
 /**
- * The steps of the Verdictan sign-in: region, browser hand-off, then setup. The Welcome screen
- * shows them in the full window. SignInFlow shows them in a dialog.
+ * The Verdictan sign-in in one card: sign in, wait for the browser, then get the setup of the
+ * organization. The Welcome screen shows it in the full window. SignInFlow shows it in a dialog.
+ * The region is an inline menu on the card. After the sign-in, the card saves the recommended
+ * setup and finishes at once. Only a setup that blocks managed agents stops on the card.
  */
 export function SignInSteps({
   api,
@@ -154,7 +145,7 @@ export function SignInSteps({
   /** Starts the sign-in at once when the region is already saved. */
   autoStart?: boolean;
   onFinished: (result: SignInResult) => void;
-  /** Shows "Set up later" on the start view. */
+  /** Shows "Set up later" under the main button. */
   onSkip?: () => void;
 }) {
   const account = useVerdictanStatus(api);
@@ -164,16 +155,20 @@ export function SignInSteps({
   const [chosenRegion, setChosenRegion] = useState<Region>();
   const region: Region | undefined = chosenRegion ?? status?.region ?? suggestion;
   const [view, setView] = useState<View>('start');
-  // The intent of the sign-in that runs now, or that the region screen continues.
+  // The intent of the sign-in that runs now.
   const [intent, setIntent] = useState<SignInIntent>(requestedIntent || 'login');
   // The button that shows "Getting ready…" while the runtime installs.
   const [preparing, setPreparing] = useState<SignInIntent>();
   const [errorCode, setErrorCode] = useState('');
   const [runtimeReason, setRuntimeReason] = useState('');
+  // A setup error that stops managed agents for the organization, for example billing.
+  const [setupError, setSetupError] = useState('');
   // The last sign-in link. It stays for "Copy link" after the browser did not open.
   const [lastUrl, setLastUrl] = useState('');
   const [startedAt, setStartedAt] = useState(0);
-  const [returnToStart, setReturnToStart] = useState(false);
+  const [regionMenuOpen, setRegionMenuOpen] = useState(false);
+  // The sign-in to start after the user chooses a region in the menu.
+  const pendingIntent = useRef<SignInIntent | undefined>(undefined);
   // Each attempt has a number. A cancel or a new attempt makes the old result stale.
   const attempt = useRef(0);
   const live = useRef(true);
@@ -220,11 +215,13 @@ export function SignInSteps({
   /** Saves the region, waits for the runtime, and opens the browser. */
   async function begin(next: SignInIntent, chosen: Region | undefined = region) {
     if (!chosen) {
+      // No region yet: the user chooses one in the menu, then the sign-in continues.
+      pendingIntent.current = next;
       setIntent(next);
-      setReturnToStart(false);
-      setView('region');
+      setRegionMenuOpen(true);
       return;
     }
+    pendingIntent.current = undefined;
     const id = ++attempt.current;
     setIntent(next);
     setPreparing(next);
@@ -276,7 +273,7 @@ export function SignInSteps({
     }
   }
 
-  // A sign-in that started somewhere else, for example in Settings, shows the waiting view.
+  // A sign-in that started somewhere else, for example in Settings, shows the waiting state.
   useEffect(() => {
     if (status?.phase !== 'authorizing') cancelling.current = false;
     if (
@@ -302,6 +299,29 @@ export function SignInSteps({
     if (status.region) void begin(requestedIntent || 'login', status.region);
   }, [autoStart, status]);
 
+  // After the sign-in: save the recommended setup for both agents, then continue. The setup
+  // runs in the background, so a slow answer does not hold the user here.
+  useEffect(() => {
+    if (view !== 'setup') return;
+    let active = true;
+    const apply =
+      typeof api.verdictanApplyRecommended === 'function'
+        ? () => api.verdictanApplyRecommended()
+        : () => api.verdictanSetup();
+    void Promise.race([Promise.resolve().then(apply), delay(setupWaitMs)]).then(
+      () => active && onFinished({ signedIn: true }),
+      (error) => {
+        if (!active) return;
+        const code = failureCode(error);
+        if (billingCodes.has(code)) setSetupError(code);
+        else onFinished({ signedIn: true });
+      },
+    );
+    return () => {
+      active = false;
+    };
+  }, [view]);
+
   async function cancel() {
     attempt.current++;
     cancelling.current = true;
@@ -310,7 +330,7 @@ export function SignInSteps({
       account.setStatus(await api.verdictanCancel());
     } catch {
       showToast({
-        message: 'Could not stop the sign-in. Check the status in Settings.',
+        message: 'Could not stop the sign-in. Try again from the account menu.',
         tone: 'error',
       });
     }
@@ -338,24 +358,25 @@ export function SignInSteps({
     }
   }
 
-  async function saveRegion(next: Region) {
+  /** The user chose a region in the menu. Kalkidan saves it now, on this click. */
+  async function chooseRegion(next: Region) {
     setChosenRegion(next);
-    const intentToRun = intent;
-    if (returnToStart) {
+    const continueWith = view === 'waiting' ? intent : pendingIntent.current;
+    if (view === 'waiting') {
+      // A sign-in in the wrong region stops. A new one starts in the chosen region.
+      await cancel();
       setView('start');
-      // Save the confirmed choice now. It changes nothing that runs: no one is signed in.
-      try {
-        account.setStatus(await api.verdictanSetRegion(next));
-      } catch (error) {
-        if (!accountChanging(error)) {
-          setErrorCode(failureCode(error));
-          setView('error');
-        }
-      }
-      return;
     }
-    setView('start');
-    void begin(intentToRun, next);
+    if (continueWith) return void begin(continueWith, next);
+    // Nobody is signed in, so the change stops nothing that runs.
+    try {
+      account.setStatus(await api.verdictanSetRegion(next));
+    } catch (error) {
+      if (!accountChanging(error)) {
+        setErrorCode(failureCode(error));
+        setView('error');
+      }
+    }
   }
 
   // Try again by itself when the connection comes back.
@@ -366,43 +387,25 @@ export function SignInSteps({
     return () => window.removeEventListener('online', retry);
   }, [view, errorCode, intent]);
 
-  const progress = runtimeProgress(runtime.status);
-  const installing = runtime.busy && !runtime.installed;
-
-  if (view === 'region')
+  if (setupError) {
+    const names = accountNames(status);
+    const done = { label: 'Continue', run: () => onFinished({ signedIn: true }) };
+    const manage =
+      typeof api.verdictanOpenConsole === 'function'
+        ? { label: 'Manage account', run: () => void api.verdictanOpenConsole().catch(() => {}) }
+        : undefined;
     return (
-      <RegionView
+      <ErrorView
         mode={mode}
-        value={region}
-        suggestion={suggestion}
-        onBack={() => setView('start')}
-        onContinue={(value) => void saveRegion(value)}
-      />
-    );
-
-  if (view === 'waiting')
-    return (
-      <WaitingView
-        api={api}
-        mode={mode}
-        status={status}
-        region={status?.region || region}
-        startedAt={startedAt}
-        canCopy={!!(status?.authorization?.url || lastUrl)}
-        onReopen={() => void reopen()}
-        onCopy={() => void copyLink()}
-        onCancel={() => {
-          void cancel();
-          if (mode === 'dialog') onFinished({ signedIn: false });
-          else setView('start');
-        }}
-        onChangeRegion={() => {
-          void cancel();
-          setReturnToStart(false);
-          setView('region');
+        copy={{
+          title: `${names.organization || 'Your organization'} cannot use managed agents yet`,
+          body: managedErrorInfo(setupError).message,
+          primary: manage || done,
+          secondary: manage ? done : undefined,
         }}
       />
     );
+  }
 
   if (view === 'error') {
     const copy = errorCopy(errorCode, {
@@ -420,20 +423,27 @@ export function SignInSteps({
     return <ErrorView api={api} mode={mode} copy={copy} />;
   }
 
-  if (view === 'setup')
-    return (
-      <SetupView
-        api={api}
-        mode={mode}
-        status={status}
-        runtime={runtime}
-        onDone={() => onFinished({ signedIn: true })}
-      />
-    );
-
-  // The start view: the Welcome screen, or the first view of the sign-in dialog.
-  const preparingLabel =
-    installing && progress !== undefined ? `Getting ready… ${progress}%` : 'Getting ready…';
+  const waiting = view === 'waiting';
+  const settingUp = view === 'setup';
+  const progress = runtimeProgress(runtime.status);
+  const installing = runtime.busy && !runtime.installed;
+  const busyLabel = settingUp
+    ? 'Setting up agents…'
+    : waiting
+      ? 'Waiting for your browser…'
+      : preparing
+        ? installing && progress !== undefined
+          ? `Getting ready… ${progress}%`
+          : 'Getting ready…'
+        : '';
+  const host = urlHost(status?.authorization?.url) || (region ? regionConsoleHosts[region] : '');
+  const lead = waiting
+    ? status?.authorization
+      ? `Kalkidan opened ${host}. This window updates when you finish.`
+      : 'Kalkidan opens your browser. This window updates when you finish.'
+    : mode === 'window'
+      ? 'Run Codex and Claude Code on your code, with the rules of your organization.'
+      : 'Chats run as managed agents through your Verdictan account.';
   return (
     <Screen mode={mode} className="sign-in-start">
       {mode === 'window' ? (
@@ -451,79 +461,79 @@ export function SignInSteps({
         </span>
       )}
       <h1 className="sign-in-title">
-        {mode === 'window' ? 'Welcome to Kalkidan' : 'Sign in to Verdictan'}
+        {waiting
+          ? 'Finish signing in in your browser'
+          : mode === 'window'
+            ? 'Welcome to Kalkidan'
+            : 'Sign in to Verdictan'}
       </h1>
-      <p className="sign-in-lead">
-        {mode === 'window'
-          ? 'Run Codex and Claude Code on your code, with the rules of your organization.'
-          : 'Chats run as managed agents through your Verdictan account. Kalkidan opens your browser to sign in.'}
+      <p className="sign-in-lead" role={waiting ? 'status' : undefined}>
+        {lead}
       </p>
       <div className="sign-in-actions">
-        <Button
-          size="lg"
-          className="w-full"
-          disabled={!!preparing}
-          onClick={() => void begin('login')}
-        >
-          {preparing === 'login' ? (
-            <>
-              <LoaderCircle className="animate-spin" aria-hidden="true" /> {preparingLabel}
-            </>
-          ) : (
-            'Continue with Verdictan'
-          )}
-        </Button>
-        <Button
-          size="lg"
-          variant="outline"
-          className="w-full"
-          disabled={!!preparing}
-          onClick={() => void begin('register')}
-        >
-          {preparing === 'register' ? (
-            <>
-              <LoaderCircle className="animate-spin" aria-hidden="true" /> {preparingLabel}
-            </>
-          ) : (
-            'Create account'
-          )}
-        </Button>
-      </div>
-      <p className="sign-in-region" role="group" aria-label="Region">
-        <Globe aria-hidden="true" />
-        {region ? (
-          <>
-            <span className="text-muted-foreground">Region</span>
-            <span className="font-medium">{regionNames[region]}</span>
-          </>
+        {busyLabel ? (
+          <Button size="lg" className="w-full" disabled aria-live="polite">
+            <LoaderCircle className="animate-spin" aria-hidden="true" /> {busyLabel}
+          </Button>
         ) : (
-          <span className="text-muted-foreground">No region chosen</span>
+          <Button size="lg" className="w-full" onClick={() => void begin('login')}>
+            Sign in with Verdictan
+          </Button>
         )}
-        <button
-          type="button"
-          className="text-link"
-          disabled={!!preparing}
-          aria-label={region ? 'Change the region' : 'Choose a region'}
-          onClick={() => {
-            setReturnToStart(true);
-            setView('region');
+        {mode === 'window' && onSkip && !waiting && !settingUp && (
+          <Button
+            size="lg"
+            variant="ghost"
+            className="w-full"
+            disabled={!!preparing}
+            onClick={onSkip}
+          >
+            Set up later
+          </Button>
+        )}
+      </div>
+      {waiting && (
+        <WaitingActions
+          expiresAt={status?.authorization?.expiresAt}
+          startedAt={startedAt}
+          opened={!!status?.authorization}
+          canCopy={!!(status?.authorization?.url || lastUrl)}
+          onReopen={() => void reopen()}
+          onCopy={() => void copyLink()}
+          onCancel={() => {
+            void cancel();
+            if (mode === 'dialog') onFinished({ signedIn: false });
+            else setView('start');
           }}
-        >
-          {region ? 'Change' : 'Choose a region'}
-        </button>
-      </p>
-      {mode === 'window' && (
-        <div className="sign-in-footer">
-          <p>Kalkidan opens your browser to sign in. Kalkidan never sees your password.</p>
-          {onSkip && (
-            <button type="button" className="text-link" onClick={onSkip}>
-              Set up later
-            </button>
-          )}
-        </div>
+        />
       )}
-      {mode === 'dialog' && <p className="sign-in-note">Kalkidan never sees your password.</p>}
-      <AccountHelp api={api} />
+      {!waiting && !settingUp && (
+        <p className="sign-in-note">
+          No account?{' '}
+          <button
+            type="button"
+            className="text-link"
+            disabled={!!preparing}
+            onClick={() => void begin('register')}
+          >
+            Create one
+          </button>
+        </p>
+      )}
+      {!settingUp && (
+        <RegionMenu
+          value={region}
+          disabled={!!preparing}
+          open={regionMenuOpen}
+          onOpenChange={(open) => {
+            setRegionMenuOpen(open);
+            // Closing the menu without a choice drops the waiting sign-in.
+            if (!open && !region) pendingIntent.current = undefined;
+          }}
+          onChange={(value) => void chooseRegion(value)}
+        />
+      )}
+      {!settingUp && <AccountHelp api={api} />}
     </Screen>
   );
 }
@@ -557,141 +567,102 @@ function Screen({
   );
 }
 
-function RegionView({
-  mode,
+/** "Region European Union ▾": the region as plain text with an inline menu. */
+function RegionMenu({
   value,
-  suggestion,
-  onBack,
-  onContinue,
+  disabled,
+  open,
+  onOpenChange,
+  onChange,
 }: {
-  mode: 'window' | 'dialog';
   value?: Region;
-  suggestion?: Region;
-  onBack: () => void;
-  onContinue: (region: Region) => void;
+  disabled: boolean;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onChange: (region: Region) => void;
 }) {
-  const [selected, setSelected] = useState<Region | undefined>(value);
   return (
-    <Screen mode={mode} className="sign-in-region-view">
-      <Button variant="ghost" size="sm" className="sign-in-back" onClick={onBack}>
-        <ChevronLeft /> Back
-      </Button>
-      <h1 className="sign-in-title">Where is your organization?</h1>
-      <p className="sign-in-lead">
-        Each region has its own accounts and data. Choose the region where your organization signed
-        up.
-      </p>
-      <div className="sign-in-region-cards" role="radiogroup" aria-label="Region">
-        {regions.map((item) => (
-          <label key={item} className="sign-in-region-card" data-selected={selected === item}>
-            <span className="flex items-center justify-between">
-              <span className="text-xs font-medium text-muted-foreground uppercase">{item}</span>
-              <Radio
-                name="verdictan-region"
-                value={item}
-                checked={selected === item}
-                onChange={() => setSelected(item)}
-              />
-            </span>
-            <span className="text-sm font-medium">{regionNames[item]}</span>
-            <span className="font-mono text-xs text-muted-foreground">
-              {regionConsoleHosts[item]}
-            </span>
-            {suggestion === item && (
-              <Badge size="sm" variant="muted" className="justify-self-start">
-                Suggested
-              </Badge>
-            )}
-          </label>
-        ))}
-      </div>
-      <p className="sign-in-note">
-        Not sure? Use the address that you sign in to in your browser. You can change the region
-        later in Settings.
-      </p>
-      <Button
-        size="lg"
-        className="sign-in-wide"
-        disabled={!selected}
-        onClick={() => selected && onContinue(selected)}
-      >
-        Continue
-      </Button>
-    </Screen>
+    <p className="sign-in-region" role="group" aria-label="Region">
+      <Globe aria-hidden="true" />
+      <span>Region</span>
+      <DropdownMenu open={open} onOpenChange={onOpenChange}>
+        <DropdownMenuTrigger asChild>
+          <button type="button" className="sign-in-region-trigger" disabled={disabled}>
+            {value ? regionNames[value] : 'Choose'}
+            <ChevronDown aria-hidden="true" />
+          </button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="center" className="min-w-64">
+          <DropdownMenuRadioGroup
+            value={value || ''}
+            onValueChange={(next) => onChange(next as Region)}
+          >
+            {regions.map((item) => (
+              <DropdownMenuRadioItem key={item} value={item}>
+                {regionNames[item]}
+                <DropdownMenuShortcut>{regionConsoleHosts[item]}</DropdownMenuShortcut>
+              </DropdownMenuRadioItem>
+            ))}
+          </DropdownMenuRadioGroup>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </p>
   );
 }
 
-function WaitingView({
-  api,
-  mode,
-  status,
-  region,
+/** The quiet actions under the waiting button, and the time that the link stays valid. */
+function WaitingActions({
+  expiresAt,
   startedAt,
+  opened,
   canCopy,
   onReopen,
   onCopy,
   onCancel,
-  onChangeRegion,
 }: {
-  api: API;
-  mode: 'window' | 'dialog';
-  status?: VerdictanStatus;
-  region?: Region;
+  expiresAt?: string;
   startedAt: number;
+  opened: boolean;
   canCopy: boolean;
   onReopen: () => void;
   onCopy: () => void;
   onCancel: () => void;
-  onChangeRegion: () => void;
 }) {
-  const authorization = status?.authorization;
   const [shownAt] = useState(() => Date.now());
-  const host = urlHost(authorization?.url) || (region ? regionConsoleHosts[region] : '');
-  const end = authorization?.expiresAt
-    ? Date.parse(authorization.expiresAt)
-    : (startedAt || shownAt) + authorizationWindowMs;
-  const left = useCountdown(end);
-  // The browser opens a moment after the request. Until the link is known, say so.
-  const opened = !!authorization;
+  const left = useCountdown(
+    expiresAt ? Date.parse(expiresAt) : (startedAt || shownAt) + authorizationWindowMs,
+  );
   return (
-    <Screen mode={mode} className="sign-in-waiting">
-      <span className="sign-in-icon" aria-hidden="true">
-        <AppWindow />
-      </span>
-      <h1 className="sign-in-title">Finish signing in in your browser</h1>
-      <p className="sign-in-lead" role="status">
-        {opened
-          ? `Kalkidan opened ${host}. When you finish, come back here. This window updates automatically.`
-          : 'Kalkidan opens your browser. When you finish, come back here. This window updates automatically.'}
-      </p>
+    <>
       <div className="sign-in-row">
-        <Button variant="outline" disabled={!opened} onClick={onReopen}>
+        <Button variant="ghost" size="sm" disabled={!opened} onClick={onReopen}>
           <ExternalLink /> Open browser again
         </Button>
-        <Button variant="outline" disabled={!canCopy} onClick={onCopy}>
+        <Button variant="ghost" size="sm" disabled={!canCopy} onClick={onCopy}>
           <Copy /> Copy link
         </Button>
-        <Button variant="ghost" onClick={onCancel}>
+        <Button variant="ghost" size="sm" onClick={onCancel}>
           Cancel
         </Button>
       </div>
       <p className="sign-in-note sign-in-meta">
         <Clock aria-hidden="true" />
-        <span>The link stops working in {formatCountdown(left)}</span>
-        <span aria-hidden="true">·</span>
-        <span>
-          Wrong region?{' '}
-          <button type="button" className="text-link" onClick={onChangeRegion}>
-            Change
-          </button>
-        </span>
+        The link stops working in {formatCountdown(left)}
       </p>
-      <AccountHelp api={api} />
-    </Screen>
+    </>
   );
 }
 
-function ErrorView({ api, mode, copy }: { api: API; mode: 'window' | 'dialog'; copy: ErrorCopy }) {
+function ErrorView({
+  api,
+  mode,
+  copy,
+}: {
+  /** Shows the account help. The setup error of a signed-in account has none. */
+  api?: API;
+  mode: 'window' | 'dialog';
+  copy: ErrorCopy;
+}) {
   return (
     <Screen mode={mode} className="sign-in-error">
       <span className="sign-in-icon" data-tone="warning" aria-hidden="true">
@@ -709,7 +680,7 @@ function ErrorView({ api, mode, copy }: { api: API; mode: 'window' | 'dialog'; c
           </Button>
         )}
       </div>
-      <AccountHelp api={api} />
+      {api && <AccountHelp api={api} />}
     </Screen>
   );
 }
@@ -822,211 +793,4 @@ function useCountdown(end: number) {
 function formatCountdown(ms: number) {
   const seconds = Math.ceil(ms / 1000);
   return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
-}
-
-type StepState = 'done' | 'running' | 'waiting' | 'failed';
-
-/** Frame 5: the setup after the sign-in. The user can continue at any time. */
-function SetupView({
-  api,
-  mode,
-  status,
-  runtime,
-  onDone,
-}: {
-  api: API;
-  mode: 'window' | 'dialog';
-  status?: VerdictanStatus;
-  runtime: ReturnType<typeof useRuntimeStatus>;
-  onDone: () => void;
-}) {
-  const names = accountNames(status);
-  const [setup, setSetup] = useState<VerdictanSetup>();
-  const [setupError, setSetupError] = useState('');
-  const [installations, setInstallations] = useState<AgentInstallation[]>();
-  const [installError, setInstallError] = useState(false);
-  useEffect(() => {
-    let active = true;
-    // R6-37: save the recommended setup for both agents. Settings can change it later.
-    const apply =
-      typeof api.verdictanApplyRecommended === 'function'
-        ? () => api.verdictanApplyRecommended()
-        : () => api.verdictanSetup();
-    void Promise.resolve()
-      .then(apply)
-      .then(
-        (value) => active && setSetup(value),
-        (error) => active && setSetupError(failureCode(error)),
-      );
-    void Promise.resolve()
-      .then(() => api.agentInstallations())
-      .then(
-        (value) => active && setInstallations(value),
-        () => active && setInstallError(true),
-      );
-    return () => {
-      active = false;
-    };
-  }, [api]);
-  const runtimeState: StepState = runtime.installed
-    ? 'done'
-    : runtime.busy
-      ? 'running'
-      : runtime.status?.operation?.phase === 'failed'
-        ? 'failed'
-        : 'running';
-  const runtimeDetail = runtime.installed
-    ? `Version ${runtime.status!.installed!.version}`
-    : runtime.status?.operation
-      ? `${updatePhaseLabel(runtime.status.operation.phase)} · version ${runtime.status.operation.target.version}`
-      : 'Starting';
-  const setupState: StepState = setup ? 'done' : setupError ? 'failed' : 'running';
-  const lines = setup
-    ? agentCatalog
-        .map((agent) => {
-          const summary = setupSummary(setup, agent.id);
-          return `${agent.name}: ${summary || 'choose a setup in Settings'}`;
-        })
-        .join('\n')
-    : '';
-  const programsState: StepState = installations ? 'done' : installError ? 'failed' : 'running';
-  const programs = installations
-    ? agentCatalog
-        .map((agent) => {
-          const item = installations.find((entry) => entry.agent === agent.id);
-          if (item?.status !== 'installed') return `${agent.name} not found`;
-          const check = checkAgentVersion(nativeAgentKind(agent.id)!, item.version);
-          if (check.status === 'outdated') return `${agent.name} ${item.version} · update required`;
-          return item.version ? `${agent.name} ${item.version}` : agent.name;
-        })
-        .join(' · ')
-    : installError
-      ? 'Kalkidan could not check the agents. Check them later in Settings.'
-      : '';
-  const billing = billingCodes.has(setupError);
-  return (
-    <Screen mode={mode} className="sign-in-setup">
-      <h1 className="sign-in-title">Setting up Kalkidan</h1>
-      <p className="sign-in-lead">This takes about 20 seconds. You can choose a code folder now.</p>
-      <ol className="sign-in-checklist" aria-label="Setup steps">
-        <SetupStep
-          state="done"
-          title={`Signed in to ${names.organization || 'Verdictan'}`}
-          detail={[names.email || names.user, status?.region && regionNames[status.region]]
-            .filter(Boolean)
-            .join(' · ')}
-        />
-        <SetupStep
-          state={runtimeState}
-          title={
-            runtime.installed
-              ? 'Managed agents runtime is ready'
-              : 'Installing the managed agents runtime'
-          }
-          detail={runtimeDetail}
-        >
-          {!runtime.installed && runtimeState === 'running' && (
-            <Progress
-              value={runtimeProgress(runtime.status)}
-              label="Managed agents runtime install"
-              className="mt-2"
-            />
-          )}
-        </SetupStep>
-        <SetupStep
-          state={setupState}
-          title="Getting the agent setup of your organization"
-          detail={
-            setup
-              ? lines
-              : setupError && !billing
-                ? managedErrorInfo(setupError).message
-                : undefined
-          }
-        >
-          {setup && (
-            <p className="sign-in-step-detail">
-              {mode === 'dialog' ? (
-                <button type="button" className="text-link" onClick={() => openSettings('agents')}>
-                  Change in Settings
-                </button>
-              ) : (
-                'You can change this in Settings.'
-              )}
-            </p>
-          )}
-          {billing && (
-            <Alert size="sm" className="mt-2">
-              <AlertTitle>
-                {names.organization || 'Your organization'} cannot use managed agents yet
-              </AlertTitle>
-              <AlertDescription className="text-xs leading-4">
-                {managedErrorInfo(setupError).message}
-                {typeof api.verdictanOpenConsole === 'function' && (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="mt-1"
-                    onClick={() => void api.verdictanOpenConsole().catch(() => {})}
-                  >
-                    Manage account <ExternalLink />
-                  </Button>
-                )}
-              </AlertDescription>
-            </Alert>
-          )}
-        </SetupStep>
-        <SetupStep
-          state={programsState}
-          title={`Checking Codex and Claude Code on ${computerName}`}
-          detail={programs}
-        />
-      </ol>
-      <Button size="lg" className="sign-in-wide" onClick={onDone}>
-        {mode === 'window' ? (
-          <>
-            <FolderOpen /> Choose a code folder
-          </>
-        ) : (
-          'Done'
-        )}
-      </Button>
-    </Screen>
-  );
-}
-
-function SetupStep({
-  state,
-  title,
-  detail,
-  children,
-}: {
-  state: StepState;
-  title: string;
-  detail?: string;
-  children?: ReactNode;
-}) {
-  const label = { done: 'Done', running: 'In progress', waiting: 'Not started', failed: 'Failed' }[
-    state
-  ];
-  return (
-    <li className="sign-in-step" data-state={state}>
-      <span className="sign-in-step-mark" aria-label={label} role="img">
-        {state === 'done' ? (
-          <Check />
-        ) : state === 'running' ? (
-          <LoaderCircle className="animate-spin" />
-        ) : state === 'failed' ? (
-          <X />
-        ) : (
-          <Circle />
-        )}
-      </span>
-      <div className="min-w-0 flex-1">
-        <p className="text-sm font-medium">{title}</p>
-        {detail && <p className="sign-in-step-detail whitespace-pre-line">{detail}</p>}
-        {children}
-      </div>
-    </li>
-  );
 }

@@ -93,7 +93,7 @@
   margin: 20px 0 8px;
 }
 .prose-ui[data-variant='chat'] :where(h3) {
-  font-size: 15px;
+  font-size: 16px;
   line-height: 24px;
   font-weight: 600;
   margin: 16px 0 4px;
@@ -367,39 +367,17 @@
   align-items: center;
   gap: 4px;
 }
-/* The shortcut hint shows only while the empty composer has focus. */
-.composer-shortcut {
-  display: none;
-  margin-left: auto;
-  white-space: nowrap;
-  color: var(--muted-foreground);
-  font-size: 12px;
-  line-height: 16px;
-}
-.conversation-composer:has(textarea:focus):has(textarea:placeholder-shown) .composer-shortcut {
-  display: inline;
-}
 .composer-actions .composer-send {
   flex-shrink: 0;
   margin-left: auto;
 }
-.composer-shortcut + .composer-send {
-  margin-left: 0;
-}
-.approval-banner {
-  position: sticky;
-  bottom: 0;
-  display: flex;
-  align-items: center;
+/* The approval and question cards dock above the composer, so they never scroll away. */
+.request-dock {
+  display: grid;
   gap: 8px;
+  max-height: 50cqh;
   margin: 0 0 8px;
-  padding: 6px 6px 6px 12px;
-  border: 1px solid color-mix(in oklab, var(--warning) 45%, var(--border));
-  border-radius: var(--radius-2xl);
-  background: var(--card);
-  color: var(--foreground);
-  font-size: 12px;
-  line-height: 16px;
+  overflow: auto;
 }
 /* "This conversation belongs to another organization. It is read-only." and a new conversation. */
 .chat-read-only {
@@ -413,7 +391,10 @@
   color: var(--foreground);
   line-height: 16px;
 }
-/* "3 files changed · Review · Create pull request · Mark done" after a run. */
+.request-card-approval {
+  border-color: color-mix(in oklab, var(--warning) 45%, var(--border));
+}
+/* "3 files changed on main · +70 −2 · Review · Create pull request… · ⋯" after a run. */
 .run-changes {
   display: flex;
   align-items: center;
@@ -428,22 +409,101 @@
   font-size: 12px;
   line-height: 16px;
 }
-.run-changes > [role='status'] {
+.run-changes-text {
+  flex: 1;
   min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.run-changes-count {
   color: var(--foreground);
-  font-weight: 500;
+  font-weight: 600;
 }
 .run-changes-actions {
   display: flex;
-  flex-wrap: wrap;
+  flex-shrink: 0;
   align-items: center;
   gap: 4px;
 }
-.approval-banner svg {
-  color: var(--warning);
+/* The permission chip keeps its label. The model chip and the folder pill truncate first. */
+.composer-permission {
+  min-width: max-content;
 }
-.approval-banner button {
+.composer-folder {
+  max-width: 200px;
+}
+/* The activity of a run sits under its answer: sources, then the steps folded to
+   "N steps · M files edited". One 24px line for each step. */
+.agent-activity {
+  display: grid;
+  gap: 4px;
+  margin: -24px 0 32px;
+}
+.agent-steps-fold,
+.agent-step {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 24px;
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--muted-foreground);
+  text-align: left;
+}
+.agent-steps-fold {
+  width: fit-content;
+  gap: 4px;
+  padding-right: 4px;
+}
+.agent-steps-fold:hover,
+button.agent-step:hover {
+  color: var(--foreground);
+}
+.agent-steps-fold:focus-visible,
+.agent-step:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+.agent-step {
+  width: 100%;
+  min-width: 0;
+  padding-inline: 4px 8px;
+}
+button.agent-step:hover {
+  background: var(--surface-hover);
+}
+.agent-step-list {
+  display: grid;
+  padding-left: 16px;
+}
+.agent-steps[data-state='open'] > .agent-step-live {
+  display: none;
+}
+.agent-step-icon {
+  flex-shrink: 0;
+  width: 14px;
+  height: 14px;
+}
+.agent-step-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--foreground);
+}
+.agent-step-result {
+  flex-shrink: 0;
   margin-left: auto;
+  font-variant-numeric: tabular-nums;
+}
+.agent-step[data-failed] .agent-step-result {
+  color: var(--destructive);
+}
+.agent-step-output {
+  padding: 4px 0 8px 22px;
 }
 
 .conversation-welcome {
@@ -452,16 +512,10 @@
   flex-shrink: 0;
 }
 .conversation-welcome h3 {
-  font-size: 24px;
-  line-height: 32px;
+  font-size: 20px;
+  line-height: 28px;
   font-weight: 600;
   letter-spacing: -0.01em;
-}
-.conversation-welcome p {
-  margin-top: 8px;
-  font-size: 13px;
-  line-height: 20px;
-  color: var(--muted-foreground);
 }
 .conversation-starters {
   display: flex;

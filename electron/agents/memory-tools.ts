@@ -1,13 +1,22 @@
 import { createServer } from 'node:http';
 import { randomBytes } from 'node:crypto';
 import { ManagedMemory, type MemoryScope } from '../storage/managed-memory';
+import type { ContextUsage } from '../../src/domain/memory';
 
 export interface ManagedProjectContext {
   root: string;
   groupId: string;
   prompt: string;
   changed?: () => void;
+  /** The doc passages and memory facts that Kalkidan gave to the agent with the prompt. */
+  read?: ContextUsage;
 }
+
+/** The first line of a fact, for a short title. */
+export const factTitle = (content: unknown) =>
+  typeof content === 'string'
+    ? content.trim().split('\n')[0]!.slice(0, 120) || undefined
+    : undefined;
 
 const object = (properties: Record<string, unknown>, required: string[] = []) => ({
   type: 'object',
@@ -60,7 +69,11 @@ export const memoryTools = [
 ];
 
 /** Stateless Streamable HTTP MCP endpoint. A capability URL belongs to exactly one turn. */
-export async function startMemoryTools(scope: MemoryScope, changed?: () => void) {
+export async function startMemoryTools(
+  scope: MemoryScope,
+  changed?: () => void,
+  read?: (entries: ContextUsage['memory']) => void,
+) {
   const memory = new ManagedMemory(scope, changed);
   const path = '/mcp/' + randomBytes(32).toString('hex');
   let closed = false;
@@ -134,6 +147,16 @@ export async function startMemoryTools(scope: MemoryScope, changed?: () => void)
                       .sources()
                       .slice(0, 3)
                       .map((source) => ({ id: source.id, excerpt: source.text.slice(0, 1000) }));
+          if (read && tool.name === 'memory_search' && Array.isArray(output))
+            read(
+              output.map((entry: any) => ({
+                id: entry.id,
+                topic: entry.topic,
+                title: factTitle(entry.excerpt),
+              })),
+            );
+          if (read && tool.name === 'memory_read')
+            read([{ id: output.id, topic: output.topic, title: factTitle(output.content) }]);
           const bounded =
             tool.name === 'memory_read'
               ? {

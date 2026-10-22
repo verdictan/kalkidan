@@ -1,5 +1,5 @@
 import { type Locator, type Page } from '@playwright/test';
-import { test, expect, openAgentSetup, settingsDialog } from './helpers/app';
+import { test, expect, computersPage, openComputersPage } from './helpers/app';
 
 const team = '11111111-1111-4111-8111-111111111111';
 const team2 = '22222222-2222-4222-8222-222222222222';
@@ -118,8 +118,25 @@ async function fixture(page: Page, extra: string) {
   await page.goto('/');
 }
 
-/** Opens the Codex setup sheet from its row in Settings › Agents. */
-const openSetup = (page: Page) => openAgentSetup(page);
+const hideSetup = (page: Page) =>
+  page.getByRole('button', { name: 'Hide the organization setup of Codex', exact: true });
+
+/**
+ * Opens the organization setup of Codex in place under its row on the Computers page. Returns
+ * the part under the row that holds the setup form.
+ */
+async function openSetup(page: Page) {
+  const computers = await openComputersPage(page);
+  await computers
+    .getByRole('button', { name: 'Change the organization setup of Codex', exact: true })
+    .click();
+  await expect(hideSetup(page)).toBeVisible();
+  return computers.locator('.settings-row-extra').filter({ has: hideSetup(page) });
+}
+
+/** The status of the Codex row on the Computers page, for example "Ready". */
+const codexStatus = (page: Page) =>
+  computersPage(page).getByRole('group', { name: 'Codex', exact: true }).getByRole('status');
 
 /** The visible labels of the options of one choice. The first line is the label. */
 async function options(page: Page, setup: Locator, name: string) {
@@ -167,12 +184,12 @@ test('the first connect bootstraps once and preselects the Kalkidan agent', asyn
   // The agent sets the team and the policy. There is no team or policy choice.
   await expect(setup.getByRole('combobox', { name: 'Team' })).toHaveCount(0);
   await expect(setup.getByRole('combobox', { name: 'Policy' })).toHaveCount(0);
-  await expect(setup).toContainText('Policy: Kalkidan default · 1.1.0.');
-  // The sheet loads the choices again when it opens again. The bootstrap does not run again.
-  await setup.getByRole('button', { name: 'Done', exact: true }).click();
-  await settingsDialog(page)
-    .getByRole('group', { name: 'Codex', exact: true })
-    .getByRole('button', { name: 'Fix Codex', exact: true })
+  await expect(setup).toContainText('Policy: Kalkidan default · 1.1.0');
+  // The form loads the choices again when it opens again. The bootstrap does not run again.
+  await hideSetup(page).click();
+  await expect(agent).toHaveCount(0);
+  await computersPage(page)
+    .getByRole('button', { name: 'Change the organization setup of Codex', exact: true })
     .click();
   await expect(agent).toHaveText('Kalkidan agent');
   expect(await page.evaluate(() => (window as any).bootstraps())).toBe(1);
@@ -199,7 +216,7 @@ test('a member sees a calm note to ask an administrator to finish setup', async 
   // A note, not an error.
   await expect(note).not.toHaveClass(/destructive/);
   await expect(setup.getByRole('alert')).toHaveCount(0);
-  await expect(setup.getByRole('button', { name: 'Use this setup' })).toHaveCount(0);
+  await expect(setup.getByRole('button', { name: 'Save', exact: true })).toHaveCount(0);
 });
 
 test('the agent choice shows service names and generic labels, and saves the agent', async ({
@@ -223,7 +240,7 @@ test('the agent choice shows service names and generic labels, and saves the age
   await expect(page.getByRole('option', { name: /Release bot/ })).toContainText('Strict · 2.0.0');
   await page.getByRole('option', { name: /Release bot/ }).click();
   await expect(setup.getByRole('combobox', { name: 'Agent' })).toHaveText('Release bot');
-  await expect(setup).toContainText('Policy: Strict · 2.0.0.');
+  await expect(setup).toContainText('Policy: Strict · 2.0.0');
   // The selection is complete when the model name is entered. It saves at once.
   await setup.getByRole('textbox', { name: 'Default model' }).fill('gpt-5');
   await setup.getByRole('textbox', { name: 'Default model' }).press('Enter');
@@ -268,8 +285,8 @@ test('a removed default shows a calm note and needs another agent', async ({ pag
   // The saved Kalkidan agent is gone. Nothing is preselected and the setup is not ready.
   const agent = setup.getByRole('combobox', { name: 'Agent' });
   await expect(agent).toHaveText('Choose an agent');
-  await expect(setup.getByText('Codex is ready.')).toHaveCount(0);
-  await expect(setup.getByRole('button', { name: 'Use this setup' })).toHaveCount(0);
+  await expect(codexStatus(page)).toHaveText('Needs setup');
+  await expect(setup.getByRole('button', { name: 'Save', exact: true })).toHaveCount(0);
   expect(await options(page, setup, 'Agent')).toEqual(['Choose an agent', 'Release bot']);
   // The other agent completes the selection. It saves at once.
   await agent.click();
@@ -299,7 +316,7 @@ test('a removed default without another agent tells the user to ask an administr
   await expect(setup.getByRole('note').filter({ hasText: 'removed the default' })).toHaveText(
     'An administrator removed the default Kalkidan setup, and you have no other agent. Ask an organization administrator to give you access to an agent.',
   );
-  await expect(setup.getByRole('button', { name: 'Use this setup' })).toHaveCount(0);
+  await expect(setup.getByRole('button', { name: 'Save', exact: true })).toHaveCount(0);
 });
 
 for (const [name, agentId] of [
@@ -337,14 +354,12 @@ for (const [name, agentId] of [
     );
     // The only model is chosen. Its list does not show.
     await expect(setup).toContainText('Default model: GPT-6-Astra');
-    await expect(setup.getByText('Codex is ready.', { exact: true })).toBeVisible();
-    await expect(setup.getByRole('button', { name: 'Use this setup' })).toHaveCount(0);
+    await expect(codexStatus(page)).toHaveText('Ready');
+    await expect(setup.getByRole('button', { name: 'Save', exact: true })).toHaveCount(0);
     expect(await page.evaluate(() => (window as any).savedSelections)).toEqual([]);
   });
 
-test('a complete setup that Kalkidan chose, but did not save, shows Use this setup', async ({
-  page,
-}) => {
+test('a complete setup that Kalkidan chose, but did not save, shows Save', async ({ page }) => {
   await fixture(
     page,
     `return {
@@ -368,11 +383,10 @@ test('a complete setup that Kalkidan chose, but did not save, shows Use this set
   // The saved setup uses another team than the Kalkidan agent. It is a change.
   // The only agent is chosen, so its list does not show. Its policy shows.
   await expect(setup.getByRole('combobox', { name: 'Agent' })).toHaveCount(0);
-  await expect(setup).toContainText('Policy: Kalkidan default · 1.1.0.');
-  await expect(setup.getByRole('button', { name: 'Use this setup' })).toBeVisible();
-  // The form is a change, so the sheet does not say that Codex is ready.
-  await expect(setup.getByText('Codex is ready.', { exact: true })).toHaveCount(0);
-  await setup.getByRole('button', { name: 'Use this setup' }).click();
+  await expect(setup).toContainText('Policy: Kalkidan default · 1.1.0');
+  // The form is a change, so the user confirms it with Save.
+  await expect(setup.getByRole('button', { name: 'Save', exact: true })).toBeVisible();
+  await setup.getByRole('button', { name: 'Save', exact: true }).click();
   await expect.poll(() => page.evaluate(() => (window as any).savedSelections.length)).toBe(1);
   const [[, selection]] = await page.evaluate(() => (window as any).savedSelections);
   expect(selection).toMatchObject({ agentId: kalkidan, teamId: team, model: 'gpt-6-astra' });

@@ -594,7 +594,20 @@ export interface ManagedErrorInfo {
   message: string;
   section?: SettingsSection;
   retry?: boolean;
+  /** True when a sign-in fixes the error. Show a Sign in action, not a Settings link. */
+  signIn?: boolean;
 }
+/** What the app knows about the account when it shows an error. */
+export interface ManagedErrorContext {
+  /** True when the user saved a region. A missing sign-in is then the real problem. */
+  regionSaved?: boolean;
+}
+/** The words and action when a region is saved but nobody is signed in. */
+export const signInToStart: ManagedErrorInfo = {
+  message: 'Sign in to Verdictan to start chats.',
+  section: 'account',
+  signIn: true,
+};
 const setUp = 'agents' as const;
 const signInClaude =
   'Sign in to Claude Code on the machine where work runs. Then send the message again.';
@@ -877,7 +890,11 @@ export function managedErrorCode(text: unknown) {
   return typeof text === 'string' ? text.match(/\bdesktop\.[a-z_]{1,100}\b/)?.[0] : undefined;
 }
 /** Returns plain words and the fix for a managed agent code. Unknown codes get general words. */
-export function managedErrorInfo(code: string): ManagedErrorInfo {
+export function managedErrorInfo(
+  code: string,
+  context: ManagedErrorContext = {},
+): ManagedErrorInfo {
+  if (code === 'desktop.region_required' && context.regionSaved) return signInToStart;
   return (
     managedErrors[code] ||
     (connectionCodes.test(code)
@@ -1004,6 +1021,16 @@ export function historyCostLabel(row: Record<string, unknown>) {
 /** The setup step that can remove a launch block. Each step has one place in Settings. */
 export type ManagedSetupStep =
   'region' | 'sign-in' | 'status' | 'agent-setup' | 'runtime' | 'agents';
+/**
+ * The step that fixes a block. A region step becomes the sign-in step when a region is saved:
+ * the region is then not the problem.
+ */
+export function managedSetupStep(
+  step: ManagedSetupStep,
+  context: ManagedErrorContext = {},
+): ManagedSetupStep {
+  return step === 'region' && context.regionSaved ? 'sign-in' : step;
+}
 /** Where each step is in Settings: the tab, the element that gets focus, and a label. */
 export const managedSetupTargets: Record<
   ManagedSetupStep,
@@ -1192,6 +1219,8 @@ export interface RefusalContext {
   version?: string;
   /** The path of the agent program that the launch checked, when the code is about the version. */
   path?: string;
+  /** True when the user saved a region. */
+  regionSaved?: boolean;
 }
 export interface ManagedRefusal {
   code: string;
@@ -1277,6 +1306,8 @@ function refusalStep(code: string): ManagedSetupStep | null {
 export function managedRefusal(code: string, context: RefusalContext = {}): ManagedRefusal {
   const where = context.computer?.trim() || 'the machine where work runs';
   const version = safeVersion(context.version);
+  if (code === 'desktop.region_required' && context.regionSaved)
+    return { code, message: signInToStart.message, step: 'sign-in', retry: false };
   const message =
     refusalWords(code, where, version, safeProgramPath(context.path)) ||
     managedErrors[code]?.message ||
@@ -1293,7 +1324,10 @@ export function managedRefusal(code: string, context: RefusalContext = {}): Mana
  * The message and setup step for an error that stopped a managed launch. Each message starts
  * with the managed-only notice. An unknown error keeps its own text after the notice.
  */
-export function managedLaunchBlock(error: unknown): ManagedLaunchBlock {
+export function managedLaunchBlock(
+  error: unknown,
+  context: ManagedErrorContext = {},
+): ManagedLaunchBlock {
   const record = error && typeof error === 'object' ? (error as Record<string, unknown>) : {};
   const text =
     typeof record.message === 'string'
@@ -1306,13 +1340,14 @@ export function managedLaunchBlock(error: unknown): ManagedLaunchBlock {
     ? raw
     : managedErrorCode(raw) || managedErrorCode(text) || 'desktop.launch_blocked';
   // A block without a helpful step links to the status. The renderer uses the code instead.
-  const step: ManagedSetupStep = refusalStep(code) || 'status';
+  const step: ManagedSetupStep = managedSetupStep(refusalStep(code) || 'status', context);
   // Backend messages end with the code in square brackets. The code is never shown.
   const plain = withoutManagedCode(text)
     .replace(/\bdesktop\.[a-z_]{1,100}\b/g, '')
     .trim();
   const own = plain && !/^[\s.:[\]]*$/.test(plain) ? plain : '';
   const detail =
+    (code === 'desktop.region_required' && context.regionSaved && signInToStart.message) ||
     managedErrors[code]?.message ||
     launchBlocks[code]?.[1] ||
     own ||

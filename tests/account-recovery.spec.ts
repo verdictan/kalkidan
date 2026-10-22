@@ -56,7 +56,7 @@ test('the Welcome screen offers a new verification email and account recovery', 
 
 test('an expired sign-in link starts again and keeps the account help', async ({ page }) => {
   await signedOut(page);
-  await page.getByRole('button', { name: 'Continue with Verdictan', exact: true }).click();
+  await page.getByRole('button', { name: 'Sign in with Verdictan', exact: true }).click();
   // The title is an alert, so a screen reader reads it at once.
   await expect(page.getByRole('alert')).toHaveText('The sign-in did not finish');
   await expect(page.getByText(/The sign-in link expired after 5 minutes/)).toBeVisible();

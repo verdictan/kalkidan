@@ -1,48 +1,57 @@
 import { useEffect, useState } from 'react';
 import {
   BookOpen,
-  Building2,
   ChevronsUpDown,
   CircleAlert,
-  Clock,
   ExternalLink,
-  Globe,
   Keyboard,
+  Laptop,
   LogIn,
   LogOut,
-  MessageSquareWarning,
+  Monitor,
+  Moon,
   MoreHorizontal,
   Settings2,
+  Sun,
   UserRound,
-  X,
+  BellRing,
 } from 'lucide-react';
 import type { API } from '../api/contracts';
-import type { VerdictanStatus } from '../domain/verdictan';
+import type { NotificationPreferences } from '../domain/verdictan';
 import { accountNames } from '../lib/verdictan-labels';
 import { regionNames } from '../lib/region-suggestion';
-import { isMac, shortcutLabel } from '../lib/platform';
+import {
+  applyAppearance,
+  readAppearance,
+  saveAppearance,
+  type Appearance,
+} from '../lib/appearance';
+import { shortcutLabel } from '../lib/platform';
 import { cn } from '../lib/utils';
-import { useFirstRunState, useVerdictanStatus } from '../hooks/use-verdictan-status';
+import { useVerdictanStatus } from '../hooks/use-verdictan-status';
+import { userGuideUrl } from './about-section';
+import { openComputers } from './computers-page';
+import { GetStartedMenuItem } from './onboarding';
 import { Hint } from './hint';
 import { Button } from './ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from './ui/dialog';
 import {
   DropdownMenu,
+  DropdownMenuCheckboxItem,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuLabel,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
   DropdownMenuSeparator,
   DropdownMenuShortcut,
   DropdownMenuTrigger,
 } from './ui/dropdown-menu';
+import { Switch } from './ui/switch';
 import { showToast } from './ui/toast';
 import { openSettings, SignInSteps, startSignIn, type SignInIntent } from './sign-in-steps';
 
 export { startSignIn } from './sign-in-steps';
-
-const userGuideUrl = 'https://github.com/verdictan/kalkidan/blob/main/docs/user-guide.md';
-const issuesUrl = 'https://github.com/verdictan/kalkidan/issues';
-const computerName = isMac ? 'this Mac' : 'this computer';
 
 /** Opens the keyboard shortcuts sheet. The shell handles the event. */
 function showShortcuts() {
@@ -59,12 +68,6 @@ export function initials(name: string | undefined) {
   return letters.toUpperCase();
 }
 
-/** "Renews automatically", or the end of the session when it ended. */
-function sessionLabel(status: VerdictanStatus | undefined) {
-  if (status?.phase === 'expired') return 'Ended';
-  return 'Renews automatically';
-}
-
 function Avatar({ text, className }: { text: string; className?: string }) {
   return (
     <span className={cn('account-menu-avatar', className)} aria-hidden="true">
@@ -73,13 +76,114 @@ function Avatar({ text, className }: { text: string; className?: string }) {
   );
 }
 
-/** The help items that every account menu shows. */
-function HelpItems() {
+const themes: { value: Appearance; label: string; icon: typeof Sun }[] = [
+  { value: 'system', label: 'System', icon: Monitor },
+  { value: 'light', label: 'Light', icon: Sun },
+  { value: 'dark', label: 'Dark', icon: Moon },
+];
+
+/**
+ * The theme row of the account menu: "Theme" and three icon items (System, Light, Dark). The
+ * items are radio items, so ↑ and ↓ reach them. A choice keeps the menu open.
+ */
+function ThemeItems({ api }: { api: API }) {
+  const [appearance, setAppearance] = useState<Appearance>(readAppearance);
+  function choose(mode: Appearance) {
+    setAppearance(mode);
+    saveAppearance(mode);
+    void api.setAppearance?.(mode);
+    applyAppearance(mode);
+  }
+  return (
+    <div className="account-menu-theme">
+      <span className="account-menu-theme-label" id="account-menu-theme">
+        Theme
+      </span>
+      <DropdownMenuRadioGroup
+        value={appearance}
+        onValueChange={(value) => choose(value as Appearance)}
+        className="account-menu-theme-group"
+        aria-labelledby="account-menu-theme"
+      >
+        {themes.map((theme) => (
+          <DropdownMenuRadioItem
+            key={theme.value}
+            value={theme.value}
+            aria-label={theme.label}
+            title={theme.label}
+            className="account-menu-theme-item"
+            onSelect={(event) => event.preventDefault()}
+          >
+            <theme.icon className="size-4" aria-hidden="true" />
+          </DropdownMenuRadioItem>
+        ))}
+      </DropdownMenuRadioGroup>
+    </div>
+  );
+}
+
+/**
+ * The one notification switch: "Tell me when an agent finishes or needs me". The desktop keeps
+ * two flags (finished and needs input). The switch sets both.
+ */
+function NotificationItem({ api, open }: { api: API; open: boolean }) {
+  const [preferences, setPreferences] = useState<NotificationPreferences>();
+  useEffect(() => {
+    if (!open || typeof api.notificationPreferences !== 'function') return;
+    void Promise.resolve()
+      .then(() => api.notificationPreferences())
+      .then(setPreferences, () => {});
+  }, [api, open]);
+  if (!preferences) return null;
+  const on = preferences.finished || preferences.needsInput;
+  async function toggle() {
+    if (!preferences) return;
+    const before = preferences;
+    const next = { ...preferences, finished: !on, needsInput: !on };
+    setPreferences(next);
+    try {
+      setPreferences(await api.setNotificationPreferences(next));
+    } catch {
+      setPreferences(before);
+      showToast({ message: 'Could not save the notification setting.', tone: 'error' });
+    }
+  }
+  return (
+    <DropdownMenuCheckboxItem
+      checked={on}
+      // The switch shows the state. The check mark of the item does not show.
+      className="account-menu-switch-item pl-2"
+      aria-label="Tell me when an agent finishes or needs me"
+      title="Tell me when an agent finishes or needs me. Only when Kalkidan is in the background."
+      onSelect={(event) => {
+        event.preventDefault();
+        void toggle();
+      }}
+    >
+      <BellRing className="size-4" />
+      Notifications
+      <Switch
+        checked={on}
+        tabIndex={-1}
+        aria-hidden="true"
+        className="pointer-events-none ml-auto"
+      />
+    </DropdownMenuCheckboxItem>
+  );
+}
+
+/** The items that every account menu shows: Computers, Preferences, shortcuts and help. */
+function AppItems() {
   return (
     <>
+      <GetStartedMenuItem />
+      <DropdownMenuItem onSelect={() => openComputers()}>
+        <Laptop className="size-4" />
+        Computers
+      </DropdownMenuItem>
       <DropdownMenuItem onSelect={() => openSettings()}>
         <Settings2 className="size-4" />
-        Settings
+        Preferences…
         <DropdownMenuShortcut>{shortcutLabel(['mod'], ',')}</DropdownMenuShortcut>
       </DropdownMenuItem>
       <DropdownMenuItem onSelect={showShortcuts}>
@@ -90,14 +194,7 @@ function HelpItems() {
       <DropdownMenuItem asChild>
         <a href={userGuideUrl} target="_blank" rel="noreferrer">
           <BookOpen className="size-4" />
-          User guide
-          <ExternalLink className="ml-auto size-4" aria-label="Opens in the browser" />
-        </a>
-      </DropdownMenuItem>
-      <DropdownMenuItem asChild>
-        <a href={issuesUrl} target="_blank" rel="noreferrer">
-          <MessageSquareWarning className="size-4" />
-          Report an issue
+          Help and feedback
           <ExternalLink className="ml-auto size-4" aria-label="Opens in the browser" />
         </a>
       </DropdownMenuItem>
@@ -105,21 +202,41 @@ function HelpItems() {
   );
 }
 
+/** Opens and closes the account menu. Other places open it with `kalkidan-open-account-menu`. */
+function useMenuOpen() {
+  const [open, setOpen] = useState(false);
+  useEffect(() => {
+    const show = () => setOpen(true);
+    window.addEventListener('kalkidan-open-account-menu', show);
+    return () => window.removeEventListener('kalkidan-open-account-menu', show);
+  }, []);
+  return [open, setOpen] as const;
+}
+
 /**
- * The account button in the sidebar footer, with its menu. Signed in: initials, name and
- * organization. Signed out: a "Sign in" button and a menu for Settings and help. It replaces
- * the Settings and Keyboard shortcuts buttons of the footer; both are in its menu.
+ * The account row in the sidebar footer: one 48px trigger that fills the row. Signed in, it
+ * shows the initials, the name and the organization, and opens the account menu: theme,
+ * notifications, Computers, Preferences, shortcuts, help, and Sign out. Signed out, it is the
+ * one "Sign in" of the app, with a "…" menu for the same app items.
  */
 export function AccountMenu({ api }: { api: API }) {
   const { status, supported } = useVerdictanStatus(api);
   const names = accountNames(status);
   const signedIn = status?.phase === 'authenticated';
   const [signingOut, setSigningOut] = useState(false);
+  const [open, setOpen] = useMenuOpen();
   async function signOut() {
     setSigningOut(true);
     try {
       const result = await api.verdictanLogout();
-      if (result.phase !== 'authenticated') showToast('Signed out');
+      if (result.phase === 'authenticated') return;
+      if (result.remoteRevocationPending)
+        showToast({
+          message:
+            'You are signed out on this computer. Kalkidan could not confirm that the service removed the access.',
+          tone: 'error',
+        });
+      else showToast('Signed out');
     } catch {
       showToast({ message: 'Kalkidan could not sign out. Try again.', tone: 'error' });
     } finally {
@@ -130,45 +247,48 @@ export function AccountMenu({ api }: { api: API }) {
     const authorizing = status?.phase === 'authorizing';
     return (
       <div className="account-menu" data-state="signed-out">
-        {supported && (
-          <Button
-            variant="outline"
-            size="sm"
-            className="min-w-0 flex-1 justify-start"
+        {supported ? (
+          <button
+            type="button"
+            className="account-menu-trigger row-focus"
             onClick={() => startSignIn('login')}
           >
-            <LogIn />
-            {authorizing ? 'Finish signing in…' : 'Sign in'}
-          </Button>
+            <Avatar text="" className="account-menu-avatar-empty" />
+            <span className="min-w-0 flex-1 truncate text-left text-sm font-medium">
+              {authorizing ? 'Finish signing in…' : 'Sign in'}
+            </span>
+            <LogIn className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+          </button>
+        ) : (
+          <span className="flex-1" />
         )}
-        <DropdownMenu>
-          <Hint label="Settings and help">
+        <DropdownMenu open={open} onOpenChange={setOpen}>
+          <Hint label="Preferences and help">
             <DropdownMenuTrigger asChild>
               <Button
                 variant="ghost"
                 size="icon-sm"
-                className={cn('text-muted-foreground', !supported && 'ml-auto')}
-                aria-label="Settings and help"
+                className="text-muted-foreground"
+                aria-label="Preferences and help"
               >
                 <MoreHorizontal />
               </Button>
             </DropdownMenuTrigger>
           </Hint>
-          <DropdownMenuContent side="top" align="end" className="w-64">
+          <DropdownMenuContent side="top" align="end" className="account-menu-content w-72">
+            <ThemeItems api={api} />
+            <NotificationItem api={api} open={open} />
+            <DropdownMenuSeparator />
+            <AppItems />
             {supported && (
               <>
-                <DropdownMenuItem onSelect={() => startSignIn('login')}>
-                  <LogIn className="size-4" />
-                  Sign in
-                </DropdownMenuItem>
+                <DropdownMenuSeparator />
                 <DropdownMenuItem onSelect={() => startSignIn('register')}>
                   <UserRound className="size-4" />
                   Create account
                 </DropdownMenuItem>
-                <DropdownMenuSeparator />
               </>
             )}
-            <HelpItems />
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
@@ -176,9 +296,11 @@ export function AccountMenu({ api }: { api: API }) {
   }
   const name = names.user || names.email || 'Signed in';
   const avatar = initials(names.user || names.email);
+  const region = status?.region ? regionNames[status.region] : '';
+  const subtitle = [names.organization, region].filter(Boolean).join(' · ');
   return (
     <div className="account-menu" data-state="signed-in">
-      <DropdownMenu>
+      <DropdownMenu open={open} onOpenChange={setOpen}>
         <DropdownMenuTrigger asChild>
           <button
             type="button"
@@ -203,32 +325,14 @@ export function AccountMenu({ api }: { api: API }) {
               {names.email && names.email !== name && (
                 <span className="block truncate text-xs font-normal">{names.email}</span>
               )}
+              {subtitle && <span className="block truncate text-xs font-normal">{subtitle}</span>}
             </span>
           </DropdownMenuLabel>
           <DropdownMenuSeparator />
-          <dl className="account-menu-facts">
-            <div title="To use another organization, sign out and sign in again.">
-              <dt>
-                <Building2 className="size-4" aria-hidden="true" />
-                Organization
-              </dt>
-              <dd>{names.organization || 'Not known'}</dd>
-            </div>
-            <div>
-              <dt>
-                <Globe className="size-4" aria-hidden="true" />
-                Region
-              </dt>
-              <dd>{status?.region ? regionNames[status.region] : 'Not chosen'}</dd>
-            </div>
-            <div>
-              <dt>
-                <Clock className="size-4" aria-hidden="true" />
-                Session
-              </dt>
-              <dd>{sessionLabel(status)}</dd>
-            </div>
-          </dl>
+          <ThemeItems api={api} />
+          <NotificationItem api={api} open={open} />
+          <DropdownMenuSeparator />
+          <AppItems />
           <DropdownMenuSeparator />
           {typeof api.verdictanOpenConsole === 'function' && (
             <DropdownMenuItem
@@ -245,8 +349,6 @@ export function AccountMenu({ api }: { api: API }) {
               <ExternalLink className="ml-auto size-4" aria-label="Opens in the browser" />
             </DropdownMenuItem>
           )}
-          <HelpItems />
-          <DropdownMenuSeparator />
           <DropdownMenuItem disabled={signingOut} onSelect={() => void signOut()}>
             <LogOut className="size-4" />
             Sign out
@@ -258,58 +360,20 @@ export function AccountMenu({ api }: { api: API }) {
 }
 
 /**
- * The inline banner above the page content when the Verdictan session ended, or when the user
- * skipped the sign-in. It is not a modal: projects and chats stay usable.
+ * The strip above the page when the Verdictan session ended. It is not a modal: projects and
+ * chats stay usable. A user who never signed in, or who signed out, sees no strip: the
+ * "Sign in" row in the sidebar footer is the one sign-in prompt.
  */
 export function SessionBanner({ api }: { api: API }) {
   const { status } = useVerdictanStatus(api);
-  const { state } = useFirstRunState(api);
-  const [hidden, setHidden] = useState(false);
-  const phase = status?.phase;
-  // A missing region or a missing runtime also means that nobody is signed in.
-  const signedOut =
-    phase === 'signed-out' ||
-    phase === 'missing' ||
-    (phase === 'error' && status?.error === 'desktop.region_required');
-  const ended = phase === 'expired' || (signedOut && !!state?.everSignedIn);
-  const never = signedOut && !!state && !state.everSignedIn && state.welcomeDone;
-  useEffect(() => {
-    if (phase === 'authenticated') setHidden(false);
-  }, [phase]);
-  if (!state || hidden || (!ended && !never)) return null;
+  if (status?.phase !== 'expired') return null;
   return (
     <div className="session-banner" role="status" data-testid="session-banner">
       <CircleAlert className="session-banner-icon" aria-hidden="true" />
-      <div className="min-w-0 flex-1">
-        <p className="text-sm font-medium">
-          {ended ? 'Your session ended' : 'Sign in to start chats'}
-        </p>
-        <p className="text-xs leading-4 text-muted-foreground">
-          {ended
-            ? `Sign in again to start new chats. Your projects and chats stay on ${computerName}.`
-            : 'Chats run as managed agents through your Verdictan account. Your projects stay on this computer.'}
-        </p>
-      </div>
-      {never && (
-        <Button variant="ghost" size="sm" onClick={() => startSignIn('register')}>
-          Create account
-        </Button>
-      )}
-      <Button size="sm" onClick={() => startSignIn('login')}>
-        {ended ? 'Sign in again' : 'Sign in'}
+      <p className="min-w-0 flex-1 truncate text-sm font-medium">Your session ended</p>
+      <Button variant="outline" size="sm" onClick={() => startSignIn('login')}>
+        Sign in again
       </Button>
-      {never && (
-        <Hint label="Hide until the next launch">
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            aria-label="Hide sign-in banner"
-            onClick={() => setHidden(true)}
-          >
-            <X />
-          </Button>
-        </Hint>
-      )}
     </div>
   );
 }

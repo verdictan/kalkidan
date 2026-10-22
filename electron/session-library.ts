@@ -53,6 +53,17 @@ export class SessionLibrary {
       };
     });
   }
+  /** Removes all titles, notes, and other organization of the sessions. */
+  async clear() {
+    const task = this.writes
+      .catch(() => {})
+      .then(async () => {
+        await writeJSON(this.file, {});
+        this.entries = new Map();
+      });
+    this.writes = task;
+    await task;
+  }
   async update(agent: Agent, id: string, changes: unknown) {
     return this.updateMany([{ agent, id, changes }]);
   }

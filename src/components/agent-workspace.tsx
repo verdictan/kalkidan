@@ -6,6 +6,7 @@ import { useEffect, useRef, useState } from 'react';
 import { ChevronRight, NotebookPen, X } from 'lucide-react';
 import { pathBasename } from '../lib/platform';
 import { sessionRepo } from '../lib/session-repository';
+import { trackerConnection } from '../domain/tracker';
 import { Conversation, type ConversationDraft } from './conversation';
 import type { MentionChat } from '../lib/mention-sections';
 import { Button } from './ui/button';
@@ -14,6 +15,7 @@ import { agentLabel, isAgent } from '../config/agents';
 import type { SessionActivity, SessionActivityState } from './activity-dot';
 import type { API, Session, Project, ProjectGroup, RemoteHost } from '../types';
 const keyOf = (session: Session) => session.agent + ':' + session.id;
+const timestamp = () => new Date().toISOString();
 // Only the most recently viewed sessions stay mounted. A session that works or waits for
 // approval stays mounted until it finishes.
 const mountedLimit = 5;
@@ -302,7 +304,7 @@ export function AgentWorkspace({
       hostId: repo.hostId,
       agent: live.agent,
       title: fork ? 'Fork of ' + titleOf(live) : 'New side chat',
-      updatedAt: new Date().toISOString(),
+      updatedAt: timestamp(),
       forkFrom: fork ? resolvedId || live.id : undefined,
     };
     setTabs((previous) => [...previous, draft]);
@@ -326,6 +328,7 @@ export function AgentWorkspace({
             running={!!running[selectedKey]}
             repositoryId={repository?.id}
             inProject={repository ? !!group : undefined}
+            board={group ? !!trackerConnection(group) : undefined}
             update={update}
             branch={branch}
             archive={() => {
@@ -372,7 +375,7 @@ export function AgentWorkspace({
                   <button
                     type="button"
                     className="topbar-crumb"
-                    data-optional
+                    data-middle
                     aria-label={`${group.name} project`}
                     title={group.name}
                     onClick={() => onOpenProject(group)}
@@ -381,25 +384,33 @@ export function AgentWorkspace({
                   </button>
                   <ChevronRight
                     aria-hidden="true"
-                    data-optional
                     className="size-3 shrink-0 text-muted-foreground"
                   />
                 </>
               )}
-              <button
-                type="button"
-                data-middle
-                className="conversation-breadcrumb-repo"
-                aria-label={`Back to ${repositoryName}`}
-                title={`Back to ${repositoryName}`}
-                onClick={() => {
-                  if (repository && onOpenRepository) onOpenRepository(repository);
-                  else onClose();
-                }}
-              >
-                {repositoryName}
-              </button>
-              <ChevronRight aria-hidden="true" className="size-3 shrink-0 text-muted-foreground" />
+              {/* The composer of a new chat shows the code folder. In a project, the trail
+                  shows the project, not the folder. */}
+              {!(group && onOpenProject) && (
+                <>
+                  <button
+                    type="button"
+                    data-middle
+                    className="conversation-breadcrumb-repo"
+                    aria-label={`Back to ${repositoryName}`}
+                    title={`Back to ${repositoryName}`}
+                    onClick={() => {
+                      if (repository && onOpenRepository) onOpenRepository(repository);
+                      else onClose();
+                    }}
+                  >
+                    {repositoryName}
+                  </button>
+                  <ChevronRight
+                    aria-hidden="true"
+                    className="size-3 shrink-0 text-muted-foreground"
+                  />
+                </>
+              )}
               <span
                 className="conversation-toolbar-title"
                 title={titleOf(live)}
@@ -469,6 +480,13 @@ export function AgentWorkspace({
                     hostName={hosts.find((host) => host.id === session.hostId)?.name}
                     projectGroup={tabGroup}
                     mentionChats={projectChats(tabGroup, tab, sessions, projects)}
+                    folders={
+                      tabGroup
+                        ? projects
+                            .filter((project) => tabGroup.repoIds.includes(project.id))
+                            .map((project) => ({ id: project.id, name: project.name }))
+                        : []
+                    }
                     repositoryId={tabRepository?.id}
                     session={
                       resumed
