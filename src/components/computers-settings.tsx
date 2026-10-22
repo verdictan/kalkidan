@@ -327,7 +327,7 @@ export function HostRow({
       <ConfirmDialog
         open={confirm === 'disconnect'}
         title={`Disconnect ${host.name}?`}
-        description="Disconnecting stops all active work on this host. Running agent chats stop."
+        description="Disconnecting stops all active work on this host. Running chats stop."
         confirmLabel="Disconnect"
         destructive
         onCancel={() => setConfirm(undefined)}
@@ -342,7 +342,7 @@ export function HostRow({
       <ConfirmDialog
         open={confirm === 'update'}
         title={`Update the helper on ${host.name}?`}
-        description="The update stops all active work on this host. Running agent chats stop."
+        description="The update stops all active work on this host. Running chats stop."
         confirmLabel="Update helper"
         destructive
         onCancel={() => setConfirm(undefined)}

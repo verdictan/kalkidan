@@ -101,13 +101,20 @@ async function fixture(page: Page, extra: string) {
         }),
       };
       const saved: unknown[] = [];
+      const computerAgents: unknown[] = [];
       (window as any).savedSelections = saved;
+      (window as any).computerAgents = computerAgents;
       (window as any).workspace = Object.assign(
         base,
         {
           verdictanSelect: async (agent: string, selection: unknown) => {
             saved.push([agent, selection]);
             throw new Error('saved');
+          },
+          verdictanSetComputerAgent: async (computer: string, agentId: string) => {
+            computerAgents.push([computer, agentId]);
+            const setup = await (window as any).workspace.verdictanSetup();
+            return { ...setup, computerAgents: { [computer]: agentId } };
           },
         },
         new Function('ids', 'helpers', extra)(ids, helpers),
@@ -133,6 +140,9 @@ async function openSetup(page: Page) {
   await expect(hideSetup(page)).toBeVisible();
   return computers.locator('.settings-row-extra').filter({ has: hideSetup(page) });
 }
+
+/** The agent row of this computer on the Computers page. */
+const agentRow = (page: Page) => computersPage(page).getByRole('group', { name: /^Agent: / });
 
 /** The status of the Codex row on the Computers page, for example "Ready". */
 const codexStatus = (page: Page) =>
@@ -179,21 +189,23 @@ test('the first connect bootstraps once and preselects the Kalkidan agent', asyn
   await expect(setup.getByRole('note')).toContainText(
     'Kalkidan set up the Kalkidan agent for your organization.',
   );
-  const agent = setup.getByRole('combobox', { name: 'Agent' });
-  await expect(agent).toHaveText('Kalkidan agent');
-  // The agent sets the team and the policy. There is no team or policy choice.
+  // This computer uses the Kalkidan agent for Codex and Claude Code. Its policy shows.
+  await expect(agentRow(page)).toHaveAccessibleName('Agent: Kalkidan agent');
+  await expect(agentRow(page)).toContainText(
+    'Kalkidan default · 1.1.0 · Codex and Claude Code on this computer use it for new chats.',
+  );
+  // The coding agent form has no agent, team or policy choice.
+  await expect(setup.getByRole('combobox', { name: 'Agent' })).toHaveCount(0);
   await expect(setup.getByRole('combobox', { name: 'Team' })).toHaveCount(0);
   await expect(setup.getByRole('combobox', { name: 'Policy' })).toHaveCount(0);
-  await expect(setup).toContainText('Policy: Kalkidan default · 1.1.0');
   // The form loads the choices again when it opens again. The bootstrap does not run again.
   await hideSetup(page).click();
-  await expect(agent).toHaveCount(0);
   await computersPage(page)
     .getByRole('button', { name: 'Change the organization setup of Codex', exact: true })
     .click();
-  await expect(agent).toHaveText('Kalkidan agent');
+  await expect(hideSetup(page)).toBeVisible();
   expect(await page.evaluate(() => (window as any).bootstraps())).toBe(1);
-  await expectNoIds(setup);
+  await expectNoIds(computersPage(page));
 });
 
 test('a member sees a calm note to ask an administrator to finish setup', async ({ page }) => {
@@ -219,9 +231,7 @@ test('a member sees a calm note to ask an administrator to finish setup', async 
   await expect(setup.getByRole('button', { name: 'Save', exact: true })).toHaveCount(0);
 });
 
-test('the agent choice shows service names and generic labels, and saves the agent', async ({
-  page,
-}) => {
+test('Change agent shows service names and saves the agent of this computer', async ({ page }) => {
   await fixture(
     page,
     `return {
@@ -232,37 +242,41 @@ test('the agent choice shows service names and generic labels, and saves the age
     };`,
   );
   const setup = await openSetup(page);
+  await agentRow(page)
+    .getByRole('button', { name: 'Change agent for this computer', exact: true })
+    .click();
+  const dialog = page.getByRole('dialog', { name: 'Change the agent for this computer' });
+  // Existing chats keep their agent.
+  await expect(dialog).toContainText(
+    'New chats use the new agent. Existing chats keep their agent.',
+  );
   await expect
-    .poll(() => options(page, setup, 'Agent'))
-    .toEqual(['Choose an agent', 'Kalkidan agent', 'Release bot', 'Agent 1']);
+    .poll(() => options(page, dialog, 'Agent'))
+    .toEqual(['Kalkidan agent', 'Release bot', 'Agent 1']);
   // The configuration of each agent is the secondary text.
-  await setup.getByRole('combobox', { name: 'Agent' }).click();
+  await dialog.getByRole('combobox', { name: 'Agent' }).click();
   await expect(page.getByRole('option', { name: /Release bot/ })).toContainText('Strict · 2.0.0');
   await page.getByRole('option', { name: /Release bot/ }).click();
-  await expect(setup.getByRole('combobox', { name: 'Agent' })).toHaveText('Release bot');
-  await expect(setup).toContainText('Policy: Strict · 2.0.0');
-  // The selection is complete when the model name is entered. It saves at once.
+  await dialog.getByRole('button', { name: 'Change agent', exact: true }).click();
+  await expect(dialog).toHaveCount(0);
+  expect(await page.evaluate(() => (window as any).computerAgents)).toEqual([['local', release]]);
+  await expect(agentRow(page)).toHaveAccessibleName('Agent: Release bot');
+  // The coding agent selection saves the model access only. The agent is not in it.
   await setup.getByRole('textbox', { name: 'Default model' }).fill('gpt-5');
   await setup.getByRole('textbox', { name: 'Default model' }).press('Enter');
   await expect.poll(() => page.evaluate(() => (window as any).savedSelections.length)).toBe(1);
   const [[agent, selection]] = await page.evaluate(() => (window as any).savedSelections);
   expect(agent).toBe('codex');
-  expect(selection).toMatchObject({
-    agentId: release,
-    teamId: team2,
-    configurationId: '',
-    configurationVersionId: '',
-    providerConnectionId: team,
-    model: 'gpt-5',
-  });
-  await expectNoIds(setup);
+  expect(selection).toMatchObject({ providerConnectionId: team, model: 'gpt-5' });
+  expect(selection.agentId).toBeUndefined();
+  await expectNoIds(computersPage(page));
 });
 
 test('a removed default shows a calm note and needs another agent', async ({ page }) => {
   await fixture(
     page,
     `const chosen = {
-      teamId: ids.team, agentId: ids.kalkidan, configurationId: '', configurationVersionId: '',
+      teamId: '', configurationId: '', configurationVersionId: '',
       providerConnectionId: ids.team, model: 'gpt-5',
     };
     return {
@@ -282,19 +296,21 @@ test('a removed default shows a calm note and needs another agent', async ({ pag
     'An administrator removed the default Kalkidan setup. Choose another agent.',
   );
   await expect(note).not.toHaveClass(/destructive/);
-  // The saved Kalkidan agent is gone. Nothing is preselected and the setup is not ready.
-  const agent = setup.getByRole('combobox', { name: 'Agent' });
-  await expect(agent).toHaveText('Choose an agent');
+  // The Kalkidan agent is gone. This computer has no agent and Codex is not ready.
+  await expect(agentRow(page)).toHaveAccessibleName('Agent: No agent');
+  await expect(agentRow(page)).toContainText('removed the default Kalkidan setup');
   await expect(codexStatus(page)).toHaveText('Needs setup');
-  await expect(setup.getByRole('button', { name: 'Save', exact: true })).toHaveCount(0);
-  expect(await options(page, setup, 'Agent')).toEqual(['Choose an agent', 'Release bot']);
-  // The other agent completes the selection. It saves at once.
-  await agent.click();
+  await agentRow(page)
+    .getByRole('button', { name: 'Change agent for this computer', exact: true })
+    .click();
+  const dialog = page.getByRole('dialog', { name: 'Change the agent for this computer' });
+  expect(await options(page, dialog, 'Agent')).toEqual(['Choose an agent', 'Release bot']);
+  await dialog.getByRole('combobox', { name: 'Agent' }).click();
   await page.getByRole('option', { name: /Release bot/ }).click();
-  await expect.poll(() => page.evaluate(() => (window as any).savedSelections.length)).toBe(1);
-  const [[, selection]] = await page.evaluate(() => (window as any).savedSelections);
-  expect(selection).toMatchObject({ agentId: release, teamId: team2, model: 'gpt-5' });
-  await expectNoIds(setup);
+  await dialog.getByRole('button', { name: 'Change agent', exact: true }).click();
+  expect(await page.evaluate(() => (window as any).computerAgents)).toEqual([['local', release]]);
+  await expect(agentRow(page)).toHaveAccessibleName('Agent: Release bot');
+  await expectNoIds(computersPage(page));
 });
 
 test('a removed default without another agent tells the user to ask an administrator', async ({
@@ -348,7 +364,7 @@ for (const [name, agentId] of [
       };`,
     );
     const setup = await openSetup(page);
-    await expect(setup.getByRole('combobox', { name: 'Agent' })).toHaveText('Kalkidan agent');
+    await expect(agentRow(page)).toHaveAccessibleName('Agent: Kalkidan agent');
     await expect(setup.getByRole('combobox', { name: 'Model access' })).toHaveText(
       'Codex subscription on the computer',
     );
@@ -369,25 +385,57 @@ test('a complete setup that Kalkidan chose, but did not save, shows Save', async
         agents: [helpers.agents.kalkidan],
         selections: {
           codex: {
-            teamId: ids.team2,
+            teamId: '',
             configurationId: '',
             configurationVersionId: '',
             providerConnectionId: ids.team,
-            model: 'gpt-6-astra',
+            model: '',
           },
         },
       }),
     };`,
   );
   const setup = await openSetup(page);
-  // The saved setup uses another team than the Kalkidan agent. It is a change.
-  // The only agent is chosen, so its list does not show. Its policy shows.
-  await expect(setup.getByRole('combobox', { name: 'Agent' })).toHaveCount(0);
-  await expect(setup).toContainText('Policy: Kalkidan default · 1.1.0');
-  // The form is a change, so the user confirms it with Save.
+  // The only agent is the agent of this computer. There is nothing to change.
+  await expect(agentRow(page)).toHaveAccessibleName('Agent: Kalkidan agent');
+  await expect(
+    agentRow(page).getByRole('button', { name: 'Change agent for this computer' }),
+  ).toHaveCount(0);
+  // Kalkidan chose the only model. The form is a change, so the user confirms it with Save.
+  await expect(setup).toContainText('Default model: GPT-6-Astra');
   await expect(setup.getByRole('button', { name: 'Save', exact: true })).toBeVisible();
   await setup.getByRole('button', { name: 'Save', exact: true }).click();
   await expect.poll(() => page.evaluate(() => (window as any).savedSelections.length)).toBe(1);
   const [[, selection]] = await page.evaluate(() => (window as any).savedSelections);
-  expect(selection).toMatchObject({ agentId: kalkidan, teamId: team, model: 'gpt-6-astra' });
+  expect(selection).toMatchObject({ providerConnectionId: team, model: 'gpt-6-astra' });
+});
+
+test('each SSH host has its own agent', async ({ page }) => {
+  await fixture(
+    page,
+    `return {
+      remoteHosts: async () => [
+        { id: 'host-1', name: 'devbox', target: 'me@devbox', status: 'disconnected' },
+      ],
+      verdictanSetup: async () => helpers.setup({
+        bootstrap: helpers.record(),
+        agents: [helpers.agents.kalkidan, helpers.agents.release],
+        computerAgents: { 'host-1': ids.release },
+      }),
+    };`,
+  );
+  const computers = await openComputersPage(page);
+  // This computer keeps the Kalkidan agent. The host has the agent that the user chose for it.
+  await expect(agentRow(page)).toHaveCount(2);
+  await expect(computers.getByRole('group', { name: 'Agent: Kalkidan agent' })).toContainText(
+    'on this computer',
+  );
+  const host = computers.getByRole('group', { name: 'Agent: Release bot' });
+  await expect(host).toContainText('Codex and Claude Code on devbox use it for new chats.');
+  await host.getByRole('button', { name: 'Change agent for devbox', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'Change the agent for devbox' });
+  await dialog.getByRole('combobox', { name: 'Agent' }).click();
+  await page.getByRole('option', { name: /Kalkidan agent/ }).click();
+  await dialog.getByRole('button', { name: 'Change agent', exact: true }).click();
+  expect(await page.evaluate(() => (window as any).computerAgents)).toEqual([['host-1', kalkidan]]);
 });

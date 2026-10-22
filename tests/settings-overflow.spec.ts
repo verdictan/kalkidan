@@ -49,7 +49,7 @@ test('Preferences and Computers have no horizontal overflow and long paths trunc
   expect(await overflowOf(computers), 'Computers').toEqual({ scroll: 0, wide: [] });
   // "Choose…" opens the programs of this computer with the program paths.
   await computers.getByRole('button', { name: 'Choose the Codex program' }).click();
-  const programs = page.getByRole('dialog', { name: 'Agent programs on this computer' });
+  const programs = page.getByRole('dialog', { name: 'Coding agent programs on this computer' });
   const shown = programs.getByLabel(longPath, { exact: true });
   await expect(shown).toBeVisible();
   // The end of the path (the program name) stays visible.
