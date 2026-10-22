@@ -35,6 +35,7 @@
         "gateway.stopping",
         "gateway.stopped",
         "credential.expired",
+        "credential.revoked",
         "error"
       ]
     },
@@ -276,6 +277,42 @@
               }
             },
             "additionalProperties": true
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "event": {
+            "const": "credential.revoked"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "runtime_id",
+              "reason"
+            ],
+            "properties": {
+              "runtime_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "reason": {
+                "enum": [
+                  "host_revoked",
+                  "session_revoked",
+                  "runtime_revoked",
+                  "credential_revoked",
+                  "offline_limit"
+                ]
+              }
+            },
+            "additionalProperties": false
           }
         }
       }

@@ -194,6 +194,10 @@
       ],
       "minProperties": 2,
       "additionalProperties": false
+    },
+    "renewal": {
+      "const": "in_place",
+      "$comment": "runtime.renew for a runtime of `gateway supervise --multi`, which renews in place with credential.renew. Needs the runtime.renew.in_place capability."
     }
   },
   "required": [
@@ -482,7 +486,7 @@
                 "minLength": 1,
                 "maxLength": 120,
                 "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f]+$",
-                "description": "Optional computer name, for example the SSH host name. The gateway name is \"<host_name> · <agent name>\". A later request with another name renames the gateway. Send it only when capabilities has resources.provision.host_name. Leading and trailing spaces are removed."
+                "description": "Optional computer name, for example the SSH host name. The gateway name is \"<host_name> \u00b7 <agent name>\". A later request with another name renames the gateway. Send it only when capabilities has resources.provision.host_name. Leading and trailing spaces are removed."
               }
             },
             "additionalProperties": false,
@@ -564,8 +568,19 @@
       },
       "then": {
         "required": [
-          "runtime_id",
-          "gateway_stopped"
+          "runtime_id"
+        ],
+        "anyOf": [
+          {
+            "required": [
+              "gateway_stopped"
+            ]
+          },
+          {
+            "required": [
+              "renewal"
+            ]
+          }
         ]
       }
     },

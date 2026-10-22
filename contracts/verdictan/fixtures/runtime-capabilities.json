@@ -374,5 +374,56 @@
       ],
       "agent_version_policy": "informational"
     }
+  },
+  {
+    "schema_version": 1,
+    "correlation_id": "runtime-0-6-13",
+    "sequence": 1,
+    "event": "capabilities",
+    "data": {
+      "cli_version": "0.6.13",
+      "protocol_min": 1,
+      "protocol_max": 1,
+      "capabilities": [
+        "authorization.browser.pkce",
+        "authorization.secure_storage",
+        "authorization.cancel",
+        "account.inspect",
+        "inventory.inspect",
+        "session.renew",
+        "session.logout",
+        "diagnostics.preview",
+        "diagnostics.export",
+        "gateway.supervise.multi",
+        "runtime.renew",
+        "runtime.renew.in_place",
+        "runtime.provision",
+        "runtime.export.protected_pipe",
+        "runtime.revoke",
+        "provider_access.codex_subscription",
+        "provider_access.claude_subscription",
+        "review.inspect",
+        "review.resolve",
+        "setup.inspect",
+        "setup.ensure_default",
+        "setup.bootstrap",
+        "hosts.inspect",
+        "host.revoke",
+        "resources.provision",
+        "resources.provision.host_name"
+      ],
+      "managed_execution_ready": false,
+      "tested_agents": [
+        {
+          "kind": "codex",
+          "version": "0.163.0-alpha.10.2"
+        },
+        {
+          "kind": "claude_code",
+          "version": "2.1.304"
+        }
+      ],
+      "agent_version_policy": "informational"
+    }
   }
 ]

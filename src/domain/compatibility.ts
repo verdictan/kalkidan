@@ -10,9 +10,9 @@ export const supportWindow = {
   protocol: { current: 1, supported: [1] as readonly number[] },
   runtime: {
     /** The current release and the two releases before it. */
-    supported: ['0.6.10', '0.6.11', '0.6.12'] as readonly string[],
-    minimum: '0.6.10',
-    newestVerified: '0.6.12',
+    supported: ['0.6.11', '0.6.12', '0.6.13'] as readonly string[],
+    minimum: '0.6.11',
+    newestVerified: '0.6.13',
     /** The oldest runtime that can run the one-time Kalkidan setup (`setup.bootstrap`). */
     setupMinimum: '0.6.6',
     noticeDays: 90,
@@ -21,21 +21,28 @@ export const supportWindow = {
         // Each version older than the window, also versions before 0.6.6.
         minimum: '0.0.0',
         maximum: '0.6.7',
-        replacement: '0.6.12',
+        replacement: '0.6.13',
         deprecated: '2026-10-22',
         endOfSupport: '2027-01-20',
       },
       {
         minimum: '0.6.8',
         maximum: '0.6.8',
-        replacement: '0.6.12',
+        replacement: '0.6.13',
         deprecated: '2026-10-22',
         endOfSupport: '2027-01-20',
       },
       {
         minimum: '0.6.9',
         maximum: '0.6.9',
-        replacement: '0.6.12',
+        replacement: '0.6.13',
+        deprecated: '2026-10-22',
+        endOfSupport: '2027-01-20',
+      },
+      {
+        minimum: '0.6.10',
+        maximum: '0.6.10',
+        replacement: '0.6.13',
         deprecated: '2026-10-22',
         endOfSupport: '2027-01-20',
       },
@@ -138,5 +145,16 @@ export const runtimeSetupNotice = `This Verdictan runtime cannot finish the Kalk
 export function knownBrokenRuntime(version: unknown) {
   return supportWindow.runtime.knownBroken.find(
     (entry) => compareVersionCores(version, entry.version) === 0,
+  );
+}
+
+/**
+ * The oldest supported runtime that is not known-broken. Messages name it, because the oldest
+ * version in the window can be known-broken (0.6.11).
+ */
+export function recommendedRuntime() {
+  return (
+    supportWindow.runtime.supported.find((version) => !knownBrokenRuntime(version)) ??
+    supportWindow.runtime.newestVerified
   );
 }

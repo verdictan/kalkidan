@@ -3,6 +3,7 @@
 // Usage: node scripts/sync-verdictan-contracts.mjs <Verdictan checkout>
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
+import { existsSync } from 'node:fs';
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 
@@ -27,9 +28,13 @@ const names = new Set([
   window.runtime.capabilities_fixture,
   ...contracts,
 ]);
-// A release whose contracts differ from the current files keeps a snapshot of its contracts.
+// A release whose contracts differ from the current files keeps a snapshot of its contracts. A
+// snapshot has only the contracts of its release, so a contract that a later release added is
+// absent there.
 for (const entry of window.runtime.versions)
-  if (entry.snapshot) for (const name of contracts) names.add(entry.snapshot + name);
+  if (entry.snapshot)
+    for (const name of contracts)
+      if (existsSync(join(source, entry.snapshot, name))) names.add(entry.snapshot + name);
 const git = (...args) =>
   execFileSync('git', ['-C', checkout, ...args], { encoding: 'utf8' }).trim();
 if (git('status', '--porcelain', '--', 'cli/docs/contracts'))

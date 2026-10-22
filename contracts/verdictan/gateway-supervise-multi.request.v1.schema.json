@@ -1,0 +1,164 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Implemented multi-gateway supervisor control request (verdictan gateway supervise --multi stdin)",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "correlation_id",
+    "generation_id",
+    "operation"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "correlation_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{1,128}$"
+    },
+    "generation_id": {
+      "type": "string",
+      "format": "uuid",
+      "$comment": "The generation_id of supervisor.ready from the live process."
+    },
+    "operation": {
+      "enum": [
+        "gateway.attach",
+        "gateway.detach",
+        "gateway.status",
+        "gateway.list",
+        "runtime.attach",
+        "runtime.detach",
+        "credential.renew",
+        "supervisor.shutdown"
+      ]
+    },
+    "gateway_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{1,128}$"
+    },
+    "agent_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "runtime_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "runtime_credential": false,
+    "inference_credential": false,
+    "api_token": false,
+    "token": false
+  },
+  "additionalProperties": true,
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "operation": {
+            "const": "gateway.attach"
+          }
+        },
+        "required": [
+          "operation"
+        ]
+      },
+      "then": {
+        "required": [
+          "gateway_id",
+          "agent_id"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "operation": {
+            "const": "gateway.detach"
+          }
+        },
+        "required": [
+          "operation"
+        ]
+      },
+      "then": {
+        "required": [
+          "gateway_id"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "operation": {
+            "const": "gateway.status"
+          }
+        },
+        "required": [
+          "operation"
+        ]
+      },
+      "then": {
+        "required": [
+          "gateway_id"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "operation": {
+            "const": "runtime.attach"
+          }
+        },
+        "required": [
+          "operation"
+        ]
+      },
+      "then": {
+        "required": [
+          "gateway_id",
+          "runtime_id"
+        ],
+        "$comment": "Write the runtime credential frame with the same correlation_id to descriptor 3."
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "operation": {
+            "const": "runtime.detach"
+          }
+        },
+        "required": [
+          "operation"
+        ]
+      },
+      "then": {
+        "required": [
+          "gateway_id",
+          "runtime_id"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "operation": {
+            "const": "credential.renew"
+          }
+        },
+        "required": [
+          "operation"
+        ]
+      },
+      "then": {
+        "required": [
+          "gateway_id",
+          "runtime_id"
+        ],
+        "$comment": "Write the renewed credential frame with the same correlation_id to descriptor 3."
+      }
+    }
+  ]
+}
