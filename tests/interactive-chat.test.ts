@@ -7,6 +7,8 @@ import { InteractiveChatRunner } from '../electron/interactive-chat';
 import { acceptedManagedLaunch } from './helpers/managed-launch';
 import { ProjectGroups } from '../electron/project-groups';
 import type { Session } from '../src/types';
+import { journal } from '../electron/diagnostics/journal';
+import { agentErrorMessage } from '../src/lib/agent-errors';
 
 async function until(fn: () => boolean) {
   const end = Date.now() + 5000;
@@ -43,6 +45,7 @@ createInterface({input:process.stdin}).on('line',line=>{
   }
   if(row.method==='turn/start') {
    emit({id:row.id,result:{turn:{id:'turn'}}});
+   if(process.env.FAIL_GATEWAY) return emit({method:'turn/completed',params:{threadId:session,turn:{id:'turn',status:'failed',error:{message:'unexpected status 401 Unauthorized: Codex subscription and gateway authentication are required, url: http://127.0.0.1:43123/backend-api/codex/responses'}}}});
    emit({method:'item/started',params:{threadId:session,item:{id:'command',type:'commandExecution',command:'git status',status:'inProgress'}}});
    emit({id:44,method:'item/commandExecution/requestApproval',params:{threadId:session,turnId:'turn',itemId:'command',command:'git status',reason:'Check work'}});
   }
@@ -244,6 +247,42 @@ test('codex: thread/start names the model provider that the managed launch defin
       'undefined',
     ]);
   } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('codex: a gateway refusal of the ChatGPT login has its own words and a Diagnostics record', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'kalkidan-gateway-auth-'));
+  const path = join(root, 'agent');
+  await writeFile(path, fixture);
+  await chmod(path, 0o755);
+  const runner = new InteractiveChatRunner(
+    async () => ({ path, env: { ...process.env, FAIL_GATEWAY: '1' } }),
+    undefined,
+    false,
+    acceptedManagedLaunch,
+  );
+  const session: Session = { id: 'session', cwd: root, agent: 'codex', title: 'F', updatedAt: '' };
+  try {
+    const state = await runner.start(session, 'Check', true, false, 'fixture-model');
+    await until(() => state.status !== 'running');
+    assert.equal(state.status, 'failed');
+    assert.equal(state.errorCode, 'desktop.codex_gateway_auth_missing');
+    // The chat does not say "not signed in". It says what failed and offers Try again.
+    const shown = agentErrorMessage(`${state.error} ${state.errorCode}`, 'codex');
+    assert.match(shown.message, /did not send its ChatGPT sign-in to the managed gateway/);
+    assert.doesNotMatch(shown.message, /is not signed in/);
+    assert.equal(shown.action?.kind, 'retry');
+    const record = journal
+      .recentCorrelations()
+      .find((item) => item.kind === 'gateway' && item.operation === 'agent.codex');
+    assert.equal(record?.outcome, 'desktop.codex_gateway_auth_missing');
+    assert.match(
+      record!.detail!,
+      /401 Unauthorized: Codex subscription and gateway authentication/,
+    );
+  } finally {
+    runner.dispose();
     await rm(root, { recursive: true, force: true });
   }
 });

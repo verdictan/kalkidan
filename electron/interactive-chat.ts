@@ -15,6 +15,7 @@ import { parseQuestions, validateAnswers } from './agents/questions';
 import { DesktopProtocolError } from './verdictan/protocol';
 import { managedLaunchBlock } from '../src/domain/verdictan';
 import { journal } from './diagnostics/journal';
+import { logGatewayFailure } from './verdictan/gateway-log';
 
 /** A run that ended, for the chat outcome store. */
 export interface RunEnded {
@@ -818,7 +819,21 @@ export class InteractiveChatRunner {
     if (!run.process) void run.managed?.finish().catch(() => {});
     run.memory?.close();
     run.state.status = status;
+    // The words of the agent, before Kalkidan replaces them with plain words for the chat.
+    const reported = [run.state.error, run.stderr].filter(Boolean).join('\n');
     if (status === 'failed') normalizeChatFailure(run.state, run.stderr);
+    // Keep the real reason of a failed managed run in Settings › Diagnostics, redacted.
+    if (status === 'failed' && run.managed && !this.internal)
+      logGatewayFailure(
+        `agent.${run.session.agent}`,
+        run.state.errorCode || 'agent_error',
+        run.managed.redact(
+          (reported || run.state.error || '').replaceAll(
+            run.memory?.url || '\0',
+            '[private memory endpoint]',
+          ),
+        ),
+      );
     if (run.memory && run.state.error)
       run.state.error = run.state.error.replaceAll(run.memory.url, '[private memory endpoint]');
     run.state.activity =
