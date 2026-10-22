@@ -68,20 +68,20 @@ Date: 2026-10-22. Installer: `Kalkidan-0.1.0-build.1792665259.ac73aedffa70-mac-a
 release built from `main` before this change. Computer: a Mac with Apple silicon (macOS 26.7.1),
 the developer account, not a clean computer.
 
-| Check                                                  | Result                                                                                                                   |
-| ------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------ |
-| Digest matches `SHA256SUMS.txt`                        | Pass                                                                                                                     |
-| Disk image valid, opens, has the Applications shortcut | Pass                                                                                                                     |
-| App matches the processor (arm64)                      | Pass                                                                                                                     |
-| Code signature valid                                   | **Fail**: "code has no resources but signature indicates they must be present"                                           |
-| Developer ID signature                                 | **Fail**: the release build turns off signing (`mac.identity=null`)                                                      |
-| Gatekeeper accepts the app                             | **Fail**                                                                                                                 |
-| Notarization ticket                                    | **Fail**: the release build turns off notarization                                                                       |
-| App starts from a quarantined copy                     | **Fail**: macOS stops the process at once (SIGKILL)                                                                      |
-| App starts without the quarantine attribute            | Pass                                                                                                                     |
-| First start installs the runtime                       | **Fail** on this release: discovery read 100 releases in one 5 MB page, more than its 4 MiB limit. This change fixes it. |
+| Check                                                  | Result                                                                                                                                                                            |
+| ------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Digest matches `SHA256SUMS.txt`                        | Pass                                                                                                                                                                              |
+| Disk image valid, opens, has the Applications shortcut | Pass                                                                                                                                                                              |
+| App matches the processor (arm64)                      | Pass                                                                                                                                                                              |
+| Code signature valid                                   | **Fail**: "code has no resources but signature indicates they must be present"                                                                                                    |
+| Developer ID signature                                 | **Fail**: the release build turns off signing (`mac.identity=null`)                                                                                                               |
+| Gatekeeper accepts the app                             | **Fail**                                                                                                                                                                          |
+| Notarization ticket                                    | **Fail**: the release build turns off notarization                                                                                                                                |
+| App starts from a quarantined copy                     | **Fail**: macOS stops the process at once (SIGKILL)                                                                                                                               |
+| App starts without the quarantine attribute            | Pass                                                                                                                                                                              |
+| First start installs the runtime                       | Not run: this Mac has a Kalkidan profile. The discovery code of this release fails: it reads 100 releases (about 5 MB) in one page, and its limit is 4 MiB. This change fixes it. |
 
-The packaged app from this change: see the pull request for the result.
+A macOS zip built from this change (`mac.identity=null`) gives the same signature, Gatekeeper, and notarization results. A fix needs a Developer ID certificate and notarization in the release job.
 
 ## What still needs a clean computer
 
