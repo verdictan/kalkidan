@@ -697,6 +697,7 @@ export function Conversation({
             ? managedLaunchError(launchFailure(next), {
                 computer,
                 hostId: session.hostId,
+                agent: session.agent,
                 regionSaved: !!account?.region,
               })
             : agentErrorMessage(`${next.error || ''} ${next.errorCode || ''}`, session.agent, {
@@ -1006,6 +1007,7 @@ export function Conversation({
       ? managedLaunchError(launchFailure(run), {
           computer,
           hostId: session.hostId,
+          agent: session.agent,
           regionSaved: !!account?.region,
         })
       : /\bdesktop\.[a-z_]+|verdictan is not ready/i.test(error) ||
@@ -1301,13 +1303,17 @@ export function Conversation({
   const lines = runLineCounts(runs);
   const answered = runsFinished > 0 || messages.some((message) => message.role === 'assistant');
   const changesKey = `${chatChanges}:${unsharedCommits}:${pullRequest?.state || ''}`;
+  // A task is done only after a run that finished, or when it has a pull request. A run that
+  // failed or was stopped does not offer "Mark task done".
+  const canMarkDone =
+    !!taskId && !taskDone && (!!pullRequest || runs.at(-1)?.status === 'completed');
   const showChanges =
     !active &&
     !!repositoryId &&
     changesHidden !== changesKey &&
     (chatChanges > 0 ||
       unsharedCommits > 0 ||
-      (!!taskId && !taskDone && answered && (!!pullRequest || runsFinished > 0)));
+      (canMarkDone && answered && (!!pullRequest || runsFinished > 0)));
   // A new chat shows its code folder and branch. Another folder starts a new chat there.
   const folderPill =
     !!session.projectId && !messages.length && !run && !providerSession.current && !!repositoryId;
@@ -1546,7 +1552,7 @@ export function Conversation({
                     Create pull request…
                   </Button>
                 ) : (
-                  taskId && (
+                  canMarkDone && (
                     <Button size="xs" disabled={taskBusy} onClick={() => void requestDone()}>
                       {taskBusy ? 'Updating…' : 'Mark task done'}
                     </Button>
@@ -1564,12 +1570,12 @@ export function Conversation({
                     {chatChanges > 0 && (
                       <DropdownMenuItem onSelect={openCommit}>Commit only…</DropdownMenuItem>
                     )}
-                    {taskId && (chatChanges > 0 || unsharedCommits > 0 || pullRequest) && (
+                    {canMarkDone && (chatChanges > 0 || unsharedCommits > 0 || pullRequest) && (
                       <DropdownMenuItem disabled={taskBusy} onSelect={() => void requestDone()}>
                         Mark task done
                       </DropdownMenuItem>
                     )}
-                    {(chatChanges > 0 || (taskId && (unsharedCommits > 0 || pullRequest))) && (
+                    {(chatChanges > 0 || (canMarkDone && (unsharedCommits > 0 || pullRequest))) && (
                       <DropdownMenuSeparator />
                     )}
                     <DropdownMenuItem onSelect={() => setChangesHidden(changesKey)}>

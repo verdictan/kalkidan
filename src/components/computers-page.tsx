@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import type { API, RemoteHost } from '../types';
 import { errorMessage } from '../lib/errors';
+import { settingsAnchors } from '../domain/settings-route';
+import { agentProgramAnchor } from '../domain/agent-programs';
 import { useRemoteHosts } from './remote-host-picker';
 import { AddHostRow, HelperDetails, HostRow, useHelperUpdates } from './computers-settings';
 import { AgentRows, RuntimeHistory, ThisComputerRow, useRuntimeStatus } from './verdictan-settings';
@@ -78,8 +80,12 @@ export function ComputersPage({
     if (!focusId) return;
     let tries = 0;
     const timer = setInterval(() => {
-      // The runtime of a computer is in the row of that computer.
-      const id = focusId.replace(/^runtime-/, 'computer-');
+      // The runtime of a computer is in the row of that computer. The agents start at the
+      // Codex row, which has the ID of the managed setup.
+      const id =
+        focusId === settingsAnchors.agents || focusId === agentProgramAnchor('codex')
+          ? settingsAnchors.managedSetup
+          : focusId.replace(/^runtime-/, 'computer-');
       const element = root.current?.querySelector<HTMLElement>(`[id="${CSS.escape(id)}"]`);
       if (element || ++tries > 40) {
         clearInterval(timer);
