@@ -29,6 +29,7 @@ import {
   waitsForUser,
   type SessionActivityState,
 } from './activity-dot';
+import { NodeField } from './node-field';
 
 const recentLimit = 5;
 /** The views of the Projects page. */
@@ -209,7 +210,9 @@ export function ProjectOverview({
   const muted = <span className="text-muted-foreground">—</span>;
   const placeOf = (repo: Project) => groups.find((g) => g.repoIds.includes(repo.id))?.name;
   return (
-    <section className="page" aria-label="Projects">
+    <section className={'page' + (groups.length ? '' : ' focus-page')} aria-label="Projects">
+      {/* The empty page has one job, so it gets the quiet node background. */}
+      {!groups.length && <NodeField corners="bottom" />}
       <PageHeader
         title="Projects"
         actions={

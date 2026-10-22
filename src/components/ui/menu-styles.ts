@@ -12,7 +12,7 @@ export const menuLabelClass =
   'px-2 pt-2 pb-1 text-2xs font-semibold tracking-[0.04em] text-muted-foreground';
 /** Destructive items in dropdown and context menus. */
 export const menuDestructiveClass =
-  'text-destructive focus:bg-destructive/10 focus:text-destructive dark:focus:bg-destructive/20 [&_svg]:!text-destructive';
+  'text-destructive focus:bg-destructive/10 focus:text-destructive [&_svg]:!text-destructive';
 export const menuSeparatorClass = '-mx-1 my-1 h-px bg-border';
 export const menuShortcutClass = 'ml-auto pl-4 text-xs text-muted-foreground';
 /**

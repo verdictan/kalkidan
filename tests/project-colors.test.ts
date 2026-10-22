@@ -4,13 +4,7 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { ProjectGroups } from '../electron/project-groups';
-import {
-  isProjectColor,
-  projectColorPalette,
-  projectColors,
-  projectColorValue,
-  type ProjectColor,
-} from '../src/domain/project-colors';
+import { isProjectColor, projectColors, type ProjectColor } from '../src/domain/project-colors';
 test('project colors persist, reset, and reject invalid values', async () => {
   const root = await mkdtemp(join(tmpdir(), 'project-colors-'));
   try {
@@ -46,13 +40,11 @@ function contrast(a: string, b: string) {
   return (high + 0.05) / (low + 0.05);
 }
 
-test('project colors have 3:1 contrast on the light and dark backgrounds', () => {
-  for (const name of Object.keys(projectColorPalette) as ProjectColor[]) {
-    const light = projectColorValue(name, 'light');
-    const dark = projectColorValue(name, 'dark');
-    assert.ok(contrast(light, '#ffffff') >= 3, `${name} light ${light}`);
-    assert.ok(contrast(dark, '#101316') >= 3, `${name} dark ${dark}`);
-    assert.equal(projectColors[name], `light-dark(${light}, ${dark})`);
+test('project colors have 3:1 contrast on the white background', () => {
+  for (const name of Object.keys(projectColors) as ProjectColor[]) {
+    const value = projectColors[name];
+    assert.match(value, /^#[0-9a-f]{6}$/);
+    assert.ok(contrast(value, '#ffffff') >= 3, `${name} ${value}`);
     assert.ok(isProjectColor(name));
   }
   assert.ok(!isProjectColor('toString'));

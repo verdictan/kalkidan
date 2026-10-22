@@ -46,6 +46,7 @@ const topLevel: Record<string, LocalDataCategory> = {
   Cookies: 'browser',
   'Cookies-journal': 'browser',
   'preferences.json': 'settings',
+  // Earlier versions saved the theme choice here. A clear of the settings removes it.
   'appearance.json': 'settings',
   'remote-hosts.json': 'settings',
   'verdictan-region.json': 'settings',
@@ -63,7 +64,6 @@ const exportedStores = [
   'sessions.json',
   'chat-outcomes.json',
   'preferences.json',
-  'appearance.json',
   'remote-hosts.json',
   'verdictan-region.json',
   'verdictan-bindings.json',

@@ -7,7 +7,7 @@
       http-equiv="Content-Security-Policy"
       content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self' ws://127.0.0.1:5173; img-src 'self' data:"
     />
-    <meta name="theme-color" content="#eef0f2" />
+    <meta name="theme-color" content="#fafafa" />
     <link rel="icon" type="image/svg+xml" href="./brand/favicon.svg" />
     <link rel="alternate icon" href="./favicon.ico" />
     <link rel="apple-touch-icon" href="./brand/icon-180.png" />
@@ -15,6 +15,146 @@
     <title>Kalkidan</title>
   </head>
   <body>
+    <!--
+      The launch splash shows before any script loads. The brackets close in from the sides, the
+      brown point lands, then the name and a progress line. The app removes it (src/lib/splash.ts)
+      when the first page can show. The colors are the theme values: theme.css is not loaded yet.
+    -->
+    <style>
+      #splash {
+        position: fixed;
+        inset: 0;
+        z-index: 100;
+        display: grid;
+        place-items: center;
+        align-content: center;
+        gap: 20px;
+        background: #ffffff;
+        color: #171717;
+        font-family:
+          Inter,
+          ui-sans-serif,
+          system-ui,
+          -apple-system,
+          'Segoe UI',
+          sans-serif;
+        transition: opacity 200ms ease-out;
+        -webkit-app-region: drag;
+      }
+      #splash.splash-out {
+        opacity: 0;
+        pointer-events: none;
+      }
+      .splash-lockup {
+        display: flex;
+        align-items: center;
+        gap: 14px;
+      }
+      .splash-lockup svg {
+        width: 56px;
+        height: 56px;
+        overflow: visible;
+      }
+      .splash-lockup svg * {
+        transform-box: fill-box;
+        transform-origin: 50% 50%;
+      }
+      .splash-left {
+        animation: splash-from-left 550ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+      }
+      .splash-right {
+        animation: splash-from-right 550ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+      }
+      .splash-point {
+        animation: splash-pop 380ms cubic-bezier(0.3, 1.5, 0.5, 1) 450ms both;
+      }
+      .splash-name {
+        font-size: 28px;
+        font-weight: 600;
+        line-height: 1;
+        letter-spacing: -0.03em;
+        animation: splash-rise 450ms cubic-bezier(0.2, 0.8, 0.2, 1) 650ms both;
+      }
+      .splash-bar {
+        width: 120px;
+        height: 2px;
+        border-radius: 2px;
+        background: #e5e5e5;
+        overflow: hidden;
+      }
+      .splash-bar i {
+        display: block;
+        height: 100%;
+        background: #171717;
+        transform-origin: left;
+        animation: splash-progress 2.4s cubic-bezier(0.4, 0, 0.2, 1) 200ms both;
+      }
+      @keyframes splash-from-left {
+        from {
+          transform: translateX(-26px);
+          opacity: 0;
+        }
+      }
+      @keyframes splash-from-right {
+        from {
+          transform: translateX(26px);
+          opacity: 0;
+        }
+      }
+      @keyframes splash-pop {
+        from {
+          transform: scale(0);
+        }
+      }
+      @keyframes splash-rise {
+        from {
+          transform: translateY(6px);
+          opacity: 0;
+        }
+      }
+      @keyframes splash-progress {
+        from {
+          transform: scaleX(0);
+        }
+        to {
+          transform: scaleX(0.9);
+        }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        #splash *,
+        #splash {
+          animation: none !important;
+          transition: none !important;
+        }
+      }
+    </style>
+    <div id="splash" aria-hidden="true">
+      <div class="splash-lockup">
+        <svg viewBox="0 0 100 100">
+          <path
+            class="splash-left"
+            d="M34 18H20V82H34"
+            fill="none"
+            stroke="#171717"
+            stroke-width="9"
+            stroke-linejoin="round"
+            stroke-linecap="round"
+          />
+          <path
+            class="splash-right"
+            d="M66 18H80V82H66"
+            fill="none"
+            stroke="#171717"
+            stroke-width="9"
+            stroke-linejoin="round"
+            stroke-linecap="round"
+          />
+          <circle class="splash-point" cx="50" cy="50" r="9" fill="#9a4600" />
+        </svg>
+        <span class="splash-name">Kalkidan</span>
+      </div>
+      <div class="splash-bar"><i></i></div>
+    </div>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

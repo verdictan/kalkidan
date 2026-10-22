@@ -150,9 +150,6 @@ test('desktop routes project, docs, agent, terminal and remote handlers to the e
   );
   for (const method of ['ptyOpen', 'terminalStart'])
     await call('remote-call', 'host', method, ['/remote']);
-  await call('appearance', 'light');
-  await call('appearance', 'light');
-  await assert.rejects(call('appearance', 'bad'), /Invalid appearance/);
   await assert.rejects(call('github-link', 'missing', 'url'), /not found/);
   await assert.rejects(call('github-board', 'empty'), /Connect a GitHub/);
   const initial = await call('snapshot');
@@ -291,10 +288,6 @@ test('desktop window lifecycle and session export preserve security on each plat
     w.webContents.emit('did-finish-load');
     w.emit('enter-full-screen');
     w.emit('leave-full-screen');
-    f.theme.emit('updated');
-    f.state.destroyed = true;
-    f.theme.emit('updated');
-    f.state.destroyed = false;
     f.state.running = 1;
     w.emit('close', event);
     f.app.emit('before-quit', event);
@@ -378,8 +371,11 @@ test('desktop recovers discovery errors, migrates remote docs and releases late 
   const remote = await desktopFixture('linux', 'remoteMigration');
   await remote.invoke('docs-list', 'remote');
   assert.ok(remote.calls.some((c) => c[0] === 'remote' && c[2] === 'project-import-docs'));
-  const light = await desktopFixture('win32', 'light');
-  assert.equal(light.windows[0].options.backgroundColor, '#fbfbfc');
+  const windows = await desktopFixture('win32');
+  // Kalkidan is light only: the native theme, the window and the title bar use light colors.
+  assert.equal(windows.theme.themeSource, 'light');
+  assert.equal(windows.windows[0].options.backgroundColor, '#ffffff');
+  assert.equal(windows.windows[0].options.titleBarOverlay.color, '#fafafa');
   const dev = await desktopFixture('linux', 'dev');
   assert.ok(dev.calls.some((c) => c[0] === 'loadURL' && c[1].startsWith('http://127.0.0.1:5173')));
 });
