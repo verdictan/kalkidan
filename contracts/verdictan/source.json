@@ -1,7 +1,7 @@
 {
   "repository": "verdictan/work",
   "path": "cli/docs/contracts",
-  "commit": "37d17292199c4ab4644ecfbb7b6c5f10ea4ea465",
+  "commit": "c32d629f6f50f927730bb2ac416fc1511ab9a0b7",
   "files": {
     "auth-desktop.event.v1.schema.json": "4d91298cec82604e53adc6153d7249bbdf5fbc2ab23299c02c936a25fdde15ec",
     "auth-desktop.protected-credentials.v1.schema.json": "700c145bc42a97c1afab22de6d5c48fe5d59f8eac4e5fbf8a5dd2bcd0cce8157",
