@@ -9,6 +9,35 @@ import { runtimeConfig } from './config/runtime';
 import { validExecutablePath, writeChosenExecutable } from './agents/executable-choice';
 import { installedAgentVersion, type InstalledAgentVersion } from './agents/installed-version';
 import type { AgentCandidate, AgentInstallation } from '../src/types';
+import type { NativeAgentKind } from '../src/domain/agent-version';
+import { codexLoginRequired, readCodexSubscriptionLogin } from './verdictan/subscription-auth';
+import { checkNativeClaudeLogin } from './verdictan/claude-subscription-auth';
+import { DesktopProtocolError } from './verdictan/protocol';
+
+/** Codes that mean "not signed in". Other failures leave the sign-in unknown. */
+const signedOutCodes = new Set([codexLoginRequired, 'desktop.claude_subscription_login_required']);
+
+/**
+ * The subscription sign-in of a coding agent on this host. It never returns a token. On macOS
+ * the Claude Code check reads only the Keychain item attributes, so the system does not ask.
+ */
+export async function subscriptionLogin(
+  kind: NativeAgentKind,
+  checks: { codex(): Promise<unknown>; claude(): Promise<unknown> } = {
+    codex: () => readCodexSubscriptionLogin(),
+    claude: () => checkNativeClaudeLogin(),
+  },
+): Promise<AgentInstallation['subscriptionLogin']> {
+  try {
+    if (kind === 'codex') await checks.codex();
+    else await checks.claude();
+    return 'signed-in';
+  } catch (error) {
+    return error instanceof DesktopProtocolError && signedOutCodes.has(error.code)
+      ? 'signed-out'
+      : undefined;
+  }
+}
 
 /**
  * Finds each agent and reads its version. Settings › Agents compares it with the minimum and
@@ -17,6 +46,8 @@ import type { AgentCandidate, AgentInstallation } from '../src/types';
 export async function agentInstallations(
   find: typeof agentPrograms = agentPrograms,
   readVersion: InstalledAgentVersion = installedAgentVersion,
+  login: (kind: NativeAgentKind) => Promise<AgentInstallation['subscriptionLogin']> = (kind) =>
+    subscriptionLogin(kind),
 ): Promise<AgentInstallation[]> {
   return Promise.all(
     agentCatalog.map(async ({ id: agent }): Promise<AgentInstallation> => {
@@ -31,7 +62,8 @@ export async function agentInstallations(
         kind ? readVersion(kind, program).catch(() => undefined) : Promise.resolve(undefined);
       const selected = programs.selected;
       const others = programs.candidates.filter((item) => item.path !== selected?.path);
-      const [selectedVersion, ...versions] = await Promise.all([
+      const [signIn, selectedVersion, ...versions] = await Promise.all([
+        selected && kind ? login(kind).catch(() => undefined) : Promise.resolve(undefined),
         selected ? version(selected) : Promise.resolve(undefined),
         ...others.map(version),
       ]);
@@ -46,6 +78,7 @@ export async function agentInstallations(
         source: programs.source,
         ...(programs.chosenPath ? { chosenPath: programs.chosenPath } : {}),
         ...(candidates.length ? { candidates } : {}),
+        ...(signIn ? { subscriptionLogin: signIn } : {}),
       };
     }),
   );

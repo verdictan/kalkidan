@@ -136,6 +136,48 @@ export async function readNativeClaudeAccess(
   }
 }
 
+/** True when the macOS Keychain has the Claude Code login item. It reads no secret. */
+function macItemExists(account: string) {
+  return new Promise<boolean>((resolve, reject) => {
+    // Without `-w`, `security` reads only the attributes. The system does not ask for access.
+    execFile(
+      '/usr/bin/security',
+      ['find-generic-password', '-a', account, '-s', 'Claude Code-credentials'],
+      { timeout: 10000, maxBuffer: limit, env: { PATH: '/usr/bin:/bin' } },
+      (error) => {
+        if (!error) resolve(true);
+        else if ((error as { code?: unknown }).code === 44) resolve(false);
+        else reject(new DesktopProtocolError('desktop.secure_storage_unavailable'));
+      },
+    );
+  });
+}
+
+/**
+ * Checks before a launch that this host has a Claude Code subscription login, without the
+ * token where possible. On macOS it checks only that the Keychain item exists, so the system
+ * does not ask for access. On Linux it reads the file and drops the token. The launch reads the
+ * token again, last, and checks its expiry.
+ */
+export async function checkNativeClaudeLogin(
+  options: NativeClaudeAccessOptions & { macItemExists?(account: string): Promise<boolean> } = {},
+): Promise<void> {
+  const platform = options.platform ?? process.platform;
+  if (platform !== 'darwin') {
+    await readNativeClaudeAccess(options);
+    return;
+  }
+  const arch = options.arch ?? process.arch;
+  const account = options.account ?? userInfo().username;
+  const environment = options.environment ?? process.env;
+  if (!qualified.has(`${platform}:${arch}`) || !/^[A-Za-z0-9._-]+$/.test(account))
+    throw new DesktopProtocolError('desktop.claude_subscription_unsupported');
+  if (environment.CLAUDE_CONFIG_DIR || environment.CLAUDE_SECURESTORAGE_CONFIG_DIR)
+    throw new DesktopProtocolError('desktop.claude_subscription_native_profile_unsupported');
+  if (!(await (options.macItemExists ?? macItemExists)(account)))
+    throw new DesktopProtocolError(loginRequired);
+}
+
 /** Thrown for a credential layout that Kalkidan does not know. */
 const format = () => new DesktopProtocolError(unsupported);
 

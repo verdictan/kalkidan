@@ -559,8 +559,21 @@ export function RegionDialog({
 interface AgentRowState {
   status: StatusLabel;
   help: string;
-  /** The one action of the row. 'setup' opens the organization setup under the row. */
-  action: 'sign-in' | 'programs' | 'setup' | 'none';
+  /**
+   * The one action of the row. 'setup' opens the organization setup under the row.
+   * 'agent-sign-in' checks the sign-in of the coding agent again.
+   */
+  action: 'sign-in' | 'programs' | 'setup' | 'agent-sign-in' | 'none';
+}
+/** How to sign in to each coding agent with its subscription on a computer. */
+export const agentSignInSteps: Record<ManagedAgentKind, string> = {
+  codex: 'Open a terminal on this computer, run codex login, and sign in with ChatGPT',
+  claude:
+    'Open a terminal on this computer, run claude, then /login, and sign in with your Claude subscription',
+};
+/** True when the access mode of the agent uses the subscription login of the coding agent. */
+function usesAgentLogin(agent: ManagedAgentKind, mode: string | undefined) {
+  return agent === 'codex' ? mode === 'codex_subscription' : mode === 'claude_subscription';
 }
 
 /** "Version 0.160.2", or empty when Kalkidan cannot read the version. */
@@ -624,6 +637,16 @@ export function agentRowState(
       status: { label: 'Needs setup', tone: 'warning' },
       help: version,
       action: 'setup',
+    };
+  // Kalkidan checks the coding agent itself. The gateway does not check its login.
+  if (
+    usesAgentLogin(agent, saved.providerAccessMode) &&
+    program?.subscriptionLogin === 'signed-out'
+  )
+    return {
+      status: { label: 'Needs agent sign-in', tone: 'warning' },
+      help: [version, agentSignInSteps[agent]].filter(Boolean).join(' · '),
+      action: 'agent-sign-in',
     };
   return {
     status: { label: 'Ready', tone: 'success' },
@@ -695,6 +718,16 @@ export function AgentRows({ api, open }: { api: API; open: boolean }) {
             }
           >
             <StatusBadge status={state.status} />
+            {state.action === 'agent-sign-in' && (
+              <Button
+                variant="outline"
+                size="sm"
+                aria-label={`Check the ${name} sign-in again`}
+                onClick={readPrograms}
+              >
+                Check again
+              </Button>
+            )}
             <Button
               variant="outline"
               size="sm"

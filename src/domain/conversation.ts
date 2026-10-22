@@ -182,6 +182,11 @@ export interface AgentInstallation {
   chosenPath?: string;
   /** The other programs that automatic detection found, with their versions. */
   candidates?: AgentCandidate[];
+  /**
+   * The subscription sign-in of the agent on that computer: the ChatGPT login of Codex, or the
+   * Claude subscription login of Claude Code. Missing when Kalkidan cannot tell.
+   */
+  subscriptionLogin?: 'signed-in' | 'signed-out';
 }
 /** One program that Kalkidan found for an agent. */
 export interface AgentCandidate {

@@ -96,10 +96,14 @@ function fixture(revoked: string[] = [], eventDirectory?: string) {
           if (failure === 'route') throw Error('desktop.readiness_failed');
           return { args: [], env: {} };
         },
+        async verifyCodexCatalog(_agent: unknown, turn: any) {
+          calls.push(`catalog ${turn.hostId}`);
+        },
         async stop() {
           calls.push('stop-gateway');
         },
         lost: options.lost,
+        agentLoginChecked: options.agentLoginChecked,
         eventDirectory: options.eventDirectory,
       };
       calls.push('start-gateway');
@@ -373,4 +377,27 @@ test('each gateway keeps its event queue in a private folder that survives a res
   const info = await stat(directory);
   assert.ok(info.isDirectory());
   assert.equal(info.mode & 0o777, 0o700);
+});
+
+test('the agent login check reaches the gateway, and the catalog check uses the host', async () => {
+  const f = fixture();
+  await f.owner.start(binding, agent, async () => {}, { agentLoginChecked: true });
+  assert.equal(f.gateways[0].agentLoginChecked, true);
+  const turn = {
+    projectId: 'project',
+    taskId: 'task',
+    conversationId: 'conversation',
+    runId: 'run',
+    turnId: 'turn',
+  };
+  await f.owner.verifyCodexCatalog(id, turn, { accessToken: 'access', accountId: 'account' });
+  assert.equal(f.calls.at(-1), `catalog ${id}`);
+  await assert.rejects(
+    f.owner.verifyCodexCatalog('other', turn, { accessToken: 'access', accountId: 'account' }),
+    /gateway_unavailable/,
+  );
+  // Without the check, the gateway gets no flag.
+  const g = fixture();
+  await g.start();
+  assert.equal(g.gateways[0].agentLoginChecked, undefined);
 });

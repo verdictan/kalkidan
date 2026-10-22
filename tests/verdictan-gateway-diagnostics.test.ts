@@ -47,13 +47,19 @@ const probeRequired = {
   },
 };
 /** A gateway instance in the supervisor, so that no process starts. */
-function shared(mode: RuntimeCredentials['provider_access_mode'], body: unknown, status = 503) {
+function shared(
+  mode: RuntimeCredentials['provider_access_mode'],
+  body: unknown,
+  status = 503,
+  agentLoginChecked = true,
+) {
   return new ManagedGateway({
     executable: '/fixture/verdictan',
     credentials: { ...credentials, ...(mode ? { provider_access_mode: mode } : {}) },
     now: () => now,
     instance: { address: 'http://127.0.0.1:43123', subscribe: () => () => {} },
     request: (async () => Response.json(body, { status })) as any,
+    agentLoginChecked,
   });
 }
 const gatewayRecords = () => journal.recentCorrelations().filter((r) => r.kind === 'gateway');
@@ -61,6 +67,12 @@ const gatewayRecords = () => journal.recentCorrelations().filter((r) => r.kind =
 test('a Codex subscription runtime starts before Codex proves its subscription', async () => {
   const gateway = shared('codex_subscription', probeRequired);
   await gateway.readiness(agent);
+  await gateway.stop();
+});
+
+test('the pending Codex proof passes only after Kalkidan checked the Codex login', async () => {
+  const gateway = shared('codex_subscription', probeRequired, 503, false);
+  await assert.rejects(gateway.readiness(agent), { code: 'desktop.readiness_failed' });
   await gateway.stop();
 });
 
@@ -179,4 +191,81 @@ test('a supervisor that stops before it is ready keeps its redacted stderr', asy
 test('the dev server does not reload for files of other worktrees or coverage runs', () => {
   const config = readFileSync('vite.config.mts', 'utf8');
   assert.match(config, /watch: \{ ignored: \['\*\*\/\.claude\/\*\*', '\*\*\/coverage\/\*\*'\] \}/);
+});
+
+const turn = {
+  hostId: id,
+  projectId: 'project',
+  taskId: 'task',
+  conversationId: 'conversation',
+  runId: 'run',
+  turnId: id,
+};
+const login = { accessToken: 'chatgpt-access-token', accountId: 'account-1' };
+/** A Codex subscription gateway whose catalog request gets `reply`. */
+function catalog(reply: () => Promise<Response>, mode = 'codex_subscription' as const) {
+  const requests: { url: URL; headers: Record<string, string> }[] = [];
+  const gateway = new ManagedGateway({
+    executable: '/fixture/verdictan',
+    credentials: { ...credentials, provider_access_mode: mode },
+    now: () => now,
+    instance: { address: 'http://127.0.0.1:43123', subscribe: () => () => {} },
+    request: (async (url: URL, options: any) => {
+      requests.push({ url, headers: options.headers });
+      return reply();
+    }) as any,
+  });
+  return { gateway, requests };
+}
+
+test('the catalog check sends the native Codex request with the login of this host', async () => {
+  const { gateway, requests } = catalog(async () => Response.json({ models: [] }));
+  await gateway.verifyCodexCatalog(agent, turn, login);
+  const [request] = requests;
+  assert.equal(request.url.pathname, '/backend-api/codex/models');
+  assert.equal(request.url.searchParams.get('client_version'), agent.version);
+  assert.equal(request.headers.authorization, 'Bearer chatgpt-access-token');
+  assert.equal(request.headers['chatgpt-account-id'], 'account-1');
+  assert.equal(request.headers['x-gateway-key'], credentials.inference_credential);
+  assert.equal(request.headers['x-verdictan-desktop-runtime-id'], id);
+  assert.equal(request.headers['x-verdictan-desktop-agent-kind'], 'codex');
+  await gateway.stop();
+});
+
+test('a failed catalog check gives a reason that the user can act on', async () => {
+  for (const [status, code, expected] of [
+    [401, 'desktop.subscription_credentials_required', 'desktop.codex_subscription_login_required'],
+    [401, 'desktop.subscription_catalog_unavailable', 'desktop.codex_subscription_login_required'],
+    [403, 'desktop.subscription_scope_required', 'desktop.subscription_scope_required'],
+    [
+      502,
+      'desktop.subscription_catalog_unavailable',
+      'desktop.codex_subscription_catalog_unavailable',
+    ],
+    [401, 'desktop.runtime_not_attached', 'desktop.codex_subscription_catalog_unavailable'],
+  ] as const) {
+    const { gateway } = catalog(async () =>
+      Response.json({ error: { code, message: 'private upstream text' } }, { status }),
+    );
+    await assert.rejects(gateway.verifyCodexCatalog(agent, turn, login), { code: expected });
+    const [record] = gatewayRecords();
+    assert.equal(record.operation, 'gateway.codex_catalog');
+    assert.match(record.detail!, new RegExp(`http ${status}`));
+    assert.doesNotMatch(record.detail!, /private upstream|chatgpt-access-token/);
+    await gateway.stop();
+  }
+  const { gateway } = catalog(async () => {
+    throw new TypeError('fetch failed');
+  });
+  await assert.rejects(gateway.verifyCodexCatalog(agent, turn, login), {
+    code: 'desktop.codex_subscription_catalog_unavailable',
+  });
+  await gateway.stop();
+});
+
+test('other access modes need no catalog check', async () => {
+  const { gateway, requests } = catalog(async () => Response.json({}), 'byok' as any);
+  await gateway.verifyCodexCatalog(agent, turn, login);
+  assert.equal(requests.length, 0);
+  await gateway.stop();
 });

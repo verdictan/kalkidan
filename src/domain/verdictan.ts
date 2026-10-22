@@ -962,6 +962,21 @@ export const managedErrors: Record<string, ManagedErrorInfo> = {
       'Kalkidan cannot read the Claude Code sign-in on the machine where work runs. The format is not supported, or the file is not private. Update Claude Code and run /login. Then send the message again.',
     section: 'agents',
   },
+  'desktop.codex_subscription_login_required': {
+    message:
+      'Codex is not signed in with your ChatGPT subscription on the machine where work runs. Run codex login there. Then send the message again.',
+    section: 'agents',
+  },
+  'desktop.codex_subscription_login_invalid': {
+    message:
+      'Kalkidan cannot read the Codex sign-in on the machine where work runs. Run codex login there again. Then send the message again.',
+    section: 'agents',
+  },
+  'desktop.codex_subscription_catalog_unavailable': {
+    message:
+      'Codex cannot reach its models through the managed gateway. Try again. If the problem continues, run codex login on the machine where work runs.',
+    retry: true,
+  },
   'desktop.claude_subscription_login_expiring': {
     message:
       'Your Claude Code sign-in expires soon. Run /login in Claude Code on the machine where work runs. Then send the message again.',
@@ -1148,7 +1163,7 @@ export function historyCostLabel(row: Record<string, unknown>) {
 
 /** The setup step that can remove a launch block. Each step has one place in Settings. */
 export type ManagedSetupStep =
-  'region' | 'sign-in' | 'status' | 'agent-setup' | 'runtime' | 'agents';
+  'region' | 'sign-in' | 'status' | 'agent-setup' | 'runtime' | 'agents' | 'agent-sign-in';
 /**
  * The step that fixes a block. A region step becomes the sign-in step when a region is saved:
  * the region is then not the problem.
@@ -1186,6 +1201,8 @@ export const managedSetupTargets: Record<
     label: 'Install managed runtime',
   },
   agents: { section: 'agents', anchor: 'settings-agents', label: 'Open agent settings' },
+  // The row of the coding agent tells how to sign in to it on that computer.
+  'agent-sign-in': { section: 'agents', anchor: 'settings-agents', label: 'Sign in to the agent' },
 };
 /** The first sentence of each message that stops a managed launch. */
 export const managedOnlyNotice =
@@ -1304,6 +1321,14 @@ const launchBlocks: Record<string, [ManagedSetupStep, string]> = {
   'desktop.executable_invalid': ['agent-setup', supportedAgent],
   'desktop.agent_home_invalid': ['agent-setup', supportedAgent],
   'desktop.process_isolation_unavailable': ['runtime', isolation],
+  'desktop.codex_subscription_login_required': [
+    'agent-sign-in',
+    'Run codex login on the machine where work runs. Then try again.',
+  ],
+  'desktop.codex_subscription_login_invalid': [
+    'agent-sign-in',
+    'Run codex login on the machine where work runs. Then try again.',
+  ],
   'desktop.isolation_scope_invalid': ['runtime', isolation],
   'desktop.loopback_required': ['runtime', isolation],
   'desktop.protected_pipe_unavailable': ['runtime', isolation],
@@ -1345,6 +1370,7 @@ const transientRefusals = new Set([
   'desktop.transport_closed',
   'desktop.transport_lost',
   'desktop.protocol_invalid',
+  'desktop.codex_subscription_catalog_unavailable',
 ]);
 // Codes of a gateway or check that did not become ready. A second try can fix them. The status
 // in Settings shows more.

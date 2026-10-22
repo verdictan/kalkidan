@@ -323,7 +323,11 @@ export class DesktopProtocol {
     timer.unref?.();
     return timer;
   }
-  async exportRuntime(runtimeId: string): Promise<RuntimeCredentials> {
+  /** `progress` gets the `secure_storage.waiting` event while a keychain prompt holds the export. */
+  async exportRuntime(
+    runtimeId: string,
+    progress?: (event: DesktopEvent) => void,
+  ): Promise<RuntimeCredentials> {
     if (!this.protectedPipe || this.secret)
       throw new DesktopProtocolError('desktop.protected_pipe_unavailable');
     const credentials = new Promise<RuntimeCredentials>((resolve, reject) => {
@@ -335,10 +339,11 @@ export class DesktopProtocol {
     try {
       const [event, frame] = await Promise.all([
         // A keychain prompt can hold the export. Wait for the person to answer it.
-        this.request('runtime.export', { runtime_id: runtimeId }, (progress) => {
-          if (progress.event !== secureStorageWaitingEvent) return;
+        this.request('runtime.export', { runtime_id: runtimeId }, (event) => {
+          if (event.event !== secureStorageWaitingEvent) return;
           clearTimeout(timer);
           timer = expire(secureStorageTimeoutMs);
+          progress?.(event);
         }),
         credentials,
       ]);

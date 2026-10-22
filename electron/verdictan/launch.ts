@@ -1,4 +1,8 @@
-import { prepareSubscriptionAuth } from './subscription-auth';
+import {
+  prepareSubscriptionAuth,
+  readCodexSubscriptionLogin,
+  type CodexSubscriptionLogin,
+} from './subscription-auth';
 import { RuntimeEvidence } from './evidence';
 import { inferenceGuard, guardedRoute } from './inference-guard';
 import { realpath } from 'node:fs/promises';
@@ -13,6 +17,7 @@ import { addPolicyRecords } from '../../src/domain/policy-result';
 import { assertIsolationPlatform, prepareIsolation } from './isolation';
 import { uuid } from './credentials';
 import {
+  checkNativeClaudeLogin,
   claudeAccessMargin,
   readNativeClaudeAccess,
   type NativeClaudeAccess,
@@ -113,6 +118,11 @@ export class VerdictanLaunchService {
     private claudeAccess: () => Promise<NativeClaudeAccess> = () => readNativeClaudeAccess(),
     private now = Date.now,
     private installedVersion: InstalledAgentVersion = installedAgentVersion,
+    /** The sign-in checks of the coding agents on this host. See `checkAgentLogin`. */
+    private agentLogin: {
+      codex(): Promise<CodexSubscriptionLogin>;
+      claude(): Promise<void>;
+    } = { codex: () => readCodexSubscriptionLogin(), claude: () => checkNativeClaudeLogin() },
   ) {}
   /**
    * The selection of a launch. With the agent choice, a new chat uses the agent of this
@@ -181,6 +191,17 @@ export class VerdictanLaunchService {
       });
     request.signal.throwIfAborted();
     const agent: NativeAgent = { kind, version: check.version! };
+    // Kalkidan checks that the coding agent is signed in for its access mode on this host, before
+    // Verdictan provisions anything. The gateway does not check the login of the coding agent.
+    const codexLogin =
+      kind === 'codex' && selection.providerAccessMode === 'codex_subscription'
+        ? await this.agentLogin.codex()
+        : undefined;
+    const claudeLogin =
+      kind === 'claude_code' &&
+      (claudeSubscription || previous?.provider_access_mode === 'claude_subscription');
+    if (claudeLogin) await this.agentLogin.claude();
+    request.signal.throwIfAborted();
     const identity = await (this.identities
       ? this.identities()
       : this.store.identities(this.hostKey));
@@ -311,8 +332,20 @@ export class VerdictanLaunchService {
             observed.error = withoutManagedCode(managedErrorText(code));
           await request.stop();
         },
+        { agentLoginChecked: !!codexLogin || claudeLogin },
       );
       started = true;
+      request.signal.throwIfAborted();
+      const turn = {
+        projectId: binding.project_id || identityKey(binding.cwd),
+        taskId: binding.task_id || 'conversation',
+        conversationId: binding.conversation_id,
+        // A project-bound runtime needs the run. The history reads requests by run.
+        runId: request.runId,
+        turnId: request.runId,
+      };
+      // Before Codex starts, check that it reaches its models with the login of this host.
+      if (codexLogin) await this.runtimes.verifyCodexCatalog(sessionId, turn, codexLogin);
       request.signal.throwIfAborted();
       const endpoint = this.runtimes.endpoint(sessionId);
       // Each policy result of a refused or escalated request shows in the chat and is saved.
@@ -328,19 +361,12 @@ export class VerdictanLaunchService {
       });
       const home = await this.store.home(binding);
       if (binding.provider_access_mode === 'codex_subscription')
-        await prepareSubscriptionAuth(home);
+        await prepareSubscriptionAuth(home, codexLogin);
       isolation = await this.isolationPolicy.prepare(request, home, guard.address);
       if (isolation.version !== agent.version)
         throw new DesktopProtocolError('desktop.agent_version_unsupported');
       const route = guardedRoute(
-        await this.runtimes.route(sessionId, {
-          projectId: binding.project_id || identityKey(binding.cwd),
-          taskId: binding.task_id || 'conversation',
-          conversationId: binding.conversation_id,
-          // A project-bound runtime needs the run. The history reads requests by run.
-          runId: request.runId,
-          turnId: request.runId,
-        }),
+        await this.runtimes.route(sessionId, turn),
         endpoint,
         guard.address,
       );

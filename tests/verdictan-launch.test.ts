@@ -10,6 +10,7 @@ import {
   type ConversationBinding,
 } from '../electron/verdictan/bindings';
 import { VerdictanLaunchService } from '../electron/verdictan/launch';
+import { DesktopProtocolError } from '../electron/verdictan/protocol';
 import { VerdictanSetupService } from '../electron/verdictan/setup';
 import { sandboxProfile, assertIsolationPlatform } from '../electron/verdictan/isolation';
 const id = '11111111-1111-4111-8111-111111111111';
@@ -141,9 +142,14 @@ async function fixture(
     selection?: typeof selection & { agentId?: string };
     defaultPolicy?: { configuration_id: string; configuration_version_id: string };
     resources?: Record<string, unknown>;
+    /** The Codex login check. It returns a login or throws. */
+    codexLogin?: () => Promise<{ accessToken: string; accountId: string }>;
+    /** The catalog check of a Codex subscription runtime. */
+    catalog?: () => Promise<void>;
   } = {},
 ) {
   const root = await mkdtemp(join(tmpdir(), 'launch-'));
+  const starts: any[] = [];
   const calls: string[] = [];
   const provisions: any[] = [];
   const routes: any[] = [];
@@ -200,9 +206,15 @@ async function fixture(
   };
   let sessionId = '';
   const runtime: any = {
-    start: async (params: any) => {
+    start: async (params: any, _agent: unknown, _stop: unknown, checks: unknown) => {
       calls.push('start');
+      starts.push({ params, checks });
       sessionId = params.session_id;
+    },
+    verifyCodexCatalog: async (_: string, _turn: unknown, login: unknown) => {
+      calls.push('catalog');
+      starts.push({ login });
+      await overrides.catalog?.();
     },
     endpoint: () => 'http://127.0.0.1:1234',
     route: async (_: string, correlation: unknown) => {
@@ -241,6 +253,17 @@ async function fixture(
       versionReads.push({ kind, path: executable.path });
       return options.installed;
     },
+    {
+      codex: async () => {
+        calls.push('codex-login');
+        return overrides.codexLogin
+          ? overrides.codexLogin()
+          : { accessToken: 'chatgpt-access', accountId: 'account' };
+      },
+      claude: async () => {
+        calls.push('claude-login');
+      },
+    },
   );
   const request: any = {
     session: { id: 'new', cwd: root, agent: 'codex' },
@@ -258,6 +281,7 @@ async function fixture(
     routes,
     options,
     versionReads,
+    starts,
     store,
     service,
     request,
@@ -590,6 +614,82 @@ test('Claude Code launches need Claude Code 2.1.300 or later', async () => {
       f.service.prepare({ ...claude, session: { ...claude.session, id: 'changed' } }),
       /agent_version_unsupported/,
     );
+  } finally {
+    await f.cleanup();
+  }
+});
+
+const codexSubscription = {
+  ...selection,
+  providerConnectionId: '',
+  providerAccessMode: 'codex_subscription' as const,
+};
+
+test('a Codex subscription launch checks the Codex login before Verdictan provisions anything', async () => {
+  const f = await fixture({
+    selection: codexSubscription,
+    codexLogin: async () => {
+      throw new DesktopProtocolError('desktop.codex_subscription_login_required');
+    },
+  });
+  try {
+    await assert.rejects(f.service.prepare(f.request), {
+      code: 'desktop.codex_subscription_login_required',
+    });
+    assert.equal(f.calls.includes('resources.provision'), false);
+    assert.equal(f.calls.includes('start'), false);
+  } finally {
+    await f.cleanup();
+  }
+});
+
+test('a Codex subscription launch checks the model catalog before Codex starts', async () => {
+  const f = await fixture({ selection: codexSubscription });
+  try {
+    const launch = await f.service.prepare(f.request);
+    const order = f.calls.filter((call) =>
+      ['codex-login', 'resources.provision', 'start', 'catalog', 'route'].includes(call),
+    );
+    assert.deepEqual(order, ['codex-login', 'resources.provision', 'start', 'catalog', 'route']);
+    // The gateway accepts the pending native proof only after this check passed.
+    assert.deepEqual(f.starts[0].checks, { agentLoginChecked: true });
+    assert.deepEqual(f.starts[1].login, { accessToken: 'chatgpt-access', accountId: 'account' });
+    // The managed Codex home gets the same login.
+    const home = await f.store.home((await f.store.read('codex', 'new'))!);
+    const auth = JSON.parse(await readFile(join(home, 'auth.json'), 'utf8'));
+    assert.equal(auth.tokens.access_token, 'chatgpt-access');
+    await launch.finish();
+  } finally {
+    await f.cleanup();
+  }
+});
+
+test('a failed catalog check stops the launch with its reason and releases the runtime', async () => {
+  const f = await fixture({
+    selection: codexSubscription,
+    catalog: async () => {
+      throw new DesktopProtocolError('desktop.codex_subscription_catalog_unavailable');
+    },
+  });
+  try {
+    await assert.rejects(f.service.prepare(f.request), {
+      code: 'desktop.codex_subscription_catalog_unavailable',
+    });
+    assert.equal(f.calls.includes('route'), false);
+    assert.equal(f.calls.includes('release'), true);
+  } finally {
+    await f.cleanup();
+  }
+});
+
+test('an API key launch needs no agent login check', async () => {
+  const f = await fixture();
+  try {
+    const launch = await f.service.prepare(f.request);
+    assert.equal(f.calls.includes('codex-login'), false);
+    assert.equal(f.calls.includes('catalog'), false);
+    assert.deepEqual(f.starts[0].checks, { agentLoginChecked: false });
+    await launch.finish();
   } finally {
     await f.cleanup();
   }

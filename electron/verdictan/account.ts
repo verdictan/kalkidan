@@ -6,6 +6,7 @@ import type {
 import { projectServicePermissions } from '../../src/domain/project-services';
 import { keychainRefusedCode, serviceName } from '../../src/domain/verdictan';
 import { protocolSupported, runtimeCompatibility } from '../../src/domain/compatibility';
+import { compareVersionCores } from '../../src/domain/agent-version';
 import {
   DesktopClient,
   DesktopProtocolError,
@@ -48,6 +49,8 @@ const sessionEndedCodes = new Set([
 const maxTimerMs = 2 ** 31 - 1;
 /** A keychain write without a result after this time can wait for a keychain prompt. */
 export const keychainHintMs = 5_000;
+/** The first runtime version that sends `secure_storage.waiting` for each keychain call. */
+export const keychainEventsVersion = '0.6.14';
 
 export class VerdictanAccountService {
   private state: VerdictanStatus = { phase: 'missing', executionReady: false };
@@ -199,16 +202,33 @@ export class VerdictanAccountService {
           .catch(refused)
           .finally(wait.end);
       },
-      exportRuntime: (runtimeId) => client.exportRuntime(runtimeId).catch(refused),
+      exportRuntime: (runtimeId) => {
+        const wait = this.keychainWait('runtime.export');
+        return client
+          .exportRuntime(runtimeId, (event) => {
+            if (event.event === secureStorageWaitingEvent) wait.start();
+          })
+          .catch(refused)
+          .finally(wait.end);
+      },
       close: (code) => client.close(code),
       onClose: (listener) => client.onClose(listener),
     };
     return watched;
   }
   /**
+   * True when the runtime sends `secure_storage.waiting` for each keychain call, also for the
+   * runtime secrets. Then only that event shows the wait.
+   */
+  private keychainEvents() {
+    const version = this.state.capabilities?.cliVersion;
+    return (compareVersionCores(version, keychainEventsVersion) ?? -1) >= 0;
+  }
+  /**
    * Counts one request while it waits for keychain access. The UI then asks the person to
-   * answer the keychain prompt. The waiting event of the CLI starts the wait. Without it, a
-   * keychain write that is slow also starts it, where the system shows keychain prompts.
+   * answer the keychain prompt. The waiting event of the CLI starts the wait. An older runtime
+   * does not send it for each keychain write. Then a slow keychain write also starts the wait,
+   * where the system shows keychain prompts.
    */
   private keychainWait(operation: DesktopOperation) {
     let waiting = false;
@@ -220,7 +240,8 @@ export class VerdictanAccountService {
     };
     const hint =
       (this.options.keychainPrompts ?? process.platform === 'darwin') &&
-      secureStorageOperations.has(operation)
+      secureStorageOperations.has(operation) &&
+      !this.keychainEvents()
         ? setTimeout(start, keychainHintMs)
         : undefined;
     hint?.unref?.();

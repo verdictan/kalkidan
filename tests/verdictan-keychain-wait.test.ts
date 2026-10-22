@@ -286,3 +286,68 @@ test('a broken runtime connection asks to try again, not to install the runtime'
   assert.doesNotMatch(error.message, /install/i);
   assert.equal(error.action?.kind, 'retry');
 });
+
+const runtimeId = '22222222-2222-4222-8222-222222222222';
+/** The protected credential frame of one export. Synthetic values only. */
+function exported(correlation_id: string) {
+  return {
+    schema_version: 1,
+    correlation_id,
+    runtime_id: runtimeId,
+    runtime_registration_id: runtimeId,
+    session_id: runtimeId,
+    agent_id: runtimeId,
+    gateway_id: 'gateway',
+    api_url: apiOrigin,
+    generation: 1,
+    expires_at: '2026-10-20T00:10:00Z',
+    runtime_credential: 'vdt_' + 'a'.repeat(20),
+    inference_credential: 'vdt_' + 'b'.repeat(20),
+  };
+}
+
+test('the account status tells the UI while a runtime export waits for the keychain', async (t) => {
+  const f = fixture();
+  const { service } = account(async () => f.client);
+  t.after(() => service.dispose());
+  const checked = service.check();
+  await answerCheck(f);
+  await checked;
+  const client = await service.runtimeClient();
+  const result = client.exportRuntime(runtimeId);
+  await drain();
+  f.reply('secure_storage.waiting', { operation: 'read', elapsed_ms: 2000 });
+  assert.equal(service.status().keychainWaiting, true);
+  f.reply('runtime.exported', { runtime_id: runtimeId, credentials_exported: true });
+  const frame = exported(f.requests.at(-1).correlation_id);
+  f.child.stdio[3].write(Buffer.from(JSON.stringify(frame) + '\n'));
+  assert.equal((await result).runtime_id, runtimeId);
+  await drain();
+  assert.equal(service.status().keychainWaiting, undefined);
+});
+
+test('a runtime with waiting events shows the wait only after the event', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const f = fixture();
+  const { service } = account(async () => f.client, true);
+  t.after(() => service.dispose());
+  const checked = service.check();
+  await drain();
+  f.reply('account.status', signedIn);
+  await drain();
+  f.reply('capabilities', { ...capabilities, cli_version: '0.6.14' });
+  await drain();
+  await checked;
+  const client = await service.runtimeClient();
+  const provisioned = client.request('runtime.provision', provision);
+  await drain();
+  // No guess after 5 s: this runtime tells when it waits.
+  t.mock.timers.tick(keychainHintMs);
+  assert.equal(service.status().keychainWaiting, undefined);
+  f.reply('secure_storage.waiting', waiting);
+  assert.equal(service.status().keychainWaiting, true);
+  f.reply('runtime.provisioning_result', { runtime_id: 'runtime' });
+  await provisioned;
+  await drain();
+  assert.equal(service.status().keychainWaiting, undefined);
+});
