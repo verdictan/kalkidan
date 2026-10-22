@@ -239,7 +239,13 @@ export class DesktopProtocol {
     if (operation === 'runtime.export' && this.secret) this.secret.correlationId = id;
     return new Promise((resolve, reject) => {
       const timer = setTimeout(
-        () => this.close('desktop.request_timeout'),
+        // A browser sign-in that does not finish has its own code and plain words.
+        () =>
+          this.close(
+            operation === 'authorization.start'
+              ? 'desktop.authorization_timeout'
+              : 'desktop.request_timeout',
+          ),
         operation === 'authorization.start' ? 310000 : this.timeoutMs,
       );
       timer.unref?.();

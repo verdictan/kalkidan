@@ -1,7 +1,16 @@
 import { GitHubContentEditor, useContentMenu } from './github-content-editor';
 import { GitHubIssueRelations } from './github-issue-relations';
-import { useEffect, useRef, useState } from 'react';
-import { Check, Pencil } from 'lucide-react';
+import { Fragment, useEffect, useRef, useState, type ReactNode } from 'react';
+import {
+  Archive,
+  ArchiveRestore,
+  ArrowUpToLine,
+  Check,
+  CircleCheck,
+  CircleDot,
+  Pencil,
+  Trash2,
+} from 'lucide-react';
 import type { API, TrackerBoard, TrackerItem } from '../types';
 import type { TrackerField } from '../domain/tracker';
 import type { ProjectFieldValue, ProjectItemAction } from '../domain/github-mutations';
@@ -20,7 +29,16 @@ import {
   DialogHeader,
   DialogTitle,
 } from './ui/dialog';
-import { ActionMenu, type ActionMenuItem } from './action-menu';
+import type { ActionMenuItem } from './action-menu';
+import { MoreButton } from './ui/more-button';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from './ui/dropdown-menu';
+import { Hint } from './hint';
 import { Choice } from './choice';
 import { errorMessage } from '../lib/errors';
 import { timestamp } from '../lib/github-labels';
@@ -41,7 +59,7 @@ export function GitHubItemEditor({
   groupId: string;
   board: TrackerBoard;
   item: TrackerItem;
-  onSaved: () => Promise<void>;
+  onSaved: () => Promise<unknown>;
 }) {
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
@@ -244,7 +262,7 @@ export function ItemActionsMenu({
   api: API;
   groupId: string;
   item: TrackerItem;
-  onSaved: () => Promise<void>;
+  onSaved: () => Promise<unknown>;
   size?: 'md' | 'sm' | 'xs';
 }) {
   const [busy, setBusy] = useState(false);
@@ -265,10 +283,11 @@ export function ItemActionsMenu({
       setBusy(false);
     }
   }
-  const items: ActionMenuItem[] = [
+  const items: (ActionMenuItem & { icon?: ReactNode })[] = [
     ...contentMenu,
     {
       label: item.archived ? 'Restore item' : 'Archive item',
+      icon: item.archived ? <ArchiveRestore className="size-4" /> : <Archive className="size-4" />,
       disabled: busy,
       separator: contentMenu.length > 0,
       action: () =>
@@ -281,6 +300,7 @@ export function ItemActionsMenu({
       ? [
           {
             label: 'Move to top',
+            icon: <ArrowUpToLine className="size-4" />,
             disabled: busy,
             action: () => void act({ kind: 'reorder', afterId: null }, 'Task moved to the top.'),
           },
@@ -288,6 +308,7 @@ export function ItemActionsMenu({
       : []),
     {
       label: 'Remove from project…',
+      icon: <Trash2 className="size-4" />,
       danger: true,
       separator: true,
       disabled: busy,
@@ -296,7 +317,43 @@ export function ItemActionsMenu({
   ];
   return (
     <>
-      <ActionMenu label="Task actions" size={size} disabled={busy} items={items} />
+      <DropdownMenu>
+        <Hint label="Task actions" disabled={busy}>
+          <DropdownMenuTrigger asChild>
+            <MoreButton size={size} label="Task actions" disabled={busy} />
+          </DropdownMenuTrigger>
+        </Hint>
+        <DropdownMenuContent align="end" className="min-w-48">
+          {items.map((entry) => {
+            const reason = entry.disabled && entry.reason;
+            // The issue items of the content editor have no icon. Close and reopen get one.
+            const icon =
+              entry.icon ??
+              (/^Close/.test(entry.label) ? (
+                <CircleCheck className="size-4" />
+              ) : /^Reopen/.test(entry.label) ? (
+                <CircleDot className="size-4" />
+              ) : null);
+            return (
+              <Fragment key={entry.label}>
+                {entry.separator && <DropdownMenuSeparator />}
+                <DropdownMenuItem
+                  variant={entry.danger ? 'destructive' : 'default'}
+                  disabled={entry.disabled}
+                  className={reason ? 'h-auto items-start py-1.5' : undefined}
+                  onSelect={entry.action}
+                >
+                  {icon}
+                  <span className="grid min-w-0 gap-0.5">
+                    {entry.label}
+                    {reason && <span className="text-xs text-muted-foreground">{reason}</span>}
+                  </span>
+                </DropdownMenuItem>
+              </Fragment>
+            );
+          })}
+        </DropdownMenuContent>
+      </DropdownMenu>
       <Dialog open={confirmRemove} onOpenChange={(open) => !busy && setConfirmRemove(open)}>
         <DialogContent size="sm">
           <DialogHeader>

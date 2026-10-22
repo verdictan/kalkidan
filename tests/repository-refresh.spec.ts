@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './helpers/app';
 import { openCodeFolder } from './helpers/navigation';
 
 test('overview refreshes only its repository and keeps cached content while revalidating', async ({

@@ -1,54 +1,91 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
-import { Check, Info, RefreshCw } from 'lucide-react';
+import { ExternalLink, Laptop } from 'lucide-react';
 import type { API } from '../api/contracts';
-import { accountLabel, isSubscriptionMode, withoutManagedCode } from '../domain/verdictan';
-import type { VerdictanSetup, VerdictanStatus } from '../domain/verdictan';
+import type { AgentInstallation } from '../domain/conversation';
+import {
+  accountLabel,
+  selectionIssue,
+  withoutManagedCode,
+  type ManagedAgentKind,
+  type VerdictanSetup,
+  type VerdictanStatus,
+} from '../domain/verdictan';
 import type { ComponentUpdateStatus } from '../domain/updates';
-import { VerdictanSetupForm } from './verdictan-setup';
-import { SettingsDisclosure, SettingsGroup, CopyValue } from './settings-disclosure';
-import { Hint } from './hint';
-import { Alert, AlertDescription } from './ui/alert';
-import { Badge } from './ui/badge';
-import { Button } from './ui/button';
-import { Progress } from './ui/progress';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
-import { showToast } from './ui/toast';
-import { notifyUpdatesChanged } from '../hooks/use-update-status';
+import { checkAgentVersion, nativeAgentKind } from '../domain/agent-version';
+import { agentProgramAnchor } from '../domain/agent-programs';
+import { useRefreshTriggers } from '../hooks/use-refresh-triggers';
 import {
   accountChanging,
   accountNames,
-  accountPhaseLabel,
   displayVersion,
-  managedSteps,
-  runtimeInstallable,
   runtimeBusy,
+  runtimeInstallable,
   runtimeOutdated,
+  runtimeProgressLabel,
   runtimeStatusLabel,
   updatePhaseLabel,
   updateRunning,
   verdictanErrorMessage,
   type StatusLabel,
 } from '../lib/verdictan-labels';
-import { runtimeAnchor, settingsAnchors, type SettingsTab } from '../domain/settings-route';
+import { setAgentInstallations } from '../lib/agent-preference';
+import { computerAnchor, settingsAnchors } from '../domain/settings-route';
+import {
+  AgentSetupDialog,
+  accessLabel,
+  managedAgentNames,
+  teamPolicyLabel,
+} from './verdictan-setup';
+import { AgentProgramsDialog } from './agent-programs';
+import { startSignIn } from './sign-in-steps';
+import { ConnectedServices, GitHubCliPathRow, useGitHubServices } from './github-account';
+import {
+  CopyValue,
+  SettingsAdvanced,
+  SettingsGroup,
+  SettingsRow,
+  SettingsRows,
+  StatusBadge,
+} from './settings-disclosure';
+import { Alert, AlertDescription } from './ui/alert';
+import { AgentIcon } from './ui/agent-icon';
+import { Badge } from './ui/badge';
+import { Button } from './ui/button';
+import { CheckboxRow } from './ui/checkbox';
+import {
+  Dialog,
+  DialogBody,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from './ui/dialog';
+import { EntityIcon } from './ui/entity-icon';
+import { Progress } from './ui/progress';
+import { showToast } from './ui/toast';
 
-/** The account and setup changed. Onboarding listens to check managed agents again. */
+/** The account and setup changed. Onboarding and the model chip listen to check again. */
 export const managedAgentsChangedEvent = 'kalkidan-managed-agents-changed';
 
-function notifyManagedAgentsChanged() {
+export function notifyManagedAgentsChanged() {
   window.dispatchEvent(new Event(managedAgentsChangedEvent));
 }
 
 type Region = NonNullable<VerdictanStatus['region']>;
 const regions: Region[] = ['eu', 'us'];
-const regionNames: Record<Region, string> = { eu: 'European Union', us: 'United States' };
+export const regionNames: Record<Region, string> = {
+  eu: 'European Union',
+  us: 'United States',
+};
 
-// Poll only while an operation runs. Otherwise read the state on focus and on request.
+// Poll only while an operation runs. Otherwise read on focus and when the section opens.
 const accountPollMs = 1000;
 const runtimePollMs = 1500;
 // While the desktop changes the account or the region, read again after this delay.
 const changeRetryMs = 1000;
 
-/** A block error inside a settings step. */
+/** A block error inside a Settings section. */
 export function StepError({ children }: { children: ReactNode }) {
   return (
     <Alert size="sm" variant="destructive">
@@ -57,29 +94,11 @@ export function StepError({ children }: { children: ReactNode }) {
   );
 }
 
-function StatusBadge({ status }: { status: StatusLabel }) {
-  return (
-    <Badge variant={status.tone} size="sm" role="status">
-      {status.label}
-    </Badge>
-  );
-}
-
-/** Calls `refresh` when the window gets focus and when the desktop reports a change. */
-function useRefreshTriggers(api: API, open: boolean, refresh: () => void) {
-  useEffect(() => {
-    if (!open) return;
-    window.addEventListener('focus', refresh);
-    const unsubscribe = api.onVerdictanChanged?.(refresh);
-    return () => {
-      window.removeEventListener('focus', refresh);
-      unsubscribe?.();
-    };
-  }, [api, open, refresh]);
-}
-
-/** Reads the runtime install state of one computer. Polls only while an install runs. */
-function useRuntimeStatus(api: API, open: boolean, host: string) {
+/**
+ * Reads the runtime install state of one computer on open, on focus, and on a change. Polls
+ * only while an install runs.
+ */
+export function useRuntimeStatus(api: API, open: boolean, host: string) {
   const [status, setStatus] = useState<ComponentUpdateStatus>();
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
@@ -109,7 +128,7 @@ function useRuntimeStatus(api: API, open: boolean, host: string) {
             if (accountChanging(failure)) {
               setChanging(true);
               retry.current = setTimeout(readRuntime, changeRetryMs);
-            } else setError('This computer is not available. Connect it, then check again.');
+            } else setError('Kalkidan cannot read this computer now. Connect it, then try again.');
           },
         )
         .finally(() => {
@@ -122,10 +141,6 @@ function useRuntimeStatus(api: API, open: boolean, host: string) {
     if (!open) return;
     generation.current++;
     reading.current = false;
-    setStatus(undefined);
-    setError('');
-    setChanging(false);
-    read();
     return () => {
       generation.current++;
       clearTimeout(retry.current);
@@ -150,13 +165,12 @@ function useRuntimeStatus(api: API, open: boolean, host: string) {
     try {
       const result = await api[method](host);
       if (id === generation.current) setStatus(result);
-      notifyUpdatesChanged();
     } catch (failure) {
       if (id === generation.current)
         if (accountChanging(failure)) {
           setChanging(true);
           retry.current = setTimeout(read, changeRetryMs);
-        } else setError('The runtime operation did not finish. Check for updates, then try again.');
+        } else setError('The install did not finish. Try again.');
     } finally {
       pending.current = false;
       setBusy(false);
@@ -165,8 +179,195 @@ function useRuntimeStatus(api: API, open: boolean, host: string) {
   return { status, error, busy, changing, action, read };
 }
 
-/** Reads the account state. Polls only while a sign-in or a check runs. */
-function useAccountStatus(api: API, open: boolean) {
+export type RuntimeState = ReturnType<typeof useRuntimeStatus>;
+
+/**
+ * The runtime line of one computer: one line of help, a status, and an action only when there
+ * is a problem. "Managed agents 0.6.9 · Updates automatically — Ready".
+ */
+export function runtimeView(runtime: RuntimeState) {
+  const { status, error, changing } = runtime;
+  const operation = status?.operation;
+  const running = updateRunning(status);
+  const starting = !!status?.installing && !running;
+  const waitingForIdle = operation?.phase === 'waiting-for-idle';
+  const percent =
+    operation?.phase === 'downloading' && operation.totalBytes > 0
+      ? (operation.receivedBytes / operation.totalBytes) * 100
+      : undefined;
+  const failure =
+    error ||
+    (status?.error ? withoutManagedCode(status.error) : '') ||
+    (operation?.error && !running && !starting ? withoutManagedCode(operation.error) : '');
+  let help: string;
+  if (changing) help = 'Kalkidan changes the account now.';
+  else if (operation && running)
+    help = runtimeProgressLabel(operation.phase, operation.target.version, percent);
+  else if (starting && status?.latest)
+    help = runtimeProgressLabel('requested', status.latest.version);
+  else if (status?.installed)
+    help = `Managed agents ${displayVersion(status.installed.version)} · Updates automatically`;
+  else if (!status) help = 'Checking managed agents…';
+  else help = 'Managed agents are not installed.';
+  const label: StatusLabel = failure
+    ? { label: 'Needs attention', tone: 'destructive' }
+    : changing
+      ? { label: 'Waiting…', tone: 'secondary' }
+      : running || starting
+        ? { label: waitingForIdle ? 'Waiting' : 'Installing…', tone: 'secondary' }
+        : runtimeStatusLabel(status);
+  return {
+    help,
+    label,
+    failure,
+    percent,
+    progress: (running && !waitingForIdle) || starting,
+    waitingForIdle,
+    running: running || starting,
+    // An install only when Kalkidan does not do it by itself, or after a failure.
+    installable: runtimeInstallable(status) && !running && !starting,
+    outdated: runtimeOutdated(status),
+    reason: runtimeOutdated(status) && !runtimeInstallable(status) ? status?.reason : undefined,
+  };
+}
+
+/** The control of a runtime row: the status, then Install, Finish install, or Retry. */
+export function RuntimeControl({ runtime, name }: { runtime: RuntimeState; name: string }) {
+  const view = runtimeView(runtime);
+  const { status, busy, action } = runtime;
+  // An install that waits for the active work to stop can also be canceled.
+  const cancel = (
+    <Button
+      variant="ghost"
+      size="sm"
+      aria-label={`Cancel the install on ${name}`}
+      disabled={
+        busy ||
+        ['activating', 'validating', 'rolling-back'].includes(status?.operation?.phase || '')
+      }
+      onClick={() => void action('runtimeUpdateCancel')}
+    >
+      Cancel
+    </Button>
+  );
+  return (
+    <>
+      <StatusBadge status={view.label} />
+      {view.waitingForIdle ? (
+        <>
+          <Button size="sm" disabled={busy} onClick={() => void action('runtimeUpdateInstall')}>
+            Finish install
+          </Button>
+          {cancel}
+        </>
+      ) : view.running ? (
+        cancel
+      ) : view.failure ? (
+        <Button
+          variant="outline"
+          size="sm"
+          disabled={busy}
+          onClick={() =>
+            void action(view.installable ? 'runtimeUpdateInstall' : 'runtimeUpdateCheck')
+          }
+        >
+          Retry
+        </Button>
+      ) : view.installable && (!status?.installed || view.outdated) ? (
+        <Button size="sm" disabled={busy} onClick={() => void action('runtimeUpdateInstall')}>
+          {status?.installed ? 'Update now' : 'Install'}
+        </Button>
+      ) : null}
+    </>
+  );
+}
+
+/** The content under a runtime row: the progress bar, the reason, or the error. */
+export function RuntimeExtra({ runtime }: { runtime: RuntimeState }) {
+  const view = runtimeView(runtime);
+  if (!view.progress && !view.failure && !view.waitingForIdle && !view.reason) return null;
+  return (
+    <div className="grid gap-2" aria-live="polite">
+      {view.progress && <Progress label="Managed agents install" value={view.percent} />}
+      {view.waitingForIdle && (
+        <p className="form-help mt-0">Stop the agents that run now. Then select Finish install.</p>
+      )}
+      {view.reason && <p className="form-help mt-0">{view.reason}</p>}
+      {view.failure && <StepError>{view.failure}</StepError>}
+    </div>
+  );
+}
+
+/** The row of this computer in Settings › Computers. */
+export function ThisComputerRow({ api, runtime }: { api: API; runtime: RuntimeState }) {
+  const view = runtimeView(runtime);
+  // After an install finishes, the account check finds the new runtime.
+  const busy = runtimeBusy(runtime.status);
+  const operation = runtime.status?.operation;
+  const wasBusy = useRef(false);
+  const before = useRef<string>(undefined);
+  useEffect(() => {
+    if (wasBusy.current && !busy && operation?.phase === 'completed') {
+      if (operation.id !== before.current) {
+        showToast(`Installed managed agents ${displayVersion(operation.target.version)}`);
+        void Promise.resolve()
+          .then(() => api.verdictanCheck())
+          .then(notifyManagedAgentsChanged, () => {});
+      }
+    }
+    if (!busy) before.current = operation?.id;
+    wasBusy.current = busy;
+  }, [busy]);
+  return (
+    <SettingsRow
+      id={computerAnchor()}
+      icon={
+        <EntityIcon>
+          <Laptop />
+        </EntityIcon>
+      }
+      label="This computer"
+      help={view.help}
+      extra={runtimeExtraShown(runtime) ? <RuntimeExtra runtime={runtime} /> : undefined}
+    >
+      <RuntimeControl runtime={runtime} name="this computer" />
+    </SettingsRow>
+  );
+}
+
+/** True when the runtime has a progress bar, a reason, or an error to show under its row. */
+export function runtimeExtraShown(runtime: RuntimeState) {
+  const view = runtimeView(runtime);
+  return view.progress || !!view.failure || view.waitingForIdle || !!view.reason;
+}
+
+/** The install history of a runtime, for the Advanced fold of Settings › Computers. */
+export function RuntimeHistory({ status, name }: { status?: ComponentUpdateStatus; name: string }) {
+  if (!status?.history.length) return null;
+  return (
+    <SettingsRow
+      label={`Install history on ${name}`}
+      help={
+        <ul className="grid gap-1 pt-1">
+          {status.history
+            .slice()
+            .reverse()
+            .slice(0, 6)
+            .map((item) => (
+              <li key={item.id}>
+                Version {displayVersion(item.target.version)} · {updatePhaseLabel(item.phase)} ·{' '}
+                {new Date(item.updatedAt).toLocaleString()}
+                {item.error ? ` · ${withoutManagedCode(item.error)}` : ''}
+              </li>
+            ))}
+        </ul>
+      }
+    />
+  );
+}
+
+/** Reads the account state on open, on focus, and on a change. Polls while a sign-in runs. */
+export function useAccountStatus(api: API, open: boolean) {
   const [status, setStatus] = useState<VerdictanStatus>();
   const [busy, setBusy] = useState(false);
   // An action error stays until the next action. A read error goes after a read that works.
@@ -174,8 +375,6 @@ function useAccountStatus(api: API, open: boolean) {
   const [readError, setReadError] = useState('');
   // True while the desktop changes the account or the region. The read tries again later.
   const [changing, setChanging] = useState(false);
-  // The region that Kalkidan changes to now.
-  const [switchingTo, setSwitchingTo] = useState<Region>();
   const active = useRef(false);
   const generation = useRef(0);
   const retry = useRef<ReturnType<typeof setTimeout>>(undefined);
@@ -206,7 +405,6 @@ function useAccountStatus(api: API, open: boolean) {
   useEffect(() => {
     if (!open) return;
     generation.current++;
-    read();
     return () => {
       generation.current++;
       clearTimeout(retry.current);
@@ -219,12 +417,11 @@ function useAccountStatus(api: API, open: boolean) {
     const timer = setInterval(read, accountPollMs);
     return () => clearInterval(timer);
   }, [open, waiting, read]);
-  async function run(action: () => Promise<VerdictanStatus>, done?: string, region?: Region) {
-    if (active.current) return;
+  async function run(action: () => Promise<VerdictanStatus>, done?: string) {
+    if (active.current) return false;
     active.current = true;
     setBusy(true);
     setError('');
-    setSwitchingTo(region);
     const id = generation.current;
     try {
       const result = await action();
@@ -235,566 +432,552 @@ function useAccountStatus(api: API, open: boolean) {
         if (done && !result.error) showToast(done);
       }
       notifyManagedAgentsChanged();
+      return !result.error;
     } catch (failure) {
       if (generation.current === id)
         if (accountChanging(failure)) {
           setChanging(true);
           retry.current = setTimeout(read, changeRetryMs);
-        } else setError('The account operation did not finish. Check the status, then try again.');
+        } else setError('The account operation did not finish. Try again.');
+      return false;
     } finally {
       active.current = false;
       setBusy(false);
-      setSwitchingTo(undefined);
     }
   }
-  return {
-    status,
-    setStatus,
-    busy,
-    error: error || readError,
-    setError,
-    changing,
-    switchingTo,
-    run,
-  };
+  return { status, setStatus, busy, error: error || readError, changing, run, read };
 }
 
-/** Moves Settings to a tab, and to an element in it when `anchor` is set. */
-export type SettingsNavigate = (tab: SettingsTab, anchor?: string) => void;
+/** Two letters for the avatar, from the name or the email. */
+function initials(name?: string, email?: string) {
+  const source = name || email?.split('@')[0] || '';
+  const parts = source.split(/[\s._-]+/).filter(Boolean);
+  const letters =
+    parts.length > 1 ? parts[0][0] + parts[parts.length - 1][0] : (parts[0] || '?').slice(0, 2);
+  return letters.toUpperCase();
+}
 
 /**
- * Settings › Accounts › Verdictan: the sign-in of managed agents. It shows the status, the
- * account, the session end, the region, and the service address.
+ * Settings › Account: who is signed in, the organization, the region, the connected services,
+ * and an Advanced fold with the session and the service address. Sign-in starts the browser
+ * flow of the shell. The first-run steps are in the Welcome screen.
  */
-export function VerdictanAccount({
-  api,
-  open,
-  onNavigate,
-}: {
-  api: API;
-  open: boolean;
-  onNavigate: SettingsNavigate;
-}) {
+export function AccountSection({ api, open }: { api: API; open: boolean }) {
   const account = useAccountStatus(api, open);
-  const { status, setStatus, busy, error, setError, run, changing, switchingTo } = account;
-  const [pendingRegion, setPendingRegion] = useState<Region>();
+  const { status, busy, error, run, changing } = account;
+  const services = useGitHubServices(api, open);
+  const [regionOpen, setRegionOpen] = useState(false);
   const details = status?.account;
-  // A region change stops agents and connects to the other service. It takes some seconds.
-  // Reads fail with "account is changing" during it. That is expected, not an error.
-  const switching = !!switchingTo || changing;
-  // A status without a region needs an explicit EU or US choice before sign-in.
-  const regionRequired = !!status && !status.region && !switching;
-  const runtimeMissing = status?.phase === 'missing';
   const names = accountNames(status);
-  const signedIn = status?.phase === 'authenticated';
-  const canRenew = signedIn || status?.phase === 'expired';
-  const authorizing = status?.phase === 'authorizing';
+  const phase = status?.phase;
+  const signedIn = phase === 'authenticated';
+  const expired = phase === 'expired';
+  const authorizing = phase === 'authorizing';
+  const known = signedIn || expired;
+  const plan = (details as { plan?: unknown } | undefined)?.plan;
+  // Without a region or a sign-in, the sign-in flow asks for them. That is not an error here.
+  const statusError =
+    status?.error && !authorizing && !changing && status.region && phase !== 'signed-out'
+      ? verdictanErrorMessage(status.error)
+      : '';
   return (
-    <SettingsGroup
-      id={settingsAnchors.account}
-      title="Verdictan"
-      label="Verdictan account"
-      actions={
-        <>
-          <Hint label="Check status">
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              aria-label="Check status"
-              disabled={busy}
-              onClick={() => void run(() => api.verdictanCheck())}
-            >
-              <RefreshCw className={status?.phase === 'checking' ? 'animate-spin' : ''} />
-            </Button>
-          </Hint>
-          {authorizing ? (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() =>
-                void api
-                  .verdictanCancel()
-                  .then(setStatus, () =>
-                    setError('Could not cancel the sign-in. Check the status.'),
-                  )
-              }
-            >
-              Cancel sign-in
-            </Button>
-          ) : canRenew ? (
-            <>
-              <Button
-                variant={status?.phase === 'expired' ? 'default' : 'outline'}
-                size="sm"
-                disabled={busy}
-                onClick={() => void run(() => api.verdictanRenew(), 'Session renewed')}
-              >
-                Renew session
+    <>
+      <SettingsRows label="Account">
+        {known ? (
+          <SettingsRow
+            id={settingsAnchors.account}
+            icon={
+              <span className="settings-avatar" aria-hidden="true">
+                {initials(names.user, names.email)}
+              </span>
+            }
+            label={names.user || names.email || accountLabel(details)}
+            help={
+              expired
+                ? 'Your session ended. Sign in again to start new chats.'
+                : names.user
+                  ? names.email
+                  : undefined
+            }
+          >
+            {expired ? (
+              <Button size="sm" onClick={() => startSignIn('login')}>
+                Sign in again
               </Button>
+            ) : (
               <Button
-                variant="ghost"
+                variant="outline"
                 size="sm"
                 disabled={busy}
                 onClick={() => void run(() => api.verdictanLogout(), 'Signed out')}
               >
                 Sign out
               </Button>
-            </>
-          ) : (
-            <>
+            )}
+          </SettingsRow>
+        ) : (
+          <SettingsRow
+            id={settingsAnchors.account}
+            label={authorizing ? 'Finish signing in in your browser' : 'Sign in to Verdictan'}
+            help={
+              authorizing
+                ? 'This window updates when you finish.'
+                : 'Run Codex and Claude Code through managed agents.'
+            }
+          >
+            {authorizing ? (
               <Button
                 variant="outline"
                 size="sm"
-                disabled={busy || runtimeMissing || regionRequired}
-                onClick={() => void run(() => api.verdictanAuthorize('register'))}
+                disabled={busy}
+                onClick={() => void run(() => api.verdictanCancel())}
               >
-                Create account
+                Cancel sign-in
               </Button>
-              <Button
-                size="sm"
-                disabled={busy || runtimeMissing || regionRequired}
-                onClick={() => void run(() => api.verdictanAuthorize('login'))}
-              >
-                Sign in
-              </Button>
-            </>
-          )}
-        </>
-      }
-    >
-      <p className="form-help mt-0">The sign-in for managed agents. It applies to all computers.</p>
-      <div className="flex flex-wrap items-center gap-2">
-        <StatusBadge
-          status={
-            switching
-              ? { label: 'Switching region…', tone: 'secondary' }
-              : regionRequired
-                ? { label: 'Region not selected', tone: 'warning' }
-                : accountPhaseLabel(status?.phase)
-          }
-        />
-        {authorizing && (
-          <span className="text-xs leading-4 text-muted-foreground">
-            Finish the sign-in in your browser. This page updates after you finish.
-          </span>
+            ) : (
+              <>
+                <Button variant="ghost" size="sm" onClick={() => startSignIn('register')}>
+                  Create account
+                </Button>
+                <Button size="sm" onClick={() => startSignIn('login')}>
+                  Sign in
+                </Button>
+              </>
+            )}
+          </SettingsRow>
         )}
-      </div>
-      {runtimeMissing && (
-        <p className="form-help">
-          Install the managed agents runtime first.{' '}
-          <button
-            type="button"
-            className="text-link"
-            onClick={() => onNavigate('computers', runtimeAnchor())}
+        {known && (
+          <SettingsRow
+            label="Organization"
+            help="Policies and model access come from your organization."
           >
-            Open Computers
-          </button>
-        </p>
-      )}
-      {details?.organizationId && (
-        <dl className="meta-list">
-          <dt>Account</dt>
-          <dd>{accountLabel(details)}</dd>
-          {names.user && (
-            <>
-              <dt>Signed in as</dt>
-              <dd>{names.user}</dd>
-            </>
-          )}
-          {names.email && (
-            <>
-              <dt>Email</dt>
-              <dd>{names.email}</dd>
-            </>
-          )}
-          {details.expiresAt && (
-            <>
-              <dt>Session ends</dt>
-              <dd>{new Date(details.expiresAt).toLocaleString()}</dd>
-            </>
-          )}
-          <dt>Service</dt>
-          <dd>
-            <CopyValue value={details.apiUrl} name="Service address" />
-          </dd>
-        </dl>
-      )}
-      <div className="form-label">
-        <span id="managed-region-label">Account region</span>
-        <Select
-          value={switchingTo || pendingRegion || status?.region || ''}
-          disabled={busy || authorizing || switching}
-          onValueChange={(value) => {
-            const region = value as Region;
-            // The first choice changes nothing that runs. Apply it at once.
-            if (regionRequired)
-              void run(
-                () => api.verdictanSetRegion(region),
-                `Region set to ${regionNames[region]}`,
-                region,
-              );
-            else setPendingRegion(region);
-          }}
+            <span className="settings-row-value">{accountLabel(details)}</span>
+            {typeof plan === 'string' && plan.trim() && (
+              <Badge variant="muted" size="sm">
+                {plan.trim()}
+              </Badge>
+            )}
+          </SettingsRow>
+        )}
+        <SettingsRow
+          id={settingsAnchors.region}
+          label="Region"
+          help={
+            changing
+              ? 'Kalkidan changes the region now. Wait for the change to finish.'
+              : 'Changing it stops running agents.'
+          }
         >
-          <SelectTrigger
-            id={settingsAnchors.region}
-            aria-labelledby="managed-region-label"
-            className="w-56 max-w-full"
+          <span className="settings-row-value">
+            {status?.region ? regionNames[status.region] : 'Not chosen'}
+          </span>
+          <Button
+            variant="ghost"
+            size="sm"
+            disabled={busy || authorizing || changing || !status}
+            onClick={() => setRegionOpen(true)}
           >
-            <SelectValue placeholder="Select a region" />
-          </SelectTrigger>
-          <SelectContent>
-            {regions.map((region) => (
-              <SelectItem key={region} value={region}>
-                {regionNames[region]}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        <span className="form-help">
-          {switching
-            ? `Kalkidan stops the agents and connects to the ${switchingTo ? `${regionNames[switchingTo]} ` : ''}service. Wait for the change to finish.`
-            : regionRequired
-              ? 'Select the region of your organization before you sign in. Each region keeps a separate sign-in.'
-              : 'Each region keeps a separate sign-in.'}
-        </span>
-      </div>
-      {pendingRegion && !switching && status?.region && pendingRegion !== status.region && (
-        <Alert size="sm" role="group" aria-label="Confirm region change" className="gap-y-2">
-          <AlertDescription className="text-xs leading-4 text-foreground">
-            A region change stops the agents that run now and disconnects SSH hosts. The app stays
-            open.
-          </AlertDescription>
-          <div className="col-start-2 flex flex-wrap justify-end gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={busy}
-              onClick={() => setPendingRegion(undefined)}
-            >
-              Cancel
-            </Button>
-            <Button
-              variant="destructive"
-              size="sm"
-              disabled={busy}
-              onClick={() =>
-                void run(
-                  async () => {
-                    const result = await api.verdictanSetRegion(pendingRegion);
-                    setPendingRegion(undefined);
-                    return result;
-                  },
-                  'Region changed',
-                  pendingRegion,
-                )
-              }
-            >
-              Stop work and change region
-            </Button>
-          </div>
-        </Alert>
-      )}
+            {status?.region ? 'Change…' : 'Choose…'}
+          </Button>
+        </SettingsRow>
+      </SettingsRows>
       {status?.remoteRevocationPending && (
         <StepError>
           You are signed out on this computer. Kalkidan could not confirm that the service removed
           the access.
         </StepError>
       )}
-      {!switching && (error || (status?.error && !regionRequired && !!status.region)) && (
-        <StepError>{error || verdictanErrorMessage(status!.error!)}</StepError>
-      )}
-    </SettingsGroup>
+      {(error || statusError) && <StepError>{error || statusError}</StepError>}
+      <SettingsGroup id={settingsAnchors.services} title="Connected services">
+        <ConnectedServices services={services} />
+      </SettingsGroup>
+      <SettingsAdvanced>
+        <SettingsRows>
+          {details?.expiresAt && (
+            <SettingsRow
+              label="Session ends"
+              help={`${new Date(details.expiresAt).toLocaleString()} · Kalkidan renews it automatically.`}
+            />
+          )}
+          {details?.apiUrl && (
+            <SettingsRow
+              label="Service address"
+              help={<CopyValue value={details.apiUrl} name="Service address" />}
+            />
+          )}
+          {known && api.verdictanOpenConsole && (
+            <SettingsRow label="Verdictan console" help="Manage your account and organization.">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() =>
+                  void Promise.resolve()
+                    .then(() => api.verdictanOpenConsole())
+                    .catch(() =>
+                      showToast({ message: 'Could not open the console.', tone: 'error' }),
+                    )
+                }
+              >
+                Open
+                <ExternalLink aria-hidden="true" />
+              </Button>
+            </SettingsRow>
+          )}
+          <GitHubCliPathRow services={services} />
+          <SettingsRow label="Account status" help={accountStatusText(status)}>
+            <Button
+              variant="ghost"
+              size="sm"
+              disabled={busy || phase === 'checking'}
+              onClick={() => void run(() => api.verdictanCheck())}
+            >
+              Check status
+            </Button>
+          </SettingsRow>
+        </SettingsRows>
+      </SettingsAdvanced>
+      <RegionDialog
+        open={regionOpen}
+        current={status?.region}
+        signedIn={known}
+        busy={busy}
+        onCancel={() => setRegionOpen(false)}
+        onConfirm={(region) =>
+          void run(
+            () => api.verdictanSetRegion(region),
+            `Region set to ${regionNames[region]}`,
+          ).then((done) => done && setRegionOpen(false))
+        }
+      />
+    </>
   );
 }
 
+function accountStatusText(status: VerdictanStatus | undefined) {
+  switch (status?.phase) {
+    case 'authenticated':
+      return status.executionReady ? 'Signed in. Managed agents are ready.' : 'Signed in.';
+    case 'expired':
+      return 'The session ended.';
+    case 'authorizing':
+      return 'Waiting for the browser sign-in.';
+    case 'missing':
+      return 'Managed agents are not installed on this computer.';
+    case 'error':
+      return 'The last check did not work.';
+    case 'checking':
+      return 'Checking…';
+    case 'signed-out':
+      return 'Signed out.';
+    default:
+      return 'Checking…';
+  }
+}
+
+/** Asks for the region. A change stops the agents that run, so it needs a confirmation. */
+function RegionDialog({
+  open,
+  current,
+  signedIn,
+  busy,
+  onCancel,
+  onConfirm,
+}: {
+  open: boolean;
+  current?: Region;
+  signedIn: boolean;
+  busy: boolean;
+  onCancel: () => void;
+  onConfirm: (region: Region) => void;
+}) {
+  const [choice, setChoice] = useState<Region | undefined>(current);
+  useEffect(() => {
+    if (open) setChoice(current);
+  }, [open, current]);
+  const changes = !!current && !!choice && choice !== current;
+  return (
+    <Dialog open={open} onOpenChange={(next) => !next && !busy && onCancel()}>
+      <DialogContent size="sm" layout="scroll">
+        <DialogHeader>
+          <DialogTitle>{current ? 'Change region' : 'Choose a region'}</DialogTitle>
+          <DialogDescription>
+            Use the region of your organization. Each region keeps a separate sign-in.
+          </DialogDescription>
+        </DialogHeader>
+        <DialogBody className="grid gap-3">
+          <fieldset className="grid gap-2">
+            <legend className="sr-only">Region</legend>
+            {regions.map((region) => (
+              <CheckboxRow
+                key={region}
+                type="radio"
+                name="settings-region"
+                checked={choice === region}
+                onChange={() => setChoice(region)}
+                label={regionNames[region]}
+                description={region === current ? 'The region now' : undefined}
+              />
+            ))}
+          </fieldset>
+          {changes && (
+            <Alert size="sm" role="note">
+              <AlertDescription className="text-xs leading-4">
+                Changing the region stops running agents and disconnects SSH hosts.
+                {signedIn ? ' You sign in again in the new region.' : ''}
+              </AlertDescription>
+            </Alert>
+          )}
+        </DialogBody>
+        <DialogFooter>
+          <Button variant="outline" disabled={busy} onClick={onCancel}>
+            Cancel
+          </Button>
+          <Button
+            variant={changes ? 'destructive' : 'default'}
+            disabled={busy || !choice || choice === current}
+            onClick={() => choice && onConfirm(choice)}
+          >
+            {busy ? 'Changing…' : changes ? 'Stop work and change' : 'Use this region'}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/** The state of one agent in Settings › Agents, with the help line and the action. */
+interface AgentRowState {
+  status: StatusLabel;
+  help: string;
+  action: 'change' | 'sign-in' | 'programs' | 'setup' | 'none';
+}
+
+function agentRowState(
+  agent: ManagedAgentKind,
+  account: VerdictanStatus | undefined,
+  setup: VerdictanSetup | undefined,
+  program: AgentInstallation | undefined,
+  /** True when the account read failed. The row then does not stay at "Checking…". */
+  readFailed = false,
+  /** True when the setup read failed. The row then does not stay at "Checking…". */
+  setupFailed = false,
+): AgentRowState {
+  const name = managedAgentNames[agent];
+  const kind = nativeAgentKind(agent)!;
+  if (program?.status === 'missing')
+    return {
+      status: { label: 'Not set up', tone: 'warning' },
+      help: `${name} is not installed on this computer.`,
+      action: 'programs',
+    };
+  if (program?.status === 'installed') {
+    const check = checkAgentVersion(kind, program.version);
+    if (check.status === 'outdated')
+      return {
+        status: { label: 'Needs update', tone: 'warning' },
+        help: `Version ${program.version} is too old. It needs ${check.minimum} or later.`,
+        action: 'programs',
+      };
+  }
+  if (!account && readFailed)
+    return {
+      status: { label: 'Not set up', tone: 'muted' },
+      help: 'Kalkidan could not read the account status.',
+      action: 'none',
+    };
+  if (!account)
+    return { status: { label: 'Checking…', tone: 'secondary' }, help: '', action: 'none' };
+  if (account.phase !== 'authenticated')
+    return {
+      status: { label: 'Not set up', tone: 'muted' },
+      help:
+        account.phase === 'expired'
+          ? 'Your session ended. Sign in again.'
+          : 'Sign in to use managed agents.',
+      action: 'sign-in',
+    };
+  if (!setup && setupFailed)
+    return {
+      status: { label: 'Not set up', tone: 'muted' },
+      help: 'Kalkidan could not read the agent setup of your organization.',
+      action: 'none',
+    };
+  if (!setup)
+    return { status: { label: 'Checking…', tone: 'secondary' }, help: '', action: 'none' };
+  const saved = setup.selections[agent];
+  if (!saved || selectionIssue(setup, saved))
+    return {
+      status: { label: 'Not set up', tone: 'warning' },
+      help: saved
+        ? 'Your organization changed the setup. Choose again.'
+        : 'Choose the default model.',
+      action: 'setup',
+    };
+  return {
+    status: { label: 'Ready', tone: 'success' },
+    help: [saved.model ? `Default model ${saved.model}` : '', accessLabel(agent, saved)]
+      .filter(Boolean)
+      .join(' · '),
+    action: 'change',
+  };
+}
+
 /**
- * Settings › Agents › Managed setup: the Verdictan agent, the model access, and the model of
- * Codex and Claude Code. The choices need a sign-in.
+ * Settings › Agents: one row for Codex and one for Claude Code, each with its state and one
+ * action. Change… and Fix… open the setup sheet, the sign-in, or the agent programs. The
+ * Advanced fold shows the team and policy and the programs on this computer.
  */
-export function ManagedSetup({
+export function AgentsSection({
   api,
   open,
-  onNavigate,
+  anchor,
+  onOpenComputers,
 }: {
   api: API;
   open: boolean;
-  onNavigate: SettingsNavigate;
+  /** The element that the dialog moves to. An anchor in Advanced opens it. */
+  anchor?: string;
+  onOpenComputers: () => void;
 }) {
   const account = useAccountStatus(api, open);
+  const status = account.status;
+  const signedIn = status?.phase === 'authenticated';
   const [setup, setSetup] = useState<VerdictanSetup>();
-  const steps = managedSteps(account.status, setup);
-  const runtimeMissing = account.status?.phase === 'missing';
+  const [setupFailed, setSetupFailed] = useState(false);
+  const [programs, setPrograms] = useState<AgentInstallation[]>();
+  const [sheet, setSheet] = useState<ManagedAgentKind>();
+  const [programsOpen, setProgramsOpen] = useState(false);
+  const readSetup = useCallback(() => {
+    if (!signedIn) return;
+    void Promise.resolve()
+      .then(() => api.verdictanSetup())
+      .then(
+        (value) => {
+          setSetup(value);
+          setSetupFailed(false);
+        },
+        () => setSetupFailed(true),
+      );
+  }, [api, signedIn]);
+  const readPrograms = useCallback(() => {
+    void Promise.resolve()
+      .then(() => api.agentInstallations())
+      .then(
+        (list) => {
+          setPrograms(list);
+          setAgentInstallations(list);
+        },
+        () => {},
+      );
+  }, [api]);
+  useRefreshTriggers(api, open && signedIn, readSetup);
+  useRefreshTriggers(undefined, open, readPrograms);
+  const agents: ManagedAgentKind[] = ['codex', 'claude'];
+  const advancedOpen = !!anchor && (anchor.startsWith('agent-') || anchor === 'settings-agents');
   return (
-    <SettingsGroup id={settingsAnchors.managedSetup} title="Managed setup">
-      <ul className="flex flex-wrap gap-2" aria-label="Agent readiness">
-        <ReadyChip
-          name="Codex"
-          ready={steps.codex}
-          subscription={isSubscriptionMode(setup?.selections.codex?.providerAccessMode)}
-        />
-        <ReadyChip
-          name="Claude Code"
-          ready={steps.claude}
-          subscription={isSubscriptionMode(setup?.selections.claude?.providerAccessMode)}
-        />
-      </ul>
-      {steps.signedIn ? (
-        <VerdictanSetupForm
-          key={`${account.status?.region}:${account.status?.account?.organizationId}:${account.status?.account?.userId}`}
+    <>
+      <SettingsRows label="Managed agents" className="outline-none">
+        {agents.map((agent) => {
+          const program = programs?.find((item) => item.agent === agent);
+          const state = agentRowState(agent, status, setup, program, !!account.error, setupFailed);
+          return (
+            <SettingsRow
+              key={agent}
+              id={agent === 'codex' ? settingsAnchors.managedSetup : undefined}
+              icon={
+                <EntityIcon>
+                  <AgentIcon agent={agent} />
+                </EntityIcon>
+              }
+              label={managedAgentNames[agent]}
+              help={state.help}
+            >
+              <StatusBadge status={state.status} />
+              {state.action !== 'none' && (
+                <Button
+                  variant={state.action === 'change' ? 'outline' : 'default'}
+                  size="sm"
+                  aria-label={`${state.action === 'change' ? 'Change' : 'Fix'} ${managedAgentNames[agent]}`}
+                  onClick={() => {
+                    if (state.action === 'sign-in') startSignIn('login');
+                    else if (state.action === 'programs') setProgramsOpen(true);
+                    else setSheet(agent);
+                  }}
+                >
+                  {state.action === 'change' ? 'Change…' : 'Fix…'}
+                </Button>
+              )}
+            </SettingsRow>
+          );
+        })}
+      </SettingsRows>
+      <SettingsAdvanced defaultOpen={advancedOpen}>
+        <SettingsRows>
+          {signedIn && setup && (
+            <SettingsRow label="Team and policy" help={teamPolicyText(setup)} />
+          )}
+          {agents.map((agent) => {
+            const program = programs?.find((item) => item.agent === agent);
+            return (
+              <SettingsRow
+                key={agent}
+                id={agentProgramAnchor(agent)}
+                label={`${managedAgentNames[agent]} program on this computer`}
+                help={programText(program)}
+              >
+                <Button variant="ghost" size="sm" onClick={() => setProgramsOpen(true)}>
+                  Choose…
+                </Button>
+              </SettingsRow>
+            );
+          })}
+          <SettingsRow label="Programs on SSH hosts" help="Set them for each host in Computers.">
+            <button type="button" className="text-link text-xs" onClick={onOpenComputers}>
+              Open Computers
+            </button>
+          </SettingsRow>
+        </SettingsRows>
+      </SettingsAdvanced>
+      {sheet && (
+        <AgentSetupDialog
           api={api}
-          open={open}
+          agent={sheet}
+          open={!!sheet}
+          onOpenChange={(next) => !next && setSheet(undefined)}
           onSetup={(value) => {
             setSetup(value);
             notifyManagedAgentsChanged();
           }}
         />
-      ) : runtimeMissing ? (
-        <p className="form-help">
-          Install the managed agents runtime first. Then sign in and choose the setup.{' '}
-          <button
-            type="button"
-            className="text-link"
-            onClick={() => onNavigate('computers', runtimeAnchor())}
-          >
-            Open Computers
-          </button>
-        </p>
-      ) : (
-        <p className="form-help">
-          Sign in first. Then choose the setup and the model for each agent.{' '}
-          <button
-            type="button"
-            className="text-link"
-            onClick={() => onNavigate('accounts', settingsAnchors.account)}
-          >
-            Open Accounts
-          </button>
-        </p>
       )}
-      <SettingsDisclosure title="How managed setup works">
-        <div className="grid gap-2 text-xs leading-4 text-muted-foreground">
-          <p>
-            Kalkidan runs Codex and Claude Code through managed agents. Your organization controls
-            the policy and the model access.
-          </p>
-          <p>
-            Install the runtime on each computer in Computers. Sign in one time in Accounts. Then
-            choose the setup of each agent here. Kalkidan saves each choice when you make it.
-          </p>
-          <p>
-            Before each run, the service checks your access, the policy, and the model. Chats that
-            started before a change keep their first setup.
-          </p>
-        </div>
-      </SettingsDisclosure>
-    </SettingsGroup>
+      <AgentProgramsDialog
+        api={api}
+        open={programsOpen}
+        onOpenChange={setProgramsOpen}
+        onChecked={(list) => setPrograms(list)}
+      />
+    </>
   );
 }
 
-function ReadyChip({
-  name,
-  ready,
-  subscription,
-}: {
-  name: string;
-  ready: boolean;
-  /** True when the agent uses the user's own subscription. */
-  subscription: boolean;
-}) {
-  return (
-    <li>
-      <Badge variant={ready ? 'success' : 'muted'} size="md">
-        {ready ? <Check aria-hidden="true" /> : null}
-        {ready
-          ? `Ready for ${name}${subscription ? ' · Your subscription' : ''}`
-          : `${name} not set up`}
-      </Badge>
-    </li>
-  );
+function teamPolicyText(setup: VerdictanSetup) {
+  const codex = teamPolicyLabel(setup, setup.selections.codex);
+  const claude = teamPolicyLabel(setup, setup.selections.claude);
+  if (!codex && !claude) return 'Not chosen yet.';
+  if (codex === claude || !claude) return codex;
+  if (!codex) return claude;
+  return `Codex: ${codex} · Claude Code: ${claude}`;
 }
 
-/**
- * The managed agents runtime of one computer in Settings › Computers: the version, the
- * install or the update, and the install history.
- */
-export function ManagedRuntime({
-  api,
-  open,
-  hostId = 'local',
-}: {
-  api: API;
-  open: boolean;
-  /** 'local' or the ID of an SSH host. */
-  hostId?: string;
-}) {
-  const runtime = useRuntimeStatus(api, open, hostId);
-  const { status, busy, error, changing, action } = runtime;
-  const operation = status?.operation;
-  const running = updateRunning(status);
-  const busyInstall = runtimeBusy(status);
-  // After an install finishes, the account check finds the new runtime.
-  const wasRunning = useRef(false);
-  // The operation that was in the journal before the install. An install that fails before
-  // its first journal entry leaves it, so its "completed" phase is not a new install.
-  const before = useRef<string>(undefined);
-  useEffect(() => {
-    if (wasRunning.current && !busyInstall) {
-      if (operation?.phase === 'completed' && operation.id !== before.current) {
-        showToast(`Installed managed agents runtime ${operation.target.version}`);
-        void Promise.resolve()
-          .then(() => api.verdictanCheck())
-          .then(notifyManagedAgentsChanged, () => {});
-      }
-    }
-    if (!busyInstall) before.current = operation?.id;
-    wasRunning.current = busyInstall;
-  }, [busyInstall]);
-  // An install that starts. The host has not written its first journal entry yet.
-  const starting = !!status?.installing && !running;
-  const waitingForIdle = operation?.phase === 'waiting-for-idle';
-  const installable = runtimeInstallable(status);
-  const label = runtimeStatusLabel(status);
-  const percent =
-    operation?.phase === 'downloading' && operation.totalBytes > 0
-      ? (operation.receivedBytes / operation.totalBytes) * 100
-      : undefined;
-  const statusError = status?.error ? withoutManagedCode(status.error) : '';
-  return (
-    <section
-      id={runtimeAnchor(hostId === 'local' ? undefined : hostId)}
-      tabIndex={-1}
-      aria-label="Managed agents runtime"
-      className="grid min-w-0 gap-2 outline-none"
-    >
-      <div className="flex min-w-0 flex-wrap items-center gap-2">
-        <h4 className="min-w-0 flex-1 text-[13px] leading-5 font-semibold">
-          Managed agents runtime
-        </h4>
-        <StatusBadge status={label} />
-        <Hint label="Check for updates">
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            aria-label="Check for updates"
-            disabled={busy || status?.discovery === 'checking'}
-            onClick={() => void action('runtimeUpdateCheck')}
-          >
-            <RefreshCw className={status?.discovery === 'checking' ? 'animate-spin' : ''} />
-          </Button>
-        </Hint>
-        {((installable && !running && !starting) ||
-          (waitingForIdle && runtimeOutdated(status))) && (
-          <Button
-            size="sm"
-            variant={!status?.installed || waitingForIdle ? 'default' : 'outline'}
-            disabled={busy}
-            onClick={() => void action('runtimeUpdateInstall')}
-          >
-            {waitingForIdle
-              ? 'Finish install'
-              : `${status?.installed ? 'Update to' : 'Install'} version ${status!.latest!.version}`}
-          </Button>
-        )}
-      </div>
-      {status?.stale && status.lastSuccessAt && (
-        <span className="text-xs leading-4 text-muted-foreground">
-          The last check may be out of date.
-        </span>
-      )}
-      <dl className="meta-list">
-        {status?.installed && (
-          <>
-            <dt>Installed</dt>
-            <dd>{status.installed.version}</dd>
-          </>
-        )}
-        {status?.running && status.running.version !== status.installed?.version && (
-          <>
-            <dt>Running</dt>
-            <dd>{status.running.version}</dd>
-          </>
-        )}
-        <dt>Latest</dt>
-        <dd>{status?.latest?.version || 'Not known'}</dd>
-        {status?.lastSuccessAt && (
-          <>
-            <dt>Last checked</dt>
-            <dd>{new Date(status.lastSuccessAt).toLocaleString()}</dd>
-          </>
-        )}
-      </dl>
-      {status?.installed && (
-        <p className="flex items-start gap-2 text-xs leading-4 text-muted-foreground">
-          <Info className="mt-px size-3.5 shrink-0" aria-hidden="true" />
-          Kalkidan installs new signed Verdictan releases automatically when no managed agent runs.
-        </p>
-      )}
-      {runtimeOutdated(status) && !installable && !running && !starting && status?.reason && (
-        <p className="form-help">{status.reason}</p>
-      )}
-      {!status?.latest && status && status.discovery !== 'checking' && !error && !statusError && (
-        <p className="form-help">No Verdictan release is known. Check for updates later.</p>
-      )}
-      {operation && running && (
-        <div className="grid gap-2" aria-live="polite">
-          <div className="flex items-center justify-between gap-2 text-xs leading-4">
-            <span>
-              {updatePhaseLabel(operation.phase)} version {operation.target.version}
-              {percent !== undefined && ` · ${Math.round(percent)}%`}
-            </span>
-            <Button
-              variant="ghost"
-              size="xs"
-              disabled={
-                busy || ['activating', 'validating', 'rolling-back'].includes(operation.phase)
-              }
-              onClick={() => void action('runtimeUpdateCancel')}
-            >
-              Cancel
-            </Button>
-          </div>
-          {!waitingForIdle && <Progress label="Runtime install" value={percent} />}
-          {operation.phase === 'waiting-for-idle' && (
-            <p className="form-help">Stop the agents that run now. Then select Finish install.</p>
-          )}
-        </div>
-      )}
-      {starting && (
-        <div className="grid gap-2" aria-live="polite">
-          <span className="text-xs leading-4">
-            Starting the install of version {status!.latest?.version}
-          </span>
-          <Progress label="Runtime install" />
-        </div>
-      )}
-      {changing && (
-        <p role="status" className="form-help">
-          Kalkidan changes the account now. This section updates when the change is complete.
-        </p>
-      )}
-      {operation?.error && !running && !starting && (
-        <StepError>{withoutManagedCode(operation.error)}</StepError>
-      )}
-      {!changing && (error || statusError) && <StepError>{error || statusError}</StepError>}
-      {!!status?.history.length && (
-        <SettingsDisclosure title="Install history">
-          <ul className="grid gap-2 text-xs leading-4">
-            {status.history
-              .slice()
-              .reverse()
-              .map((item) => (
-                <li key={item.id} className="grid gap-0.5">
-                  <span>
-                    Version {displayVersion(item.target.version)} · {updatePhaseLabel(item.phase)} ·{' '}
-                    {new Date(item.updatedAt).toLocaleString()}
-                  </span>
-                  {item.error && <span className="text-muted-foreground">{item.error}</span>}
-                </li>
-              ))}
-          </ul>
-        </SettingsDisclosure>
-      )}
-    </section>
-  );
+function programText(program: AgentInstallation | undefined) {
+  if (!program) return 'Checking…';
+  if (program.status === 'unavailable') return 'Only in the desktop app.';
+  if (program.status !== 'installed') return 'Not found.';
+  const source =
+    program.source === 'chosen'
+      ? 'Chosen by you'
+      : program.source === 'environment'
+        ? 'Set by an environment variable'
+        : 'Found automatically';
+  return [program.path, program.version, source].filter(Boolean).join(' · ');
 }

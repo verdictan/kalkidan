@@ -1,7 +1,7 @@
 /** Product defaults shared by UI features. Override here rather than inside components. */
 export const interfaceConfig = Object.freeze({
   /** Below `collapseBelow` px of window width, the sidebar starts closed. */
-  sidebar: { initial: 260, min: 220, max: 480, contentMin: 640, collapseBelow: 1100 },
+  sidebar: { initial: 260, min: 220, max: 480, contentMin: 640, collapseBelow: 900 },
   /** The sidebar shows this many recent chats under each project. */
   recentChats: 5,
   authPollMs: 700,

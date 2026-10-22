@@ -8,13 +8,14 @@ import {
   type KeyboardEvent,
   type ReactNode,
 } from 'react';
-import { Plus, RefreshCw } from 'lucide-react';
+import { LogIn, Plus, RefreshCw } from 'lucide-react';
 import type { API, GitHubRepository, ProjectGroup, Snapshot } from '../types';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { SearchInput } from './ui/search-input';
 import { Badge } from './ui/badge';
 import { EmptyState } from './ui/empty-state';
+import { Alert, AlertDescription } from './ui/alert';
 import { SegmentedControl } from './ui/segmented-control';
 import { Choice } from './choice';
 import { Hint } from './hint';
@@ -47,7 +48,13 @@ export function AddRepository({
   onProjectCreated = openCreatedProject,
   trigger = true,
   openRequest = 0,
+  initialSource,
 }: {
+  /**
+   * The source that the dialog opens on. "Clone from GitHub" opens on the GitHub source, also
+   * when the GitHub CLI is signed out: the dialog then shows "Sign in to GitHub" at the top.
+   */
+  initialSource?: 'github' | 'local';
   /** False hides the button. The caller then opens the dialog with `openRequest`. */
   trigger?: boolean;
   /** Each new value above 0 opens the dialog. */
@@ -87,6 +94,8 @@ export function AddRepository({
   openRef.current = open;
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  // False when the GitHub CLI is not signed in. The GitHub source then shows a sign-in alert.
+  const [githubReady, setGithubReady] = useState(true);
   const folderImport = useFolderImport(api, `${open}:${target}:${mode}`);
   const remoteGroup = snapshot?.groups?.find((g) => g.id === target && g.hostId);
   /** Finished adds give a toast. A caller with onNotice shows its own. */
@@ -126,7 +135,9 @@ export function AddRepository({
       Promise.resolve().then(() => api.snapshot()),
       Promise.resolve().then(() => api.githubCliCheck()),
     ]);
-    setMode(gh.status === 'fulfilled' && gh.value.status === 'ready' ? 'github' : 'local');
+    const ready = gh.status === 'fulfilled' && gh.value.status === 'ready';
+    setGithubReady(ready);
+    setMode(initialSource || (ready ? 'github' : 'local'));
     if (projects.status === 'fulfilled') setSnapshot(projects.value);
     else setError('Could not load your projects. Close this dialog and try again.');
     setSourceReady(true);
@@ -297,6 +308,17 @@ export function AddRepository({
                   </div>
                   {mode === 'github' && (
                     <>
+                      {!githubReady && (
+                        <Alert size="sm">
+                          <AlertDescription className="flex flex-wrap items-center justify-between gap-2">
+                            <span>Sign in to GitHub to see your repositories.</span>
+                            <Button variant="outline" size="sm" onClick={openAccountSettings}>
+                              <LogIn />
+                              Sign in to GitHub
+                            </Button>
+                          </AlertDescription>
+                        </Alert>
+                      )}
                       <div className="flex gap-2">
                         <SearchInput
                           className="flex-1"
@@ -432,9 +454,12 @@ export function AddRepository({
             )}
           </DialogBody>
           <DialogFooter>
-            <Button variant="outline" onClick={close}>
-              {busy ? 'Close' : 'Cancel'}
-            </Button>
+            {/* While a clone runs, the X closes the dialog. The clone continues. */}
+            {!busy && (
+              <Button variant="outline" onClick={close}>
+                Cancel
+              </Button>
+            )}
             <Button
               hidden={!!remoteGroup}
               disabled={
@@ -549,15 +574,16 @@ function RadioList({
             onClick={() => onChange(option.value)}
             onKeyDown={(event) => move(event, index)}
           >
+            {/* The same drawn radio as the Radio primitive: 16px, primary fill and a dot. */}
             <span
               aria-hidden="true"
               className={cn(
-                'flex size-3.5 shrink-0 items-center justify-center rounded-full border',
-                option.description && 'mt-[3px]',
-                checked && 'border-primary',
+                'flex size-4 shrink-0 items-center justify-center rounded-full border border-[var(--border-strong,var(--border))] bg-background',
+                option.description && 'mt-0.5',
+                checked && 'border-primary bg-primary',
               )}
             >
-              {checked && <span className="size-1.5 rounded-full bg-primary" />}
+              {checked && <span className="size-1.5 rounded-full bg-primary-foreground" />}
             </span>
             <span className="min-w-0 flex-1">
               <span className={cn('block truncate', option.description && 'font-medium')}>

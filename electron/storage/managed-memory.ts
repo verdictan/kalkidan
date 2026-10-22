@@ -24,6 +24,9 @@ export const memoryLimits = {
   results: 3,
 };
 const prefix = '<!-- kalkidan-memory ';
+/** Verified agent entries and user entries are trusted. External and legacy need review. */
+const trusted = (entry: MemoryEntry) =>
+  entry.provenance === 'verified' || entry.provenance === 'user';
 const queues = new Map<string, Promise<unknown>>();
 export interface MemoryScope {
   root: string;
@@ -251,6 +254,152 @@ export class ManagedMemory {
         };
       });
   }
+  /** Writes one entry file and its index record. The caller holds the directory lock. */
+  private async persist(
+    directory: string,
+    all: { name: string; entry: MemoryEntry; text: string }[],
+    existing: { name: string; entry: MemoryEntry; text: string } | undefined,
+    assertOwned: () => void,
+    value: Pick<MemoryEntry, 'topic' | 'content' | 'provenance' | 'source' | 'supersedes'>,
+  ): Promise<MemoryWriteResult> {
+    if (!existing && all.length >= memoryLimits.entries)
+      throw new Error('Memory entry limit reached.');
+    const date = this.now();
+    const entry: MemoryEntry = {
+      version: 1,
+      id: existing?.entry.id || hash(randomUUID()),
+      topic: value.topic.trim(),
+      content: value.content.trim(),
+      revision: '',
+      provenance: value.provenance,
+      source: value.source,
+      createdAt: existing?.entry.createdAt || date,
+      updatedAt: date,
+      supersedes: value.supersedes,
+    };
+    const { content, revision: _revision, ...meta } = entry;
+    const text =
+      prefix + JSON.stringify({ ...meta, contentHash: hash(content) }) + ' -->\n' + content;
+    if (Buffer.byteLength(text) > memoryLimits.fileBytes)
+      throw new Error('Memory entry size limit reached.');
+    if (
+      all.reduce((total, value) => total + Buffer.byteLength(value.text), 0) -
+        Buffer.byteLength(existing?.text || '') +
+        Buffer.byteLength(text) >
+      memoryLimits.bytes
+    )
+      throw new Error('Memory library size limit reached.');
+    const target = join(directory, existing?.name || entry.id + '.md');
+    const temporary = join(directory, '.' + randomUUID() + '.tmp');
+    try {
+      const file = await open(
+        temporary,
+        constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW,
+        0o600,
+      );
+      try {
+        await file.writeFile(text);
+        await file.sync();
+      } finally {
+        await file.close();
+      }
+      // Detect an external edit that arrived while the temporary file was written.
+      if (existing) {
+        const latest = (await this.load(directory)).find(
+          ({ entry }) => entry.id === existing.entry.id,
+        )?.entry;
+        if (latest?.revision !== existing.entry.revision)
+          return { status: 'conflict', id: entry.id, revision: latest?.revision || '' };
+      }
+      assertOwned();
+      await rename(temporary, target);
+    } finally {
+      await rm(temporary, { force: true });
+    }
+    entry.revision = hash(text);
+    const index = await this.index(directory);
+    assertOwned();
+    await writeJSON(join(directory, '.managed-index.json'), {
+      ...index,
+      [entry.id]: entry.revision,
+    });
+    this.changed();
+    return { status: 'saved', entry };
+  }
+  /** Runs one change of a memory folder after the earlier changes, under the folder lock. */
+  private async queued<T>(directory: string, work: (assertOwned: () => void) => Promise<T>) {
+    const action = (queues.get(directory) || Promise.resolve())
+      .catch(() => {})
+      .then(() => withDirectoryLock(directory, work));
+    queues.set(directory, action);
+    try {
+      return await action;
+    } finally {
+      if (queues.get(directory) === action) queues.delete(directory);
+    }
+  }
+  /**
+   * Saves an entry that the user wrote or edited in Memory. It has the provenance 'user' and no
+   * chat references: the user is the source. Agents read it as they read verified entries. An
+   * edit needs the revision that the user saw, else the result is a conflict. A user edit of an
+   * external or legacy entry makes it a user entry. The limits are the same as for agents.
+   */
+  async save(input: {
+    id?: string;
+    expectedRevision?: string;
+    topic: string;
+    content: string;
+  }): Promise<MemoryWriteResult> {
+    if (
+      !input ||
+      typeof input.topic !== 'string' ||
+      !input.topic.trim() ||
+      input.topic.length > 120 ||
+      typeof input.content !== 'string' ||
+      !input.content.trim() ||
+      input.content.length > memoryLimits.content ||
+      (input.id !== undefined &&
+        (typeof input.id !== 'string' ||
+          !/^[a-f0-9]{64}$/.test(input.id) ||
+          typeof input.expectedRevision !== 'string'))
+    )
+      throw new Error(
+        `Enter a topic of up to 120 characters and a fact of up to ${memoryLimits.content.toLocaleString('en-US')} characters.`,
+      );
+    const { id, expectedRevision, topic, content } = input;
+    if (unsafeMemory(content) || unsafeMemory(topic))
+      return {
+        status: 'deferred',
+        reason: 'Memory cannot keep secrets, such as passwords or keys, or instructions to agents.',
+      };
+    const directory = await this.directory();
+    return this.queued(directory, async (assertOwned): Promise<MemoryWriteResult> => {
+      const all = await this.load(directory);
+      const existing = id ? all.find(({ entry }) => entry.id === id) : undefined;
+      if (id && (!existing || existing.entry.revision !== expectedRevision))
+        return { status: 'conflict', id, revision: existing?.entry.revision || '' };
+      const duplicate = all.find(
+        ({ entry }) =>
+          entry.id !== id &&
+          !all.some((other) => other.entry.supersedes.includes(entry.id)) &&
+          normalized(entry.content) === normalized(content),
+      );
+      if (duplicate) return { status: 'duplicate', entry: duplicate.entry };
+      if (
+        existing &&
+        existing.entry.topic === topic.trim() &&
+        existing.entry.content === content.trim()
+      )
+        return { status: 'duplicate', entry: existing.entry };
+      return this.persist(directory, all, existing, assertOwned, {
+        topic,
+        content,
+        provenance: 'user',
+        source: { sessionId: '', turnId: '', references: [] },
+        supersedes: existing?.entry.supersedes || [],
+      });
+    });
+  }
   async upsert(candidate: MemoryCandidate): Promise<MemoryWriteResult> {
     candidate = structuredClone(candidate);
     if (
@@ -322,7 +471,7 @@ export class ManagedMemory {
             ({ entry }) => normalized(entry.content) === normalized(candidate.content),
           );
           if (duplicate)
-            return duplicate.entry.provenance === 'verified'
+            return trusted(duplicate.entry)
               ? { status: 'duplicate', entry: duplicate.entry }
               : { status: 'deferred', reason: 'Matching external or legacy content needs review.' };
           for (const target of candidate.supersedes || []) {
@@ -339,7 +488,7 @@ export class ManagedMemory {
               return (all.find(({ entry }) => entry.id === id)?.entry.supersedes || []).some(visit);
             };
             if (visit(target.id)) throw new Error('Memory supersession cannot contain a cycle.');
-            if (old.provenance !== 'verified')
+            if (!trusted(old))
               return {
                 status: 'deferred',
                 reason: 'External and legacy facts need review before supersession.',
@@ -350,73 +499,17 @@ export class ManagedMemory {
               status: 'deferred',
               reason: 'Preserve external and legacy content. Save a separate sourced entry.',
             };
-          if (!existing && all.length >= memoryLimits.entries)
-            throw new Error('Memory entry limit reached.');
-          const date = this.now();
-          const entry: MemoryEntry = {
-            version: 1,
-            id: existing?.entry.id || hash(randomUUID()),
-            topic: candidate.topic.trim(),
-            content: candidate.content.trim(),
-            revision: '',
+          return this.persist(directory, all, existing, assertOwned, {
+            topic: candidate.topic,
+            content: candidate.content,
             provenance: 'verified',
             source: {
               sessionId: this.scope.sessionId,
               turnId: this.scope.turnId,
               references: candidate.references,
             },
-            createdAt: existing?.entry.createdAt || date,
-            updatedAt: date,
             supersedes: candidate.supersedes?.map(({ id }) => id) || [],
-          };
-          const { content, revision: _revision, ...meta } = entry;
-          const text =
-            prefix + JSON.stringify({ ...meta, contentHash: hash(content) }) + ' -->\n' + content;
-          if (Buffer.byteLength(text) > memoryLimits.fileBytes)
-            throw new Error('Memory entry size limit reached.');
-          if (
-            all.reduce((total, value) => total + Buffer.byteLength(value.text), 0) -
-              Buffer.byteLength(existing?.text || '') +
-              Buffer.byteLength(text) >
-            memoryLimits.bytes
-          )
-            throw new Error('Memory library size limit reached.');
-          const target = join(directory, existing?.name || entry.id + '.md');
-          const temporary = join(directory, '.' + randomUUID() + '.tmp');
-          try {
-            const file = await open(
-              temporary,
-              constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW,
-              0o600,
-            );
-            try {
-              await file.writeFile(text);
-              await file.sync();
-            } finally {
-              await file.close();
-            }
-            // Detect an external edit that arrived while the temporary file was written.
-            if (existing) {
-              const latest = (await this.load(directory)).find(
-                ({ entry }) => entry.id === existing.entry.id,
-              )?.entry;
-              if (latest?.revision !== existing.entry.revision)
-                return { status: 'conflict', id: entry.id, revision: latest?.revision || '' };
-            }
-            assertOwned();
-            await rename(temporary, target);
-          } finally {
-            await rm(temporary, { force: true });
-          }
-          entry.revision = hash(text);
-          const index = await this.index(directory);
-          assertOwned();
-          await writeJSON(join(directory, '.managed-index.json'), {
-            ...index,
-            [entry.id]: entry.revision,
           });
-          this.changed();
-          return { status: 'saved', entry };
         }),
       );
     queues.set(directory, action);

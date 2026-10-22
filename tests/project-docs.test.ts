@@ -147,3 +147,47 @@ test('docs show linked board tasks and resolve task links', async () => {
   assert.equal(taskFromHref('https://example.com', tasks), undefined);
   assert.equal(taskFromHref('#task-i1', null), undefined);
 });
+
+test('docs show ancestors only, explain a missing planner and split pages into tasks', async () => {
+  const { pageAncestors, planTasksReason } = await import('../src/components/project-docs');
+  const pages = [
+    { id: 'a', title: 'Guide', parentId: null },
+    { id: 'b', title: 'Setup', parentId: 'a' },
+    { id: 'c', title: 'Mac', parentId: 'b' },
+  ];
+  assert.deepEqual(
+    pageAncestors(pages, 'c').map((page) => page.id),
+    ['a', 'b'],
+  );
+  assert.deepEqual(pageAncestors(pages, 'a'), []);
+  assert.equal(planTasksReason(false, undefined), 'Connect a board first');
+  assert.equal(planTasksReason(true, false), 'You can only read this board');
+  assert.equal(planTasksReason(true, undefined), undefined);
+  assert.equal(planTasksReason(true, true), undefined);
+  const { splitListItems, headingTaskCount } = await import('../src/components/docs-to-issues');
+  assert.deepEqual(
+    splitListItems('Intro\n\n- [ ] One\n  more text\n- Two\n\n```\n- code\n```', 'P'),
+    [
+      { title: 'One', body: 'more text' },
+      { title: 'Two', body: '' },
+    ],
+  );
+  assert.deepEqual(splitListItems('No list', 'Page'), [{ title: 'Page', body: 'No list' }]);
+  assert.equal(headingTaskCount('## A\nx\n## B'), 2);
+  assert.equal(headingTaskCount('Only text'), 0);
+});
+
+test('the slash menu finds blocks by alias and typed check list markers', async () => {
+  const { commandMatches, checklistMarker } = await import('../src/components/wiki-editor');
+  const checklist = { label: 'Checklist', keywords: ['todo', 'task'] };
+  assert.ok(commandMatches(checklist, 'todo'));
+  assert.ok(commandMatches(checklist, 'TASK'));
+  assert.ok(commandMatches(checklist, ''));
+  assert.ok(!commandMatches(checklist, 'table'));
+  assert.ok(commandMatches({ label: 'Heading 1', keywords: ['h1'] }, 'h1'));
+  assert.deepEqual(checklistMarker('[ ]'), { checked: false });
+  assert.deepEqual(checklistMarker('[]'), { checked: false });
+  assert.deepEqual(checklistMarker('[x]'), { checked: true });
+  assert.deepEqual(checklistMarker('- [X]'), { checked: true });
+  assert.equal(checklistMarker('text [ ]'), null);
+});

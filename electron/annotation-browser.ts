@@ -1,7 +1,11 @@
 import { writeFile } from 'node:fs/promises';
 import type { BrowserProfile } from './browser-profile';
-import { BrowserWindow, WebContentsView, dialog } from 'electron';
+import { BrowserWindow, WebContentsView, dialog, session, type WebContents } from 'electron';
 import type { BrowserSelection, BrowserBounds } from '../src/types';
+/** The session of the browser previews. It keeps cookies and the cache. */
+const previewPartition = 'persist:kalkidan-preview';
+/** Profile actions that need no open page. */
+const profileActions = new Set(['settings', 'import', 'clear', 'download', 'delete-password']);
 
 export function previewURL(value: string) {
   const url = new URL(value);
@@ -130,7 +134,7 @@ export class AnnotationBrowser {
           sandbox: true,
           contextIsolation: true,
           nodeIntegration: false,
-          partition: 'persist:kalkidan-preview',
+          partition: previewPartition,
         },
       });
       this.views.set(id, view);
@@ -246,6 +250,15 @@ export class AnnotationBrowser {
   }
   async action(id: string, action: string, value: any) {
     if (action === 'profile') return this.profile.summary();
+    // Settings changes the browser profile, not a page. These actions also work when no
+    // browser preview is open. They use the session of the previews.
+    const view = this.views.get(id);
+    if ((!view || view.webContents.isDestroyed()) && profileActions.has(action))
+      return this.profile.action(
+        { session: session.fromPartition(previewPartition) } as WebContents,
+        action,
+        value,
+      );
     const wc = this.get(id).webContents;
     if (action === 'find') {
       if (typeof value?.text !== 'string' || value.text.length > 1000)

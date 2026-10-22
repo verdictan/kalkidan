@@ -378,6 +378,45 @@ test('desktop recovers discovery errors, migrates remote docs and releases late 
   assert.ok(dev.calls.some((c) => c[0] === 'loadURL' && c[1].startsWith('http://127.0.0.1:5173')));
 });
 
+test('sign-out asks first when agents run or SSH hosts are connected', async () => {
+  const f = await desktopFixture();
+  f.state.running = 2;
+  f.state.choice = 1;
+  await f.invoke('verdictan-logout');
+  const box = f.calls.find((c) => c[0] === 'messageBox')?.[1];
+  assert.equal(box.buttons[0], 'Sign out');
+  assert.match(box.detail, /^Sign out stops 2 running agents and disconnects 1 SSH host\./);
+  assert.ok(!f.calls.some((c) => c[0] === 'verdictanLogout'), 'Cancel keeps the account');
+  f.state.choice = 0;
+  await f.invoke('verdictan-logout');
+  assert.ok(f.calls.some((c) => c[0] === 'verdictanLogout'));
+});
+
+test('the sign-in handlers reach the account owner and the region console', async () => {
+  const f = await desktopFixture();
+  await f.invoke('verdictan-reopen-browser');
+  assert.ok(f.calls.some((c) => c[0] === 'verdictanReopenBrowser'));
+  await f.invoke('verdictan-apply-recommended');
+  assert.ok(f.calls.some((c) => c[0] === 'verdictanApplyRecommended'));
+  // The stub has no region. The console opens only for a selected region.
+  await assert.rejects(f.invoke('verdictan-open-console'), /region_required/);
+  assert.ok(!f.calls.some((c) => c[0] === 'external'));
+  assert.deepEqual(await f.invoke('first-run-state'), { welcomeDone: false, everSignedIn: false });
+  assert.deepEqual(await f.invoke('set-welcome-done'), { welcomeDone: true, everSignedIn: false });
+  assert.deepEqual(
+    await f.invoke('set-notification-preferences', { finished: false, needsInput: true }),
+    {
+      finished: false,
+      needsInput: true,
+    },
+  );
+  assert.deepEqual(await f.invoke('notification-preferences'), {
+    finished: false,
+    needsInput: true,
+  });
+  await assert.rejects(f.invoke('set-notification-preferences', null), /Invalid/);
+});
+
 test('desktop reports its own version and the helper state without an update service', async () => {
   const f = await desktopFixture();
   assert.deepEqual(await f.invoke('app-version'), {

@@ -162,4 +162,6 @@ export interface AgentCandidate {
 export interface GitHubCliStatus {
   status: 'ready' | 'signed-out' | 'missing' | 'error' | 'unavailable';
   path?: string;
+  /** The GitHub login of the signed-in GitHub CLI account. Only when the status is ready. */
+  login?: string;
 }

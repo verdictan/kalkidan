@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { History } from 'lucide-react';
 import type { API, TrackerBoard } from '../types';
 import type { TaskUsageHistory } from '../domain/conversation';
 import { evidenceStateLabel, runPhaseLabel } from '../domain/planning-labels';
@@ -63,10 +64,9 @@ export function TaskUsageHistoryPanel({
           ) : undefined
         }
       />
-      <p className="form-help">
-        The usage and policy records that this computer saved for managed-agent runs. Kalkidan keeps
-        the last 100 runs. “Unknown” shows when there is no record of a value. Your provider sends
-        the bill.
+      <p className="form-help project-usage-intro">
+        Usage and policy records of the managed-agent runs of one task. Kalkidan keeps the last 100
+        runs.
       </p>
       <label className="form-label max-w-[360px]">
         Task
@@ -82,7 +82,14 @@ export function TaskUsageHistoryPanel({
       <ErrorAlert>{error}</ErrorAlert>
       {busy && <p className="form-help">Loading runs…</p>}
       {history?.length === 0 && (
-        <EmptyState compact>No saved runs for this task and account.</EmptyState>
+        <EmptyState compact icon={<History />} title="No runs yet">
+          This task has no saved managed-agent runs for this account.
+        </EmptyState>
+      )}
+      {!!history?.length && (
+        <p className="form-help m-0">
+          “Unknown” shows when there is no record of a value. Your provider sends the bill.
+        </p>
       )}
       {!!history?.length && (
         <div className="review-list">

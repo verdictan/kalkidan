@@ -1,4 +1,5 @@
-import { test, expect, type Page } from '@playwright/test';
+import { type Page } from '@playwright/test';
+import { test, expect } from './helpers/app';
 
 const tree = (page: Page) => page.getByRole('navigation', { name: 'Projects and repositories' });
 const projectGroup = (page: Page, name: string) =>
@@ -6,7 +7,9 @@ const projectGroup = (page: Page, name: string) =>
     .locator('.project-group')
     .filter({ has: page.locator('.project-select', { hasText: new RegExp(`^${name}`) }) });
 
-test('a project row shows its recent chats, not code folders or page rows', async ({ page }) => {
+test('a project row shows its recent chats and a collapsed Docs row, not code folders', async ({
+  page,
+}) => {
   await page.goto('/');
   const atlas = projectGroup(page, 'Atlas');
   const chat = atlas.getByRole('button', {
@@ -14,8 +17,17 @@ test('a project row shows its recent chats, not code folders or page rows', asyn
     exact: true,
   });
   await expect(chat).toBeVisible();
-  // Atlas has three code folders, so each chat shows its code folder as secondary text.
-  await expect(chat.locator('.tree-secondary')).toHaveText('atlas-web');
+  // The title gets the full row. Atlas has three code folders, so the tooltip names the code
+  // folder of the chat.
+  await expect(chat.locator('.tree-secondary')).toHaveCount(0);
+  await expect(chat).toHaveAttribute(
+    'title',
+    'Refine project and repository navigation · atlas-web',
+  );
+  // Docs shows under the project, collapsed: no page rows until the user expands it.
+  const docs = atlas.getByRole('button', { name: 'Docs of Atlas', exact: true });
+  await expect(docs).toHaveAttribute('aria-expanded', 'false');
+  await expect(atlas.locator('.tree-doc-row')).toHaveCount(0);
   for (const name of ['atlas-web', 'design-system', 'api-service', 'Tasks', 'Docs', 'Memory'])
     await expect(tree(page).getByRole('button', { name, exact: true })).toHaveCount(0);
   await expect(tree(page).getByText('Insights', { exact: true })).toHaveCount(0);
@@ -90,10 +102,11 @@ test('the sidebar, All chats and the overview count the same chats', async ({ pa
   await page.goto('/');
   const group = projectGroup(page, 'Counted');
   // Seven chats can open: the archived chat does not count. The pinned chat shows in Pinned.
-  await expect(group.locator('.tree-session-row:not(.tree-more-row)')).toHaveCount(5);
+  const rows = group.getByRole('button', { name: /^Chat: / });
+  await expect(rows).toHaveCount(5);
   // The newest chat is first. A project with one code folder shows no folder name.
-  await expect(group.locator('.tree-session-row').first()).toContainText('Chat 7');
-  await expect(group.locator('.tree-secondary')).toHaveCount(0);
+  await expect(rows.first()).toContainText('Chat 7');
+  await expect(rows.first()).toHaveAttribute('title', 'Chat 7');
   await expect(group.getByRole('button', { name: 'Show all 7 chats', exact: true })).toBeVisible();
   await expect(
     page.getByRole('region', { name: 'Project overview' }).getByText('7 chats', { exact: true }),

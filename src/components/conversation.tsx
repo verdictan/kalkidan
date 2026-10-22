@@ -28,6 +28,7 @@ import {
   ArrowUp,
   FileDiff,
   FileText,
+  GitPullRequest,
   Globe,
   LoaderCircle,
   Lock,
@@ -46,7 +47,13 @@ import { errorMessage } from '../lib/errors';
 import { agentErrorMessage, managedLaunchError, type AgentError } from '../lib/agent-errors';
 import { takePendingDraft } from '../lib/pending-draft';
 import { composerAfterSubmit, contextsAfterSubmit } from '../lib/composer-draft';
-import { moveTaskToReview, pullRequestLabel, type SessionPullRequest } from '../lib/pull-request';
+import {
+  hasBranchWork,
+  moveTaskToReview,
+  pullRequestActionLabel,
+  pullRequestLabel as pullRequestLabelText,
+  type SessionPullRequest,
+} from '../lib/pull-request';
 import type { DocPassage } from '../domain/docs';
 import {
   AgentErrorActions,
@@ -82,7 +89,12 @@ import {
   removeMentionBefore,
 } from '../domain/mentions';
 import { cn } from '../lib/utils';
-import { plural } from '../lib/platform';
+import { hasPrimaryModifier, isMac, pathBasename, plural, shortcutLabel } from '../lib/platform';
+import {
+  newChatAccessKey,
+  onChatPreferencesChange,
+  readEnterToSend,
+} from '../lib/chat-preferences';
 import type { WorkingStatus } from '../api/contracts';
 import { markDraftOutcome, type SessionActivityState } from './activity-dot';
 import { chatOutcomeOf } from '../domain/chat-outcome';
@@ -100,6 +112,17 @@ import type {
 
 /** Unsent text and attachments. They stay when the session view is unmounted. */
 export type ConversationDraft = { prompt: string; contexts: ConversationContext[] };
+
+/** The "New chats start as" choice of Settings › General, when the user made one. */
+function explicitNewChatAccess(): 'edit' | 'read' | null {
+  try {
+    const value = localStorage.getItem(newChatAccessKey);
+    return value === 'edit' || value === 'read' ? value : null;
+  } catch {
+    return null;
+  }
+}
+const sendShortcut = shortcutLabel(['mod'], 'Enter');
 
 // The permission choice of the last new session in each repository.
 const permissionKey = (repositoryId: string) => `kalkidan-session-permission:${repositoryId}`;
@@ -249,6 +272,7 @@ export function Conversation({
   onActivityChange,
   onSessionCreated,
   onTitleChange,
+  onAgentChange,
   hostName,
   mentionChats = [],
 }: {
@@ -270,6 +294,8 @@ export function Conversation({
   onSessionCreated?: (id: string, title: string) => void;
   /** Gives the chat a title from its first message when the first send fails. */
   onTitleChange?: (title: string) => void;
+  /** Changes the agent of a new chat before its first message. It keeps the linked task. */
+  onAgentChange?: (agent: string, taskId?: string) => void;
 }) {
   // The computer where the agent runs, for refusal messages.
   const computer = session.hostId ? hostName || 'the SSH host' : 'this computer';
@@ -286,6 +312,9 @@ export function Conversation({
   const runEdits = useRef(false);
   const permissionTouched = useRef(false);
   const textarea = useRef<HTMLTextAreaElement>(null);
+  // Settings › General: Enter sends, or ⌘Enter (Ctrl+Enter) sends and Enter adds a line.
+  const [enterToSend, setEnterToSend] = useState(readEnterToSend);
+  useEffect(() => onChatPreferencesChange(() => setEnterToSend(readEnterToSend())), []);
   const [linkOpen, setLinkOpen] = useState(false);
   const [linkItems, setLinkItems] = useState<TrackerItem[]>([]);
   const [linkError, setLinkError] = useState('');
@@ -327,6 +356,7 @@ export function Conversation({
   const [taskNotice, setTaskNotice] = useState('');
   const [uncommitted, setUncommitted] = useState(0);
   const [commitOpen, setCommitOpen] = useState(false);
+  const [commitIntent, setCommitIntent] = useState<'commit' | 'pull-request'>('commit');
   const taskUpdates = useRef(Promise.resolve());
   const startedTasks = useRef(new Set<string>());
   function syncStartedTask(next: ChatRun) {
@@ -459,6 +489,13 @@ export function Conversation({
     }
   }
   const [taskId, setTaskId] = useState(session.task?.id || session.organization?.taskId || '');
+  // The title of the linked task, for the title of a new task chat.
+  const linkedTaskTitle = useRef<string | undefined>(session.task?.title);
+  // A new chat counts only the files that change after it starts. The files that had changes
+  // when it started are the baseline. A resumed chat counts all changed files.
+  const countsFromStart = !!session.projectId && !session.forkFrom;
+  const baseline = useRef<Set<string> | null>(null);
+  const [newFiles, setNewFiles] = useState<number | null>(null);
   /** Reads the branch and the number of changed files of the checkout. */
   const readWorking = useRef<() => void>(() => {});
   readWorking.current = () => {
@@ -471,16 +508,44 @@ export function Conversation({
       .catch(() => {
         // The status is not available, for example on an SSH host. The count does not show.
       });
+    if (!countsFromStart || typeof api.workingFiles !== 'function') return;
+    api
+      .workingFiles(repositoryId)
+      .then((files) => {
+        if (!mounted.current) return;
+        const paths = files.map((file) => file.path);
+        if (!baseline.current) baseline.current = new Set(paths);
+        setNewFiles(paths.filter((path) => !baseline.current!.has(path)).length);
+      })
+      .catch(() => {
+        /* Without the file list, the chat counts all changed files. */
+      });
   };
   useEffect(() => readWorking.current(), [api, repositoryId]);
   const changedFiles = working ? working.changed + working.untracked : 0;
+  /** The changed files that this chat made, as far as Kalkidan can tell. */
+  const chatChanges = newFiles ?? changedFiles;
+  const folderName = pathBasename(session.cwd);
   // A known status with no changed files has nothing to commit. An unknown status does not
   // block the Commit dialog, because the dialog reads the status again.
   const nothingToCommit = !!working && changedFiles === 0;
   /** Opens the Commit dialog, or tells the user that there is nothing to commit. */
   function openCommit() {
     if (nothingToCommit) showToast({ message: noChangesToCommit });
-    else setCommitOpen(true);
+    else {
+      setCommitIntent('commit');
+      setCommitOpen(true);
+    }
+  }
+  /** Opens the dialog that commits the changes and creates the pull request. */
+  function createPullRequest() {
+    if (pullRequest) openExternal(pullRequest.url);
+    else if (working && !hasBranchWork(working))
+      showToast({ message: 'No changes or commits for a pull request.' });
+    else {
+      setCommitIntent('pull-request');
+      setCommitOpen(true);
+    }
   }
   // A resumed session has only the task id. Load the board to show the task title.
   useEffect(() => {
@@ -517,19 +582,22 @@ export function Conversation({
       current = false;
     };
   }, [api, session.agent]);
-  // A new session uses the last choice in its repository. A task session allows edits by
-  // default, except on the default branch: there it starts read only, so the main checkout
-  // stays clean.
-  const storedPermission = session.projectId ? readPermission(repositoryId) : null;
-  const [allowEdits, setAllowEdits] = useState(() =>
-    storedPermission ? storedPermission === 'edit' : !!session.projectId && !!taskId,
-  );
+  // A new chat uses the last choice in its code folder. Without a choice, a chat in a branch
+  // copy (any branch other than the default branch) can edit files. On the default branch it
+  // starts as Read only, so the main checkout stays clean.
+  // The choice in Settings › General ("New chats start as") applies when the user made one.
+  const storedPermission = session.projectId
+    ? readPermission(repositoryId) || explicitNewChatAccess()
+    : null;
+  const [allowEdits, setAllowEdits] = useState(() => storedPermission === 'edit');
   const onDefaultBranch = !!working && working.branch === working.defaultBranch;
-  const taskOnDefault = !!session.projectId && !!taskId && !storedPermission && onDefaultBranch;
+  const onBranchCopy = !!working && !onDefaultBranch;
   useEffect(() => {
-    if (taskOnDefault && !permissionTouched.current && !startedTasks.current.size)
-      setAllowEdits(false);
-  }, [taskOnDefault]);
+    if (storedPermission || permissionTouched.current || startedTasks.current.size) return;
+    // A chat that already sent a message keeps its access.
+    if (messages.length) return;
+    setAllowEdits(onBranchCopy);
+  }, [onBranchCopy]);
   function choosePermission(value: 'edit' | 'read') {
     permissionTouched.current = true;
     setAllowEdits(value === 'edit');
@@ -580,8 +648,14 @@ export function Conversation({
           );
       onSessionCreated?.(
         next.sessionId,
-        // The title comes from the message only, not from the attached context.
-        submitted.current?.prompt.trim().slice(0, 100) || session.title,
+        // A task chat has the task title. Other chats take the first line of the message, not
+        // the attached context.
+        (taskId && linkedTaskTitle.current) ||
+          mentionPlainText(submitted.current?.prompt || '')
+            .trim()
+            .split('\n', 1)[0]
+            .slice(0, 100) ||
+          session.title,
       );
     }
     // A draft that did not save keeps its outcome in memory only, for its status dot. A refused
@@ -994,6 +1068,28 @@ export function Conversation({
     return () => observer.disconnect();
   }, []);
   const empty = !loading && !messages.length && !run;
+  // Every new or empty chat puts the cursor in the composer, so the user can type at once. A
+  // dialog that opened the chat (for example the task sheet) closes first, so wait for it.
+  const focusedEmpty = useRef(false);
+  useEffect(() => {
+    if (!empty || !open || !titlebarVisible || focusedEmpty.current) return;
+    let tries = 0;
+    let timer: ReturnType<typeof setTimeout>;
+    const attempt = () => {
+      const active = document.activeElement;
+      const typing =
+        active !== textarea.current &&
+        !!active?.matches('input, textarea, select, [contenteditable="true"]');
+      if (document.querySelector('[role="dialog"], [role="alertdialog"]') && tries++ < 20) {
+        timer = setTimeout(attempt, 100);
+        return;
+      }
+      focusedEmpty.current = true;
+      if (!typing) textarea.current?.focus();
+    };
+    timer = setTimeout(attempt, 0);
+    return () => clearTimeout(timer);
+  }, [empty, open, titlebarVisible]);
   const nextActivity =
     run?.activity && !run.activity.startsWith('message:')
       ? run.activity
@@ -1003,6 +1099,14 @@ export function Conversation({
   if (active && activityText !== nextActivity) setActivityText(nextActivity);
   const linkedTask = linkItems.find((i) => i.id === taskId) || session.task;
   const taskTitle = linkedTask?.title || 'Linked task';
+  // A new task chat takes the title of its task, not "New … chat".
+  const knownTaskTitle = linkedTask?.title;
+  linkedTaskTitle.current = knownTaskTitle;
+  useEffect(() => {
+    if (!knownTaskTitle || !session.id.startsWith('draft-') || providerSession.current) return;
+    if (!/^New( .*)? (session|chat)$/.test(session.title)) return;
+    onTitleChange?.(knownTaskTitle.slice(0, 100));
+  }, [knownTaskTitle, session.id]);
   const sessionTitle = session.organization?.title || session.title;
   const attachReason = active
     ? 'Wait for the response'
@@ -1028,6 +1132,12 @@ export function Conversation({
     else if (name === 'link-task' && trackerConnection(projectGroup) && !active)
       void openTaskLink();
     else if (name === 'open-pull-request' && pullRequest) openExternal(pullRequest.url);
+    // The task sheet sends "create-pull-request". The chat menus send the session command.
+    else if (
+      (name === 'session-create-pull-request' || name === 'create-pull-request') &&
+      repositoryId
+    )
+      createPullRequest();
     else return false;
     return true;
   };
@@ -1102,13 +1212,25 @@ export function Conversation({
   const modelOptions = useModelChoice(api, session.agent, models, agentName);
   const mode = permissionModes[allowEdits ? 'edit' : 'read'];
   const linkTaskAvailable = !!trackerConnection(projectGroup) && !taskId;
-  const showChanges = changesNotice && !active && changedFiles > 0 && !!repositoryId;
+  // After a run: "3 files changed · Review · Create pull request · Mark done". A branch with
+  // commits and no pull request also offers the pull request.
+  const unsharedCommits =
+    onBranchCopy && !pullRequest && !!working && working.ahead > 0 ? working.ahead : 0;
+  const showChanges =
+    changesNotice && !active && !!repositoryId && (chatChanges > 0 || unsharedCommits > 0);
+  // "Review task completion" shows only after the agent answered at least once.
+  const answered = runsFinished > 0 || messages.some((message) => message.role === 'assistant');
   return (
     <ConversationTools
       reviewRequest={reviewChanges}
       reviewPath={reviewPath}
       toolRequest={toolRequest}
-      changeCount={repositoryId ? changedFiles : null}
+      changeCount={repositoryId ? chatChanges : null}
+      changeHint={
+        repositoryId && changedFiles
+          ? `${plural(changedFiles, 'uncommitted file')} in ${folderName}`
+          : undefined
+      }
       runsFinished={runsFinished}
       onChangesRead={() => readWorking.current()}
       onCommit={repositoryId ? openCommit : undefined}
@@ -1150,9 +1272,11 @@ export function Conversation({
             <div className="conversation-welcome">
               <h3>{session.projectId ? 'What are we working on?' : 'Resume your chat'}</h3>
               <p>
-                {session.projectId
-                  ? `Plan, build, and review with ${agentName}.`
-                  : 'Send a message to pick up where you left off.'}
+                {!session.projectId
+                  ? 'Send a message to pick up where you left off.'
+                  : allowEdits
+                    ? `Can edit files. ${agentName} can read and change files in ${folderName}${working ? ` on ${working.branch}` : ''}. Review the changes before you commit.`
+                    : `Read only. ${agentName} can read files and answer. Select Read only to allow edits.`}
               </p>
               {session.projectId && !prompt.trim() && (
                 <div className="conversation-starters" role="group" aria-label="Starter prompts">
@@ -1216,6 +1340,7 @@ export function Conversation({
                 {message.role === 'user' && <SentMentions text={message.text} />}
                 {sendFailure?.messageId === message.id && (
                   <SendFailure
+                    agentName={agentName}
                     error={sendFailure.error}
                     busy={!!active}
                     onRetry={retrySend}
@@ -1284,26 +1409,57 @@ export function Conversation({
             </div>
           )}
           {showChanges && (
-            <div className="run-changes" role="status">
-              <FileDiff className="size-3.5" aria-hidden="true" />
-              <span>{plural(changedFiles, 'file')} changed</span>
-              <span aria-hidden="true">·</span>
-              <Button variant="chip" onClick={() => review()}>
-                Review
-              </Button>
-              <span aria-hidden="true">·</span>
-              <Button variant="chip" onClick={() => setCommitOpen(true)}>
-                Commit…
-              </Button>
-              <Button
-                variant="ghost"
-                size="icon-2xs"
-                className="ml-auto"
-                aria-label="Hide changed files notice"
-                onClick={() => setChangesNotice(false)}
-              >
-                <X />
-              </Button>
+            <div className="run-changes" role="group" aria-label="Changes from this chat">
+              <FileDiff className="size-3.5 shrink-0" aria-hidden="true" />
+              <span role="status" className="truncate">
+                {chatChanges > 0
+                  ? `${plural(chatChanges, 'file')} changed`
+                  : `${plural(unsharedCommits, 'commit')} not in a pull request`}
+              </span>
+              <span className="run-changes-actions">
+                {chatChanges > 0 && (
+                  <Button size="xs" variant="ghost" onClick={() => review()}>
+                    Review
+                  </Button>
+                )}
+                {pullRequest ? (
+                  <Button size="xs" variant="ghost" onClick={() => openExternal(pullRequest.url)}>
+                    {pullRequestActionLabel(pullRequest)}
+                  </Button>
+                ) : onBranchCopy ? (
+                  <Button size="xs" onClick={createPullRequest}>
+                    <GitPullRequest aria-hidden="true" />
+                    Create pull request
+                  </Button>
+                ) : (
+                  chatChanges > 0 && (
+                    <Button size="xs" onClick={openCommit}>
+                      Commit…
+                    </Button>
+                  )
+                )}
+                {taskId && (
+                  <Button
+                    size="xs"
+                    variant="outline"
+                    disabled={taskBusy}
+                    onClick={() => void requestDone()}
+                  >
+                    {taskBusy ? 'Updating…' : 'Mark done'}
+                  </Button>
+                )}
+              </span>
+              <Hint label="Hide">
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  className="ml-auto"
+                  aria-label="Hide changed files notice"
+                  onClick={() => setChangesNotice(false)}
+                >
+                  <X />
+                </Button>
+              </Hint>
             </div>
           )}
           <div className="conversation-composer @container/composer">
@@ -1371,7 +1527,7 @@ export function Conversation({
                 </Button>
                 <Button
                   variant="ghost"
-                  size="icon-xs"
+                  size="icon-sm"
                   aria-label="Keep read only"
                   title="Keep read only"
                   onClick={() => setEditsRefused(false)}
@@ -1385,13 +1541,7 @@ export function Conversation({
                 {taskNotice}
               </p>
             )}
-            {taskOnDefault && !allowEdits && !messages.length && !run && (
-              <p className="form-help px-2">
-                You are on {working?.branch}, so this task chat starts as Read only. Your checkout
-                stays clean. Allow edits when you are ready.
-              </p>
-            )}
-            {taskId && !reviewTask && (
+            {taskId && !reviewTask && answered && !showChanges && (
               <Button
                 variant="chip"
                 className="self-start"
@@ -1410,20 +1560,32 @@ export function Conversation({
                 <p className="text-sm font-medium">Complete this task?</p>
                 <p className="text-xs text-muted-foreground">
                   Review the changes and verify the result before you mark the linked task Done.
-                  {pullRequest && ` ${pullRequestLabel(pullRequest)}.`}
+                  {pullRequest && ` ${pullRequestLabelText(pullRequest)}.`}
                 </p>
                 <div className="flex flex-wrap gap-2">
                   <Button size="sm" variant="outline" onClick={() => review()}>
                     Review changes
                   </Button>
-                  {pullRequest && (
+                  {pullRequest ? (
                     <Button
                       size="sm"
                       variant="outline"
                       onClick={() => openExternal(pullRequest.url)}
                     >
-                      Open pull request
+                      {pullRequestActionLabel(pullRequest)}
                     </Button>
+                  ) : (
+                    onBranchCopy &&
+                    repositoryId && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={taskBusy || !!active}
+                        onClick={createPullRequest}
+                      >
+                        Create pull request…
+                      </Button>
+                    )
                   )}
                   {repositoryId && (
                     <Hint label={nothingToCommit ? noChangesToCommit : 'Commit the changes'}>
@@ -1431,7 +1593,7 @@ export function Conversation({
                         size="sm"
                         variant="outline"
                         disabled={taskBusy || !!active || nothingToCommit}
-                        onClick={() => setCommitOpen(true)}
+                        onClick={openCommit}
                       >
                         Commit changes…
                       </Button>
@@ -1459,7 +1621,7 @@ export function Conversation({
               <Alert variant="destructive" size="sm" className="max-h-32 overflow-auto">
                 <AlertDescription className="grid gap-1 text-xs whitespace-pre-wrap">
                   {errorInfo.message}
-                  {errorInfo.note && <AgentErrorNote note={errorInfo.note} />}
+                  <AgentErrorNote note={errorInfo.note} code={errorInfo.code} />
                   {errorInfo.action && <AgentErrorActions error={errorInfo} />}
                   {hostError && (
                     <Button
@@ -1489,10 +1651,12 @@ export function Conversation({
             <Textarea
               ref={textarea}
               data-composer=""
-              className="max-h-[clamp(80px,20vh,180px)] min-h-8 resize-none rounded-none border-0 bg-transparent px-2 py-1 text-base shadow-none focus-visible:ring-0 dark:bg-transparent"
+              className="max-h-[clamp(80px,20vh,180px)] min-h-8 resize-none rounded-none border-0 bg-transparent px-0 py-0 text-base shadow-none focus-visible:ring-0 dark:bg-transparent"
               aria-label="Message agent"
               aria-description={
-                'Press Enter to send. Press Shift+Enter for a new line.' +
+                (enterToSend
+                  ? 'Press Enter to send. Press Shift+Enter for a new line.'
+                  : `Press ${sendShortcut} to send. Press Enter for a new line.`) +
                 (projectGroup
                   ? ' Type @ to mention a file, doc, task, memory entry or chat. Type @docs to search the project docs.'
                   : '')
@@ -1550,7 +1714,10 @@ export function Conversation({
                     return;
                   }
                 }
-                if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
+                const sendKey = enterToSend
+                  ? !event.shiftKey
+                  : hasPrimaryModifier(event.nativeEvent);
+                if (event.key === 'Enter' && sendKey && !event.nativeEvent.isComposing) {
                   event.preventDefault();
                   void send();
                 }
@@ -1634,6 +1801,13 @@ export function Conversation({
                   onChange={setModel}
                   disabled={!!active}
                   failed={modelsFailed}
+                  agent={session.agent}
+                  agentName={agentName}
+                  onAgentChange={
+                    onAgentChange && !messages.length && !run && !providerSession.current
+                      ? (next) => onAgentChange(next, taskId || undefined)
+                      : undefined
+                  }
                 />
                 {linkTaskAvailable && (
                   <Button
@@ -1659,7 +1833,9 @@ export function Conversation({
                 {pullRequest && <PullRequestChip pr={pullRequest} />}
               </div>
               <span className="composer-shortcut" aria-hidden="true">
-                Enter to send · Shift+Enter for new line
+                {enterToSend
+                  ? 'Enter to send · Shift+Enter for new line'
+                  : `${sendShortcut} to send · Enter for new line`}
               </span>
               {active ? (
                 <Hint label="Stop response">
@@ -1674,11 +1850,13 @@ export function Conversation({
                   </Button>
                 </Hint>
               ) : (
-                <Hint label="Send (Enter)">
+                <Hint label={`Send (${enterToSend ? 'Enter' : sendShortcut})`}>
                   <Button
                     className="composer-send rounded-full"
                     aria-label="Send"
-                    aria-keyshortcuts="Enter"
+                    aria-keyshortcuts={
+                      enterToSend ? 'Enter' : isMac ? 'Meta+Enter' : 'Control+Enter'
+                    }
                     size="icon-sm"
                     disabled={taskBusy || !prompt.trim() || loading}
                     onClick={() => void send()}
@@ -1716,8 +1894,8 @@ export function Conversation({
           <DialogContent size="sm">
             <DialogHeader>
               <DialogTitle>
-                {prNotMerged?.number ? `PR #${prNotMerged.number}` : 'The pull request'} is not
-                merged
+                {prNotMerged?.number ? `Pull request #${prNotMerged.number}` : 'The pull request'}{' '}
+                is not merged
               </DialogTitle>
               <DialogDescription>
                 {prNotMerged?.state === 'closed'
@@ -1743,7 +1921,7 @@ export function Conversation({
                   setPrNotMerged(null);
                 }}
               >
-                Open pull request
+                {pullRequestActionLabel(prNotMerged || undefined)}
               </Button>
             </DialogFooter>
           </DialogContent>
@@ -1768,6 +1946,7 @@ export function Conversation({
                 autoFocus
                 onClick={() => {
                   setUncommitted(0);
+                  setCommitIntent('commit');
                   setCommitOpen(true);
                 }}
               >
@@ -1781,6 +1960,7 @@ export function Conversation({
             api={api}
             repositoryId={repositoryId}
             open={commitOpen}
+            intent={commitIntent}
             onOpenChange={setCommitOpen}
             onReview={() => review()}
             onCommitted={() => {

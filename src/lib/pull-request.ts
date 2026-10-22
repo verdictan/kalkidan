@@ -2,7 +2,7 @@
 // change after a pull request opens.
 import { trackerConnection } from '../domain/tracker';
 import { trackerClient } from './tracker-client';
-import type { API, ProjectGroup, SessionOrganization } from '../types';
+import type { API, ProjectGroup, SessionOrganization, WorkingStatus } from '../types';
 
 export interface PullRequestTask {
   title: string;
@@ -59,6 +59,22 @@ const stateLabels: Record<NonNullable<SessionPullRequest['state']>, string> = {
   merged: 'Merged',
   closed: 'Closed',
 };
+
+/**
+ * True when a pull request can take work from the checkout: changed files, or commits that the
+ * default branch does not have. A branch that is on the remote can also open a pull request.
+ */
+export function hasBranchWork(status: WorkingStatus) {
+  if (status.changed + status.untracked > 0) return true;
+  if (status.branch === status.defaultBranch) return false;
+  return status.ahead > 0 || status.published;
+}
+
+/** "Create pull request…" or "View pull request #12". */
+export function pullRequestActionLabel(pr: SessionPullRequest | undefined) {
+  if (!pr) return 'Create pull request…';
+  return pr.number ? `View pull request #${pr.number}` : 'View pull request';
+}
 
 /** For example "PR #12 · Open". */
 export function pullRequestLabel(pr: SessionPullRequest) {

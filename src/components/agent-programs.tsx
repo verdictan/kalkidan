@@ -1,5 +1,4 @@
-import { useEffect, useRef, useState, type FormEvent } from 'react';
-import { Laptop, RefreshCw, Server } from 'lucide-react';
+import { useRef, useState, type FormEvent } from 'react';
 import { agentCatalog } from '../config/agents';
 import type { API, AgentInstallation, RemoteHost } from '../types';
 import {
@@ -13,6 +12,7 @@ import {
   agentProgramAnchor,
   agentProgramStatus,
 } from '../domain/agent-programs';
+import { useRefreshTriggers } from '../hooks/use-refresh-triggers';
 import { setAgentInstallations } from '../lib/agent-preference';
 import { errorMessage } from '../lib/errors';
 import { fullTime, relativeTime } from '../lib/relative-time';
@@ -23,10 +23,15 @@ import { EntityIcon } from './ui/entity-icon';
 import { Input } from './ui/input';
 import { CommandHelp, HelpLink } from './github-account';
 import { ProgramPath } from './program-path';
-import { computerAnchor, type SettingsTab } from '../domain/settings-route';
-
-/** Moves Settings to a tab, and to an element in it. */
-type Navigate = (tab: SettingsTab, anchor?: string) => void;
+import {
+  Dialog,
+  DialogBody,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from './ui/dialog';
 
 /** How to install each agent CLI. */
 const agentInstall: Record<string, { command: string; href: string }> = {
@@ -44,266 +49,147 @@ export function AgentInstallHelp({ agent }: { agent: string }) {
   if (!install)
     return (
       <p className="mt-1 text-xs text-muted-foreground">
-        {name} is not installed. Install it, then select Check again.
+        {name} is not installed. Install it. Kalkidan then checks again.
       </p>
     );
   return (
     <div>
       <CommandHelp command={install.command}>
-        {name} is not installed. Run <code>{install.command}</code>, then select Check again.
+        {name} is not installed. Run <code>{install.command}</code> in a terminal.
       </CommandHelp>
       <HelpLink href={install.href}>How to install</HelpLink>
     </div>
   );
 }
 
-/** The result of the agent check on one computer. */
-interface ComputerCheck {
-  agents?: AgentInstallation[];
-  checkedAt?: number;
-  checking: boolean;
-  error?: string;
-}
-
 const sourceLabel: Record<NonNullable<AgentInstallation['source']>, string> = {
-  automatic: 'Automatic detection',
-  chosen: 'Chosen in Settings',
+  automatic: 'Found automatically',
+  chosen: 'Chosen by you',
   environment: 'Set by an environment variable',
 };
 
 /**
- * Settings › Agents: the agent programs on this computer and on each SSH host. The user can
- * choose the program that launches use on each computer.
+ * The agent programs of one computer in a sheet: this computer, or one SSH host. The user can
+ * choose the program that launches use. Kalkidan checks again when the sheet opens and when
+ * the window gets focus, for example after an install in a terminal.
  */
-export function AgentProgramsSettings({
-  api,
-  open,
-  onNavigate,
-}: {
-  api: API;
-  open: boolean;
-  /** Opens a different Settings tab, for example one host in Computers. */
-  onNavigate?: Navigate;
-}) {
-  const [hosts, setHosts] = useState<RemoteHost[]>([]);
-  const [checks, setChecks] = useState<Record<string, ComputerCheck>>({});
-  const [revision, setRevision] = useState(0);
-  const requests = useRef<Record<string, number>>({});
-  useEffect(() => {
-    if (!open) return;
-    let active = true;
-    const refresh = () => {
-      void Promise.resolve()
-        .then(() => api.remoteHosts?.() ?? [])
-        .then((value) => {
-          if (active) setHosts(value);
-        })
-        .catch(() => {
-          /* Without the list, only this computer shows. */
-        });
-    };
-    refresh();
-    const unsubscribe = api.onRemoteHostsChange?.(refresh);
-    return () => {
-      active = false;
-      unsubscribe?.();
-    };
-  }, [api, open]);
-
-  function update(key: string, change: Partial<ComputerCheck>) {
-    setChecks((previous) => ({
-      ...previous,
-      [key]: { ...(previous[key] || { checking: false }), ...change },
-    }));
-  }
-  function accept(key: string, hostId: string | undefined, agents: AgentInstallation[]) {
-    update(key, { agents, checkedAt: Date.now(), checking: false, error: undefined });
-    // The default agent depends on the agents of this computer.
-    if (!hostId) setAgentInstallations(agents);
-  }
-  function check(hostId?: string) {
-    const key = hostId || 'local';
-    const request = (requests.current[key] || 0) + 1;
-    requests.current[key] = request;
-    update(key, { checking: true, error: undefined });
-    void Promise.resolve()
-      .then(() => (hostId ? api.agentInstallations(hostId) : api.agentInstallations()))
-      .then((agents) => {
-        if (requests.current[key] === request) accept(key, hostId, agents);
-      })
-      .catch((error) => {
-        if (requests.current[key] !== request) return;
-        update(key, {
-          checking: false,
-          error: hostId
-            ? errorMessage(error) || 'Could not check the agents on this host. Try again.'
-            : 'Could not check agents. Try again.',
-        });
-      });
-  }
-  const connected = hosts
-    .filter((host) => host.status === 'connected')
-    .map((host) => host.id)
-    .join(',');
-  useEffect(() => {
-    if (open) check();
-  }, [open, api, revision]);
-  useEffect(() => {
-    if (!open) return;
-    for (const id of connected.split(',').filter(Boolean)) check(id);
-  }, [open, api, revision, connected]);
-  const checking = Object.values(checks).some((item) => item.checking);
-
-  return (
-    <div className="grid min-w-0 grid-cols-1 gap-5">
-      <div className="flex items-center justify-between gap-4">
-        <p className="min-w-0 flex-1 text-xs text-muted-foreground">
-          Kalkidan needs Codex {agentMinimumVersions.codex} or later and Claude Code{' '}
-          {agentMinimumVersions.claude_code} or later on each computer.
-        </p>
-        <Button
-          variant="outline"
-          size="sm"
-          disabled={checking}
-          onClick={() => setRevision((n) => n + 1)}
-        >
-          <RefreshCw className={checking ? 'animate-spin' : ''} />
-          Check again
-        </Button>
-      </div>
-      <ComputerPrograms
-        api={api}
-        title="This computer"
-        check={checks.local || { checking: open }}
-        connected
-        onChosen={(agents) => accept('local', undefined, agents)}
-      />
-      {hosts.map((host) => {
-        const live = checks[host.id];
-        const ready = host.status === 'connected';
-        // A host that is not connected shows the last result that the desktop kept.
-        const check: ComputerCheck =
-          ready && live
-            ? {
-                ...live,
-                agents: live.agents ?? host.agentCheck?.agents,
-                checkedAt: live.checkedAt ?? host.agentCheck?.checkedAt,
-              }
-            : {
-                checking: false,
-                agents: host.agentCheck?.agents,
-                checkedAt: host.agentCheck?.checkedAt,
-              };
-        return (
-          <ComputerPrograms
-            key={host.id}
-            api={api}
-            host={host}
-            title={host.name}
-            check={check}
-            connected={ready}
-            onChosen={(agents) => accept(host.id, host.id, agents)}
-            onNavigate={onNavigate}
-          />
-        );
-      })}
-    </div>
-  );
-}
-
-/** The agent programs of one computer. */
-function ComputerPrograms({
+export function AgentProgramsDialog({
   api,
   host,
-  title,
-  check,
-  connected,
-  onChosen,
-  onNavigate,
+  open,
+  onOpenChange,
+  onChecked,
 }: {
   api: API;
+  /** The SSH host. No host means this computer. */
   host?: RemoteHost;
-  title: string;
-  check: ComputerCheck;
-  connected: boolean;
-  onChosen: (agents: AgentInstallation[]) => void;
-  onNavigate?: Navigate;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  /** The result of each check, for the Settings rows. */
+  onChecked?: (agents: AgentInstallation[]) => void;
 }) {
-  const where = host ? title : 'this computer';
-  const checkedAt = check.checkedAt ? new Date(check.checkedAt).toISOString() : undefined;
-  const statuses = agentCatalog.map(({ id, name }) => {
-    const item = check.agents?.find((entry) => entry.agent === id);
-    return `${name}: ${check.checking ? 'Checking…' : agentProgramStatus(item).label}.`;
-  });
+  const [agents, setAgents] = useState<AgentInstallation[] | undefined>(host?.agentCheck?.agents);
+  const [checkedAt, setCheckedAt] = useState<number | undefined>(host?.agentCheck?.checkedAt);
+  const [checking, setChecking] = useState(false);
+  const [error, setError] = useState('');
+  const request = useRef(0);
+  const connected = !host || host.status === 'connected';
+  const where = host ? host.name : 'this computer';
+  const onCheckedRef = useRef(onChecked);
+  onCheckedRef.current = onChecked;
+  function accept(list: AgentInstallation[]) {
+    setAgents(list);
+    setCheckedAt(Date.now());
+    setError('');
+    // The default agent depends on the agents of this computer.
+    if (!host) setAgentInstallations(list);
+    onCheckedRef.current?.(list);
+  }
+  function check() {
+    if (!connected) return;
+    const id = ++request.current;
+    setChecking(true);
+    void Promise.resolve()
+      .then(() => (host ? api.agentInstallations(host.id) : api.agentInstallations()))
+      .then(
+        (list) => id === request.current && accept(list),
+        (failure) => {
+          if (id !== request.current) return;
+          setError(
+            host
+              ? errorMessage(failure) || 'Could not check the agents on this host. Try again.'
+              : 'Could not check the agents. Try again.',
+          );
+        },
+      )
+      .finally(() => id === request.current && setChecking(false));
+  }
+  useRefreshTriggers(undefined, open, check);
+  const checkedText = checking
+    ? 'Checking…'
+    : checkedAt
+      ? `Checked ${relativeTime(new Date(checkedAt).toISOString())}`
+      : '';
   return (
-    <section
-      id={agentComputerAnchor(host?.id)}
-      tabIndex={-1}
-      aria-label={`Agents on ${where}`}
-      className="grid min-w-0 gap-2 outline-none"
-    >
-      <header className="flex min-w-0 items-center gap-2">
-        {host ? (
-          <Server className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
-        ) : (
-          <Laptop className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
-        )}
-        <h3 className="min-w-0 truncate text-sm font-medium">{title}</h3>
-        {host && <span className="truncate text-xs text-muted-foreground">{host.target}</span>}
-        <span className="ml-auto shrink-0 text-xs text-muted-foreground">
-          {check.checking ? (
-            'Checking…'
-          ) : checkedAt ? (
-            <span title={fullTime(checkedAt)}>Last checked {relativeTime(checkedAt)}</span>
-          ) : null}
-        </span>
-      </header>
-      {host && !connected && (
-        <p className="text-xs text-muted-foreground">
-          {check.agents
-            ? 'This host is not connected. This is the last result.'
-            : 'Connect the host to check its agents.'}{' '}
-          {onNavigate && (
-            <button
-              type="button"
-              className="text-link"
-              onClick={() => onNavigate('computers', computerAnchor(host.id))}
-            >
-              Open in Computers
-            </button>
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent size="md" layout="scroll">
+        <DialogHeader>
+          <DialogTitle>Agent programs on {where}</DialogTitle>
+          <DialogDescription>
+            Kalkidan needs Codex {agentMinimumVersions.codex} or later and Claude Code{' '}
+            {agentMinimumVersions.claude_code} or later.
+          </DialogDescription>
+        </DialogHeader>
+        <DialogBody
+          id={agentComputerAnchor(host?.id)}
+          className="grid content-start gap-3"
+          aria-busy={checking}
+        >
+          {host && !connected && (
+            <p className="form-help mt-0">
+              {agents
+                ? 'This host is not connected. This is the last result.'
+                : 'Connect the host to check its agents.'}
+            </p>
           )}
-        </p>
-      )}
-      {(check.agents || !host) && (
-        <ul className="divide-y rounded-lg border">
-          {agentCatalog.map(({ id, name, vendor }) => (
-            <ProgramRow
-              key={id}
-              api={api}
-              agent={id}
-              name={name}
-              vendor={vendor}
-              hostId={host?.id}
-              where={where}
-              installation={check.agents?.find((item) => item.agent === id)}
-              checking={check.checking && !check.agents}
-              // A program can change only on a computer that answers.
-              editable={connected && !!api.chooseAgentExecutable}
-              onChosen={onChosen}
-            />
-          ))}
-        </ul>
-      )}
-      {/* One live region announces the result of all checks on this computer together. */}
-      <p role="status" className="sr-only">
-        {statuses.join(' ')}
-      </p>
-      {check.error && (
-        <p role="alert" className="field-error">
-          {check.error}
-        </p>
-      )}
-    </section>
+          {(agents || !host) && (
+            <ul className="settings-rows" aria-label={`Agents on ${where}`}>
+              {agentCatalog.map(({ id, name, vendor }) => (
+                <ProgramRow
+                  key={id}
+                  api={api}
+                  agent={id}
+                  name={name}
+                  vendor={vendor}
+                  hostId={host?.id}
+                  where={where}
+                  installation={agents?.find((item) => item.agent === id)}
+                  checking={checking && !agents}
+                  // A program can change only on a computer that answers.
+                  editable={connected && !!api.chooseAgentExecutable}
+                  onChosen={accept}
+                />
+              ))}
+            </ul>
+          )}
+          {error && (
+            <p role="alert" className="field-error">
+              {error}
+            </p>
+          )}
+        </DialogBody>
+        <DialogFooter className="items-center">
+          <span role="status" className="mr-auto text-xs leading-4 text-muted-foreground">
+            {checkedText && checkedAt ? (
+              <span title={fullTime(new Date(checkedAt).toISOString())}>{checkedText}</span>
+            ) : (
+              checkedText
+            )}
+          </span>
+          <Button onClick={() => onOpenChange(false)}>Done</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -371,7 +257,7 @@ function ProgramRow({
       id={agentProgramAnchor(agent, hostId)}
       tabIndex={-1}
       aria-label={`${name} on ${where}`}
-      className="flex min-h-[var(--row-height-2line)] items-start gap-3 px-3 py-2 outline-none focus-visible:shadow-[var(--focus-ring)]"
+      className="flex min-h-[52px] items-start gap-3 border-b py-3 outline-none focus-visible:shadow-[var(--focus-ring)]"
     >
       <EntityIcon>
         <AgentIcon agent={agent} />
@@ -422,7 +308,7 @@ function ProgramRow({
               )}
             {install && (
               <CommandHelp command={install.command}>
-                To update, run <code>{install.command}</code>, then select Check again.
+                To update, run <code>{install.command}</code> in a terminal.
               </CommandHelp>
             )}
           </>
@@ -440,7 +326,7 @@ function ProgramRow({
                   {editable && !fixedByEnvironment && (
                     <Button
                       variant="outline"
-                      size="xs"
+                      size="sm"
                       disabled={busy}
                       aria-label={`Use ${candidate.path}`}
                       onClick={() => void choose(candidate.path)}
@@ -462,12 +348,12 @@ function ProgramRow({
         {editable && !fixedByEnvironment && !checking && installation && (
           <div className="flex flex-wrap items-center gap-2">
             {!choosing && (
-              <Button variant="outline" size="xs" onClick={() => setChoosing(true)}>
+              <Button variant="outline" size="sm" onClick={() => setChoosing(true)}>
                 Choose program…
               </Button>
             )}
             {installation.source === 'chosen' && (
-              <Button variant="ghost" size="xs" disabled={busy} onClick={() => void choose(null)}>
+              <Button variant="ghost" size="sm" disabled={busy} onClick={() => void choose(null)}>
                 Use automatic detection
               </Button>
             )}
@@ -484,13 +370,13 @@ function ProgramRow({
               autoFocus
               onChange={(event) => setPath(event.target.value)}
             />
-            <Button type="submit" size="xs" disabled={busy || !path.trim()}>
+            <Button type="submit" size="sm" disabled={busy || !path.trim()}>
               {busy ? 'Checking…' : 'Use program'}
             </Button>
             <Button
               type="button"
               variant="ghost"
-              size="xs"
+              size="sm"
               disabled={busy}
               onClick={() => {
                 setChoosing(false);

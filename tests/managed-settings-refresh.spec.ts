@@ -1,4 +1,5 @@
-import { test, expect, type Locator, type Page } from '@playwright/test';
+import { type Locator, type Page } from '@playwright/test';
+import { test, expect, openAgentSetup, openSettings, settingsTab } from './helpers/app';
 
 const team = '11111111-1111-4111-8111-111111111111';
 const cfg = `cfg_${'a'.repeat(32)}`;
@@ -45,19 +46,14 @@ async function fixture(page: Page, extra: string) {
   await page.goto('/');
 }
 
-/** Opens Settings on one tab and returns the Settings page. */
-async function openTab(page: Page, tab: 'Accounts' | 'Agents' | 'Computers') {
-  await page.getByRole('button', { name: 'Settings', exact: true }).click();
-  const settings = page.getByRole('region', { name: 'Settings', exact: true });
-  await settings.getByRole('tab', { name: tab, exact: true }).click();
-  return settings;
+/** Opens Settings on one section and returns the Settings dialog. */
+async function openTab(page: Page, tab: 'Account' | 'Agents' | 'Computers') {
+  return openSettings(page, tab);
 }
 
-/** The managed agents runtime of this computer in Settings › Computers. */
+/** The row of this computer in Settings › Computers, with the managed agents runtime. */
 const localRuntime = (settings: Locator) =>
-  settings
-    .getByRole('group', { name: 'This computer' })
-    .getByRole('region', { name: 'Managed agents runtime' });
+  settings.getByRole('group', { name: 'This computer', exact: true });
 
 test('the runtime step shows the install and its result without a manual refresh', async ({
   page,
@@ -98,16 +94,14 @@ test('the runtime step shows the install and its result without a manual refresh
   const settings = await openTab(page, 'Computers');
   const runtime = localRuntime(settings);
   await expect(runtime.getByRole('status').first()).toHaveText('Not installed');
-  await runtime.getByRole('button', { name: 'Install version 0.6.4' }).click();
+  await runtime.getByRole('button', { name: 'Install', exact: true }).click();
   await expect(runtime.getByRole('status').first()).toHaveText('Installing…');
   await expect(runtime).toContainText('Starting the install of version 0.6.4');
-  await expect(runtime.getByRole('button', { name: /Install version/ })).toHaveCount(0);
-  await expect(runtime).not.toContainText('An install or check is in progress');
-  // The poll reads the result. Nobody presses the refresh button.
-  await expect(runtime.getByRole('status').first()).toHaveText('Installed 0.6.4', {
-    timeout: 10000,
-  });
-  await expect(runtime).toContainText('Installed0.6.4');
+  await expect(runtime.getByRole('button', { name: 'Install', exact: true })).toHaveCount(0);
+  await expect(settings).not.toContainText('An install or check is in progress');
+  // The poll reads the result. Nobody presses a refresh button.
+  await expect(runtime.getByRole('status').first()).toHaveText('Ready', { timeout: 10000 });
+  await expect(runtime).toContainText('Managed agents 0.6.4 · Updates automatically');
   expect(await page.evaluate(() => (window as any).statusReads())).toBeGreaterThanOrEqual(3);
 });
 
@@ -150,27 +144,29 @@ test('a region change shows its progress and no errors, then clears them', async
       },
     };`,
   );
-  const managed = await openTab(page, 'Accounts');
-  const account = managed.getByRole('region', { name: 'Verdictan account' });
-  await expect(account.getByRole('status').first()).toHaveText('Region not selected');
-  await account.getByRole('combobox', { name: 'Account region' }).click();
-  await page.getByRole('option', { name: 'European Union' }).click();
-  await expect(account.getByRole('status').first()).toHaveText('Switching region…');
-  await expect(account.getByRole('combobox', { name: 'Account region' })).toContainText(
-    'European Union',
-  );
-  await expect(account).toContainText('connects to the European Union service');
+  const managed = await openTab(page, 'Account');
+  const region = managed.getByRole('group', { name: 'Region', exact: true });
+  await expect(region).toContainText('Not chosen');
+  await region.getByRole('button', { name: 'Choose…', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'Choose a region' });
+  await dialog.getByRole('radio', { name: 'European Union' }).check();
+  await dialog.getByRole('button', { name: 'Use this region', exact: true }).click();
+  // The change runs. The region dialog shows its progress until the change finishes.
+  await expect(dialog.getByRole('button', { name: 'Changing…' })).toBeDisabled();
   // Give the failed reads time to arrive. They must not show as errors.
   await page.waitForTimeout(1500);
-  await expect(managed).not.toContainText('Could not read the account status');
-  await expect(managed).not.toContainText('This computer is not available');
-  await expect(managed).not.toContainText('Error invoking remote method');
-  await expect(account.getByRole('status').first()).toHaveText('Switching region…');
+  const body = page.locator('body');
+  await expect(body).not.toContainText('Could not read the account status');
+  await expect(body).not.toContainText('This computer is not available');
+  await expect(body).not.toContainText('Error invoking remote method');
+  await expect(dialog.getByRole('button', { name: 'Changing…' })).toBeDisabled();
   await page.evaluate(() => (window as any).finishSwitch());
-  await expect(account.getByRole('status').first()).toHaveText('Signed in');
-  // The runtime of this computer moved to Computers. It reads again after the change.
-  await managed.getByRole('tab', { name: 'Computers', exact: true }).click();
-  await expect(localRuntime(managed).getByRole('status').first()).toHaveText('Installed 0.6.4');
+  await expect(dialog).toHaveCount(0);
+  await expect(region).toContainText('European Union');
+  await expect(managed.getByRole('button', { name: 'Sign out', exact: true })).toBeVisible();
+  // The runtime of this computer is in Computers. It reads again after the change.
+  await settingsTab(page, 'Computers').click();
+  await expect(localRuntime(managed).getByRole('status').first()).toHaveText('Ready');
   await expect(managed).not.toContainText('Could not read');
   await expect(managed).not.toContainText('not available');
 });
@@ -187,12 +183,11 @@ test('a stale account read error goes away after a read that works', async ({ pa
       },
     };`,
   );
-  const settings = await openTab(page, 'Accounts');
-  const account = settings.getByRole('region', { name: 'Verdictan account' });
-  await expect(account).toContainText('Could not read the account status.');
+  const settings = await openTab(page, 'Account');
+  await expect(settings).toContainText('Could not read the account status.');
   await page.evaluate(() => (window as any).recover());
-  await expect(account.getByRole('status').first()).toHaveText('Signed out');
-  await expect(account).not.toContainText('Could not read the account status.');
+  await expect(settings.getByRole('group', { name: 'Sign in to Verdictan' })).toBeVisible();
+  await expect(settings).not.toContainText('Could not read the account status.');
 });
 
 const signedIn = `verdictanStatus: async () => ({
@@ -238,27 +233,30 @@ test('setup keeps the existing policies when the default cannot be made', async 
       },
     };`,
   );
-  const settings = await openTab(page, 'Agents');
-  const setup = settings.getByRole('region', { name: 'Managed setup' });
+  const setup = await openAgentSetup(page);
   await expect(setup.getByRole('note').first()).toContainText(
     'Kalkidan could not make the Kalkidan default policy now. Choose another policy',
   );
-  await expect(setup).not.toContainText('Could not load the setup choices');
+  await expect(setup).not.toContainText('Could not load the choices');
   await setup.getByRole('combobox', { name: 'Policy' }).click();
   await expect(page.getByRole('option')).toHaveText(['Choose a policy', 'Policy 1', 'Policy 2']);
   await page.getByRole('option', { name: 'Policy 2' }).click();
-  await setup.getByRole('combobox', { name: 'Connection' }).click();
-  await page.getByRole('option', { name: 'OpenAI connection' }).click();
+  // The only OpenAI connection is chosen at once, so the sheet does not ask for it.
+  await expect(setup.getByRole('combobox', { name: 'Connection' })).toHaveCount(0);
   // The model name completes the selection. It saves at once.
-  await setup.getByRole('textbox').fill('gpt-5');
-  await setup.getByRole('textbox').press('Enter');
-  await expect(setup).toContainText('Ready for Codex');
+  await setup.getByRole('textbox', { name: 'Default model' }).fill('gpt-5');
+  await setup.getByRole('textbox', { name: 'Default model' }).press('Enter');
+  await expect(setup.getByRole('status').last()).toHaveText('Codex is ready.');
   const saved = await page.evaluate(() => (window as any).saved);
-  expect(saved[0][1]).toMatchObject({ configurationId: cfg, configurationVersionId: cfgv2 });
-  // Refresh asks the desktop again, which retries the default.
+  expect(saved[0][1]).toMatchObject({
+    configurationId: cfg,
+    configurationVersionId: cfgv2,
+    providerConnectionId: team,
+  });
+  // A change in the desktop loads the choices again, which retries the default.
   const before = await page.evaluate(() => (window as any).loads());
-  await setup.getByRole('button', { name: 'Refresh choices' }).click();
-  await expect.poll(() => page.evaluate(() => (window as any).loads())).toBe(before + 1);
+  await page.evaluate(() => (window as any).emitChanged());
+  await expect.poll(() => page.evaluate(() => (window as any).loads())).toBeGreaterThan(before);
 });
 
 test('a permission failure for the default shows the administrator recovery and the policies', async ({
@@ -279,16 +277,13 @@ test('a permission failure for the default shows the administrator recovery and 
       }),
     };`,
   );
-  const settings = await openTab(page, 'Agents');
-  const setup = settings.getByRole('region', { name: 'Managed setup' });
+  const setup = await openAgentSetup(page);
   await expect(setup.getByRole('note').first()).toContainText(
     'Ask an organization administrator to connect Kalkidan once.',
   );
   await expect(setup.getByRole('note').first()).toContainText('Until then, choose another policy.');
-  // The only policy is chosen at once. It has no name, so it shows a generic label.
-  await expect(setup.getByRole('combobox', { name: 'Policy' })).toHaveText('Policy');
-  await setup.getByRole('combobox', { name: 'Policy' }).click();
-  await expect(page.getByRole('option')).toHaveText(['Choose a policy', 'Policy']);
-  await page.keyboard.press('Escape');
-  await expect(setup).not.toContainText('Could not load the setup choices');
+  // The only policy is chosen at once, so the sheet does not ask for it.
+  await expect(setup.getByRole('combobox', { name: 'Policy' })).toHaveCount(0);
+  await expect(setup.getByRole('textbox', { name: 'Default model' })).toBeVisible();
+  await expect(setup).not.toContainText('Could not load the choices');
 });

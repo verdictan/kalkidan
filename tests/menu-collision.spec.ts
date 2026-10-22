@@ -1,4 +1,5 @@
-import { test, expect, type Page } from '@playwright/test';
+import { type Page } from '@playwright/test';
+import { test, expect } from './helpers/app';
 
 const titlebarHeight = 48;
 
@@ -26,7 +27,14 @@ test('project menu stays inside a short window and scrolls', async ({ page }) =>
   await page.goto('/');
   await page.getByRole('button', { name: 'Manage project Atlas', exact: true }).click();
   await expectInsideWindow(page);
-  await expect(page.getByRole('menuitemradio', { name: 'Default', exact: true })).toBeAttached();
+  // The folder colors are in a submenu. It also stays inside the window.
+  await page.getByRole('menuitem', { name: 'Folder color', exact: true }).click();
+  await expect(page.getByRole('menuitemradio', { name: 'Default', exact: true })).toBeVisible();
+  const submenu = page.getByRole('menu').last();
+  const box = await submenu.boundingBox();
+  expect(box!.y).toBeGreaterThanOrEqual(titlebarHeight);
+  expect(box!.y + box!.height).toBeLessThanOrEqual(page.viewportSize()!.height);
+  await page.keyboard.press('Escape');
   await page.keyboard.press('Escape');
 
   const project = page.locator('.project-tree').getByRole('button', { name: 'Atlas', exact: true });

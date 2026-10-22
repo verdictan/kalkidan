@@ -1,4 +1,5 @@
-import { test, expect, type Page } from '@playwright/test';
+import { type Page } from '@playwright/test';
+import { test, expect } from './helpers/app';
 import { openTool } from './helpers/tools';
 import { openCodeFolder } from './helpers/navigation';
 
@@ -52,7 +53,8 @@ test('Commit is disabled with a reason when there are no changes', async ({ page
   await openChat(page, '');
   await openTool(page, 'Changes');
   const tools = page.getByRole('region', { name: 'Repository tools' });
-  await expect(tools).toContainText('No changes in this scope');
+  await expect(tools).toContainText('No changes here');
+  await expect(tools).toContainText('This folder has no uncommitted changes.');
   const commit = tools.getByRole('button', { name: 'Commit…', exact: true });
   await expect(commit).toBeDisabled();
   await expect(commit.locator('..')).toHaveAccessibleDescription('No changes to commit.');

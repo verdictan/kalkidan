@@ -144,19 +144,22 @@
   overflow-wrap: anywhere;
 }
 
-/* The composer dock holds the approval banner and the composer at one width. */
+/* The composer dock holds the approval banner and the composer. It has the message width,
+   so the composer edges align with the messages. */
 .composer-dock {
-  width: min(calc(100% - 14px), calc(var(--reading-width) + 34px));
+  width: min(calc(100% - 48px), var(--reading-width));
   align-self: center;
   flex-shrink: 0;
   padding: 8px 0 16px;
 }
+/* 16px inside the border: the text starts 16px from the left edge of the message column. The
+   chips and Send sit 8px from the border. */
 .conversation-composer {
   position: relative;
   display: flex;
   flex-direction: column;
   gap: 8px;
-  padding: 8px;
+  padding: 12px 16px 8px;
   border: 1px solid var(--border);
   border-radius: var(--radius-2xl);
   background: var(--card);
@@ -290,13 +293,51 @@
   color: var(--secondary-foreground);
   font-weight: 500;
 }
-/* A message that did not reach the agent, with the error and its actions under it. */
+/* A message that did not reach the agent, with the "could not start" card under it. Only
+   the icon is red. */
 .chat-message[data-failed] {
-  outline: 1px dashed color-mix(in oklab, var(--destructive) 50%, transparent);
+  outline: 1px dashed var(--border);
   outline-offset: -1px;
 }
 .chat-send-failure {
-  margin-top: 8px;
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr);
+  gap: 12px;
+  margin-top: 12px;
+  padding: 12px 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xl);
+  background: var(--card);
+  color: var(--card-foreground);
+}
+.chat-send-failure-icon {
+  width: 16px;
+  height: 16px;
+  margin-top: 2px;
+  color: var(--destructive);
+}
+.chat-send-failure-title {
+  font-size: 13px;
+  line-height: 20px;
+  font-weight: 600;
+}
+.chat-send-failure-body {
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--muted-foreground);
+}
+/* "Details": the managed-only note and the error code, closed by default. */
+.agent-error-details {
+  display: grid;
+  gap: 4px;
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--muted-foreground);
+}
+.agent-error-details > summary {
+  width: fit-content;
+  cursor: pointer;
+  user-select: none;
 }
 /* "Used 3 doc passages" and "Memory: read 2 · saved 1" under an answer. */
 .chat-sources {
@@ -315,6 +356,7 @@
   display: flex;
   align-items: center;
   gap: 8px;
+  margin-inline: -8px;
 }
 /* The chips stay on one row with Send. The model chip truncates first. In a narrow
    composer, "Link task" moves into a menu. */
@@ -359,22 +401,31 @@
   font-size: 12px;
   line-height: 16px;
 }
-/* "{n} files changed · Review · Commit" after a run. */
+/* "3 files changed · Review · Create pull request · Mark done" after a run. */
 .run-changes {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 8px;
+  min-height: 36px;
   margin: 0 0 8px;
-  padding: 2px 4px 2px 12px;
-  border-radius: var(--radius-2xl);
-  background: var(--muted);
+  padding: 4px 4px 4px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xl);
+  background: var(--card);
   color: var(--muted-foreground);
   font-size: 12px;
   line-height: 16px;
 }
-.run-changes > span:first-of-type {
+.run-changes > [role='status'] {
+  min-width: 0;
   color: var(--foreground);
   font-weight: 500;
+}
+.run-changes-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
 }
 .approval-banner svg {
   color: var(--warning);
@@ -407,15 +458,18 @@
   gap: 8px;
   margin-top: 16px;
 }
+/* Until the first message, the welcome block and the composer sit together in the middle of
+   the panel, a little above the centre. */
+.conversation-empty {
+  justify-content: center;
+  padding-bottom: 8vh;
+}
 .conversation-empty .conversation-messages {
   display: flex;
+  flex: 0 1 auto;
   flex-direction: column;
-  justify-content: flex-start;
-  flex: 1;
-  padding-bottom: 40px;
-}
-.conversation-empty .conversation-welcome {
-  margin-top: auto;
+  justify-content: flex-end;
+  padding-block: 16px 8px;
 }
 /* Compact: a narrow session column (next to tools or a side session) or a short panel. */
 @container conversation (max-width: 720px) or (max-height: 640px) {
@@ -430,10 +484,10 @@
     padding-bottom: 12px;
   }
 }
-/* In a short window, an empty session keeps the composer near the middle. */
-@media (max-height: 740px) {
-  .conversation-empty .conversation-messages {
-    max-height: 30%;
+/* In a short window, the empty chat uses the full height. */
+@media (max-height: 640px) {
+  .conversation-empty {
+    padding-bottom: 0;
   }
 }
 
@@ -542,6 +596,19 @@
   font-size: 13px;
   font-weight: 500;
   color: var(--foreground);
+}
+/* The chat trail shortens from the middle. "Projects" and the project go first, then the
+   code folder. The chat title stays. */
+@container chat-trail (max-width: 560px) {
+  .conversation-trail [data-optional] {
+    display: none;
+  }
+}
+@container chat-trail (max-width: 320px) {
+  .conversation-trail [data-middle],
+  .conversation-trail [data-middle] + svg {
+    display: none;
+  }
 }
 /* The note of the chat, after the title. Select it to change the note. */
 .conversation-note {

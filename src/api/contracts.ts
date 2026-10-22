@@ -357,10 +357,12 @@ export const menuCommands = [
   'session-changes',
   'go-overview',
   'go-tasks',
+  'go-chats',
   'go-docs',
   'go-memory',
   'go-insights',
   'all-sessions',
+  'sign-in',
   // The Chat menu sends the commands of the chat action list.
   ...chatCommands,
 ] as const;
@@ -380,9 +382,16 @@ export interface MenuAPI {
   onFullScreenChange?(callback: (fullScreen: boolean) => void): () => void;
   /**
    * Shows an OS notification when the window is not focused. A click focuses the window
-   * and calls the onNotificationClick listener with `target`.
+   * and calls the onNotificationClick listener with `target`. `kind` selects the choice in
+   * Settings › General › Notifications that applies. Without it, a title that ends with
+   * "finished" is a finished notification, and each other title asks for input.
    */
-  notify?(input: { title: string; body: string; target: string }): Promise<void>;
+  notify?(input: {
+    title: string;
+    body: string;
+    target: string;
+    kind?: 'finished' | 'needs-input';
+  }): Promise<void>;
   onNotificationClick?(callback: (target: string) => void): () => void;
   /** Sets the dock or taskbar badge. 0 clears it. */
   setBadgeCount?(count: number): Promise<void>;
@@ -393,6 +402,14 @@ export interface MemoryAPI {
   memoryEntries(groupId: string): Promise<import('../domain/memory').MemoryEntry[]>;
   /** Marks an entry as wrong. The entry stops being given to agents. The file keeps a record. */
   memoryForget(groupId: string, id: string, revision: string): Promise<void>;
+  /**
+   * Saves an entry that the user wrote. Without `id` it adds an entry. With `id`, it edits that
+   * entry when `expectedRevision` is its current revision, else the result is a conflict.
+   */
+  memorySave(
+    groupId: string,
+    entry: { id?: string; expectedRevision?: string; topic: string; content: string },
+  ): Promise<import('../domain/memory').MemoryWriteResult>;
   projectResourceRevision?(groupId: string, kind: 'docs' | 'memory'): Promise<string>;
 }
 export interface API

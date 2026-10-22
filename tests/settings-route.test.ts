@@ -2,44 +2,51 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   computerAnchor,
-  isSettingsTab,
+  isSettingsSection,
   helperUpdateAnchor,
   runtimeAnchor,
+  settingsSections,
   settingsTabLabel,
-  settingsTabs,
   settingsTarget,
 } from '../src/domain/settings-route';
 import { managedSetupTargets } from '../src/domain/verdictan';
 import { restoreRoute, routeKey, saveableRoute } from '../src/domain/workspace-route';
 import type { Session } from '../src/domain/conversation';
 
-test('Settings has four tabs in order', () => {
+test('Settings has five sections in order', () => {
   assert.deepEqual(
-    settingsTabs.map((tab) => tab.label),
-    ['General', 'Accounts', 'Agents', 'Computers'],
+    settingsSections.map((section) => section.label),
+    ['General', 'Account', 'Agents', 'Computers', 'About'],
   );
-  assert.equal(isSettingsTab('computers'), true);
-  assert.equal(isSettingsTab('remote'), false);
-  assert.equal(isSettingsTab('updates'), false);
-  assert.equal(settingsTabLabel('computers'), 'Computers');
+  assert.equal(isSettingsSection('computers'), true);
+  assert.equal(isSettingsSection('remote'), false);
+  assert.equal(isSettingsSection('accounts'), false);
+  assert.equal(settingsTabLabel('updates'), 'Computers');
+  assert.equal(settingsTabLabel('accounts'), 'Account');
 });
 
-test('older section names and anchors open their new tab', () => {
+test('older section names and anchors open their new section', () => {
   assert.deepEqual(settingsTarget(), { tab: 'general', anchor: undefined });
   assert.deepEqual(settingsTarget('unknown'), { tab: 'general', anchor: undefined });
-  assert.deepEqual(settingsTarget('accounts'), { tab: 'accounts', anchor: undefined });
-  assert.deepEqual(settingsTarget('about'), { tab: 'general', anchor: 'settings-about' });
+  assert.deepEqual(settingsTarget('accounts'), { tab: 'account', anchor: undefined });
+  assert.deepEqual(settingsTarget('updates'), { tab: 'computers', anchor: 'runtime-local' });
+  assert.deepEqual(settingsTarget('remote-hosts'), { tab: 'computers', anchor: undefined });
+  assert.deepEqual(settingsTarget('about'), { tab: 'about', anchor: undefined });
+  assert.deepEqual(settingsTarget(undefined, 'settings-about'), {
+    tab: 'about',
+    anchor: 'settings-about',
+  });
   assert.deepEqual(settingsTarget('remote'), { tab: 'computers', anchor: undefined });
   assert.deepEqual(settingsTarget('managed-agents'), {
     tab: 'agents',
     anchor: 'managed-agent-setup',
   });
   assert.deepEqual(settingsTarget('managed-agents', 'verdictan-account'), {
-    tab: 'accounts',
+    tab: 'account',
     anchor: 'verdictan-account',
   });
   assert.deepEqual(settingsTarget('managed-agents', 'verdictan-region'), {
-    tab: 'accounts',
+    tab: 'account',
     anchor: 'verdictan-region',
   });
   assert.deepEqual(settingsTarget('managed-agents', 'verdictan-runtime'), {
@@ -74,7 +81,7 @@ test('older section names and anchors open their new tab', () => {
   });
 });
 
-test('each managed setup step opens a tab that holds its anchor', () => {
+test('each managed setup step opens a section that holds its anchor', () => {
   for (const target of Object.values(managedSetupTargets)) {
     const resolved = settingsTarget(target.section, target.anchor);
     assert.equal(resolved.tab, target.section, target.anchor);

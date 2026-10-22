@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactElement } from 'react';
-import { ChevronLeft, ChevronRight, Paperclip } from 'lucide-react';
+import { ChevronLeft, ChevronRight, FileCheck, Paperclip } from 'lucide-react';
 import type { RepositoryDiff } from '../types';
 import { diffFiles } from '../lib/diff-files';
 import { pathBasename, plural } from '../lib/platform';
@@ -136,7 +136,14 @@ export function DiffReview({
     files.findIndex((file) => file.key === selection),
   );
   const current = files[index];
-  if (!current) return <EmptyState compact title="No changes in this scope" />;
+  if (!current)
+    return (
+      <EmptyState compact icon={<FileCheck />} title="No changes here">
+        {scope === 'staged'
+          ? 'No staged changes. Select Uncommitted changes to see all changes.'
+          : 'This folder has no uncommitted changes.'}
+      </EmptyState>
+    );
   return (
     <section aria-label="File change review" className="diff-review">
       <div className="flex shrink-0 flex-wrap items-center gap-2">

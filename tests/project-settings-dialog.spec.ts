@@ -1,4 +1,5 @@
-import { test, expect, type Page } from '@playwright/test';
+import { type Page } from '@playwright/test';
+import { test, expect } from './helpers/app';
 import { openProjectTab } from './helpers/navigation';
 
 const settings = (page: Page) =>
@@ -6,36 +7,39 @@ const settings = (page: Page) =>
 const section = (page: Page, name: string) =>
   settings(page).getByRole('tab', { name, exact: true });
 
-test('Project settings has General, Code folders, Board and Danger zone sections', async ({
-  page,
-}) => {
+test('Project settings has General, Code folders and Board sections', async ({ page }) => {
   await page.goto('/');
   // The header button opens the dialog on every tab. The page stays the same.
   await openProjectTab(page, 'Docs', 'Atlas');
   await page.locator('.project-header').getByRole('button', { name: 'Project settings' }).click();
   await expect(settings(page)).toBeVisible();
   // The dialog hides the page from assistive technology, so find the page by its class.
-  await expect(page.locator('.docs-library')).toBeAttached();
-  await expect(settings(page).getByRole('tab')).toHaveText([
-    'General',
-    'Code folders',
-    'Board connection',
-    'Danger zone',
-  ]);
+  await expect(page.locator('.docs-layout')).toBeAttached();
+  // Without a board, there is no Automatic status changes section.
+  await expect(settings(page).getByRole('tab')).toHaveText(['General', 'Code folders', 'Board']);
 
-  // General: name, color, and where work runs. The location cannot change.
+  // General: name, color, where work runs, and Remove project. The location cannot change.
   await expect(section(page, 'General')).toHaveAttribute('aria-selected', 'true');
   const name = settings(page).getByRole('textbox', { name: 'Project name', exact: true });
   await expect(name).toHaveValue('Atlas');
-  const where = settings(page).getByRole('region', { name: 'Where work runs' });
-  await expect(where).toContainText('This computer');
-  await expect(where).toContainText('You cannot change where work runs.');
-  await expect(settings(page).getByRole('button', { name: 'Save project' })).toBeDisabled();
+  await expect(settings(page)).toContainText('This computer');
+  await expect(settings(page)).toContainText('To use a different computer, create a new project');
+  // A color saves at once, with Undo.
   await settings(page).getByRole('button', { name: 'Green folder', exact: true }).click();
+  await expect(settings(page).getByRole('button', { name: 'Green folder' })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  );
+  await expect(page.getByText('Folder color changed to green.').last()).toBeVisible();
+  // The name saves on Enter. There is no Save button.
+  await expect(settings(page).getByRole('button', { name: 'Save project' })).toHaveCount(0);
   await name.fill('Atlas web');
-  await settings(page).getByRole('button', { name: 'Save project' }).click();
-  await expect(settings(page)).toHaveCount(0);
+  await expect(settings(page)).toContainText('Press Enter to save.');
+  await name.press('Enter');
+  await expect(settings(page)).toContainText('Saved');
   const row = page.locator('.project-tree').getByRole('button', { name: 'Atlas web', exact: true });
+  await page.keyboard.press('Escape');
+  await expect(settings(page)).toHaveCount(0);
   await expect(row).toBeVisible();
   await expect(page.locator('.project-header').getByRole('heading')).toHaveText('Atlas web');
 
@@ -61,11 +65,11 @@ test('Project settings has General, Code folders, Board and Danger zone sections
   await expect(folders.getByRole('listitem')).toHaveCount(2);
 
   // Board: the existing board connection.
-  await section(page, 'Board connection').click();
+  await section(page, 'Board').click();
   await expect(settings(page).getByRole('region', { name: 'Connect a board' })).toBeVisible();
 
-  // Danger zone: the existing remove flow and its confirmation.
-  await section(page, 'Danger zone').click();
+  // Remove project is at the end of General, with its confirmation.
+  await section(page, 'General').click();
   await settings(page).getByRole('button', { name: 'Remove project…' }).click();
   await expect(settings(page)).toHaveCount(0);
   const remove = page.getByRole('dialog', { name: 'Remove Atlas web from Kalkidan?' });
@@ -74,7 +78,6 @@ test('Project settings has General, Code folders, Board and Danger zone sections
   await expect(row).toBeVisible();
   await page.getByRole('button', { name: 'Manage project Atlas web', exact: true }).click();
   await page.getByRole('menuitem', { name: 'Project settings…', exact: true }).click();
-  await section(page, 'Danger zone').click();
   await settings(page).getByRole('button', { name: 'Remove project…' }).click();
   await remove.getByRole('button', { name: 'Remove project', exact: true }).click();
   await expect(row).toHaveCount(0);
@@ -105,8 +108,8 @@ test('an SSH project shows its host as where work runs', async ({ page }) => {
   await page.goto('/');
   await page.getByRole('button', { name: 'Manage project Remote', exact: true }).click();
   await page.getByRole('menuitem', { name: 'Project settings…', exact: true }).click();
-  const where = settings(page).getByRole('region', { name: 'Where work runs' });
-  await expect(where).toContainText('SSH host: Builder');
-  await expect(where).toContainText('dev@builder.example · connected');
-  await expect(where).toContainText('Project folder: /home/dev/remote');
+  // "Runs on" names the host, its address and the project folder.
+  await expect(settings(page)).toContainText('Runs on');
+  await expect(settings(page)).toContainText('Builder · dev@builder.example · /home/dev/remote');
+  await expect(settings(page)).toContainText('To use a different computer, create a new project');
 });

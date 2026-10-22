@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './helpers/app';
 import { openAddCodeFolders } from './helpers/navigation';
 
 test('a project created from Add code folders closes the flow and opens the new project', async ({

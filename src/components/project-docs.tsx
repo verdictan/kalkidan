@@ -5,20 +5,25 @@ import {
   useState,
   useSyncExternalStore,
   type CSSProperties,
-  type FormEvent,
   type ReactNode,
 } from 'react';
 import { DocSaveMachine } from '../domain/doc-save';
 import { WikiEditor } from './wiki-editor';
 import { useProjectResource, setProjectResource } from '../hooks/use-project-resource';
-import { ActionMenu } from './action-menu';
 import {
+  ArrowDown,
+  ArrowUp,
   BookOpen,
   ChevronDown,
   ChevronRight,
   CircleDot,
-  Eye,
+  FilePlus,
   FileText,
+  FolderInput,
+  ListChecks,
+  MessageSquare,
+  PanelLeftClose,
+  PanelLeftOpen,
   Pencil,
   Plus,
   Trash2,
@@ -32,7 +37,7 @@ import { SectionHeader } from './ui/page-header';
 import type { DeletedProjectDoc, ProjectDoc, ProjectDocMetadata } from '../domain/docs';
 import { hasPrimaryModifier } from '../lib/platform';
 import { Button } from './ui/button';
-import { Input } from './ui/input';
+import { SegmentedControl } from './ui/segmented-control';
 import { showToast } from './ui/toast';
 import { Choice } from './choice';
 import { Hint } from './hint';
@@ -43,6 +48,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from './ui/dropdown-menu';
 import {
@@ -134,6 +140,83 @@ const docAlertClass = 'mx-auto mt-3 w-[min(var(--reading-width),calc(100%-3rem))
 
 const selectionKey = (groupId: string) => 'kalkidan-docs-selected:' + groupId;
 const libraryWidthKey = 'kalkidan-docs-library-width';
+const libraryHiddenKey = 'kalkidan-docs-library-hidden';
+
+type EditorMode = 'write' | 'read' | 'source';
+const modeOptions: { value: EditorMode; label: string }[] = [
+  { value: 'write', label: 'Edit' },
+  { value: 'read', label: 'Preview' },
+  { value: 'source', label: 'Markdown' },
+];
+
+/** Returns the ancestors of a page, from the top-level page down to the parent. */
+export function pageAncestors(pages: ProjectDocMetadata[], id: string) {
+  const result: ProjectDocMetadata[] = [];
+  const seen = new Set([id]);
+  let parentId = pages.find((p) => p.id === id)?.parentId;
+  while (parentId && !seen.has(parentId)) {
+    seen.add(parentId);
+    const parent = pages.find((p) => p.id === parentId);
+    if (!parent) break;
+    result.unshift(parent);
+    parentId = parent.parentId;
+  }
+  return result;
+}
+
+/**
+ * Why "Create tasks from this page" is not available, or undefined when it is. The item always
+ * shows, so that users can find it.
+ */
+export function planTasksReason(connected: boolean, writable: boolean | undefined) {
+  if (!connected) return 'Connect a board first';
+  if (writable === false) return 'You can only read this board';
+  return undefined;
+}
+
+function readLibraryHidden() {
+  try {
+    return localStorage.getItem(libraryHiddenKey) === '1';
+  } catch {
+    return false;
+  }
+}
+
+/** A menu item with a 16px icon. A disabled item shows the reason as a second line. */
+function MenuAction({
+  icon: Icon,
+  label,
+  onSelect,
+  disabled,
+  reason,
+  destructive,
+}: {
+  icon: typeof Plus;
+  label: string;
+  onSelect: () => void;
+  disabled?: boolean;
+  reason?: string;
+  destructive?: boolean;
+}) {
+  return (
+    <DropdownMenuItem
+      variant={destructive ? 'destructive' : 'default'}
+      disabled={disabled}
+      className={disabled && reason ? 'h-auto items-start py-1.5' : undefined}
+      onSelect={onSelect}
+    >
+      <Icon className={disabled && reason ? 'mt-0.5 size-4' : 'size-4'} aria-hidden="true" />
+      {disabled && reason ? (
+        <span className="grid">
+          <span>{label}</span>
+          <span className="text-xs text-muted-foreground">{reason}</span>
+        </span>
+      ) : (
+        label
+      )}
+    </DropdownMenuItem>
+  );
+}
 const libraryWidth = { min: 200, max: 360, initial: 240 };
 
 function readLibraryWidth() {
@@ -243,13 +326,19 @@ function DocEditor({
   onTreeCommandHandled,
   onAskAgent,
   onPlanTasks,
+  planTasksDisabled,
+  pagesToggle,
   tasks,
   linkedTasks,
 }: {
   /** Starts a new chat with this page attached. */
   onAskAgent: (doc: ProjectDoc) => void;
-  /** Opens the planner for this page. Undefined when the project has no board. */
-  onPlanTasks?: () => void;
+  /** Opens the planner for this page. */
+  onPlanTasks: () => void;
+  /** Why the planner is not available. Undefined when it is available. */
+  planTasksDisabled?: string;
+  /** The button that shows the page list. It shows in the document bar while the list is hidden. */
+  pagesToggle?: ReactNode;
   /** The board tasks for "/task". Undefined: no board. Null: the board loads. */
   tasks?: TrackerItem[] | null;
   /** The board tasks that link to this page. */
@@ -274,7 +363,7 @@ function DocEditor({
   onSaved: (doc: ProjectDoc) => void;
   onDelete: () => void;
 }) {
-  const [mode, setMode] = useState('write');
+  const [mode, setMode] = useState<EditorMode>('write');
   const [moving, setMoving] = useState(false);
   const [moveTarget, setMoveTarget] = useState('root');
   const titleInput = useRef<HTMLInputElement>(null);
@@ -373,6 +462,13 @@ function DocEditor({
   const draft = saveState.draft;
   const latest = useRef(draft);
   latest.current = draft;
+  // The title field keeps the typed text. An empty title is not saved: the page keeps its last
+  // title, and the field shows it again when it loses focus.
+  const [titleText, setTitleText] = useState(draft.title);
+  const editingTitle = useRef(false);
+  useEffect(() => {
+    if (!editingTitle.current) setTitleText(draft.title);
+  }, [draft.title]);
   const [actionError, setActionError] = useState('');
   const [resolving, setResolving] = useState(false);
   const copy = useRef<ProjectDoc | null>(null);
@@ -447,86 +543,97 @@ function DocEditor({
       void flush();
     };
   }, []);
-  const parentTitle = draft.parentId && pages.find((p) => p.id === draft.parentId)?.title;
+  const ancestors = pageAncestors(
+    pages.map((p) => (p.id === draft.id ? { ...p, parentId: draft.parentId } : p)),
+    draft.id,
+  );
   return (
     <section className="doc-editor" aria-label="Document editor">
       <div className="wiki-document-bar">
-        {/* The title bar shows the project and Docs. Here, show only the parent page and the page. */}
-        <nav className="wiki-breadcrumbs" aria-label="Document breadcrumb">
-          {draft.parentId && parentTitle && (
-            <>
-              <button title={parentTitle} onClick={() => onNavigate(draft.parentId!)}>
-                {parentTitle}
-              </button>
-              <ChevronRight size={12} aria-hidden="true" />
-            </>
+        <div className="wiki-document-bar-inner">
+          {pagesToggle}
+          {/* The title bar shows the project, Docs and the page. Here, show only the ancestors. */}
+          {ancestors.length > 0 ? (
+            <nav className="wiki-breadcrumbs" aria-label="Document breadcrumb">
+              {ancestors.map((ancestor) => (
+                <span key={ancestor.id} className="contents">
+                  <button title={ancestor.title} onClick={() => onNavigate(ancestor.id)}>
+                    {ancestor.title || 'Untitled'}
+                  </button>
+                  <ChevronRight size={12} aria-hidden="true" />
+                </span>
+              ))}
+            </nav>
+          ) : (
+            <span className="flex-1" />
           )}
-          <span aria-current="page" title={draft.title || 'Untitled'}>
-            {draft.title || 'Untitled'}
-          </span>
-        </nav>
-        <div className="wiki-document-actions">
-          {/* Do not announce each save. Announce only a failed save. */}
-          <span role="status" aria-live="off">
-            {status}
-          </span>
-          {status === 'Not saved' && (
-            <span role="alert" className="sr-only">
-              The page is not saved.
+          <div className="wiki-document-actions">
+            {/* Do not announce each save. Announce only a failed save. */}
+            <span role="status" aria-live="off">
+              {status}
             </span>
-          )}
-          {saveState.status === 'save-error' && (
-            <Button variant="outline" size="sm" onClick={retry}>
-              Retry
-            </Button>
-          )}
-          <Hint label={mode === 'read' ? 'Back to editing' : 'Preview'}>
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              aria-label="Preview"
-              aria-pressed={mode === 'read'}
-              onClick={() => setMode(mode === 'read' ? 'write' : 'read')}
-            >
-              {mode === 'read' ? <Pencil size={16} /> : <Eye size={16} />}
-            </Button>
-          </Hint>
-          <ActionMenu
-            label="Document actions"
-            items={[
-              {
-                label: 'Ask an agent about this page',
-                action: () => void flush().then(() => onAskAgent(latest.current)),
-              },
-              ...(onPlanTasks
-                ? [
-                    {
-                      label: 'Create tasks from this page…',
-                      action: () => void flush().then(onPlanTasks),
-                    },
-                  ]
-                : []),
-              { label: 'Rename page', action: rename, separator: true },
-              { label: 'Move page', action: startMove },
-              {
-                label: 'Move up',
-                disabled: !onReorder.up,
-                action: () => onReorder.up?.(),
-              },
-              {
-                label: 'Move down',
-                disabled: !onReorder.down,
-                action: () => onReorder.down?.(),
-              },
-              { label: 'Add subpage', action: onSubpage },
-              {
-                label: mode === 'source' ? 'Rich text editor' : 'Markdown source',
-                action: () => setMode(mode === 'source' ? 'write' : 'source'),
-                separator: true,
-              },
-              { label: 'Delete page', danger: true, action: requestDelete, separator: true },
-            ]}
-          />
+            {status === 'Not saved' && (
+              <span role="alert" className="sr-only">
+                The page is not saved.
+              </span>
+            )}
+            {saveState.status === 'save-error' && (
+              <Button variant="outline" size="sm" onClick={retry}>
+                Retry
+              </Button>
+            )}
+            <SegmentedControl
+              size="sm"
+              label="View"
+              value={mode}
+              onChange={setMode}
+              options={modeOptions}
+            />
+            <DropdownMenu>
+              <Hint label="Document actions">
+                <DropdownMenuTrigger asChild>
+                  <MoreButton label="Document actions" />
+                </DropdownMenuTrigger>
+              </Hint>
+              <DropdownMenuContent align="end" className="min-w-[14rem]">
+                <MenuAction
+                  icon={MessageSquare}
+                  label="Ask an agent about this page"
+                  onSelect={() => void flush().then(() => onAskAgent(latest.current))}
+                />
+                <MenuAction
+                  icon={ListChecks}
+                  label="Create tasks from this page…"
+                  disabled={!!planTasksDisabled}
+                  reason={planTasksDisabled}
+                  onSelect={() => void flush().then(onPlanTasks)}
+                />
+                <DropdownMenuSeparator />
+                <MenuAction icon={Pencil} label="Rename page" onSelect={rename} />
+                <MenuAction icon={FolderInput} label="Move page" onSelect={startMove} />
+                <MenuAction
+                  icon={ArrowUp}
+                  label="Move up"
+                  disabled={!onReorder.up}
+                  onSelect={() => onReorder.up?.()}
+                />
+                <MenuAction
+                  icon={ArrowDown}
+                  label="Move down"
+                  disabled={!onReorder.down}
+                  onSelect={() => onReorder.down?.()}
+                />
+                <MenuAction icon={FilePlus} label="Add subpage" onSelect={onSubpage} />
+                <DropdownMenuSeparator />
+                <MenuAction
+                  icon={Trash2}
+                  label="Delete page"
+                  destructive
+                  onSelect={requestDelete}
+                />
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
         </div>
       </div>
       {recovery && (
@@ -600,35 +707,37 @@ function DocEditor({
         </Alert>
       )}
       <Dialog open={moving} onOpenChange={setMoving}>
-        <DialogContent>
+        <DialogContent layout="scroll">
           <DialogHeader>
             <DialogTitle>Move page</DialogTitle>
             <DialogDescription>Choose the parent page for this page.</DialogDescription>
           </DialogHeader>
-          <Choice
-            label="Parent page"
-            value={moveTarget}
-            onChange={setMoveTarget}
-            options={[
-              { value: 'root', label: 'Top-level page' },
-              // The list shows the tree. Each level adds a dash before the title.
-              ...docTreeOrder(pages)
-                .filter(({ page: p }) => {
-                  let cursor: ProjectDocMetadata | undefined = p;
-                  const seen = new Set<string>();
-                  while (cursor) {
-                    if (cursor.id === draft.id || seen.has(cursor.id)) return false;
-                    seen.add(cursor.id);
-                    cursor = pages.find((x) => x.id === cursor?.parentId);
-                  }
-                  return true;
-                })
-                .map(({ page: p, depth }) => ({
-                  value: p.id,
-                  label: `${'— '.repeat(depth)}${p.title}`,
-                })),
-            ]}
-          />
+          <DialogBody>
+            <Choice
+              label="Parent page"
+              value={moveTarget}
+              onChange={setMoveTarget}
+              options={[
+                { value: 'root', label: 'Top-level page' },
+                // The list shows the tree. Each level adds a dash before the title.
+                ...docTreeOrder(pages)
+                  .filter(({ page: p }) => {
+                    let cursor: ProjectDocMetadata | undefined = p;
+                    const seen = new Set<string>();
+                    while (cursor) {
+                      if (cursor.id === draft.id || seen.has(cursor.id)) return false;
+                      seen.add(cursor.id);
+                      cursor = pages.find((x) => x.id === cursor?.parentId);
+                    }
+                    return true;
+                  })
+                  .map(({ page: p, depth }) => ({
+                    value: p.id,
+                    label: `${'— '.repeat(depth)}${p.title}`,
+                  })),
+              ]}
+            />
+          </DialogBody>
           <DialogFooter>
             <Button variant="outline" onClick={() => setMoving(false)}>
               Cancel
@@ -657,10 +766,17 @@ function DocEditor({
           className="doc-title"
           aria-label="Page title"
           placeholder="Untitled"
-          value={draft.title}
+          maxLength={200}
+          value={titleText}
           readOnly={mode === 'read' || resolving || !!recovery}
-          onChange={(e) => update({ ...latest.current, title: e.target.value })}
-          onFocus={() => onTitleEditing(true)}
+          onChange={(e) => {
+            setTitleText(e.target.value);
+            if (e.target.value.trim()) update({ ...latest.current, title: e.target.value });
+          }}
+          onFocus={() => {
+            editingTitle.current = true;
+            onTitleEditing(true);
+          }}
           onKeyDown={(e) => {
             // Enter moves to the text of the page. The title keeps all typed text.
             if (e.key !== 'Enter' || e.nativeEvent.isComposing) return;
@@ -668,6 +784,8 @@ function DocEditor({
             focusBody();
           }}
           onBlur={() => {
+            editingTitle.current = false;
+            setTitleText(latest.current.title);
             onTitleEditing(false);
             void flush();
           }}
@@ -683,7 +801,7 @@ function DocEditor({
           />
         ) : (
           <WikiEditor
-            key={editorVersion + ':' + (mode === 'source' ? 'source' : 'rich')}
+            key={editorVersion}
             markdown={draft.markdown}
             readOnly={mode === 'read' || resolving || !!recovery}
             onChange={(markdown) => update({ ...latest.current, markdown })}
@@ -794,9 +912,8 @@ export function ProjectDocsPanel({
   const [error, setError] = useState('');
   const loading = ['idle', 'loading'].includes(metadata.state.status);
   const [busy, setBusy] = useState(false);
-  const [creating, setCreating] = useState<{ parentId: string | null } | null>(null);
-  const [title, setTitle] = useState('');
   const [deleting, setDeleting] = useState(false);
+  const [libraryHidden, setLibraryHidden] = useState(readLibraryHidden);
   const [deletedPages, setDeletedPages] = useState<DeletedProjectDoc[] | null>(null);
   const pageLoading = ['idle', 'loading'].includes(content.state.status) && !!selected;
   // While a title is edited, the list sorts by the titles from before the edit.
@@ -812,6 +929,11 @@ export function ProjectDocsPanel({
   const provider = connection?.provider || 'github';
   const client = useMemo(() => trackerClient(api, provider), [api, provider]);
   const board = useProjectBoard(api, client, provider, group.id, connection?.project);
+  // A loaded board without write access cannot get tasks. Before it loads, the dialog checks.
+  const planReason = planTasksReason(
+    !!connection,
+    board.state.value ? !!board.state.value.writable : undefined,
+  );
   const boardTasks: TrackerItem[] | null | undefined = !connection
     ? undefined
     : board.state.value
@@ -885,32 +1007,37 @@ export function ProjectDocsPanel({
     if (selected === doc.id) content.update(doc);
     setPages((current) => current.map((p) => (p.id === doc.id ? doc : p)));
   }
+  /** Creates an "Untitled" page at once. Focus then goes to its title, with the text selected. */
   function newPage(parentId: string | null) {
-    setTitle('');
-    setError('');
-    setCreating({ parentId });
-  }
-  function createPage(event: FormEvent) {
-    event.preventDefault();
-    if (busy || !title.trim()) return;
+    if (busy) return;
     void action(async () => {
-      const doc = await api.docsCreate(group.id, title.trim(), creating?.parentId || null);
+      const doc = await api.docsCreate(group.id, 'Untitled', parentId);
       setProjectResource(api, group, 'docs-page', doc, doc.id);
       setPages((p) => [...p.filter((page) => page.id !== doc.id), doc]);
+      if (parentId) setCollapsed((c) => ({ ...c, [parentId]: false }));
       createdPage.current = doc.id;
       setSelected(doc.id);
-      setCreating(null);
     });
   }
-  /** Puts focus in the title of the new page, with the cursor after the text. */
-  function focusCreatedTitle(event: Event) {
-    if (!createdPage.current) return;
+  // Focus the title of the new page when its editor shows. Typing replaces "Untitled".
+  const openPageId = page && page.id === selected ? page.id : '';
+  useEffect(() => {
+    if (!openPageId || createdPage.current !== openPageId) return;
     createdPage.current = null;
-    const input = workspace.current?.querySelector<HTMLInputElement>('.doc-title');
-    if (!input) return;
-    event.preventDefault();
-    input.focus();
-    input.setSelectionRange(input.value.length, input.value.length);
+    const frame = requestAnimationFrame(() => {
+      const input = workspace.current?.querySelector<HTMLInputElement>('.doc-title');
+      input?.focus();
+      input?.select();
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [openPageId]);
+  function toggleLibrary(hidden: boolean) {
+    setLibraryHidden(hidden);
+    try {
+      localStorage.setItem(libraryHiddenKey, hidden ? '1' : '0');
+    } catch {
+      // Storage can be unavailable. The list then shows on the next visit.
+    }
   }
   function command(id: string, kind: TreeCommand['kind']) {
     setSelected(id);
@@ -960,6 +1087,10 @@ export function ProjectDocsPanel({
     };
   }
   const hasSubpages = !!page && !!children.get(page.id)?.length;
+  const hasPages = pages.length > 0;
+  // The list always shows when no page is open: then it is the only way to open a page.
+  const showLibrary = !libraryHidden || !(page && page.id === selected);
+  const libraryId = 'docs-library-' + group.id;
   useEffect(() => {
     const ancestors: string[] = [];
     let cursor = pages.find((p) => p.id === selected);
@@ -1022,27 +1153,46 @@ export function ProjectDocsPanel({
                     event.preventDefault();
                   }}
                 >
-                  <DropdownMenuItem
+                  <MenuAction
+                    icon={Pencil}
+                    label="Rename page"
                     onSelect={() => {
                       focusTitle.current = true;
                       command(p.id, 'rename');
                     }}
-                  >
-                    Rename page
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onSelect={() => command(p.id, 'move')}>
-                    Move page
-                  </DropdownMenuItem>
-                  <DropdownMenuItem disabled={!up} onSelect={() => up?.()}>
-                    Move up
-                  </DropdownMenuItem>
-                  <DropdownMenuItem disabled={!down} onSelect={() => down?.()}>
-                    Move down
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onSelect={() => newPage(p.id)}>Add subpage</DropdownMenuItem>
-                  <DropdownMenuItem variant="destructive" onSelect={() => command(p.id, 'delete')}>
-                    Delete page
-                  </DropdownMenuItem>
+                  />
+                  <MenuAction
+                    icon={FolderInput}
+                    label="Move page"
+                    onSelect={() => command(p.id, 'move')}
+                  />
+                  <MenuAction
+                    icon={ArrowUp}
+                    label="Move up"
+                    disabled={!up}
+                    onSelect={() => up?.()}
+                  />
+                  <MenuAction
+                    icon={ArrowDown}
+                    label="Move down"
+                    disabled={!down}
+                    onSelect={() => down?.()}
+                  />
+                  <MenuAction
+                    icon={FilePlus}
+                    label="Add subpage"
+                    onSelect={() => {
+                      focusTitle.current = true;
+                      newPage(p.id);
+                    }}
+                  />
+                  <DropdownMenuSeparator />
+                  <MenuAction
+                    icon={Trash2}
+                    label="Delete page"
+                    destructive
+                    onSelect={() => command(p.id, 'delete')}
+                  />
                 </DropdownMenuContent>
               </DropdownMenu>
             </div>
@@ -1063,40 +1213,57 @@ export function ProjectDocsPanel({
       )}
       <div
         className="docs-layout"
+        data-library={!hasPages ? 'none' : showLibrary ? undefined : 'hidden'}
         style={{ '--docs-library-width': `${width}px` } as CSSProperties}
       >
-        <aside className="docs-library" aria-label="Document pages">
-          <div className="wiki-pages-label">
-            <h2 className="sidebar-label">Pages</h2>
-            <Hint label="New page">
-              <Button
-                variant="ghost"
-                size="icon-xs"
-                aria-label="New page"
-                disabled={busy}
-                onClick={() => newPage(null)}
-              >
-                <Plus size={14} />
-              </Button>
-            </Hint>
-          </div>
-          <nav className="wiki-tree-scroll" aria-label="Document structure">
-            <ul className="wiki-page-tree">{tree(null)}</ul>
-          </nav>
-          <button
-            type="button"
-            className="wiki-tree-row docs-trash-row"
-            disabled={busy}
-            onClick={() =>
-              void action(async () => {
-                setDeletedPages(await api.docsTrash(group.id));
-              })
-            }
-          >
-            <Trash2 size={16} aria-hidden="true" /> Deleted pages
-          </button>
-          <LibraryResizer width={width} onResize={resizeLibrary} />
-        </aside>
+        {hasPages && showLibrary && (
+          <aside id={libraryId} className="docs-library" aria-label="Document pages">
+            <div className="wiki-pages-label">
+              <h2 className="sidebar-label">Pages</h2>
+              <span className="flex items-center gap-0.5">
+                <Hint label="New page">
+                  <Button
+                    variant="ghost"
+                    size="icon-xs"
+                    aria-label="New page"
+                    disabled={busy}
+                    onClick={() => newPage(null)}
+                  >
+                    <Plus size={14} />
+                  </Button>
+                </Hint>
+                <Hint label="Hide pages">
+                  <Button
+                    variant="ghost"
+                    size="icon-xs"
+                    aria-label="Hide pages"
+                    aria-expanded="true"
+                    aria-controls={libraryId}
+                    onClick={() => toggleLibrary(true)}
+                  >
+                    <PanelLeftClose size={14} />
+                  </Button>
+                </Hint>
+              </span>
+            </div>
+            <nav className="wiki-tree-scroll" aria-label="Document structure">
+              <ul className="wiki-page-tree">{tree(null)}</ul>
+            </nav>
+            <button
+              type="button"
+              className="wiki-tree-row docs-trash-row"
+              disabled={busy}
+              onClick={() =>
+                void action(async () => {
+                  setDeletedPages(await api.docsTrash(group.id));
+                })
+              }
+            >
+              <Trash2 size={16} aria-hidden="true" /> Deleted pages
+            </button>
+            <LibraryResizer width={width} onResize={resizeLibrary} />
+          </aside>
+        )}
         {page && page.id === selected ? (
           <div
             ref={workspace}
@@ -1132,7 +1299,26 @@ export function ProjectDocsPanel({
               pages={pages}
               onSaved={saved}
               onAskAgent={askAgent}
-              onPlanTasks={connection ? () => setPlanning(true) : undefined}
+              onPlanTasks={() => setPlanning(true)}
+              planTasksDisabled={planReason}
+              pagesToggle={
+                showLibrary ? undefined : (
+                  <Hint label="Show pages">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="-ml-2 shrink-0"
+                      aria-label="Show pages"
+                      aria-expanded="false"
+                      aria-controls={libraryId}
+                      onClick={() => toggleLibrary(false)}
+                    >
+                      <PanelLeftOpen size={16} />
+                      Pages
+                    </Button>
+                  </Hint>
+                )
+              }
               tasks={boardTasks}
               linkedTasks={tasksForPage(page.id, taskLinks, boardTasks)}
               heading={heading}
@@ -1157,7 +1343,7 @@ export function ProjectDocsPanel({
                 !loading &&
                 !pageLoading &&
                 !pages.length && (
-                  <Button onClick={() => newPage(null)}>
+                  <Button disabled={busy} onClick={() => newPage(null)}>
                     <Plus size={16} /> Create your first page
                   </Button>
                 )
@@ -1172,36 +1358,6 @@ export function ProjectDocsPanel({
           </div>
         )}
       </div>
-      <Dialog open={!!creating} onOpenChange={(open) => !open && !busy && setCreating(null)}>
-        <DialogContent onCloseAutoFocus={focusCreatedTitle}>
-          <form className="contents" onSubmit={createPage}>
-            <DialogHeader>
-              <DialogTitle>{creating?.parentId ? 'New subpage' : 'New page'}</DialogTitle>
-              <DialogDescription>Give this page a title.</DialogDescription>
-            </DialogHeader>
-            <Input
-              aria-label="New page title"
-              autoFocus
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              maxLength={200}
-            />
-            {error && (
-              <p role="alert" className="field-error">
-                {error}
-              </p>
-            )}
-            <DialogFooter>
-              <Button type="button" variant="outline" onClick={() => setCreating(null)}>
-                Cancel
-              </Button>
-              <Button type="submit" disabled={busy || !title.trim()}>
-                Create page
-              </Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
       <Dialog open={deleting} onOpenChange={(open) => !busy && setDeleting(open)}>
         <DialogContent>
           <DialogHeader>
@@ -1247,7 +1403,7 @@ export function ProjectDocsPanel({
           </DialogFooter>
         </DialogContent>
       </Dialog>
-      {connection && (
+      {connection && !planReason && (
         <DocsToIssuesDialog
           api={api}
           group={group}
@@ -1320,11 +1476,6 @@ export function ProjectDocsPanel({
               <EmptyState compact>No deleted pages.</EmptyState>
             )}
           </DialogBody>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setDeletedPages(null)}>
-              Done
-            </Button>
-          </DialogFooter>
         </DialogContent>
       </Dialog>
     </section>

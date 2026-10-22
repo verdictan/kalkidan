@@ -46,6 +46,7 @@ function DialogContent({
   size = 'md',
   layout = 'simple',
   onCloseAutoFocus,
+  onInteractOutside,
   ...props
 }: React.ComponentProps<typeof DialogPrimitive.Content> & {
   showCloseButton?: boolean;
@@ -83,7 +84,7 @@ function DialogContent({
       <DialogPrimitive.Content
         data-slot="dialog-content"
         className={cn(
-          'fixed top-[50%] left-[50%] z-50 grid max-h-[calc(100dvh-2rem)] w-full max-w-[calc(100%-2rem)] translate-x-[-50%] translate-y-[-50%] rounded-xl border bg-card shadow-lg duration-[var(--motion-base)] outline-none data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95',
+          'fixed top-[50%] left-[50%] z-50 grid max-h-[calc(100dvh-2rem)] w-full max-w-[calc(100%-2rem)] translate-x-[-50%] translate-y-[-50%] rounded-xl border bg-popover text-popover-foreground shadow-lg duration-[var(--motion-base)] outline-none data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95',
           layout === 'simple' && 'gap-4 overflow-y-auto p-6',
           layout === 'scroll' &&
             'grid-rows-[auto_minmax(0,1fr)_auto] gap-0 overflow-hidden p-0 [&>[data-slot=dialog-header]]:px-6 [&>[data-slot=dialog-header]]:pt-6 [&>[data-slot=dialog-header]]:pb-4 [&>[data-slot=dialog-footer]]:border-t [&>[data-slot=dialog-footer]]:px-6 [&>[data-slot=dialog-footer]]:py-4',
@@ -92,6 +93,14 @@ function DialogContent({
           size === 'lg' && 'sm:max-w-[var(--dialog-lg)]',
           className,
         )}
+        onInteractOutside={(event) => {
+          onInteractOutside?.(event);
+          // A toast, for example "Saved" with Undo, shows above the dialog. Using it does not
+          // close the dialog.
+          const target = event.target;
+          if (target instanceof Element && target.closest('[data-slot="toast"]'))
+            event.preventDefault();
+        }}
         onCloseAutoFocus={(event) => {
           onCloseAutoFocus?.(event);
           if (event.defaultPrevented) return;
@@ -115,7 +124,7 @@ function DialogContent({
         {showCloseButton && (
           <DialogPrimitive.Close
             data-slot="dialog-close"
-            className="absolute top-6 right-6 inline-flex size-6 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-[var(--surface-hover)] hover:text-foreground focus-visible:ring-2 focus-visible:ring-[var(--focus-color)] focus-visible:outline-hidden disabled:pointer-events-none [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4"
+            className="absolute top-5 right-5 inline-flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-[var(--surface-hover)] hover:text-foreground focus-visible:ring-2 focus-visible:ring-[var(--focus-color)] focus-visible:outline-hidden disabled:pointer-events-none [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4"
           >
             <XIcon />
             <span className="sr-only">Close</span>

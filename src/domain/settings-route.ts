@@ -1,20 +1,34 @@
-/** The tabs of the Settings page, in order. */
-export type SettingsTab = 'general' | 'accounts' | 'agents' | 'computers';
+/** The sections of the Settings dialog, in order. */
+export type SettingsSection = 'general' | 'account' | 'agents' | 'computers' | 'about';
 
-export const settingsTabs: { value: SettingsTab; label: string }[] = [
+/**
+ * A section name that other parts of the app can send. It includes the names of the older
+ * Settings page tabs ('accounts' and 'updates'). `settingsTarget` maps them to a section.
+ */
+export type SettingsTab = SettingsSection | 'accounts' | 'updates';
+
+export const settingsSections: { value: SettingsSection; label: string }[] = [
   { value: 'general', label: 'General' },
-  { value: 'accounts', label: 'Accounts' },
+  { value: 'account', label: 'Account' },
   { value: 'agents', label: 'Agents' },
   { value: 'computers', label: 'Computers' },
+  { value: 'about', label: 'About' },
 ];
 
-export function isSettingsTab(value: unknown): value is SettingsTab {
-  return settingsTabs.some((tab) => tab.value === value);
+/** @deprecated Use `settingsSections`. */
+export const settingsTabs = settingsSections;
+
+export function isSettingsSection(value: unknown): value is SettingsSection {
+  return settingsSections.some((section) => section.value === value);
 }
 
-/** The label of a tab, for example "Computers". */
-export function settingsTabLabel(tab: SettingsTab) {
-  return settingsTabs.find((item) => item.value === tab)?.label || 'General';
+/** @deprecated Use `isSettingsSection`. */
+export const isSettingsTab = isSettingsSection;
+
+/** The label of a section, for example "Computers". An older tab name gets its new label. */
+export function settingsTabLabel(tab: SettingsTab | string) {
+  const section = settingsTarget(tab).tab;
+  return settingsSections.find((item) => item.value === section)?.label || 'General';
 }
 
 /** The element ID of one computer in Settings › Computers. No host ID means this computer. */
@@ -27,7 +41,7 @@ export function runtimeAnchor(hostId?: string) {
   return `runtime-${hostId || 'local'}`;
 }
 
-/** The element ID of the "Update Kalkidan helper" button of one SSH host in Settings › Computers. */
+/** The element ID of the "…" menu of one SSH host in Settings › Computers. */
 export function helperUpdateAnchor(hostId: string) {
   return `helper-update-${hostId}`;
 }
@@ -39,46 +53,52 @@ export const settingsAnchors = {
   account: 'verdictan-account',
   region: 'verdictan-region',
   managedSetup: 'managed-agent-setup',
+  notifications: 'settings-notifications',
+  services: 'settings-connected-services',
 } as const;
 
-/** The anchors of the older Managed agents section and the tab that now holds each one. */
-const anchorTabs: Record<string, SettingsTab> = {
-  [settingsAnchors.account]: 'accounts',
-  [settingsAnchors.region]: 'accounts',
+/** The section of each anchor that is not a computer, runtime, or agent anchor. */
+const anchorSections: Record<string, SettingsSection> = {
+  [settingsAnchors.account]: 'account',
+  [settingsAnchors.region]: 'account',
+  [settingsAnchors.services]: 'account',
   [settingsAnchors.managedSetup]: 'agents',
-  [settingsAnchors.defaultAgent]: 'agents',
-  [settingsAnchors.about]: 'general',
+  [settingsAnchors.defaultAgent]: 'general',
+  [settingsAnchors.notifications]: 'general',
+  [settingsAnchors.about]: 'about',
+};
+
+/** The older section and tab names, and the section that now holds each one. */
+const legacySections: Record<string, SettingsSection> = {
+  accounts: 'account',
+  'managed-agents': 'agents',
+  remote: 'computers',
+  'remote-hosts': 'computers',
 };
 
 /**
- * The tab and the element that get focus for a request to open Settings. The request can use
- * the names of the older sections: 'about', 'managed-agents', 'remote', and 'updates'. A known
- * anchor selects its own tab, so an older section name with a moved anchor still opens the
- * anchor.
+ * The section and the element that get focus for a request to open Settings. The request can
+ * use the names of older sections and tabs: 'accounts', 'managed-agents', 'updates', 'remote',
+ * and 'remote-hosts'. A known anchor selects its own section, so an older name with a moved
+ * anchor still opens the anchor.
  */
 export function settingsTarget(
   section?: string,
   anchor?: string,
-): { tab: SettingsTab; anchor?: string } {
+): { tab: SettingsSection; anchor?: string } {
   // The runtime moved from Managed agents to the row of this computer in Computers.
   const id = anchor === 'verdictan-runtime' ? runtimeAnchor() : anchor || undefined;
   if (id) {
-    if (anchorTabs[id]) return { tab: anchorTabs[id], anchor: id };
+    if (anchorSections[id]) return { tab: anchorSections[id], anchor: id };
     if (id.startsWith('computer-') || id.startsWith('runtime-') || id.startsWith('helper-update-'))
       return { tab: 'computers', anchor: id };
     if (id === 'settings-agents' || id.startsWith('agent-')) return { tab: 'agents', anchor: id };
   }
-  switch (section) {
-    case 'about':
-      return { tab: 'general', anchor: id || settingsAnchors.about };
-    case 'managed-agents':
-      return { tab: 'agents', anchor: id || settingsAnchors.managedSetup };
-    case 'remote':
-      return { tab: 'computers', anchor: id };
-    // The Updates tab was removed. The runtime and the SSH helpers update in Computers.
-    case 'updates':
-      return { tab: 'computers', anchor: id || runtimeAnchor() };
-    default:
-      return { tab: isSettingsTab(section) ? section : 'general', anchor: id };
-  }
+  if (section === 'managed-agents')
+    return { tab: 'agents', anchor: id || settingsAnchors.managedSetup };
+  // The Updates tab was removed. Kalkidan does not update itself. The runtime and the SSH
+  // helpers update in Computers.
+  if (section === 'updates') return { tab: 'computers', anchor: id || runtimeAnchor() };
+  if (section && legacySections[section]) return { tab: legacySections[section], anchor: id };
+  return { tab: isSettingsSection(section) ? section : 'general', anchor: id };
 }

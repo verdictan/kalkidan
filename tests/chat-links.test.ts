@@ -33,7 +33,7 @@ test('desktop codes become plain words with a Settings action', () => {
   assert.equal(error.code, 'desktop.runtime_missing');
   assert.doesNotMatch(error.message, /desktop\./);
   assert.equal(error.action?.kind, 'settings');
-  assert.equal(error.action?.section, 'managed-agents');
+  assert.equal(error.action?.section, 'account');
   // A missing region is a first setup step, like a missing runtime.
   assert.equal(
     agentErrorMessage('Select the region. [desktop.region_required]').action?.label,

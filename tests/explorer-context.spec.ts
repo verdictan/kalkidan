@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './helpers/app';
 import { openCodeFolder } from './helpers/navigation';
 
 test('explorer context menus rename the clicked item and confirm non-destructive removal', async ({
@@ -9,15 +9,22 @@ test('explorer context menus rename the clicked item and confirm non-destructive
   await tree.getByRole('button', { name: 'Atlas', exact: true }).click({ button: 'right' });
   // The row menu has no copies of the project tabs. Removal is in Project settings.
   await expect(page.getByRole('menuitem')).toHaveText([
+    'New chat',
     'Open project',
-    'Project settings…',
     'Add a code folder…',
     'Rename…',
+    'Project settings…',
+    'Folder color',
   ]);
   await page.getByRole('menuitem', { name: 'Rename…' }).click();
-  await expect(page.getByRole('textbox', { name: 'Project name', exact: true })).toBeFocused();
-  await page.getByRole('textbox', { name: 'Project name', exact: true }).fill('Renamed project');
-  await page.getByRole('button', { name: 'Save project' }).click();
+  // Rename opens Project settings with the name field focused. The name saves on Enter.
+  const name = page.getByRole('textbox', { name: 'Project name', exact: true });
+  await expect(name).toBeFocused();
+  await name.fill('Renamed project');
+  await name.press('Enter');
+  const settings = page.getByRole('dialog', { name: 'Project settings' });
+  await expect(settings.getByRole('status')).toHaveText('Saved');
+  await settings.getByRole('button', { name: 'Close', exact: true }).click();
   await expect(tree.getByRole('button', { name: 'Renamed project', exact: true })).toBeVisible();
   // Code folders open from the project overview. Their page has the code folder actions.
   await openCodeFolder(page, 'design-system');
@@ -47,13 +54,11 @@ test('session right-click actions rename, pin and archive without opening a conv
 }) => {
   await page.goto('/');
   const tree = page.getByRole('navigation', { name: 'Projects and repositories' });
-  // Each project shows its recent chats. The pin button on the row pins a chat.
+  // Each project shows its recent chats. Pin is in the row menu of a chat.
   await tree
     .getByRole('button', { name: 'Chat: Refine project and repository navigation', exact: true })
-    .hover();
-  await tree
-    .getByRole('button', { name: 'Pin Refine project and repository navigation', exact: true })
-    .click();
+    .click({ button: 'right' });
+  await page.getByRole('menuitem', { name: 'Pin', exact: true }).click();
   const pinned = tree.getByRole('button', {
     name: 'Resume pinned Refine project and repository navigation',
   });

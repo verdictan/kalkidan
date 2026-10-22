@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import { GitBranchPlus, LoaderCircle, ExternalLink, GitPullRequest } from 'lucide-react';
 import type { API, ProjectGroup, Session, SessionOrganization, TrackerItem } from '../types';
 import type { WorkingFile, WorkingStatus } from '../api/contracts';
@@ -43,6 +43,8 @@ import {
 import { errorMessage } from '../lib/errors';
 import {
   closesTask,
+  hasBranchWork,
+  pullRequestActionLabel,
   pullRequestBody as buildPullRequestBody,
   pullRequestNumber,
   type SessionPullRequest,
@@ -68,6 +70,7 @@ export const branchCopyHelp =
  */
 const chatViewActions = new Set<ChatActionId>([
   'commit',
+  'create-pull-request',
   'link-task',
   'open-linked-task',
   'open-pull-request',
@@ -104,15 +107,17 @@ export function SessionMenu({
   onReviewChanges?: () => void;
 }) {
   const [dialog, setDialog] = useState<
-    'rename' | 'notes' | 'worktree' | 'commit' | 'history' | null
+    'rename' | 'notes' | 'worktree' | 'commit' | 'pull-request' | 'history' | null
   >(null);
   const [value, setValue] = useState('');
   const [preview, setPreview] = useState<{ base: string; path: string } | null>(null);
+  const worktreeForm = useId();
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState('');
-  const [error, setError] = useState('');
   // True when Git reports no changed files. Unknown (undefined) does not block Commit.
   const [noChanges, setNoChanges] = useState<boolean>();
+  // True when Git reports no changes and no commits for a pull request.
+  const [noBranchWork, setNoBranchWork] = useState<boolean>();
   const statusTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   useEffect(() => () => clearTimeout(statusTimer.current), []);
   function showStatus(text: string) {
@@ -122,12 +127,12 @@ export function SessionMenu({
   }
   async function perform(fn: () => Promise<unknown>) {
     setBusy(true);
-    setError('');
     try {
       const result = await fn();
       if (typeof result === 'string') showStatus(result);
     } catch (e) {
-      setError(errorMessage(e));
+      // An error stays until the user closes it.
+      showToast({ message: 'Could not complete the action: ' + errorMessage(e), tone: 'error' });
     } finally {
       setBusy(false);
     }
@@ -138,8 +143,14 @@ export function SessionMenu({
     if (!repositoryId || typeof api.workingStatus !== 'function') return;
     Promise.resolve()
       .then(() => api.workingStatus(repositoryId))
-      .then((working) => setNoChanges(!!working && working.changed + working.untracked === 0))
-      .catch(() => setNoChanges(undefined));
+      .then((working) => {
+        setNoChanges(!!working && working.changed + working.untracked === 0);
+        setNoBranchWork(!!working && !hasBranchWork(working));
+      })
+      .catch(() => {
+        setNoChanges(undefined);
+        setNoBranchWork(undefined);
+      });
   };
   // Read again when a run ends, because the agent can change files.
   useEffect(() => readChanges.current(), [api, repositoryId, running]);
@@ -171,6 +182,7 @@ export function SessionMenu({
     repository: !!repositoryId,
     project: inProject,
     noChanges,
+    noBranchWork,
   });
   const groups = chatActionMenu('header', state, platform);
   const action = (kind: Parameters<API['sessionAction']>[1]) =>
@@ -209,6 +221,8 @@ export function SessionMenu({
   function fallback(id: ChatActionId) {
     if (id === 'commit') {
       if (repositoryId) setDialog('commit');
+    } else if (id === 'create-pull-request') {
+      if (repositoryId) setDialog('pull-request');
     } else if (id === 'save-to-docs')
       showToast({
         message: 'Add this code folder to a project to save chats to Docs.',
@@ -309,24 +323,12 @@ export function SessionMenu({
         onRun={runItem}
         onOpenChange={(open) => open && readChanges.current()}
       />
-      {error && (
-        <Dialog open onOpenChange={() => setError('')}>
-          <DialogContent size="sm" role="alertdialog">
-            <DialogHeader>
-              <DialogTitle className="text-destructive">Could not complete action</DialogTitle>
-              <DialogDescription className="break-words">{error}</DialogDescription>
-            </DialogHeader>
-            <DialogFooter>
-              <Button onClick={() => setError('')}>Close</Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
-      )}
       {repositoryId && (
         <CommitDialog
           api={api}
           repositoryId={repositoryId}
-          open={dialog === 'commit'}
+          open={dialog === 'commit' || dialog === 'pull-request'}
+          intent={dialog === 'pull-request' ? 'pull-request' : 'commit'}
           onOpenChange={(open) => !open && setDialog(null)}
           message={title}
           sessionTitle={title}
@@ -342,12 +344,11 @@ export function SessionMenu({
         />
       )}
       <Dialog open={dialog === 'history'} onOpenChange={(open) => !open && setDialog(null)}>
-        <DialogContent size="lg">
+        <DialogContent size="lg" layout="scroll">
           <DialogHeader>
             <DialogTitle>Usage history</DialogTitle>
             <DialogDescription>
-              The policy decision, model, tokens, time and settlement of each managed agent request
-              in this chat.
+              The policy decision, model, tokens, time and cost of each agent request in this chat.
             </DialogDescription>
           </DialogHeader>
           <DialogBody>
@@ -373,7 +374,7 @@ export function SessionMenu({
         save={update}
       />
       <Dialog open={dialog === 'worktree'} onOpenChange={(open) => !open && setDialog(null)}>
-        <DialogContent size="md">
+        <DialogContent size="md" layout="scroll">
           <DialogHeader>
             <DialogTitle>Continue on a new branch</DialogTitle>
             <DialogDescription>
@@ -381,39 +382,38 @@ export function SessionMenu({
               {branchCopyHelp}
             </DialogDescription>
           </DialogHeader>
-          <form
-            className="grid gap-4"
-            onSubmit={(e) => {
-              e.preventDefault();
-              void perform(async () => {
-                await branch(true, value.trim());
-                setDialog(null);
-              });
-            }}
-          >
-            <label className="form-label">
-              Branch name
-              <Input
-                autoFocus
-                placeholder="feature/new-direction"
-                value={value}
-                onChange={(e) => setValue(e.target.value)}
-              />
-            </label>
-            {preview && (
-              <p className="form-help break-words">
-                Starts from {preview.base}. Folder: {preview.path}
-              </p>
-            )}
-            <DialogFooter>
-              <Button type="button" variant="outline" onClick={() => setDialog(null)}>
-                Cancel
-              </Button>
-              <Button disabled={busy || !value.trim()} type="submit">
-                Duplicate chat
-              </Button>
-            </DialogFooter>
-          </form>
+          <DialogBody>
+            <form
+              id={worktreeForm}
+              className="grid gap-4"
+              onSubmit={(e) => {
+                e.preventDefault();
+                void perform(async () => {
+                  await branch(true, value.trim());
+                  setDialog(null);
+                });
+              }}
+            >
+              <label className="form-label">
+                Branch name
+                <Input
+                  autoFocus
+                  placeholder="feature/new-direction"
+                  value={value}
+                  onChange={(e) => setValue(e.target.value)}
+                />
+              </label>
+              {preview && <p className="form-help break-words">Starts from {preview.base}.</p>}
+            </form>
+          </DialogBody>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setDialog(null)}>
+              Cancel
+            </Button>
+            <Button form={worktreeForm} disabled={busy || !value.trim()} type="submit">
+              Duplicate chat
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </>
@@ -448,11 +448,14 @@ export function CommitDialog({
   onReview,
   onCommitted,
   onPullRequest,
+  intent = 'commit',
 }: {
   api: API;
   repositoryId: string;
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  /** "pull-request" opens the dialog as "Create pull request". The steps are the same. */
+  intent?: 'commit' | 'pull-request';
   /** The first commit message. The pull request title uses the first line. */
   message: string;
   /** The chat title. The pull request description names it. */
@@ -616,14 +619,20 @@ export function CommitDialog({
       onCommitted?.();
       const number = next.url ? pullRequestNumber(next.url) : undefined;
       if (pullRequest && next.url) onPullRequest?.({ url: next.url, number, state: 'open' });
-      const opened = pullRequest && next.url ? (number ? `PR #${number}` : 'a pull request') : '';
+      const opened =
+        pullRequest && next.url ? (number ? `pull request #${number}` : 'a pull request') : '';
       if (next.commit || opened)
         showToast({
           message: next.commit
-            ? `Committed ${next.commit.slice(0, 7)}${opened ? ` and opened ${opened}` : ''}.`
-            : `Opened ${opened}.`,
+            ? `Committed ${next.commit.slice(0, 7)}${opened ? ` and created ${opened}` : ''}.`
+            : `Created ${opened}.`,
           actions: next.url
-            ? [{ label: 'Open', onClick: () => window.open(next.url, '_blank', 'noreferrer') }]
+            ? [
+                {
+                  label: 'View pull request',
+                  onClick: () => window.open(next.url, '_blank', 'noreferrer'),
+                },
+              ]
             : undefined,
         });
     } catch (e) {
@@ -655,7 +664,9 @@ export function CommitDialog({
     <Dialog open={open} onOpenChange={(next) => !busy && onOpenChange(next)}>
       <DialogContent size="md" layout="scroll">
         <DialogHeader>
-          <DialogTitle>Commit changes</DialogTitle>
+          <DialogTitle>
+            {intent === 'pull-request' ? 'Create pull request' : 'Commit changes'}
+          </DialogTitle>
           <DialogDescription>
             {status ? (
               <>
@@ -676,7 +687,9 @@ export function CommitDialog({
           {status && !changes && !result && (
             <Alert size="sm" role="status">
               <AlertDescription className="text-xs">
-                No changes to commit. Change files, then commit again.
+                {canPullRequest
+                  ? `No changes to commit. Create a pull request from the commits on ${status.branch}.`
+                  : 'No changes to commit. Change files, then commit again.'}
               </AlertDescription>
             </Alert>
           )}
@@ -865,9 +878,6 @@ export function CommitDialog({
               The pull request closes {task.repository}#{task.number} when it merges.
             </p>
           )}
-          {status && !changes && !result && (
-            <p className="form-help">There are no changes to commit.</p>
-          )}
           {result && (
             <p role="status" className="text-sm">
               {result.commit ? `Committed ${result.commit.slice(0, 7)}.` : 'No new commit.'}{' '}
@@ -878,7 +888,10 @@ export function CommitDialog({
                   target="_blank"
                   rel="noreferrer"
                 >
-                  Open pull request
+                  {pullRequestActionLabel({
+                    url: result.url,
+                    number: pullRequestNumber(result.url),
+                  })}
                   <ExternalLink className="size-3.5" aria-hidden="true" />
                 </a>
               )}
@@ -891,30 +904,42 @@ export function CommitDialog({
           )}
         </DialogBody>
         <DialogFooter>
-          <Button variant="outline" disabled={busy} onClick={() => onOpenChange(false)}>
-            {result ? 'Close' : 'Cancel'}
-          </Button>
-          {canPullRequest && (
-            <Button
-              variant="outline"
-              disabled={busy || !status || (!!commitCount && !message.trim()) || !!result?.url}
-              onClick={() => void submit(true)}
-            >
-              {commitCount && !result?.commit
-                ? 'Commit and open pull request'
-                : 'Open pull request'}
+          {result && !error ? (
+            <Button disabled={busy} onClick={() => onOpenChange(false)}>
+              Done
             </Button>
+          ) : (
+            <>
+              <Button variant="outline" disabled={busy} onClick={() => onOpenChange(false)}>
+                Cancel
+              </Button>
+              {/* On a branch, the pull request is the main step. On the default branch, only a
+                  commit is possible until the changes move to a new branch. */}
+              <Button
+                variant={canPullRequest ? 'outline' : 'default'}
+                disabled={busy || !status || !commitCount || !message.trim() || !!result?.commit}
+                onClick={() => void submit(false)}
+              >
+                {busy && !canPullRequest
+                  ? 'Working…'
+                  : files && !allSelected
+                    ? `Commit ${plural(commitCount, 'file')}`
+                    : 'Commit'}
+              </Button>
+              {canPullRequest && (
+                <Button
+                  disabled={busy || !status || (!!commitCount && !message.trim()) || !!result?.url}
+                  onClick={() => void submit(true)}
+                >
+                  {busy
+                    ? 'Working…'
+                    : commitCount && !result?.commit
+                      ? 'Commit and create pull request'
+                      : 'Create pull request'}
+                </Button>
+              )}
+            </>
           )}
-          <Button
-            disabled={busy || !status || !commitCount || !message.trim() || !!result?.commit}
-            onClick={() => void submit(false)}
-          >
-            {busy
-              ? 'Working…'
-              : files && !allSelected
-                ? `Commit ${plural(commitCount, 'file')}`
-                : 'Commit'}
-          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

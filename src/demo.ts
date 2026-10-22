@@ -4,7 +4,15 @@ import type { DispatchPlan } from './domain/parallel-dispatch';
 import type { GitHubContentSnapshot } from './domain/github-content';
 import { canRevertMutation, type GitHubMutationHistory } from './domain/project-batch';
 import { githubDescriptor } from './domain/tracker';
-import { managedOnlyNotice } from './domain/verdictan';
+import {
+  managedErrorText,
+  managedOnlyNotice,
+  recommendedSelection,
+  type VerdictanCapabilities,
+  type VerdictanSetup,
+  type VerdictanStatus,
+} from './domain/verdictan';
+import type { ComponentUpdateStatus } from './domain/updates';
 import type { API, Project, Session, ProjectGroup } from './types';
 const now = new Date().toISOString();
 let projects: Project[] = [
@@ -260,6 +268,190 @@ function demoContentFor(item: string): GitHubContentSnapshot {
   }
   return content;
 }
+/** Reads a demo value from the browser storage. A blocked storage gives the fallback. */
+function demoRead<T>(key: string, fallback: T): T {
+  try {
+    const raw = localStorage.getItem(key);
+    return raw ? { ...fallback, ...JSON.parse(raw) } : fallback;
+  } catch {
+    return fallback;
+  }
+}
+function demoWrite(key: string, value: unknown) {
+  try {
+    localStorage.setItem(key, JSON.stringify(value));
+  } catch {
+    // The demo still works for this page.
+  }
+}
+/**
+ * The demo account. A fresh demo has no region and no account. "Sign in" waits about 4 s, as
+ * if the user finished the sign-in in the browser, and then signs in Dana Kim.
+ */
+const demoAccountKey = 'kalkidan-demo-account';
+const demoFirstRunKey = 'kalkidan-demo-first-run';
+const demoNotificationsKey = 'kalkidan-demo-notifications';
+const demoSignInMs = 4000;
+const demoAccount = demoRead<{ region?: 'eu' | 'us'; signedIn: boolean; expired?: boolean }>(
+  demoAccountKey,
+  { signedIn: false },
+);
+let demoAuthorization: VerdictanStatus['authorization'];
+let demoAuthorizing: { timer: ReturnType<typeof setTimeout>; done(): void } | undefined;
+const demoListeners = new Set<() => void>();
+const demoChanged = () => demoListeners.forEach((listener) => listener());
+const demoCapabilities: VerdictanCapabilities = {
+  cliVersion: '0.6.9',
+  protocolMin: 1,
+  protocolMax: 1,
+  capabilities: ['authorization.browser.pkce', 'account.inspect'],
+  managedExecutionReady: true,
+  testedAgents: [
+    { kind: 'codex', version: '0.161.0' },
+    { kind: 'claude_code', version: '2.1.306' },
+  ],
+};
+function demoStatus(): VerdictanStatus {
+  const region = demoAccount.region;
+  if (!region) return { phase: 'error', error: 'desktop.region_required', executionReady: false };
+  const apiUrl = `https://api.${region}.verdictan.com`;
+  if (demoAuthorization)
+    return {
+      region,
+      phase: 'authorizing',
+      account: { state: 'authorizing', apiUrl },
+      executionReady: false,
+      authorization: { ...demoAuthorization },
+    };
+  if (!demoAccount.signedIn)
+    return {
+      region,
+      phase: 'signed-out',
+      account: { state: 'signed-out', apiUrl },
+      executionReady: false,
+    };
+  const state = demoAccount.expired ? 'expired' : 'authenticated';
+  return {
+    region,
+    phase: state,
+    account: {
+      state,
+      userId: 'demo-user',
+      organizationId: 'demo-organization',
+      apiUrl,
+      expiresAt: new Date(Date.now() + 8 * 3600_000).toISOString(),
+      userName: 'Dana Kim',
+      userEmail: 'dana.kim@acme.dev',
+      organizationName: 'Acme Corp',
+    },
+    capabilities: demoCapabilities,
+    executionReady: false,
+  };
+}
+function demoSaveAccount(change: Partial<typeof demoAccount>) {
+  Object.assign(demoAccount, change);
+  demoWrite(demoAccountKey, demoAccount);
+  if (demoAccount.signedIn)
+    demoWrite(demoFirstRunKey, {
+      ...demoRead(demoFirstRunKey, { welcomeDone: false, everSignedIn: false }),
+      everSignedIn: true,
+    });
+  demoChanged();
+  return demoStatus();
+}
+/** Stops a waiting demo sign-in. The pending sign-in request then returns the new status. */
+function demoStopAuthorization() {
+  const pending = demoAuthorizing;
+  demoAuthorizing = undefined;
+  demoAuthorization = undefined;
+  if (pending) {
+    clearTimeout(pending.timer);
+    pending.done();
+  }
+}
+const demoTeam = '00000000-0000-4000-8000-00000000a001';
+const demoAgent = '00000000-0000-4000-8000-00000000a002';
+let demoSelections: VerdictanSetup['selections'] = demoRead(
+  'kalkidan-demo-selections',
+  {} as VerdictanSetup['selections'],
+);
+function demoSetup(): VerdictanSetup {
+  if (!demoAccount.signedIn || demoAccount.expired)
+    return {
+      status: 'desktop_required',
+      teams: [],
+      policies: [],
+      providerConnections: [],
+      selections: {},
+    };
+  return {
+    status: 'ready',
+    providerAccessModes: ['byok', 'codex_subscription', 'claude_subscription'],
+    policyReadiness: 'default_available',
+    bootstrapReadiness: 'bootstrapped',
+    agents: [
+      {
+        agent_id: demoAgent,
+        team_id: demoTeam,
+        name: 'Kalkidan agent',
+        configuration_id: 'cfg_demo_default',
+        configuration_version_id: 'cfv_demo_default',
+        configuration_name: 'Kalkidan default',
+        default: true,
+      },
+    ],
+    teams: [{ team_id: demoTeam, name: 'Platform team' }],
+    policies: [],
+    providerConnections: [
+      { provider_connection_id: 'pc_demo_openai', provider: 'openai', name: 'OpenAI' },
+      { provider_connection_id: 'pc_demo_anthropic', provider: 'anthropic', name: 'Anthropic' },
+    ],
+    allowedModels: { codex: ['gpt-5.1-codex'], claude: ['sonnet', 'opus'] },
+    selections: structuredClone(demoSelections),
+  };
+}
+/** The demo runtime: a fresh demo installs it in about 3 s, as the first launch does. */
+const demoRuntimeRelease = { version: '0.6.9', releaseId: 'demo', sha256: '0'.repeat(64) };
+let demoRuntimeInstalledAt = demoRead<{ at: number }>('kalkidan-demo-runtime', { at: 0 }).at;
+const demoRuntimeMs = 3000;
+function demoRuntime(hostId?: string): ComponentUpdateStatus {
+  const now = Date.now();
+  if (!demoRuntimeInstalledAt) {
+    demoRuntimeInstalledAt = now + demoRuntimeMs;
+    demoWrite('kalkidan-demo-runtime', { at: demoRuntimeInstalledAt });
+  }
+  const done = now >= demoRuntimeInstalledAt;
+  const startedAt = demoRuntimeInstalledAt - demoRuntimeMs;
+  const total = 48_000_000;
+  const received = done ? total : Math.round((total * (now - startedAt)) / demoRuntimeMs);
+  return {
+    hostId: hostId || 'local',
+    component: 'verdictan',
+    discovery: 'current',
+    stale: false,
+    history: [],
+    latest: demoRuntimeRelease,
+    lastSuccessAt: startedAt,
+    ...(done
+      ? { installed: demoRuntimeRelease, running: demoRuntimeRelease }
+      : { installing: true }),
+    operation: {
+      id: 'demo-install',
+      generation: 1,
+      sequence: 1,
+      hostId: hostId || 'local',
+      component: 'verdictan',
+      phase: done ? 'completed' : 'downloading',
+      target: demoRuntimeRelease,
+      receivedBytes: received,
+      totalBytes: total,
+      startedAt,
+      updatedAt: now,
+    },
+    canInstall: false,
+    reason: done ? `Version ${demoRuntimeRelease.version} is installed.` : undefined,
+  };
+}
 export const demo: API = {
   projectUsage: async () => {
     throw new Error('Managed-agent history requires the desktop app.');
@@ -283,45 +475,93 @@ export const demo: API = {
   projectServicesRequest: async () => {
     throw new Error('Project services require the desktop app.');
   },
-  verdictanSetup: async () => ({
-    status: 'desktop_required',
-    teams: [],
-    policies: [],
-    providerConnections: [],
-    selections: {},
-  }),
-  verdictanSelect: async () => {
-    throw new Error('Open the desktop app to configure Verdictan.');
+  verdictanSetup: async () => demoSetup(),
+  verdictanSelect: async (agent, selection) => {
+    if (!demoAccount.signedIn) throw new Error(managedErrorText('desktop.auth_required'));
+    demoSelections = { ...demoSelections, [agent]: selection };
+    demoWrite('kalkidan-demo-selections', demoSelections);
+    return demoSetup();
   },
-  verdictanSetRegion: async () => {
-    throw Error('Region selection requires the desktop app.');
+  verdictanApplyRecommended: async () => {
+    if (!demoAccount.signedIn) throw new Error(managedErrorText('desktop.auth_required'));
+    let setup = demoSetup();
+    for (const agent of ['codex', 'claude'] as const) {
+      const value = recommendedSelection(setup, agent);
+      if (value) setup = await demo.verdictanSelect(agent, value);
+    }
+    return setup;
   },
-  verdictanStatus: async () => ({ phase: 'missing', executionReady: false }),
-  verdictanCheck: async () => ({
-    phase: 'missing',
-    executionReady: false,
-    error: 'Desktop application required.',
-  }),
-  verdictanAuthorize: async () => {
-    throw new Error('Open the desktop application to sign in.');
+  onVerdictanChanged: (listener) => {
+    demoListeners.add(listener);
+    return () => demoListeners.delete(listener);
   },
-  verdictanCancel: async () => ({ phase: 'missing', executionReady: false }),
-  verdictanRenew: async () => {
-    throw new Error('Open the desktop application to renew your session.');
+  verdictanSetRegion: async (region) => {
+    if (region !== 'eu' && region !== 'us') throw new Error('Select the EU or US region.');
+    if (demoAccount.region === region) return demoStatus();
+    demoStopAuthorization();
+    // A sign-in belongs to one region. Another region starts signed out.
+    return demoSaveAccount({ region, signedIn: false, expired: false });
   },
-  verdictanLogout: async () => ({ phase: 'missing', executionReady: false }),
+  verdictanStatus: async () => demoStatus(),
+  verdictanCheck: async () => demoStatus(),
+  verdictanAuthorize: (intent) => {
+    const region = demoAccount.region;
+    if (!region) return Promise.resolve(demoStatus());
+    demoStopAuthorization();
+    const startedAt = Date.now();
+    demoAuthorization = {
+      url: `https://console.${region}.verdictan.com/auth/cli?intent=${intent}&state=demo`,
+      intent,
+      startedAt: new Date(startedAt).toISOString(),
+      expiresAt: new Date(startedAt + 300_000).toISOString(),
+    };
+    demoChanged();
+    // As in the desktop app, the request returns when the browser sign-in finishes or stops.
+    return new Promise((resolve) => {
+      const done = () => resolve(demoStatus());
+      demoAuthorizing = {
+        done,
+        timer: setTimeout(() => {
+          demoAuthorizing = undefined;
+          demoAuthorization = undefined;
+          demoSaveAccount({ signedIn: true, expired: false });
+          done();
+        }, demoSignInMs),
+      };
+    });
+  },
+  verdictanCancel: async () => {
+    demoStopAuthorization();
+    demoChanged();
+    return demoStatus();
+  },
+  verdictanReopenBrowser: async () => {
+    if (!demoAuthorization) throw new Error('No sign-in waits. Select Sign in to start again.');
+  },
+  verdictanOpenConsole: async () => {
+    if (!demoAccount.region) throw new Error(managedErrorText('desktop.region_required'));
+  },
+  verdictanRenew: async () => demoSaveAccount({ expired: false }),
+  verdictanLogout: async () => {
+    demoStopAuthorization();
+    return demoSaveAccount({ signedIn: false, expired: false });
+  },
+  firstRunState: async () => demoRead(demoFirstRunKey, { welcomeDone: false, everSignedIn: false }),
+  setWelcomeDone: async () => {
+    const value = { ...(await demo.firstRunState()), welcomeDone: true };
+    demoWrite(demoFirstRunKey, value);
+    return value;
+  },
+  notificationPreferences: async () =>
+    demoRead(demoNotificationsKey, { finished: true, needsInput: true }),
+  setNotificationPreferences: async (value) => {
+    const next = { finished: value.finished !== false, needsInput: value.needsInput !== false };
+    demoWrite(demoNotificationsKey, next);
+    return next;
+  },
   appVersion: async () => ({ version: 'Browser preview', build: 'preview', packaged: false }),
   helperUpdates: async () => [],
-  runtimeUpdateStatus: async (hostId) => ({
-    hostId: hostId || 'local',
-    component: 'verdictan',
-    discovery: 'unknown',
-    stale: true,
-    history: [],
-    latest: { version: '0.6.6', releaseId: 'preview', sha256: '0'.repeat(64) },
-    canInstall: false,
-    reason: 'Open the desktop app to install managed agents.',
-  }),
+  runtimeUpdateStatus: async (hostId) => demoRuntime(hostId),
   runtimeUpdateCheck: async (hostId) => demo.runtimeUpdateStatus(hostId),
   runtimeUpdateInstall: async () => {
     throw new Error('Runtime installation requires the desktop application.');
@@ -345,6 +585,37 @@ export const demo: API = {
     if (entry.revision !== revision)
       throw new Error('This memory entry changed. Reload memory and try again.');
     demoMemory = demoMemory.filter((value) => value.id !== id);
+  },
+  memorySave: async (_group, input) => {
+    const topic = input.topic?.trim() || '';
+    const content = input.content?.trim() || '';
+    if (!topic || topic.length > 120 || !content || content.length > 2000)
+      throw new Error(
+        'Enter a topic of up to 120 characters and a fact of up to 2,000 characters.',
+      );
+    const existing = input.id ? demoMemory.find((value) => value.id === input.id) : undefined;
+    if (input.id && (!existing || existing.revision !== input.expectedRevision))
+      return { status: 'conflict', id: input.id, revision: existing?.revision || '' };
+    const duplicate = demoMemory.find(
+      (value) => value.id !== input.id && value.content.toLowerCase() === content.toLowerCase(),
+    );
+    if (duplicate) return { status: 'duplicate', entry: structuredClone(duplicate) };
+    const date = new Date().toISOString();
+    const next = (Date.now() % 1e12).toString(16).padStart(64, 'b');
+    const entry: MemoryEntry = {
+      version: 1,
+      id: existing?.id || next,
+      topic,
+      content,
+      revision: next.split('').reverse().join(''),
+      provenance: 'user',
+      source: { sessionId: '', turnId: '', references: [] },
+      createdAt: existing?.createdAt || date,
+      updatedAt: date,
+      supersedes: existing?.supersedes || [],
+    };
+    demoMemory = [...demoMemory.filter((value) => value.id !== entry.id), entry];
+    return { status: 'saved', entry: structuredClone(entry) };
   },
   docsSearch: async (group, query, limit = 8) => {
     const terms = query.toLowerCase().match(/[\p{L}\p{N}_-]{2,}/gu) || [];

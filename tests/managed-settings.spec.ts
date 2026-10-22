@@ -1,4 +1,12 @@
-import { test, expect, type Page } from '@playwright/test';
+import { type Page } from '@playwright/test';
+import {
+  test,
+  expect,
+  openAgentSetup,
+  openSettings,
+  settingsDialog,
+  settingsTab,
+} from './helpers/app';
 
 const team = '11111111-1111-4111-8111-111111111111';
 const team2 = '22222222-2222-4222-8222-222222222222';
@@ -68,14 +76,12 @@ test('managed agent setup shows names or numbered generic labels, never IDs', as
       }),
     };`,
   );
-  await page.getByRole('button', { name: 'Settings', exact: true }).click();
-  const settings = page.getByRole('region', { name: 'Settings', exact: true });
-  await settings.getByRole('tab', { name: 'Accounts', exact: true }).click();
-  await expect(settings.getByRole('region', { name: 'Verdictan account' })).toContainText(
+  const settings = await openSettings(page, 'Account');
+  await expect(settings.getByRole('group', { name: 'Organization', exact: true })).toContainText(
     'Acme Corp',
   );
-  await settings.getByRole('tab', { name: 'Agents', exact: true }).click();
-  const setup = settings.getByRole('region', { name: 'Managed setup' });
+  await page.keyboard.press('Escape');
+  const setup = await openAgentSetup(page);
   /** The visible option labels of one choice. IDs stay in the option values. */
   async function options(name: string) {
     await setup.getByRole('combobox', { name }).click();
@@ -85,11 +91,12 @@ test('managed agent setup shows names or numbered generic labels, never IDs', as
   }
   await expect.poll(() => options('Team')).toEqual(['Choose a team', 'Team 1', 'Platform']);
   expect(await options('Policy')).toEqual(['Choose a policy', 'Policy 1', 'Policy 2']);
-  expect(await options('Connection')).toEqual(['Choose a connection', 'OpenAI connection']);
+  // The only OpenAI connection is chosen at once. Its list does not show.
+  await expect(setup.getByRole('combobox', { name: 'Connection' })).toHaveCount(0);
   await setup.getByRole('combobox', { name: 'Team' }).click();
   await page.getByRole('option', { name: 'Platform' }).click();
   await expect(setup.getByRole('combobox', { name: 'Team' })).toContainText('Platform');
-  const text = await settings.innerText();
+  const text = await setup.innerText();
   for (const id of [team2, 'cfg_', 'cfgv_', '11111111-1111'])
     expect(text, `visible text must not contain ${id}`).not.toContain(id);
 });
@@ -105,12 +112,7 @@ const signedIn = `verdictanStatus: async () => ({
     apiUrl: 'https://api.eu.verdictan.com',
   },
 }),`;
-async function openSetup(page: Page) {
-  await page.getByRole('button', { name: 'Settings', exact: true }).click();
-  const settings = page.getByRole('region', { name: 'Settings', exact: true });
-  await settings.getByRole('tab', { name: 'Agents', exact: true }).click();
-  return settings.getByRole('region', { name: 'Managed setup' });
-}
+const openSetup = (page: Page) => openAgentSetup(page);
 
 test('the Kalkidan default policy is preselected and saves without policy IDs', async ({
   page,
@@ -150,8 +152,8 @@ test('the Kalkidan default policy is preselected and saves without policy IDs', 
   expect(labels).toEqual(['Kalkidan default', 'Strict']);
   await page.keyboard.press('Escape');
   // A complete selection saves when the model name is entered.
-  await setup.getByRole('textbox').fill('gpt-5');
-  await setup.getByRole('textbox').press('Enter');
+  await setup.getByRole('textbox', { name: 'Default model' }).fill('gpt-5');
+  await setup.getByRole('textbox', { name: 'Default model' }).press('Enter');
   await expect.poll(() => page.evaluate(() => (window as any).savedSelections.length)).toBe(1);
   const [[agent, selection]] = await page.evaluate(() => (window as any).savedSelections);
   expect(agent).toBe('codex');
@@ -209,17 +211,17 @@ test('a launch block link opens Settings at the exact managed setup step', async
       }),
     ),
   );
-  const settings = page.getByRole('region', { name: 'Settings', exact: true });
+  const settings = settingsDialog(page);
   await expect(settings.getByRole('tab', { name: 'Agents', exact: true })).toHaveAttribute(
     'aria-selected',
     'true',
   );
-  // The setup section gets the focus.
+  // The managed setup row of Codex, at the top of the section, gets the focus.
   await expect(settings.locator('#managed-agent-setup')).toBeFocused();
-  await expect(settings.locator('#managed-agent-setup')).toContainText('Managed setup');
+  await expect(settings.locator('#managed-agent-setup')).toContainText('Codex');
   // Without a service name the account has a generic label. IDs never show.
-  await settings.getByRole('tab', { name: 'Accounts', exact: true }).click();
-  const account = settings.getByRole('region', { name: 'Verdictan account' });
+  await settingsTab(page, 'Account').click();
+  const account = settings.getByRole('group', { name: 'Organization', exact: true });
   await expect(account).toContainText('Your account');
-  await expect(account).not.toContainText('11111111-1111');
+  await expect(settings).not.toContainText('11111111-1111');
 });

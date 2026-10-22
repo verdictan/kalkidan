@@ -91,6 +91,7 @@ export function appMenuTemplate({
               { role: 'about', label: `About ${appName}` },
               separator,
               { label: 'Settings…', accelerator: 'Cmd+,', click: command('settings') },
+              { label: 'Sign in to Verdictan…', click: command('sign-in') },
               separator,
               { role: 'services', label: 'Services' },
               separator,
@@ -106,7 +107,11 @@ export function appMenuTemplate({
     {
       label: 'File',
       submenu: [
-        { label: 'New project', accelerator: 'CmdOrCtrl+N', click: command('new-project') },
+        {
+          label: 'New project',
+          accelerator: 'CmdOrCtrl+Shift+N',
+          click: command('new-project'),
+        },
         {
           label: 'Add code folder…',
           accelerator: 'CmdOrCtrl+Shift+O',
@@ -125,6 +130,7 @@ export function appMenuTemplate({
           ? []
           : ([
               { label: 'Settings', accelerator: 'Ctrl+,', click: command('settings') },
+              { label: 'Sign in to Verdictan…', click: command('sign-in') },
               separator,
             ] satisfies MenuItemConstructorOptions[])),
         // The renderer closes the open tool tab or session. With no session, it closes the window.
@@ -179,9 +185,10 @@ export function appMenuTemplate({
         // These open a page of the current project. Without a project, the renderer does nothing.
         { label: 'Overview', accelerator: 'CmdOrCtrl+1', click: command('go-overview') },
         { label: 'Tasks', accelerator: 'CmdOrCtrl+2', click: command('go-tasks') },
-        { label: 'Docs', accelerator: 'CmdOrCtrl+3', click: command('go-docs') },
-        { label: 'Memory', accelerator: 'CmdOrCtrl+4', click: command('go-memory') },
-        { label: 'Insights', accelerator: 'CmdOrCtrl+5', click: command('go-insights') },
+        { label: 'Chats', accelerator: 'CmdOrCtrl+3', click: command('go-chats') },
+        { label: 'Docs', accelerator: 'CmdOrCtrl+4', click: command('go-docs') },
+        { label: 'Memory', accelerator: 'CmdOrCtrl+5', click: command('go-memory') },
+        { label: 'Insights', accelerator: 'CmdOrCtrl+6', click: command('go-insights') },
         separator,
         { label: 'All chats', accelerator: 'CmdOrCtrl+Shift+L', click: command('all-sessions') },
       ],
@@ -190,7 +197,7 @@ export function appMenuTemplate({
       // The renderer sends these commands to the open chat.
       label: 'Chat',
       submenu: [
-        { label: 'New chat', accelerator: 'CmdOrCtrl+Shift+N', click: command('session-new') },
+        { label: 'New chat', accelerator: 'CmdOrCtrl+N', click: command('session-new') },
         separator,
         // The renderer handles these keys in the session view, so the menu only shows them.
         {

@@ -50,7 +50,7 @@ function openFor(narrow: boolean) {
 }
 
 /**
- * The open state of the sidebar. Below 1100 px the sidebar is closed by default. The user can
+ * The open state of the sidebar. Below 900 px the sidebar is closed by default. The user can
  * open it, and the app keeps that choice for narrow and for wide windows separately.
  */
 export function useSidebarOpen() {

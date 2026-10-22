@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './helpers/app';
 import { openCodeFolder } from './helpers/navigation';
 
 test('repository overview omits tasks while the project Board page retains them', async ({

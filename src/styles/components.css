@@ -249,6 +249,8 @@
 
 /* Keyboard hints. */
 .kbd {
+  /* One key-label style everywhere: sans 11px. */
+  font-family: var(--font-sans, inherit);
   display: inline-flex;
   align-items: center;
   height: 20px;
@@ -535,4 +537,16 @@
   outline: none;
   border-radius: var(--radius-xs);
   box-shadow: var(--focus-ring);
+}
+
+/* Check box and radio marks. The colour follows --primary-foreground in each theme. */
+:root {
+  --checkbox-tick: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12' fill='none' stroke='%23ffffff' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M2.5 6.2 5 8.5l4.5-5'/%3E%3C/svg%3E");
+  --checkbox-dash: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 10' stroke='%23ffffff' stroke-width='2' stroke-linecap='round'%3E%3Cpath d='M2 5h6'/%3E%3C/svg%3E");
+  --radio-dot: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 6 6'%3E%3Ccircle cx='3' cy='3' r='3' fill='%23ffffff'/%3E%3C/svg%3E");
+}
+.dark {
+  --checkbox-tick: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12' fill='none' stroke='%23101316' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M2.5 6.2 5 8.5l4.5-5'/%3E%3C/svg%3E");
+  --checkbox-dash: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 10' stroke='%23101316' stroke-width='2' stroke-linecap='round'%3E%3Cpath d='M2 5h6'/%3E%3C/svg%3E");
+  --radio-dot: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 6 6'%3E%3Ccircle cx='3' cy='3' r='3' fill='%23101316'/%3E%3C/svg%3E");
 }

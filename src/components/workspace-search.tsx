@@ -48,6 +48,8 @@ export interface SearchAction {
   keywords?: string;
   /** A keyboard shortcut to show next to the label. */
   shortcut?: string;
+  /** The icon of the action, such as the agent mark for "New Codex chat". */
+  icon?: ReactNode;
   run: () => void;
 }
 
@@ -502,7 +504,7 @@ export function WorkspaceSearch({
         ref={triggerRef}
         type="button"
         className="search-trigger"
-        aria-label="Search or run"
+        aria-label="Search or run a command"
         aria-haspopup="dialog"
         aria-expanded={open}
         aria-keyshortcuts={isMac ? 'Meta+K' : 'Control+K'}
@@ -534,7 +536,7 @@ export function WorkspaceSearch({
             if (target?.isConnected) target.focus();
           }}
         >
-          <DialogTitle className="sr-only">Search or run</DialogTitle>
+          <DialogTitle className="sr-only">Search or run a command</DialogTitle>
           <div className="command-palette-field">
             <Search className="command-palette-search-icon" aria-hidden="true" />
             <input
@@ -542,12 +544,12 @@ export function WorkspaceSearch({
               type="text"
               className="command-palette-input"
               role="combobox"
-              aria-label="Search projects and chats"
+              aria-label="Search or run a command"
               aria-expanded={expanded}
               aria-controls={expanded ? listId : undefined}
               aria-autocomplete="list"
               aria-activedescendant={activeOption ? optionId(activeOption.key) : undefined}
-              placeholder="Search projects, chats, docs, tasks and actions…"
+              placeholder="Search or run a command…"
               autoComplete="off"
               spellCheck={false}
               value={query}
@@ -605,7 +607,7 @@ export function WorkspaceSearch({
                     'Suggested',
                     suggested.map((action) =>
                       row('suggested:' + action.key, {
-                        icon: <Zap />,
+                        icon: action.icon || <Zap />,
                         title: action.label,
                         meta: kbd(action.shortcut),
                         tooltip: action.label,
@@ -722,7 +724,7 @@ export function WorkspaceSearch({
                     'Actions',
                     actionMatches.map((action) =>
                       row('action:' + action.key, {
-                        icon: <Zap />,
+                        icon: action.icon || <Zap />,
                         title: <Highlight text={action.label} term={term} />,
                         meta: kbd(action.shortcut) || 'Action',
                         tooltip: action.label,

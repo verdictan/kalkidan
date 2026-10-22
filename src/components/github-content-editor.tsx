@@ -195,7 +195,7 @@ export function GitHubContentEditor({
   api: API;
   groupId: string;
   itemId: string;
-  onSaved: () => Promise<void>;
+  onSaved: () => Promise<unknown>;
   /** Content that shows before the comments, such as the relationships of the issue. */
   beforeComments?: ReactNode;
 }) {

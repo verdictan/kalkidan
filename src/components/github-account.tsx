@@ -1,20 +1,38 @@
-import { useEffect, useState, type ReactNode } from 'react';
-import { Copy, ExternalLink, RefreshCw } from 'lucide-react';
+import { useCallback, useEffect, useState, type ReactNode } from 'react';
+import { Columns3, Copy, ExternalLink, RefreshCw } from 'lucide-react';
 import type { API, GitHubAuthState, GitHubCliStatus } from '../types';
 import { trackerAuthPending } from '../domain/tracker';
 import { interfaceConfig } from '../config/interface';
-import { Badge } from './ui/badge';
+import { useRefreshTriggers } from '../hooks/use-refresh-triggers';
+import { SettingsRow, StatusBadge } from './settings-disclosure';
 import { Button } from './ui/button';
-import { Input } from './ui/input';
+import {
+  Dialog,
+  DialogBody,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from './ui/dialog';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from './ui/dropdown-menu';
 import { EntityIcon } from './ui/entity-icon';
-import { SectionHeader } from './ui/page-header';
+import { Input } from './ui/input';
+import { MoreButton } from './ui/more-button';
 import { showToast } from './ui/toast';
-import { cn } from '../lib/utils';
+import type { StatusLabel } from '../lib/verdictan-labels';
 
-/** Opens Settings › Accounts. Every GitHub sign-in outside Settings uses this. */
+/** Opens Settings › Account. Every GitHub sign-in outside Settings uses this. */
 export function openAccountSettings() {
   window.dispatchEvent(
-    new CustomEvent('kalkidan-open-settings', { detail: { section: 'accounts' } }),
+    new CustomEvent('kalkidan-open-settings', {
+      detail: { section: 'account', anchor: 'settings-connected-services' },
+    }),
   );
 }
 
@@ -33,7 +51,7 @@ export function CommandHelp({ command, children }: { command: string; children: 
       <span>{children}</span>
       <Button
         variant="ghost"
-        size="xs"
+        size="sm"
         aria-label={`Copy ${command}`}
         onClick={() => copyCommand(command)}
       >
@@ -68,35 +86,29 @@ function GitHubMark() {
 }
 
 /**
- * Settings › Accounts › GitHub. Shows both GitHub permissions in one place: the GitHub CLI
- * sign-in for repositories, and the Projects access for GitHub Projects boards.
+ * The GitHub state for Settings › Account: the GitHub CLI sign-in for repositories, and the
+ * Projects access for boards. It reads again when the section opens and on window focus.
  */
-export function GitHubAccount({ api, open }: { api: API; open: boolean }) {
-  const [revision, setRevision] = useState(0);
+export function useGitHubServices(api: API, open: boolean) {
   const [gh, setGh] = useState<GitHubCliStatus>();
-  const [ghChecking, setGhChecking] = useState(false);
   const [auth, setAuth] = useState<GitHubAuthState>({ status: 'idle' });
-  const [authChecking, setAuthChecking] = useState(false);
-  useEffect(() => {
-    if (!open) return;
-    let live = true;
-    setGhChecking(true);
-    setAuthChecking(true);
-    Promise.resolve()
+  const [authChecked, setAuthChecked] = useState(false);
+  const read = useCallback(() => {
+    void Promise.resolve()
       .then(() => api.githubCliCheck())
-      .then((value) => live && setGh(value))
-      .catch(() => live && setGh({ status: 'error' }))
-      .finally(() => live && setGhChecking(false));
+      .then(setGh, () => setGh({ status: 'error' }));
     // Only read the current access. The approval starts when the user asks for it.
-    Promise.resolve()
+    void Promise.resolve()
       .then(() => api.githubAuthStatus())
-      .then((value) => live && setAuth(value))
-      .catch(() => live && setAuth({ status: 'idle' }))
-      .finally(() => live && setAuthChecking(false));
-    return () => {
-      live = false;
-    };
-  }, [open, api, revision]);
+      .then(
+        (value) => {
+          setAuth((current) => (trackerAuthPending(current) ? current : value));
+          setAuthChecked(true);
+        },
+        () => setAuthChecked(true),
+      );
+  }, [api]);
+  useRefreshTriggers(undefined, open, read);
   useEffect(() => {
     if (!open || !trackerAuthPending(auth)) return;
     let live = true;
@@ -106,9 +118,7 @@ export function GitHubAccount({ api, open }: { api: API; open: boolean }) {
         .then((value) => {
           if (!live) return;
           setAuth(value);
-          if (value.status === 'ready') {
-            setRevision((n) => n + 1);
-          }
+          if (value.status === 'ready') showToast('GitHub Projects access allowed');
         })
         .catch(() => live && setAuth({ status: 'error', message: 'Approval stopped. Try again.' }));
     }, interfaceConfig.authPollMs);
@@ -118,9 +128,10 @@ export function GitHubAccount({ api, open }: { api: API; open: boolean }) {
     };
   }, [open, api, auth.status]);
   async function allow() {
+    const force = auth.status === 'ready';
     setAuth({ status: 'checking' });
     try {
-      setAuth(await api.githubAuthStart(auth.status === 'ready'));
+      setAuth(await api.githubAuthStart(force));
     } catch {
       setAuth({
         status: 'error',
@@ -128,213 +139,231 @@ export function GitHubAccount({ api, open }: { api: API; open: boolean }) {
       });
     }
   }
-  const ghStatus = ghChecking
+  async function cancel() {
+    if (!auth.attemptId) return;
+    try {
+      setAuth(await api.githubAuthCancel(auth.attemptId));
+    } catch {
+      setAuth({ ...auth, message: 'Could not cancel the approval. Try again.' });
+    }
+  }
+  function openGitHub() {
+    void Promise.resolve()
+      .then(() => api.githubAuthOpen())
+      .catch(() =>
+        setAuth({
+          ...auth,
+          message: 'Could not open your browser. Go to github.com/login/device and enter the code.',
+        }),
+      );
+  }
+  return { gh, auth, authChecked, allow, cancel, openGitHub };
+}
+
+export type GitHubServices = ReturnType<typeof useGitHubServices>;
+
+const ghStatus: Record<GitHubCliStatus['status'], StatusLabel> = {
+  ready: { label: 'Connected', tone: 'success' },
+  'signed-out': { label: 'Signed out', tone: 'warning' },
+  missing: { label: 'Not installed', tone: 'warning' },
+  unavailable: { label: 'Desktop only', tone: 'muted' },
+  error: { label: 'Check failed', tone: 'destructive' },
+};
+
+/** The GitHub user name, when the desktop sends it. */
+function ghLogin(gh: GitHubCliStatus | undefined) {
+  const login = (gh as (GitHubCliStatus & { login?: unknown }) | undefined)?.login;
+  return typeof login === 'string' && /^[A-Za-z0-9-]{1,39}$/.test(login) ? login : undefined;
+}
+
+/**
+ * Settings › Account › Connected services: one row for GitHub (the GitHub CLI) and one for
+ * GitHub Projects boards (the Projects access, with the device approval in a small sheet).
+ */
+export function ConnectedServices({ services }: { services: GitHubServices }) {
+  const { gh, auth, authChecked, allow } = services;
+  const [sheet, setSheet] = useState(false);
+  const login = ghLogin(gh);
+  const ghHelp = !gh
     ? 'Checking…'
-    : gh?.status === 'ready'
-      ? 'Signed in'
-      : gh?.status === 'signed-out'
-        ? 'Sign-in required'
-        : gh?.status === 'missing'
-          ? 'Not found'
-          : gh?.status === 'unavailable'
-            ? 'Desktop only'
-            : 'Check failed';
-  const boardStatus = authChecking
-    ? 'Checking…'
+    : gh.status === 'ready'
+      ? login
+        ? `Signed in as @${login} through the GitHub CLI.`
+        : 'Signed in through the GitHub CLI.'
+      : gh.status === 'signed-out'
+        ? 'Run gh auth login in a terminal to find and clone repositories.'
+        : gh.status === 'missing'
+          ? 'Install the GitHub CLI to find and clone repositories.'
+          : gh.status === 'unavailable'
+            ? 'Available in the desktop app.'
+            : 'Kalkidan could not check the GitHub CLI.';
+  const pending = trackerAuthPending(auth);
+  const boardStatus: StatusLabel = !authChecked
+    ? { label: 'Checking…', tone: 'secondary' }
     : auth.status === 'ready'
-      ? 'Allowed'
-      : auth.status === 'waiting'
-        ? 'Waiting for approval'
-        : auth.status === 'verifying'
-          ? 'Verifying access…'
-          : auth.status === 'checking'
-            ? 'Starting…'
-            : 'Not allowed';
+      ? { label: 'Allowed', tone: 'success' }
+      : pending
+        ? { label: 'Waiting…', tone: 'secondary' }
+        : auth.status === 'error'
+          ? { label: 'Not allowed', tone: 'destructive' }
+          : { label: 'Not allowed', tone: 'muted' };
+  function start() {
+    setSheet(true);
+    if (!pending) void allow();
+  }
   return (
-    <section aria-label="GitHub account" className="grid gap-2">
-      <SectionHeader
-        size="sm"
-        title="GitHub"
-        actions={
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={ghChecking || authChecking}
-            onClick={() => setRevision((n) => n + 1)}
-          >
-            <RefreshCw className={ghChecking ? 'animate-spin' : ''} />
-            Check again
-          </Button>
-        }
-      />
-      <p className="form-help mt-0">
-        Kalkidan uses the GitHub CLI (gh) on this computer. Sign in to gh once. Then allow the
-        access that you need.
-      </p>
-      <ul className="mt-2 divide-y rounded-lg border">
-        <AccountRow
-          label="GitHub CLI status"
-          name="Repositories"
-          description="Find and clone your repositories, and open pull requests."
-          path={gh?.path}
-          status={ghStatus}
-          ready={gh?.status === 'ready' && !ghChecking}
-        >
-          {!ghChecking && gh?.status === 'missing' && (
-            <div className="mt-1 flex flex-wrap items-center gap-x-3 text-xs text-muted-foreground">
-              <span>The GitHub CLI is not installed. Install it, then select Check again.</span>
-              <HelpLink href="https://cli.github.com">How to install</HelpLink>
-            </div>
-          )}
-          {!ghChecking && gh?.status === 'signed-out' && (
-            <CommandHelp command="gh auth login">
-              Run <code>gh auth login</code> in a terminal, then select Check again.
-            </CommandHelp>
-          )}
-        </AccountRow>
-        <AccountRow
-          label="GitHub Projects board access"
-          name="GitHub Projects boards"
-          description="Show and update the tasks of a project on its GitHub Projects board."
-          status={boardStatus}
-          ready={auth.status === 'ready' && !authChecking}
-          action={
-            !trackerAuthPending(auth) && (
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={authChecking || auth.status === 'checking'}
-                onClick={() => void allow()}
-              >
-                {auth.status === 'ready'
-                  ? 'Allow again'
-                  : auth.status === 'error'
-                    ? 'Try again'
-                    : 'Allow access'}
-              </Button>
-            )
+    <>
+      <ul className="settings-rows" aria-label="Connected services">
+        <SettingsRow
+          icon={
+            <EntityIcon>
+              <GitHubMark />
+            </EntityIcon>
           }
+          label="GitHub"
+          help={ghHelp}
         >
-          {trackerAuthPending(auth) && auth.attemptId && (
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => {
-                void api
-                  .githubAuthCancel(auth.attemptId!)
-                  .then(setAuth)
-                  .catch(() =>
-                    setAuth({ ...auth, message: 'Could not cancel approval. Check again.' }),
-                  );
-              }}
-            >
-              Cancel approval
+          {gh && <StatusBadge status={ghStatus[gh.status]} />}
+          {gh?.status === 'signed-out' && (
+            <Button variant="ghost" size="sm" onClick={() => copyCommand('gh auth login')}>
+              <Copy />
+              Copy command
             </Button>
           )}
-          {auth.status === 'waiting' && (
-            <div className="mt-2 grid gap-2" aria-live="polite">
-              <p className="text-xs text-muted-foreground">
-                {auth.code
-                  ? 'Open GitHub and enter this code. This page updates after you approve.'
-                  : 'Getting a code…'}
-              </p>
-              {auth.code && (
-                <div className="flex flex-wrap gap-2">
-                  <Input
-                    size="sm"
-                    aria-label="GitHub device code"
-                    className="w-32 font-mono"
-                    readOnly
-                    value={auth.code}
-                    onFocus={(event) => event.target.select()}
-                  />
-                  <Button
-                    size="sm"
-                    onClick={() =>
-                      void Promise.resolve()
-                        .then(() => api.githubAuthOpen())
-                        .catch(() =>
-                          setAuth({
-                            ...auth,
-                            message:
-                              'Could not open your browser. Go to github.com/login/device and enter the code.',
-                          }),
-                        )
-                    }
-                  >
-                    Open GitHub
-                  </Button>
-                </div>
-              )}
-            </div>
+          {gh?.status === 'missing' && (
+            <Button asChild variant="ghost" size="sm">
+              <a href="https://cli.github.com" target="_blank" rel="noreferrer">
+                How to install
+                <ExternalLink aria-hidden="true" />
+              </a>
+            </Button>
           )}
-          {auth.message && auth.status !== 'ready' && (
-            <p
-              role={auth.status === 'error' ? 'alert' : undefined}
-              className={cn(
-                'mt-1 text-xs',
-                auth.status === 'error' ? 'field-error' : 'text-muted-foreground',
-              )}
-            >
-              {auth.message}
-            </p>
+        </SettingsRow>
+        <SettingsRow
+          icon={
+            <EntityIcon>
+              <Columns3 />
+            </EntityIcon>
+          }
+          label="GitHub Projects boards"
+          help="Read and update the tasks on your boards."
+        >
+          <StatusBadge status={boardStatus} />
+          {auth.status === 'ready' ? (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <MoreButton label="GitHub Projects access actions" />
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem onSelect={start}>
+                  <RefreshCw />
+                  Allow again…
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          ) : (
+            authChecked && (
+              <Button size="sm" variant="outline" onClick={start}>
+                {pending ? 'Continue…' : auth.status === 'error' ? 'Try again…' : 'Allow access…'}
+              </Button>
+            )
           )}
-        </AccountRow>
+        </SettingsRow>
       </ul>
+      <BoardAccessDialog services={services} open={sheet} onOpenChange={setSheet} />
       {/* One live region announces the result of both checks together. */}
       <p role="status" className="sr-only">
-        {ghChecking || authChecking
-          ? 'Checking GitHub…'
-          : `GitHub CLI: ${ghStatus}. GitHub Projects boards: ${boardStatus}.`}
+        {gh && authChecked
+          ? `GitHub: ${ghStatus[gh.status].label}. GitHub Projects boards: ${boardStatus.label}.`
+          : ''}
       </p>
-    </section>
+    </>
   );
 }
 
-function AccountRow({
-  label,
-  name,
-  description,
-  path,
-  status,
-  ready,
-  action,
-  children,
+/** The program path of the GitHub CLI, for the Advanced fold of Settings › Account. */
+export function GitHubCliPathRow({ services }: { services: GitHubServices }) {
+  if (!services.gh?.path) return null;
+  return <SettingsRow label="GitHub CLI program" help={services.gh.path} />;
+}
+
+/** The GitHub device approval for Projects access: the code, Open GitHub, and Cancel. */
+function BoardAccessDialog({
+  services,
+  open,
+  onOpenChange,
 }: {
-  label: string;
-  name: string;
-  description: string;
-  path?: string;
-  status: string;
-  ready: boolean;
-  action?: ReactNode;
-  children?: ReactNode;
+  services: GitHubServices;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
 }) {
+  const { auth, cancel, openGitHub, allow } = services;
+  const pending = trackerAuthPending(auth);
+  // Close the sheet when the approval is complete.
+  useEffect(() => {
+    if (open && auth.status === 'ready') onOpenChange(false);
+  }, [open, auth.status]);
   return (
-    <li
-      role="group"
-      aria-label={label}
-      className="flex min-h-[var(--row-height-2line)] items-start gap-3 px-3 py-3"
-    >
-      <EntityIcon>
-        <GitHubMark />
-      </EntityIcon>
-      <div className="min-w-0 flex-1">
-        <p className="text-sm font-medium">{name}</p>
-        <p className="text-xs text-muted-foreground">{description}</p>
-        {path && (
-          <p title={path} className="mt-0.5 truncate font-mono text-2xs text-muted-foreground">
-            {path}
-          </p>
-        )}
-        {children}
-      </div>
-      <div className="flex shrink-0 items-center gap-3">
-        <Badge variant={ready ? 'success' : 'muted'} size="sm">
-          {status}
-        </Badge>
-        {action}
-      </div>
-    </li>
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent size="sm" layout="scroll">
+        <DialogHeader>
+          <DialogTitle>Allow access to GitHub Projects</DialogTitle>
+          <DialogDescription>
+            Kalkidan reads and updates the tasks on your boards. Approve it on GitHub.
+          </DialogDescription>
+        </DialogHeader>
+        <DialogBody className="grid gap-3" aria-live="polite">
+          {auth.status === 'waiting' && auth.code ? (
+            <>
+              <p className="text-xs leading-4 text-muted-foreground">
+                1. Copy this code. 2. Open GitHub and enter it. This window updates after you
+                approve.
+              </p>
+              <Input
+                aria-label="GitHub device code"
+                className="w-40 font-mono"
+                readOnly
+                value={auth.code}
+                onFocus={(event) => event.target.select()}
+              />
+            </>
+          ) : auth.status === 'verifying' ? (
+            <p role="status" className="text-xs leading-4">
+              Checking the access…
+            </p>
+          ) : auth.status === 'error' ? (
+            <p role="alert" className="field-error">
+              {auth.message || 'The approval did not finish. Try again.'}
+            </p>
+          ) : (
+            <p role="status" className="text-xs leading-4 text-muted-foreground">
+              Getting a code…
+            </p>
+          )}
+          {auth.message && auth.status !== 'error' && auth.status !== 'ready' && (
+            <p className="text-xs leading-4 text-muted-foreground">{auth.message}</p>
+          )}
+        </DialogBody>
+        <DialogFooter>
+          <Button
+            variant="outline"
+            onClick={() => {
+              if (pending) void cancel();
+              onOpenChange(false);
+            }}
+          >
+            Cancel
+          </Button>
+          {auth.status === 'error' ? (
+            <Button onClick={() => void allow()}>Try again</Button>
+          ) : (
+            <Button disabled={auth.status !== 'waiting' || !auth.code} onClick={openGitHub}>
+              Open GitHub
+              <ExternalLink aria-hidden="true" />
+            </Button>
+          )}
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

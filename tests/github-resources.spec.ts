@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './helpers/app';
 test('saved views render configured fields and explicit report publishing uses the reviewed snapshot', async ({
   page,
 }) => {
@@ -113,7 +113,7 @@ test('saved views render configured fields and explicit report publishing uses t
   await expect(view.getByRole('cell', { name: '5', exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Other work', exact: true })).toHaveCount(0);
   // The health report is on the Insights page. The preview is the reviewed snapshot.
-  await pages.getByRole('button', { name: 'Insights', exact: true }).click();
+  await pages.getByRole('button', { name: /^Insights\b/ }).click();
   const health = page.getByRole('region', { name: 'Health', exact: true });
   await health.getByRole('button', { name: 'Write report' }).click();
   await expect(health).toContainText('2 active items');
@@ -138,7 +138,7 @@ test('saved views render configured fields and explicit report publishing uses t
   await page.getByRole('checkbox', { name: 'Select Selected work', exact: true }).check();
   await page
     .getByRole('toolbar', { name: 'Selected tasks' })
-    .getByRole('button', { name: 'Edit fields…', exact: true })
+    .getByRole('button', { name: 'Bulk edit…', exact: true })
     .click();
   const batch = page.getByRole('dialog', { name: 'Edit fields of 1 task' });
   const fieldSelect = batch.getByRole('combobox', { name: 'Field', exact: true });
@@ -158,7 +158,7 @@ test('saved views render configured fields and explicit report publishing uses t
   ]);
   await batch.getByRole('button', { name: 'Done', exact: true }).click();
   // A change with an unknown result stays in GitHub changes until the user checks it.
-  await pages.getByRole('button', { name: 'Insights', exact: true }).click();
+  await pages.getByRole('button', { name: /^Insights\b/ }).click();
   const changes = page.getByRole('region', { name: 'GitHub changes' });
   const record = changes.getByRole('button', { name: 'I checked this on GitHub' });
   await record.click();

@@ -3,7 +3,7 @@ import { trackerConnection, type TrackerBoard } from '../domain/tracker';
 import { agentLabel } from '../config/agents';
 import { CreateProject } from './create-project';
 import { useState } from 'react';
-import { Folder, FolderPlus, Plus, GitBranch, MessageSquare } from 'lucide-react';
+import { Folder, FolderOpen, FolderPlus, Plus, GitBranch, MessageSquare } from 'lucide-react';
 import { AgentIcon } from './ui/agent-icon';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
@@ -18,6 +18,9 @@ import { plural } from '../lib/platform';
 import { fullTime, relativeTime } from '../lib/relative-time';
 import { doneStatus, itemStatus } from '../hooks/use-project-boards';
 import { ProjectPortfolio } from './planning-tools';
+import { folderName, showFolderImportResult, useFolderImport } from './repository-import';
+import { showToast } from './ui/toast';
+import { errorMessage } from '../lib/errors';
 import {
   ActivityDot,
   ChatStatusDot,
@@ -151,6 +154,30 @@ export function ProjectOverview({
 }) {
   const [open, setOpen] = useState(false);
   const needsYou = useNeedsYou(sessions, repos);
+  const folderImport = useFolderImport(api, 'overview');
+  const [importing, setImporting] = useState(false);
+  /** Chooses a folder, makes a project with its name, and adds the Git repositories in it. */
+  async function openCodeFolder() {
+    if (!folderImport.supported) return setOpen(true);
+    setImporting(true);
+    try {
+      const result = await folderImport.choose('Choose a code folder', 'Choose');
+      if (!result) return;
+      const name = folderName(result.root);
+      const id = await api.createGroup(name, '', undefined, 'github', undefined, undefined, [
+        ...result.paths,
+      ]);
+      await onRefresh();
+      const snapshot = await api.snapshot();
+      const group = snapshot.groups?.find((g) => g.id === id);
+      showFolderImportResult(name, group?.repoIds.length ?? 0);
+      if (group) onSelect(group);
+    } catch (error) {
+      showToast({ message: errorMessage(error), tone: 'error' });
+    } finally {
+      setImporting(false);
+    }
+  }
   const visible = groups.filter((g) =>
     `${g.name} ${trackerConnection(g)?.project.title || ''} ${repos
       .filter((r) => g.repoIds.includes(r.id))
@@ -310,19 +337,25 @@ export function ProjectOverview({
           {!visible.length && (
             <EmptyState
               icon={<FolderPlus />}
-              title={groups.length ? 'No matching projects' : 'Create your first project'}
+              title={groups.length ? 'No matching projects' : 'Open a code folder to start'}
               action={
                 !groups.length && (
-                  <Button size="lg" onClick={() => setOpen(true)}>
-                    <Plus />
-                    New project
-                  </Button>
+                  <div className="flex flex-wrap justify-center gap-2">
+                    <Button disabled={importing} onClick={() => void openCodeFolder()}>
+                      <FolderOpen />
+                      Open a code folder…
+                    </Button>
+                    <Button variant="outline" onClick={() => setOpen(true)}>
+                      <Plus />
+                      New empty project
+                    </Button>
+                  </div>
                 )
               }
             >
               {groups.length
                 ? 'Try another project or code folder name.'
-                : 'A project holds your code folders, agent chats and notes. Create one to start. You can connect GitHub later.'}
+                : 'Choose a folder on this computer. Kalkidan makes a project from it and adds each Git repository in it.'}
             </EmptyState>
           )}
           {!!recent.length && onResume && (
@@ -379,6 +412,7 @@ export function ProjectOverview({
           )}
         </>
       )}
+      {folderImport.dialog}
       <CreateProject
         api={api}
         open={open}

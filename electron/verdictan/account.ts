@@ -13,10 +13,27 @@ export interface DesktopAccountOptions {
   connect(): Promise<DesktopClient | null>;
   openBrowser(url: string): Promise<unknown>;
   changed?(): void;
+  /** The clock, for tests. */
+  now?(): number;
 }
 /** One backend owner serves every window. The CLI owns account secrets and PKCE. */
 /** How long a launch waits for a running status check or session renewal. */
 const runtimeClientWaitMs = 30_000;
+/** The session renews this long before it expires. */
+export const renewBeforeMs = 10 * 60_000;
+/** After a failed automatic renewal, the next try starts after this time. */
+export const renewRetryMs = 60_000;
+/** The browser link stops after this time when the runtime does not say. */
+const authorizationMs = 300_000;
+/** Codes that tell that the session ended. A renewal does not try again after them. */
+const sessionEndedCodes = new Set([
+  'desktop.auth_expired',
+  'desktop.auth_required',
+  'desktop.session_rejected',
+  'desktop.account_invalid',
+]);
+/** The longest time that a timer can wait. A longer wait starts the timer again. */
+const maxTimerMs = 2 ** 31 - 1;
 
 export class VerdictanAccountService {
   private state: VerdictanStatus = { phase: 'missing', executionReady: false };
@@ -28,7 +45,12 @@ export class VerdictanAccountService {
   private generation = 0;
   private connectionGeneration = 0;
   private detach?: () => void;
+  private renewTimer?: ReturnType<typeof setTimeout>;
+  private quietError?: string;
+  private canceling?: Promise<void>;
+  private now: () => number;
   constructor(private options: DesktopAccountOptions) {
+    this.now = options.now ?? Date.now;
     for (const origin of [options.apiOrigin, options.consoleOrigin]) {
       const url = new URL(origin);
       if (url.protocol !== 'https:' || url.origin !== origin)
@@ -40,8 +62,73 @@ export class VerdictanAccountService {
   }
   private set(next: VerdictanStatus) {
     this.state = next;
+    this.schedule();
     this.options.changed?.();
     return this.status();
+  }
+  /**
+   * Starts the automatic renewal for an authenticated session. The timer fires about
+   * `renewBeforeMs` before the session expires. A failed renewal tries again after
+   * `renewRetryMs` while time remains, and then marks the session as expired.
+   */
+  private schedule(delay?: number) {
+    clearTimeout(this.renewTimer);
+    this.renewTimer = undefined;
+    const expiresAt = Date.parse(this.state.account?.expiresAt || '');
+    if (this.disposed || this.state.phase !== 'authenticated' || !Number.isFinite(expiresAt))
+      return;
+    const wait = Math.max(0, delay ?? expiresAt - renewBeforeMs - this.now());
+    this.renewTimer = setTimeout(
+      () => {
+        this.renewTimer = undefined;
+        // A long wait fires early. Start the timer again for the remaining time.
+        if (wait > maxTimerMs) this.schedule();
+        else void this.autoRenew();
+      },
+      Math.min(wait, maxTimerMs),
+    );
+    this.renewTimer.unref?.();
+  }
+  /** Renews the session now. Used by the timer and when the computer wakes from sleep. */
+  async autoRenew(): Promise<VerdictanStatus> {
+    const before = this.state;
+    const expiresAt = Date.parse(before.account?.expiresAt || '');
+    if (this.disposed || before.phase !== 'authenticated' || !Number.isFinite(expiresAt))
+      return this.status();
+    if (this.now() < expiresAt) {
+      this.quietError = undefined;
+      try {
+        await this.run(
+          'auto-renew',
+          async (client, generation) => {
+            await client.request('session.renew');
+            await this.refresh(client, generation);
+          },
+          true,
+        );
+      } catch (error) {
+        // Another operation runs, for example a status check. Try again later.
+        this.quietError = error instanceof DesktopProtocolError ? error.code : undefined;
+      }
+      const after = this.state;
+      if (after.phase !== 'authenticated') return this.status();
+      if (!this.quietError && after.account?.expiresAt !== before.account?.expiresAt)
+        return this.status();
+      const left = expiresAt - this.now();
+      if (left > 0 && !sessionEndedCodes.has(this.quietError || '')) {
+        // Keep the account while the session is still valid. The renewal tries again.
+        this.schedule(Math.min(renewRetryMs, left));
+        return this.status();
+      }
+    }
+    // The session ended and did not renew. Start new chats only after a new sign-in.
+    return this.set({
+      ...before,
+      phase: 'expired',
+      account: before.account && { ...before.account, state: 'expired' },
+      capabilities: before.capabilities && sessionCapabilities(before.capabilities),
+      executionReady: false,
+    });
   }
   private async connection() {
     if (this.client) return this.client;
@@ -71,7 +158,11 @@ export class VerdictanAccountService {
     // A status check or a session renewal is short. It starts with the app and with Settings, so
     // a launch waits for it instead of refusing. Sign-in and sign-out still refuse a launch.
     const operation = this.operation;
-    if (!this.disposed && operation && ['check', 'renew'].includes(this.operationKind)) {
+    if (
+      !this.disposed &&
+      operation &&
+      ['check', 'renew', 'auto-renew'].includes(this.operationKind)
+    ) {
       let timer: ReturnType<typeof setTimeout> | undefined;
       await Promise.race([
         operation.catch(() => undefined),
@@ -85,7 +176,15 @@ export class VerdictanAccountService {
     if (!client) throw new DesktopProtocolError('desktop.runtime_missing');
     return client;
   }
-  private run(kind: string, work: (client: DesktopClient, generation: number) => Promise<void>) {
+  /**
+   * Runs one account operation. A `quiet` operation keeps the state when it fails and saves the
+   * code in `quietError`, so an automatic renewal never stops running chats for a short failure.
+   */
+  private run(
+    kind: string,
+    work: (client: DesktopClient, generation: number) => Promise<void>,
+    quiet = false,
+  ) {
     if (this.disposed) return Promise.reject(new DesktopProtocolError('desktop.transport_closed'));
     if (this.operation)
       return kind === this.operationKind
@@ -100,13 +199,16 @@ export class VerdictanAccountService {
         if (!client) return this.set({ phase: 'missing', executionReady: false });
         await work(client, generation);
       } catch (error) {
-        if (generation === this.generation) {
+        const code =
+          error instanceof DesktopProtocolError ? error.code : 'desktop.operation_failed';
+        if (quiet) this.quietError = code;
+        else if (generation === this.generation) {
           this.client?.close();
           this.client = undefined;
           this.set({
             phase: 'error',
             executionReady: false,
-            error: error instanceof DesktopProtocolError ? error.code : 'desktop.operation_failed',
+            error: code,
           });
         }
       }
@@ -128,7 +230,13 @@ export class VerdictanAccountService {
     if (intent !== 'login' && intent !== 'register')
       return Promise.reject(new Error('Choose Sign in or Create account.'));
     return this.run(`authorize:${intent}`, async (client, generation) => {
-      this.set({ ...this.state, phase: 'authorizing', executionReady: false, error: undefined });
+      this.set({
+        ...this.state,
+        phase: 'authorizing',
+        executionReady: false,
+        error: undefined,
+        authorization: undefined,
+      });
       await client.request('authorization.start', { intent }, (event) => {
         const url = event.data.authorization_url;
         if (typeof url !== 'string') throw new Error('Missing authorization URL.');
@@ -145,13 +253,39 @@ export class VerdictanAccountService {
         )
           throw new Error('Invalid authorization URL.');
         if (generation !== this.generation) return;
+        // The window shows the link again, with Copy link and Open browser again.
+        const seconds = event.data.expires_in_seconds;
+        const lasts =
+          Number.isSafeInteger(seconds) && Number(seconds) > 0 && Number(seconds) <= 310
+            ? Number(seconds) * 1000
+            : authorizationMs;
+        const startedAt = this.now();
+        this.set({
+          ...this.state,
+          authorization: {
+            url: parsed.href,
+            intent,
+            startedAt: new Date(startedAt).toISOString(),
+            expiresAt: new Date(startedAt + lasts).toISOString(),
+          },
+        });
         void this.options.openBrowser(parsed.href).catch(() => {
           client.close('desktop.browser_failed');
         });
       });
-      if (generation !== this.generation) return;
+      // A canceled sign-in returns the state after the cancel, not the waiting state.
+      if (generation !== this.generation) return void (await this.canceling);
       await this.refresh(client, generation);
     });
+  }
+  /** Opens the waiting sign-in link again. Rejects when no sign-in waits. */
+  async reopenBrowser() {
+    const authorization = this.state.authorization;
+    if (this.state.phase !== 'authorizing' || !authorization)
+      throw new Error('No sign-in waits. Select Sign in to start again.');
+    if (Date.parse(authorization.expiresAt) <= this.now())
+      throw new DesktopProtocolError('desktop.authorization_timeout');
+    await this.options.openBrowser(authorization.url);
   }
   /**
    * Reads the account and then its session capabilities from the same account profile. The
@@ -171,18 +305,22 @@ export class VerdictanAccountService {
         executionReady: false,
       });
   }
-  async cancel() {
-    if (this.state.phase !== 'authorizing') return this.status();
+  cancel() {
+    if (this.state.phase !== 'authorizing') return Promise.resolve(this.status());
     ++this.generation;
-    try {
-      await this.client?.request('authorization.cancel');
-      if (this.client) await this.refresh(this.client, this.generation);
-    } catch {
-      this.client?.close();
-      this.client = undefined;
-      this.set({ phase: 'error', error: 'desktop.cancel_failed', executionReady: false });
-    }
-    return this.status();
+    const task = (async () => {
+      try {
+        await this.client?.request('authorization.cancel');
+        if (this.client) await this.refresh(this.client, this.generation);
+      } catch {
+        this.client?.close();
+        this.client = undefined;
+        this.set({ phase: 'error', error: 'desktop.cancel_failed', executionReady: false });
+      }
+      return this.status();
+    })();
+    this.canceling = task.then(() => undefined);
+    return task;
   }
   renew() {
     return this.run('renew', async (client, generation) => {
@@ -216,6 +354,8 @@ export class VerdictanAccountService {
   }
   dispose() {
     this.disposed = true;
+    clearTimeout(this.renewTimer);
+    this.renewTimer = undefined;
     this.reset();
   }
   reset() {
@@ -284,6 +424,10 @@ export function parseAccount(data: Record<string, unknown>, apiOrigin: string): 
       ? { organizationName: serviceName(data.organization_name) }
       : {}),
     ...(text(data.user_email) ? { userEmail: data.user_email } : {}),
+    // The plan name, for example "Team". Only when the service sends one.
+    ...(serviceName(data.plan_name, data.plan)
+      ? { plan: serviceName(data.plan_name, data.plan) }
+      : {}),
   };
 }
 const sessionOperations = new Set([

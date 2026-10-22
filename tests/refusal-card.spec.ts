@@ -1,4 +1,5 @@
-import { test, expect, type Page } from '@playwright/test';
+import { type Page } from '@playwright/test';
+import { test, expect, newChat } from './helpers/app';
 import { openCodeFolder } from './helpers/navigation';
 
 const notice =
@@ -44,7 +45,7 @@ async function refuseWith(page: Page, code: string, extra: Record<string, unknow
   );
   await page.goto('/');
   await openCodeFolder(page);
-  await page.getByRole('button', { name: 'New Codex chat', exact: true }).click();
+  await newChat(page);
   const composer = page.getByLabel('Message agent');
   await composer.fill('Reply OK.');
   await composer.press('Enter');
@@ -60,12 +61,12 @@ test('a gateway readiness refusal names the computer and offers no runtime insta
   );
   await expect(card.getByRole('button', { name: 'Install managed runtime' })).toHaveCount(0);
   await expect(card.getByRole('button', { name: 'Try again', exact: true })).toBeVisible();
-  await expect(card.getByRole('button', { name: 'Change agent', exact: true })).toBeVisible();
-  // The policy sentence is a "Why?" note, not the first words.
+  await expect(card.getByRole('button', { name: 'Use another agent', exact: true })).toBeVisible();
+  // The policy sentence is in the "Details" fold, not the first words.
   const text = (await card.innerText()).trim();
   expect(text.startsWith('Kalkidan runs agents only')).toBe(false);
   await expect(card.getByText(notice)).toBeHidden();
-  await card.getByText('Why?', { exact: true }).click();
+  await card.getByText('Details', { exact: true }).click();
   await expect(card.getByText(notice)).toBeVisible();
 });
 

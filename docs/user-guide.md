@@ -625,13 +625,13 @@ it does not automatically move the issue to Done.
 
 ## Updates and recovery
 
-Settings › General › About shows the version and the build of the running
-app. Settings › Computers shows the managed runtime and the SSH helper of each
-computer.
-A dot on the Settings button in the sidebar shows that an SSH helper or a
-managed runtime has an update. Select the button to open Settings › Computers.
+Settings › About shows the version and the build of the running app. Settings ›
+Computers shows the managed runtime and the SSH helper of each computer. An SSH
+host checks its managed runtime each time it connects. Its row then shows the
+runtime version.
 
-Kalkidan does not update itself. To update the desktop app:
+Kalkidan does not update itself. **Settings › About › Check for updates** opens
+the releases page. To update the desktop app:
 
 1. Quit Kalkidan.
 2. If you installed Kalkidan with Homebrew, run `brew upgrade --cask kalkidan`.

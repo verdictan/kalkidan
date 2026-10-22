@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './helpers/app';
 import { openCodeFolder } from './helpers/navigation';
 
 test('agent questions accept keyboard answers without granting permissions', async ({ page }) => {

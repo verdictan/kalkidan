@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState } from 'react';
-import { Plus, Trash2 } from 'lucide-react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { Info, ListChecks, Plus, Trash2 } from 'lucide-react';
 import type { API } from '../types';
 import type {
   ProjectResourceKind,
@@ -22,26 +22,9 @@ import {
   DropdownMenuRadioItem,
   DropdownMenuTrigger,
 } from './ui/dropdown-menu';
-import {
-  Dialog,
-  DialogBody,
-  DialogClose,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-  DialogFooter,
-} from './ui/dialog';
 import { Hint } from './hint';
 import { Choice } from './choice';
-import {
-  DangerZone,
-  FooterActions,
-  TypedConfirmDialog,
-  UpdatedNote,
-  holdDialogFocus,
-  useInitialFocus,
-} from './dialog-parts';
+import { DangerZone, TypedConfirmDialog, UpdatedNote, useInitialFocus } from './dialog-parts';
 import { errorMessage } from '../lib/errors';
 import { cn } from '../lib/utils';
 import {
@@ -107,25 +90,52 @@ function recordMeta(kind: ProjectResourceKind, record: Record_) {
   return '';
 }
 
+/** True for the message of the browser preview, which cannot change GitHub. It is not an error. */
+export function previewLimit(message: string) {
+  return /open the desktop app|require[s]? the desktop app/i.test(message);
+}
+
+/** An error, or a note when the browser preview cannot do the action. */
+export function ResourceAlert({ message, children }: { message: string; children?: ReactNode }) {
+  if (previewLimit(message))
+    return (
+      <Alert size="sm" role="status">
+        <Info aria-hidden="true" />
+        <AlertDescription className="text-muted-foreground">{message}</AlertDescription>
+      </Alert>
+    );
+  return (
+    <Alert variant="destructive" size="sm">
+      <AlertDescription>
+        {message}
+        {children}
+      </AlertDescription>
+    </Alert>
+  );
+}
+
 /**
- * Fields, saved views, status updates and workflows of the linked GitHub project. Each write
- * loads the list again, so the next write starts from the current state on GitHub.
+ * One kind of GitHub project data: fields, saved views, status updates, workflows or issue
+ * fields. Each write loads the list again, so the next write starts from the current state on
+ * GitHub. The save button is below the form, because the names and the text need an explicit save.
  */
 export function GitHubProjectResources({
   api,
   groupId,
-  footer,
+  kind,
+  dateFields,
   onChanged,
-  initialKind = 'fields',
 }: {
   api: API;
   groupId: string;
-  /** The dialog footer element for Cancel and the save button. */
-  footer: HTMLElement | null;
+  kind: ProjectResourceKind;
+  /**
+   * Names of date fields to offer at the top of the Fields list, for example the start and end
+   * dates of the roadmap. The user creates them with one click. Fields that exist do not show.
+   */
+  dateFields?: string[];
   onChanged(): void;
-  initialKind?: ProjectResourceKind;
 }) {
-  const [kind, setKind] = useState<ProjectResourceKind>(initialKind);
   const [snapshot, setSnapshot] = useState<ProjectResourceSnapshot>();
   const [state, setState] = useState<'loading' | 'ready' | 'saving'>('loading');
   const [loadError, setLoadError] = useState('');
@@ -220,6 +230,47 @@ export function GitHubProjectResources({
   const disabled = state !== 'ready' || !loaded || !snapshot?.writable;
   const selectedRecord = snapshot?.records.find((record) => record.id === selected) as
     Record_ | undefined;
+  const missingDates =
+    kind === 'fields' && snapshot?.kind === 'fields'
+      ? (dateFields || []).filter(
+          (field) =>
+            !snapshot.records.some(
+              (record) => String(record.name).toLowerCase() === field.toLowerCase(),
+            ),
+        )
+      : [];
+  /** Creates the missing date fields one after the other. Each write uses the new revision. */
+  async function createDates() {
+    if (disabled || !snapshot || !missingDates.length) return;
+    const generation = epoch.current;
+    setState('saving');
+    setWriteError('');
+    let revision = snapshot.revision;
+    try {
+      for (const name of missingDates) {
+        const next = await api.trackerResourceChange(
+          groupId,
+          revision,
+          'createProjectV2Field' as ProjectResourceOperation,
+          { name, dataType: 'DATE' },
+        );
+        revision = next.revision;
+        if (generation === epoch.current) setSnapshot(next);
+      }
+      onChanged();
+      showToast(`Created ${missingDates.join(' and ')}.`);
+    } catch (failure) {
+      setWriteError(
+        `${errorMessage(failure).replace(/\.?$/, '.')} Kalkidan loaded the list again. ` +
+          'Check it before you try again.',
+      );
+    } finally {
+      if (generation === epoch.current) {
+        setState('ready');
+        setReload((value) => value + 1);
+      }
+    }
+  }
   async function save(remove = false) {
     if (disabled || !snapshot) return;
     let input: Record<string, unknown> = {};
@@ -325,38 +376,28 @@ export function GitHubProjectResources({
   ];
   return (
     <div ref={root} className="grid gap-4" aria-busy={state !== 'ready'}>
-      <SegmentedControl
-        size="sm"
-        label="Section"
-        className="justify-self-start"
-        value={kind}
-        onChange={(value) => {
-          setKind(value);
-          setSelected('');
-          setWriteError('');
-          setSnapshot(undefined);
-        }}
-        options={sections.map((item) => ({
-          value: item.value,
-          label: item.label,
-          disabled: state === 'saving',
-        }))}
-      />
-      {loadError && (
-        <Alert variant="destructive" size="sm">
-          <AlertDescription>
-            {loadError}
-            <Button variant="outline" size="sm" onClick={() => setReload((value) => value + 1)}>
-              Load again
+      {!!missingDates.length && (
+        <Alert size="sm" role="status">
+          <Info aria-hidden="true" />
+          <AlertDescription className="flex items-center gap-3">
+            <span className="flex-1">
+              The roadmap needs date fields. Create{' '}
+              {missingDates.map((name) => `“${name}”`).join(' and ')}?
+            </span>
+            <Button size="sm" disabled={disabled} onClick={() => void createDates()}>
+              {state === 'saving' ? 'Creating…' : 'Create date fields'}
             </Button>
           </AlertDescription>
         </Alert>
       )}
-      {writeError && (
-        <Alert variant="destructive" size="sm">
-          <AlertDescription>{writeError}</AlertDescription>
-        </Alert>
+      {loadError && (
+        <ResourceAlert message={loadError}>
+          <Button variant="outline" size="sm" onClick={() => setReload((value) => value + 1)}>
+            Load again
+          </Button>
+        </ResourceAlert>
       )}
+      {writeError && <ResourceAlert message={writeError} />}
       {loaded && !snapshot.writable && (
         <Alert size="sm">
           <AlertDescription>You have read-only access to this project.</AlertDescription>
@@ -404,7 +445,7 @@ export function GitHubProjectResources({
               </button>
             ))}
             {!snapshot.records.length && !canCreate && (
-              <EmptyState compact>
+              <EmptyState compact icon={<ListChecks />}>
                 {kind === 'workflows'
                   ? 'This project has no workflows.'
                   : 'The organization has no issue fields to add.'}
@@ -417,10 +458,15 @@ export function GitHubProjectResources({
               project on GitHub.
             </p>
           )}
-          {kind === 'issueFields' && (
-            <p className="form-help m-0">
-              Choose an issue field of the organization, then add it to this project.
-            </p>
+          {kind === 'issueFields' && !!snapshot.records.length && (
+            <div className="flex items-center justify-end gap-2">
+              <p className="form-help m-0 mr-auto">
+                Choose an issue field of the organization, then add it to this project.
+              </p>
+              <Button disabled={primaryDisabled} onClick={() => void save()}>
+                {primaryLabel}
+              </Button>
+            </div>
           )}
           {editing && kind !== 'workflows' && kind !== 'issueFields' && (
             <section aria-label={selected ? 'Edit' : `New ${section.noun}`} className="grid gap-4">
@@ -785,6 +831,17 @@ export function GitHubProjectResources({
                   </div>
                 </>
               )}
+              <div className="flex items-center justify-end gap-2">
+                <UpdatedNote at={updatedAt} />
+                {selected && (
+                  <Button variant="outline" disabled={state === 'saving'} onClick={() => choose()}>
+                    Cancel
+                  </Button>
+                )}
+                <Button disabled={primaryDisabled} onClick={() => void save()}>
+                  {primaryLabel}
+                </Button>
+              </div>
             </section>
           )}
           {selected && kind !== 'issueFields' && (
@@ -819,24 +876,6 @@ export function GitHubProjectResources({
         busy={state === 'saving'}
         onConfirm={() => void save(true)}
       />
-      {kind !== 'workflows' && (
-        <FooterActions target={footer}>
-          <UpdatedNote at={updatedAt} />
-          <DialogClose asChild>
-            <Button variant="outline" disabled={state === 'saving'}>
-              Cancel
-            </Button>
-          </DialogClose>
-          <Button data-primary disabled={primaryDisabled} onClick={() => void save()}>
-            {primaryLabel}
-          </Button>
-        </FooterActions>
-      )}
-      {kind === 'workflows' && updatedAt && (
-        <FooterActions target={footer}>
-          <UpdatedNote at={updatedAt} />
-        </FooterActions>
-      )}
     </div>
   );
 }
@@ -876,56 +915,14 @@ function ColorMenu({
         <DropdownMenuRadioGroup value={color.value} onValueChange={onChange}>
           {optionColors.map((choice) => (
             <DropdownMenuRadioItem key={choice.value} value={choice.value}>
-              <span
-                aria-hidden="true"
-                className="size-3 shrink-0 rounded-full"
-                style={{ backgroundColor: choice.swatch }}
-              />
+              <span aria-hidden="true" className="grid size-4 shrink-0 place-items-center">
+                <span className="size-3 rounded-full" style={{ backgroundColor: choice.swatch }} />
+              </span>
               {choice.label}
             </DropdownMenuRadioItem>
           ))}
         </DropdownMenuRadioGroup>
       </DropdownMenuContent>
     </DropdownMenu>
-  );
-}
-
-export function GitHubProjectResourcesDialog({
-  api,
-  groupId,
-  onClose,
-  onChanged,
-}: {
-  api: API;
-  groupId: string;
-  onClose(): void;
-  onChanged(): void;
-}) {
-  const [footer, setFooter] = useState<HTMLDivElement | null>(null);
-  return (
-    <Dialog
-      open
-      onOpenChange={(open) => {
-        if (!open) onClose();
-      }}
-    >
-      <DialogContent size="lg" layout="scroll" onOpenAutoFocus={holdDialogFocus}>
-        <DialogHeader>
-          <DialogTitle>Fields, views and reports</DialogTitle>
-          <DialogDescription>
-            GitHub keeps these on the project. Each change applies on GitHub at once.
-          </DialogDescription>
-        </DialogHeader>
-        <DialogBody>
-          <GitHubProjectResources
-            api={api}
-            groupId={groupId}
-            footer={footer}
-            onChanged={onChanged}
-          />
-        </DialogBody>
-        <DialogFooter ref={setFooter} className="empty:hidden" />
-      </DialogContent>
-    </Dialog>
   );
 }

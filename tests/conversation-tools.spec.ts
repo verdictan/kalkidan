@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, newChat } from './helpers/app';
 import { openTool } from './helpers/tools';
 import { openCodeFolder } from './helpers/navigation';
 
@@ -83,7 +83,7 @@ test('conversation tools preview evidence, attach it to the draft, and send it o
   });
   await page.goto('/');
   await openCodeFolder(page);
-  await page.getByRole('button', { name: 'New Codex chat', exact: true }).click();
+  await newChat(page);
   await page.setViewportSize({ width: 961, height: 988 });
   await page.screenshot({ path: 'test-results/conversation-tools-empty.png' });
   const tools = page.getByRole('region', { name: 'Chat', exact: true });
@@ -102,7 +102,7 @@ test('conversation tools preview evidence, attach it to the draft, and send it o
     dialog.getByRole('list', { name: 'Changed files' }).locator('[aria-current="true"]'),
   ).toContainText('new.ts');
   await dialog.getByRole('combobox', { name: 'Diff scope' }).click();
-  await page.getByRole('option', { name: 'Staged for commit', exact: true }).click();
+  await page.getByRole('option', { name: 'Staged only', exact: true }).click();
   await expect(dialog.getByLabel('Git diff')).toContainText('+staged change');
   await dialog.getByRole('button', { name: 'Attach all changes to message' }).click();
   await openTool(page, 'Browser');
@@ -130,7 +130,7 @@ test('browser preview explains native requirements instead of simulating command
 }) => {
   await page.goto('/');
   await openCodeFolder(page);
-  await page.getByRole('button', { name: 'New Codex chat', exact: true }).click();
+  await newChat(page);
   await openTool(page, 'Terminal');
   await expect(
     page.getByRole('region', { name: 'Repository tools' }).getByRole('alert'),

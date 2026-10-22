@@ -1,4 +1,4 @@
-import type { VerdictanStatus } from '../src/domain/verdictan';
+import { signOutDetail, type VerdictanStatus } from '../src/domain/verdictan';
 import { identityKey } from './verdictan/bindings';
 import {
   savedVerdictanRegion,
@@ -102,6 +102,7 @@ import { codexTranscript } from './codex-store';
 import { ProjectGroups } from './project-groups';
 import { SessionLibrary } from './session-library';
 import { ChatOutcomes } from './chat-outcomes';
+import { AppPreferences, notificationKind } from './app-preferences';
 import { readTranscript } from './transcript';
 import { listRepositories, cloneRepository, repositoryName } from './repositories';
 import { GitHubAuth } from './github-auth';
@@ -129,6 +130,8 @@ const owned = new Map<
 const previews = new Map<BrowserWindow, AnnotationBrowser>();
 // The outcome of the latest run of each chat, for the status dots.
 const chatOutcomes = new ChatOutcomes(join(dataRoot, 'chat-outcomes.json'));
+// First-run state and notification choices. They stay in the data folder.
+const preferences = new AppPreferences(join(dataRoot, 'preferences.json'));
 const keepOutcome = (run: Parameters<ChatOutcomes['finished']>[0]) =>
   void chatOutcomes.finished(run).catch((error) => console.warn('Chat outcome not saved', error));
 const chatRunner = createAgentRuntimes(async (request) => {
@@ -151,15 +154,35 @@ let accountEpoch = 0;
 let stopDispatch = () => {};
 let restoreDispatch = () => {};
 let lastAccount = '';
+let lastPhase = '';
 function notifyVerdictan() {
-  const account = verdictan?.account.status().account;
+  const status = verdictan?.account.status();
+  const account = status?.account;
   const key = JSON.stringify([
     verdictan?.region,
     account?.state,
     account?.organizationId,
     account?.userId,
   ]);
-  if (key === lastAccount) return;
+  // The phase, the waiting sign-in and the session end change no account. The windows read
+  // them again, for example to show the waiting screen while the browser sign-in runs.
+  const phase = JSON.stringify([
+    status?.phase,
+    status?.error,
+    status?.authorization?.url,
+    account?.expiresAt,
+  ]);
+  const previousPhase = lastPhase;
+  lastPhase = phase;
+  if (status?.phase === 'authenticated') {
+    void preferences.setSignedIn().catch(() => {});
+    // The browser sign-in finished. Bring Kalkidan to the front again.
+    if (previousPhase.startsWith('["authorizing"')) focusMainWindow();
+  }
+  if (key === lastAccount) {
+    if (phase !== previousPhase) broadcastVerdictanChanged();
+    return;
+  }
   const previousAccount = lastAccount;
   lastAccount = key;
   accountEpoch++;
@@ -173,6 +196,16 @@ function notifyVerdictan() {
   stopDispatch();
   broadcastVerdictanChanged();
   if (account?.state === 'authenticated') restoreDispatch();
+}
+/** Shows and focuses the window that the user used last, after a browser sign-in. */
+function focusMainWindow() {
+  const window =
+    BrowserWindow.getFocusedWindow() || [...windows].reverse().find((item) => !item.isDestroyed());
+  if (!window || window.isDestroyed()) return;
+  if (window.isMinimized()) window.restore();
+  window.show();
+  window.focus();
+  if (process.platform === 'darwin') app.focus({ steal: true });
 }
 /** Tells the windows to read the managed agents state again. */
 function broadcastVerdictanChanged() {
@@ -394,6 +427,8 @@ const appearanceFile = join(dataRoot, 'appearance.json');
 app.whenReady().then(async () => {
   powerMonitor.on('resume', () => {
     void remote?.reconcile().catch(() => {});
+    // The session timer does not run while the computer sleeps. Renew the session now.
+    void verdictan?.account.autoRenew().catch(() => {});
   });
   const makeVerdictan = (region: VerdictanRegion | undefined) =>
     createVerdictanServices({
@@ -406,9 +441,16 @@ app.whenReady().then(async () => {
       openBrowser: (url) => shell.openExternal(url),
     });
   verdictan = makeVerdictan(await savedVerdictanRegion(dataRoot));
+  // The first launch installs the managed agents runtime in the background. Settings shows
+  // the progress. A failed install starts again at the next launch. Test runs install nothing.
+  const installOnLaunch = app.isPackaged || !process.env.KALKIDAN_TEST_DATA;
   void verdictan.installer
     .check()
-    .then(() => verdictan!.account.check())
+    .then(async (status) => {
+      if (installOnLaunch && status && !status.installed && !status.installing)
+        void verdictan!.installer.install().catch(() => {});
+      await verdictan!.account.check();
+    })
     .catch(() => {});
   const approvedHelper = readFile(join(__dirname, 'remote-agent.cjs')).then((bytes) =>
     createHash('sha256').update(bytes).digest('hex'),
@@ -486,7 +528,40 @@ app.whenReady().then(async () => {
   handle('verdictan-authorize', (intent) => withRegion(verdictan!.account.authorize(intent)));
   handle('verdictan-cancel', () => withRegion(verdictan!.account.cancel()));
   handle('verdictan-renew', () => withRegion(verdictan!.account.renew()));
+  handle('verdictan-reopen-browser', () => verdictan!.account.reopenBrowser());
+  handle('verdictan-open-console', async () => {
+    const region = verdictan!.region;
+    if (!region) throw new DesktopProtocolError('desktop.region_required');
+    await shell.openExternal(verdictanRegion(region).consoleOrigin);
+  });
+  handle('verdictan-apply-recommended', () =>
+    verdictan!.setup.applyRecommended(async (agent) =>
+      (await modelOptions(agent, codexRoot)).map((model) => model.id),
+    ),
+  );
+  handle('first-run-state', () => preferences.firstRun());
+  handle('set-welcome-done', () => preferences.setWelcomeDone());
+  handle('notification-preferences', () => preferences.notifications());
+  handle('set-notification-preferences', (value: unknown) => preferences.setNotifications(value));
   handle('verdictan-logout', async () => {
+    // Sign out stops the agents and disconnects the SSH hosts. Ask first when some run.
+    const agents = chatRunner.runningCount();
+    const hosts = remote.list().filter((host) => host.status === 'connected').length;
+    if (agents || hosts) {
+      const parent = BrowserWindow.getFocusedWindow() || undefined;
+      const options = {
+        type: 'warning' as const,
+        buttons: ['Sign out', 'Cancel'],
+        defaultId: 1,
+        cancelId: 1,
+        message: 'Sign out of Kalkidan?',
+        detail: signOutDetail(agents, hosts),
+      };
+      const { response } = parent
+        ? await dialog.showMessageBox(parent, options)
+        : await dialog.showMessageBox(options);
+      if (response !== 0) return accountStatus();
+    }
     changingAccount = true;
     try {
       stopDispatch();
@@ -1052,6 +1127,19 @@ app.whenReady().then(async () => {
     for (const window of windows)
       if (!window.isDestroyed())
         window.webContents.send('project-resource-changed', { groupId: id, resource: 'memory' });
+  });
+  handle('memory-save', async (id, entry) => {
+    const { group, root } = await memoryGroup(id);
+    const result = group.hostId
+      ? await remote
+          .call(group.hostId, 'project-memory', [id, root, 'save', [entry]])
+          .catch(helperTooOld)
+      : await projectMemory(root).save(entry);
+    if (result?.status === 'saved')
+      for (const window of windows)
+        if (!window.isDestroyed())
+          window.webContents.send('project-resource-changed', { groupId: id, resource: 'memory' });
+    return result;
   });
   handle('project-resource-revision', async (id, kind) => {
     const group = projectGroups.groups.find((g) => g.id === id);
@@ -2109,7 +2197,7 @@ app.whenReady().then(async () => {
   const notifications = new Set<Notification>();
   ipcMain.handle(
     'notify',
-    (event, input: { title?: unknown; body?: unknown; target?: unknown }) => {
+    (event, input: { title?: unknown; body?: unknown; target?: unknown; kind?: unknown }) => {
       const owner = [...windows].find(
         (w) => w.webContents === event.sender && event.senderFrame === w.webContents.mainFrame,
       );
@@ -2123,26 +2211,35 @@ app.whenReady().then(async () => {
         throw new Error('Invalid notification');
       // The user can already see the window. Show nothing.
       if (BrowserWindow.getFocusedWindow() || !Notification.isSupported()) return;
-      const notification = new Notification({
-        title: input.title.slice(0, 200),
-        body: input.body.slice(0, 1000),
-      });
+      // Settings › General › Notifications: the user can turn off each kind.
+      const kind = notificationKind({ title: input.title, kind: input.kind });
+      const title = input.title.slice(0, 200);
+      const body = input.body.slice(0, 1000);
       const target = input.target.slice(0, 2000);
-      notifications.add(notification);
-      const release = () => notifications.delete(notification);
-      notification.on('click', () => {
-        release();
-        if (owner.isDestroyed()) return;
-        if (owner.isMinimized()) owner.restore();
-        owner.show();
-        owner.focus();
-        owner.webContents.send('notification-click', target);
-      });
-      notification.on('close', release);
-      notification.on('failed', release);
-      notification.show();
+      return preferences
+        .allows(kind)
+        .catch(() => true)
+        .then((allowed) => {
+          if (allowed && !owner.isDestroyed()) showNotification(owner, title, body, target);
+        });
     },
   );
+  function showNotification(owner: BrowserWindow, title: string, body: string, target: string) {
+    const notification = new Notification({ title, body });
+    notifications.add(notification);
+    const release = () => notifications.delete(notification);
+    notification.on('click', () => {
+      release();
+      if (owner.isDestroyed()) return;
+      if (owner.isMinimized()) owner.restore();
+      owner.show();
+      owner.focus();
+      owner.webContents.send('notification-click', target);
+    });
+    notification.on('close', release);
+    notification.on('failed', release);
+    notification.show();
+  }
   handle('badge-count', (count: number) => {
     const value = Number.isInteger(count) ? Math.min(Math.max(count, 0), 9999) : 0;
     // macOS shows the count on the Dock icon. Some Linux desktops (Unity) show it too.

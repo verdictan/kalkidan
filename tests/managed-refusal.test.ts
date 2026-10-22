@@ -126,7 +126,8 @@ test('the managed-only notice is a note, not the first words of the refusal', ()
   });
   assert.equal(legacy.message, 'Sign in to Verdictan.');
   assert.equal(legacy.note, managedOnlyNotice);
-  assert.equal(legacy.action?.label, managedSetupTargets['sign-in'].label);
+  // The sign-in step starts the Verdictan sign-in from the chat.
+  assert.deepEqual(legacy.action, { label: 'Sign in', kind: 'sign-in' });
   const fromText = agentErrorMessage(`${managedOnlyNotice} Sign in to Verdictan.`);
   assert.equal(fromText.message, 'Sign in to Verdictan.');
   // A readiness code in an error text shows its own words and no install action.

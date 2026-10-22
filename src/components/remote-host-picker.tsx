@@ -12,6 +12,42 @@ import { cn } from '../lib/utils';
 type StepState = 'done' | 'active' | 'error' | 'pending';
 type SetupStepName = 'check' | 'install' | 'connect' | '';
 
+/** The connection state of a host in plain words, with the Badge tone. */
+export const hostStatusLabels: Record<
+  RemoteHost['status'],
+  { label: string; tone: 'success' | 'secondary' | 'warning' | 'destructive' | 'muted' }
+> = {
+  connected: { label: 'Connected', tone: 'success' },
+  connecting: { label: 'Connecting…', tone: 'secondary' },
+  queued: { label: 'Waiting to connect', tone: 'secondary' },
+  'retry-wait': { label: 'Offline', tone: 'warning' },
+  error: { label: 'Connection failed', tone: 'destructive' },
+  checked: { label: 'Not connected', tone: 'muted' },
+  disconnected: { label: 'Disconnected', tone: 'muted' },
+};
+
+const helperPhaseText: Record<NonNullable<RemoteHost['setup']>['phase'], string> = {
+  checking: 'Checking the helper…',
+  installing: 'Installing the helper…',
+  verifying: 'Verifying the helper…',
+  ready: 'The helper is ready.',
+  failed: 'Helper install failed.',
+  canceled: 'Helper install canceled.',
+  interrupted: 'The helper install stopped before it finished.',
+  'rolled-back': 'Kalkidan restored the earlier helper.',
+};
+
+/**
+ * The helper setup of a host in plain words, for example "Installing the helper…" or "Helper
+ * install failed: Node.js 22 or later is necessary."
+ */
+export function helperSetupText(setup: NonNullable<RemoteHost['setup']>) {
+  const text = helperPhaseText[setup.phase] || 'Setting up the helper…';
+  if (setup.error && (setup.phase === 'failed' || setup.phase === 'interrupted'))
+    return `${text.replace(/\.$/, '')}: ${setup.error}`;
+  return text;
+}
+
 /** Reads the SSH hosts and reads them again when the desktop reports a change. */
 export function useRemoteHosts(api: API, open = true) {
   const [hosts, setHosts] = useState<RemoteHost[]>([]);
@@ -245,13 +281,15 @@ export function HostSetup({
         <SetupStep state={stepState('install')}>Install the Kalkidan helper</SetupStep>
         <SetupStep state={stepState('connect')}>Connect</SetupStep>
       </ol>
-      {host.setup && (
+      {host.setup && host.setup.phase !== 'ready' && (
         <p
           role={host.setup.phase === 'failed' ? 'alert' : 'status'}
-          className="text-xs text-muted-foreground"
+          className={cn(
+            'text-xs',
+            host.setup.phase === 'failed' ? 'field-error' : 'text-muted-foreground',
+          )}
         >
-          Helper setup: {host.setup.phase}
-          {host.setup.error ? ` · ${host.setup.error}` : ''}
+          {helperSetupText(host.setup)}
         </p>
       )}
       {needsInstall && !busy && (
@@ -502,7 +540,10 @@ export function RemoteHostPicker({
           }}
           options={[
             { value: '', label: 'Choose a host' },
-            ...hosts.map((h) => ({ value: h.id, label: `${h.name} · ${h.status}` })),
+            ...hosts.map((h) => ({
+              value: h.id,
+              label: `${h.name} · ${hostStatusLabels[h.status].label}`,
+            })),
           ]}
         />
       )}

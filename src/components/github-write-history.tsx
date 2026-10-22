@@ -10,6 +10,7 @@ import {
 import type { PlanningLabel } from '../domain/planning-labels';
 import { plural } from '../domain/planning-labels';
 import { fullTime, relativeTime } from '../lib/relative-time';
+import { History } from 'lucide-react';
 import { Button } from './ui/button';
 import { EmptyState } from './ui/empty-state';
 import { SectionHeader } from './ui/page-header';
@@ -19,7 +20,6 @@ import {
   ErrorAlert,
   ExternalTextLink,
   githubWritesEvent,
-  openInsights,
   ReviewRow,
   TaskTitle,
 } from './planning-kit';
@@ -28,30 +28,23 @@ export { notifyGitHubWrites } from './planning-kit';
 import { errorMessage } from '../lib/errors';
 
 /**
- * For the Tasks page: shows "Check 1 GitHub change" when writes have no confirmed result. It
- * checks when the page opens and after each write. It shows the toast again only when the
- * count changes.
+ * For the Tasks page and the Insights tab: the number of GitHub writes that have no confirmed
+ * result. It checks when the page opens and after each write. It never shows a toast: the Tasks
+ * page shows an inline warning with "Review", and the Insights tab can show a badge.
  */
-export function useUncertainWritesToast(api: API, groupId: string, enabled = true) {
-  const shown = useRef(-1);
+export function useUncertainWrites(api: API, groupId: string, enabled = true) {
   const [count, setCount] = useState(0);
   useEffect(() => {
-    if (!enabled || typeof api.trackerMutationHistory !== 'function') return;
+    if (!enabled || typeof api.trackerMutationHistory !== 'function') {
+      setCount(0);
+      return;
+    }
     let disposed = false;
     const check = () =>
       void api
         .trackerMutationHistory(groupId)
         .then((rows) => {
-          if (disposed) return;
-          const value = rows.filter((row) => row.state === 'unknown-outcome').length;
-          setCount(value);
-          if (value > 0 && value !== shown.current)
-            showToast({
-              message: `Check ${plural(value, 'GitHub change')}. Kalkidan could not confirm the result.`,
-              actions: [{ label: 'Review', onClick: () => openInsights(groupId) }],
-              duration: 10000,
-            });
-          shown.current = value;
+          if (!disposed) setCount(rows.filter((row) => row.state === 'unknown-outcome').length);
         })
         .catch(() => {
           // The history is a hint here. The Insights page shows the error.
@@ -68,6 +61,9 @@ export function useUncertainWritesToast(api: API, groupId: string, enabled = tru
   }, [api, groupId, enabled]);
   return count;
 }
+
+/** @deprecated The warning is inline now. Use `useUncertainWrites`. Kept for older callers. */
+export const useUncertainWritesToast = useUncertainWrites;
 
 const stateTones: Record<GitHubMutationRow['state'], PlanningLabel['tone']> = {
   writing: 'secondary',
@@ -139,7 +135,9 @@ export function GitHubWriteHistory({
       </p>
       <ErrorAlert>{error}</ErrorAlert>
       {rows && !rows.length && !error && (
-        <EmptyState compact>Kalkidan has not changed this board on GitHub.</EmptyState>
+        <EmptyState compact icon={<History />} title="No GitHub changes">
+          Kalkidan has not changed this board on GitHub.
+        </EmptyState>
       )}
       {!!rows?.length && (
         <div className="review-list">

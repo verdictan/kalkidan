@@ -10,7 +10,12 @@ import {
 } from './domain/workspace-route';
 import { retainProjectResources } from './hooks/use-project-resource';
 import { useProjectDetails } from './hooks/use-project-details';
-import { Onboarding, onboardingDismissed, dismissOnboarding } from './components/onboarding';
+import {
+  GetStartedButton,
+  Onboarding,
+  onboardingDismissed,
+  dismissOnboarding,
+} from './components/onboarding';
 import { ProjectMemoryPanel } from './components/project-memory';
 import { ProjectDocsPanel } from './components/project-docs';
 import { WorkspaceSearch, type SearchAction } from './components/workspace-search';
@@ -18,7 +23,6 @@ import { ShortcutsSheet } from './components/shortcuts-sheet';
 import { branchCopyHelp } from './components/session-menu';
 import { useSidebarOpen, useSidebarWidth } from './hooks/use-sidebar-width';
 import { useProjectBoards, sessionTask } from './hooks/use-project-boards';
-import { useUpdateStatus } from './hooks/use-update-status';
 import { setPendingDraft } from './lib/pending-draft';
 import { applyAppearance, saveAppearance, type Appearance } from './lib/appearance';
 import { ProjectFrame } from './components/project-header';
@@ -35,6 +39,7 @@ import {
   savePreferredAgent,
 } from './lib/agent-preference';
 import { trackerConnection } from './domain/tracker';
+import { settingsTarget, type SettingsSection } from './domain/settings-route';
 import {
   chatActionMenu,
   isChatCommand,
@@ -42,10 +47,13 @@ import {
   sessionActionState,
 } from './domain/chat-actions';
 import { useTracker } from './hooks/use-tracker';
-import { SettingsPage, type SettingsFocus } from './components/settings-page';
-import { settingsTabLabel, settingsTarget, type SettingsTab } from './domain/settings-route';
+import { SettingsDialog } from './components/settings-dialog';
+import { Welcome, useWelcomeGate } from './components/welcome';
+import { AccountMenu, SessionBanner, SignInFlow } from './components/account-menu';
+import { BoardSettingsHost } from './components/board-settings-dialog';
+import { NewChatButton, recentRepo } from './components/new-chat-button';
+import { TreeActionsMenu } from './components/tree-context-menu';
 import { ProjectOverview } from './components/project-overview';
-import { ActionMenu } from './components/action-menu';
 import { Hint } from './components/hint';
 import { CreateProject } from './components/create-project';
 import {
@@ -75,6 +83,7 @@ import {
   FolderPlus,
   ArrowUpRight,
   GitBranch,
+  GitPullRequest,
   Plus,
   RefreshCw,
   Settings2,
@@ -86,6 +95,42 @@ import {
   ChevronDown,
   ChevronRight,
   Keyboard,
+  SquarePen,
+  MessageSquare,
+  MessagesSquare,
+  FilePlus2,
+  ListPlus,
+  CalendarRange,
+  ListChecks,
+  Users,
+  Rows3,
+  FileInput,
+  Link2,
+  Activity,
+  History,
+  Terminal,
+  GitCompare,
+  Eye,
+  Pin,
+  LogIn,
+  UserPlus,
+  UserRound,
+  Bot,
+  Monitor,
+  Info,
+  Sun,
+  Moon,
+  SunMoon,
+  PanelLeftClose,
+  Sparkles,
+  Folder,
+  FolderOpen,
+  LayoutGrid,
+  Pencil,
+  Trash,
+  Download,
+  Layers2,
+  type LucideIcon,
 } from 'lucide-react';
 import { Button } from './components/ui/button';
 import { Input } from './components/ui/input';
@@ -100,14 +145,7 @@ import {
   DialogFooter,
 } from './components/ui/dialog';
 import { AgentIcon } from './components/ui/agent-icon';
-import { SearchInput } from './components/ui/search-input';
 import { Textarea } from './components/ui/textarea';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from './components/ui/dropdown-menu';
 import { EmptyState } from './components/ui/empty-state';
 import { EntityIcon } from './components/ui/entity-icon';
 import { PageHeader, SectionHeader } from './components/ui/page-header';
@@ -198,7 +236,7 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
   const [onboardingOpen, setOnboardingOpen] = useState(false);
   const onboardingChecked = useRef(false);
   const sidebar = useSidebarWidth();
-  // Below 1100 px the sidebar starts closed. The user's choice is kept for each window size.
+  // Below 900 px the sidebar starts closed. The user's choice is kept for each window size.
   const { open: navigationOpen, setOpen: setNavigationOpen } = useSidebarOpen();
   const [connectRequest, setConnectRequest] = useState<string | null>(null);
   // The element that opened a dialog. Focus goes back to it when the dialog closes.
@@ -208,10 +246,15 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
     // A menu item is not a good return target: it is removed when its menu closes.
     const onFocus = (event: FocusEvent) => {
       const target = event.target;
-      if (
-        target instanceof HTMLElement &&
-        !target.closest('[role="menu"], [role="dialog"], [role="alertdialog"]')
-      )
+      if (!(target instanceof HTMLElement)) return;
+      // A menu button does not get the focus when it opens its menu. Keep the button instead.
+      const menu = target.closest('[role="menu"]');
+      const button = menu?.id
+        ? document.querySelector<HTMLElement>(`[aria-controls="${CSS.escape(menu.id)}"]`)
+        : null;
+      if (button && !button.closest('[role="dialog"], [role="alertdialog"]'))
+        lastFocus.current = button;
+      else if (!target.closest('[role="menu"], [role="dialog"], [role="alertdialog"]'))
         lastFocus.current = target;
     };
     document.addEventListener('focusin', onFocus);
@@ -236,21 +279,52 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
       returnFocus();
     }
   };
-  // The element that gets focus when Settings opens, for example one managed setup step.
-  const [settingsFocus, setSettingsFocus] = useState<SettingsFocus>();
-  /** Opens the Settings page. Older section names, such as 'remote', open their new tab. */
+  // The Settings dialog and its section. ⌘, the app menu and the account menu open it.
+  const [settings, setSettings] = useState<{
+    open: boolean;
+    section: SettingsSection;
+    anchor?: string;
+  }>({ open: false, section: 'general' });
+  const settingsOpenRef = useRef(false);
+  settingsOpenRef.current = settings.open;
+  /** Opens Settings at a section. Older section names, such as 'accounts', open their new one. */
   function openSettings(section = 'general', anchor?: string) {
-    const target = settingsTarget(section, anchor);
-    // Settings is a page below the dialogs. Close the dialog that links to it.
-    if (dialogOpen())
+    // A dialog that links to Settings closes first, so Settings does not open on top of it.
+    if (!settingsOpenRef.current && dialogOpen())
       document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
-    navigate({ kind: 'settings', tab: target.tab });
-    setSettingsFocus({ id: target.anchor || '', request: Date.now() });
+    else if (!settingsOpenRef.current) rememberTrigger();
+    // The domain maps the older section names and the anchors, as the dialog does.
+    const target = settingsTarget(section, anchor);
+    setSettings({ open: true, section: target.tab, anchor: target.anchor });
   }
+  // The first-run Welcome screen: before the workspace, until the user signs in or skips it.
+  const welcome = useWelcomeGate(api, preview);
+  // True when a Verdictan account is signed in. Search hides "Sign in" then.
+  const [signedIn, setSignedIn] = useState(false);
+  useEffect(() => {
+    if (typeof api.verdictanStatus !== 'function') return;
+    let live = true;
+    const read = () =>
+      Promise.resolve()
+        .then(() => api.verdictanStatus())
+        .then((status) => live && setSignedIn(status.phase === 'authenticated'))
+        .catch(() => undefined);
+    void read();
+    const stop = api.onVerdictanChanged?.(() => void read());
+    return () => {
+      live = false;
+      stop?.();
+    };
+  }, [api]);
+
   // The project page that the Projects overview shows: the projects, or "My work".
   const [overviewTab, setOverviewTab] = useState<'projects' | 'my-work'>('projects');
   // The title of the open doc page, for the breadcrumb. The docs page reports it.
-  const [docTitle, setDocTitle] = useState<{ groupId: string; title: string } | null>(null);
+  const [docTitle, setDocTitle] = useState<{
+    groupId: string;
+    docId?: string;
+    title: string;
+  } | null>(null);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
   // The list of all sessions in every project.
@@ -390,8 +464,9 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
           event.preventDefault();
           commandRef.current('add-code-folder');
         } else if (event.code === 'KeyN') {
+          // Shift+Mod+N is New project. Mod+N is New chat.
           event.preventDefault();
-          commandRef.current('session-new');
+          commandRef.current('new-project');
         } else if (event.code === 'KeyL') {
           event.preventDefault();
           commandRef.current('all-sessions' as MenuCommand);
@@ -401,22 +476,31 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
         }
         return;
       }
-      // The browser preview has no native Go menu. Mod+1 to Mod+5 open the project pages.
-      const goKeys = ['go-overview', 'go-tasks', 'go-docs', 'go-memory', 'go-insights'];
-      if (preview && /^Digit[1-5]$/.test(event.code)) {
+      // The browser preview has no native Go menu. Mod+1 to Mod+6 open the project pages in
+      // the order of the tabs.
+      const goKeys = ['go-overview', 'go-tasks', 'go-chats', 'go-docs', 'go-memory', 'go-insights'];
+      if (preview && /^Digit[1-6]$/.test(event.code)) {
         if (isTypingTarget(event.target) || dialogOpen()) return;
         event.preventDefault();
         commandRef.current(goKeys[Number(event.code.slice(5)) - 1] as MenuCommand);
+        return;
+      }
+      if (preview && event.code === 'KeyN') {
+        if (isTypingTarget(event.target) || dialogOpen()) return;
+        event.preventDefault();
+        commandRef.current('session-new');
         return;
       }
       if (key === '/' && preview) {
         event.preventDefault();
         if (!dialogOpen()) setShortcutsOpen(true);
       } else if (key === 'k') {
-        // The document editor uses Mod+K for links.
+        // In the document editor, Mod+K adds a link to the selected text. Without a selection,
+        // it opens search, as everywhere else.
         if (
           event.target instanceof Element &&
-          event.target.closest('[data-shortcut-scope="editor"]')
+          event.target.closest('[data-shortcut-scope="editor"]') &&
+          (event.defaultPrevented || window.getSelection()?.isCollapsed === false)
         )
           return;
         event.preventDefault();
@@ -460,6 +544,7 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
     const goPage: Record<string, ProjectPage> = {
       'go-overview': 'board',
       'go-tasks': 'tasks',
+      'go-chats': 'chats',
       'go-docs': 'docs',
       'go-memory': 'memory',
       'go-insights': 'insights',
@@ -479,12 +564,13 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
     } else if (command === 'get-started') setOnboardingOpen(true);
     else if (command === 'add-code-folder') addCodeFolder();
     else if (command === 'new-task') newTask();
-    else if (command === 'session-new') newSessionHere();
+    else if (command === 'session-new' || command === 'new-chat') newChat();
     else if (goPage[command]) {
       const group = currentProjectGroup() || data.groups?.[0];
       if (group) openGroup(group, goPage[command]);
       else openOverview();
     } else if (command === 'all-sessions') openAllSessions();
+    else if (command === 'sign-in') signIn('login');
     else if (isChatCommand(command) || command.startsWith('session-')) sessionCommand(command);
   };
   useEffect(
@@ -507,8 +593,16 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
       if ((event as CustomEvent<{ forwarded?: boolean }>).detail?.forwarded) return;
       commandRef.current('new-task');
     };
-    const onAddFolder = (event: Event) =>
-      addFolderRef.current((event as CustomEvent<{ groupId?: string }>).detail?.groupId);
+    const onAddFolder = (event: Event) => {
+      const detail = (event as CustomEvent<{ groupId?: string; source?: string }>).detail;
+      addFolderRef.current(detail?.groupId, detail?.source === 'github' ? 'github' : undefined);
+    };
+    const onShortcuts = () => {
+      if (dialogOpen()) return;
+      rememberTrigger();
+      setShortcutsOpen(true);
+    };
+
     const onClone = (event: Event) => {
       const detail = (event as CustomEvent<CloneProgress & { state: string; message?: string }>)
         .detail;
@@ -533,6 +627,7 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
       ['kalkidan-open-settings', onSettings],
       ['kalkidan-new-task', onNewTask],
       ['kalkidan-add-code-folder', onAddFolder],
+      ['kalkidan-show-shortcuts', onShortcuts],
       ['kalkidan-clone-progress', onClone],
       ['kalkidan-open-task', (event) => routeEvents.current.openTask(detailOf(event))],
       ['kalkidan-open-project-page', (event) => routeEvents.current.openPage(detailOf(event))],
@@ -762,7 +857,6 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
     if (repo) repoActivity[repo.id] = strongestActivity([repoActivity[repo.id], item.state])!;
   }
   const boards = useProjectBoards(api, data.groups || [], revision);
-  const updates = useUpdateStatus(api);
   // OS notifications: an agent asks for approval, asks a question, or finishes while the
   // window is not focused. A run that finishes out of view is marked for "Needs you".
   const previousActivity = useRef(new Map<string, SessionActivity>());
@@ -782,6 +876,7 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
       const agent = agentLabel(item.agent as Agent);
       if (focused || item.state === 'running' || before.get(key)?.state === item.state) continue;
       void api.notify?.({
+        kind: 'needs-input',
         title:
           item.state === 'question' ? `${agent} asks a question` : `${agent} needs your approval`,
         body: titleOf(item),
@@ -807,6 +902,7 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
             files ? plural(files, 'file') + ' changed' : '',
           ].filter(Boolean);
           void api.notify?.({
+            kind: 'finished',
             title: `${agentLabel(item.agent as Agent)} finished`,
             body: parts.length ? `${titleOf(item)} · ${parts.join(' · ')}` : titleOf(item),
             target: notificationTarget(item, files > 0),
@@ -879,11 +975,6 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
   function openAllSessions() {
     navigate({ kind: 'sessions' });
   }
-  function connectTracker(group = connectionGroup) {
-    if (!group) return;
-    openGroup(group);
-    setConnectRequest(group.id);
-  }
   function openOverview() {
     navigate({ kind: 'home' });
   }
@@ -895,9 +986,16 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
     return data.groups?.length === 1 ? data.groups[0] : undefined;
   }
   // The sidebar opens its Add code folders dialog for each new request.
-  const [addFolderRequest, setAddFolderRequest] = useState<{ groupId: string; at: number }>();
-  /** Opens the Add code folders dialog of a project. The sidebar keeps the dialog. */
-  function addCodeFolder(groupId?: string) {
+  const [addFolderRequest, setAddFolderRequest] = useState<{
+    groupId: string;
+    at: number;
+    source?: 'github';
+  }>();
+  /**
+   * Opens the Add code folders dialog of a project, on the GitHub source for "Clone from
+   * GitHub". The sidebar keeps the dialog.
+   */
+  function addCodeFolder(groupId?: string, source?: 'github') {
     const group = groupId
       ? data.groups?.find((g) => g.id === groupId)
       : currentProjectGroup() || data.groups?.[0];
@@ -905,7 +1003,7 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
       setCreateOpen(true);
       return;
     }
-    setAddFolderRequest({ groupId: group.id, at: Date.now() });
+    setAddFolderRequest({ groupId: group.id, at: Date.now(), source });
   }
   const addFolderRef = useRef(addCodeFolder);
   addFolderRef.current = addCodeFolder;
@@ -929,16 +1027,34 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
     else
       window.dispatchEvent(new CustomEvent('kalkidan-new-task', { detail: { forwarded: true } }));
   }
-  /** Starts a session in the open chat's or page's code folder, else opens the project home. */
-  function newSessionHere() {
+  /**
+   * New chat (Mod+N): starts a chat in the code folder of the open chat or page. In a project,
+   * it uses the code folder of its latest chat. Elsewhere, the code folder of the latest chat.
+   */
+  function newChat(agent: Agent = preferredAgent) {
     const chatRepo = chatOpen && chatSession ? sessionRepo(chatSession, data.projects) : undefined;
-    if (chatRepo) startSession(preferredAgent, chatRepo, chatSession?.cwd);
-    else if (!home && !boardGroup && !sessionsPage && project) startSession(preferredAgent);
+    if (chatRepo) return startSession(agent, chatRepo, chatSession?.cwd);
+    if (!home && !boardGroup && !sessionsPage && project) return startSession(agent);
+    const group = !home && !sessionsPage ? currentProjectGroup() : undefined;
+    if (group) return newChatIn(group, agent);
+    const repo = recentRepo(data.projects, data.sessions);
+    if (repo) return startSession(agent, repo);
+    if (data.groups?.length) addCodeFolder();
     else {
-      const group = currentProjectGroup();
-      if (group) openGroup(group);
-      else openOverview();
+      rememberTrigger();
+      setCreateOpen(true);
     }
+  }
+  /** Starts a chat in the code folder of the latest chat of a project. */
+  function newChatIn(group: ProjectGroup, agent: Agent = preferredAgent) {
+    const members = data.projects.filter((p) => group.repoIds.includes(p.id));
+    const repo = recentRepo(members, data.sessions);
+    if (repo) startSession(agent, repo);
+    else addCodeFolder(group.id);
+  }
+  /** Starts the Verdictan sign-in. The sign-in flow shows the steps. */
+  function signIn(intent: 'login' | 'register') {
+    window.dispatchEvent(new CustomEvent('kalkidan-sign-in', { detail: { intent } }));
   }
   /** Sends a command to the session menu of the open chat. With `session`, opens it first. */
   function sessionCommand(command: string, session?: Session) {
@@ -1025,6 +1141,11 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
         latest.projects.find((p) => p.id === repoId) ||
         (group && latest.projects.find((p) => group.repoIds.includes(p.id)));
       if (!repo) {
+        // "New chat" in a project without code folders opens Add code folders at once.
+        if (group && !repoId && !detail.taskId) {
+          addCodeFolder(group.id);
+          return;
+        }
         showToast({
           message: 'Add a code folder to this project first. Agents work in a code folder.',
           actions: [{ label: 'Add a code folder', onClick: () => addCodeFolder(group?.id) }],
@@ -1054,7 +1175,11 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
     },
     docSelected: (detail) => {
       const groupId = text(detail.groupId);
-      setDocTitle(groupId ? { groupId, title: text(detail.title) || 'Untitled' } : null);
+      setDocTitle(
+        groupId
+          ? { groupId, docId: text(detail.docId), title: text(detail.title) || 'Untitled' }
+          : null,
+      );
     },
   };
   // Closing a session returns to the view before it. Without history, show the repository.
@@ -1127,19 +1252,7 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
               { label: project.name, name: project.name },
             ]
           : [];
-  // Settings: "Settings › Computers". The Settings crumb opens General.
-  const viewTrail: Crumb[] =
-    route.kind === 'settings'
-      ? [
-          {
-            label: 'Settings',
-            name: 'General settings',
-            open: route.tab !== 'general' ? () => openSettings('general') : undefined,
-            optional: true,
-          },
-          { label: settingsTabLabel(route.tab), name: `Settings ${settingsTabLabel(route.tab)}` },
-        ]
-      : pageTrail;
+  const viewTrail: Crumb[] = pageTrail;
   openRef.current = (session: Session) => openConversation(session);
   function openConversation(session: Session, parentPage?: WorkspacePage) {
     const repo = sessionRepo(session, data.projects);
@@ -1183,7 +1296,8 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
         (task
           ? `Work on this task: ${task.title}. Review the repository and propose an implementation plan first.`
           : undefined),
-      title: `New ${agentLabel(agent)} chat`,
+      // A task chat has the name of its task. The agent icon shows the agent.
+      title: task?.title || 'New chat',
       updatedAt: new Date().toISOString(),
     };
     setDrafts((previous) => [...previous, draft]);
@@ -1306,8 +1420,8 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
         storageKey={selected}
         sessions={sessions}
         query={sessionFilter}
+        onQueryChange={sessions.length ? setSessionFilter : undefined}
         busy={sessionBusy}
-        newSessionLabel={`New ${agentLabel(preferredAgent)} chat`}
         branchOf={(session) => sessionBranch.get(session.agent + ':' + session.id)}
         taskOf={(session) => sessionTask(session, boards)}
         onOpenTask={openSessionTask}
@@ -1327,8 +1441,6 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
     data.sessions.find(
       (s) => sessionRepo(s, data.projects)?.id === repo.id && s.organization?.pullRequest,
     )?.organization?.pullRequest;
-  // Setup is done when there is a project with a code folder and one agent chat.
-  const setupDone = !!data.groups?.length && data.projects.length > 0 && data.sessions.length > 0;
   const placeOf = (session: Session) => {
     const repo = sessionRepo(session, data.projects);
     return {
@@ -1401,12 +1513,32 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
   }
   const inProject = (group: ProjectGroup | undefined, label: string) =>
     group && (data.groups?.length || 0) > 1 ? `${label} in ${group.name}` : label;
+  // Each action has its own icon. Chat actions use the icon of the chat menu.
+  const chatIcons: Record<string, LucideIcon> = {
+    rename: Pencil,
+    pin: Pin,
+    'link-task': Link2,
+    'open-linked-task': ListChecks,
+    notes: Pencil,
+    commit: Check,
+    'open-pull-request': GitPullRequest,
+    'create-pull-request': GitPullRequest,
+    'view-pull-request': GitPullRequest,
+    duplicate: MessageSquare,
+    'show-folder': FolderOpen,
+    'save-to-docs': FilePlus2,
+    'export-markdown': Download,
+    'export-html': Download,
+    'usage-history': Activity,
+    archive: Trash,
+  };
   const chatActions: SearchAction[] = chatOpen
     ? [
         {
           key: 'chat-changes',
           label: 'Show changes',
           keywords: 'diff review files',
+          icon: <GitCompare />,
           run: () => sessionCommand('session-changes'),
         },
         // The chat actions come from the one chat action list. The chat menu checks each one.
@@ -1422,28 +1554,32 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
               ),
             )
           : []
-        ).flatMap((action) =>
-          action.command
+        ).flatMap((action) => {
+          const Icon = chatIcons[action.id] || MessageSquare;
+          return action.command
             ? [
                 {
                   key: `chat-${action.id}`,
                   label: action.label,
                   keywords: action.keywords || '',
+                  icon: <Icon />,
                   run: () => sessionCommand(action.command!),
                 },
               ]
-            : [],
-        ),
+            : [];
+        }),
         {
           key: 'chat-terminal',
           label: 'Open terminal',
           keywords: 'shell console',
+          icon: <Terminal />,
           run: () => sessionCommand('session-terminal'),
         },
         {
           key: 'chat-branch-copy',
           label: 'New branch copy…',
           keywords: 'worktree branch',
+          icon: <GitBranch />,
           run: () => {
             const repo = chatSession && sessionRepo(chatSession, data.projects);
             if (!repo) return;
@@ -1458,69 +1594,119 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
       key: `go-${page}-${group.id}`,
       label: `Go to ${pageNames[page]} of ${group.name}`,
       keywords: `open ${page === 'board' ? 'home project' : page} ${page === 'memory' ? 'open memory' : ''}`,
+      icon: <Folder />,
       run: () => openGroup(group, page),
     })),
   );
+  // Board actions show only for a project with a connected board.
+  const boardReady = !!actionGroup && !!trackerConnection(actionGroup);
   const projectToolActions: SearchAction[] = actionGroup
     ? [
         {
           key: 'new-page',
           label: inProject(actionGroup, 'New page'),
           keywords: 'docs wiki write note',
+          icon: <FilePlus2 />,
           run: () => void newDocPage(actionGroup),
         },
-        {
-          key: 'plan-iteration',
-          label: inProject(actionGroup, 'Plan an iteration…'),
-          keywords: 'sprint planning cycle',
-          run: () => planningTool(actionGroup, 'iteration'),
-        },
-        {
-          key: 'readiness',
-          label: inProject(actionGroup, 'Check readiness…'),
-          keywords: 'ready tasks start',
-          run: () => planningTool(actionGroup, 'readiness'),
-        },
-        {
-          key: 'dispatch',
-          label: inProject(actionGroup, 'Run tasks in parallel…'),
-          keywords: 'dispatch agents many',
-          run: () => planningTool(actionGroup, 'dispatch'),
-        },
-        {
-          key: 'fields',
-          label: inProject(actionGroup, 'Edit fields in bulk…'),
-          keywords: 'batch change status',
-          run: () => planningTool(actionGroup, 'fields'),
-        },
-        {
-          key: 'docs-to-issues',
-          label: inProject(actionGroup, 'Create tasks from a doc…'),
-          keywords: 'issues plan docs',
-          run: () => planningTool(actionGroup, 'docs-to-issues'),
-        },
-        {
-          key: 'add-existing',
-          label: inProject(actionGroup, 'Add existing task…'),
-          keywords: 'issue import board',
-          run: () => planningTool(actionGroup, 'add-existing'),
-        },
+        ...(boardReady
+          ? [
+              {
+                key: 'new-task',
+                label: inProject(actionGroup, 'New task'),
+                keywords: 'issue board',
+                shortcut: shortcutLabel(['mod', 'shift'], 'K'),
+                icon: <ListPlus />,
+                run: newTask,
+              },
+              {
+                key: 'plan-iteration',
+                label: inProject(actionGroup, 'Plan an iteration…'),
+                keywords: 'sprint planning cycle',
+                icon: <CalendarRange />,
+                run: () => planningTool(actionGroup, 'iteration'),
+              },
+              {
+                key: 'readiness',
+                label: inProject(actionGroup, 'Check readiness…'),
+                keywords: 'ready tasks start',
+                icon: <ListChecks />,
+                run: () => planningTool(actionGroup, 'readiness'),
+              },
+              {
+                key: 'dispatch',
+                label: inProject(actionGroup, 'Run tasks in parallel…'),
+                keywords: 'dispatch agents many',
+                icon: <Users />,
+                run: () => planningTool(actionGroup, 'dispatch'),
+              },
+              {
+                key: 'fields',
+                label: inProject(actionGroup, 'Edit fields in bulk…'),
+                keywords: 'batch change status',
+                icon: <Rows3 />,
+                run: () => planningTool(actionGroup, 'fields'),
+              },
+              {
+                key: 'docs-to-issues',
+                label: inProject(actionGroup, 'Create tasks from a doc…'),
+                keywords: 'issues plan docs',
+                icon: <FileInput />,
+                run: () => planningTool(actionGroup, 'docs-to-issues'),
+              },
+              {
+                key: 'add-existing',
+                label: inProject(actionGroup, 'Add existing task…'),
+                keywords: 'issue import board',
+                icon: <Link2 />,
+                run: () => planningTool(actionGroup, 'add-existing'),
+              },
+              {
+                key: 'write-history',
+                label: inProject(actionGroup, 'Write history'),
+                keywords: 'insights changes github undo',
+                icon: <History />,
+                run: () => openGroup(actionGroup, 'insights'),
+              },
+              {
+                key: 'board-settings',
+                label: inProject(actionGroup, 'Board settings…'),
+                keywords: 'fields views workflows github automation',
+                icon: <Layers2 />,
+                run: () =>
+                  window.dispatchEvent(
+                    new CustomEvent('kalkidan-open-board-settings', {
+                      detail: { groupId: actionGroup.id },
+                    }),
+                  ),
+              },
+            ]
+          : [
+              {
+                key: 'connect-board',
+                label: inProject(actionGroup, 'Connect a board…'),
+                keywords: 'github projects tasks tracker',
+                icon: <Layers2 />,
+                run: () =>
+                  window.dispatchEvent(
+                    new CustomEvent('kalkidan-open-project-settings', {
+                      detail: { groupId: actionGroup.id, section: 'board' },
+                    }),
+                  ),
+              },
+            ]),
         {
           key: 'health',
           label: inProject(actionGroup, 'Project health'),
           keywords: 'insights report status',
-          run: () => openGroup(actionGroup, 'insights'),
-        },
-        {
-          key: 'write-history',
-          label: inProject(actionGroup, 'Write history'),
-          keywords: 'insights changes github undo',
+          icon: <Activity />,
           run: () => openGroup(actionGroup, 'insights'),
         },
         {
           key: 'project-settings',
           label: inProject(actionGroup, 'Project settings…'),
-          keywords: 'board automation fields github',
+          keywords: 'rename code folders board automation',
+          icon: <Settings2 />,
           run: () =>
             window.dispatchEvent(
               new CustomEvent('kalkidan-open-project-settings', {
@@ -1534,6 +1720,7 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
                 key: 'terminal',
                 label: `Open terminal in ${project.name}`,
                 keywords: 'shell console',
+                icon: <Terminal />,
                 run: () => void launchTerminal(),
               },
             ]
@@ -1544,6 +1731,7 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
                 key: 'branch-copy',
                 label: `New branch copy of ${project.name}…`,
                 keywords: 'worktree branch',
+                icon: <GitBranch />,
                 run: () => {
                   setBranch('');
                   openModal('worktree');
@@ -1551,7 +1739,7 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
               },
             ]
           : []),
-        ...(savedViews.groupId === actionGroup.id
+        ...(savedViews.groupId === actionGroup.id && boardReady
           ? savedViews.views.flatMap((view) => {
               const pinned = (pinnedViews[actionGroup.id] || []).some((p) => p.id === view.id);
               return [
@@ -1559,6 +1747,7 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
                   key: 'view-' + view.id,
                   label: `View: ${view.name}`,
                   keywords: 'saved github board filter',
+                  icon: <Eye />,
                   run: () => openView(actionGroup, view),
                 },
                 {
@@ -1567,6 +1756,7 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
                     ? `Unpin view ${view.name} from the sidebar`
                     : `Pin view ${view.name} in the sidebar`,
                   keywords: 'saved github board',
+                  icon: <Pin />,
                   run: () => pinView(actionGroup.id, view, !pinned),
                 },
               ];
@@ -1574,78 +1764,155 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
           : []),
       ]
     : [];
+  // New chat: here, with each agent, and in each code folder.
+  const chatStartActions: SearchAction[] = data.projects.length
+    ? [
+        {
+          key: 'new-chat',
+          label: 'New chat',
+          keywords: `start chat agent session conversation ${currentRepoForActions?.name || ''}`,
+          shortcut: shortcutLabel(['mod'], 'N'),
+          icon: <SquarePen />,
+          run: () => newChat(),
+        },
+        ...agentCatalog.map(({ id: agent }) => ({
+          key: 'new-chat-' + agent,
+          label: agentMenuLabel(agent, `New ${agentLabel(agent)} chat`),
+          keywords: 'new chat start agent session',
+          icon: <AgentIcon agent={agent} />,
+          run: () => newChat(agent),
+        })),
+        ...data.projects.map((repo) => ({
+          key: 'new-chat-in-' + repo.id,
+          label: `New chat in ${repo.name}`,
+          keywords: `start chat agent code folder ${
+            data.groups?.find((g) => g.repoIds.includes(repo.id))?.name || ''
+          }`,
+          icon: <MessageSquare />,
+          run: () => startSession(preferredAgent, repo),
+        })),
+      ]
+    : [];
+  const settingsActions: SearchAction[] = (
+    [
+      ['general', 'General', 'theme notifications appearance', Settings2],
+      ['account', 'Account', 'verdictan sign in region github organization', UserRound],
+      ['agents', 'Agents', 'codex claude default agent install models', Bot],
+      ['computers', 'Computers', 'ssh remote hosts runtime', Monitor],
+      ['about', 'About', 'version updates release', Info],
+    ] as [SettingsSection, string, string, LucideIcon][]
+  ).map(([section, name, keywords, Icon]) => ({
+    key: 'settings-' + section,
+    label: `Settings: ${name}`,
+    keywords: 'preferences ' + keywords,
+    icon: <Icon />,
+    run: () => openSettings(section),
+  }));
   const searchActions: SearchAction[] = [
-    ...(currentRepoForActions
-      ? agentCatalog.map(({ id: agent }) => ({
-          key: 'new-session-' + agent,
-          label: agentMenuLabel(
-            agent,
-            `New ${agentLabel(agent)} chat in ${currentRepoForActions.name}`,
-          ),
-          keywords: 'start chat agent session',
-          shortcut: agent === preferredAgent ? shortcutLabel(['mod', 'shift'], 'N') : undefined,
-          run: () => startSession(agent, currentRepoForActions),
-        }))
-      : []),
+    ...chatStartActions,
     ...chatActions,
     ...projectToolActions,
     ...projectPageActions,
     {
       key: 'add-folder',
       label: 'Add a code folder…',
-      keywords: 'repository import clone',
+      keywords: 'repository import open folder',
       shortcut: shortcutLabel(['mod', 'shift'], 'O'),
+      icon: <FolderPlus />,
       run: () => addCodeFolder(),
+    },
+    {
+      key: 'clone-github',
+      label: 'Clone from GitHub…',
+      keywords: 'repository import code folder',
+      icon: <FolderGit2 />,
+      run: () => addCodeFolder(undefined, 'github'),
     },
     {
       key: 'new-project',
       label: 'New project…',
       keywords: 'create',
-      shortcut: shortcutLabel(['mod'], 'N'),
+      shortcut: shortcutLabel(['mod', 'shift'], 'N'),
+      icon: <FolderPlus />,
       run: () => {
         rememberTrigger();
         setCreateOpen(true);
       },
     },
-    { key: 'new-task', label: 'New task', keywords: 'issue board', run: newTask },
     {
       key: 'all-sessions',
       label: 'See all chats',
       keywords: 'sessions history',
+      shortcut: shortcutLabel(['mod', 'shift'], 'L'),
+      icon: <MessagesSquare />,
       run: openAllSessions,
     },
     {
       key: 'portfolio',
       label: 'My work across projects',
       keywords: 'portfolio overview assigned',
+      icon: <LayoutGrid />,
       run: () => {
         setOverviewTab('my-work');
         openOverview();
       },
     },
+    ...(!signedIn
+      ? [
+          {
+            key: 'sign-in',
+            label: 'Sign in to Verdictan',
+            keywords: 'account login managed agents',
+            icon: <LogIn />,
+            run: () => signIn('login'),
+          },
+          {
+            key: 'register',
+            label: 'Create a Verdictan account',
+            keywords: 'register sign up account',
+            icon: <UserPlus />,
+            run: () => signIn('register'),
+          },
+        ]
+      : []),
     {
       key: 'settings',
       label: 'Open settings',
       keywords: 'preferences',
       shortcut: shortcutLabel(['mod'], ','),
+      icon: <Settings2 />,
       run: () => openSettings(),
     },
+    ...settingsActions,
+    ...agentCatalog.map(({ id: agent }) => ({
+      key: 'default-agent-' + agent,
+      label: `Change default agent to ${agentLabel(agent)}`,
+      keywords: 'prefer default agent new chats',
+      icon: <AgentIcon agent={agent} />,
+      run: () => {
+        if (!agentInstalled(agent)) return openSettings('agents');
+        savePreferredAgent(agent);
+        showToast(`New chats now use ${agentLabel(agent)}.`);
+      },
+    })),
     {
       key: 'github',
       label: 'Connect GitHub',
       keywords: 'sign in account',
-      run: () => openSettings('accounts'),
+      icon: <FolderGit2 />,
+      run: () => openSettings('account'),
     },
-    {
-      key: 'managed-agents',
-      label: 'Set up managed agents',
-      keywords: 'verdictan runtime governance',
-      run: () => openSettings('managed-agents'),
-    },
-    ...(['light', 'dark', 'system'] as Appearance[]).map((mode) => ({
+    ...(
+      [
+        ['light', Sun],
+        ['dark', Moon],
+        ['system', SunMoon],
+      ] as [Appearance, LucideIcon][]
+    ).map(([mode, Icon]) => ({
       key: 'theme-' + mode,
       label: `Theme: ${mode[0].toUpperCase() + mode.slice(1)}`,
       keywords: 'appearance color dark light mode',
+      icon: <Icon />,
       run: () => setTheme(mode),
     })),
     {
@@ -1653,6 +1920,7 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
       label: 'Keyboard shortcuts',
       keywords: 'keys help',
       shortcut: shortcutLabel(['mod'], '/'),
+      icon: <Keyboard />,
       run: () => {
         rememberTrigger();
         setShortcutsOpen(true);
@@ -1663,12 +1931,14 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
       label: 'Toggle sidebar',
       keywords: 'hide show',
       shortcut: shortcutLabel(['mod'], 'B'),
+      icon: <PanelLeftClose />,
       run: toggleSidebar,
     },
     {
       key: 'get-started',
       label: 'Get started',
       keywords: 'setup guide help',
+      icon: <Sparkles />,
       run: () => setOnboardingOpen(true),
     },
   ];
@@ -1724,30 +1994,27 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
         : [];
     })
     .slice(0, 5);
-  // With an empty search, these show under "Suggested". They depend on the page.
-  const suggestedKeys = [
-    ...(chatOpen ? ['chat-changes', 'chat-commit', 'chat-link-task'] : []),
-    ...(actionGroup ? ['new-page', 'plan-iteration', 'readiness'] : []),
-    ...(currentRepoForActions ? ['new-session-' + preferredAgent] : []),
-    ...(!data.groups?.length ? ['new-project', 'get-started'] : ['new-task', 'all-sessions']),
-  ];
+  // With an empty search, these show under "Suggested". They depend on the page, and New chat
+  // is first wherever a chat can start.
+  const suggestedKeys = chatOpen
+    ? ['new-chat', 'chat-changes', 'chat-commit', 'chat-link-task', 'chat-terminal']
+    : boardGroup
+      ? [
+          'new-chat',
+          ...(boardReady ? ['new-task', 'new-page', 'plan-iteration'] : ['add-folder', 'new-page']),
+          ...(boardReady ? [] : ['connect-board']),
+          'project-settings',
+        ]
+      : project && !home && !sessionsPage
+        ? ['new-chat', 'branch-copy', 'terminal', 'all-sessions']
+        : data.groups?.length
+          ? ['new-chat', 'new-project', 'all-sessions', 'settings']
+          : ['new-project', 'add-folder', 'clone-github', 'settings'];
+  if (!signedIn) suggestedKeys.push('sign-in');
   const suggestedActions = suggestedKeys
     .map((key) => searchActions.find((action) => action.key === key))
     .filter((action): action is SearchAction => !!action)
     .slice(0, 6);
-  const settingsButton = (
-    <Button
-      variant="ghost"
-      className={sidebarAction + ' min-w-0 flex-1 font-normal'}
-      aria-description={updates.available ? 'Update available' : undefined}
-      aria-current={route.kind === 'settings' ? 'page' : undefined}
-      onClick={() => openSettings(updates.available ? 'computers' : 'general')}
-    >
-      <Settings2 />
-      Settings
-      {updates.available && <span className="sidebar-update-dot" aria-hidden="true" />}
-    </Button>
-  );
   const navigationToggle = (
     <Hint label={navigationOpen ? 'Hide sidebar' : 'Show sidebar'}>
       <Button
@@ -1827,6 +2094,27 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
         });
     }
   }, [api, data.projects, data.sessions]);
+  // The Welcome screen fills the window before the workspace shows.
+  if (welcome.show === undefined) return <div className="app-shell" aria-busy="true" />;
+  if (welcome.show)
+    return (
+      <>
+        <Welcome
+          api={api}
+          onDone={(result) => {
+            welcome.hide();
+            // After a sign-in, onboarding continues at the code folder step. "Set up later"
+            // skips it too; "Get started" in the sidebar opens it again.
+            if (result.signedIn) setOnboardingOpen(true);
+            else {
+              dismissOnboarding();
+              setOnboardingOpen(false);
+            }
+          }}
+        />
+        <Toaster />
+      </>
+    );
   return (
     <div
       className={
@@ -1998,54 +2286,41 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
           onNotice={notify}
           onRefresh={reload}
           run={run}
+          onNewChat={() => newChat()}
+          onNewChatIn={(group) => newChatIn(group)}
+          activePage={boardGroup ? projectPage : undefined}
+          activeDoc={
+            boardGroup && projectPage === 'docs' && docTitle?.groupId === boardGroup
+              ? docTitle.docId
+              : undefined
+          }
         />
-        <div className="sidebar-github">
+        <div className="sidebar-footer">
           {signInLost && connectionGroup && (
             <Button
               variant="outline"
               className={sidebarAction + ' sidebar-github-connect'}
               title={`The GitHub sign-in for the ${connectionGroup.name} board stopped working.`}
-              onClick={() => openSettings('accounts')}
+              onClick={() => openSettings('account')}
             >
               <img src="./icons/github.svg" width="16" height="16" alt="" aria-hidden="true" />
               Sign in to GitHub again
             </Button>
           )}
-          {!setupDone && (
-            <Button
-              variant="ghost"
-              className={sidebarAction + ' font-normal'}
-              onClick={() => setOnboardingOpen(true)}
-            >
-              <ArrowRight /> Get started
-            </Button>
-          )}
+          <GetStartedButton
+            data={data}
+            onOpen={() => setOnboardingOpen(true)}
+            className={sidebarAction}
+          />
           <div className="sidebar-footer-row">
-            {updates.available ? (
-              <Hint label={updates.label || 'Update available'}>{settingsButton}</Hint>
-            ) : (
-              settingsButton
-            )}
-            <Hint label={`Keyboard shortcuts (${shortcutLabel(['mod'], '/')})`}>
-              <Button
-                variant="ghost"
-                size="icon-sm"
-                className="text-muted-foreground"
-                aria-label="Keyboard shortcuts"
-                onClick={() => {
-                  rememberTrigger();
-                  setShortcutsOpen(true);
-                }}
-              >
-                <Keyboard />
-              </Button>
-            </Hint>
+            <AccountMenu api={api} />
           </div>
         </div>
       </nav>
       {navigationOpen && <SidebarResizer {...sidebar} />}
       <main>
         <div className="page-content">
+          <SessionBanner api={api} />
           {data.warnings.length > 0 && (
             <Collapsible className="warnings">
               <Alert size="sm">
@@ -2068,16 +2343,7 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
           <div className="workspace-grid">
             <div className="project-content">
               <div className="management-pane" hidden={chatOpen}>
-                {route.kind === 'settings' ? (
-                  <SettingsPage
-                    api={api}
-                    tab={route.tab}
-                    focus={settingsFocus}
-                    onTab={(tab: SettingsTab) => navigate({ kind: 'settings', tab })}
-                    onNavigate={openSettings}
-                    onRefresh={refresh}
-                  />
-                ) : home ? (
+                {home ? (
                   <ProjectOverview
                     api={api}
                     groups={data.groups || []}
@@ -2097,17 +2363,8 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
                   <section className="page" aria-label="All chats">
                     <PageHeader
                       title="All chats"
-                      subtitle="The agent chats of every project. Use the filters to find one."
-                      actions={
-                        <SearchInput
-                          size="sm"
-                          className="repository-session-filter"
-                          aria-label="Filter chats"
-                          placeholder="Filter chats"
-                          value={allChatsFilter}
-                          onChange={(event) => setAllChatsFilter(event.target.value)}
-                        />
-                      }
+                      subtitle="The agent chats of every project."
+                      actions={<NewChatButton repos={data.projects} sessions={data.sessions} />}
                     />
                     <SessionBrowser
                       api={api}
@@ -2116,6 +2373,7 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
                       storageKey="all-sessions"
                       sessions={data.sessions.filter((s) => !!sessionRepo(s, data.projects))}
                       query={allChatsFilter}
+                      onQueryChange={setAllChatsFilter}
                       busy={sessionBusy}
                       placeOf={placeOf}
                       taskOf={(session) => sessionTask(session, boards)}
@@ -2130,6 +2388,8 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
                     group={currentGroup}
                     host={data.hosts?.find((h) => h.id === currentGroup.hostId)}
                     page={projectPage}
+                    repos={data.projects}
+                    sessions={data.sessions}
                     onRefresh={refresh}
                   >
                     {projectPage === 'memory' ? (
@@ -2185,6 +2445,7 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
                         onRepo={openProject}
                         onTask={(repo, agent, task) => newSession(agent, repo, task)}
                         onAddFolder={() => addCodeFolder(boardGroup)}
+                        onCloneFromGitHub={() => addCodeFolder(boardGroup, 'github')}
                         onNewSession={(repo, agent) => startSession(agent, repo)}
                         onOpenSession={openConversation}
                         onOpenDocs={(pageId) => {
@@ -2245,23 +2506,28 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
                       }
                       actions={
                         <>
-                          <ActionMenu
+                          <NewChatButton repos={[project]} sessions={sessions} />
+                          <TreeActionsMenu
                             label="Repository actions"
                             size="md"
+                            align="end"
                             disabled={busy}
-                            items={[
+                            actions={[
                               {
                                 label: 'Edit code folder…',
+                                icon: <Pencil className="size-4" />,
                                 action: () => editRepository(project),
                               },
                               ...(!project.hostId
                                 ? [
                                     {
                                       label: revealLabel(),
+                                      icon: <FolderOpen className="size-4" />,
                                       action: () => void run(() => api.reveal(project.id)),
                                     },
                                     {
                                       label: 'Open in Terminal app',
+                                      icon: <Terminal className="size-4" />,
                                       action: () => void launchTerminal(),
                                     },
                                   ]
@@ -2270,6 +2536,7 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
                                 label: project.favorite
                                   ? 'Remove from favorites'
                                   : 'Add to favorites',
+                                icon: <Pin className="size-4" />,
                                 action: () =>
                                   void run(() =>
                                     api.update(project.id, { favorite: !project.favorite }),
@@ -2277,51 +2544,6 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
                               },
                             ]}
                           />
-                          <div className="split-button" role="group" aria-label="New chat">
-                            <Button
-                              className="rounded-r-none"
-                              aria-label={`New ${agentLabel(preferredAgent)} chat`}
-                              onClick={() => startSession(preferredAgent)}
-                            >
-                              <Plus />
-                              New {agentLabel(preferredAgent)} chat
-                            </Button>
-                            <DropdownMenu>
-                              <Hint label="Choose an agent">
-                                <DropdownMenuTrigger asChild>
-                                  <Button
-                                    size="icon"
-                                    className="rounded-l-none border-l border-primary-foreground/20"
-                                    aria-label="Choose an agent"
-                                  >
-                                    <ChevronDown />
-                                  </Button>
-                                </DropdownMenuTrigger>
-                              </Hint>
-                              <DropdownMenuContent align="end">
-                                {agentCatalog.map(({ id: agent }) => (
-                                  <DropdownMenuItem
-                                    key={agent}
-                                    disabled={!agentInstalled(agent)}
-                                    title={
-                                      agentInstalled(agent)
-                                        ? undefined
-                                        : `Install ${agentLabel(agent)} in Settings › Agents`
-                                    }
-                                    onSelect={() => startSession(agent)}
-                                  >
-                                    <AgentIcon agent={agent} />
-                                    {agentMenuLabel(agent, `New ${agentLabel(agent)} chat`)}
-                                  </DropdownMenuItem>
-                                ))}
-                                {agentCatalog.some(({ id }) => !agentInstalled(id)) && (
-                                  <DropdownMenuItem onSelect={() => openSettings('agents')}>
-                                    Install agents in Settings…
-                                  </DropdownMenuItem>
-                                )}
-                              </DropdownMenuContent>
-                            </DropdownMenu>
-                          </div>
                         </>
                       }
                     />
@@ -2330,22 +2552,7 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
                         className="repository-overview-section"
                         aria-label="Code folder chats"
                       >
-                        <SectionHeader
-                          title="Chats"
-                          count={sessions.length}
-                          actions={
-                            sessions.length > 0 && (
-                              <SearchInput
-                                size="sm"
-                                className="repository-session-filter"
-                                aria-label="Filter chats"
-                                placeholder="Filter chats"
-                                value={sessionFilter}
-                                onChange={(event) => setSessionFilter(event.target.value)}
-                              />
-                            )
-                          }
-                        />
+                        <SectionHeader title="Chats" count={sessions.length} />
                         {sessionList()}
                       </section>
                       <section
@@ -2450,15 +2657,16 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
                                       Current
                                     </Badge>
                                   )}
-                                  <ActionMenu
-                                    size="xs"
+                                  <TreeActionsMenu
                                     label={`${tree.branch} branch copy actions`}
-                                    items={[
+                                    align="end"
+                                    actions={[
                                       ...agentCatalog.map(({ id: agent }) => ({
                                         label: agentMenuLabel(
                                           agent,
                                           `New ${agentLabel(agent)} chat`,
                                         ),
+                                        icon: <AgentIcon agent={agent} className="size-4" />,
                                         disabled: !agentInstalled(agent),
                                         reason: `Install ${agentLabel(agent)} in Settings › Agents.`,
                                         action: () =>
@@ -2469,7 +2677,10 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
                                       ...(linked && treeRepo && pullRequestOf(treeRepo)
                                         ? [
                                             {
-                                              label: 'Open pull request',
+                                              label: pullRequestOf(treeRepo)!.number
+                                                ? `View pull request #${pullRequestOf(treeRepo)!.number}`
+                                                : 'View pull request',
+                                              icon: <GitPullRequest className="size-4" />,
                                               action: () =>
                                                 window.open(
                                                   pullRequestOf(treeRepo)!.url,
@@ -2483,7 +2694,8 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
                                         ? [
                                             {
                                               label: 'Delete this branch copy…',
-                                              danger: true,
+                                              icon: <Trash2 className="size-4" />,
+                                              destructive: true,
                                               separator: true,
                                               action: () => deleteBranchCopy(treeRepo, tree.branch),
                                             },
@@ -2605,6 +2817,25 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
         </div>
       </main>
       <Toaster />
+      <SignInFlow api={api} />
+      <SettingsDialog
+        api={api}
+        open={settings.open}
+        section={settings.section}
+        anchor={settings.anchor}
+        onRefresh={refresh}
+        onOpenChange={(open) => {
+          setSettings((current) => ({ ...current, open }));
+          if (!open) void reload();
+        }}
+        // The menu item that opened Settings is gone. The focus returns to the menu button.
+        onCloseAutoFocus={restoreTriggerFocus}
+      />
+      <BoardSettingsHost
+        api={api}
+        groups={data.groups || []}
+        activeGroupId={currentProjectGroup()?.id}
+      />
       <ShortcutsSheet
         open={shortcutsOpen}
         onOpenChange={(open) => {
@@ -2623,18 +2854,6 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
             if (!open) dismissOnboarding();
           }}
           onRefresh={refresh}
-          onSettings={() => {
-            setOnboardingOpen(false);
-            dismissOnboarding();
-            openSettings();
-          }}
-          onConnectBoard={(groupId) => {
-            const group = data.groups?.find((g) => g.id === groupId);
-            if (!group) return;
-            setOnboardingOpen(false);
-            dismissOnboarding();
-            connectTracker(group);
-          }}
           onStart={(agent, repo, prompt) => {
             newSession(agent, repo, undefined, prompt);
           }}
@@ -2657,7 +2876,7 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
       <Dialog open={modal !== null} onOpenChange={(open) => !open && setModal(null)}>
         <DialogContent
           size={shownModal === 'remove' || shownModal === 'remove-worktree' ? 'sm' : 'md'}
-          layout={shownModal === 'edit' ? 'scroll' : 'simple'}
+          layout={shownModal === 'edit' || shownModal === 'worktree' ? 'scroll' : 'simple'}
           onCloseAutoFocus={restoreTriggerFocus}
         >
           <DialogHeader>
@@ -2683,36 +2902,38 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
             </DialogDescription>
           </DialogHeader>
           {shownModal === 'worktree' && (
-            <form
-              id="repository-dialog-form"
-              className="grid gap-4"
-              onSubmit={(event) => {
-                event.preventDefault();
-                if (!modalBusy && branch.trim()) createWorktree();
-              }}
-            >
-              <label className="form-label">
-                New branch name
-                <Input
-                  autoFocus
-                  placeholder="feature/my-next-idea"
-                  value={branch}
-                  onChange={(e) => setBranch(e.target.value)}
-                />
-              </label>
-              {worktreeInfo && (
-                <dl className="worktree-preview">
-                  <div>
-                    <dt>Starts from</dt>
-                    <dd title={worktreeInfo.base}>{worktreeInfo.base}</dd>
-                  </div>
-                  <div>
-                    <dt>Folder</dt>
-                    <dd title={worktreeInfo.path}>{worktreeInfo.path}</dd>
-                  </div>
-                </dl>
-              )}
-            </form>
+            <DialogBody>
+              <form
+                id="repository-dialog-form"
+                className="grid gap-4"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  if (!modalBusy && branch.trim()) createWorktree();
+                }}
+              >
+                <label className="form-label">
+                  New branch name
+                  <Input
+                    autoFocus
+                    placeholder="feature/my-next-idea"
+                    value={branch}
+                    onChange={(e) => setBranch(e.target.value)}
+                  />
+                </label>
+                {worktreeInfo && (
+                  <dl className="worktree-preview">
+                    <div>
+                      <dt>Starts from</dt>
+                      <dd title={worktreeInfo.base}>{worktreeInfo.base}</dd>
+                    </div>
+                    <div>
+                      <dt>Folder</dt>
+                      <dd title={worktreeInfo.path}>{worktreeInfo.path}</dd>
+                    </div>
+                  </dl>
+                )}
+              </form>
+            </DialogBody>
           )}
           {shownModal === 'edit' && (
             <DialogBody>

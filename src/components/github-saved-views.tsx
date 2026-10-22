@@ -1,10 +1,8 @@
 import { useEffect, useState } from 'react';
-import { AlertCircle, RefreshCw } from 'lucide-react';
+import { TriangleAlert } from 'lucide-react';
 import type { API } from '../types';
 import type { SavedProjectView } from '../domain/github-resources';
-import { Button } from './ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
-import { Hint } from './hint';
 import { errorMessage } from '../lib/errors';
 
 export interface SavedViewSummary {
@@ -13,6 +11,8 @@ export interface SavedViewSummary {
 }
 
 const allItems = '__all';
+// The item that loads the views again after an error.
+const retryItem = '__retry';
 function choiceKey(groupId: string) {
   return `kalkidan-saved-view:${groupId}`;
 }
@@ -63,18 +63,22 @@ export function openSavedView(groupId: string, viewId: string) {
 }
 
 /**
- * "View: All project items ▾" and a refresh button for the board toolbar. The choice is kept
- * for each project.
+ * "View: All project items ▾" for the board toolbar. The choice is kept for each project. The
+ * board refresh button loads the views again (`reload`). When the views do not load, the
+ * select shows a warning and the item "Could not load views. Try again".
  */
 export function GitHubSavedViews({
   api,
   groupId,
   revision,
+  reload = 0,
   onChange,
 }: {
   api: API;
   groupId: string;
   revision?: string;
+  /** A counter. Each change loads the views again. */
+  reload?: number;
   onChange: (view: SavedProjectView | null, pending: boolean) => void;
 }) {
   const [views, setViews] = useState<SavedViewSummary[]>(() => readSavedViewList(groupId));
@@ -140,27 +144,37 @@ export function GitHubSavedViews({
     return () => {
       active = false;
     };
-  }, [api, groupId, revision, selected, attempt, onChange]);
+  }, [api, groupId, revision, selected, attempt, reload, onChange]);
   const current = views.find((view) => view.id === selected);
   return (
     <div className="tracker-saved-views" role="group" aria-label="GitHub view">
       <Select
         value={selected || allItems}
-        onValueChange={(value) => choose(value === allItems ? '' : value)}
+        onValueChange={(value) => {
+          if (value === retryItem) setAttempt((count) => count + 1);
+          else choose(value === allItems ? '' : value);
+        }}
       >
         <SelectTrigger
           size="sm"
           variant="filled"
-          aria-label="GitHub saved view"
+          aria-label={error ? 'GitHub saved view. The views did not load' : 'GitHub saved view'}
           className="tracker-saved-view-trigger"
-          title={current?.name}
+          title={error ? `Could not load the GitHub views. ${error}` : current?.name}
+          data-error={error ? true : undefined}
         >
+          {error && <TriangleAlert className="tracker-saved-view-error" aria-hidden="true" />}
           <span className="text-muted-foreground" aria-hidden="true">
             View:
           </span>
           <SelectValue />
         </SelectTrigger>
         <SelectContent align="start" className="max-w-[calc(100vw-2rem)]">
+          {error && (
+            <SelectItem value={retryItem} className="tracker-saved-view-retry">
+              Could not load views. Try again
+            </SelectItem>
+          )}
           <SelectItem value={allItems}>All project items</SelectItem>
           {views.map((view) => (
             <SelectItem key={view.id} value={view.id}>
@@ -169,28 +183,9 @@ export function GitHubSavedViews({
           ))}
         </SelectContent>
       </Select>
-      <Hint label={busy ? 'Loading GitHub views…' : 'Refresh GitHub views'}>
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          aria-label="Refresh GitHub views"
-          disabled={busy}
-          onClick={() => setAttempt((value) => value + 1)}
-        >
-          <RefreshCw className={busy ? 'animate-spin' : undefined} />
-        </Button>
-      </Hint>
       <span className="sr-only" role="status">
-        {busy ? 'Loading GitHub view…' : ''}
+        {busy ? 'Loading GitHub view…' : error ? 'Could not load the GitHub views.' : ''}
       </span>
-      {error && (
-        <Hint label={`Could not load the GitHub views. ${error}`}>
-          <span className="tracker-saved-view-error" role="alert" tabIndex={0}>
-            <AlertCircle size={14} aria-hidden="true" />
-            <span className="sr-only">Could not load the GitHub views. {error}</span>
-          </span>
-        </Hint>
-      )}
     </div>
   );
 }

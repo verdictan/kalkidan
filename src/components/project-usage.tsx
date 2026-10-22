@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { RefreshCw } from 'lucide-react';
+import { BarChart3, MessageSquare } from 'lucide-react';
 import type { API, Session } from '../types';
 import {
   projectUsageLimits,
@@ -10,6 +10,7 @@ import {
 } from '../domain/project-usage';
 import { agentLabel } from '../config/agents';
 import { usageValuesNote } from '../domain/managed-history';
+import { managedErrorInfo } from '../domain/verdictan';
 import { errorMessage } from '../lib/errors';
 import { plural } from '../lib/platform';
 import { fullTime, relativeTime } from '../lib/relative-time';
@@ -18,7 +19,6 @@ import { AgentIcon } from './ui/agent-icon';
 import { Button } from './ui/button';
 import { EmptyState } from './ui/empty-state';
 import { SectionHeader } from './ui/page-header';
-import { Hint } from './hint';
 
 const count = (value: number) => value.toLocaleString('en-US');
 function tokenText(tokens: UsageTokens) {
@@ -31,6 +31,36 @@ const recentUsage = new Map<string, { at: number; usage: ProjectUsage }>();
 function cachedUsage(key: string) {
   const value = recentUsage.get(key);
   return value && Date.now() - value.at < recentUsageMs ? value.usage : undefined;
+}
+
+/** The new Settings section for each old section name. New names stay the same. */
+const settingsSections: Record<string, string> = {
+  'managed-agents': 'account',
+  accounts: 'account',
+  updates: 'about',
+  'remote-hosts': 'computers',
+};
+const signInCodes = ['desktop.auth_required', 'desktop.auth_expired', 'desktop.account_invalid'];
+
+/**
+ * What the user can do about a usage error: try again, sign in, open a Settings section, or
+ * nothing (for example in the browser preview, which has no history).
+ */
+export function usageErrorAction(
+  message: string,
+):
+  | { kind: 'retry' }
+  | { kind: 'sign-in' }
+  | { kind: 'settings'; section: string }
+  | { kind: 'none' } {
+  const code = /\[(desktop\.[a-z_]{1,100})\]/.exec(message)?.[1];
+  if (!code) return /desktop app/i.test(message) ? { kind: 'none' } : { kind: 'retry' };
+  if (signInCodes.includes(code)) return { kind: 'sign-in' };
+  const info = managedErrorInfo(code);
+  if (info.retry) return { kind: 'retry' };
+  if (info.section)
+    return { kind: 'settings', section: settingsSections[info.section] || info.section };
+  return { kind: 'none' };
 }
 
 const dayLabel = (date: string) =>
@@ -97,6 +127,17 @@ export function ProjectUsageInsights({
     // A new project or a new chat loads again.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [groupId, key, available]);
+  // When the window gets focus again, read the usage again. The backend keeps recent chats.
+  const loadRef = useRef(load);
+  loadRef.current = load;
+  useEffect(() => {
+    const focus = () => {
+      if (!document.hidden) void loadRef.current();
+    };
+    window.addEventListener('focus', focus);
+    return () => window.removeEventListener('focus', focus);
+  }, []);
+  const errorAction = error ? usageErrorAction(error) : undefined;
   const summary = useMemo(
     () => (usage ? summarizeProjectUsage(usage, Date.parse(usage.observedAt) || Date.now()) : null),
     [usage],
@@ -108,60 +149,72 @@ export function ProjectUsageInsights({
   const peak = Math.max(1, ...(summary?.days.map((day) => day.requests) || [1]));
   return (
     <section aria-labelledby="project-usage-title" className="grid gap-3" aria-busy={busy}>
-      <SectionHeader
-        title={<span id="project-usage-title">Managed-agent usage</span>}
-        actions={
-          available &&
-          chats.length > 0 && (
-            <Hint label="Load the usage again">
-              <Button
-                variant="ghost"
-                size="icon-sm"
-                aria-label="Load the usage again"
-                disabled={busy}
-                onClick={() => void load(true)}
-              >
-                <RefreshCw size={16} className={busy ? 'animate-spin' : undefined} />
-              </Button>
-            </Hint>
-          )
-        }
-      />
-      <p className="form-help m-0">
-        The requests that managed agents made in the chats of this project. The data comes from the
-        Verdictan history. {usageValuesNote}
+      <SectionHeader title={<span id="project-usage-title">Managed-agent usage</span>} />
+      <p className="form-help project-usage-intro">
+        Requests and costs of managed agents in this project.
       </p>
       {!available ? (
-        <EmptyState compact title="Usage history is not available">
-          This version of the desktop bridge cannot read the Verdictan history. Update Kalkidan.
+        <EmptyState compact icon={<BarChart3 />} title="Usage history is not available">
+          This version of Kalkidan cannot read the usage history. Update Kalkidan.
         </EmptyState>
       ) : !chats.length ? (
-        <EmptyState compact title="No chats yet">
+        <EmptyState
+          compact
+          icon={<MessageSquare />}
+          title="No chats yet"
+          action={
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() =>
+                window.dispatchEvent(
+                  new CustomEvent('kalkidan-new-session', { detail: { groupId } }),
+                )
+              }
+            >
+              New chat
+            </Button>
+          }
+        >
           Start a chat with a managed agent in this project. Its requests then show here.
         </EmptyState>
       ) : error ? (
         <EmptyState
           compact
+          icon={<BarChart3 />}
           title="Usage history is not available"
           action={
-            <div className="flex flex-wrap justify-center gap-2">
+            errorAction?.kind === 'retry' ? (
               <Button variant="outline" size="sm" disabled={busy} onClick={() => void load(true)}>
                 Try again
               </Button>
+            ) : errorAction?.kind === 'sign-in' ? (
               <Button
-                variant="ghost"
+                variant="outline"
+                size="sm"
+                onClick={() =>
+                  window.dispatchEvent(
+                    new CustomEvent('kalkidan-sign-in', { detail: { intent: 'login' } }),
+                  )
+                }
+              >
+                Sign in
+              </Button>
+            ) : errorAction?.kind === 'settings' ? (
+              <Button
+                variant="outline"
                 size="sm"
                 onClick={() =>
                   window.dispatchEvent(
                     new CustomEvent('kalkidan-open-settings', {
-                      detail: { section: 'managed-agents' },
+                      detail: { section: errorAction.section },
                     }),
                   )
                 }
               >
-                Open managed agent settings
+                Open Settings
               </Button>
-            </div>
+            ) : undefined
           }
         >
           {error}
@@ -169,7 +222,7 @@ export function ProjectUsageInsights({
       ) : !summary ? (
         <p className="form-help m-0">Loading the usage…</p>
       ) : summary.requests === 0 ? (
-        <EmptyState compact title="No managed-agent requests">
+        <EmptyState compact icon={<BarChart3 />} title="No managed-agent requests">
           {usage!.chats.length
             ? 'Verdictan has no requests for the chats of this project yet.'
             : 'The chats of this project do not use a managed agent with this account.'}
@@ -318,7 +371,15 @@ export function ProjectUsageInsights({
             </ul>
           )}
           <p className="form-help m-0">
-            Requests until {fullTime(usage!.observedAt)}. Load again to see later requests.
+            {usageValuesNote} Requests until {fullTime(usage!.observedAt)}.{' '}
+            <button
+              type="button"
+              className="text-link"
+              disabled={busy}
+              onClick={() => void load(true)}
+            >
+              {busy ? 'Loading…' : 'Load again'}
+            </button>
           </p>
         </>
       )}

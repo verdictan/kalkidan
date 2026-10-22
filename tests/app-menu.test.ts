@@ -23,6 +23,7 @@ const properNames = new Set([
   'Finder',
   'File',
   'Explorer',
+  'Verdictan…',
 ]);
 
 function labels(items: MenuItemConstructorOptions[]): string[] {
@@ -168,7 +169,15 @@ for (const mac of [true, false])
     const session = submenu(menu(mac), 'Chat');
     assert.equal(item(session, 'Terminal').registerAccelerator, false);
     assert.equal(item(session, 'Changes').registerAccelerator, false);
-    assert.equal(item(session, 'New chat').accelerator, 'CmdOrCtrl+Shift+N');
+    assert.equal(item(session, 'New chat').accelerator, 'CmdOrCtrl+N');
+    const file = submenu(menu(mac), 'File');
+    assert.equal(item(file, 'New project').accelerator, 'CmdOrCtrl+Shift+N');
+    // No other item, also one that the renderer handles, shows these keys.
+    const shown = all.map((entry) =>
+      String(entry.accelerator || '').replace('Shift+CmdOrCtrl', 'CmdOrCtrl+Shift'),
+    );
+    for (const key of ['CmdOrCtrl+N', 'CmdOrCtrl+Shift+N', 'CmdOrCtrl+6', 'CmdOrCtrl+Shift+K'])
+      assert.equal(shown.filter((value) => value === key).length, 1, key);
     // The renderer uses these keys. Menu items must not take them.
     const renderer = [
       'CmdOrCtrl+T',
@@ -184,7 +193,7 @@ for (const mac of [true, false])
     for (const key of renderer) assert.ok(!keys.includes(key), key);
     const go = submenu(menu(mac), 'Go');
     assert.deepEqual(
-      ['Overview', 'Tasks', 'Docs', 'Memory', 'Insights', 'All chats'].map(
+      ['Overview', 'Tasks', 'Chats', 'Docs', 'Memory', 'Insights', 'All chats'].map(
         (label) => item(go, label).accelerator,
       ),
       [
@@ -193,10 +202,15 @@ for (const mac of [true, false])
         'CmdOrCtrl+3',
         'CmdOrCtrl+4',
         'CmdOrCtrl+5',
+        'CmdOrCtrl+6',
         'CmdOrCtrl+Shift+L',
       ],
     );
-    assert.equal(item(submenu(menu(mac), 'File'), 'New task').accelerator, 'CmdOrCtrl+Shift+K');
+    assert.equal(item(file, 'New task').accelerator, 'CmdOrCtrl+Shift+K');
+    assert.equal(item(go, 'Chats').click !== undefined, true);
+    // Sign in shows once: in the app menu on macOS, in File elsewhere.
+    const where = mac ? submenu(menu(mac), 'Kalkidan') : file;
+    assert.ok(item(where, 'Sign in to Verdictan…'));
   });
 
 const openChat: ChatActionState = sessionActionState(
@@ -255,7 +269,7 @@ for (const mac of [true, false])
       'Notes…',
       '---',
       'Commit changes…',
-      'Open pull request',
+      'Create pull request…',
       'Duplicate chat › Continue here, Continue on a new branch…',
       `Show folder in ${mac ? 'Finder' : 'file manager'}`,
       '---',
@@ -302,7 +316,9 @@ test('the Chat menu follows the state of the open chat', () => {
   assert.equal(item(busy, 'Unpin').enabled, true);
   assert.equal(item(busy, 'Open linked task').enabled, true);
   assert.ok(!busy.some((entry) => entry.label === 'Link task…'));
-  assert.equal(item(busy, 'Open pull request').enabled, true);
+  // A chat with a pull request shows View pull request in place of Create pull request.
+  assert.equal(item(busy, 'View pull request').enabled, true);
+  assert.ok(!busy.some((entry) => entry.label === 'Create pull request…'));
   assert.equal(item(busy, 'Commit changes…').enabled, false);
   assert.equal(item(busy, 'Archive').enabled, false);
   // No changes to commit disables Commit changes.

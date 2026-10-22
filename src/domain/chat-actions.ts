@@ -13,6 +13,8 @@ export const chatActionGroups = [
   'work',
   'share',
   'developer',
+  // The "More" submenu of the chat row menu and the Chat actions menu. No action is in it.
+  'more',
   'archive',
 ] as const;
 export type ChatActionGroup = (typeof chatActionGroups)[number];
@@ -42,6 +44,8 @@ export interface ChatActionState {
   archived: boolean;
   linkedTask: boolean;
   pullRequest: boolean;
+  /** The number of the pull request of the chat, for "View pull request #N". */
+  pullRequestNumber?: number;
   /** The chat is on a remote computer. */
   remote: boolean;
   /** The app can show the managed agent usage history. */
@@ -52,6 +56,8 @@ export interface ChatActionState {
   project?: boolean;
   /** The code folder has no changes to commit. */
   noChanges?: boolean;
+  /** The code folder has no changes and no commits that a pull request can take. */
+  noBranchWork?: boolean;
 }
 
 export type ChatActionId =
@@ -64,6 +70,8 @@ export type ChatActionId =
   | 'open-linked-task'
   | 'notes'
   | 'commit'
+  | 'create-pull-request'
+  // "View pull request #N". The ID stays for the surfaces that open the pull request.
   | 'open-pull-request'
   | 'duplicate'
   | 'duplicate-here'
@@ -80,6 +88,7 @@ export type ChatActionId =
   | 'copy-path'
   | 'open-vscode'
   | 'open-cursor'
+  | 'more'
   | 'archive';
 
 export type ChatShortcutModifier = 'mod' | 'alt' | 'shift';
@@ -138,6 +147,7 @@ export const reasons = {
   noFolder: 'Kalkidan does not know the code folder of this chat.',
   noProject: 'Add this code folder to a project first.',
   noChanges: 'No changes to commit.',
+  noBranchWork: 'No changes or commits for a pull request.',
   noPullRequest: 'This chat has not opened a pull request.',
   remote: 'The folder is on a remote computer.',
 } as const;
@@ -259,12 +269,29 @@ export const chatActions: readonly ChatActionDefinition[] = [
     enabled: all(checks.repository, checks.idle, (state) => !!state.noChanges && reasons.noChanges),
   }),
   define({
-    id: 'open-pull-request',
-    label: 'Open pull request',
+    id: 'create-pull-request',
+    label: 'Create pull request…',
     group: 'work',
-    keywords: 'github pr review',
+    keywords: 'github pr push publish review',
+    command: 'session-create-pull-request',
+    // A chat has one pull request. With a pull request, View pull request shows.
+    visible: ({ state }) => !state.pullRequest,
+    enabled: all(
+      checks.repository,
+      checks.idle,
+      (state) => !!state.noBranchWork && reasons.noBranchWork,
+    ),
+  }),
+  define({
+    id: 'open-pull-request',
+    label: (state) =>
+      state.pullRequestNumber
+        ? `View pull request #${state.pullRequestNumber}`
+        : 'View pull request',
+    group: 'work',
+    keywords: 'github pr review open',
     command: 'open-pull-request',
-    enabled: (state) => state.pullRequest || reasons.noPullRequest,
+    visible: ({ state }) => state.pullRequest,
   }),
   define({
     id: 'duplicate',
@@ -410,6 +437,7 @@ export const chatCommands = [
   'open-linked-task',
   'session-notes',
   'session-commit',
+  'session-create-pull-request',
   'open-pull-request',
   'session-duplicate',
   'session-duplicate-branch',
@@ -505,14 +533,41 @@ function resolve(
   };
 }
 
-/** The actions that one surface shows for a chat, in groups and in menu order. */
+/**
+ * The actions that the chat row menu and the Chat actions menu show at the top level. The other
+ * actions go in the "More" submenu.
+ */
+export const topChatActions: readonly ChatActionId[] = [
+  'open',
+  'rename',
+  'pin',
+  'link-task',
+  'open-linked-task',
+  'commit',
+  'create-pull-request',
+  'open-pull-request',
+  'archive',
+];
+/** The "More" submenu. It has no command and runs nothing itself. */
+const moreAction: ChatActionDefinition = {
+  id: 'more',
+  label: 'More',
+  group: 'more',
+  run: () => {},
+};
+
+/**
+ * The actions that one surface shows for a chat, in groups and in menu order. The chat row menu
+ * and the Chat actions menu show the frequent actions and put the others in "More". The menu
+ * bar and the palette show all actions.
+ */
 export function chatActionMenu(
   surface: ChatActionSurface,
   state: ChatActionState,
   platform: ChatActionPlatform,
 ): ChatMenuGroup[] {
   const context = { surface, state };
-  return chatActionGroups
+  const groups = chatActionGroups
     .map((group) => ({
       group,
       items: chatActions
@@ -521,6 +576,32 @@ export function chatActionMenu(
         .filter((item): item is ChatMenuItem => !!item),
     }))
     .filter((entry) => entry.items.length > 0);
+  if (surface === 'menu-bar' || surface === 'palette') return groups;
+  const top = groups
+    .map((entry) => ({
+      group: entry.group,
+      items: entry.items.filter((item) => topChatActions.includes(item.id)),
+    }))
+    .filter((entry) => entry.items.length > 0);
+  // The other actions keep their order. A separator goes between two groups.
+  const rest = groups.flatMap((entry) =>
+    entry.items
+      .filter((item) => !topChatActions.includes(item.id))
+      .map((item, index) => ({ ...item, separator: index === 0 && entry !== groups[0] })),
+  );
+  if (!rest.length) return top;
+  rest[0] = { ...rest[0], separator: false };
+  const more: ChatMenuItem = {
+    id: 'more',
+    label: 'More',
+    group: 'more',
+    disabled: false,
+    children: rest,
+    definition: moreAction,
+  };
+  const archive = top.findIndex((entry) => entry.group === 'archive');
+  const at = archive < 0 ? top.length : archive;
+  return [...top.slice(0, at), { group: 'more', items: [more] }, ...top.slice(at)];
 }
 
 /** The menu items without submenus. Each submenu item takes the reason of its submenu. */
@@ -581,6 +662,9 @@ export function sessionActionState(
     archived: !!organization.archived,
     linkedTask: !!(organization.taskId || session.task?.id),
     pullRequest: !!organization.pullRequest?.url,
+    ...(organization.pullRequest?.number
+      ? { pullRequestNumber: organization.pullRequest.number }
+      : {}),
     remote: !!session.hostId,
     usageHistory: false,
     ...known,
@@ -598,7 +682,12 @@ const stateKeys: (keyof ChatActionState)[] = [
   'remote',
   'usageHistory',
 ];
-const optionalKeys: (keyof ChatActionState)[] = ['repository', 'project', 'noChanges'];
+const optionalKeys: (keyof ChatActionState)[] = [
+  'repository',
+  'project',
+  'noChanges',
+  'noBranchWork',
+];
 /** Reads a state from an untrusted value, such as an IPC message. Returns null when invalid. */
 export function parseChatActionState(value: unknown): ChatActionState | null {
   if (!value || typeof value !== 'object') return null;
@@ -609,5 +698,9 @@ export function parseChatActionState(value: unknown): ChatActionState | null {
     boolean
   >;
   for (const key of optionalKeys) if (typeof record[key] === 'boolean') state[key] = record[key];
-  return state as unknown as ChatActionState;
+  const number = record.pullRequestNumber;
+  const parsed = state as unknown as ChatActionState;
+  if (typeof number === 'number' && Number.isSafeInteger(number) && number > 0)
+    parsed.pullRequestNumber = number;
+  return parsed;
 }
