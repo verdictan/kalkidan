@@ -152,7 +152,9 @@ test('gateway uses only fd3 for credentials and checks live authority for every 
   assert.equal(JSON.stringify(f.launches).includes(credentials.runtime_credential), false);
   assert.deepEqual(f.launches[0][1], ['gateway', 'supervise']);
   // Kalkidan sets the disk limit of the durable event queue for each gateway.
-  assert.equal(f.launches[0][2].env.VERDICTAN_EVENT_WAL_MAX_BYTES, '268435456');
+  assert.equal(f.launches[0][2].env.VERDICTAN_EVENT_WAL_MAX_BYTES, '200000000');
+  assert.equal(f.launches[0][2].env.VERDICTAN_EVENT_WAL_FULL_POLICY, 'drop_oldest_non_usage');
+  assert.equal(f.launches[0][2].env.VERDICTAN_EVENT_WAL_MAX_AGE_SECONDS, '2592000');
   assert.equal(route.env.OPENAI_API_KEY, credentials.inference_credential);
   assert.match(route.args.join(' '), /request_max_retries=0,stream_max_retries=0/);
   assert.match(route.args.join(' '), /x-verdictan-desktop-agent-version/);

@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { RuntimeEvidence } from '../electron/verdictan/evidence';
 import { eventBufferEnvironment, eventBufferLimits } from '../electron/verdictan/event-buffer';
 import { managedErrors, managedRefusal } from '../src/domain/verdictan';
+import { eventBufferWarning } from '../src/domain/conversation';
 
 const scope = { schema_version: 1, runtime_id: 'runtime', session_id: 'session' };
 const page = (events: unknown[], extra = {}) => ({
@@ -43,9 +44,15 @@ test('the event buffer limits are defined, and the disk limit goes to each gatew
     expirySeconds: 900,
     eventsPerPage: 100,
     rowsPerConversation: 300,
-    diskBytes: 268435456,
+    diskBytes: 200_000_000,
+    diskExpirySeconds: 2_592_000,
+    fullPolicy: 'drop_oldest_non_usage',
   });
-  assert.deepEqual(eventBufferEnvironment(), { VERDICTAN_EVENT_WAL_MAX_BYTES: '268435456' });
+  assert.deepEqual(eventBufferEnvironment(), {
+    VERDICTAN_EVENT_WAL_MAX_BYTES: '200000000',
+    VERDICTAN_EVENT_WAL_FULL_POLICY: 'drop_oldest_non_usage',
+    VERDICTAN_EVENT_WAL_MAX_AGE_SECONDS: '2592000',
+  });
 });
 
 test('a full gateway buffer drops old events, and Kalkidan reconciles instead of guessing', async () => {
@@ -141,4 +148,57 @@ test('a full durable event queue stops launches with clear words and allows a la
   assert.match(refusal.message, /network connection of build-host/);
   assert.equal(refusal.retry, true);
   assert.equal(refusal.step, null);
+});
+
+test('removed policy records during the conversation show a warning, and earlier ones do not', async () => {
+  let buffer: unknown = {
+    policy: 'drop_oldest_non_usage',
+    limit_bytes: 200_000_000,
+    used_bytes: 190_000_000,
+    dropped_events: 40,
+    expired_events: 2,
+    last_dropped_at: '2026-10-20T00:00:00+00:00',
+  };
+  const feed = new RuntimeEvidence(
+    'runtime',
+    'session',
+    async (kind) => (kind === 'events' ? page([], { event_buffer: buffer }) : snapshot()),
+    () => {},
+  );
+  await feed.poll();
+  // The counts are for the whole queue. Removals before this conversation give no warning.
+  assert.equal(feed.status().bufferWarning, undefined);
+  buffer = { ...(buffer as object), dropped_events: 45 };
+  await feed.poll();
+  assert.deepEqual(feed.status().bufferWarning, { droppedEvents: 5, expiredEvents: 0 });
+  buffer = { ...(buffer as object), dropped_events: 45, expired_events: 3 };
+  await feed.poll();
+  assert.deepEqual(feed.status().bufferWarning, { droppedEvents: 5, expiredEvents: 1 });
+  // An older gateway sends no buffer state, and a malformed state is ignored.
+  for (const value of [undefined, null, 'full', [1], { dropped_events: -1, expired_events: 1.5 }]) {
+    const quiet = new RuntimeEvidence(
+      'runtime',
+      'session',
+      async (kind) => (kind === 'events' ? page([], { event_buffer: value }) : snapshot()),
+      () => {},
+    );
+    await quiet.poll();
+    await quiet.poll();
+    assert.equal(quiet.status().bufferWarning, undefined);
+  }
+});
+
+test('the warning names the count and the cause, and says that usage records stay', () => {
+  assert.equal(
+    eventBufferWarning({ droppedEvents: 5, expiredEvents: 0 }),
+    'Verdictan did not receive 5 policy records, because the event buffer was full. Usage records stay until Verdictan receives them. Check the network connection.',
+  );
+  assert.match(
+    eventBufferWarning({ droppedEvents: 0, expiredEvents: 1 }),
+    /1 policy record, because the records were older than 30 days/,
+  );
+  assert.match(
+    eventBufferWarning({ droppedEvents: 2, expiredEvents: 1 }),
+    /3 policy records, because the event buffer was full, and some records were older than 30 days/,
+  );
 });

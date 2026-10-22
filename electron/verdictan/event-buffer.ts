@@ -6,7 +6,8 @@
  *   usage, and audit state of each request. Verdictan sets its capacity and expiry. The poll
  *   reply states the expiry, and Kalkidan refuses a reply with a different value.
  * - The durable event queue on disk. It keeps policy, usage, and audit events until the Verdictan
- *   API accepts them. Kalkidan sets its disk limit for each gateway that it starts.
+ *   API accepts them. Kalkidan sets its disk limit, expiry, and behavior when full for each
+ *   gateway that it starts.
  */
 export const eventBufferLimits = {
   /** Events that the gateway keeps in memory for one session. Verdictan sets this value. */
@@ -19,15 +20,31 @@ export const eventBufferLimits = {
   eventsPerPage: 100,
   /** Request rows that Kalkidan keeps for one conversation. The oldest row goes first. */
   rowsPerConversation: 300,
+  /** Disk limit of the durable event queue of each gateway that Kalkidan starts: 200 MB. */
+  diskBytes: 200_000_000,
+  /** Seconds that a policy decision or trail event stays on disk without delivery: 30 days. */
+  diskExpirySeconds: 30 * 86400,
   /**
-   * Proposal: the disk limit of the durable event queue of a gateway that Kalkidan starts.
-   * Verdictan uses 1 GiB when no value is set. Events on disk do not expire. When the queue is
-   * full, the gateway refuses new requests until the API accepts the stored events.
+   * When the queue is nearly full, the gateway removes the oldest policy decision and trail
+   * events. Usage records stay until Verdictan receives them. Kalkidan shows a warning.
    */
-  diskBytes: 256 * 1024 * 1024,
+  fullPolicy: 'drop_oldest_non_usage',
 } as const;
 
-/** The environment that sets the disk limit of the durable event queue. */
+/** The environment that sets the limits of the durable event queue of a gateway. */
 export function eventBufferEnvironment() {
-  return { VERDICTAN_EVENT_WAL_MAX_BYTES: String(eventBufferLimits.diskBytes) };
+  return {
+    VERDICTAN_EVENT_WAL_MAX_BYTES: String(eventBufferLimits.diskBytes),
+    VERDICTAN_EVENT_WAL_FULL_POLICY: eventBufferLimits.fullPolicy,
+    VERDICTAN_EVENT_WAL_MAX_AGE_SECONDS: String(eventBufferLimits.diskExpirySeconds),
+  };
+}
+
+/** The removed-event counts of the durable event queue in an evidence poll reply. */
+export function parseEventBuffer(value: unknown): { dropped: number; expired: number } | undefined {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
+  const data = value as Record<string, unknown>;
+  const count = (field: unknown) =>
+    Number.isSafeInteger(field) && (field as number) >= 0 ? (field as number) : 0;
+  return { dropped: count(data.dropped_events), expired: count(data.expired_events) };
 }

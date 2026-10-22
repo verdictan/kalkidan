@@ -1,7 +1,7 @@
 import type { GovernanceEvidence } from '../../src/domain/conversation';
 import { DesktopProtocolError } from './protocol';
 import { isSubscriptionBilling } from '../../src/domain/verdictan';
-import { eventBufferLimits } from './event-buffer';
+import { eventBufferLimits, parseEventBuffer } from './event-buffer';
 const safe = (v: unknown): v is string =>
   typeof v === 'string' && /^[A-Za-z0-9][A-Za-z0-9._:/-]{0,255}$/.test(v);
 const measurement = (v: unknown) =>
@@ -23,6 +23,8 @@ export class RuntimeEvidence {
   private generation?: string;
   private sequence = 0n;
   private cursor?: string;
+  /** The removed-event counts of the first poll. A warning shows only for later removals. */
+  private bufferBaseline?: { dropped: number; expired: number };
   private operation?: Promise<void>;
   private timer?: ReturnType<typeof setTimeout>;
   private stopped = false;
@@ -164,6 +166,7 @@ export class RuntimeEvidence {
         data.events.length > eventBufferLimits.eventsPerPage
       )
         throw new DesktopProtocolError('desktop.events_invalid');
+      this.bufferWarning(data.event_buffer);
       const reset =
         !this.generation ||
         data.generation_id !== this.generation ||
@@ -217,6 +220,14 @@ export class RuntimeEvidence {
       seen.add(data.cursor);
     }
     throw new DesktopProtocolError('desktop.events_limit');
+  }
+  private bufferWarning(value: unknown) {
+    const counts = parseEventBuffer(value);
+    if (!counts) return;
+    this.bufferBaseline ??= counts;
+    const droppedEvents = Math.max(0, counts.dropped - this.bufferBaseline.dropped),
+      expiredEvents = Math.max(0, counts.expired - this.bufferBaseline.expired);
+    if (droppedEvents || expiredEvents) this.state.bufferWarning = { droppedEvents, expiredEvents };
   }
   start() {
     if (this.started || this.stopped) return;

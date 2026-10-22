@@ -18,21 +18,26 @@ The buffer has two parts:
 
 ## Limits
 
-| Limit                                                  | Value       | Owner     | Status                                                            |
-| ------------------------------------------------------ | ----------- | --------- | ----------------------------------------------------------------- |
-| Events in memory for each session                      | 256         | Verdictan | Current value                                                     |
-| Sessions in memory for each gateway                    | 128         | Verdictan | Current value                                                     |
-| Expiry of an event in memory                           | 900 seconds | Verdictan | Contract value. Kalkidan refuses a poll reply with another value. |
-| Events in one poll reply                               | 100         | Verdictan | Contract value                                                    |
-| Request rows that Kalkidan keeps for each conversation | 300         | Kalkidan  | Current value                                                     |
-| Disk limit of the durable event queue                  | 256 MiB     | Kalkidan  | **Proposal.** Verdictan uses 1 GiB when no value is set.          |
-| Expiry of an event on disk                             | None        | Verdictan | Audit and usage events stay until the API accepts them.           |
+| Limit                                                  | Value                            | Owner     | Status                                                              |
+| ------------------------------------------------------ | -------------------------------- | --------- | ------------------------------------------------------------------- |
+| Events in memory for each session                      | 256                              | Verdictan | Current value                                                       |
+| Sessions in memory for each gateway                    | 128                              | Verdictan | Current value                                                       |
+| Expiry of an event in memory                           | 900 seconds                      | Verdictan | Contract value. Kalkidan refuses a poll reply with another value.   |
+| Events in one poll reply                               | 100                              | Verdictan | Contract value                                                      |
+| Request rows that Kalkidan keeps for each conversation | 300                              | Kalkidan  | Current value                                                       |
+| Disk limit of the durable event queue                  | 200 MB (200,000,000 bytes)       | Kalkidan  | Product decision. Verdictan uses 1 GiB when no value is set.        |
+| Expiry of a policy decision or trail event on disk     | 30 days                          | Kalkidan  | Product decision. Usage records do not expire.                      |
+| Behavior when the disk queue is full                   | Drop the oldest non-usage events | Kalkidan  | Product decision. Usage records stay until Verdictan receives them. |
 
-Kalkidan sets the disk limit with `VERDICTAN_EVENT_WAL_MAX_BYTES` for each gateway that it starts.
-The limit applies on this computer and on each SSH host. Each request in progress reserves 2 MiB
-of the limit until its events are on disk, so 256 MiB allows at most 128 requests at the same
-time. This value is a product decision.
-Change `eventBufferLimits.diskBytes` and this table together.
+Kalkidan sets these values for each gateway that it starts, on this computer and on each SSH
+host:
+
+- `VERDICTAN_EVENT_WAL_MAX_BYTES=200000000`
+- `VERDICTAN_EVENT_WAL_FULL_POLICY=drop_oldest_non_usage`
+- `VERDICTAN_EVENT_WAL_MAX_AGE_SECONDS=2592000`
+
+Change `eventBufferLimits` and this table together. A Verdictan CLI of version 0.6.10 or earlier
+does not read the policy or the age. It keeps every event and refuses requests when full.
 
 ## Behavior when a part is full
 
@@ -43,23 +48,46 @@ authoritative snapshot from the Verdictan API. Kalkidan never guesses a missing 
 without data stays unknown. It never shows as allowed or as free usage. When a conversation has
 more than 300 rows, Kalkidan deletes the oldest row.
 
-**Durable event queue.** When the queue is full, the gateway refuses new requests with HTTP 503
-(`audit.wal_unavailable`). Its readiness reply has the code `desktop.event_buffer_full`
-(Verdictan CLI after 0.6.10). Kalkidan shows this message:
+**Durable event queue.** The gateway keeps one segment (16 MiB) and eight requests (16 MiB) of
+the 200 MB free. When the queue reaches that space, the gateway removes its oldest segment:
+
+1. It copies the usage records of the segment to the end of the queue. Usage records are
+   `spend`, `ua_complete`, `ai_usage`, and events of an unknown kind.
+2. It removes the policy `decision` and `trail` events of the segment without delivery.
+
+The oldest non-usage events go first. A policy decision or trail event that is older than 30 days
+when it reaches the head of the queue is also removed. A usage record is never removed before
+Verdictan receives it.
+
+The evidence poll reply reports the removed events in `event_buffer`. When the gateway removes
+events during a conversation, Kalkidan shows this warning under the managed run:
+
+> Verdictan did not receive _N_ policy records, because the event buffer was full. Usage records
+> stay until Verdictan receives them. Check the network connection.
+
+The counts are for the whole queue, which all sessions on the computer share. So Kalkidan warns
+only for removals after the first poll of the conversation.
+
+When the queue holds only usage records, the gateway cannot free space. It then refuses new
+requests with HTTP 503, and its readiness reply has the code `desktop.event_buffer_full`.
+Kalkidan shows this message:
 
 > The event buffer on _computer_ is full. New requests stop until Verdictan receives the stored
 > events. Check the network connection of _computer_, then try again.
 
-The gateway never deletes an undelivered audit or usage event to make space. Requests start
-again when the API accepts the stored events. A Verdictan CLI of version 0.6.10 or earlier reports
-a full queue as `desktop.readiness_blocked`.
+A crash while the gateway copies usage records can send a usage record two times. The Verdictan
+API accepts each event ID one time.
 
 ## Tests
 
 - `tests/event-buffer.test.ts`: the limits, a full evidence buffer, expiry, the row limit of a
-  conversation, and the message for a full queue.
+  conversation, the warning for removed events, and the message for a full queue.
 - `tests/verdictan-gateway.test.ts`: the disk limit goes to the gateway, and Kalkidan relays
   `desktop.event_buffer_full`.
+- Verdictan `cli/src/gateway/event-wal.test.ts`: the policy removes the oldest decision and
+  trail events, keeps each usage record one time, expires old non-usage events, and does not
+  rewrite a queue that holds only usage records.
+- Verdictan `cli/src/gateway/event-delivery.test.ts`: the delivery worker applies the policy.
 - Verdictan `cli/src/gateway/desktop-events.test.ts` and
-  `cli/src/kernel/runtime/gateway-router.test.ts`: eviction, gaps, expiry, and the readiness code
-  for a full queue.
+  `cli/src/kernel/runtime/gateway-router.test.ts`: eviction, gaps, expiry, `event_buffer` in the
+  poll reply, and the readiness code for a full queue.
