@@ -3929,6 +3929,10 @@ button.doc-task-chip[data-add] {
 .tree-row.selected .tree-row-overlay {
   --overlay-fill: color-mix(in oklch, var(--foreground) 9%, var(--navigation));
 }
+/* While the … button shows, the short labels at the row end ("Draft", #N) step aside for it. */
+.tree-row.session-row:is(:hover, :focus-within, .selected) :is(.tree-secondary, .tree-task-number) {
+  visibility: hidden;
+}
 
 .tree-no-match {
   padding: var(--space-2);

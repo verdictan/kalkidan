@@ -1974,7 +1974,8 @@ export function ProjectTrackerPanel({
           />
         ) : view === 'list' ? (
           !!items.length && (
-            <div className="tracker-list-view">
+            // The table frame must not clip the select boxes in the gutter. This view scrolls.
+            <div className="tracker-list-view [&>[data-slot=table-container]]:overflow-visible">
               <TrackerList
                 board={board}
                 items={sortedItems}

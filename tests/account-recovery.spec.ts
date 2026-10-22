@@ -36,18 +36,26 @@ async function signedOut(page: import('@playwright/test').Page) {
   await page.goto('/');
 }
 
-test('the Welcome screen offers a new verification email and account recovery', async ({
+test('the Welcome screen offers a new verification email and account recovery after a failure', async ({
   page,
 }) => {
   await signedOut(page);
   await expect(page.getByRole('heading', { name: 'Welcome to Kalkidan' })).toBeVisible();
-  const help = page.getByRole('group', { name: 'Account help' });
-  await expect(help).toContainText('Did not get the verification email?');
-  await help.getByRole('button', { name: 'Send it again' }).click();
+  // The account help shows only after a sign-in fails.
+  const trouble = page.getByRole('button', { name: 'Trouble signing in?' });
+  await expect(
+    page.getByRole('button', { name: 'Sign in with Verdictan', exact: true }),
+  ).toBeVisible();
+  await expect(trouble).toHaveCount(0);
+  await page.getByRole('button', { name: 'Sign in with Verdictan', exact: true }).click();
+  await expect(page.getByRole('alert')).toHaveText('The sign-in did not finish');
+  await trouble.click();
+  await page.getByRole('menuitem', { name: 'Send the verification email again' }).click();
   await expect(
     page.getByRole('status').getByText('Kalkidan opened your browser. Continue there.'),
   ).toBeVisible();
-  await help.getByRole('button', { name: 'Recover your account' }).click();
+  await trouble.click();
+  await page.getByRole('menuitem', { name: 'Recover your account' }).click();
   // Kalkidan sends only the page name. The main process opens the fixed console path.
   await expect
     .poll(() => page.evaluate(() => (window as any).opened))
@@ -60,7 +68,7 @@ test('an expired sign-in link starts again and keeps the account help', async ({
   // The title is an alert, so a screen reader reads it at once.
   await expect(page.getByRole('alert')).toHaveText('The sign-in did not finish');
   await expect(page.getByText(/The sign-in link expired after 5 minutes/)).toBeVisible();
-  await expect(page.getByRole('group', { name: 'Account help' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Trouble signing in?' })).toBeVisible();
   await page.getByRole('button', { name: 'Start again', exact: true }).click();
   await expect.poll(() => page.evaluate(() => (window as any).authorizations)).toBe(2);
 });

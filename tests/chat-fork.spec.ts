@@ -144,8 +144,15 @@ test('a chat forks to another coding agent on an SSH host with its full history'
   await row.click({ button: 'right' });
   await page.getByRole('menuitem', { name: 'Fork chat…', exact: true }).click();
 
-  // The defaults are the coding agent and the computer of the chat.
+  // The fork goes to this folder first. "Another agent or computer" shows the agent and the
+  // computer. The defaults are the coding agent and the computer of the chat.
   const fork = dialog(page);
+  const destination = fork.getByRole('group', { name: 'Fork to', exact: true });
+  await expect(
+    destination.getByRole('button', { name: 'This folder', exact: true }),
+  ).toHaveAttribute('aria-pressed', 'true');
+  await expect(fork.getByRole('combobox', { name: 'Coding agent' })).toHaveCount(0);
+  await destination.getByRole('button', { name: 'Another agent or computer', exact: true }).click();
   await expect(fork.getByRole('combobox', { name: 'Coding agent' })).toHaveText(
     'Codex (this chat)',
   );

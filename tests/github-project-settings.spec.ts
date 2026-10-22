@@ -78,19 +78,26 @@ test('Board settings opens Project settings › Board and links to the GitHub pr
     'true',
   );
   await expect(dialog.getByRole('tab')).toHaveText(['General', 'Code folders', 'Board']);
-  await expect(dialog.getByRole('region', { name: 'Connected board' })).toContainText('Roadmap');
+  await expect(dialog.getByRole('list', { name: 'Connected board' })).toContainText('Roadmap');
   // Kalkidan does not edit the GitHub project. Its settings open on GitHub.
-  const github = dialog.getByRole('region', { name: 'On GitHub' });
-  await expect(github.getByRole('link', { name: 'Fields' })).toHaveAttribute(
+  await dialog.getByRole('button', { name: 'Open on GitHub', exact: true }).click();
+  const github = page.getByRole('menu');
+  await expect(github.getByRole('menuitem', { name: /^Fields/ })).toHaveAttribute(
     'href',
     'https://github.com/orgs/example/projects/1/settings',
   );
-  await expect(github.getByRole('link', { name: 'Workflows' })).toHaveAttribute(
+  await expect(github.getByRole('menuitem', { name: /^Workflows/ })).toHaveAttribute(
     'href',
     'https://github.com/orgs/example/projects/1/workflows',
   );
-  await expect(github.getByRole('link', { name: 'Views' })).toBeVisible();
-  await expect(github.getByRole('link', { name: 'Status updates' })).toBeVisible();
+  await expect(github.getByRole('menuitem', { name: /^Board/ })).toHaveAttribute(
+    'href',
+    'https://github.com/orgs/example/projects/1',
+  );
+  await expect(github.getByRole('menuitem', { name: /^Views/ })).toBeVisible();
+  await expect(github.getByRole('menuitem', { name: /^Status updates/ })).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(github).toHaveCount(0);
   await expect(dialog.getByLabel('Title', { exact: true })).toHaveCount(0);
   await expect(dialog.getByRole('switch')).toHaveCount(0);
   expect(await page.evaluate(() => (window as any).writes)).toBeUndefined();

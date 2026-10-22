@@ -137,9 +137,9 @@ test('browser menu exposes working find, device, history, settings, and data con
   await expect(page.getByRole('dialog')).toContainText('Example page');
   await page.keyboard.press('Escape');
   await menu();
-  await page.getByRole('menuitem', { name: 'Browser settings' }).click();
-  const browserSettings = page.getByRole('dialog', { name: 'Browser settings', exact: true });
-  await browserSettings.getByLabel('Home page').fill('https://example.com/');
+  await page.getByRole('menuitem', { name: 'Built-in browser data…', exact: true }).click();
+  const browserSettings = page.getByRole('dialog', { name: 'Built-in browser data', exact: true });
+  await browserSettings.getByRole('textbox', { name: 'Home page' }).fill('https://example.com/');
   await browserSettings.getByRole('button', { name: 'Save', exact: true }).click();
   await expect(browserSettings.getByRole('status')).toContainText('Home page saved');
   await expect

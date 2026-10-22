@@ -326,22 +326,25 @@ test('iteration proposal excludes blockers and writes only after review', async 
 test('explicit Docs selection previews source text and relationships before issue publication', async ({
   page,
 }) => {
-  await page.getByRole('button', { name: 'Plan', exact: true }).click();
-  await page.getByRole('menuitem', { name: 'Create tasks from a doc…', exact: true }).click();
-  const dialog = page.getByRole('dialog', { name: 'Create tasks from a doc page' });
-  await dialog.getByRole('button', { name: 'Choose a page', exact: true }).click();
-  await page.getByRole('option', { name: 'Launch guide', exact: true }).click();
+  await page.getByRole('button', { name: 'More ways to add a task', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Make tasks from a page…', exact: true }).click();
+  // The page choice opens first.
+  const picker = page.getByRole('dialog', { name: 'Choose a page for the tasks', exact: true });
+  await picker.getByRole('option', { name: 'Launch guide', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'Make tasks from a page', exact: true });
   const repository = dialog.getByRole('combobox', { name: 'GitHub repository' });
   if ((await repository.textContent())?.includes('org/repo') !== true)
     await choose(page, 'GitHub repository', 'org/repo');
   await expect(repository).toContainText('org/repo');
-  const second = dialog.getByRole('group', { name: 'Task 2', exact: true });
-  await second.getByRole('combobox', { name: 'Parent task', exact: true }).click();
+  // "More" shows the description, the parent and the blockers of a task.
+  await dialog.getByRole('button', { name: 'More for task 2', exact: true }).click();
+  await expect(dialog.getByRole('textbox', { name: 'Task 2 description' })).toHaveValue(
+    /Acceptance criteria B\./,
+  );
+  await dialog.getByRole('combobox', { name: 'Parent task', exact: true }).click();
   await page.getByRole('option', { name: '1. Implement service', exact: true }).click();
-  await second.getByRole('checkbox', { name: '1. Implement service', exact: true }).check();
-  await dialog.getByRole('button', { name: 'Review 2 tasks' }).click();
-  await expect(dialog).toContainText('Acceptance criteria B.');
-  // The Review step is the check. Nothing is written before Create.
+  await dialog.getByRole('checkbox', { name: '1. Implement service', exact: true }).check();
+  // Nothing is written before Create.
   await expect(
     dialog.getByRole('checkbox', {
       name: 'I checked the descriptions, the repository and the links',
@@ -384,13 +387,14 @@ test('readiness retains missing evidence and shows Jenkins sources without chang
   expect(await page.evaluate(() => (window as any).planningWrites)).toEqual([]);
 });
 test('portfolio preserves source projects and filters personal assignments', async ({ page }) => {
-  // The tasks of all projects are in the Waiting for you view of the Projects page.
-  await openProjects(page);
+  // The tasks of all projects are on the Waiting for you page of the sidebar.
   await page
-    .getByRole('group', { name: 'Projects view' })
-    .getByRole('button', { name: 'Waiting for you', exact: true })
+    .getByRole('navigation', { name: 'Projects and repositories' })
+    .getByRole('button', { name: /^Waiting for you/ })
     .click();
-  const work = page.getByRole('region', { name: 'My work' });
+  const work = page
+    .getByRole('region', { name: 'Waiting for you', exact: true })
+    .getByRole('region', { name: 'My work' });
   const whose = work.getByRole('group', { name: 'Whose tasks' });
   await whose.getByRole('button', { name: 'Everyone', exact: true }).click();
   await expect(work.getByRole('button', { name: 'Other project task' })).toBeVisible();
@@ -406,7 +410,8 @@ test('project reviews require an explicit reason and confirmation before the bro
 }) => {
   // The managed agent services are in Knowledge › Insights › Agent knowledge.
   await openInsights(page, 'Agent knowledge');
-  await page.getByRole('button', { name: 'Check project services' }).click();
+  // The services are checked when the view opens.
+  await expect(page.getByRole('button', { name: 'Check again' })).toBeVisible();
   await choose(page, 'Project service view', 'Reviews and approvals');
   await page.getByRole('button', { name: 'Load current data' }).click();
   await expect(page.getByRole('button', { name: 'Approve', exact: true })).toBeDisabled();
@@ -466,7 +471,8 @@ test('task history from Verdictan shows each request without IDs and restarts to
 }) => {
   // The managed agent services are in Knowledge › Insights › Agent knowledge.
   await openInsights(page, 'Agent knowledge');
-  await page.getByRole('button', { name: 'Check project services' }).click();
+  // The services are checked when the view opens.
+  await expect(page.getByRole('button', { name: 'Check again' })).toBeVisible();
   await choose(page, 'Project service task', 'Independent issue');
   const services = page
     .getByRole('region', { name: 'Agent knowledge', exact: true })

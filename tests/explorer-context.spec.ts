@@ -14,20 +14,18 @@ test('explorer context menus rename the clicked item and confirm non-destructive
     'New task',
     'New page',
     'Add code folder…',
-    'Clone from GitHub…',
     'Rename…',
     'Color',
     'Project settings…',
   ]);
   await page.getByRole('menuitem', { name: 'Rename…' }).click();
-  // Rename opens Project settings with the name field focused. The name saves on Enter.
-  const name = page.getByRole('textbox', { name: 'Project name', exact: true });
+  // Rename opens the "Rename project" dialog with the name field focused. Enter renames.
+  const rename = page.getByRole('dialog', { name: 'Rename project', exact: true });
+  const name = rename.getByRole('textbox', { name: 'Project name', exact: true });
   await expect(name).toBeFocused();
   await name.fill('Renamed project');
   await name.press('Enter');
-  const settings = page.getByRole('dialog', { name: 'Project settings' });
-  await expect(settings.getByRole('status')).toHaveText('Saved');
-  await settings.getByRole('button', { name: 'Close', exact: true }).click();
+  await expect(rename).toHaveCount(0);
   await expect(tree.getByRole('button', { name: 'Renamed project', exact: true })).toBeVisible();
   // Code folders open from the project overview. Their page has the code folder actions.
   await openCodeFolder(page, 'design-system');
@@ -38,14 +36,14 @@ test('explorer context menus rename the clicked item and confirm non-destructive
   await expect(page.getByRole('heading', { name: 'Components', exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Repository actions', exact: true }).click();
   await page.getByRole('menuitem', { name: 'Edit code folder…' }).click();
-  await page.getByRole('button', { name: 'Remove from Kalkidan…', exact: true }).click();
+  await page.getByRole('button', { name: 'Remove code folder…', exact: true }).click();
   await expect(page.getByRole('dialog')).toContainText('stay on disk');
   await page.getByRole('button', { name: 'Cancel', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Components', exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Repository actions', exact: true }).click();
   await page.getByRole('menuitem', { name: 'Edit code folder…' }).click();
-  await page.getByRole('button', { name: 'Remove from Kalkidan…', exact: true }).click();
-  await page.getByRole('button', { name: 'Remove from Kalkidan', exact: true }).click();
+  await page.getByRole('button', { name: 'Remove code folder…', exact: true }).click();
+  await page.getByRole('button', { name: 'Remove code folder', exact: true }).click();
   await tree.getByRole('button', { name: 'Renamed project', exact: true }).click();
   const folders = page.getByRole('region', { name: 'Code folders' });
   await expect(folders.getByText('atlas-web', { exact: true })).toBeVisible();
@@ -67,8 +65,8 @@ test('session right-click actions rename, pin and archive without opening a conv
   });
   await pinned.click({ button: 'right' });
   await page.getByRole('menuitem', { name: 'Rename…' }).click();
-  await page.getByRole('textbox', { name: 'Session name', exact: true }).fill('Navigation polish');
-  await page.getByRole('button', { name: 'Save name' }).click();
+  await page.getByRole('textbox', { name: 'Chat name', exact: true }).fill('Navigation polish');
+  await page.getByRole('button', { name: 'Rename', exact: true }).click();
   const session = tree.getByRole('button', { name: 'Resume pinned Navigation polish' });
   await expect(session).toBeVisible();
   await expect(page.getByRole('region', { name: 'Chat', exact: true })).toHaveCount(0);

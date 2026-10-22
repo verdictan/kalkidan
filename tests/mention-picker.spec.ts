@@ -87,14 +87,16 @@ test('"@" opens the picker with each section and its empty states', async ({ pag
   await expect(section(page, 'Tasks')).toContainText('Connect a board to mention tasks');
   await expect(section(page, 'Chats').getByRole('option')).toHaveText(/Fix login/);
   await expect(section(page, 'Memory').getByRole('option')).toHaveText(/Test conventions/);
-  // Typing filters every section.
+  // Typing filters every section. A section without matches does not show.
   await composer.pressSequentially('auth');
   await expect(section(page, 'Search')).toHaveCount(0);
   await expect(section(page, 'Files').getByRole('option').first()).toContainText('auth.ts');
   await expect(section(page, 'Docs').getByRole('option')).toHaveText('Auth flow');
-  await expect(section(page, 'Chats')).toContainText('No chats match');
+  await expect(section(page, 'Chats')).toHaveCount(0);
+  // With no match in any section, the picker says so.
   await composer.pressSequentially('zzz');
-  await expect(section(page, 'Files')).toContainText('No files match');
+  await expect(picker(page).getByRole('group')).toHaveCount(0);
+  await expect(picker(page)).toContainText('No matches');
   // Escape closes the picker. A new "@" opens it again.
   await page.keyboard.press('Escape');
   await expect(picker(page)).toHaveCount(0);
@@ -116,7 +118,10 @@ test('the keyboard and the mouse insert mentions, and the sent message shows chi
   await page.keyboard.press('Enter');
   await expect(picker(page)).toHaveCount(0);
   await expect(composer).toHaveValue('Review @[auth.ts](file:src/auth.ts) ');
-  await expect(page.getByLabel('Mentions', { exact: true })).toContainText('auth.ts');
+  // The draft shows the mention above the text box, with a remove button.
+  const attached = page.getByLabel('Attached context', { exact: true });
+  await expect(attached).toContainText('auth.ts');
+  await expect(attached.getByRole('button', { name: 'Remove auth.ts', exact: true })).toBeVisible();
   // Tasks show when a board is connected. A click inserts the task.
   await composer.pressSequentially('and @ship');
   await expect(section(page, 'Tasks').getByRole('option')).toHaveText(/#7 Ship login/);

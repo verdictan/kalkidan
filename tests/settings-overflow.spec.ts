@@ -47,9 +47,9 @@ test('Preferences and Computers have no horizontal overflow and long paths trunc
   await expect(computers.getByRole('group', { name: 'Codex', exact: true })).toBeVisible();
   await page.waitForTimeout(300);
   expect(await overflowOf(computers), 'Computers').toEqual({ scroll: 0, wide: [] });
-  // "Choose…" opens the programs of this computer with the program paths.
-  await computers.getByRole('button', { name: 'Choose the Codex program' }).click();
-  const programs = page.getByRole('dialog', { name: 'Coding agent programs on this computer' });
+  // "Locate…" opens the Codex program of this computer with its path.
+  await computers.getByRole('button', { name: 'Locate the Codex program' }).click();
+  const programs = page.getByRole('dialog', { name: 'Codex on this computer' });
   const shown = programs.getByLabel(longPath, { exact: true });
   await expect(shown).toBeVisible();
   // The end of the path (the program name) stays visible.
@@ -58,13 +58,19 @@ test('Preferences and Computers have no horizontal overflow and long paths trunc
     scroll: 0,
     wide: [],
   });
-  await programs.getByRole('button', { name: 'Done', exact: true }).click();
+  await page.keyboard.press('Escape');
   await expect(programs).toHaveCount(0);
 
+  // Each section of Preferences fits in the dialog.
   const preferences = await openPreferences(page);
-  expect(await overflowOf(page.locator('.preferences-body')), 'Preferences').toEqual({
-    scroll: 0,
-    wide: [],
-  });
-  expect(await overflowOf(preferences), 'Preferences dialog').toEqual({ scroll: 0, wide: [] });
+  for (const section of ['Chats', 'Connections', 'This app']) {
+    await preferences.getByRole('tab', { name: section, exact: true }).click();
+    const panel = preferences.getByRole('tabpanel', { name: section, exact: true });
+    await expect(panel).toBeVisible();
+    expect(await overflowOf(panel), `Preferences › ${section}`).toEqual({ scroll: 0, wide: [] });
+    expect(await overflowOf(preferences), `Preferences dialog › ${section}`).toEqual({
+      scroll: 0,
+      wide: [],
+    });
+  }
 });

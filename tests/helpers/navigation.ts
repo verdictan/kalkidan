@@ -13,8 +13,12 @@ export async function openCodeFolder(page: Page, name?: string) {
   const count = await projects.count();
   for (let index = 0; index < count; index++) {
     await projects.nth(index).click();
-    const rows = page.locator('.project-home-section .folder-row');
-    const row = name ? rows.filter({ hasText: new RegExp(`^${escape(name)}$`) }) : rows;
+    const rows = page.locator('.project-home-section .list-row-main');
+    const row = name
+      ? rows.filter({
+          has: page.locator('.list-row-title', { hasText: new RegExp(`^${escape(name)}$`) }),
+        })
+      : rows;
     try {
       await row.first().waitFor({ timeout: count > 1 ? 3000 : 10000 });
     } catch {

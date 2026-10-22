@@ -62,19 +62,30 @@ test('the Computers page shows each version and whether it meets the minimum', a
   await expect(settings.getByRole('group', { name: 'Codex', exact: true })).not.toContainText(
     'Needs update',
   );
-  // Choose… opens the agent programs of this computer, with each version and the minimum.
-  await claudeRow
-    .getByRole('button', { name: 'Choose the Claude Code program', exact: true })
+  // Locate… on the Codex row opens the Codex program of this computer, with the minimum.
+  await settings
+    .getByRole('group', { name: 'Codex', exact: true })
+    .getByRole('button', { name: 'Locate the Codex program', exact: true })
     .click();
-  const programs = page.getByRole('dialog', { name: 'Coding agent programs on this computer' });
-  await expect(programs).toContainText('Kalkidan needs Codex 0.160.0 or later');
-  await expect(programs).toContainText('Claude Code 2.1.300 or later');
-  const agents = programs.getByRole('list', { name: 'Coding agents on this computer' });
-  const codex = agents.getByRole('listitem', { name: 'Codex on this computer' });
+  const codexProgram = page.getByRole('dialog', { name: 'Codex on this computer', exact: true });
+  await expect(codexProgram).toContainText('Kalkidan needs Codex 0.160.0 or later');
+  const codex = codexProgram
+    .getByRole('list', { name: 'Coding agents on this computer' })
+    .getByRole('listitem', { name: 'Codex on this computer' });
   await expect(codex).toContainText('Meets the minimum');
-  await expect(agents.getByTestId('agent-version-codex')).toContainText(
+  await expect(codexProgram.getByTestId('agent-version-codex')).toContainText(
     'Version 0.163.0-alpha.10.2',
   );
+  await page.keyboard.press('Escape');
+  await expect(codexProgram).toHaveCount(0);
+  // Locate… on the Claude Code row opens the Claude Code program, with each version.
+  await claudeRow
+    .getByRole('button', { name: 'Locate the Claude Code program', exact: true })
+    .click();
+  const programs = page.getByRole('dialog', { name: 'Claude Code on this computer', exact: true });
+  await expect(programs).toContainText('Kalkidan needs Claude Code 2.1.300 or later');
+  const agents = programs.getByRole('list', { name: 'Coding agents on this computer' });
+  await expect(agents.getByRole('listitem')).toHaveCount(1);
   const claude = agents.getByRole('listitem', { name: 'Claude Code on this computer' });
   await expect(claude).toContainText('Update required: needs 2.1.300 or later');
   await expect(agents.getByTestId('agent-version-claude')).toContainText('Version 2.1.296');
@@ -95,7 +106,10 @@ test('a Claude Code version below the minimum refuses the send and links to the 
   const composer = page.getByLabel('Message agent');
   await composer.fill('Reply OK.');
   await composer.press('Enter');
-  const message = page.locator('.chat-message.user');
+  // The send failure is a card after the message.
+  const message = page.locator('.chat-card').filter({
+    has: page.getByRole('heading', { name: 'Claude Code could not start', exact: true }),
+  });
   await expect(message).toContainText(
     'Kalkidan needs Claude Code 2.1.300 or later. Update Claude Code, then try again.',
   );

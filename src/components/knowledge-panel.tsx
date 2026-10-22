@@ -143,8 +143,9 @@ export function KnowledgePanel({
   }, [sessions, reposProp, loadedRepos, group.repoIds]);
   const { facts } = useMemoryFacts(api, group);
   const topics = useMemo(() => factTopics(facts), [facts]);
+  // An API without doc pages (an older bridge) shows no pages instead of an error.
   const metadata = useProjectResource(api, group, 'docs-metadata', () =>
-    api.docsMetadata(group.id),
+    typeof api.docsMetadata === 'function' ? api.docsMetadata(group.id) : Promise.resolve([]),
   );
   const pages = metadata.state.value || [];
   const checks = useUncertainWrites(api, group.id);

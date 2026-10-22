@@ -12,7 +12,7 @@ test('repository overview omits tasks while the project Board page retains them'
     .click();
   await page
     .getByRole('region', { name: 'Project tracker' })
-    .getByRole('button', { name: 'Connect a board', exact: true })
+    .getByRole('button', { name: 'Connect board', exact: true })
     .click();
   await page.getByRole('button', { name: 'Atlas roadmap #1', exact: true }).click();
   await page.getByRole('button', { name: 'Connect board', exact: true }).click();

@@ -141,10 +141,14 @@ test('a refusal shows the reason, policy version and request ID, and offers no r
     policyVersion: 'cfgv_7',
     region: 'eu',
   });
-  await expect(card).toContainText('The policy refused this request');
+  await expect(card).toContainText('Request refused by policy');
   await expect(card).toContainText('Customer data is not allowed.');
-  await expect(card).toContainText('cfgv_7');
-  await expect(card).toContainText(requestId);
+  // The reason code, policy version and request ID are in the "Details" fold.
+  await expect(card.getByText('cfgv_7')).toBeHidden();
+  await card.getByText('Details', { exact: true }).click();
+  await expect(card.getByText('pii', { exact: true })).toBeVisible();
+  await expect(card.getByText('cfgv_7')).toBeVisible();
+  await expect(card.getByText(requestId)).toBeVisible();
   await expect(card.getByRole('button', { name: 'Send again' })).toHaveCount(0);
   await expect(card.getByRole('button', { name: 'Open review in Console' })).toHaveCount(0);
   expect((await calls(page)).inspects).toBe(0);
@@ -158,7 +162,7 @@ test('a user without review permission sees no review status, link or actions', 
     { decision: 'escalated', retry: 'after_review', requestId, region: 'eu' },
     'desktop.review_forbidden',
   );
-  await expect(card).toContainText('This request needs a review');
+  await expect(card).toContainText('Request needs a review');
   await expect(card).toContainText(requestId);
   await expect.poll(async () => (await calls(page)).inspects).toBeGreaterThan(0);
   await expect(card).not.toContainText('Review status');

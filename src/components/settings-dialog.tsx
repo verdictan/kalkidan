@@ -43,10 +43,15 @@ const preferenceSections: SettingsSection<PreferencesSection>[] = [
   { value: 'app', label: 'This app', icon: <AppWindow /> },
 ];
 
-/** The section of a Preferences anchor. */
-function sectionOfAnchor(anchor: string | undefined): PreferencesSection {
+/**
+ * The section of a Preferences anchor. Without an anchor, the older Account section opens
+ * Connections, and the older About section opens This app.
+ */
+function sectionOfAnchor(anchor: string | undefined, section?: string): PreferencesSection {
   if (anchor === settingsAnchors.region || anchor === settingsAnchors.github) return 'connections';
   if (anchor === settingsAnchors.data || anchor === settingsAnchors.about) return 'app';
+  if (!anchor && (section === 'account' || section === 'accounts')) return 'connections';
+  if (!anchor && section === 'about') return 'app';
   return 'chats';
 }
 
@@ -96,10 +101,10 @@ export function SettingsDialog({
     onOpenChange(false);
   }, [open, elsewhere]);
   const focusId = target.place === 'preferences' ? target.anchor : undefined;
-  const [active, setActive] = useState<PreferencesSection>(sectionOfAnchor(focusId));
+  const [active, setActive] = useState<PreferencesSection>(sectionOfAnchor(focusId, section));
   useEffect(() => {
-    if (open) setActive(sectionOfAnchor(focusId));
-  }, [open, focusId]);
+    if (open) setActive(sectionOfAnchor(focusId, section));
+  }, [open, focusId, section]);
   // An anchor moves to its row after the rows load.
   useEffect(() => {
     if (!open || elsewhere || !focusId) return;

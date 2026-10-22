@@ -104,13 +104,20 @@ async function openHostPrograms(page: Page, settings: Locator, host: string) {
   return page.getByRole('dialog', { name: `Coding agent programs on ${host}`, exact: true });
 }
 
+/** Closes a dialog with Escape. The dialogs have no Done button. */
+async function closeDialog(page: Page, dialog: Locator) {
+  await page.keyboard.press('Escape');
+  await expect(dialog).toHaveCount(0);
+}
+
 test('the Computers page shows the agent programs of each computer', async ({ page }) => {
   const settings = await installWorkspace(page);
-  // "Choose…" in the agent row shows the program of each agent on this computer.
+  // "Locate…" in the agent row shows the program of that agent on this computer.
   const localRow = settings.getByRole('group', { name: 'Claude Code', exact: true });
-  await localRow.getByRole('button', { name: 'Choose the Claude Code program' }).click();
+  await localRow.getByRole('button', { name: 'Locate the Claude Code program' }).click();
   const localPrograms = page.getByRole('dialog', {
-    name: 'Coding agent programs on this computer',
+    name: 'Claude Code on this computer',
+    exact: true,
   });
   const local = localPrograms.getByRole('list', { name: 'Coding agents on this computer' });
   const localClaude = local.getByRole('listitem', { name: 'Claude Code on this computer' });
@@ -119,7 +126,7 @@ test('the Computers page shows the agent programs of each computer', async ({ pa
     localClaude.getByLabel('/Users/me/.local/bin/claude', { exact: true }),
   ).toBeVisible();
   await expect(localClaude).toContainText('Version 2.1.306 · Found automatically');
-  await localPrograms.getByRole('button', { name: 'Done', exact: true }).click();
+  await closeDialog(page, localPrograms);
 
   // The connected host shows the program that it uses, the version, and the other programs.
   const devbox = await openHostPrograms(page, settings, 'devbox');
@@ -137,7 +144,7 @@ test('the Computers page shows the agent programs of each computer', async ({ pa
   await expect(devbox.getByRole('listitem', { name: 'Codex on devbox' })).toContainText(
     'Not found',
   );
-  await devbox.getByRole('button', { name: 'Done', exact: true }).click();
+  await closeDialog(page, devbox);
 
   // A host that is not connected shows the last result and when Kalkidan checked it.
   const buildbox = await openHostPrograms(page, settings, 'buildbox');
@@ -147,7 +154,7 @@ test('the Computers page shows the agent programs of each computer', async ({ pa
     'Meets the minimum',
   );
   await expect(buildbox.getByRole('button', { name: 'Choose program…' })).toHaveCount(0);
-  await buildbox.getByRole('button', { name: 'Done', exact: true }).click();
+  await closeDialog(page, buildbox);
 
   // A host without a result asks the user to connect it.
   const newbox = await openHostPrograms(page, settings, 'newbox');
@@ -233,7 +240,10 @@ test('a version refusal opens the Computers page at the row of that agent', asyn
   const composer = page.getByLabel('Message agent');
   await composer.fill('Reply OK.');
   await composer.press('Enter');
-  const card = page.locator('.chat-message.user .chat-send-failure');
+  // The send failure is a card after the message.
+  const card = page.locator('.chat-card').filter({
+    has: page.getByRole('heading', { name: 'Claude Code could not start', exact: true }),
+  });
   await expect(card).toContainText(
     'This computer has Claude Code 2.1.287 at /opt/homebrew/bin/claude.',
   );

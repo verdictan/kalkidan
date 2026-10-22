@@ -82,9 +82,10 @@ test('Commit is disabled with a reason when there are no changes', async ({ page
   const tools = page.getByRole('region', { name: 'Repository tools' });
   await expect(tools).toContainText('No changes here');
   await expect(tools).toContainText('This folder has no uncommitted changes.');
-  const commit = tools.getByRole('button', { name: 'Commit…', exact: true });
-  await expect(commit).toBeDisabled();
-  await expect(commit.locator('..')).toHaveAccessibleDescription('No changes to commit.');
+  // The Changes pane has no commit button. Without changes, the chat shows no changes row, so
+  // no control offers a commit.
+  await expect(tools.getByRole('button', { name: /^Commit/ })).toHaveCount(0);
+  await expect(page.getByRole('group', { name: 'Changes from this chat' })).toHaveCount(0);
 
   // A session command, such as one from the menu bar, shows the reason.
   await page.evaluate(() =>
@@ -99,7 +100,15 @@ test('Commit is disabled with a reason when there are no changes', async ({ page
 test('Commit is enabled when only staged changes exist', async ({ page }) => {
   await openChat(page, 'diff --git a/file.ts b/file.ts\n-old\n+new');
   // With changes, the title bar shows Changes and its count.
-  await page.getByRole('button', { name: 'Changes, 1 file changed in this chat' }).click();
-  const tools = page.getByRole('region', { name: 'Repository tools' });
-  await expect(tools.getByRole('button', { name: 'Commit…', exact: true })).toBeEnabled();
+  await expect(
+    page.getByRole('button', { name: 'Changes, 1 file changed in this chat' }),
+  ).toBeVisible();
+  // The changes row of the chat offers the commit in its "More change actions" menu.
+  const row = page.getByRole('group', { name: 'Changes from this chat' });
+  await expect(row).toContainText('1 file changed');
+  await row.getByRole('button', { name: 'More change actions', exact: true }).click();
+  const commit = page.getByRole('menuitem', { name: 'Commit only…', exact: true });
+  await expect(commit).toBeEnabled();
+  await commit.click();
+  await expect(page.getByRole('dialog', { name: 'Commit changes' })).toBeVisible();
 });
