@@ -23,7 +23,7 @@ class Reply extends PassThrough {
     return this;
   }
 }
-async function fixture() {
+async function fixture(onPolicy?: (policy: unknown) => void) {
   let handler: (request: any, reply: Reply) => void;
   const requests: { request: PassThrough; response: (response: any) => void; options: any }[] = [];
   const server = Object.assign(new EventEmitter(), {
@@ -48,7 +48,7 @@ async function fixture() {
   })(
     resolve('electron/verdictan/inference-guard.ts'),
   ) as typeof import('../electron/verdictan/inference-guard');
-  const guard = await module.inferenceGuard('http://127.0.0.1:9999');
+  const guard = await module.inferenceGuard('http://127.0.0.1:9999', false, onPolicy);
   const send = (path = '/v1/messages') => {
     const incoming = Object.assign(new PassThrough(), {
       url: path,
@@ -60,11 +60,13 @@ async function fixture() {
     incoming.end('{}');
     return outgoing;
   };
-  const respond = (index: number, code: number, body: string) => {
-    const response = Object.assign(new PassThrough(), {
-      statusCode: code,
-      headers: { 'content-type': 'text/event-stream' },
-    });
+  const respond = (
+    index: number,
+    code: number,
+    body: string,
+    headers: Record<string, string> = { 'content-type': 'text/event-stream' },
+  ) => {
+    const response = Object.assign(new PassThrough(), { statusCode: code, headers });
     requests[index].response(response);
     response.end(body);
   };
@@ -177,6 +179,123 @@ test('guard validates its destination and rewrites only native endpoint configur
     assert.equal(changed.env.ANTHROPIC_BASE_URL, 'http://127.0.0.1:100');
     assert.equal(changed.env.OPENAI_API_KEY, 'synthetic');
     assert.equal(route.env.ANTHROPIC_BASE_URL, 'http://127.0.0.1:99');
+  } finally {
+    await f.guard.close();
+  }
+});
+
+const requestId = '0123456789abcdef0123456789abcdef';
+
+test('an escalated answer reports its policy result and still reaches the agent unchanged', async () => {
+  const results: unknown[] = [];
+  const f = await fixture((policy) => results.push(policy));
+  try {
+    const body = JSON.stringify({
+      id: `msg_verdictan_${requestId}`,
+      content: [],
+      stop_reason: 'refusal',
+      verdictan: { decision: { verdict: 'ESCALATE', request_id: requestId } },
+    });
+    const reply = f.send();
+    f.respond(0, 200, body, {
+      'content-type': 'application/json',
+      'x-verdictan-verdict': 'ESCALATE',
+      'x-verdictan-reason-code': 'needs_review',
+      'x-verdictan-config-version': 'cfgv_7',
+      'x-request-id': requestId,
+    });
+    await reply.done;
+    assert.equal(reply.body, body);
+    assert.deepEqual(results, [
+      {
+        decision: 'escalated',
+        retry: 'after_review',
+        requestId,
+        reasonCode: 'needs_review',
+        policyVersion: 'cfgv_7',
+      },
+    ]);
+    // An escalation does not stop the turn. The next request still goes to the gateway.
+    f.send();
+    assert.equal(f.requests.length, 2);
+  } finally {
+    await f.guard.close();
+  }
+});
+
+test('a blocked request reports the policy reason once', async () => {
+  const results: unknown[] = [];
+  const f = await fixture((policy) => results.push(policy));
+  try {
+    const reply = f.send();
+    f.respond(
+      0,
+      400,
+      JSON.stringify({
+        error: { message: 'Customer data is not allowed.', code: 'content_policy_violation' },
+        verdictan: {
+          decision: {
+            verdict: 'BLOCK',
+            reason_code: 'pii',
+            config_version: 'v3',
+            request_id: requestId,
+          },
+        },
+      }),
+      { 'content-type': 'application/json', 'x-verdictan-verdict': 'BLOCK' },
+    );
+    await reply.done;
+    assert.deepEqual(results, [
+      {
+        decision: 'refused',
+        retry: 'denied',
+        requestId,
+        reasonCode: 'pii',
+        policyVersion: 'v3',
+        reason: 'Customer data is not allowed.',
+      },
+    ]);
+    // Later requests in the turn stop at the guard and report nothing new.
+    const again = f.send();
+    await again.done;
+    assert.equal(again.statusCode, 409);
+    assert.equal(results.length, 1);
+  } finally {
+    await f.guard.close();
+  }
+});
+
+test('a provider error without a policy decision reports no policy result', async () => {
+  const results: unknown[] = [];
+  const f = await fixture((policy) => results.push(policy));
+  try {
+    const reply = f.send();
+    f.respond(0, 429, JSON.stringify({ error: { message: 'Slow down', code: 'rate_limit' } }));
+    await reply.done;
+    assert.deepEqual(results, []);
+  } finally {
+    await f.guard.close();
+  }
+});
+
+test('each escalation in a turn reports its own policy result', async () => {
+  const results: { requestId?: string }[] = [];
+  const f = await fixture((policy) => results.push(policy as { requestId?: string }));
+  try {
+    const ids = ['a'.repeat(32), 'b'.repeat(32)];
+    for (const [index, id] of ids.entries()) {
+      const reply = f.send();
+      f.respond(index, 200, '{}', {
+        'content-type': 'application/json',
+        'x-verdictan-verdict': 'ESCALATE',
+        'x-request-id': id,
+      });
+      await reply.done;
+    }
+    assert.deepEqual(
+      results.map((result) => result.requestId),
+      ids,
+    );
   } finally {
     await f.guard.close();
   }

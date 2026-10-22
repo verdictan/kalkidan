@@ -2,11 +2,13 @@ import {
   createServer,
   request as httpRequest,
   type ClientRequest,
+  type IncomingMessage,
   type OutgoingHttpHeaders,
 } from 'node:http';
 import type { Socket } from 'node:net';
 import { DesktopProtocolError } from './protocol';
 import type { ProviderAccessMode } from '../../src/domain/verdictan';
+import { parsePolicyResult, type PolicyResult } from '../../src/domain/policy-result';
 
 /** Native routes that each access mode may send. Every other route returns 404. */
 export function allowedInference(
@@ -31,6 +33,8 @@ export function allowedInference(
 export async function inferenceGuard(
   address: string,
   access: boolean | ProviderAccessMode = false,
+  /** Receives the policy result of each refused or escalated response. */
+  onPolicy?: (result: PolicyResult) => void,
 ) {
   // `true` is the original Codex subscription flag.
   const mode: ProviderAccessMode =
@@ -49,13 +53,20 @@ export async function inferenceGuard(
     // The reason for the first refusal in this turn. Later requests repeat it, so the user sees
     // why the turn stopped and not only that it stopped.
     refusal = '';
-  const recordRefusal = (response: NodeJS.ReadableStream) => {
+  /**
+   * Reads a refused body for the reason, and a policy decision for the policy result. The pipe to
+   * the agent continues: this only reads a bounded copy of the bytes.
+   */
+  const recordRefusal = (response: IncomingMessage, refused: boolean) => {
     let text = '';
+    const limit = refused ? 4096 : 65536;
     response.on('data', (chunk: Buffer) => {
-      if (text.length < 4096) text += chunk.toString('utf8');
+      if (text.length < limit) text += chunk.toString('utf8');
     });
     response.on('end', () => {
-      refusal ||= refusalReason(text);
+      if (refused) refusal ||= refusalReason(text);
+      const policy = parsePolicyResult({ headers: response.headers, body: text });
+      if (policy) onPolicy?.(policy);
     });
   };
   const pending = new Set<ClientRequest>(),
@@ -99,10 +110,12 @@ export async function inferenceGuard(
       new URL(incoming.url!, upstream),
       { method: incoming.method, headers },
       (response) => {
-        if ((response.statusCode || 502) >= 400) {
-          blocked = true;
-          if (!refusal) recordRefusal(response);
-        }
+        const refused = (response.statusCode || 502) >= 400;
+        if (refused) blocked = true;
+        // An escalation is HTTP 200 with an empty answer. Its headers name the decision.
+        const decision = response.headers['x-verdictan-verdict'];
+        if ((refused && !refusal) || decision === 'BLOCK' || decision === 'ESCALATE')
+          recordRefusal(response, refused && !refusal);
         outgoing.writeHead(response.statusCode || 502, response.headers);
         response.on('aborted', () => {
           blocked = true;

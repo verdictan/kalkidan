@@ -30,7 +30,8 @@ export type DesktopOperation =
   | 'hosts.inspect'
   | 'host.revoke'
   | 'resources.provision'
-  | 'review.inspect';
+  | 'review.inspect'
+  | 'review.resolve';
 export interface RuntimeProvision {
   project_id?: string;
   installation_id: string;
@@ -78,6 +79,8 @@ export interface DesktopParameters {
   installation_id?: string;
   host_id?: string;
   escalation_id?: string;
+  /** `review.inspect` and `review.resolve`: the gateway request of the review. */
+  request_id?: string;
 }
 export interface DesktopEvent {
   schema_version: 1;
@@ -117,6 +120,7 @@ const terminalEvents: Record<DesktopOperation, string[]> = {
   'host.revoke': ['host.revoked'],
   'resources.provision': ['resources.provisioned'],
   'review.inspect': ['review.inspected'],
+  'review.resolve': ['review.resolved'],
 };
 /** The exact terminal event for one request. A mode cannot borrow another mode's event. */
 export function terminalEventsFor(operation: DesktopOperation, parameters: DesktopParameters = {}) {
@@ -219,7 +223,7 @@ export class DesktopProtocol {
       return Promise.reject(new DesktopProtocolError('desktop.connection_limit'));
     if (
       parameters.fields &&
-      (!Object.hasOwn(projectServicePermissions, operation) ||
+      ((!Object.hasOwn(projectServicePermissions, operation) && operation !== 'review.resolve') ||
         Object.keys(parameters.fields).some((key) =>
           [
             'schema_version',

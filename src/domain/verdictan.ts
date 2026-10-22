@@ -5,6 +5,7 @@ import {
   type NativeAgentKind,
 } from './agent-version';
 import { safeProgramPath } from './agent-programs';
+import type { PolicyRecord, PolicyRegion, PolicyReview, ReviewDecision } from './policy-result';
 import { runtimeAnchor, settingsAnchors, type SettingsSection } from './settings-route';
 
 /** Safe desktop state. Account and runtime credentials never cross renderer IPC. */
@@ -86,14 +87,47 @@ export interface VerdictanAPI {
   /** Opens the Verdictan console of the saved region ("Manage account"). */
   verdictanOpenConsole(): Promise<void>;
   /**
+   * Opens one account page of the Verdictan console of the saved region: a new verification
+   * email, or account recovery. The console and the account service do the work. Kalkidan
+   * sends no account data in the address.
+   */
+  verdictanOpenAccountPage(page: VerdictanAccountPage): Promise<void>;
+  /**
    * Saves the recommended setup for every agent that has no saved setup yet, with the same
    * preselection that Settings shows. Returns the new setup.
    */
   verdictanApplyRecommended(): Promise<VerdictanSetup>;
+  /** The saved policy results of a chat, oldest first. Older desktop apps do not have it. */
+  chatPolicyResults?(agent: string, id: string, hostId?: string): Promise<PolicyRecord[]>;
+  /** Reads the current state of a policy review. Older desktop apps do not have it. */
+  verdictanReviewInspect?(requestId: string, region: PolicyRegion): Promise<PolicyReview>;
+  /** Opens the checked Console record of a policy review. The renderer sends no URL. */
+  verdictanReviewOpen?(requestId: string, region: PolicyRegion): Promise<PolicyReview>;
+  /** Approves or denies a policy review as the signed-in reviewer. The server checks it. */
+  verdictanReviewDecide?(
+    requestId: string,
+    region: PolicyRegion,
+    decision: ReviewDecision,
+    reason: string,
+    revision: string,
+  ): Promise<PolicyReview>;
   firstRunState(): Promise<FirstRunState>;
   setWelcomeDone(): Promise<FirstRunState>;
   notificationPreferences(): Promise<NotificationPreferences>;
   setNotificationPreferences(value: NotificationPreferences): Promise<NotificationPreferences>;
+}
+
+/** The account pages of the Verdictan console that Kalkidan opens. Fixed paths only. */
+export const verdictanAccountPages = {
+  verify: '/verify-email?resend=1',
+  recover: '/forgot-password',
+} as const;
+export type VerdictanAccountPage = keyof typeof verdictanAccountPages;
+/** The address of an account page. Rejects a page that is not in the fixed list. */
+export function verdictanAccountPageUrl(consoleOrigin: string, page: unknown) {
+  if (typeof page !== 'string' || !Object.hasOwn(verdictanAccountPages, page))
+    throw new Error('Unknown account page.');
+  return new URL(verdictanAccountPages[page as VerdictanAccountPage], consoleOrigin).href;
 }
 
 /** Omitted means organization provider connection (BYOK). Unknown values fail validation. */
@@ -871,6 +905,22 @@ export const managedErrors: Record<string, ManagedErrorInfo> = {
     message:
       'Your policy does not allow the selected model. Choose an allowed model, or ask your administrator.',
     section: 'agents',
+  },
+  'desktop.invalid_review': { message: 'This review is not valid. Refresh the chat.' },
+  'desktop.review_region_mismatch': {
+    message:
+      'This review is in a different Verdictan region. Sign in to that region to see the review.',
+    section: 'account',
+  },
+  'desktop.review_link_unavailable': {
+    message: 'You do not have permission to open this review in the Console.',
+  },
+  'desktop.review_forbidden': {
+    message: 'You do not have permission to see or decide this review.',
+  },
+  'desktop.review_conflict': {
+    message: 'The review changed. Refresh it, then try again.',
+    retry: true,
   },
 };
 // Codes for a lost or failed connection. The same action can work a second time.

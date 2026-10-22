@@ -49,13 +49,35 @@ export function validateOutcome(value: unknown): ChatOutcomeRecord | undefined {
 export interface FinishedChatRun {
   state: Pick<
     ChatRun,
-    'id' | 'agent' | 'status' | 'error' | 'errorCode' | 'managedCode' | 'sessionId' | 'sessionReady'
+    | 'id'
+    | 'agent'
+    | 'status'
+    | 'error'
+    | 'errorCode'
+    | 'managedCode'
+    | 'sessionId'
+    | 'sessionReady'
+    | 'policies'
   >;
   /** The session ID that the run started with. */
   sessionId: string;
   /** True when the run started a new chat. */
   create: boolean;
   hostId?: string;
+}
+
+/**
+ * The saved chat ID of a run that ended, or undefined for a new chat that did not save its
+ * session. A remote session ID has the form `<hostId>::<provider ID>`.
+ */
+export function finishedChatId(
+  run: Pick<FinishedChatRun, 'state' | 'sessionId' | 'create' | 'hostId'>,
+) {
+  if (run.create && !run.state.sessionReady) return undefined;
+  const provider = run.state.sessionId || run.sessionId;
+  if (!provider) return undefined;
+  const id = run.hostId && !provider.includes('::') ? `${run.hostId}::${provider}` : provider;
+  return sessionId.test(id) ? id : undefined;
 }
 
 /**
@@ -69,10 +91,8 @@ export function outcomeRecord(
 ): ChatOutcomeRecord | undefined {
   const outcome = chatOutcomeOf(run.state, at);
   if (!outcome) return undefined;
-  if (run.create && !run.state.sessionReady) return undefined;
-  const provider = run.state.sessionId || run.sessionId;
-  if (!provider) return undefined;
-  const id = run.hostId && !provider.includes('::') ? `${run.hostId}::${provider}` : provider;
+  const id = finishedChatId(run);
+  if (!id) return undefined;
   const record = validateOutcome({
     ...outcome,
     agent: run.state.agent,
