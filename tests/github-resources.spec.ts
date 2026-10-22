@@ -1,4 +1,17 @@
+import { type Page } from '@playwright/test';
 import { test, expect } from './helpers/app';
+
+/** Opens a view of Knowledge › Insights. */
+async function openInsights(page: Page, view: string) {
+  await page
+    .getByRole('navigation', { name: 'Project page', exact: true })
+    .getByRole('button', { name: 'Knowledge', exact: true })
+    .click();
+  await page
+    .getByRole('complementary', { name: 'Knowledge sections' })
+    .getByRole('button', { name: view, exact: true })
+    .click();
+}
 test('saved views render configured fields and explicit report publishing uses the reviewed snapshot', async ({
   page,
 }) => {
@@ -106,15 +119,17 @@ test('saved views render configured fields and explicit report publishing uses t
     .getByRole('button', { name: 'Tasks', exact: true })
     .click();
   const pages = page.getByRole('navigation', { name: 'Project page', exact: true });
-  await page.getByRole('combobox', { name: 'GitHub saved view' }).click();
-  await page.getByRole('option', { name: 'Current sprint', exact: true }).click();
-  const view = page.getByRole('region', { name: 'Saved GitHub view' });
+  // Saved views are a submenu of the board menu.
+  await page.getByRole('button', { name: 'Board actions', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Saved view: All tasks', exact: true }).click();
+  await page.getByRole('menuitemradio', { name: 'Current sprint', exact: true }).click();
+  const view = page.getByRole('region', { name: 'Saved GitHub view: Current sprint' });
   await expect(view.getByRole('columnheader', { name: 'Estimate' })).toBeVisible();
   await expect(view.getByRole('cell', { name: '5', exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Other work', exact: true })).toHaveCount(0);
-  // The health report is on the Insights page. The preview is the reviewed snapshot.
-  await pages.getByRole('button', { name: /^Insights\b/ }).click();
-  const health = page.getByRole('region', { name: 'Health', exact: true });
+  // The health report is in Knowledge › Insights › Board. The preview is the reviewed snapshot.
+  await openInsights(page, 'Board');
+  const health = page.getByRole('region', { name: 'Board health', exact: true });
   await health.getByRole('button', { name: 'Write report' }).click();
   await expect(health).toContainText('2 active items');
   await health.getByRole('button', { name: 'Edit', exact: true }).click();
@@ -133,13 +148,16 @@ test('saved views render configured fields and explicit report publishing uses t
   ]);
   // Batch field changes start from the selected tasks on the Tasks page.
   await pages.getByRole('button', { name: 'Tasks', exact: true }).click();
-  await page.getByRole('combobox', { name: 'GitHub saved view' }).click();
-  await page.getByRole('option', { name: 'All project items', exact: true }).click();
+  await page.getByRole('button', { name: 'Board actions', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Saved view: Current sprint', exact: true }).click();
+  await page.getByRole('menuitemradio', { name: 'All tasks', exact: true }).click();
   await page.getByRole('checkbox', { name: 'Select Selected work', exact: true }).check();
+  // Edit fields… is in the "⋯" menu of the selection bar.
   await page
     .getByRole('toolbar', { name: 'Selected tasks' })
-    .getByRole('button', { name: 'Bulk edit…', exact: true })
+    .getByRole('button', { name: 'More actions for the selected tasks', exact: true })
     .click();
+  await page.getByRole('menuitem', { name: 'Edit fields…', exact: true }).click();
   const batch = page.getByRole('dialog', { name: 'Edit fields of 1 task' });
   const fieldSelect = batch.getByRole('combobox', { name: 'Field', exact: true });
   if (!(await fieldSelect.textContent())?.includes('Estimate')) {
@@ -158,9 +176,9 @@ test('saved views render configured fields and explicit report publishing uses t
   ]);
   await batch.getByRole('button', { name: 'Done', exact: true }).click();
   // A change with an unknown result stays in GitHub changes until the user checks it.
-  await pages.getByRole('button', { name: /^Insights\b/ }).click();
+  await openInsights(page, 'GitHub checks');
   const changes = page.getByRole('region', { name: 'GitHub changes' });
-  const record = changes.getByRole('button', { name: 'I checked this on GitHub' });
+  const record = changes.getByRole('button', { name: 'Mark as checked' });
   await record.click();
   await expect(record).toHaveCount(0);
   expect((await page.evaluate(() => (window as any).writes))[2]).toEqual([

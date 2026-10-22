@@ -1,17 +1,27 @@
 import { useEffect, useRef, useState } from 'react';
 import type { TrackerAPI } from '../api/contracts';
-import type { TrackerBoard, TrackerConnection } from '../domain/tracker';
+import type { TaskPhase, TrackerBoard, TrackerConnection } from '../domain/tracker';
 import { Choice } from './choice';
 import { Alert, AlertDescription } from './ui/alert';
 import { showToast } from './ui/toast';
 import { SettingsRow, SettingsRows } from './project-settings-sections';
 import { errorMessage } from '../lib/errors';
 
-type Mapping = { progress: string; review: string; done: string; field: string };
+type Mapping = Record<TaskPhase, string> & { field: string };
+/** The value of a step that has no saved status and whose default name is not on the board. */
+const stay = 'none';
+
+const steps: { phase: TaskPhase; label: string }[] = [
+  { phase: 'progress', label: 'When a chat starts work' },
+  { phase: 'review', label: 'When a pull request opens' },
+  { phase: 'done', label: 'When you approve the work' },
+];
 
 /**
  * Automatic status changes: the status that Kalkidan sets on the board when a chat reaches each
- * step. Each choice saves at once, and the toast has Undo.
+ * step. Each choice saves at once, and the toast has Undo. A step without a saved status uses the
+ * provider default only when the board has a status with that name. Otherwise the step shows
+ * "Don't move".
  */
 export function TrackerWorkflowForm({
   api,
@@ -25,14 +35,11 @@ export function TrackerWorkflowForm({
   groupId: string;
   connection: TrackerConnection;
   board: TrackerBoard;
-  /** The status names that the provider sets when a choice is "Default". */
-  defaults?: { progress: string; done: string; review?: string };
+  /** The status names that the provider uses for a step without a saved status. */
+  defaults?: Partial<Record<TaskPhase, string>>;
   onSaved(): Promise<void> | void;
 }) {
-  // The "review" step is new. Read it as an optional key until every provider sends it.
-  const mapping = (connection.statusMapping || {}) as Partial<
-    Record<'progress' | 'review' | 'done', string>
-  >;
+  const mapping = connection.statusMapping || {};
   const initial = (): Mapping => ({
     progress: mapping.progress || 'default',
     review: mapping.review || 'default',
@@ -54,10 +61,24 @@ export function TrackerWorkflowForm({
     (fields.find((field) => field.id === value.field)?.options || board.statusField?.options)?.map(
       (option) => ({ value: option.id, label: option.name }),
     ) || [];
-  const options = (name?: string) => [
-    { value: 'default', label: name ? `Default (${name})` : 'Default' },
-    ...statuses,
-  ];
+  /** The status that a step without a saved status uses, if the board has it. */
+  const fallback = (phase: TaskPhase) => {
+    const name = defaults?.[phase]?.trim().toLowerCase();
+    return name ? statuses.find((status) => status.label.trim().toLowerCase() === name) : undefined;
+  };
+  /** The value that the choice shows: the saved status, the matching default, or "Don't move". */
+  const shown = (phase: TaskPhase) => {
+    const saved = value[phase];
+    if (saved !== 'default' && statuses.some((status) => status.value === saved)) return saved;
+    return fallback(phase)?.value || stay;
+  };
+  const options = (phase: TaskPhase) =>
+    shown(phase) === stay
+      ? [
+          { value: stay, label: "Don't move", description: 'No matching status. The task stays.' },
+          ...statuses,
+        ]
+      : statuses;
   async function write(next: Mapping) {
     await api.trackerConfigure(
       groupId,
@@ -65,7 +86,7 @@ export function TrackerWorkflowForm({
         ...(next.progress !== 'default' ? { progress: next.progress } : {}),
         ...(next.review !== 'default' ? { review: next.review } : {}),
         ...(next.done !== 'default' ? { done: next.done } : {}),
-      } as TrackerConnection['statusMapping'],
+      },
       next.field || undefined,
     );
   }
@@ -99,76 +120,48 @@ export function TrackerWorkflowForm({
       setBusy(false);
     }
   }
+  function choose(phase: TaskPhase, next: string) {
+    if (next === shown(phase)) return;
+    // "Don't move" and the matching default both mean "no saved status".
+    const saved = next === stay || next === fallback(phase)?.value ? 'default' : next;
+    if (saved === value[phase]) return;
+    void change({ [phase]: saved });
+  }
   return (
-    <div className="grid gap-4">
-      <p className="project-settings-row-help m-0">
-        Kalkidan moves the task when a chat reaches each step.
-      </p>
+    <SettingsRows title="Automatic status changes">
       {error && (
-        <Alert variant="destructive" size="sm">
+        <Alert variant="destructive" size="sm" className="my-2">
           <AlertDescription>{error}</AlertDescription>
         </Alert>
       )}
-      <SettingsRows label="Automatic status changes">
-        {fields.length > 1 && (
-          <SettingsRow label="Status field" help="The board field that holds the task status.">
-            <Choice
-              className="w-48"
-              size="sm"
-              label="Status field"
-              value={value.field}
-              onChange={(field) =>
-                void change({ field, progress: 'default', review: 'default', done: 'default' })
-              }
-              options={fields.map((field) => ({ value: field.id, label: field.name }))}
-              disabled={busy}
-            />
-          </SettingsRow>
-        )}
-        <SettingsRow label="When work starts" help="A chat starts work on the task.">
+      {fields.length > 1 && (
+        <SettingsRow label="Status field">
           <Choice
-            className="w-48"
+            className="w-40"
             size="sm"
-            label="Status when work starts"
-            value={value.progress}
-            onChange={(progress) => void change({ progress })}
-            options={options(defaults?.progress)}
-            disabled={busy}
-          />
-        </SettingsRow>
-        <SettingsRow
-          label="When a pull request opens"
-          help="A chat opens a pull request for the task."
-        >
-          <Choice
-            className="w-48"
-            size="sm"
-            label="Status when a pull request opens"
-            value={value.review}
-            onChange={(review) => void change({ review })}
-            options={
-              defaults?.review
-                ? options(defaults.review)
-                : [{ value: 'default', label: 'No change' }, ...statuses]
+            label="Status field"
+            value={value.field}
+            onChange={(field) =>
+              void change({ field, progress: 'default', review: 'default', done: 'default' })
             }
+            options={fields.map((field) => ({ value: field.id, label: field.name }))}
             disabled={busy}
           />
         </SettingsRow>
-        <SettingsRow
-          label="When you mark work complete"
-          help="A task is done only when you approve it."
-        >
+      )}
+      {steps.map((step) => (
+        <SettingsRow key={step.phase} label={step.label}>
           <Choice
-            className="w-48"
+            className="w-40"
             size="sm"
-            label="Status when work completes"
-            value={value.done}
-            onChange={(done) => void change({ done })}
-            options={options(defaults?.done)}
+            label={step.label}
+            value={shown(step.phase)}
+            onChange={(next) => choose(step.phase, next)}
+            options={options(step.phase)}
             disabled={busy}
           />
         </SettingsRow>
-      </SettingsRows>
-    </div>
+      ))}
+    </SettingsRows>
   );
 }

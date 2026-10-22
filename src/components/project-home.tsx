@@ -1,51 +1,41 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import {
-  Brain,
-  ChevronRight,
+  ArrowUp,
+  ChevronDown,
   FileText,
   FolderGit2,
   FolderPlus,
   GitBranch,
-  ListPlus,
-  MessageSquarePlus,
-  Plus,
-  SquareKanban,
+  ListTodo,
 } from 'lucide-react';
-import { agentLabel } from '../config/agents';
+import { agentCatalog, agentLabel } from '../config/agents';
+import { agentInstalled, agentMenuLabel, savePreferredAgent } from '../lib/agent-preference';
+import { fullTime, relativeTime } from '../lib/relative-time';
+import { useRecentItems } from '../lib/recent-items';
 import { sessionRepo } from '../lib/session-repository';
-import { NeedsYouList, relativeTime, useNeedsYou } from './project-overview';
-import { ActivityDot, ChatStatusDot, activityKey, useActivityState } from './activity-dot';
-import { NewChatButton } from './new-chat-button';
-import { useInProjectFrame } from './project-header';
-import { progressStatus } from '../hooks/use-project-boards';
-import { StatusIcon, trackerColumns } from './tracker-list';
+import { isMac, shortcutLabel } from '../lib/platform';
+import type { ProjectDocMetadata } from '../domain/docs';
+import type { API, Agent, Project, ProjectGroup, Session, TrackerBoard } from '../types';
+import { activityKey, useActivityState } from './activity-dot';
+import { ChatRow } from './chat-row';
+import { requestNewChat, usePreferredAgent } from './new-chat-button';
+import { useNeedsYou } from './project-overview';
+import { openProjectPage } from './project-tabs';
 import { Hint } from './hint';
 import { AgentIcon } from './ui/agent-icon';
 import { Button } from './ui/button';
-import { EmptyState } from './ui/empty-state';
 import { EntityIcon } from './ui/entity-icon';
 import { SectionHeader } from './ui/page-header';
-import type { ProjectDocMetadata } from '../domain/docs';
-import type { API, Agent, Project, ProjectGroup, Session, TrackerBoard } from '../types';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuTrigger,
+} from './ui/dropdown-menu';
 
-/** Opens a page of the project. The shell changes the route. */
-function openPage(groupId: string, page: 'tasks' | 'memory', status?: string) {
-  window.dispatchEvent(
-    new CustomEvent('kalkidan-open-project-page', { detail: { groupId, page } }),
-  );
-  // The board applies the status filter after the Tasks page opens.
-  if (status !== undefined)
-    setTimeout(
-      () =>
-        window.dispatchEvent(
-          new CustomEvent('kalkidan-board-filter', { detail: { groupId, status } }),
-        ),
-      60,
-    );
-}
-
-const recentLimit = 5;
-const docLimit = 3;
+const recentLimit = 8;
 
 /** Sessions that a person can open: not archived and not an unsent draft. */
 function openSessions(sessions: Session[], repos: Project[]) {
@@ -76,513 +66,422 @@ function GitHubMark() {
   );
 }
 
-function fullDate(value?: string) {
-  const time = value ? Date.parse(value) : NaN;
-  return Number.isNaN(time)
-    ? ''
-    : new Date(time).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
-}
-
-function TimeLabel({ value }: { value?: string }) {
-  const text = relativeTime(value);
-  if (!text) return null;
+/** One row of "Recent" that is not a chat: a task or a doc page. It looks like a chat row. */
+function ItemRow({
+  icon,
+  title,
+  meta,
+  onOpen,
+}: {
+  icon: ReactNode;
+  title: string;
+  meta: ReactNode;
+  onOpen: () => void;
+}) {
   return (
-    <Hint label={fullDate(value)}>
-      <time dateTime={value} className="project-home-time">
-        {text}
-      </time>
-    </Hint>
+    <div className="chat-row row-hover">
+      <button type="button" className="chat-row-open" title={title} onClick={onOpen}>
+        <EntityIcon>{icon}</EntityIcon>
+        <span className="chat-row-text">
+          <span className="chat-row-title">
+            <span className="truncate">{title}</span>
+          </span>
+          <span className="chat-row-meta">{meta}</span>
+        </span>
+      </button>
+    </div>
   );
 }
 
 /**
- * The "New chat" split button for pages outside a project frame. Inside a frame, the project
- * header has the one "New chat" button, so this renders nothing.
+ * The compose box of the project home. Return starts a chat in the chosen code folder with the
+ * text as the first message. The folder and agent chips start with the last-used values.
  */
-export function NewSessionSplit({
+function Composer({
+  group,
   repos,
   sessions,
-  preferredRepoId,
+  onAddFolder,
 }: {
+  group: ProjectGroup;
   repos: Project[];
   sessions: Session[];
-  /** The agent and the callbacks of older callers. The button reads the preference itself. */
-  agent?: Agent;
-  preferredRepoId?: string;
-  onAgent?: (agent: Agent) => void;
-  onStart?: (repo: Project, agent: Agent) => void;
+  onAddFolder: () => void;
 }) {
-  const inFrame = useInProjectFrame();
-  if (inFrame || !repos.length) return null;
-  return <NewChatButton repos={repos} sessions={sessions} preferredRepoId={preferredRepoId} />;
+  const preferred = usePreferredAgent();
+  const [agent, setAgent] = useState<Agent>(preferred);
+  useEffect(() => setAgent(preferred), [preferred]);
+  const [repoId, setRepoId] = useState('');
+  const repo = lastUsedRepo(repos, sessions, repoId);
+  const [text, setText] = useState('');
+  const input = useRef<HTMLTextAreaElement>(null);
+  // The box grows with the text, up to 8 lines.
+  useEffect(() => {
+    const element = input.current;
+    if (!element) return;
+    element.style.height = 'auto';
+    element.style.height = `${Math.min(element.scrollHeight, 176)}px`;
+  }, [text]);
+  function start() {
+    const prompt = text.trim();
+    if (!prompt) return;
+    if (!repo) return onAddFolder();
+    requestNewChat({ groupId: group.id, repoId: repo.id, agent, prompt, send: true });
+    setText('');
+  }
+  function onKey(event: KeyboardEvent<HTMLTextAreaElement>) {
+    if (event.key !== 'Enter' || event.shiftKey || event.nativeEvent.isComposing) return;
+    event.preventDefault();
+    start();
+  }
+  const keys = shortcutLabel([], '↵');
+  return (
+    <form
+      className="home-composer"
+      aria-label="New chat"
+      onSubmit={(event) => {
+        event.preventDefault();
+        start();
+      }}
+    >
+      <textarea
+        ref={input}
+        className="home-composer-input"
+        rows={2}
+        aria-label="Message for a new chat"
+        aria-keyshortcuts={`Enter ${isMac ? 'Meta' : 'Control'}+Enter`}
+        placeholder={`What should an agent do in ${group.name}?`}
+        value={text}
+        onChange={(event) => setText(event.target.value)}
+        onKeyDown={onKey}
+      />
+      <div className="home-composer-bar">
+        {repos.length ? (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="chip" aria-label={`Code folder: ${repo?.name}`}>
+                <GitBranch />
+                <span className="truncate">{repo?.name}</span>
+                <ChevronDown />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" className="min-w-56">
+              <DropdownMenuRadioGroup value={repo?.id || ''} onValueChange={setRepoId}>
+                {repos.map((item) => (
+                  <DropdownMenuRadioItem key={item.id} value={item.id}>
+                    <FolderGit2 className="size-4" />
+                    <span className="min-w-0 flex-1 truncate">{item.name}</span>
+                  </DropdownMenuRadioItem>
+                ))}
+              </DropdownMenuRadioGroup>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        ) : (
+          <Button variant="chip" onClick={onAddFolder}>
+            <FolderPlus />
+            Add code folder
+          </Button>
+        )}
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="chip" aria-label={`Agent: ${agentLabel(agent)}`}>
+              <AgentIcon agent={agent} />
+              {agentLabel(agent)}
+              <ChevronDown />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start" className="min-w-56">
+            <DropdownMenuRadioGroup
+              value={agent}
+              onValueChange={(value) => {
+                const next = agentCatalog.find((item) => item.id === value)?.id;
+                if (!next || !agentInstalled(next)) return;
+                setAgent(next);
+                // The last-used agent is the default of the next chat too.
+                savePreferredAgent(next);
+              }}
+            >
+              {agentCatalog.map(({ id }) => (
+                <DropdownMenuRadioItem key={id} value={id} disabled={!agentInstalled(id)}>
+                  <AgentIcon agent={id} className="size-4" />
+                  {agentMenuLabel(id, agentLabel(id))}
+                </DropdownMenuRadioItem>
+              ))}
+            </DropdownMenuRadioGroup>
+          </DropdownMenuContent>
+        </DropdownMenu>
+        <Hint label={`Start the chat (${keys})`}>
+          <Button
+            type="submit"
+            size="icon-sm"
+            className="home-composer-send"
+            aria-label="Start the chat"
+            disabled={!text.trim()}
+          >
+            <ArrowUp />
+          </Button>
+        </Hint>
+      </div>
+    </form>
+  );
 }
 
-/** The overview of one project: what needs you, code folders, recent chats, tasks, docs and memory. */
-export function ProjectHome({
+/**
+ * The project home (the Overview tab): one compose box that starts a chat, then what waits for
+ * the user, then recent chats, tasks and pages, then the code folders.
+ */
+export function ProjectHomePage({
   api,
   group,
   repos,
   sessions,
-  agent,
   board,
-  boardName,
-  connected,
-  canCreateTask,
-  onRepo,
-  onNewSession,
   onOpenSession,
+  onRepo,
   onAddFolder,
   onCloneFromGitHub,
-  onOpenDocs,
-  onAllSessions,
-  onConnectBoard,
-  onOpenTasks,
-  onNewTask,
 }: {
   api: API;
   group: ProjectGroup;
+  /** The code folders of this project. */
   repos: Project[];
   sessions: Session[];
-  agent: Agent;
-  board: TrackerBoard | null;
-  /** "GitHub Projects board", or the board name of another tracker. */
-  boardName: string;
-  connected: boolean;
-  canCreateTask: boolean;
+  /** The board of the project, when one is connected. */
+  board?: TrackerBoard;
+  onOpenSession: (session: Session) => void;
   onRepo: (repo: Project) => void;
-  onNewSession: (repo: Project, agent: Agent) => void;
-  onOpenSession?: (session: Session) => void;
   onAddFolder: () => void;
   onCloneFromGitHub: () => void;
-  onOpenDocs?: (pageId?: string) => void;
-  onAllSessions?: () => void;
-  onConnectBoard?: () => void;
-  onOpenTasks: () => void;
-  onNewTask: () => void;
 }) {
-  const [branches, setBranches] = useState<Record<string, string>>({});
-  const repoKey = repos.map((r) => r.id).join(',');
-  useEffect(() => {
-    let live = true;
-    for (const repo of repos)
-      api
-        .git(repo.id)
-        .then((info) => {
-          if (live && info?.branch) setBranches((b) => ({ ...b, [repo.id]: info.branch }));
-        })
-        .catch(() => {
-          // The row then shows no branch. A remote host can be offline.
-        });
-    return () => {
-      live = false;
-    };
-  }, [api, repoKey]);
-  const [docs, setDocs] = useState<ProjectDocMetadata[] | null>(null);
-  const [docBusy, setDocBusy] = useState(false);
-  useEffect(() => {
-    let live = true;
-    if (!onOpenDocs || typeof api.docsMetadata !== 'function') return;
-    api
-      .docsMetadata(group.id)
-      .then((value) => {
-        if (live) setDocs(value);
-      })
-      .catch(() => {
-        if (live) setDocs([]);
-      });
-    return () => {
-      live = false;
-    };
-  }, [api, group.id, !!onOpenDocs]);
-  async function newPage() {
-    if (!onOpenDocs) return;
-    setDocBusy(true);
-    try {
-      const page = await api.docsCreate(group.id, 'Untitled', null);
-      onOpenDocs(page.id);
-    } catch {
-      // The docs page shows the error when it opens.
-      onOpenDocs();
-    } finally {
-      setDocBusy(false);
-    }
-  }
-  // Memory card: the number of entries and the latest change.
-  const [memory, setMemory] = useState<{ count: number; updatedAt?: string } | null>(null);
-  useEffect(() => {
-    let live = true;
-    Promise.resolve()
-      .then(async () => {
-        if (typeof api.memoryEntries === 'function') {
-          const entries = await api.memoryEntries(group.id);
-          return {
-            count: entries.length,
-            updatedAt: entries
-              .map((entry) => entry.updatedAt)
-              .sort()
-              .at(-1),
-          };
-        }
-        const value = await api.memoryList(group.id);
-        return {
-          count: value.pages.length,
-          updatedAt: value.pages
-            .map((page) => page.updatedAt)
-            .sort()
-            .at(-1),
-        };
-      })
-      .then((value) => live && setMemory(value))
-      .catch(() => live && setMemory({ count: 0 }));
-    return () => {
-      live = false;
-    };
-  }, [api, group.id]);
   const needsYou = useNeedsYou(sessions, repos);
   const { activity } = useActivityState();
   const stateOf = (session: Session) =>
     activity.find(
       (item) => activityKey(item.agent, item.id) === activityKey(session.agent, session.id),
     )?.state;
-  const recent = openSessions(sessions, repos);
-  const lastSession = (repo: Project) => recent.find((item) => item.repo.id === repo.id)?.session;
-  // The metadata has no change time. The first pages in wiki order come first.
-  const topDocs = (docs || [])
-    .filter((doc) => !doc.parentId)
-    .sort(
-      (a, b) =>
-        (a.order ?? Number.MAX_SAFE_INTEGER) - (b.order ?? Number.MAX_SAFE_INTEGER) ||
-        a.title.localeCompare(b.title),
-    )
-    .slice(0, docLimit);
-  const columns = board ? trackerColumns(board) : [];
-  const options = board?.statusField?.options || [];
-  const count = (id: string) =>
-    board?.items.filter(
-      (item) => (options.some((o) => o.id === item.statusId) ? item.statusId : '') === id,
-    ).length || 0;
-  // Tasks in progress, each with the chats that work on it.
-  const progressIds = new Set(options.filter((o) => progressStatus(o.name)).map((o) => o.id));
-  const inProgress = (board?.items || [])
-    .filter((item) => item.statusId && progressIds.has(item.statusId))
-    .map((item) => ({
-      item,
-      chats: recent
-        .filter(({ session }) => (session.organization?.taskId || session.task?.id) === item.id)
-        .map(({ session }) => session),
-    }))
-    .slice(0, 5);
-  return (
-    <div className="project-home">
-      <div className="project-home-main">
-        {!!needsYou.length && onOpenSession && (
-          <section className="project-home-section" aria-label="Needs you">
-            <SectionHeader title="Needs you" count={needsYou.length} />
-            <NeedsYouList
-              items={needsYou}
-              groups={[group]}
-              showProject={false}
-              onOpen={onOpenSession}
-            />
-          </section>
-        )}
-        {repos.length ? (
-          <section className="project-home-section" aria-label="Code folders">
-            <SectionHeader
-              title="Code folders"
-              count={repos.length}
-              actions={
-                <>
-                  <Button variant="ghost" size="sm" onClick={onAddFolder}>
-                    <FolderPlus />
-                    Add a code folder
-                  </Button>
-                  <Button variant="ghost" size="sm" onClick={onCloneFromGitHub}>
-                    <GitHubMark />
-                    Clone from GitHub
-                  </Button>
-                </>
-              }
-            />
-            <ul className="project-home-list">
-              {repos.map((repo) => {
-                const last = lastSession(repo);
-                return (
-                  <li key={repo.id} className="project-home-row row-hover row-focus">
-                    <button
-                      type="button"
-                      className="project-home-open"
-                      title={repo.path}
-                      onClick={() => onRepo(repo)}
-                    >
-                      <EntityIcon>
-                        <FolderGit2 />
-                      </EntityIcon>
-                      <span className="project-home-text">
-                        <span className="project-home-title">{repo.name}</span>
-                        <span className="project-home-meta">
-                          {branches[repo.id] && (
-                            <span className="inline-flex min-w-0 items-center gap-1">
-                              <GitBranch size={12} aria-hidden="true" />
-                              <span className="truncate">{branches[repo.id]}</span>
-                            </span>
-                          )}
-                          {branches[repo.id] && <span aria-hidden="true">·</span>}
-                          <span className="truncate">
-                            {last ? `Last chat ${relativeTime(last.updatedAt)}` : 'No chats yet'}
-                          </span>
-                        </span>
-                      </span>
-                    </button>
-                    <Hint label={`New chat in ${repo.name}`}>
-                      <Button
-                        variant="ghost"
-                        size="icon-xs"
-                        className="project-home-row-action"
-                        aria-label={`New chat in ${repo.name}`}
-                        onClick={() => onNewSession(repo, agent)}
-                      >
-                        <MessageSquarePlus />
-                      </Button>
-                    </Hint>
-                  </li>
-                );
-              })}
-            </ul>
-          </section>
-        ) : (
-          <EmptyState
-            icon={<FolderPlus />}
-            title="Add your first code folder"
-            action={
-              <div className="flex flex-wrap justify-center gap-2">
-                <Button size="lg" onClick={onAddFolder}>
-                  <FolderPlus />
-                  Add a code folder
-                </Button>
-                <Button size="lg" variant="outline" onClick={onCloneFromGitHub}>
-                  <GitHubMark />
-                  Clone from GitHub
-                </Button>
-              </div>
-            }
-          >
-            A code folder is a Git repository on this computer. Agents read and change the files in
-            it. Add a folder that you have, or clone one from GitHub.
-          </EmptyState>
-        )}
-        {!!recent.length && onOpenSession && (
-          <section className="project-home-section" aria-label="Recent chats">
-            <SectionHeader
-              title="Recent chats"
-              actions={
-                onAllSessions && (
-                  <Button variant="ghost" size="sm" onClick={onAllSessions}>
-                    See all chats
-                  </Button>
+  const [docs, setDocs] = useState<ProjectDocMetadata[]>([]);
+  useEffect(() => {
+    let live = true;
+    if (typeof api.docsMetadata !== 'function') return;
+    Promise.resolve()
+      .then(() => api.docsMetadata(group.id))
+      .then((value) => live && setDocs(value))
+      .catch(() => {
+        /* Recent then shows the pages that the list has. */
+      });
+    return () => {
+      live = false;
+    };
+  }, [api, group.id]);
+  const opened = useRecentItems();
+  const waitingKeys = new Set(
+    needsYou.map(({ session }) => activityKey(session.agent, session.id)),
+  );
+  // Recent work of every kind, newest first: chats by their last change, tasks and pages by
+  // the time the user opened them.
+  const chats = openSessions(sessions, repos)
+    .filter(({ session }) => !waitingKeys.has(activityKey(session.agent, session.id)))
+    .map(({ session, repo }) => ({
+      key: 'chat:' + activityKey(session.agent, session.id),
+      at: Date.parse(session.updatedAt || '') || 0,
+      node: (
+        <ChatRow
+          key={'chat:' + activityKey(session.agent, session.id)}
+          session={session}
+          activity={stateOf(session)}
+          folder={repos.length > 1 ? repo.name : undefined}
+          onOpen={onOpenSession}
+        />
+      ),
+    }));
+  const items = opened
+    .filter((item) => item.groupId === group.id && item.kind !== 'chat')
+    .flatMap((item) => {
+      const when = relativeTime(new Date(item.at).toISOString());
+      if (item.kind === 'doc') {
+        const doc = docs.find((page) => page.id === item.id);
+        if (docs.length && !doc) return [];
+        const title = doc?.title || item.title || 'Untitled';
+        return [
+          {
+            key: 'doc:' + item.id,
+            at: item.at,
+            node: (
+              <ItemRow
+                key={'doc:' + item.id}
+                icon={<FileText />}
+                title={title}
+                meta={`Page · ${when}`}
+                onOpen={() =>
+                  openProjectPage(group.id, 'knowledge', { section: 'pages', docId: item.id })
+                }
+              />
+            ),
+          },
+        ];
+      }
+      const task = board?.items.find((entry) => entry.id === item.id);
+      const status = board?.statusField?.options.find((o) => o.id === task?.statusId)?.name;
+      const title = task
+        ? `${task.number ? `#${task.number} ` : ''}${task.title}`
+        : item.title || 'Task';
+      return [
+        {
+          key: 'task:' + item.id,
+          at: item.at,
+          node: (
+            <ItemRow
+              key={'task:' + item.id}
+              icon={<ListTodo />}
+              title={title}
+              meta={['Task', status || when].join(' · ')}
+              onOpen={() =>
+                window.dispatchEvent(
+                  new CustomEvent('kalkidan-open-task', {
+                    detail: { groupId: group.id, itemId: item.id },
+                  }),
                 )
               }
             />
-            <ul className="project-home-list">
-              {recent.slice(0, recentLimit).map(({ session, repo }) => {
-                const title = session.organization?.title || session.title;
-                return (
-                  <li key={session.agent + ':' + session.id} className="project-home-row row-hover">
-                    <button
-                      type="button"
-                      className="project-home-open"
-                      title={title}
-                      onClick={() => onOpenSession(session)}
-                    >
-                      <EntityIcon>
-                        <AgentIcon agent={session.agent} />
-                      </EntityIcon>
-                      <span className="project-home-text">
-                        <span className="project-home-title">{title}</span>
-                        <span className="project-home-meta">
-                          <span className="truncate">
-                            {agentLabel(session.agent)} · {repo.name}
-                          </span>
-                        </span>
-                      </span>
-                      <ChatStatusDot session={session} live={stateOf(session)} />
-                      <TimeLabel value={session.updatedAt} />
-                    </button>
-                  </li>
-                );
-              })}
-            </ul>
+          ),
+        },
+      ];
+    });
+  const recent = [...chats, ...items].sort((a, b) => b.at - a.at).slice(0, recentLimit);
+  return (
+    <div className="project-home">
+      <Composer group={group} repos={repos} sessions={sessions} onAddFolder={onAddFolder} />
+      <div className="project-home-lists">
+        {!!needsYou.length && (
+          <section className="project-home-section" aria-label="Waiting for you">
+            <SectionHeader title="Waiting for you" count={needsYou.length} />
+            <div className="chat-list">
+              {needsYou.map(({ session, repo, reason, state, at }) => (
+                <ChatRow
+                  key={activityKey(session.agent, session.id)}
+                  session={session}
+                  activity={state}
+                  onOpen={onOpenSession}
+                  meta={
+                    <>
+                      {[reason, repos.length > 1 ? repo.name : undefined]
+                        .filter(Boolean)
+                        .join(' · ')}
+                      {at && (
+                        <>
+                          {' · '}
+                          <time dateTime={at} title={fullTime(at)}>
+                            {relativeTime(at)}
+                          </time>
+                        </>
+                      )}
+                    </>
+                  }
+                />
+              ))}
+            </div>
+          </section>
+        )}
+        {!!recent.length && (
+          <section className="project-home-section" aria-label="Recent">
+            <SectionHeader title="Recent" />
+            <div className="chat-list">{recent.map((item) => item.node)}</div>
           </section>
         )}
       </div>
-      <aside className="project-home-side" aria-label="Project details">
-        {connected ? (
-          <section className="project-home-card" aria-label="Tasks">
-            <SectionHeader
-              size="sm"
-              title="Tasks"
-              count={board?.items.length}
-              actions={
-                <Button variant="ghost" size="sm" onClick={onOpenTasks}>
-                  Open tasks
+      <section className="project-home-section" aria-label="Code folders">
+        <SectionHeader
+          title="Code folders"
+          actions={
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="sm">
+                  Add
+                  <ChevronDown />
                 </Button>
-              }
-            />
-            {board ? (
-              <>
-                <ul className="project-home-status-list">
-                  {columns.map((column) => (
-                    <li key={column.id}>
-                      <button
-                        type="button"
-                        className="project-home-status row-hover"
-                        aria-label={`${column.name}: ${count(column.id)} tasks. Show them.`}
-                        onClick={() => openPage(group.id, 'tasks', column.id)}
-                      >
-                        <StatusIcon name={column.name} />
-                        <span className="min-w-0 flex-1 truncate">{column.name}</span>
-                        <span className="text-subtle tabular-nums">{count(column.id)}</span>
-                        <ChevronRight className="project-home-status-chevron" aria-hidden="true" />
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-                {!!inProgress.length && (
-                  <div className="project-home-progress" aria-label="In progress">
-                    <SectionHeader size="sm" title="In progress" />
-                    <ul className="project-home-doc-list">
-                      {inProgress.map(({ item, chats }) => (
-                        <li key={item.id}>
-                          <button
-                            type="button"
-                            className="project-home-doc row-hover"
-                            title={item.title}
-                            onClick={() =>
-                              chats[0] && onOpenSession
-                                ? onOpenSession(chats[0])
-                                : window.dispatchEvent(
-                                    new CustomEvent('kalkidan-open-task', {
-                                      detail: { groupId: group.id, itemId: item.id },
-                                    }),
-                                  )
-                            }
-                          >
-                            {chats[0] ? (
-                              <AgentIcon agent={chats[0].agent} className="size-3.5" />
-                            ) : (
-                              <StatusIcon name="In progress" />
-                            )}
-                            <span className="truncate">
-                              {item.number ? `#${item.number} ` : ''}
-                              {item.title}
-                            </span>
-                            {chats[0] ? (
-                              <ActivityDot state={stateOf(chats[0])} />
-                            ) : (
-                              <span className="text-subtle ml-auto shrink-0">No chat</span>
-                            )}
-                          </button>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
-              </>
-            ) : (
-              <p className="project-home-card-text">Loading tasks…</p>
-            )}
-            {canCreateTask && (
-              <Button variant="outline" size="sm" className="self-start" onClick={onNewTask}>
-                <ListPlus />
-                New task
-              </Button>
-            )}
-          </section>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="min-w-52">
+                <DropdownMenuItem onSelect={onAddFolder}>
+                  <FolderPlus className="size-4" />
+                  Choose a folder…
+                </DropdownMenuItem>
+                <DropdownMenuItem onSelect={onCloneFromGitHub}>
+                  <GitHubMark />
+                  Clone from GitHub…
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          }
+        />
+        {repos.length ? (
+          <ul className="folder-list">
+            {repos.map((repo) => (
+              <li key={repo.id}>
+                <button
+                  type="button"
+                  className="folder-row row-hover"
+                  title={repo.path}
+                  onClick={() => onRepo(repo)}
+                >
+                  <FolderGit2 aria-hidden="true" />
+                  <span className="truncate">{repo.name}</span>
+                </button>
+              </li>
+            ))}
+          </ul>
         ) : (
-          onConnectBoard && (
-            <section className="project-home-card" aria-label={`Connect a ${boardName}`}>
-              <SectionHeader size="sm" title="Tasks" />
-              <p className="project-home-card-text">
-                Optional. Connect a {boardName} to see its tasks here and start chats from them.
-              </p>
-              <Button variant="outline" size="sm" className="self-start" onClick={onConnectBoard}>
-                <SquareKanban />
-                Connect a {boardName}
-              </Button>
-            </section>
-          )
+          <p className="project-home-empty">No code folders yet.</p>
         )}
-        {onOpenDocs && (
-          <section className="project-home-card" aria-label="Docs">
-            <SectionHeader
-              size="sm"
-              title="Docs"
-              actions={
-                <Button variant="ghost" size="sm" onClick={() => onOpenDocs()}>
-                  Open docs
-                </Button>
-              }
-            />
-            {docs === null ? (
-              <p className="project-home-card-text">Loading pages…</p>
-            ) : topDocs.length ? (
-              <ul className="project-home-doc-list">
-                {topDocs.map((doc) => (
-                  <li key={doc.id}>
-                    <button
-                      type="button"
-                      className="project-home-doc row-hover"
-                      onClick={() => onOpenDocs(doc.id)}
-                    >
-                      <FileText aria-hidden="true" />
-                      <span className="truncate">{doc.title || 'Untitled'}</span>
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <p className="project-home-card-text">
-                No pages yet. Write notes, plans and decisions for this project.
-              </p>
-            )}
-            <Button
-              variant="outline"
-              size="sm"
-              className="self-start"
-              disabled={docBusy}
-              onClick={() => void newPage()}
-            >
-              <Plus />
-              New page
-            </Button>
-          </section>
-        )}
-        <section className="project-home-card" aria-label="Memory">
-          <SectionHeader
-            size="sm"
-            title="Memory"
-            count={memory?.count || undefined}
-            actions={
-              <Button variant="ghost" size="sm" onClick={() => openPage(group.id, 'memory')}>
-                Open memory
-              </Button>
-            }
-          />
-          <p className="project-home-card-text">
-            {memory === null ? (
-              'Loading memory…'
-            ) : memory.count ? (
-              <>
-                <Brain className="project-home-inline-icon" aria-hidden="true" />
-                {memory.count === 1 ? '1 entry' : `${memory.count} entries`}
-                {memory.updatedAt && ` · Last change ${relativeTime(memory.updatedAt)}`}
-              </>
-            ) : (
-              'No entries yet. Agents save facts about this project here as they work.'
-            )}
-          </p>
-        </section>
-      </aside>
+      </section>
     </div>
+  );
+}
+
+/**
+ * The older entry point of the project home. The Tasks page used it for its Overview. It now
+ * shows the same home as the Overview tab.
+ */
+export function ProjectHome({
+  api,
+  group,
+  repos,
+  sessions,
+  board,
+  onRepo,
+  onOpenSession,
+  onAddFolder,
+  onCloneFromGitHub,
+}: {
+  api: API;
+  group: ProjectGroup;
+  repos: Project[];
+  sessions: Session[];
+  board?: TrackerBoard | null;
+  onRepo: (repo: Project) => void;
+  onOpenSession?: (session: Session) => void;
+  onAddFolder: () => void;
+  onCloneFromGitHub: () => void;
+  [legacy: string]: unknown;
+}) {
+  return (
+    <ProjectHomePage
+      api={api}
+      group={group}
+      repos={repos}
+      sessions={sessions}
+      board={board || undefined}
+      onRepo={onRepo}
+      onOpenSession={
+        onOpenSession ||
+        ((session) =>
+          window.dispatchEvent(
+            new CustomEvent('kalkidan-open-session', {
+              detail: { agent: session.agent, id: session.id },
+            }),
+          ))
+      }
+      onAddFolder={onAddFolder}
+      onCloneFromGitHub={onCloneFromGitHub}
+    />
   );
 }

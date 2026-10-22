@@ -1,6 +1,21 @@
+import { type Page } from '@playwright/test';
 import { test, expect, newChat } from './helpers/app';
-import { openTool } from './helpers/tools';
 import { openCodeFolder } from './helpers/navigation';
+import { openTool } from './helpers/tools';
+
+/**
+ * Shows the Changes tool with its shortcut. A new chat has no changes of its own, so the title
+ * bar does not show the Changes button.
+ */
+async function openChanges(page: Page) {
+  await page.getByLabel('Message agent').click();
+  await page.keyboard.press('ControlOrMeta+Shift+G');
+  await expect(
+    page
+      .getByRole('group', { name: 'Tools', exact: true })
+      .getByRole('button', { name: /^Changes/ }),
+  ).toHaveAttribute('aria-pressed', 'true');
+}
 
 test('conversation tools preview evidence, attach it to the draft, and send it only on request', async ({
   page,
@@ -94,7 +109,7 @@ test('conversation tools preview evidence, attach it to the draft, and send it o
   await expect(page.getByRole('button', { name: 'Send', exact: true })).toBeVisible();
   await page.screenshot({ path: 'test-results/integrated-terminal.png' });
   await dialog.getByRole('button', { name: 'Attach output' }).click();
-  await openTool(page, 'Changes');
+  await openChanges(page);
   await expect(dialog.getByLabel('Git diff')).toContainText('+new');
   await dialog.getByRole('button', { name: 'Next changed file' }).click();
   await expect(dialog.getByLabel('Git diff')).toContainText('export const added = true;');

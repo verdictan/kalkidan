@@ -1,5 +1,5 @@
 import { test, expect } from './helpers/app';
-test('GitHub settings require reload after an uncertain save and preserve permission gating', async ({
+test('Board settings opens Project settings › Board and links to the GitHub project settings', async ({
   page,
 }) => {
   await page.addInitScript(() => {
@@ -43,7 +43,7 @@ test('GitHub settings require reload after an uncertain save and preserve permis
       ],
       trackerBoard: async () => ({ project, writable: true, items: [], fields: [] }),
       trackerSettings: async () => structuredClone(settings),
-      // The desktop API has both. Board settings needs the resources for its Fields tab.
+      // The desktop API has these. Kalkidan must not call the settings update.
       trackerResources: async (_g: string, kind: string) => ({
         projectId: 'P',
         kind,
@@ -69,26 +69,29 @@ test('GitHub settings require reload after an uncertain save and preserve permis
     .getByRole('navigation', { name: 'Project page', exact: true })
     .getByRole('button', { name: 'Tasks', exact: true })
     .click();
-  // The GitHub project settings are in Board settings, from the board toolbar.
-  await page.getByRole('button', { name: 'Board settings', exact: true }).click();
-  const dialog = page.getByRole('dialog', { name: 'Board settings' });
-  await dialog.getByRole('tab', { name: 'GitHub project' }).click();
-  await expect(dialog.getByRole('tab', { name: 'GitHub project' })).toHaveAttribute(
+  // Board settings… in the board menu opens Project settings at the Board section.
+  await page.getByRole('button', { name: 'Board actions', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Board settings…', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'Project settings: Platform', exact: true });
+  await expect(dialog.getByRole('tab', { name: 'Board', exact: true })).toHaveAttribute(
     'aria-selected',
     'true',
   );
-  // Text saves when the user presses Enter or leaves the field.
-  await dialog.getByLabel('Title', { exact: true }).fill('Changed title');
-  await dialog.getByLabel('Title', { exact: true }).press('Enter');
-  await expect(dialog.getByRole('alert')).toContainText('unknown');
-  // After a failed save, the dialog loads the current settings again by itself.
-  await expect(dialog.getByRole('alert')).toContainText('Kalkidan loaded the current settings.');
-  await expect(dialog.getByLabel('Title', { exact: true })).toHaveValue('Changed title');
-  expect(await page.evaluate(() => (window as any).writes)).toBe(1);
-  // A switch saves at once.
-  await dialog.getByRole('switch', { name: 'Use as a template' }).click();
-  await expect.poll(() => page.evaluate(() => (window as any).writes)).toBe(2);
-  await expect(dialog.getByText('You have read-only access to this project.')).toBeVisible();
-  await expect(dialog.getByLabel('Title', { exact: true })).toBeDisabled();
-  await expect(dialog.getByRole('switch', { name: 'Use as a template' })).toBeDisabled();
+  await expect(dialog.getByRole('tab')).toHaveText(['General', 'Code folders', 'Board']);
+  await expect(dialog.getByRole('region', { name: 'Connected board' })).toContainText('Roadmap');
+  // Kalkidan does not edit the GitHub project. Its settings open on GitHub.
+  const github = dialog.getByRole('region', { name: 'On GitHub' });
+  await expect(github.getByRole('link', { name: 'Fields' })).toHaveAttribute(
+    'href',
+    'https://github.com/orgs/example/projects/1/settings',
+  );
+  await expect(github.getByRole('link', { name: 'Workflows' })).toHaveAttribute(
+    'href',
+    'https://github.com/orgs/example/projects/1/workflows',
+  );
+  await expect(github.getByRole('link', { name: 'Views' })).toBeVisible();
+  await expect(github.getByRole('link', { name: 'Status updates' })).toBeVisible();
+  await expect(dialog.getByLabel('Title', { exact: true })).toHaveCount(0);
+  await expect(dialog.getByRole('switch')).toHaveCount(0);
+  expect(await page.evaluate(() => (window as any).writes)).toBeUndefined();
 });

@@ -31,11 +31,11 @@ test('sidebar hides verified connections and restores the action when access is 
   await expect(page.getByRole('heading', { name: 'Projects', level: 1 })).toBeVisible();
   const button = page.locator('.sidebar-github-connect');
   await expect(button).toHaveCount(0);
-  // The footer keeps the Settings and help menu.
+  // The footer keeps the Preferences and help menu.
   await expect(
     page
       .getByRole('navigation', { name: 'Projects and repositories' })
-      .getByRole('button', { name: 'Settings and help', exact: true }),
+      .getByRole('button', { name: 'Preferences and help', exact: true }),
   ).toBeVisible();
   await page.evaluate(() => {
     (window as any).access = 'idle';

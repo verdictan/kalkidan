@@ -1,14 +1,23 @@
 import { type Page } from '@playwright/test';
 import { test, expect } from './helpers/app';
 
-/** Opens a page of the Atlas project from the sidebar. */
-async function openAtlas(page: Page, tab: 'Tasks' | 'Insights') {
+/** Opens a view of Knowledge › Insights of the Atlas project from the sidebar. */
+async function openAtlas(page: Page, view: 'Agent usage' | 'Board') {
   await page.locator('.project-tree').getByRole('button', { name: 'Atlas', exact: true }).click();
   await page
     .getByRole('navigation', { name: 'Project page', exact: true })
-    .getByRole('button', { name: tab, exact: true })
+    .getByRole('button', { name: 'Knowledge', exact: true })
+    .click();
+  await page
+    .getByRole('complementary', { name: 'Knowledge sections' })
+    .getByRole('button', { name: view, exact: true })
     .click();
 }
+/** The usage part of the Agent usage view. */
+const usageRegion = (page: Page) =>
+  page
+    .getByRole('region', { name: 'Agent usage', exact: true })
+    .getByRole('region', { name: 'Usage details', exact: true });
 
 test.beforeEach(async ({ page }) => {
   await page.addInitScript(() => localStorage.setItem('kalkidan:onboarding:v1', 'dismissed'));
@@ -113,8 +122,8 @@ test('Insights without a board show the managed-agent usage of the project chats
 }) => {
   await usageWorkspace(page, 'history');
   await page.goto('/');
-  await openAtlas(page, 'Insights');
-  const usage = page.getByRole('region', { name: 'Managed-agent usage', exact: true });
+  await openAtlas(page, 'Agent usage');
+  const usage = usageRegion(page);
   const totals = usage.getByRole('definition');
   // The intro uses the same words as the Usage history of a chat.
   await expect(usage).toContainText(
@@ -156,16 +165,16 @@ test('Insights without a board show the managed-agent usage of the project chats
     fresh: true,
   });
   await expect(usage.getByLabel('Usage totals')).toContainText('Requests3');
-  await expect(
-    page.getByRole('button', { name: 'Connect a GitHub Projects board', exact: true }),
-  ).toBeVisible();
+  // The usage needs no board. The Board view offers to connect one.
+  await openAtlas(page, 'Board');
+  await expect(page.getByRole('button', { name: 'Connect a board', exact: true })).toBeVisible();
 });
 
 test('Insights tell when the usage history is unavailable or empty', async ({ page }) => {
   await usageWorkspace(page, 'unavailable');
   await page.goto('/');
-  await openAtlas(page, 'Insights');
-  const usage = page.getByRole('region', { name: 'Managed-agent usage', exact: true });
+  await openAtlas(page, 'Agent usage');
+  const usage = usageRegion(page);
   await expect(
     usage.getByRole('heading', { name: 'Usage history is not available' }),
   ).toBeVisible();
@@ -183,8 +192,8 @@ test('Insights tell when the usage history is unavailable or empty', async ({ pa
 test('Insights tell when the project chats have no managed requests', async ({ page }) => {
   await usageWorkspace(page, 'empty');
   await page.goto('/');
-  await openAtlas(page, 'Insights');
-  const usage = page.getByRole('region', { name: 'Managed-agent usage', exact: true });
+  await openAtlas(page, 'Agent usage');
+  const usage = usageRegion(page);
   await expect(usage.getByRole('heading', { name: 'No managed-agent requests' })).toBeVisible();
   await expect(
     usage.getByText('The chats of this project do not use a managed agent with this account.'),

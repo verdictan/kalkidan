@@ -400,7 +400,7 @@ export function AddRepository({
                             className="text-xs text-link hover:underline"
                             onClick={openAccountSettings}
                           >
-                            Check your GitHub account in Settings
+                            Check your GitHub account in Preferences
                           </Button>
                         </p>
                       </div>

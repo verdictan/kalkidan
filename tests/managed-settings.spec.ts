@@ -1,12 +1,5 @@
 import { type Page } from '@playwright/test';
-import {
-  test,
-  expect,
-  openAgentSetup,
-  openSettings,
-  settingsDialog,
-  settingsTab,
-} from './helpers/app';
+import { test, expect, computersPage, openComputersPage, sidebar } from './helpers/app';
 
 const team = '11111111-1111-4111-8111-111111111111';
 const team2 = '22222222-2222-4222-8222-222222222222';
@@ -47,6 +40,23 @@ async function fixture(page: Page, extra: string) {
   await page.goto('/');
 }
 
+/**
+ * Opens the organization setup of an agent in place under its row on the Computers page.
+ * Returns the part under the row that holds the setup form.
+ */
+async function openSetup(page: Page, agent: 'Codex' | 'Claude Code' = 'Codex') {
+  const computers = await openComputersPage(page);
+  await computers
+    .getByRole('button', { name: `Change the organization setup of ${agent}`, exact: true })
+    .click();
+  const hide = page.getByRole('button', {
+    name: `Hide the organization setup of ${agent}`,
+    exact: true,
+  });
+  await expect(hide).toBeVisible();
+  return computers.locator('.settings-row-extra').filter({ has: hide });
+}
+
 test('managed agent setup shows names or numbered generic labels, never IDs', async ({ page }) => {
   await fixture(
     page,
@@ -76,12 +86,9 @@ test('managed agent setup shows names or numbered generic labels, never IDs', as
       }),
     };`,
   );
-  const settings = await openSettings(page, 'Account');
-  await expect(settings.getByRole('group', { name: 'Organization', exact: true })).toContainText(
-    'Acme Corp',
-  );
-  await page.keyboard.press('Escape');
-  const setup = await openAgentSetup(page);
+  // The account row in the sidebar shows the organization name.
+  await expect(sidebar(page).locator('.account-menu')).toContainText('Acme Corp');
+  const setup = await openSetup(page);
   /** The visible option labels of one choice. IDs stay in the option values. */
   async function options(name: string) {
     await setup.getByRole('combobox', { name }).click();
@@ -112,7 +119,6 @@ const signedIn = `verdictanStatus: async () => ({
     apiUrl: 'https://api.eu.verdictan.com',
   },
 }),`;
-const openSetup = (page: Page) => openAgentSetup(page);
 
 test('the Kalkidan default policy is preselected and saves without policy IDs', async ({
   page,
@@ -183,11 +189,13 @@ test('a member without the default gets the administrator recovery in setup', as
     'Ask an organization administrator to connect Kalkidan once.',
   );
   await expect(setup.getByRole('combobox', { name: 'Policy' })).toContainText('Choose a policy');
-  await expect(setup.getByRole('button', { name: 'Use this setup' })).toHaveCount(0);
-  await expect(setup).toContainText('Make all the choices.');
+  // The setup is not complete, so there is nothing to save.
+  await expect(setup.getByRole('button', { name: 'Save' })).toHaveCount(0);
 });
 
-test('a launch block link opens Settings at the exact managed setup step', async ({ page }) => {
+test('a launch block link opens the Computers page at the exact managed setup step', async ({
+  page,
+}) => {
   await fixture(
     page,
     `return {
@@ -211,17 +219,13 @@ test('a launch block link opens Settings at the exact managed setup step', async
       }),
     ),
   );
-  const settings = settingsDialog(page);
-  await expect(settings.getByRole('tab', { name: 'Agents', exact: true })).toHaveAttribute(
-    'aria-selected',
-    'true',
-  );
-  // The managed setup row of Codex, at the top of the section, gets the focus.
+  const settings = computersPage(page);
+  // The managed setup row of Codex, at the top of the agent rows, gets the focus.
   await expect(settings.locator('#managed-agent-setup')).toBeFocused();
   await expect(settings.locator('#managed-agent-setup')).toContainText('Codex');
   // Without a service name the account has a generic label. IDs never show.
-  await settingsTab(page, 'Account').click();
-  const account = settings.getByRole('group', { name: 'Organization', exact: true });
-  await expect(account).toContainText('Your account');
+  const account = sidebar(page).locator('.account-menu');
+  await expect(account).toContainText('Verdictan');
+  await expect(account).not.toContainText('11111111-1111');
   await expect(settings).not.toContainText('11111111-1111');
 });

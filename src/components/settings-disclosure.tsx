@@ -3,7 +3,6 @@ import { ChevronRight, Copy } from 'lucide-react';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from './ui/collapsible';
 import { Badge } from './ui/badge';
 import { Button } from './ui/button';
-import { SectionHeader } from './ui/page-header';
 import { showToast } from './ui/toast';
 import { cn } from '../lib/utils';
 import type { StatusLabel } from '../lib/verdictan-labels';
@@ -32,57 +31,6 @@ export function SettingsDisclosure({
       </CollapsibleTrigger>
       <CollapsibleContent className="pt-2">{children}</CollapsibleContent>
     </Collapsible>
-  );
-}
-
-/**
- * The one "Advanced" fold of a Settings section. It holds the developer details: paths,
- * builds, digests, and service addresses. Its rows sit in one box.
- */
-export function SettingsAdvanced({
-  children,
-  defaultOpen = false,
-}: {
-  children: ReactNode;
-  defaultOpen?: boolean;
-}) {
-  return (
-    <SettingsDisclosure title="Advanced" defaultOpen={defaultOpen}>
-      <div className="settings-advanced-box">{children}</div>
-    </SettingsDisclosure>
-  );
-}
-
-/**
- * One group in a Settings section: a section header with optional actions, then the content.
- * The group can get focus, so a link to its `id` moves the focus to it.
- */
-export function SettingsGroup({
-  id,
-  title,
-  label,
-  actions,
-  className,
-  children,
-}: {
-  id?: string;
-  title: ReactNode;
-  /** The name of the region. The default is the title. */
-  label?: string;
-  actions?: ReactNode;
-  className?: string;
-  children: ReactNode;
-}) {
-  return (
-    <section
-      id={id}
-      tabIndex={id ? -1 : undefined}
-      aria-label={label || (typeof title === 'string' ? title : undefined)}
-      className={cn('settings-group', className)}
-    >
-      <SectionHeader size="sm" title={title} actions={actions} className="mb-0" />
-      {children}
-    </section>
   );
 }
 

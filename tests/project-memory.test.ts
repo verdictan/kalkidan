@@ -100,7 +100,7 @@ test('memory topics read as words and the page does not repeat its title', async
   assert.equal(entryForPage(page, [entry]), entry);
   assert.equal(entryForPage({ ...page, topic: 'other' }, [entry]), undefined);
   const base = { id: 'x', turnId: 't', updatedAt: '' };
-  assert.equal(extractionText({ ...base, status: 'saved', saved: 2 }), 'Saved 2 entries');
+  assert.equal(extractionText({ ...base, status: 'saved', saved: 2 }), 'Saved 2 facts');
   assert.equal(extractionText({ ...base, status: 'saved', saved: 0 }), 'Nothing new to save');
   assert.equal(extractionText({ ...base, status: 'failed' }), 'Could not save memory');
 });

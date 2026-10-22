@@ -68,7 +68,11 @@ export function CreateProject({
   const [tracker, setTracker] = useState<'later' | 'connect'>('later');
   const connecting = tracker === 'connect';
   const formId = useId();
-  const reasonId = useId();
+  const nameErrorId = useId();
+  // The name error shows after the user leaves the field or tries to create the project.
+  const [nameTouched, setNameTouched] = useState(false);
+  // True after a try to create the project while something else blocks it.
+  const [tried, setTried] = useState(false);
   const [creating, setCreating] = useState(false);
   const [hostBusy, setHostBusy] = useState(false);
   const [pickerBusy, setPickerBusy] = useState(false);
@@ -85,6 +89,9 @@ export function CreateProject({
       setTracker('later');
       setMore(false);
       setFolders(null);
+      setNameTouched(false);
+      setTried(false);
+      setError('');
     }
   }, [open]);
   useEffect(() => {
@@ -171,7 +178,13 @@ export function CreateProject({
     };
   }, [open, connecting, auth.status, client]);
   async function create() {
-    if (busy || (!creation.current && blocked)) return;
+    if (busy) return;
+    if (!creation.current && blocked) {
+      // Show why the project cannot be created yet, next to the field that needs a change.
+      setNameTouched(true);
+      setTried(true);
+      return;
+    }
     setCreating(true);
     setError('');
     try {
@@ -213,7 +226,7 @@ export function CreateProject({
       setCreating(false);
     }
   }
-  // Tells the user why Create project is not available yet.
+  // Why the project cannot be created yet. It shows only after a try or after the name field.
   const blocked = !name.trim()
     ? 'Enter a project name.'
     : location === 'remote' && (!hostId || !hostReady)
@@ -228,7 +241,7 @@ export function CreateProject({
       <DialogContent size="md" layout="scroll">
         <DialogHeader>
           <DialogTitle>New project</DialogTitle>
-          <DialogDescription>
+          <DialogDescription className="sr-only">
             A project keeps your code folders, docs, and agent chats together.
           </DialogDescription>
         </DialogHeader>
@@ -236,9 +249,8 @@ export function CreateProject({
           {recovering && (
             <div className="grid gap-2 rounded border p-3">
               <p>
-                Resume setup for <strong>{creation.current?.args[0]}</strong>. The saved request
-                keeps its original host, folder, and repository selection. Completed steps are not
-                repeated.
+                Resume setup for <strong>{creation.current?.args[0]}</strong>. Completed steps are
+                not repeated.
               </p>
               <Button
                 size="sm"
@@ -277,9 +289,17 @@ export function CreateProject({
                 aria-label="Project name"
                 maxLength={150}
                 value={name}
+                aria-invalid={nameTouched && !name.trim() ? true : undefined}
+                aria-describedby={nameTouched && !name.trim() ? nameErrorId : undefined}
+                onBlur={() => setNameTouched(true)}
                 onChange={(e) => setName(e.target.value)}
                 placeholder="Customer platform"
               />
+              {nameTouched && !name.trim() && (
+                <span id={nameErrorId} className="field-error">
+                  Enter a project name.
+                </span>
+              )}
             </label>
             {folderImport.supported && location === 'local' && (
               <div className="form-label">
@@ -327,10 +347,6 @@ export function CreateProject({
                     <FolderOpen /> Choose code folder
                   </Button>
                 )}
-                <span className="form-help">
-                  Optional. If the folder holds more than one Git repository, Kalkidan adds each
-                  one.
-                </span>
               </div>
             )}
             <Collapsible open={more} onOpenChange={setMore} className="grid gap-4">
@@ -358,9 +374,6 @@ export function CreateProject({
                       { value: 'remote', label: 'Remote SSH host' },
                     ]}
                   />
-                  <span className="form-help">
-                    Code folders and agent chats stay on the machine that you select.
-                  </span>
                 </div>
                 {location === 'remote' && (
                   <RemoteHostPicker
@@ -393,10 +406,6 @@ export function CreateProject({
                       onSelect={setRootPath}
                     />
                   </div>
-                  <span className="form-help">
-                    Kalkidan keeps docs, clones, and branch copies here. Leave it empty to use an
-                    automatic folder. Code folders that you add do not move.
-                  </span>
                 </div>
                 <section aria-label={board} className="grid gap-3">
                   <SectionHeader size="sm" title={`${board} (optional)`} />
@@ -413,12 +422,7 @@ export function CreateProject({
                       { value: 'connect', label: 'Connect now', disabled: busy },
                     ]}
                   />
-                  {!connecting ? (
-                    <p className="text-xs text-muted-foreground">
-                      A board shows the tasks of the project. You can connect one later from the
-                      project page.
-                    </p>
-                  ) : (
+                  {connecting && (
                     <>
                       {providers.length > 1 && (
                         <label className="form-label">
@@ -482,25 +486,17 @@ export function CreateProject({
               </CollapsibleContent>
             </Collapsible>
           </fieldset>
-          {(error || (connecting && providerError)) && (
+          {(error || (connecting && providerError) || (tried && name.trim() && blocked)) && (
             <p role="alert" className="field-error">
-              {error || providerError}
+              {error || (connecting && providerError) || blocked}
             </p>
           )}
         </DialogBody>
-        <DialogFooter className="sm:items-center">
-          <p id={reasonId} aria-live="polite" className="text-xs text-muted-foreground sm:mr-auto">
-            {recovering ? 'Resume the saved project request.' : blocked}
-          </p>
+        <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
-          <Button
-            type="submit"
-            form={formId}
-            aria-describedby={blocked ? reasonId : undefined}
-            disabled={busy || (!recovering && !!blocked)}
-          >
+          <Button type="submit" form={formId} disabled={busy}>
             {creating ? 'Creating…' : recovering ? 'Resume setup' : 'Create project'}
           </Button>
         </DialogFooter>

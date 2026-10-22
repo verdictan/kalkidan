@@ -1,4 +1,16 @@
+import { type Page } from '@playwright/test';
 import { test, expect } from './helpers/app';
+
+/** Opens Project settings from the "Project actions" menu of the project header. */
+async function openProjectSettings(page: Page) {
+  await page.locator('.project-header').getByRole('button', { name: 'Project actions' }).click();
+  await page.getByRole('menuitem', { name: 'Project settings…', exact: true }).click();
+}
+/** Refreshes the board from the board menu. */
+async function refreshBoard(page: Page) {
+  await page.getByRole('button', { name: 'Board actions', exact: true }).click();
+  await page.getByRole('menuitem', { name: /^Refresh/ }).click();
+}
 
 test('a configured non-GitHub provider drives project creation and a read-only board', async ({
   page,
@@ -90,26 +102,32 @@ test('a configured non-GitHub provider drives project creation and a read-only b
 test('project workflow mappings can be configured and reopened', async ({ page }) => {
   await page.goto('/');
   await page.locator('.project-tree').getByRole('button', { name: 'Atlas', exact: true }).click();
-  await page.getByRole('button', { name: 'Connect a GitHub Projects board', exact: true }).click();
+  await page
+    .getByRole('navigation', { name: 'Project page', exact: true })
+    .getByRole('button', { name: 'Tasks', exact: true })
+    .click();
+  await page.getByRole('button', { name: 'Connect a board', exact: true }).click();
   const connect = page.getByRole('dialog');
   await connect.getByRole('button', { name: 'Atlas roadmap #1', exact: true }).click();
   await connect.getByRole('button', { name: 'Connect board', exact: true }).click();
-  // Automatic status changes are a section of Project settings. A choice saves at once.
-  await page.getByRole('button', { name: 'Project settings', exact: true }).click();
-  const workflow = page.getByRole('dialog', { name: 'Project settings', exact: true });
-  await workflow.getByRole('tab', { name: 'Automatic status changes', exact: true }).click();
-  await expect(
-    workflow.getByRole('tab', { name: 'Automatic status changes', exact: true }),
-  ).toHaveAttribute('aria-selected', 'true');
-  await workflow.getByRole('combobox', { name: 'Status when work starts' }).click();
+  await expect(page.getByRole('region', { name: 'Tracker board', exact: true })).toBeVisible();
+  // Automatic status changes are a part of Project settings › Board. A choice saves at once.
+  await openProjectSettings(page);
+  const workflow = page.getByRole('dialog', { name: 'Project settings: Atlas', exact: true });
+  await workflow.getByRole('tab', { name: 'Board', exact: true }).click();
+  const changes = workflow.getByRole('region', { name: 'Automatic status changes' });
+  // A step with no saved status and no status of the default name does not move the task.
+  const opened = changes.getByRole('combobox', { name: 'When a pull request opens' });
+  await expect(opened).toContainText("Don't move");
+  await opened.click();
   await page.getByRole('option', { name: 'In progress', exact: true }).click();
   await expect(page.getByText('Automatic status changes saved.', { exact: true })).toBeVisible();
   await workflow.getByRole('button', { name: 'Close', exact: true }).click();
   await expect(workflow).not.toBeVisible();
   // Reopened, the section shows the saved choice.
-  await page.getByRole('button', { name: 'Project settings', exact: true }).click();
-  await workflow.getByRole('tab', { name: 'Automatic status changes', exact: true }).click();
-  await expect(workflow.getByRole('combobox', { name: 'Status when work starts' })).toContainText(
+  await openProjectSettings(page);
+  await workflow.getByRole('tab', { name: 'Board', exact: true }).click();
+  await expect(changes.getByRole('combobox', { name: 'When a pull request opens' })).toContainText(
     'In progress',
   );
 });
@@ -181,11 +199,11 @@ test('board state is scoped to each project and survives panel remounts', async 
   await page.evaluate(() => {
     (window as any).failBoard = true;
   });
-  await page.getByRole('button', { name: 'Refresh board', exact: true }).click();
+  await refreshBoard(page);
   await expect(page.getByRole('alert')).toContainText('Board unavailable');
   await page.evaluate(() => {
     (window as any).failBoard = false;
   });
-  await page.getByRole('button', { name: 'Refresh board', exact: true }).click();
+  await refreshBoard(page);
   await expect(page.getByRole('alert')).toHaveCount(0);
 });

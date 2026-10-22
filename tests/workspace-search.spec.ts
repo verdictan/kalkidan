@@ -131,9 +131,14 @@ test('search results support arrow keys, Enter, and Escape', async ({ page }) =>
   await openPalette(page);
   await expect(input).toHaveValue('');
   await input.fill('Atlas');
+  // Chats come first. Enter opens the first result, a chat of the Atlas project.
+  await expect(results.getByRole('option').first()).toHaveAccessibleName(
+    'Refine project and repository navigation',
+  );
   await input.press('Enter');
   await expect(palette(page)).toHaveCount(0);
-  await expect(page.getByRole('region', { name: 'Project tracker', exact: true })).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Chat', exact: true })).toBeVisible();
+  await expect(page.locator('.conversation-toolbar-title')).toContainText('Refine project');
 });
 
 test('an empty query shows Recent and Suggested with arrow keys', async ({ page }) => {
