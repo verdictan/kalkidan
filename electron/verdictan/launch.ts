@@ -8,6 +8,7 @@ import { BindingStore, assertCompatible, identityKey, type ConversationBinding }
 import { VerdictanSetupService } from './setup';
 import { ManagedRuntimes } from './runtime';
 import { DesktopProtocolError } from './protocol';
+import type { VerdictanRegion } from './region';
 import { assertIsolationPlatform, prepareIsolation } from './isolation';
 import { uuid } from './credentials';
 import {
@@ -87,6 +88,8 @@ const apiCredentialVariables = ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN'];
 
 /** Mandatory entry point for native launches, including Memory extraction. */
 export class VerdictanLaunchService {
+  /** The account region. A policy result keeps it, so its review link uses that Console. */
+  region?: VerdictanRegion;
   constructor(
     private store: BindingStore,
     private setup: VerdictanSetupService,
@@ -262,7 +265,11 @@ export class VerdictanLaunchService {
       started = true;
       request.signal.throwIfAborted();
       const endpoint = this.runtimes.endpoint(sessionId);
-      guard = await inferenceGuard(endpoint, binding.provider_access_mode || 'byok');
+      // The policy result of a refused request shows in the chat. Only the first one is kept.
+      guard = await inferenceGuard(endpoint, binding.provider_access_mode || 'byok', (policy) => {
+        if (observed && !observed.policy)
+          observed.policy = { ...policy, ...(this.region ? { region: this.region } : {}) };
+      });
       const home = await this.store.home(binding);
       if (binding.provider_access_mode === 'codex_subscription')
         await prepareSubscriptionAuth(home);

@@ -19,6 +19,7 @@ import { ProjectCreation } from './operations/create-project';
 import { PublishOperations, publishEffects } from './operations/publish';
 import { createHash } from 'node:crypto';
 import { RemoteSnapshotCache } from './remote-snapshot-cache';
+import { PolicyReviews } from './verdictan/policy-review';
 import { createVerdictanServices } from './verdictan/service';
 import { spawn } from 'node:child_process';
 import { appMenuTemplate } from './app-menu';
@@ -534,6 +535,17 @@ app.whenReady().then(async () => {
     if (!region) throw new DesktopProtocolError('desktop.region_required');
     await shell.openExternal(verdictanRegion(region).consoleOrigin);
   });
+  // The renderer sends a request ID and a region only. The service reads and checks the link.
+  const policyReviews = new PolicyReviews({
+    client: () => verdictan!.account.runtimeClient(),
+    region: () => verdictan!.region,
+    openExternal: (url) => shell.openExternal(url),
+  });
+  handle('verdictan-review-inspect', (id, region) => policyReviews.inspect(id, region));
+  handle('verdictan-review-open', (id, region) => policyReviews.open(id, region));
+  handle('verdictan-review-decide', (id, region, decision, reason, revision) =>
+    policyReviews.decide(id, region, decision, reason, revision),
+  );
   handle('verdictan-apply-recommended', () =>
     verdictan!.setup.applyRecommended(async (agent) =>
       (await modelOptions(agent, codexRoot)).map((model) => model.id),

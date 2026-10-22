@@ -633,3 +633,55 @@
   outline: none;
   box-shadow: var(--focus-ring);
 }
+/* The policy result of a refused or escalated request. Only the icon has a color. */
+.policy-result {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr);
+  gap: 12px;
+  margin-top: 12px;
+  padding: 12px 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xl);
+  background: var(--card);
+  color: var(--card-foreground);
+}
+.policy-result-icon {
+  width: 16px;
+  height: 16px;
+  margin-top: 2px;
+  color: var(--destructive);
+}
+.policy-result-title {
+  font-size: 13px;
+  line-height: 20px;
+  font-weight: 600;
+}
+.policy-result-body,
+.policy-result-note {
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--muted-foreground);
+}
+.policy-result-details {
+  display: grid;
+  gap: 4px;
+  font-size: 12px;
+  line-height: 16px;
+}
+.policy-result-details > div {
+  display: grid;
+  grid-template-columns: 112px minmax(0, 1fr);
+  gap: 8px;
+}
+.policy-result-details dt {
+  color: var(--muted-foreground);
+}
+.policy-result-details dd {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.policy-result-error {
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--destructive);
+}

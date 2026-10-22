@@ -104,6 +104,7 @@ export function createVerdictanServices(options: {
     options.hostId,
     options.identities,
   );
+  launch.region = region;
   const remoteBroker = new RemoteAccountBroker(setup, bindings);
   return { installer, account, managed, setup, launch, bindings, remoteBroker, region };
 }

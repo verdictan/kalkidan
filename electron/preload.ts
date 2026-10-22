@@ -32,6 +32,11 @@ const api: API = {
   verdictanReopenBrowser: () => ipcRenderer.invoke('verdictan-reopen-browser'),
   verdictanOpenConsole: () => ipcRenderer.invoke('verdictan-open-console'),
   verdictanApplyRecommended: () => ipcRenderer.invoke('verdictan-apply-recommended'),
+  verdictanReviewInspect: (id, region) =>
+    ipcRenderer.invoke('verdictan-review-inspect', id, region),
+  verdictanReviewOpen: (id, region) => ipcRenderer.invoke('verdictan-review-open', id, region),
+  verdictanReviewDecide: (id, region, decision, reason, revision) =>
+    ipcRenderer.invoke('verdictan-review-decide', id, region, decision, reason, revision),
   firstRunState: () => ipcRenderer.invoke('first-run-state'),
   setWelcomeDone: () => ipcRenderer.invoke('set-welcome-done'),
   notificationPreferences: () => ipcRenderer.invoke('notification-preferences'),

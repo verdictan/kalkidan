@@ -8,6 +8,7 @@ import {
   type ConversationContext,
   type ToolRequest,
 } from './conversation-tools';
+import { PolicyResultCard } from './policy-result';
 import { AgentActivity } from './agent-activity';
 import {
   Dialog,
@@ -1385,6 +1386,15 @@ export function Conversation({
               <LoaderCircle className="size-3.5 animate-spin" aria-hidden="true" />
               <span role="status">{activityText}</span>
             </div>
+          )}
+          {run?.policy && (
+            <PolicyResultCard
+              key={`${run.id}:${run.policy.requestId || ''}`}
+              api={api}
+              policy={run.policy}
+              busy={!!active || starting}
+              onRetry={() => void send({ allowEdits: runEdits.current })}
+            />
           )}
           {run?.status === 'stopped' && (
             <p className="chat-context-note">Response stopped. Send another message to continue.</p>
