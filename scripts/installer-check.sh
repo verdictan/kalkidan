@@ -77,9 +77,12 @@ check_architecture() {
   if command -v lipo >/dev/null; then
     archs="$(lipo -archs "$binary" 2>/dev/null)"
   else
-    archs="$(file -b "$binary")"
-    [[ "$archs" == *x86-64* ]] && archs=x86_64
-    [[ "$archs" == *aarch64* ]] && archs=arm64
+    # The e_machine field of the ELF header: 3e 00 is x86-64, b7 00 is AArch64.
+    case "$(od -An -t x1 -j 18 -N 2 "$binary" 2>/dev/null | tr -d ' \n')" in
+      3e00) archs=x86_64 ;;
+      b700) archs=arm64 ;;
+      *) archs=unknown ;;
+    esac
   fi
   if [[ " $archs " == *" $machine "* || "$archs" == "$machine" ]]; then
     pass "the app is built for this processor ($archs)"

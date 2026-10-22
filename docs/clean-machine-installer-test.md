@@ -83,6 +83,18 @@ the developer account, not a clean computer.
 
 A macOS zip built from this change (`mac.identity=null`) gives the same signature, Gatekeeper, and notarization results. A fix needs a Developer ID certificate and notarization in the release job.
 
+Linux: an AppImage built from this change in the `ci/` image, checked in a new container with an
+empty home folder, no keyring, and no D-Bus session.
+
+| Check                                           | Result                                                                                                                  |
+| ----------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| The AppImage opens without FUSE                 | Pass                                                                                                                    |
+| The app matches the processor (x86_64)          | Pass                                                                                                                    |
+| All shared libraries are present                | Pass                                                                                                                    |
+| The app starts with a new profile under Xvfb    | Pass                                                                                                                    |
+| The app starts with `--ozone-platform=headless` | **Fail**: the GPU start fails (segmentation fault). A Linux desktop has a display, so this is a limit of the test mode. |
+| First start installs the runtime                | Not shown: GitHub refused the API requests of this network (HTTP 403, request limit).                                   |
+
 ## What still needs a clean computer
 
 These checks were not run, because no clean computer or virtual machine was available:
