@@ -1,4 +1,5 @@
 import {
+  keychainRefusedCode,
   signOutDetail,
   verdictanAccountPageUrl,
   type VerdictanStatus,
@@ -28,6 +29,7 @@ import { PolicyReviews } from './verdictan/policy-review';
 import { PolicyResults } from './policy-results';
 import { remotePolicyRecords } from '../src/domain/policy-result';
 import { createVerdictanServices } from './verdictan/service';
+import { checkHostRuntimes } from './verdictan/remote-check';
 import { spawn } from 'node:child_process';
 import { appMenuTemplate } from './app-menu';
 import { parseChatActionState, type ChatActionState } from '../src/domain/chat-actions';
@@ -596,7 +598,17 @@ app.whenReady().then(async () => {
       return { state: 'unknown' };
     }
   });
-  handle('verdictan-check', () => withRegion(verdictan!.account.check()));
+  handle('verdictan-check', async () => {
+    const status = await withRegion(verdictan!.account.check());
+    // Check status also starts the runtime again on each SSH host. When this computer refused
+    // the keychain, the hosts cannot reach the account, so they wait for the next check.
+    if (status.error === keychainRefusedCode) return status;
+    const keychainHosts = await checkHostRuntimes(
+      remote.list().filter((host) => host.status === 'connected'),
+      (hostId, method, args) => remote.call(hostId, method, args),
+    );
+    return keychainHosts.length ? { ...status, keychainHosts } : status;
+  });
   handle('verdictan-authorize', (intent) => withRegion(verdictan!.account.authorize(intent)));
   handle('verdictan-cancel', () => withRegion(verdictan!.account.cancel()));
   handle('verdictan-renew', () => withRegion(verdictan!.account.renew()));

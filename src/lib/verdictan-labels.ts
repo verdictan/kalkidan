@@ -205,7 +205,8 @@ export function accountNames(status: VerdictanStatus | undefined) {
 
 /** Plain words for desktop.* account error codes. */
 const accountErrors: Record<string, string> = {
-  'desktop.secure_storage_unavailable': 'Unlock your system keyring, then try again.',
+  'desktop.secure_storage_unavailable':
+    'Kalkidan did not get access to the system keychain. Select Check status, then allow access.',
   'desktop.browser_failed': 'The browser did not open. Select Sign in again.',
   'desktop.region_mismatch':
     'The saved account is in a different region. Sign out before you change the region.',
