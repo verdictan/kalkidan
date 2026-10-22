@@ -195,3 +195,26 @@ test('a runtime without the multi mode starts one process for each chat', async 
   assert.equal(f.process.launches.length, 1);
   assert.equal(f.gateways[1].options.instance, undefined);
 });
+
+test('a supervisor crash attaches each instance again, and a second crash stops the chats', async () => {
+  const f = fixture();
+  const a = f.chat(agentA, 'gw-a');
+  await f.runtimes.start(a, agent, async () => {});
+  f.process.children[0].emit('close');
+  // A new process attaches the instance again with a new export. The chat keeps its address.
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.equal(f.process.launches.length, 2);
+  assert.equal(
+    f.process.children[1].requests.filter((r: any) => r.operation === 'gateway.attach').length,
+    1,
+  );
+  assert.equal(f.gateways[0].lost, undefined);
+  assert.equal(f.instances.size(), 1);
+  // A second crash in one minute stops the chats. Check status allows a new start.
+  f.process.children[1].emit('close');
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.equal(f.gateways[0].lost, 'stopped');
+  assert.equal(f.instances.supervisor.failed, true);
+  f.runtimes.resetSupervisor();
+  assert.equal(f.instances.supervisor.failed, false);
+});
