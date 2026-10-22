@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Lock, SquarePen } from 'lucide-react';
+import { GitFork, Lock, SquarePen } from 'lucide-react';
 import type { API } from '../api/contracts';
 import type { Session } from '../domain/conversation';
 import {
@@ -36,15 +36,18 @@ export function useConversationOwnership(api: API, session: Session, open: boole
 
 /**
  * Says why a chat is read-only: another account or organization owns it, or its agent is gone.
- * It offers a new conversation under the active account. Nothing of this chat moves to the new
- * one.
+ * It offers a new conversation under the active account, and a fork. Nothing of this chat moves
+ * to the new conversation. A fork continues from the history of this chat with the current
+ * agent of the computer. When the agent of the chat is gone, Fork is the main action.
  */
 export function ReadOnlyConversation({
   ownership,
   onStartNew,
+  onFork,
 }: {
   ownership: ConversationOwnership;
   onStartNew?: () => void;
+  onFork?: () => void;
 }) {
   if (!isReadOnly(ownership)) return null;
   return (
@@ -57,6 +60,15 @@ export function ReadOnlyConversation({
       {onStartNew && (
         <Button size="sm" variant="outline" onClick={onStartNew}>
           <SquarePen /> Start a new conversation
+        </Button>
+      )}
+      {onFork && (
+        <Button
+          size="sm"
+          variant={ownership.state === 'agent_unavailable' ? 'default' : 'outline'}
+          onClick={onFork}
+        >
+          <GitFork /> Fork chat
         </Button>
       )}
     </div>

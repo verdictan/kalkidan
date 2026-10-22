@@ -14,7 +14,7 @@ async function menuActions(page: Page) {
 }
 
 const title = 'Refine project and repository navigation';
-// The row menu shows nine items in two levels. The demo project has no board, so "Link task"
+// The row menu shows ten items in two levels. The demo project has no board, so "Link task"
 // does not show. Commit and the pull request are in the changes row of the chat, not here.
 const rowActions = [
   'open',
@@ -24,6 +24,7 @@ const rowActions = [
   'notes',
   '---',
   'duplicate',
+  'fork',
   'open-in',
   '---',
   'export',

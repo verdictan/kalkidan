@@ -52,6 +52,12 @@ import { DocPagePicker } from './doc-page-picker';
 export function dispatchApp(name: string, detail: Record<string, unknown>) {
   window.dispatchEvent(new CustomEvent(name, { detail }));
 }
+/**
+ * Opens the fork dialog of a saved chat. The app shell listens for it. Every surface uses it:
+ * the chat menus, the read-only notice, and other views that offer Fork.
+ */
+export const forkChat = (session: { agent: string; id: string }) =>
+  dispatchApp('kalkidan-fork-chat', { agent: session.agent, id: session.id });
 /** Opens Settings. `anchor` is the element that gets focus, for example one setup step. */
 export const openSettings = (section?: string, anchor?: string) =>
   dispatchApp('kalkidan-open-settings', {

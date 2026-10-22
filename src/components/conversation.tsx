@@ -75,6 +75,7 @@ import {
   TaskChip,
   TaskLinkDialog,
   dispatchApp,
+  forkChat,
   openExternal,
   openTask,
   startSignIn,
@@ -912,7 +913,7 @@ export function Conversation({
           await crypto.subtle.digest(
             'SHA-256',
             new TextEncoder().encode(
-              JSON.stringify([text, edits, model, taskId, session.forkFrom]),
+              JSON.stringify([text, edits, model, taskId, session.forkFrom, session.forkOf]),
             ),
           ),
         ),
@@ -927,6 +928,7 @@ export function Conversation({
           ? await api.chatCreate(session.projectId, session.agent, text, edits, {
               operationId,
               forkFrom: session.forkFrom,
+              ...(session.forkOf ? { forkOf: session.forkOf, forkUntil: session.forkUntil } : {}),
               model: chosenModel(modelOptions, model) || undefined,
               taskId: taskId || undefined,
             })
@@ -1756,7 +1758,13 @@ export function Conversation({
                 {taskNotice}
               </p>
             )}
-            {readOnly && <ReadOnlyConversation ownership={ownership} onStartNew={onStartNew} />}
+            {readOnly && (
+              <ReadOnlyConversation
+                ownership={ownership}
+                onStartNew={onStartNew}
+                onFork={() => forkChat(session)}
+              />
+            )}
             {errorInfo && (
               <Alert variant="destructive" size="sm" className="max-h-32 overflow-auto">
                 <AlertDescription className="grid gap-1 text-xs whitespace-pre-wrap">

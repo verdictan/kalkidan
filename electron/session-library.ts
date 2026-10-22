@@ -1,7 +1,9 @@
 import { readFile } from 'node:fs/promises';
 import { writeJSON } from './storage/atomic-json';
 import type { Agent, Session, SessionOrganization } from '../src/types';
+import type { ChatLink } from '../src/domain/chat-fork';
 import type { ChatOutcomes } from './chat-outcomes';
+import { chatLink, forkLinkLimit } from '../src/domain/chat-fork';
 
 export function validateOrganization(value: unknown): SessionOrganization {
   if (!value || typeof value !== 'object' || Array.isArray(value))
@@ -20,6 +22,17 @@ export function validateOrganization(value: unknown): SessionOrganization {
       if (typeof input[key] !== 'boolean') throw new Error(`Invalid session ${key}`);
       result[key] = input[key];
     }
+  }
+  if (input.forkedFrom !== undefined) {
+    const link = chatLink(input.forkedFrom);
+    if (!link) throw new Error('Invalid session forkedFrom');
+    result.forkedFrom = link;
+  }
+  if (input.forks !== undefined) {
+    const links = Array.isArray(input.forks) ? input.forks.map(chatLink) : [];
+    if (!Array.isArray(input.forks) || input.forks.length > forkLinkLimit || !links.every(Boolean))
+      throw new Error('Invalid session forks');
+    result.forks = links as ChatLink[];
   }
   return result;
 }

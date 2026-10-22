@@ -54,6 +54,12 @@ import { isAgent } from '../src/config/agents';
 import { createProjectPrompt } from './projects/prompt';
 import { listMentionFiles, readMentionFile } from './projects/mention-files';
 import { providerSessionId, sessionHostMethods } from '../src/domain/host';
+import {
+  chatLink,
+  forkHistoryRoom,
+  historyUntil,
+  packageForkHistory,
+} from '../src/domain/chat-fork';
 import { writeJSON } from './storage/atomic-json';
 import { runtimeConfig } from './config/runtime';
 import { TrackerRegistry } from './trackers/registry';
@@ -134,7 +140,7 @@ import { listRepositories, cloneRepository, repositoryName } from './repositorie
 import { GitHubAuth } from './github-auth';
 import { GitHubProjects } from './github-projects';
 import { modelOptions } from './models';
-import type { ChatOptions } from '../src/types';
+import type { ChatOptions, Transcript } from '../src/types';
 import { createAgentRuntimes } from './agents/runtime';
 app.setName('Kalkidan');
 const dataRoot = dataDirectory(
@@ -1304,7 +1310,10 @@ app.whenReady().then(async () => {
     if (method === 'chatCreate') {
       taskCwd = args[0];
       args[5] = await memoryContext(args[0], args[2], hostId);
-      args[2] = await projectPrompt(args[0], args[2], args[4], hostId, args[5]?.read);
+      const history = await forkHistory(args[4], args[2]);
+      args[2] = await projectPrompt(args[0], args[2], args[4], hostId, args[5]?.read, history);
+      // The host needs only the prompt. The source of the fork stays on this computer.
+      if (args[4]?.forkOf) args[4] = { ...args[4], forkOf: undefined, forkUntil: undefined };
     }
     if (method === 'chatStart') {
       const h = await remote.call(hostId, 'snapshot', []);
@@ -1623,6 +1632,23 @@ app.whenReady().then(async () => {
     );
   }
   /** The messages of a chat for a mention. Only chats in the project folders are read. */
+  /**
+   * The history of the source chat of a fork, as one context block. Empty when the options do
+   * not fork a chat. The source can be on this computer or on an SSH host.
+   */
+  async function forkHistory(options: ChatOptions | undefined, prompt: unknown) {
+    if (options?.forkOf === undefined) return '';
+    const source = chatLink(options.forkOf);
+    if (!source) throw new Error('Invalid fork source');
+    const [hostId, providerId] = source.id.includes('::') ? source.id.split('::') : [];
+    const transcript: Transcript = hostId
+      ? await remote.call(hostId, 'transcript', [source.agent, providerId])
+      : await sessionTranscript(source.agent, source.id);
+    const until = typeof options.forkUntil === 'string' ? options.forkUntil : undefined;
+    const room = forkHistoryRoom(typeof prompt === 'string' ? prompt.length : 0);
+    const messages = historyUntil(transcript.messages, until);
+    return packageForkHistory(source, messages, transcript.truncated, room).text;
+  }
   async function projectChatMessages(group: ProjectGroup, agent: string, id: string) {
     if (!isAgent(agent)) throw new Error('Invalid session');
     if (group.hostId) {
@@ -1846,7 +1872,14 @@ app.whenReady().then(async () => {
               organization: options?.taskId ? { taskId: options.taskId } : undefined,
               updatedAt: new Date().toISOString(),
             },
-            await projectPrompt(p.path, prompt, options, undefined, context?.read),
+            await projectPrompt(
+              p.path,
+              prompt,
+              options,
+              undefined,
+              context?.read,
+              await forkHistory(options, prompt),
+            ),
             allowEdits,
             true,
             options?.model,

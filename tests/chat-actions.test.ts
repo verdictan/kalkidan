@@ -47,7 +47,7 @@ test('the actions keep the fixed groups and order', () => {
   assert.deepEqual(ids({ ...ready, open: true }, 'menu-bar'), [
     ['open', ['open-beside', 'open-window']],
     ['organize', ['rename', 'pin', 'link-task', 'notes']],
-    ['work', ['commit', 'create-pull-request', 'duplicate', 'show-folder']],
+    ['work', ['commit', 'create-pull-request', 'duplicate', 'fork', 'show-folder']],
     ['share', ['share', 'copy-markdown', 'usage-history']],
     ['developer', ['developer']],
     ['archive', ['archive']],
@@ -66,11 +66,11 @@ test('the actions keep the fixed groups and order', () => {
   assert.deepEqual(children('developer'), ['copy-id', 'copy-path', 'open-vscode', 'open-cursor']);
 });
 
-test('the chat menus show nine items in two levels', () => {
+test('the chat menus show ten items in two levels', () => {
   assert.deepEqual(ids(ready), [
     ['open', ['open']],
     ['organize', ['rename', 'pin', 'link-task', 'notes']],
-    ['work', ['duplicate', 'open-in']],
+    ['work', ['duplicate', 'fork', 'open-in']],
     ['share', ['export', 'usage-history']],
     ['archive', ['archive']],
   ]);

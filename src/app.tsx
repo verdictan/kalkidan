@@ -48,6 +48,9 @@ import {
   savePreferredAgent,
 } from './lib/agent-preference';
 import { trackerConnection } from './domain/tracker';
+import { addForkLink, forkDraft } from './domain/chat-fork';
+import { ForkChatDialog, type ForkChoice } from './components/fork-chat-dialog';
+import { sessionTitle } from './components/session-actions';
 import {
   settingsAnchors,
   settingsPlace,
@@ -424,6 +427,8 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
   const [repoGroup, setRepoGroup] = useState('');
   const [revision, setRevision] = useState(0);
   const [drafts, setDrafts] = useState<Session[]>([]);
+  // The chat of the open fork dialog.
+  const [forkSource, setForkSource] = useState<Session | null>(null);
   const [chatSession, setChatSession] = useState<Session | null>(null);
   // Effects read the open chat through these refs.
   const chatSessionRef = useRef(chatSession);
@@ -661,6 +666,7 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
       ['kalkidan-open-task', (event) => routeEvents.current.openTask(detailOf(event))],
       ['kalkidan-open-project-page', (event) => routeEvents.current.openPage(detailOf(event))],
       ['kalkidan-open-session', (event) => routeEvents.current.openSession(detailOf(event))],
+      ['kalkidan-fork-chat', (event) => routeEvents.current.forkSession(detailOf(event))],
       ['kalkidan-new-session', (event) => void routeEvents.current.newSession(detailOf(event))],
       ['kalkidan-doc-selected', (event) => routeEvents.current.docSelected(detailOf(event))],
     ];
@@ -1127,6 +1133,7 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
     openTask: (_: Record<string, unknown>) => {},
     openPage: (_: Record<string, unknown>) => {},
     openSession: (_: Record<string, unknown>) => {},
+    forkSession: (_: Record<string, unknown>) => {},
     newSession: async (_: Record<string, unknown>) => {},
     docSelected: (_: Record<string, unknown>) => {},
     openComputers: (_: Record<string, unknown>) => {},
@@ -1171,6 +1178,14 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
         )?.session ||
         [...drafts, ...data.sessions].find((s) => s.agent === detail.agent && s.id === detail.id);
       if (session) openConversation(session);
+      else setError('This chat is no longer available.');
+    },
+    forkSession: (detail) => {
+      const session =
+        openChats.find(
+          (chat) => chat.session.agent === detail.agent && chat.session.id === detail.id,
+        )?.session || data.sessions.find((s) => s.agent === detail.agent && s.id === detail.id);
+      if (session && !session.id.startsWith('draft-')) setForkSource(session);
       else setError('This chat is no longer available.');
     },
     newSession: async (detail) => {
@@ -1342,6 +1357,48 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
     setDrafts((previous) => [...previous, draft]);
     openConversation(draft);
     return draft;
+  }
+  /**
+   * Opens a new chat that forks a chat. The first message gives the history of the source to
+   * the agent as context. The draft keeps the link to the source.
+   */
+  function forkSession(source: Session, choice: ForkChoice) {
+    const { agent, folder } = choice;
+    if (!folder.hostId && !agentInstalled(agent)) {
+      agentMissing(agent, (other) => forkSession(source, { ...choice, agent: other }));
+      return;
+    }
+    setForkSource(null);
+    const draft = forkDraft(
+      { agent: source.agent, id: source.id, title: sessionTitle(source) },
+      agent,
+      folder,
+      'draft-' + crypto.randomUUID(),
+      new Date(),
+      choice.lastMessageId,
+    );
+    setDrafts((previous) => [...previous, draft]);
+    openConversation(draft);
+  }
+  /** Adds a new fork to the "Forked to" links of its source chat. */
+  async function linkFork(draft: Session, id: string) {
+    const source = draft.forkOf;
+    if (!source) return;
+    const current = data.sessions.find((s) => s.agent === source.agent && s.id === source.id);
+    try {
+      await api.updateSession(source.agent, source.id, {
+        forks: addForkLink(current?.organization?.forks, {
+          agent: draft.agent,
+          id,
+          title: draft.organization?.title || draft.title,
+        }),
+      });
+      await refresh();
+    } catch (e) {
+      setError(
+        'The fork is saved, but its link in the source chat could not be saved: ' + errorText(e),
+      );
+    }
   }
   /** Tells the user that an agent is not installed, and offers the other agent. */
   function agentMissing(agent: Agent, retry: (agent: Agent) => void) {
@@ -2829,6 +2886,7 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
                     navigate((current) => resolveRouteSession(current, draft, draft));
                   }}
                   onCreated={(draft, id, title) => {
+                    void linkFork(draft, id);
                     navigation.replace((route) =>
                       resolveRouteSession(route, draft, { ...draft, id, title }),
                     );
@@ -2923,6 +2981,15 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
           }}
         />
       )}
+      <ForkChatDialog
+        api={api}
+        session={forkSource}
+        projects={data.projects}
+        groups={data.groups || []}
+        hosts={data.hosts || []}
+        onOpenChange={(open) => !open && setForkSource(null)}
+        onFork={(choice) => forkSource && forkSession(forkSource, choice)}
+      />
       <CreateProject
         api={api}
         open={createOpen}

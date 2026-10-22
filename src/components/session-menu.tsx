@@ -1,3 +1,4 @@
+import { forkChat } from './chat-links';
 import { useEffect, useId, useRef, useState } from 'react';
 import { LoaderCircle, ExternalLink, GitPullRequest } from 'lucide-react';
 import type { API, ProjectGroup, Session, SessionOrganization, TrackerItem } from '../types';
@@ -211,6 +212,7 @@ export function SessionMenu({
     notes: () => setDialog('notes'),
     'duplicate-here': () => void perform(() => branch(true)),
     'duplicate-branch': duplicateOnBranch,
+    fork: () => forkChat(session),
     'show-folder': () => action('finder'),
     'export-markdown': () => action('markdown'),
     'export-html': () => action('html'),
