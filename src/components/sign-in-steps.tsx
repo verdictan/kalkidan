@@ -14,7 +14,7 @@ import {
 } from 'lucide-react';
 import type { API } from '../api/contracts';
 import type { AgentInstallation } from '../types';
-import type { VerdictanSetup, VerdictanStatus } from '../domain/verdictan';
+import type { VerdictanAccountPage, VerdictanSetup, VerdictanStatus } from '../domain/verdictan';
 import {
   isSubscriptionMode,
   kalkidanAgentLabel,
@@ -383,6 +383,7 @@ export function SignInSteps({
   if (view === 'waiting')
     return (
       <WaitingView
+        api={api}
         mode={mode}
         status={status}
         region={status?.region || region}
@@ -416,7 +417,7 @@ export function SignInSteps({
       },
       cancel: () => setView('start'),
     });
-    return <ErrorView mode={mode} copy={copy} />;
+    return <ErrorView api={api} mode={mode} copy={copy} />;
   }
 
   if (view === 'setup')
@@ -522,6 +523,7 @@ export function SignInSteps({
         </div>
       )}
       {mode === 'dialog' && <p className="sign-in-note">Kalkidan never sees your password.</p>}
+      <AccountHelp api={api} />
     </Screen>
   );
 }
@@ -620,6 +622,7 @@ function RegionView({
 }
 
 function WaitingView({
+  api,
   mode,
   status,
   region,
@@ -630,6 +633,7 @@ function WaitingView({
   onCancel,
   onChangeRegion,
 }: {
+  api: API;
   mode: 'window' | 'dialog';
   status?: VerdictanStatus;
   region?: Region;
@@ -682,11 +686,12 @@ function WaitingView({
           </button>
         </span>
       </p>
+      <AccountHelp api={api} />
     </Screen>
   );
 }
 
-function ErrorView({ mode, copy }: { mode: 'window' | 'dialog'; copy: ErrorCopy }) {
+function ErrorView({ api, mode, copy }: { api: API; mode: 'window' | 'dialog'; copy: ErrorCopy }) {
   return (
     <Screen mode={mode} className="sign-in-error">
       <span className="sign-in-icon" data-tone="warning" aria-hidden="true">
@@ -704,7 +709,38 @@ function ErrorView({ mode, copy }: { mode: 'window' | 'dialog'; copy: ErrorCopy 
           </Button>
         )}
       </div>
+      <AccountHelp api={api} />
     </Screen>
+  );
+}
+
+/**
+ * Help for an account that cannot finish the sign-in: a new verification email, or account
+ * recovery. The Verdictan console does the work in the browser. Kalkidan never sees a password.
+ */
+function AccountHelp({ api }: { api: API }) {
+  if (typeof api.verdictanOpenAccountPage !== 'function') return null;
+  const open = (page: VerdictanAccountPage) =>
+    void api.verdictanOpenAccountPage(page).then(
+      () => showToast('Kalkidan opened your browser. Continue there.'),
+      () =>
+        showToast({
+          message: 'The browser did not open. Choose a region, then try again.',
+          tone: 'error',
+        }),
+    );
+  return (
+    <p className="sign-in-note sign-in-help" role="group" aria-label="Account help">
+      <span>Did not get the verification email?</span>{' '}
+      <button type="button" className="text-link" onClick={() => open('verify')}>
+        Send it again
+      </button>
+      <span aria-hidden="true"> · </span>
+      <span>Cannot sign in?</span>{' '}
+      <button type="button" className="text-link" onClick={() => open('recover')}>
+        Recover your account
+      </button>
+    </p>
   );
 }
 
@@ -732,8 +768,8 @@ function errorCopy(
   if (code === 'desktop.authorization_timeout' || code === 'desktop.request_timeout')
     return {
       title: 'The sign-in did not finish',
-      body: 'Kalkidan waited 5 minutes. Nothing changed on your account.',
-      primary: retry,
+      body: 'The sign-in link expired after 5 minutes. Nothing changed on your account. Start the sign-in again to get a new link.',
+      primary: { label: 'Start again', run: context.retry },
     };
   if (code === 'desktop.browser_failed')
     return {

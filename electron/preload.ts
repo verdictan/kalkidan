@@ -31,6 +31,7 @@ const api: API = {
   verdictanLogout: () => ipcRenderer.invoke('verdictan-logout'),
   verdictanReopenBrowser: () => ipcRenderer.invoke('verdictan-reopen-browser'),
   verdictanOpenConsole: () => ipcRenderer.invoke('verdictan-open-console'),
+  verdictanOpenAccountPage: (page) => ipcRenderer.invoke('verdictan-open-account-page', page),
   verdictanApplyRecommended: () => ipcRenderer.invoke('verdictan-apply-recommended'),
   firstRunState: () => ipcRenderer.invoke('first-run-state'),
   setWelcomeDone: () => ipcRenderer.invoke('set-welcome-done'),
@@ -156,6 +157,7 @@ const api: API = {
   chatCreate: (projectId, agent, prompt, allowEdits, options) =>
     ipcRenderer.invoke('chat-create', projectId, agent, prompt, allowEdits, options),
   transcript: (agent, id) => ipcRenderer.invoke('transcript', agent, id),
+  conversationOwnership: (agent, id) => ipcRenderer.invoke('conversation-ownership', agent, id),
   chatStart: (agent, id, prompt, allowEdits, options) =>
     ipcRenderer.invoke('chat-start', agent, id, prompt, allowEdits, options),
   chatStatus: (id) => ipcRenderer.invoke('chat-status', id),

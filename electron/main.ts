@@ -1,4 +1,8 @@
-import { signOutDetail, type VerdictanStatus } from '../src/domain/verdictan';
+import {
+  signOutDetail,
+  verdictanAccountPageUrl,
+  type VerdictanStatus,
+} from '../src/domain/verdictan';
 import { identityKey } from './verdictan/bindings';
 import {
   savedVerdictanRegion,
@@ -13,6 +17,7 @@ import { DesktopProtocolError } from './verdictan/protocol';
 import { ParallelDispatch } from './operations/parallel-dispatch';
 import { TaskExecutions } from './operations/task-execution';
 import { trackerConnection } from '../src/domain/tracker';
+import { conversationOwnership } from '../src/domain/conversation-ownership';
 import { WorktreeCreation } from './operations/worktree';
 import { AgentStarts } from './operations/agent-start';
 import { ProjectCreation } from './operations/create-project';
@@ -524,6 +529,17 @@ app.whenReady().then(async () => {
     ...(await status),
     region: verdictan!.region,
   });
+  // The renderer sends only the chat. The binding and the account stay in the main process.
+  handle('conversation-ownership', async (agent: unknown, sessionId: unknown) => {
+    const kind = agent === 'codex' ? 'codex' : agent === 'claude' ? 'claude_code' : '';
+    if (!kind || typeof sessionId !== 'string' || !sessionId) return { state: 'unmanaged' };
+    const status = verdictan!.account.status();
+    const account = status.phase === 'authenticated' ? status.account : undefined;
+    return conversationOwnership({
+      binding: await verdictan!.bindings.read(kind, sessionId),
+      account,
+    });
+  });
   handle('verdictan-check', () => withRegion(verdictan!.account.check()));
   handle('verdictan-authorize', (intent) => withRegion(verdictan!.account.authorize(intent)));
   handle('verdictan-cancel', () => withRegion(verdictan!.account.cancel()));
@@ -533,6 +549,11 @@ app.whenReady().then(async () => {
     const region = verdictan!.region;
     if (!region) throw new DesktopProtocolError('desktop.region_required');
     await shell.openExternal(verdictanRegion(region).consoleOrigin);
+  });
+  handle('verdictan-open-account-page', async (page: unknown) => {
+    const region = verdictan!.region;
+    if (!region) throw new DesktopProtocolError('desktop.region_required');
+    await shell.openExternal(verdictanAccountPageUrl(verdictanRegion(region).consoleOrigin, page));
   });
   handle('verdictan-apply-recommended', () =>
     verdictan!.setup.applyRecommended(async (agent) =>

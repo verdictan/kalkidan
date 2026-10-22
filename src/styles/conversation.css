@@ -401,6 +401,18 @@
   font-size: 12px;
   line-height: 16px;
 }
+/* "This conversation belongs to another organization. It is read-only." and a new conversation. */
+.chat-read-only {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 6px 6px 10px;
+  border: 1px solid color-mix(in oklab, var(--warning) 45%, var(--border));
+  border-radius: var(--radius-xl);
+  background: var(--card);
+  color: var(--foreground);
+  line-height: 16px;
+}
 /* "3 files changed · Review · Create pull request · Mark done" after a run. */
 .run-changes {
   display: flex;
