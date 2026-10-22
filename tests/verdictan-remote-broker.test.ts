@@ -113,8 +113,17 @@ test('SSH renewal requires stopped gateway and revocation drops ownership', asyn
     f.broker.request('host', 'runtime.renew', { runtime_id: id }),
     /gateway_must_stop/,
   );
+  await assert.rejects(
+    f.broker.request('host', 'runtime.renew', { runtime_id: id, renewal: 'restart' } as any),
+    /gateway_must_stop/,
+  );
   await f.broker.request('host', 'runtime.renew', { runtime_id: id, gateway_stopped: true });
-  assert.equal(f.calls.filter((c) => c.operation === 'runtime.renew').length, 1);
+  // A runtime in a shared gateway renews in place. The desktop forwards only that value.
+  await f.broker.request('host', 'runtime.renew', { runtime_id: id, renewal: 'in_place' });
+  const renewals = f.calls.filter((c) => c.operation === 'runtime.renew');
+  assert.equal(renewals.length, 2);
+  assert.deepEqual(renewals[0].parameters, { runtime_id: id, gateway_stopped: true });
+  assert.deepEqual(renewals[1].parameters, { runtime_id: id, renewal: 'in_place' });
   await f.broker.request('host', 'runtime.revoke', { runtime_id: id });
   await assert.rejects(
     f.broker.request('host', 'runtime.export', { runtime_id: id }),

@@ -54,6 +54,8 @@ interface RuntimeOptions {
   instances?: GatewayInstances;
   /** True when the runtime advertises `gateway.supervise.multi`. */
   multi?(): boolean;
+  /** True when the runtime advertises `runtime.renew.in_place`. */
+  inPlaceRenewal?(): boolean;
 }
 /** One backend owner serializes credential mutations. Failed rotation is never retried. */
 export class ManagedRuntimes {
@@ -323,9 +325,13 @@ export class ManagedRuntimes {
   }
   private async renewShared(item: OwnedRuntime) {
     const client = await this.options.client();
-    // The runtime asks for this confirmation. In a shared gateway, only the credential changes.
+    // In a shared gateway, only the credential changes. Older runtimes ask for the stop
+    // confirmation instead. They have no shared gateway, so this is only for safety.
     const data = (
-      await client.request('runtime.renew', { runtime_id: item.runtimeId, gateway_stopped: true })
+      await client.request('runtime.renew', {
+        runtime_id: item.runtimeId,
+        ...(this.options.inPlaceRenewal?.() ? { renewal: 'in_place' } : { gateway_stopped: true }),
+      })
     ).data;
     if (data.runtime_id !== item.runtimeId || data.generation !== item.credentialGeneration! + 1)
       throw new DesktopProtocolError('desktop.runtime_binding_mismatch');

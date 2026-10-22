@@ -125,6 +125,8 @@ export function createVerdictanServices(options: {
       supervisor: { executable: () => installer.executable(), eventDirectory },
     }),
     multi: () => !!account.status().capabilities?.capabilities.includes(multiGatewayCapability),
+    inPlaceRenewal: () =>
+      !!account.status().capabilities?.capabilities.includes('runtime.renew.in_place'),
     changed: options.changed,
     // The account session of this device was revoked. Remove the local session at once.
     revoked: (reason) => {

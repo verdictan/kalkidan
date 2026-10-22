@@ -13,7 +13,7 @@ const apiOrigin = 'https://api.eu.verdictan.com';
 const agent = { kind: 'codex' as const, version: '0.163.0-alpha.10.2' };
 const tick = (ms = 20) => new Promise((resolve) => setTimeout(resolve, ms));
 
-function fixture({ supported = true, idleMs = 0 } = {}) {
+function fixture({ supported = true, idleMs = 0, inPlace = true } = {}) {
   const ports: Record<string, number> = { 'gw-a': 47011, 'gw-b': 47012 };
   const requests: { operation: string; parameters: any }[] = [];
   const provisioned = new Map<string, RuntimeProvision & { generation: number }>();
@@ -81,6 +81,7 @@ function fixture({ supported = true, idleMs = 0 } = {}) {
     executable: async () => '/verdictan',
     instances,
     multi: () => true,
+    inPlaceRenewal: () => inPlace,
     gateway: (options) => {
       const gateway: any = {
         options,
@@ -184,6 +185,10 @@ test('a renewal is in place: the coding agent continues', async () => {
     stops.push(code);
   });
   await f.runtimes.renew(a.session_id);
+  const renewals = () =>
+    f.requests.filter((r) => r.operation === 'runtime.renew').map((r) => r.parameters);
+  assert.equal(renewals()[0].renewal, 'in_place');
+  assert.equal('gateway_stopped' in renewals()[0], false);
   assert.equal(f.sent('credential.renew').length, 1);
   assert.equal(f.process.children[0].frames.at(-1).generation, 2);
   assert.equal(f.gateways[0].credentials.generation, 2);
@@ -247,4 +252,14 @@ test('a restore on a new port stops the coding agents, and the next turn continu
   assert.equal(f.sent('runtime.attach', 1).length, 1);
   await f.runtimes.stopAll();
   assert.equal(f.instances.size(), 0);
+});
+
+test('a runtime without in-place renewal still confirms the stop', async () => {
+  const f = fixture({ inPlace: false });
+  const a = f.chat(agentA, 'gw-a');
+  await f.runtimes.start(a, agent, async () => {});
+  await f.runtimes.renew(a.session_id);
+  const renewal = f.requests.find((r) => r.operation === 'runtime.renew')!.parameters;
+  assert.equal(renewal.gateway_stopped, true);
+  assert.equal('renewal' in renewal, false);
 });
