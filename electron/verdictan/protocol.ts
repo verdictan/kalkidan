@@ -329,10 +329,17 @@ export class DesktopProtocol {
     const credentials = new Promise<RuntimeCredentials>((resolve, reject) => {
       this.secret = { runtimeId, resolve, reject };
     });
-    const timer = setTimeout(() => this.close('desktop.credential_export_timeout'), 5000);
+    const expire = (ms: number) =>
+      setTimeout(() => this.close('desktop.credential_export_timeout'), ms);
+    let timer = expire(5000);
     try {
       const [event, frame] = await Promise.all([
-        this.request('runtime.export', { runtime_id: runtimeId }),
+        // A keychain prompt can hold the export. Wait for the person to answer it.
+        this.request('runtime.export', { runtime_id: runtimeId }, (progress) => {
+          if (progress.event !== secureStorageWaitingEvent) return;
+          clearTimeout(timer);
+          timer = expire(secureStorageTimeoutMs);
+        }),
         credentials,
       ]);
       if (
