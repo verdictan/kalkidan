@@ -19,6 +19,8 @@ export class RemoteAccountBroker {
   constructor(
     private setup: VerdictanSetupService,
     private bindings: BindingStore,
+    /** The visible name of a host for its gateway names, when the runtime accepts it. */
+    private hostName: (host: string) => string | undefined = () => undefined,
   ) {}
   reset() {
     this.epoch++;
@@ -89,6 +91,8 @@ export class RemoteAccountBroker {
             installation_id: identity.installationId,
             host_id: identity.hostId,
             team_id: p.team_id,
+            // The desktop sends the name that the user gave the host. The host cannot set it.
+            ...(this.hostName(host) ? { host_name: this.hostName(host) } : {}),
             ...(agentId !== undefined
               ? { agent_id: agentId }
               : fallback

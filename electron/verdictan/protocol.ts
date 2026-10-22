@@ -62,6 +62,8 @@ export interface DesktopParameters {
         installation_id: string;
         host_id: string;
         team_id: string;
+        /** The visible name of the computer. Only with `resources.provision.host_name`. */
+        host_name?: string;
         /** Both or neither. Without them, Verdictan uses the default Kalkidan configuration. */
         configuration_id?: string;
         configuration_version_id?: string;

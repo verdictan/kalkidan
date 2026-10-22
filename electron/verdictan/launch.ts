@@ -96,6 +96,8 @@ const apiCredentialVariables = ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN'];
 export class VerdictanLaunchService {
   /** The account region. A policy result keeps it, so its review link uses that Console. */
   region?: VerdictanRegion;
+  /** The visible name of this computer, when the runtime accepts it. See `host-name.ts`. */
+  hostName?: () => string | undefined;
   constructor(
     private store: BindingStore,
     private setup: VerdictanSetupService,
@@ -195,7 +197,23 @@ export class VerdictanLaunchService {
               configuration_version_id: selection.configurationVersionId,
             }),
     };
-    const resources = (await client.request('resources.provision', { parameters })).data;
+    const hostName = this.hostName?.();
+    const resources = (
+      await client
+        .request('resources.provision', {
+          parameters: { ...parameters, ...(hostName ? { host_name: hostName } : {}) },
+        })
+        .catch((error) => {
+          // A new chat uses the agent of this computer. The user changes that agent.
+          if (
+            !resume &&
+            error instanceof DesktopProtocolError &&
+            error.code === 'desktop.agent_unavailable'
+          )
+            throw new DesktopProtocolError('desktop.setup_agent_unavailable');
+          throw error;
+        })
+    ).data;
     if (
       !['created', 'existing'].includes(String(resources.status)) ||
       !uuid(resources.agent_id) ||

@@ -18,6 +18,7 @@ import {
 import { RuntimeInstaller } from './install';
 import { probeRuntime } from './runtime-probe';
 import { proxyConfigured, withReleaseErrors } from './network';
+import { hostDisplayName, hostNameCapability } from './host-name';
 
 export function createVerdictanServices(options: {
   root: string;
@@ -31,6 +32,11 @@ export function createVerdictanServices(options: {
   /** On an SSH host: the saved choices that the desktop sends. See `VerdictanChoices`. */
   selections?: () => Promise<unknown>;
   identities?: () => Promise<{ installationId: string; hostId: string }>;
+  /**
+   * The visible name of a computer: 'local' or an SSH host ID. Verdictan names each gateway
+   * "<computer name> · <agent name>". Only the desktop has it.
+   */
+  hostName?: (hostId: string) => string | undefined;
   /**
    * The fetch for release discovery and downloads. The desktop uses the Chromium network stack,
    * which uses the system proxy and certificate settings. An SSH host uses Node.js fetch.
@@ -122,6 +128,11 @@ export function createVerdictanServices(options: {
     apiOrigin,
     options.selections,
   );
+  // The name goes only to a runtime that accepts it. An older runtime refuses unknown fields.
+  const hostName = (hostId: string) =>
+    account.status().capabilities?.capabilities.includes(hostNameCapability)
+      ? hostDisplayName(options.hostName?.(hostId))
+      : undefined;
   const launch = new VerdictanLaunchService(
     bindings,
     setup,
@@ -130,6 +141,7 @@ export function createVerdictanServices(options: {
     options.identities,
   );
   launch.region = region;
-  const remoteBroker = new RemoteAccountBroker(setup, bindings);
+  launch.hostName = () => hostName(options.hostId);
+  const remoteBroker = new RemoteAccountBroker(setup, bindings, hostName);
   return { installer, account, managed, setup, launch, bindings, remoteBroker, region };
 }

@@ -29,6 +29,7 @@ import { PolicyReviews } from './verdictan/policy-review';
 import { PolicyResults } from './policy-results';
 import { remotePolicyRecords } from '../src/domain/policy-result';
 import { createVerdictanServices } from './verdictan/service';
+import { localComputerName } from './verdictan/host-name';
 import { checkHostRuntimes } from './verdictan/remote-check';
 import { spawn } from 'node:child_process';
 import { appMenuTemplate } from './app-menu';
@@ -559,6 +560,10 @@ app.whenReady().then(async () => {
       changed: notifyVerdictan,
       root: dataRoot,
       hostId: 'local',
+      hostName: (hostId) =>
+        hostId === 'local'
+          ? localComputerName()
+          : remote?.list().find((host) => host.id === hostId)?.name,
       desktopVersion: app.getVersion(),
       busy: () => chatRunner.runningCount() > 0,
       openBrowser: (url) => shell.openExternal(url),
