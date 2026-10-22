@@ -17,8 +17,6 @@ import { WorktreeCreation } from './operations/worktree';
 import { AgentStarts } from './operations/agent-start';
 import { ProjectCreation } from './operations/create-project';
 import { PublishOperations, publishEffects } from './operations/publish';
-import { DesktopUpdates, releaseOrigin } from './updates/desktop';
-import { detectInstallation } from './updates/desktop-install';
 import { createHash } from 'node:crypto';
 import { RemoteSnapshotCache } from './remote-snapshot-cache';
 import { createVerdictanServices } from './verdictan/service';
@@ -77,7 +75,7 @@ import {
   Notification,
 } from 'electron';
 import { existsSync } from 'node:fs';
-import { readFile, writeFile, stat, realpath } from 'node:fs/promises';
+import { readFile, writeFile, stat, realpath, rm } from 'node:fs/promises';
 import { join, basename } from 'node:path';
 import { homedir } from 'node:os';
 import { randomUUID } from 'node:crypto';
@@ -185,19 +183,16 @@ let verdictan: ReturnType<typeof createVerdictanServices> | undefined;
 // The user confirmed that running agents can stop. Do not ask again while the app quits.
 let stopAgentsConfirmed = false;
 /** Asks before an action stops running agents. Returns true when the action can continue. */
-function confirmStopAgents(parent?: BrowserWindow, action: 'close' | 'restart' = 'close') {
+function confirmStopAgents(parent?: BrowserWindow) {
   const count = chatRunner.runningCount();
   if (!count || stopAgentsConfirmed) return true;
   const options = {
     type: 'warning' as const,
-    buttons: [action === 'restart' ? 'Stop agents and restart' : 'Stop agents and close', 'Cancel'],
+    buttons: ['Stop agents and close', 'Cancel'],
     defaultId: 1,
     cancelId: 1,
     message: count === 1 ? 'An agent is still working' : `${count} agents are still working`,
-    detail:
-      action === 'restart'
-        ? 'Kalkidan must restart to install the update. The agents on this computer stop. Their sessions stay on disk.'
-        : 'If you close Kalkidan now, the agents stop. Their sessions stay on disk.',
+    detail: 'If you close Kalkidan now, the agents stop. Their sessions stay on disk.',
   };
   const choice = parent
     ? dialog.showMessageBoxSync(parent, options)
@@ -415,80 +410,40 @@ app.whenReady().then(async () => {
     .check()
     .then(() => verdictan!.account.check())
     .catch(() => {});
-  const desktopUpdates = new DesktopUpdates({
-    version: app.getVersion(),
-    bundle: join(__dirname, 'main.cjs'),
-    journal: join(dataRoot, 'updates', 'desktop-discovery.json'),
-    platform: process.platform,
-    arch: process.arch,
-    origin: releaseOrigin(),
-    installation: () =>
-      detectInstallation({
-        platform: process.platform,
-        arch: process.arch,
-        execPath: process.execPath,
-        packaged: app.isPackaged,
-        env: process.env,
-      }),
-    quit: () => app.quit(),
-    relaunch: (execPath) => app.relaunch({ execPath, args: process.argv.slice(1) }),
-  });
   const approvedHelper = readFile(join(__dirname, 'remote-agent.cjs')).then((bytes) =>
     createHash('sha256').update(bytes).digest('hex'),
   );
   void approvedHelper.catch(() => {});
-  void desktopUpdates.status().catch(() => {});
-  handle('component-updates', async (force?: boolean) => {
-    const [desktop, approved] = await Promise.all([
-      desktopUpdates.status(force === true),
-      approvedHelper,
-    ]);
-    return {
-      desktop,
-      helpers: remote.list().map((host) => ({
-        hostId: host.id,
-        name: host.name,
-        connected: host.status === 'connected',
-        installed: host.installedDigest || host.version,
-        running: host.status === 'connected' ? host.runningDigest : undefined,
-        approved,
-        discovery:
-          remote.busy(host.id) && host.installedDigest !== approved
-            ? 'waiting-for-idle'
-            : host.installedDigest
-              ? host.installedDigest === approved
-                ? 'current'
-                : 'available'
-              : 'unknown',
-      })),
-    };
-  });
-  handle('desktop-update-download', () => desktopUpdates.download());
-  handle('desktop-update-cancel', () => desktopUpdates.cancel());
-  handle('desktop-update-restart', async () => {
-    const status = await desktopUpdates.status();
-    if (status.update?.phase !== 'staged')
-      throw new Error('Download and verify the update before you restart.');
-    const runtime = verdictan?.installer.status().operation?.phase;
-    if (
-      runtime &&
-      [
-        'requested',
-        'downloading',
-        'verifying',
-        'activating',
-        'validating',
-        'rolling-back',
-      ].includes(runtime)
-    )
-      throw new Error('A managed runtime update is in progress. Restart after it finishes.');
-    // The same guard as Quit: running agents stop only after the user confirms.
-    const parent = BrowserWindow.getFocusedWindow() || undefined;
-    if (!confirmStopAgents(parent, 'restart')) return status;
-    stopAgentsConfirmed = true;
-    const result = await desktopUpdates.restart();
-    if (result.update?.phase !== 'restarting') stopAgentsConfirmed = false;
-    return result;
+  // Older versions kept a desktop update cache and downloaded releases here. Remove them.
+  for (const name of ['desktop', 'desktop-discovery.json'])
+    void rm(join(dataRoot, 'updates', name), { recursive: true, force: true }).catch(() => {});
+  // The running build: the SHA-256 digest of the main process bundle.
+  const appBuild = readFile(join(__dirname, 'main.cjs'))
+    .then((bytes) => createHash('sha256').update(bytes).digest('hex'))
+    .catch(() => 'unknown');
+  handle('app-version', async () => ({
+    version: app.getVersion(),
+    build: await appBuild,
+    packaged: app.isPackaged,
+  }));
+  handle('helper-updates', async () => {
+    const approved = await approvedHelper;
+    return remote.list().map((host) => ({
+      hostId: host.id,
+      name: host.name,
+      connected: host.status === 'connected',
+      installed: host.installedDigest || host.version,
+      running: host.status === 'connected' ? host.runningDigest : undefined,
+      approved,
+      discovery:
+        remote.busy(host.id) && host.installedDigest !== approved
+          ? 'waiting-for-idle'
+          : host.installedDigest
+            ? host.installedDigest === approved
+              ? 'current'
+              : 'available'
+            : 'unknown',
+    }));
   });
   handle('verdictan-setup', () => verdictan!.setup.status());
   handle('verdictan-select', (agent, selection) => verdictan!.setup.select(agent, selection));

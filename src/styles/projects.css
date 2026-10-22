@@ -2718,15 +2718,6 @@ thead .tracker-task-select {
   gap: var(--space-3) var(--space-4);
 }
 
-/* Settings › Updates: one card for each component. */
-.update-card {
-  display: grid;
-  gap: var(--space-2);
-  padding: var(--space-3);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg, 10px);
-}
-
 /* Settings page: a tab bar like the project tabs, then groups with a heading row. */
 .settings-page {
   container: settings / inline-size;

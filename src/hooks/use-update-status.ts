@@ -1,15 +1,15 @@
 import { useEffect, useState } from 'react';
 import type { API } from '../api/contracts';
-import { displayVersion, runtimeOutdated, updateRunning } from '../lib/verdictan-labels';
+import { runtimeOutdated, updateRunning } from '../lib/verdictan-labels';
 
 export interface UpdateSummary {
-  /** True when an update waits for the user: the desktop app, an SSH helper, or the runtime. */
+  /** True when an update waits for the user: an SSH helper or the managed agents runtime. */
   available: boolean;
-  /** Plain words for the dot tooltip and a command, for example "Kalkidan 1.5.0 available". */
+  /** Plain words for the dot tooltip, for example "SSH helper update for devbox". */
   label?: string;
 }
 
-/** Settings fires this event after it checks for or installs updates. */
+/** Settings fires this event after it checks for or installs a runtime update. */
 export const updatesChangedEvent = 'kalkidan-updates-changed';
 
 export function notifyUpdatesChanged() {
@@ -21,8 +21,8 @@ const focusIntervalMs = 60_000;
 const pollIntervalMs = 30 * 60_000;
 
 /**
- * If an update is available, for the dot on the sidebar Settings row. It reads the cached
- * update state. It does not download anything.
+ * If an SSH helper or runtime update is available, for the dot on the sidebar Settings row.
+ * The dot opens Settings › Computers. It reads the cached update state. It does not download.
  */
 export function useUpdateStatus(api: API): UpdateSummary {
   const [summary, setSummary] = useState<UpdateSummary>({ available: false });
@@ -31,21 +31,14 @@ export function useUpdateStatus(api: API): UpdateSummary {
     let last = 0;
     const read = async () => {
       last = Date.now();
-      const [components, runtime] = await Promise.allSettled([
-        Promise.resolve().then(() => api.componentUpdates?.(false)),
+      const [helpers, runtime] = await Promise.allSettled([
+        Promise.resolve().then(() => api.helperUpdates?.()),
         Promise.resolve().then(() => api.runtimeUpdateStatus?.('local')),
       ]);
       if (!live) return;
       const labels: string[] = [];
-      if (components.status === 'fulfilled' && components.value) {
-        const { desktop, helpers } = components.value;
-        if (desktop.discovery === 'available')
-          labels.push(
-            desktop.release
-              ? `Kalkidan ${displayVersion(desktop.release.version)} available`
-              : 'Kalkidan update available',
-          );
-        const helpersAvailable = helpers.filter((helper) => helper.discovery === 'available');
+      if (helpers.status === 'fulfilled' && helpers.value) {
+        const helpersAvailable = helpers.value.filter((helper) => helper.discovery === 'available');
         if (helpersAvailable.length === 1)
           labels.push(`SSH helper update for ${helpersAvailable[0].name}`);
         else if (helpersAvailable.length > 1)

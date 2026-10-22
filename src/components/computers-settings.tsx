@@ -39,14 +39,14 @@ function useHelperUpdates(api: API, open: boolean, hosts: RemoteHost[]) {
   const [helpers, setHelpers] = useState<Record<string, HelperUpdateStatus>>({});
   const key = hosts.map((h) => `${h.id}:${h.status}:${h.installedDigest || ''}`).join(',');
   useEffect(() => {
-    // Older desktop builds do not report component versions.
-    if (!open || typeof api.componentUpdates !== 'function') return;
+    // Some test stubs do not report helper versions.
+    if (!open || typeof api.helperUpdates !== 'function') return;
     let live = true;
     void Promise.resolve()
-      .then(() => api.componentUpdates(false))
+      .then(() => api.helperUpdates())
       .then(
         (value) => {
-          if (live) setHelpers(Object.fromEntries(value.helpers.map((h) => [h.hostId, h])));
+          if (live) setHelpers(Object.fromEntries(value.map((h) => [h.hostId, h])));
         },
         () => {
           if (live) setHelpers({});

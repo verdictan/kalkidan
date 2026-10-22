@@ -24,7 +24,7 @@ export interface UpdateOperation {
   generation: number;
   sequence: number;
   hostId: string;
-  component: 'verdictan' | 'desktop' | 'ssh-helper';
+  component: 'verdictan' | 'ssh-helper';
   phase: UpdatePhase;
   previous?: ComponentRelease;
   target: ComponentRelease;
@@ -59,59 +59,23 @@ export interface ComponentUpdateStatus {
   installing?: boolean;
 }
 export interface UpdatesAPI {
-  componentUpdates(force?: boolean): Promise<ComponentInventory>;
+  /** The version and build of the running Kalkidan app. */
+  appVersion(): Promise<AppVersion>;
+  /** The helper state of each SSH host. Kalkidan compares digests. It does not download. */
+  helperUpdates(): Promise<HelperUpdateStatus[]>;
   runtimeUpdateStatus(hostId?: string): Promise<ComponentUpdateStatus>;
   runtimeUpdateCheck(hostId?: string): Promise<ComponentUpdateStatus>;
   runtimeUpdateInstall(hostId?: string): Promise<ComponentUpdateStatus>;
   runtimeUpdateCancel(hostId?: string): Promise<ComponentUpdateStatus>;
-  /** Downloads, verifies, and stages the available desktop release. It never restarts. */
-  desktopUpdateDownload(): Promise<DesktopUpdateStatus>;
-  desktopUpdateCancel(): Promise<DesktopUpdateStatus>;
-  /** Stops work on this computer after confirmation, installs the staged release, restarts. */
-  desktopUpdateRestart(): Promise<DesktopUpdateStatus>;
 }
 
-/** How this copy of Kalkidan was installed. It decides whether it can update itself. */
-export type DesktopInstallKind =
-  'mac-app' | 'windows-installer' | 'appimage' | 'deb' | 'portable' | 'development' | 'unsupported';
-export interface DesktopInstall {
-  kind: DesktopInstallKind;
-  /** True when Kalkidan can download, stage, and install a release itself. */
-  selfUpdate: boolean;
-  /** Why the user must install the download manually. */
-  reason?: string;
-}
-export type DesktopUpdatePhase =
-  'downloading' | 'verifying' | 'staging' | 'staged' | 'restarting' | 'failed' | 'canceled';
-export interface DesktopUpdateProgress {
-  phase: DesktopUpdatePhase;
+/** The running Kalkidan app, for Settings › General › About. */
+export interface AppVersion {
   version: string;
-  receivedBytes: number;
-  totalBytes: number;
-  error?: string;
-}
-
-export interface DesktopUpdateStatus {
-  installedVersion: string;
-  runningVersion: string;
-  runningBuild: string;
-  discovery: 'unknown' | 'checking' | 'current' | 'available' | 'failed' | 'unsupported';
-  stale: boolean;
-  lastAttemptAt?: number;
-  lastSuccessAt?: number;
-  release?: {
-    version: string;
-    id: string;
-    url: string;
-    sha256: string;
-    publishedAt: string;
-    /** The installer or archive for this install kind, and its size in bytes. */
-    asset?: string;
-    size?: number;
-  };
-  error?: string;
-  install: DesktopInstall;
-  update?: DesktopUpdateProgress;
+  /** The SHA-256 digest of the main process bundle, or "unknown". */
+  build: string;
+  /** False for a development build. */
+  packaged: boolean;
 }
 export interface HelperUpdateStatus {
   hostId: string;
@@ -121,8 +85,4 @@ export interface HelperUpdateStatus {
   running?: string;
   approved: string;
   discovery: 'unknown' | 'current' | 'available' | 'waiting-for-idle';
-}
-export interface ComponentInventory {
-  desktop: DesktopUpdateStatus;
-  helpers: HelperUpdateStatus[];
 }

@@ -377,3 +377,29 @@ test('desktop recovers discovery errors, migrates remote docs and releases late 
   const dev = await desktopFixture('linux', 'dev');
   assert.ok(dev.calls.some((c) => c[0] === 'loadURL' && c[1].startsWith('http://127.0.0.1:5173')));
 });
+
+test('desktop reports its own version and the helper state without an update service', async () => {
+  const f = await desktopFixture();
+  assert.deepEqual(await f.invoke('app-version'), {
+    version: '0.1.0',
+    build: 'f'.repeat(64),
+    packaged: false,
+  });
+  assert.deepEqual(await f.invoke('helper-updates'), [
+    {
+      hostId: 'host',
+      name: 'Host',
+      connected: true,
+      installed: undefined,
+      running: undefined,
+      approved: 'f'.repeat(64),
+      discovery: 'unknown',
+    },
+  ]);
+  // Kalkidan does not update itself. It removes the update files of older versions.
+  const removed = f.calls.filter((c) => c[0] === 'rm').map((c) => c[1]);
+  assert.ok(removed.some((path) => path.endsWith('/updates/desktop')));
+  assert.ok(removed.some((path) => path.endsWith('/updates/desktop-discovery.json')));
+  for (const name of ['component-updates', 'desktop-update-download', 'desktop-update-restart'])
+    assert.equal(f.handlers.has(name), false, name);
+});
