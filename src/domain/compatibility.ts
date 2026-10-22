@@ -10,9 +10,9 @@ export const supportWindow = {
   protocol: { current: 1, supported: [1] as readonly number[] },
   runtime: {
     /** The current release and the two releases before it. */
-    supported: ['0.6.11', '0.6.12', '0.6.13'] as readonly string[],
-    minimum: '0.6.11',
-    newestVerified: '0.6.13',
+    supported: ['0.6.12', '0.6.13', '0.6.14'] as readonly string[],
+    minimum: '0.6.12',
+    newestVerified: '0.6.14',
     /** The oldest runtime that can run the one-time Kalkidan setup (`setup.bootstrap`). */
     setupMinimum: '0.6.6',
     noticeDays: 90,
@@ -21,28 +21,35 @@ export const supportWindow = {
         // Each version older than the window, also versions before 0.6.6.
         minimum: '0.0.0',
         maximum: '0.6.7',
-        replacement: '0.6.13',
+        replacement: '0.6.14',
         deprecated: '2026-10-22',
         endOfSupport: '2027-01-20',
       },
       {
         minimum: '0.6.8',
         maximum: '0.6.8',
-        replacement: '0.6.13',
+        replacement: '0.6.14',
         deprecated: '2026-10-22',
         endOfSupport: '2027-01-20',
       },
       {
         minimum: '0.6.9',
         maximum: '0.6.9',
-        replacement: '0.6.13',
+        replacement: '0.6.14',
         deprecated: '2026-10-22',
         endOfSupport: '2027-01-20',
       },
       {
         minimum: '0.6.10',
         maximum: '0.6.10',
-        replacement: '0.6.13',
+        replacement: '0.6.14',
+        deprecated: '2026-10-22',
+        endOfSupport: '2027-01-20',
+      },
+      {
+        minimum: '0.6.11',
+        maximum: '0.6.11',
+        replacement: '0.6.14',
         deprecated: '2026-10-22',
         endOfSupport: '2027-01-20',
       },
@@ -83,6 +90,22 @@ const day = (now: number) => new Date(now).toISOString().slice(0, 10);
  * older version is unsupported.
  */
 export function runtimeCompatibility(version: unknown, now = Date.now()): RuntimeCompatibility {
+  const result = windowCompatibility(version, now);
+  const broken = result.version ? knownBrokenRuntime(result.version) : undefined;
+  // The window decides first: a known-broken release that passed its end of support is refused.
+  if (!broken || result.status === 'unsupported') return result;
+  return {
+    ...result,
+    status: 'broken',
+    replacement: result.replacement ?? broken.fixedIn,
+    message:
+      `Verdictan runtime ${result.version} cannot start managed gateways. Update the runtime to ${recommendedRuntime()} or later.` +
+      (result.endOfSupport ? ` Support stops on ${result.endOfSupport}.` : ''),
+  };
+}
+
+/** The support window alone, without the known-broken releases. */
+function windowCompatibility(version: unknown, now: number): RuntimeCompatibility {
   const minimum = supportWindow.runtime.minimum;
   const order = compareVersionCores(version, minimum);
   if (order === undefined)
@@ -92,15 +115,6 @@ export function runtimeCompatibility(version: unknown, now = Date.now()): Runtim
       message: 'Kalkidan cannot read the version of the Verdictan runtime.',
     };
   const value = version as string;
-  const broken = knownBrokenRuntime(value);
-  if (broken)
-    return {
-      status: 'broken',
-      version: value,
-      minimum,
-      replacement: broken.fixedIn,
-      message: `Verdictan runtime ${value} cannot start managed gateways. Kalkidan updates it to ${broken.fixedIn} or later when that release is available.`,
-    };
   if (order >= 0) return { status: 'supported', version: value, minimum, message: '' };
   const today = day(now);
   for (const entry of supportWindow.runtime.deprecations) {
