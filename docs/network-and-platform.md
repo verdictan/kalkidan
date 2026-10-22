@@ -20,19 +20,20 @@ a signed archive. Kalkidan verifies the signature and the SHA-256 digest before 
 Kalkidan never turns off certificate verification. A proxy or certificate problem stops the
 download and shows one of these messages:
 
-| Cause                                 | Message starts with                                              |
-| ------------------------------------- | ---------------------------------------------------------------- |
-| The server certificate is not trusted | The release server certificate is not trusted.                   |
-| The proxy refuses or fails            | The proxy server did not connect Kalkidan to the release server. |
-| No network, or no DNS                 | The release server cannot be reached.                            |
-| No answer in time                     | The release server did not answer in time.                       |
+| Cause                                     | Message starts with                                              |
+| ----------------------------------------- | ---------------------------------------------------------------- |
+| The server certificate is not trusted     | The release server certificate is not trusted.                   |
+| The proxy refuses or fails                | The proxy server did not connect Kalkidan to the release server. |
+| No network, or no DNS                     | The release server cannot be reached.                            |
+| No answer in time                         | The release server did not answer in time.                       |
+| GitHub limits the requests of the network | The release server limits the requests from this network now.    |
 
 To trust an enterprise certificate authority, add it to the system trust store. On an SSH host,
 you can also set `NODE_EXTRA_CA_CERTS` to a PEM file in the shell profile that SSH reads.
 
 ## SSH host without access to the release server
 
-When an SSH host cannot reach `github.com`, its row in Settings › Computers shows **Copy from this computer**
+When an SSH host cannot reach `github.com`, or GitHub limits its requests, its row in Settings › Computers shows **Copy from this computer**
 next to the error. Then:
 
 1. This computer finds the newest release for the operating system and processor of the host.

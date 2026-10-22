@@ -1,4 +1,5 @@
 import { downloadReleaseFile, releaseFileSize } from '../verdictan/download';
+import { releaseNetworkMessages } from '../verdictan/network';
 import {
   releaseAssetURL,
   releaseDownloadOrigins,
@@ -88,6 +89,11 @@ async function discoverFromAPI(name: string, request: typeof fetch): Promise<Run
         headers: { accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2026-03-10' },
       },
     );
+    // GitHub allows 60 requests each hour for each IP address. A shared network can use them all.
+    if ([403, 429].includes(response.status)) {
+      await response.body?.cancel();
+      throw new Error(releaseNetworkMessages.rateLimited);
+    }
     if (!response.ok || !response.body)
       throw new Error('Runtime release discovery is unavailable.');
     const chunks: Uint8Array[] = [];

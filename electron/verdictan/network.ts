@@ -15,6 +15,8 @@ export const releaseNetworkMessages = {
     'The release server cannot be reached. Check the network connection and the proxy settings, then try again.',
   timeout:
     'The release server did not answer in time. Check the network connection, then try again.',
+  rateLimited:
+    'The release server limits the requests from this network now. Try again in one hour.',
 } as const;
 
 /** The error codes, names, and messages of an error and of its causes. */
@@ -73,6 +75,7 @@ export function isReleaseNetworkError(message: string | undefined) {
       releaseNetworkMessages.proxy,
       releaseNetworkMessages.certificate,
       releaseNetworkMessages.timeout,
+      releaseNetworkMessages.rateLimited,
     ].includes(message as never)
   );
 }

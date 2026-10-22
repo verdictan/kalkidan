@@ -1,5 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { isReleaseNetworkError, releaseNetworkMessages } from '../electron/verdictan/network';
 import { discoverRuntime } from '../electron/updates/runtime-feed';
 const latest = 'https://github.com/verdictan/packages/releases/latest';
 const base = 'https://github.com/verdictan/packages/releases';
@@ -57,6 +58,17 @@ test('runtime discovery finds the newest published archive and its size', async 
     ),
     /unavailable/,
   );
+  // A shared network used all API requests of the hour. A copy from the desktop can help.
+  for (const status of [403, 429])
+    await assert.rejects(
+      discoverRuntime(
+        'darwin',
+        'arm64',
+        (async () => new Response('rate limited', { status })) as typeof fetch,
+      ),
+      { message: releaseNetworkMessages.rateLimited },
+    );
+  assert.ok(isReleaseNetworkError(releaseNetworkMessages.rateLimited));
 });
 
 test('runtime discovery uses the latest release redirect before the GitHub API', async () => {

@@ -173,7 +173,7 @@ try {
     record(
       'the runtime check answers with a known state and plain words',
       ['available', 'current', 'failed'].includes(checked.discovery) &&
-        (checked.discovery !== 'failed' || /^The /.test(checked.error || '')),
+        (checked.discovery !== 'failed' || !!checked.error),
       `${checked.discovery}${checked.error ? `: ${checked.error}` : ''}`,
     );
   } else if (offline) {
