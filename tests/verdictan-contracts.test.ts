@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { EventEmitter } from 'node:events';
-import { readFileSync, readdirSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join, relative, resolve } from 'node:path';
 import { PassThrough } from 'node:stream';
 import { Ajv2020 } from 'ajv/dist/2020.js';
@@ -12,6 +12,7 @@ import { DesktopProtocol, DesktopProtocolError } from '../electron/verdictan/pro
 import { agentMinimumVersions, compareVersionCores } from '../src/domain/agent-version';
 import {
   knownBrokenRuntime,
+  recommendedRuntime,
   runtimeCompatibility,
   supportWindow,
 } from '../src/domain/compatibility';
@@ -150,7 +151,7 @@ test('a runtime older than the window is refused with plain words after its noti
       error.code === 'desktop.runtime_version_unsupported' &&
       error.version === '0.6.5',
   );
-  assert.match(managedErrorText('desktop.runtime_version_unsupported'), /0\.6\.10 or later/);
+  assert.match(managedErrorText('desktop.runtime_version_unsupported'), /0\.6\.12 or later/);
   for (const version of [...supportWindow.runtime.supported, '0.6.7', '1.0.0'])
     assertRuntimeSupported(
       parseCapabilities({ ...fixture.data, cli_version: version }),
@@ -174,11 +175,11 @@ test('a protocol range without version 1 has its own code', () => {
 });
 
 test('a deprecated runtime gets a warning until its end-of-support date', () => {
-  for (const version of ['0.1.0', '0.6.5', '0.6.6', '0.6.7', '0.6.8', '0.6.9']) {
+  for (const version of ['0.1.0', '0.6.5', '0.6.6', '0.6.7', '0.6.8', '0.6.9', '0.6.10']) {
     const during = runtimeCompatibility(version, Date.parse('2027-01-19T23:59:00Z'));
     assert.equal(during.status, 'deprecated', version);
     assert.equal(during.endOfSupport, '2027-01-20');
-    assert.match(during.message, /Support stops on 2027-01-20\. Update the runtime to 0\.6\.12/);
+    assert.match(during.message, /Support stops on 2027-01-20\. Update the runtime to 0\.6\.13/);
     const after = runtimeCompatibility(version, Date.parse('2027-01-20T00:00:00Z'));
     assert.equal(after.status, 'unsupported', version);
     assert.match(after.message, /stopped on 2027-01-20/);
@@ -212,6 +213,9 @@ function contractDigest(protocol: number, base = '') {
   ].sort();
   const hash = createHash('sha256');
   for (const name of names) {
+    // A snapshot has only the contracts of its release. A contract that a later release added is
+    // absent there, as in the Verdictan test.
+    if (base && !existsSync(join(root, base, name))) continue;
     const bytes = readFileSync(join(root, base, name));
     hash.update(`${name}\0${createHash('sha256').update(bytes).digest('hex')}\n`);
   }
@@ -243,7 +247,7 @@ test('each recorded release before the window still runs, with a warning, until 
   );
   assert.deepEqual(
     older.map((event: any) => event.data.cli_version),
-    ['0.6.5', '0.6.6', '0.6.7', '0.6.8', '0.6.9'],
+    ['0.6.5', '0.6.6', '0.6.7', '0.6.8', '0.6.9', '0.6.10'],
   );
   for (const event of older) {
     const capabilities = parseCapabilities(event.data);
@@ -286,6 +290,9 @@ test('a known-broken release keeps its account, and names the release that fixes
   assert.match(result.message, /cannot start managed gateways.*0\.6\.12 or later/);
   assert.equal(knownBrokenRuntime('0.6.12'), undefined);
   assert.equal(knownBrokenRuntime('0.6.11')?.fixedIn, '0.6.12');
+  // The oldest version in the window is known-broken, so messages name the next one.
+  assert.equal(supportWindow.runtime.minimum, '0.6.11');
+  assert.equal(recommendedRuntime(), '0.6.12');
   for (const entry of supportWindow.runtime.knownBroken) {
     assert.ok(supportWindow.runtime.supported.includes(entry.fixedIn));
     assert.notEqual(entry.version, supportWindow.runtime.newestVerified);

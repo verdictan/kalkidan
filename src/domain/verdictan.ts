@@ -5,7 +5,7 @@ import {
   type NativeAgentKind,
 } from './agent-version';
 import { safeProgramPath } from './agent-programs';
-import { supportWindow } from './compatibility';
+import { recommendedRuntime, supportWindow } from './compatibility';
 import type { PolicyRecord, PolicyRegion, PolicyReview, ReviewDecision } from './policy-result';
 import { runtimeAnchor, settingsAnchors, type SettingsSection } from './settings-route';
 
@@ -810,7 +810,7 @@ export const managedErrors: Record<string, ManagedErrorInfo> = {
     section: 'computers',
   },
   'desktop.runtime_version_unsupported': {
-    message: `Kalkidan does not support this Verdictan runtime version. Update the runtime to ${supportWindow.runtime.minimum} or later in Settings › Computers.`,
+    message: `Kalkidan does not support this Verdictan runtime version. Update the runtime to ${recommendedRuntime()} or later in Settings › Computers.`,
     section: 'computers',
   },
   'desktop.protocol_unsupported': {
@@ -1236,7 +1236,7 @@ const launchBlocks: Record<string, [ManagedSetupStep, string]> = {
   'desktop.capabilities_invalid': ['runtime', runtimeRepair],
   'desktop.runtime_version_unsupported': [
     'runtime',
-    `Update the Verdictan runtime to ${supportWindow.runtime.minimum} or later on the machine where work runs.`,
+    `Update the Verdictan runtime to ${recommendedRuntime()} or later on the machine where work runs.`,
   ],
   'desktop.protocol_unsupported': ['runtime', runtimeRepair],
   'desktop.protocol_invalid': ['runtime', runtimeRepair],

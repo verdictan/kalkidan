@@ -1,0 +1,922 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Implemented multi-gateway supervisor JSONL event (verdictan gateway supervise --multi stdout); execution remains blocked",
+  "type": "object",
+  "$defs": {
+    "runtime": {
+      "type": "object",
+      "required": [
+        "gateway_id",
+        "runtime_id",
+        "session_id",
+        "state",
+        "effective_address",
+        "ready",
+        "reason_code",
+        "expires_at"
+      ],
+      "properties": {
+        "gateway_id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{1,128}$"
+        },
+        "runtime_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "session_id": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "uuid"
+        },
+        "state": {
+          "enum": [
+            "starting",
+            "listening",
+            "stopping",
+            "expired",
+            "revoked",
+            "failed"
+          ]
+        },
+        "effective_address": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^http://127\\.0\\.0\\.1:[0-9]+$"
+        },
+        "ready": {
+          "const": false
+        },
+        "reason_code": {
+          "const": "desktop.readiness_required"
+        },
+        "expires_at": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        }
+      },
+      "additionalProperties": true
+    },
+    "gateway": {
+      "type": "object",
+      "required": [
+        "gateway_id",
+        "agent_id",
+        "state",
+        "effective_address",
+        "runtimes"
+      ],
+      "properties": {
+        "gateway_id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{1,128}$"
+        },
+        "agent_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "state": {
+          "enum": [
+            "starting",
+            "listening"
+          ]
+        },
+        "effective_address": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^http://127\\.0\\.0\\.1:[0-9]+$"
+        },
+        "runtimes": {
+          "type": "array",
+          "maxItems": 16,
+          "items": {
+            "$ref": "#/$defs/runtime"
+          }
+        }
+      },
+      "additionalProperties": true
+    }
+  },
+  "required": [
+    "schema_version",
+    "correlation_id",
+    "generation_id",
+    "sequence",
+    "event",
+    "gateway_id",
+    "runtime_id",
+    "runtime_generation",
+    "data"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "correlation_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{1,128}$"
+    },
+    "generation_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "sequence": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "event": {
+      "enum": [
+        "supervisor.ready",
+        "supervisor.stopping",
+        "supervisor.stopped",
+        "gateway.list",
+        "gateway.attached",
+        "gateway.status",
+        "gateway.stopping",
+        "gateway.stopped",
+        "runtime.starting",
+        "runtime.attached",
+        "runtime.stopping",
+        "runtime.stopped",
+        "credential.renewed",
+        "credential.expired",
+        "credential.revoked",
+        "error"
+      ]
+    },
+    "gateway_id": {
+      "anyOf": [
+        {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{1,128}$"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "runtime_id": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "uuid"
+    },
+    "runtime_generation": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "minimum": 1
+    },
+    "data": {
+      "type": "object",
+      "properties": {
+        "runtime_credential": false,
+        "inference_credential": false,
+        "api_token": false,
+        "token": false
+      }
+    }
+  },
+  "additionalProperties": true,
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "event": {
+            "const": "supervisor.ready"
+          }
+        },
+        "required": [
+          "event"
+        ]
+      },
+      "then": {
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "protocol_version",
+              "capabilities",
+              "max_gateways",
+              "max_runtimes_per_gateway",
+              "max_runtimes"
+            ],
+            "properties": {
+              "protocol_version": {
+                "const": 1
+              },
+              "cli_version": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "capabilities": {
+                "type": "array",
+                "contains": {
+                  "const": "gateway.supervise.multi"
+                },
+                "items": {
+                  "type": "string"
+                }
+              },
+              "max_gateways": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "max_runtimes_per_gateway": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "max_runtimes": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "process_inventory": {}
+            },
+            "additionalProperties": true
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "event": {
+            "const": "gateway.attached"
+          }
+        },
+        "required": [
+          "event"
+        ]
+      },
+      "then": {
+        "required": [
+          "gateway_id"
+        ],
+        "properties": {
+          "gateway_id": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{1,128}$"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "event": {
+            "const": "gateway.status"
+          }
+        },
+        "required": [
+          "event"
+        ]
+      },
+      "then": {
+        "required": [
+          "gateway_id"
+        ],
+        "properties": {
+          "gateway_id": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{1,128}$"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "event": {
+            "const": "gateway.stopping"
+          }
+        },
+        "required": [
+          "event"
+        ]
+      },
+      "then": {
+        "required": [
+          "gateway_id"
+        ],
+        "properties": {
+          "gateway_id": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{1,128}$"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "event": {
+            "const": "gateway.stopped"
+          }
+        },
+        "required": [
+          "event"
+        ]
+      },
+      "then": {
+        "required": [
+          "gateway_id"
+        ],
+        "properties": {
+          "gateway_id": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{1,128}$"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "event": {
+            "const": "runtime.starting"
+          }
+        },
+        "required": [
+          "event"
+        ]
+      },
+      "then": {
+        "required": [
+          "gateway_id",
+          "runtime_id"
+        ],
+        "properties": {
+          "gateway_id": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{1,128}$"
+          },
+          "runtime_id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "event": {
+            "const": "runtime.attached"
+          }
+        },
+        "required": [
+          "event"
+        ]
+      },
+      "then": {
+        "required": [
+          "gateway_id",
+          "runtime_id"
+        ],
+        "properties": {
+          "gateway_id": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{1,128}$"
+          },
+          "runtime_id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "event": {
+            "const": "runtime.stopping"
+          }
+        },
+        "required": [
+          "event"
+        ]
+      },
+      "then": {
+        "required": [
+          "gateway_id",
+          "runtime_id"
+        ],
+        "properties": {
+          "gateway_id": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{1,128}$"
+          },
+          "runtime_id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "event": {
+            "const": "runtime.stopped"
+          }
+        },
+        "required": [
+          "event"
+        ]
+      },
+      "then": {
+        "required": [
+          "gateway_id",
+          "runtime_id"
+        ],
+        "properties": {
+          "gateway_id": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{1,128}$"
+          },
+          "runtime_id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "event": {
+            "const": "credential.renewed"
+          }
+        },
+        "required": [
+          "event"
+        ]
+      },
+      "then": {
+        "required": [
+          "gateway_id",
+          "runtime_id"
+        ],
+        "properties": {
+          "gateway_id": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{1,128}$"
+          },
+          "runtime_id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "event": {
+            "const": "credential.expired"
+          }
+        },
+        "required": [
+          "event"
+        ]
+      },
+      "then": {
+        "required": [
+          "gateway_id",
+          "runtime_id"
+        ],
+        "properties": {
+          "gateway_id": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{1,128}$"
+          },
+          "runtime_id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "event": {
+            "const": "credential.revoked"
+          }
+        },
+        "required": [
+          "event"
+        ]
+      },
+      "then": {
+        "required": [
+          "gateway_id",
+          "runtime_id"
+        ],
+        "properties": {
+          "gateway_id": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{1,128}$"
+          },
+          "runtime_id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "event": {
+            "const": "gateway.attached"
+          }
+        },
+        "required": [
+          "event"
+        ]
+      },
+      "then": {
+        "properties": {
+          "data": {
+            "$ref": "#/$defs/gateway"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "event": {
+            "const": "gateway.status"
+          }
+        },
+        "required": [
+          "event"
+        ]
+      },
+      "then": {
+        "properties": {
+          "data": {
+            "$ref": "#/$defs/gateway"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "event": {
+            "const": "gateway.attached"
+          }
+        },
+        "required": [
+          "event"
+        ]
+      },
+      "then": {
+        "properties": {
+          "data": {
+            "properties": {
+              "effective_address": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "event": {
+            "const": "gateway.list"
+          }
+        },
+        "required": [
+          "event"
+        ]
+      },
+      "then": {
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "gateways"
+            ],
+            "properties": {
+              "gateways": {
+                "type": "array",
+                "maxItems": 16,
+                "items": {
+                  "$ref": "#/$defs/gateway"
+                }
+              }
+            },
+            "additionalProperties": true
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "event": {
+            "const": "gateway.stopped"
+          }
+        },
+        "required": [
+          "event"
+        ]
+      },
+      "then": {
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "reason"
+            ],
+            "properties": {
+              "reason": {
+                "const": "stopped"
+              }
+            },
+            "additionalProperties": true
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "event": {
+            "const": "runtime.starting"
+          }
+        },
+        "required": [
+          "event"
+        ]
+      },
+      "then": {
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "runtime_id",
+              "session_id"
+            ],
+            "properties": {
+              "runtime_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "session_id": {
+                "type": "string",
+                "format": "uuid"
+              }
+            },
+            "additionalProperties": true
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "event": {
+            "const": "runtime.attached"
+          }
+        },
+        "required": [
+          "event"
+        ]
+      },
+      "then": {
+        "properties": {
+          "data": {
+            "$ref": "#/$defs/runtime"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "event": {
+            "const": "credential.renewed"
+          }
+        },
+        "required": [
+          "event"
+        ]
+      },
+      "then": {
+        "properties": {
+          "data": {
+            "$ref": "#/$defs/runtime"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "event": {
+            "const": "runtime.attached"
+          }
+        },
+        "required": [
+          "event"
+        ]
+      },
+      "then": {
+        "properties": {
+          "data": {
+            "properties": {
+              "effective_address": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "event": {
+            "const": "runtime.stopped"
+          }
+        },
+        "required": [
+          "event"
+        ]
+      },
+      "then": {
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "reason"
+            ],
+            "properties": {
+              "reason": {
+                "enum": [
+                  "stopped",
+                  "expired",
+                  "revoked",
+                  "failed"
+                ]
+              }
+            },
+            "additionalProperties": true
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "event": {
+            "const": "credential.expired"
+          }
+        },
+        "required": [
+          "event"
+        ]
+      },
+      "then": {
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "runtime_id"
+            ],
+            "properties": {
+              "runtime_id": {
+                "type": "string",
+                "format": "uuid"
+              }
+            },
+            "additionalProperties": true
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "event": {
+            "const": "credential.revoked"
+          }
+        },
+        "required": [
+          "event"
+        ]
+      },
+      "then": {
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "runtime_id",
+              "reason"
+            ],
+            "properties": {
+              "runtime_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "reason": {
+                "enum": [
+                  "host_revoked",
+                  "session_revoked",
+                  "runtime_revoked",
+                  "credential_revoked",
+                  "offline_limit"
+                ]
+              }
+            },
+            "additionalProperties": true
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "event": {
+            "const": "error"
+          }
+        },
+        "required": [
+          "event"
+        ]
+      },
+      "then": {
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "code",
+              "retryable"
+            ],
+            "properties": {
+              "code": {
+                "type": "string",
+                "pattern": "^desktop\\.[a-z_]+$"
+              },
+              "retryable": {
+                "type": "boolean"
+              },
+              "failure_stage": {
+                "enum": [
+                  "startup",
+                  "serving",
+                  "shutdown"
+                ]
+              },
+              "failure_kind": {
+                "enum": [
+                  "user",
+                  "auth",
+                  "network",
+                  "internal",
+                  "gateway",
+                  "unknown"
+                ]
+              },
+              "http_status": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "minimum": 400,
+                "maximum": 599
+              },
+              "message": false,
+              "limit": {
+                "type": "integer",
+                "minimum": 1
+              }
+            },
+            "additionalProperties": true
+          }
+        }
+      }
+    }
+  ]
+}

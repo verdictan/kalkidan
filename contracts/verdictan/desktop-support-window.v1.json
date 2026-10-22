@@ -63,6 +63,22 @@
             ]
           },
           {
+            "schema": "gateway-supervise-multi.request.v1.schema.json",
+            "fixtures": [
+              {
+                "file": "fixtures/gateway-supervise-multi.requests.json"
+              }
+            ]
+          },
+          {
+            "schema": "gateway-supervise-multi.event.v1.schema.json",
+            "fixtures": [
+              {
+                "file": "fixtures/gateway-supervise-multi.events.json"
+              }
+            ]
+          },
+          {
             "schema": "desktop-gateway-readiness.v1.schema.json",
             "fixtures": [
               {
@@ -156,18 +172,12 @@
   },
   "runtime": {
     "policy": "The current release and the two releases before it.",
-    "minimum": "0.6.10",
-    "newest_verified": "0.6.12",
+    "minimum": "0.6.11",
+    "newest_verified": "0.6.13",
     "setup_minimum": "0.6.6",
     "deprecation_notice_days": 90,
     "capabilities_fixture": "fixtures/runtime-capabilities.json",
     "versions": [
-      {
-        "version": "0.6.10",
-        "protocol": 1,
-        "contracts_sha256": "3999ff850c3a5b44f57f535cdca5ebf496e482cb3a2046770456e69384a1d303",
-        "snapshot": "releases/0.6.10/"
-      },
       {
         "version": "0.6.11",
         "protocol": 1,
@@ -177,7 +187,13 @@
       {
         "version": "0.6.12",
         "protocol": 1,
-        "contracts_sha256": "39d97656cc9b150be2c940718cc01a62c6133ad9ee9255e91851ef61da5e222b"
+        "contracts_sha256": "39d97656cc9b150be2c940718cc01a62c6133ad9ee9255e91851ef61da5e222b",
+        "snapshot": "releases/0.6.12/"
+      },
+      {
+        "version": "0.6.13",
+        "protocol": 1,
+        "contracts_sha256": "f0515411eabbaaec7a80b5654d0e9e0b7ef3425887f387d877d83ffebb943323"
       }
     ],
     "deprecations": [
@@ -187,7 +203,7 @@
           "maximum": "0.6.7"
         },
         "reason": "These releases are older than the support window. Releases before 0.6.6 cannot run the Kalkidan setup, because they have no setup.bootstrap. 0.6.6 refuses native agent versions that its release evidence did not test.",
-        "replacement": "0.6.12",
+        "replacement": "0.6.13",
         "deprecated": "2026-10-22",
         "end_of_support": "2027-01-20"
       },
@@ -197,7 +213,7 @@
           "maximum": "0.6.8"
         },
         "reason": "This release is older than the support window.",
-        "replacement": "0.6.12",
+        "replacement": "0.6.13",
         "deprecated": "2026-10-22",
         "end_of_support": "2027-01-20"
       },
@@ -207,7 +223,17 @@
           "maximum": "0.6.9"
         },
         "reason": "This release is older than the support window.",
-        "replacement": "0.6.12",
+        "replacement": "0.6.13",
+        "deprecated": "2026-10-22",
+        "end_of_support": "2027-01-20"
+      },
+      {
+        "versions": {
+          "minimum": "0.6.10",
+          "maximum": "0.6.10"
+        },
+        "reason": "This release is older than the support window.",
+        "replacement": "0.6.13",
         "deprecated": "2026-10-22",
         "end_of_support": "2027-01-20"
       }

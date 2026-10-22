@@ -101,7 +101,7 @@ function report(overrides: Partial<DiagnosticsReport> = {}): DiagnosticsReport {
     platform: 'darwin',
     arch: 'arm64',
     osVersion: '26.7.1',
-    supportWindow: { protocol: 1, runtimeMinimum: '0.6.10', runtimeNewestVerified: '0.6.12' },
+    supportWindow: { protocol: 1, runtimeMinimum: '0.6.11', runtimeNewestVerified: '0.6.13' },
     connection: {
       region: 'eu',
       phase: 'error',
@@ -254,7 +254,7 @@ test('collection reads each host and shows a host that does not answer', async (
       region: 'us',
       executionReady: true,
       capabilities: {
-        cliVersion: '0.6.10',
+        cliVersion: '0.6.12',
         protocolMin: 1,
         protocolMax: 1,
         capabilities: ['status'],
@@ -269,7 +269,7 @@ test('collection reads each host and shows a host that does not answer', async (
     ],
     runtime: async (hostId) => {
       if (hostId === 'h2') return new Promise(() => {});
-      const release = { version: hostId ? '0.6.6' : '0.6.10', releaseId: 'r', sha256: '0' };
+      const release = { version: hostId ? '0.6.6' : '0.6.12', releaseId: 'r', sha256: '0' };
       return {
         hostId: hostId ?? 'local',
         component: 'verdictan',

@@ -124,6 +124,21 @@
   },
   {
     "schema_version": 1,
+    "correlation_id": "fixture-agent-unavailable",
+    "sequence": 10,
+    "event": "error",
+    "data": {
+      "code": "desktop.agent_unavailable",
+      "category": "permission",
+      "message": "This computer cannot use the agent of this conversation.",
+      "reason": "agent_deleted",
+      "correlation_id": "fixture-agent-unavailable",
+      "retryable": false,
+      "recovery_action": "fork_conversation"
+    }
+  },
+  {
+    "schema_version": 1,
     "correlation_id": "runtime-fixture",
     "sequence": 11,
     "event": "runtime.provisioning_result",
@@ -219,6 +234,7 @@
       "candidates": [],
       "provider_connections": [],
       "discovery_limit": 50,
+      "candidate_limit": 500,
       "teams": [],
       "policies": [],
       "data_handling": {

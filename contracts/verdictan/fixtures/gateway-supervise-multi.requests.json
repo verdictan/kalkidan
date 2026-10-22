@@ -1,0 +1,68 @@
+[
+  {
+    "schema_version": 1,
+    "correlation_id": "attach-gateway-1",
+    "generation_id": "33333333-3333-4333-8333-333333333333",
+    "operation": "gateway.attach",
+    "gateway_id": "kalkidan-0123456789abcdef0123456789abcdef",
+    "agent_id": "44444444-4444-4444-8444-444444444444"
+  },
+  {
+    "schema_version": 1,
+    "correlation_id": "attach-runtime-1",
+    "generation_id": "33333333-3333-4333-8333-333333333333",
+    "operation": "runtime.attach",
+    "gateway_id": "kalkidan-0123456789abcdef0123456789abcdef",
+    "runtime_id": "66666666-6666-4666-8666-666666666666"
+  },
+  {
+    "schema_version": 1,
+    "correlation_id": "attach-runtime-2",
+    "generation_id": "33333333-3333-4333-8333-333333333333",
+    "operation": "runtime.attach",
+    "gateway_id": "kalkidan-0123456789abcdef0123456789abcdef",
+    "runtime_id": "77777777-7777-4777-8777-777777777777"
+  },
+  {
+    "schema_version": 1,
+    "correlation_id": "status-1",
+    "generation_id": "33333333-3333-4333-8333-333333333333",
+    "operation": "gateway.status",
+    "gateway_id": "kalkidan-0123456789abcdef0123456789abcdef"
+  },
+  {
+    "schema_version": 1,
+    "correlation_id": "list-1",
+    "generation_id": "33333333-3333-4333-8333-333333333333",
+    "operation": "gateway.list"
+  },
+  {
+    "schema_version": 1,
+    "correlation_id": "renew-1",
+    "generation_id": "33333333-3333-4333-8333-333333333333",
+    "operation": "credential.renew",
+    "gateway_id": "kalkidan-0123456789abcdef0123456789abcdef",
+    "runtime_id": "66666666-6666-4666-8666-666666666666"
+  },
+  {
+    "schema_version": 1,
+    "correlation_id": "detach-runtime-2",
+    "generation_id": "33333333-3333-4333-8333-333333333333",
+    "operation": "runtime.detach",
+    "gateway_id": "kalkidan-0123456789abcdef0123456789abcdef",
+    "runtime_id": "77777777-7777-4777-8777-777777777777"
+  },
+  {
+    "schema_version": 1,
+    "correlation_id": "detach-gateway-1",
+    "generation_id": "33333333-3333-4333-8333-333333333333",
+    "operation": "gateway.detach",
+    "gateway_id": "kalkidan-0123456789abcdef0123456789abcdef"
+  },
+  {
+    "schema_version": 1,
+    "correlation_id": "shutdown-1",
+    "generation_id": "33333333-3333-4333-8333-333333333333",
+    "operation": "supervisor.shutdown"
+  }
+]
