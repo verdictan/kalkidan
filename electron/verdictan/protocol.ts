@@ -126,6 +126,26 @@ const terminalEvents: Record<DesktopOperation, string[]> = {
   'review.inspect': ['review.inspected'],
   'review.resolve': ['review.resolved'],
 };
+/**
+ * The CLI emits this progress event when a secure-storage call waits longer than 2 s, for example
+ * while macOS shows a Keychain prompt. The request continues, and its normal result follows.
+ */
+export const secureStorageWaitingEvent = 'secure_storage.waiting';
+/** How long a request can wait for a Keychain prompt. A person must see and answer it. */
+export const secureStorageTimeoutMs = 5 * 60_000;
+/**
+ * Operations that write the system keychain. Some CLI versions send no waiting event for these
+ * writes, so they always get the long bound.
+ */
+export const secureStorageOperations: ReadonlySet<DesktopOperation> = new Set<DesktopOperation>([
+  'runtime.provision',
+  'runtime.renew',
+  'runtime.revoke',
+  'session.renew',
+  'session.logout',
+]);
+/** The number of timed-out correlation IDs that the client keeps, to ignore late replies. */
+const lateLimit = 64;
 /** The exact terminal event for one request. A mode cannot borrow another mode's event. */
 export function terminalEventsFor(operation: DesktopOperation, parameters: DesktopParameters = {}) {
   if (operation !== 'runtime.provision') return terminalEvents[operation];
@@ -171,6 +191,8 @@ export class DesktopProtocol {
   };
   private protectedPipe?: Readable;
   private closeListeners = new Set<(code: string) => void>();
+  /** Requests that timed out. A late reply for one of them is ignored, not a protocol error. */
+  private late = new Set<string>();
   private pending = new Map<
     string,
     {
@@ -247,17 +269,14 @@ export class DesktopProtocol {
     this.requests++;
     if (operation === 'runtime.export' && this.secret) this.secret.correlationId = id;
     return new Promise((resolve, reject) => {
-      const timer = setTimeout(
-        // A browser sign-in that does not finish has its own code and plain words.
-        () =>
-          this.close(
-            operation === 'authorization.start'
-              ? 'desktop.authorization_timeout'
-              : 'desktop.request_timeout',
-          ),
-        operation === 'authorization.start' ? 310000 : this.timeoutMs,
+      const timer = this.timer(
+        id,
+        operation === 'authorization.start'
+          ? 310000
+          : secureStorageOperations.has(operation)
+            ? secureStorageTimeoutMs
+            : this.timeoutMs,
       );
-      timer.unref?.();
       this.pending.set(id, {
         operation,
         expected: terminalEventsFor(operation, parameters),
@@ -281,6 +300,28 @@ export class DesktopProtocol {
         this.close('desktop.transport_lost');
       }
     });
+  }
+  /**
+   * Starts the time limit of one request. A browser sign-in that does not finish stops the
+   * connection, with its own code and plain words. Any other request fails alone, and the
+   * connection stays open, so a late reply for it cannot break the next requests.
+   */
+  private timer(id: string, ms: number) {
+    const timer = setTimeout(() => {
+      const pending = this.pending.get(id);
+      if (!pending) return;
+      if (pending.operation === 'authorization.start') {
+        this.close('desktop.authorization_timeout');
+        return;
+      }
+      this.pending.delete(id);
+      this.late.add(id);
+      if (this.late.size > lateLimit) this.late.delete(this.late.values().next().value!);
+      this.ended(id, pending, 'desktop.request_timeout');
+      pending.reject(new DesktopProtocolError('desktop.request_timeout'));
+    }, ms);
+    timer.unref?.();
+    return timer;
   }
   async exportRuntime(runtimeId: string): Promise<RuntimeCredentials> {
     if (!this.protectedPipe || this.secret)
@@ -367,10 +408,24 @@ export class DesktopProtocol {
         )
           throw new Error();
         this.sequence = value.sequence;
-        const pending = this.pending.get(value.correlation_id);
-        if (!pending) throw new Error();
         // Exported credentials use a separate protected pipe, never this client.
         if (containsCredential(value.data)) throw new Error();
+        const pending = this.pending.get(value.correlation_id);
+        if (!pending) {
+          // A late reply or progress event for a request that timed out. Ignore it.
+          if (this.late.has(value.correlation_id)) continue;
+          throw new Error();
+        }
+        if (value.event === secureStorageWaitingEvent) {
+          // The CLI waits for the keychain, for example for a macOS prompt. Wait longer.
+          clearTimeout(pending.timer);
+          pending.timer = this.timer(
+            value.correlation_id,
+            pending.operation === 'authorization.start' ? 310000 : secureStorageTimeoutMs,
+          );
+          pending.progress?.(value);
+          continue;
+        }
         if (
           value.event === 'authorization.started' &&
           pending.operation === 'authorization.start'
@@ -411,6 +466,7 @@ export class DesktopProtocol {
     if (this.closed) return;
     this.closed = true;
     this.buffer = '';
+    this.late.clear();
     this.secret?.reject(new DesktopProtocolError(code));
     this.secret = undefined;
     this.secretBuffer.fill(0);
