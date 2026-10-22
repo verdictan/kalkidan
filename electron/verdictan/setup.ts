@@ -7,6 +7,8 @@ import {
   recommendedSelection,
   serviceName,
   subscriptionAgent,
+  findAgent,
+  usesAgentChoice,
   usesDefaultPolicy,
   type BootstrapReadiness,
   type PolicyReadiness,
@@ -112,13 +114,45 @@ const sessionCodes = new Set([
   'desktop.region_required',
 ]);
 type Inspection = Awaited<ReturnType<VerdictanSetupService['inspect']>>;
+/** The saved choices of an account: the coding agent selections and the computer agents. */
+export type VerdictanChoices = Pick<
+  VerdictanSetup,
+  'selections' | 'computerAgents' | 'defaultAgentId' | 'legacyAgents'
+>;
+/** Reads the choices that the desktop sent to an SSH host. Older desktops send selections only. */
+function choices(value: unknown): VerdictanChoices {
+  const record = (value && typeof value === 'object' ? value : {}) as Record<string, unknown>;
+  if (!('selections' in record)) return { selections: record as VerdictanSetup['selections'] };
+  const ids = (item: unknown) =>
+    Object.fromEntries(
+      Object.entries(item && typeof item === 'object' ? item : {}).filter(([, id]) => uuid(id)),
+    );
+  return {
+    selections: (record.selections || {}) as VerdictanSetup['selections'],
+    computerAgents: ids(record.computerAgents),
+    ...(uuid(record.defaultAgentId) ? { defaultAgentId: record.defaultAgentId } : {}),
+    legacyAgents: ids(record.legacyAgents),
+  };
+}
 export class VerdictanSetupService {
   constructor(
     private client: () => Promise<DesktopClient>,
     private store: BindingStore,
     private origin: string,
-    private selectionSource?: () => Promise<VerdictanSetup['selections']>,
+    private selectionSource?: () => Promise<unknown>,
   ) {}
+  /** The saved choices of an account. On an SSH host, the desktop sends them. */
+  async choices(key: string): Promise<VerdictanChoices> {
+    if (this.selectionSource) return choices(await this.selectionSource());
+    // Read the agents first. The first read moves the agents of older selections.
+    const agents = await this.store.agents(key);
+    return {
+      selections: await this.store.selections(key),
+      computerAgents: agents.computers,
+      ...(agents.default ? { defaultAgentId: agents.default } : {}),
+      legacyAgents: agents.legacy,
+    };
+  }
   async inspect() {
     const client = await this.client();
     const account = parseAccount((await client.request('status')).data, this.origin);
@@ -228,9 +262,7 @@ export class VerdictanSetupService {
         };
       }),
       ...allowedModels(data.allowed_models),
-      selections: this.selectionSource
-        ? await this.selectionSource()
-        : await this.store.selections(key),
+      ...(await this.choices(key)),
     };
     return { client, account, key, setup };
   }
@@ -381,6 +413,34 @@ export class VerdictanSetupService {
       return { ...first.setup, defaultEnsured: ensured };
     }
   }
+  /** True when the model access and the model of a coding agent selection can work. */
+  private validAccess(setup: VerdictanSetup, agent: 'codex' | 'claude', value: VerdictanSelection) {
+    return (
+      ['codex', 'claude'].includes(agent) &&
+      typeof value.model === 'string' &&
+      /^[A-Za-z0-9][A-Za-z0-9_.:/-]{0,159}$/.test(value.model) &&
+      providerAccessModes.includes(value.providerAccessMode || 'byok') &&
+      (isSubscriptionMode(value.providerAccessMode)
+        ? agent === subscriptionAgent[value.providerAccessMode] &&
+          !value.providerConnectionId &&
+          !!setup.providerAccessModes?.includes(value.providerAccessMode)
+        : setup.providerConnections.some(
+            (p) =>
+              p.provider_connection_id === value.providerConnectionId &&
+              p.provider === (agent === 'codex' ? 'openai' : 'anthropic'),
+          ))
+    );
+  }
+  /**
+   * Checks a saved coding agent selection. With the agent choice, it has the model access only:
+   * the agent belongs to the computer or to the chat.
+   */
+  validateSaved(setup: VerdictanSetup, agent: 'codex' | 'claude', value: VerdictanSelection) {
+    if (!usesAgentChoice(setup)) return this.validate(setup, agent, value);
+    if (!value || value.agentId || !this.validAccess(setup, agent, value))
+      throw new DesktopProtocolError('desktop.setup_selection_required');
+    return value;
+  }
   validate(setup: VerdictanSetup, agent: 'codex' | 'claude', value: VerdictanSelection) {
     // A removed default or a missing agent has its own code, so the user knows what to do.
     const issue = value && selectionIssue(setup, value);
@@ -390,9 +450,9 @@ export class VerdictanSetupService {
       : undefined;
     if (
       !value ||
-      !['codex', 'claude'].includes(agent) ||
-      typeof value.model !== 'string' ||
-      !/^[A-Za-z0-9][A-Za-z0-9_.:/-]{0,159}$/.test(value.model) ||
+      !this.validAccess(setup, agent, value) ||
+      // With the agent choice, a launch always has the agent of the computer or of the chat.
+      (usesAgentChoice(setup) && !value.agentId) ||
       !setup.teams.some((t) => t.team_id === value.teamId) ||
       typeof value.configurationId !== 'string' ||
       typeof value.configurationVersionId !== 'string' ||
@@ -411,17 +471,7 @@ export class VerdictanSetupService {
               (p) =>
                 p.configuration_id === value.configurationId &&
                 p.configuration_version_id === value.configurationVersionId,
-            )) ||
-      !providerAccessModes.includes(value.providerAccessMode || 'byok') ||
-      (isSubscriptionMode(value.providerAccessMode)
-        ? agent !== subscriptionAgent[value.providerAccessMode] ||
-          !!value.providerConnectionId ||
-          !setup.providerAccessModes?.includes(value.providerAccessMode)
-        : !setup.providerConnections.some(
-            (p) =>
-              p.provider_connection_id === value.providerConnectionId &&
-              p.provider === (agent === 'codex' ? 'openai' : 'anthropic'),
-          ))
+            ))
     )
       throw new DesktopProtocolError('desktop.setup_selection_required');
     return value;
@@ -452,7 +502,7 @@ export class VerdictanSetupService {
   }
   async select(agent: 'codex' | 'claude', value: VerdictanSelection) {
     const { key, setup } = await this.inspect();
-    this.validate(setup, agent, value);
+    this.validateSaved(setup, agent, value);
     await this.store.select(key, agent, {
       teamId: value.teamId,
       configurationId: value.configurationId,
@@ -460,8 +510,20 @@ export class VerdictanSetupService {
       providerConnectionId: value.providerConnectionId,
       ...(value.providerAccessMode ? { providerAccessMode: value.providerAccessMode } : {}),
       model: value.model,
-      ...(value.agentId ? { agentId: value.agentId } : {}),
     });
+    return this.status();
+  }
+  /**
+   * Sets the agent that new chats on a computer use: 'local' or the SSH host ID. Codex and
+   * Claude Code both use it. Existing chats keep their agent.
+   */
+  async setComputerAgent(computer: string, agentId: string) {
+    const { key, setup } = await this.inspect();
+    if (typeof computer !== 'string' || !/^[A-Za-z0-9_-]{1,128}$/.test(computer))
+      throw new DesktopProtocolError('desktop.invalid_request');
+    if (!findAgent(setup, agentId))
+      throw new DesktopProtocolError('desktop.setup_agent_unavailable');
+    await this.store.setComputerAgent(key, computer, agentId);
     return this.status();
   }
 }

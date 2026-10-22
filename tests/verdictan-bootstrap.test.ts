@@ -7,6 +7,7 @@ import { DesktopProtocolError } from '../electron/verdictan/protocol';
 import {
   agentConfigurationLabel,
   agentLabels,
+  computerAgentIssue,
   defaultRemoved,
   managedLaunchBlock,
   managedOnlyNotice,
@@ -438,14 +439,22 @@ test('an agent choice needs a listed agent, its team, and no policy IDs', () => 
     () => service.validate({ ...base, agents: undefined }, 'codex', chosen),
     /setup_agent_unavailable/,
   );
-  // The team and policy choice still works next to the agents.
+  // With the agents, a launch always has an agent. The team and policy choice is gone.
   const picked = {
     ...chosen,
     agentId: undefined,
     configurationId: strict.configuration_id,
     configurationVersionId: strict.configuration_version_id,
   };
-  assert.equal(service.validate(base, 'codex', picked), picked);
+  assert.throws(() => service.validate(base, 'codex', picked), /setup_selection_required/);
+  // A saved selection has the model access only. The agent belongs to the computer.
+  const saved = { ...chosen, agentId: undefined, teamId: '' };
+  assert.equal(service.validateSaved(base, 'codex', saved), saved);
+  assert.throws(() => service.validateSaved(base, 'codex', chosen), /setup_selection_required/);
+  assert.throws(
+    () => service.validateSaved(base, 'codex', { ...saved, model: '../bad' }),
+    /setup_selection_required/,
+  );
 });
 
 test('a removed default needs another agent and never falls back to the default', () => {
@@ -467,9 +476,15 @@ test('a removed default needs another agent and never falls back to the default'
   for (const setup of [removedAgent, removedConfiguration]) {
     assert.equal(defaultRemoved(setup), true);
     assert.equal(selectionIssue(setup, chosen), 'desktop.setup_default_removed');
-    assert.equal(selectionIssue(setup, noDefault), 'desktop.setup_default_removed');
+    // A saved selection has no agent. The computer has no agent until the user chooses one.
+    assert.equal(selectionIssue(setup, noDefault), undefined);
+    assert.equal(computerAgentIssue(setup, 'local'), 'desktop.setup_default_removed');
+    assert.equal(
+      computerAgentIssue({ ...setup, computerAgents: { local: otherAgent } }, 'local'),
+      undefined,
+    );
     assert.throws(() => service.validate(setup, 'codex', chosen), /setup_default_removed/);
-    assert.throws(() => service.validate(setup, 'codex', noDefault), /setup_default_removed/);
+    assert.throws(() => service.validate(setup, 'codex', noDefault), /setup_selection_required/);
     const other = { ...chosen, agentId: otherAgent, teamId: team2 };
     assert.equal(selectionIssue(setup, other), undefined);
     assert.equal(service.validate(setup, 'codex', other), other);
@@ -478,8 +493,9 @@ test('a removed default needs another agent and never falls back to the default'
       { phase: 'authenticated', executionReady: false },
       { ...setup, selections: { codex: chosen, claude: other } },
     );
+    // Both coding agents use the agent of this computer, which needs a new choice.
     assert.equal(steps.codex, false);
-    assert.equal(steps.claude, true);
+    assert.equal(steps.claude, false);
   }
   assert.equal(defaultRemoved({ ...base, policyReadiness: 'default_removed' }), true);
   assert.equal(defaultRemoved(base), false);
@@ -493,7 +509,7 @@ test('a removed default needs another agent and never falls back to the default'
     const block = managedLaunchBlock(new DesktopProtocolError(code));
     assert.equal(block.step, 'agent-setup', code);
     assert.ok(block.message.startsWith(managedOnlyNotice), code);
-    assert.match(block.message, /Choose another agent/, code);
+    assert.match(block.message, /Choose another agent|Change the agent/, code);
     assert.doesNotMatch(block.message, /desktop\./, code);
   }
   assert.match(
@@ -614,6 +630,8 @@ test('provisioning checks the agent source of a chosen agent and of the Kalkidan
 test('a saved selection in another shape is the same setup', () => {
   const subscription: VerdictanSelection = {
     ...chosen,
+    agentId: undefined,
+    teamId: '',
     providerConnectionId: '',
     providerAccessMode: 'codex_subscription',
     model: 'gpt-6-astra',
@@ -624,47 +642,30 @@ test('a saved selection in another shape is the same setup', () => {
   assert.equal(sameSelection(base, missing as VerdictanSelection, subscription), true);
   // No mode is the organization connection.
   assert.equal(sameSelection(base, chosen, { ...chosen, providerAccessMode: 'byok' }), true);
-  // Saved before the agent choice: no agent, the team of the Kalkidan agent, and the default
-  // policy or the configuration of that agent.
-  const older = { ...subscription, agentId: undefined };
+  // With the agent choice, the agent, the team and the policy belong to the computer.
+  const older = { ...subscription, agentId: kalkidanAgent, teamId: id };
   assert.equal(sameSelection(base, older, subscription), true);
-  assert.equal(
-    sameSelection(
-      base,
-      {
-        ...older,
-        configurationId: fallback.configuration_id,
-        configurationVersionId: fallback.configuration_version_id,
-      },
-      subscription,
-    ),
-    true,
-  );
-  // A real change, or a different setup, is not the same.
+  // A real change is not the same.
   assert.equal(sameSelection(base, undefined, subscription), false);
   assert.equal(sameSelection(base, subscription, { ...subscription, model: 'gpt-5' }), false);
-  assert.equal(sameSelection(base, { ...older, teamId: team2 }, { ...subscription }), false);
+  assert.equal(
+    sameSelection(base, subscription, { ...subscription, providerAccessMode: 'byok' }),
+    false,
+  );
+  // Without the agent choice, the team and the policy count.
+  const plain = { ...base, agents: undefined };
+  assert.equal(sameSelection(plain, subscription, { ...subscription }), true);
+  assert.equal(sameSelection(plain, { ...subscription, teamId: team2 }, subscription), false);
   assert.equal(
     sameSelection(
-      base,
+      plain,
       {
-        ...older,
+        ...subscription,
         configurationId: strict.configuration_id,
         configurationVersionId: strict.configuration_version_id,
       },
       subscription,
     ),
-    false,
-  );
-  assert.equal(
-    sameSelection(base, older, { ...subscription, agentId: otherAgent, teamId: team2 }),
-    false,
-  );
-  // Without the agent choice, an agent in the form is a change.
-  assert.equal(sameSelection({ ...base, agents: undefined }, older, subscription), false);
-  // A removed default is not the same setup.
-  assert.equal(
-    sameSelection({ ...base, policyReadiness: 'default_removed' }, older, subscription),
     false,
   );
 });

@@ -404,7 +404,7 @@ test('setup and account pass through display names only when the service sends t
                   },
           }),
         }) as any,
-      { selections: async () => ({}) } as any,
+      { selections: async () => ({}), agents: async () => ({ computers: {}, legacy: {} }) } as any,
       origin,
     ).status();
   const plain = await setup({});

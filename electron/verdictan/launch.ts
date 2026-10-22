@@ -26,7 +26,12 @@ import { installedAgentVersion, type InstalledAgentVersion } from '../agents/ins
 import type { NativeAgent } from './gateway';
 import {
   claudeSubscriptionRecovery,
+  computerAgentId,
+  computerAgentIssue,
+  findAgent,
+  usesAgentChoice,
   usesDefaultPolicy,
+  withAgent,
   type ProviderAccessMode,
   type VerdictanSelection,
   type VerdictanSetup,
@@ -105,6 +110,29 @@ export class VerdictanLaunchService {
     private now = Date.now,
     private installedVersion: InstalledAgentVersion = installedAgentVersion,
   ) {}
+  /**
+   * The selection of a launch. With the agent choice, a new chat uses the agent of this
+   * computer. A resumed or natively forked chat keeps its own agent, also after the computer
+   * changed its agent. A chat from an older version keeps the agent of its coding agent.
+   */
+  private launchSelection(
+    setup: VerdictanSetup,
+    agent: 'codex' | 'claude',
+    previous: ConversationBinding | null,
+  ) {
+    const saved = this.setup.validateSaved(setup, agent, setup.selections[agent]!);
+    if (!usesAgentChoice(setup)) return saved;
+    const own = previous ? previous.agent_id || setup.legacyAgents?.[agent] : undefined;
+    if (own) {
+      const chosen = findAgent(setup, own);
+      if (!chosen) throw new DesktopProtocolError('desktop.agent_unavailable');
+      return this.setup.validate(setup, agent, withAgent(saved, chosen));
+    }
+    const issue = computerAgentIssue(setup, this.hostKey);
+    if (issue) throw new DesktopProtocolError(issue);
+    const chosen = findAgent(setup, computerAgentId(setup, this.hostKey))!;
+    return this.setup.validate(setup, agent, withAgent(saved, chosen));
+  }
   async prepare(request: ManagedLaunchRequest): Promise<ManagedLaunch> {
     const context: { mode?: ProviderAccessMode } = {};
     try {
@@ -127,14 +155,13 @@ export class VerdictanLaunchService {
     this.isolationPolicy.assertPlatform();
     request.signal.throwIfAborted();
     const { client, account, setup } = await this.setup.inspect();
-    const selection = this.setup.validate(
-      setup,
-      request.session.agent,
-      setup.selections[request.session.agent]!,
-    );
+    const kind: NativeAgentKind = request.session.agent === 'codex' ? 'codex' : 'claude_code';
+    const resume = !request.create || !!request.forkFrom;
+    const previous = await this.store.read(kind, request.forkFrom || request.session.id);
+    if (resume && !previous) throw new DesktopProtocolError('desktop.resume_binding_required');
+    const selection = this.launchSelection(setup, request.session.agent, resume ? previous : null);
     context.mode = selection.providerAccessMode;
     const claudeSubscription = selection.providerAccessMode === 'claude_subscription';
-    const kind: NativeAgentKind = request.session.agent === 'codex' ? 'codex' : 'claude_code';
     // Kalkidan's minimum applies to each managed launch: new, resumed, forked, local, SSH, and
     // background. Verdictan does not pin agent versions, so `tested_agents` is not a gate.
     const check = checkAgentVersion(
@@ -158,9 +185,6 @@ export class VerdictanLaunchService {
       installation_id: identity.installationId,
       host_id: identity.hostId,
       team_id: selection.teamId,
-      ...(request.session.governanceScope?.projectId
-        ? { project_id: request.session.governanceScope.projectId }
-        : {}),
       // An agent, both policy IDs, or nothing. Without them, Verdictan uses the default.
       ...(selection.agentId
         ? { agent_id: selection.agentId }
@@ -177,14 +201,12 @@ export class VerdictanLaunchService {
       !uuid(resources.agent_id) ||
       !uuid(resources.region_id) ||
       typeof resources.gateway_id !== 'string' ||
+      !/^[A-Za-z0-9_-]{1,128}$/.test(resources.gateway_id) ||
       resources.installation_id !== parameters.installation_id ||
       resources.host_id !== parameters.host_id ||
       !provisionedPolicy(resources, selection, setup.defaultPolicy, setup.bootstrap?.agent_id)
     )
       throw new DesktopProtocolError('desktop.resource_binding_mismatch');
-    const previous = await this.store.read(kind, request.forkFrom || request.session.id);
-    if ((!request.create || request.forkFrom) && !previous)
-      throw new DesktopProtocolError('desktop.resume_binding_required');
     if (previous?.provider_access_mode === 'claude_subscription')
       context.mode = 'claude_subscription';
     const binding: ConversationBinding = {
@@ -214,6 +236,8 @@ export class VerdictanLaunchService {
       configuration_id: resources.configuration_id as string,
       configuration_version_id: resources.configuration_version_id as string,
       cwd: await realpath(request.session.cwd),
+      ...(selection.agentId ? { agent_id: selection.agentId } : {}),
+      gateway_id: resources.gateway_id,
     };
     if (previous && (!request.create || request.forkFrom))
       assertCompatible(previous, binding, !!request.forkFrom);

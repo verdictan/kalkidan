@@ -62,7 +62,6 @@ export interface DesktopParameters {
         installation_id: string;
         host_id: string;
         team_id: string;
-        project_id?: string;
         /** Both or neither. Without them, Verdictan uses the default Kalkidan configuration. */
         configuration_id?: string;
         configuration_version_id?: string;

@@ -613,6 +613,9 @@ app.whenReady().then(async () => {
   });
   handle('verdictan-setup', () => verdictan!.setup.status());
   handle('verdictan-select', (agent, selection) => verdictan!.setup.select(agent, selection));
+  handle('verdictan-set-computer-agent', (computer, agentId) =>
+    verdictan!.setup.setComputerAgent(computer, agentId),
+  );
   const accountStatus = () => ({ ...verdictan!.account.status(), region: verdictan!.region });
   handle('verdictan-status', accountStatus);
   handle('verdictan-set-region', async (region: VerdictanRegion) => {
@@ -656,10 +659,25 @@ app.whenReady().then(async () => {
     if (!kind || typeof sessionId !== 'string' || !sessionId) return { state: 'unmanaged' };
     const status = verdictan!.account.status();
     const account = status.phase === 'authenticated' ? status.account : undefined;
+    // The agents that the user can use now. A chat whose agent is gone is read-only. A failed
+    // read leaves the chat as it is. The launch still checks the agent.
+    const agents = async () => {
+      if (!account) return {};
+      try {
+        const { setup } = await verdictan!.setup.inspect();
+        return {
+          agents: setup.agents?.map((agent) => agent.agent_id),
+          legacyAgent: setup.legacyAgents?.[kind === 'codex' ? 'codex' : 'claude'],
+        };
+      } catch {
+        return {};
+      }
+    };
     if (hostId === undefined || hostId === null || hostId === '')
       return conversationOwnership({
         binding: await verdictan!.bindings.read(kind, sessionId),
         account,
+        ...(await agents()),
       });
     if (
       typeof hostId !== 'string' ||
@@ -671,7 +689,7 @@ app.whenReady().then(async () => {
         kind,
         providerSessionId(hostId, sessionId),
       ]);
-      return conversationOwnership({ binding: remoteOwner(owner), account });
+      return conversationOwnership({ binding: remoteOwner(owner), account, ...(await agents()) });
     } catch {
       return { state: 'unknown' };
     }

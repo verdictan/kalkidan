@@ -66,10 +66,10 @@ test('the Computers page shows each version and whether it meets the minimum', a
   await claudeRow
     .getByRole('button', { name: 'Choose the Claude Code program', exact: true })
     .click();
-  const programs = page.getByRole('dialog', { name: 'Agent programs on this computer' });
+  const programs = page.getByRole('dialog', { name: 'Coding agent programs on this computer' });
   await expect(programs).toContainText('Kalkidan needs Codex 0.160.0 or later');
   await expect(programs).toContainText('Claude Code 2.1.300 or later');
-  const agents = programs.getByRole('list', { name: 'Agents on this computer' });
+  const agents = programs.getByRole('list', { name: 'Coding agents on this computer' });
   const codex = agents.getByRole('listitem', { name: 'Codex on this computer' });
   await expect(codex).toContainText('Meets the minimum');
   await expect(agents.getByTestId('agent-version-codex')).toContainText(

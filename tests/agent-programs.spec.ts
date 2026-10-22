@@ -100,8 +100,8 @@ async function installWorkspace(page: Page) {
 /** Opens the agent programs of an SSH host from its row on the Computers page. */
 async function openHostPrograms(page: Page, settings: Locator, host: string) {
   await settings.getByRole('button', { name: `Actions for ${host}`, exact: true }).click();
-  await page.getByRole('menuitem', { name: 'Agent programs…', exact: true }).click();
-  return page.getByRole('dialog', { name: `Agent programs on ${host}`, exact: true });
+  await page.getByRole('menuitem', { name: 'Coding agent programs…', exact: true }).click();
+  return page.getByRole('dialog', { name: `Coding agent programs on ${host}`, exact: true });
 }
 
 test('the Computers page shows the agent programs of each computer', async ({ page }) => {
@@ -109,8 +109,10 @@ test('the Computers page shows the agent programs of each computer', async ({ pa
   // "Choose…" in the agent row shows the program of each agent on this computer.
   const localRow = settings.getByRole('group', { name: 'Claude Code', exact: true });
   await localRow.getByRole('button', { name: 'Choose the Claude Code program' }).click();
-  const localPrograms = page.getByRole('dialog', { name: 'Agent programs on this computer' });
-  const local = localPrograms.getByRole('list', { name: 'Agents on this computer' });
+  const localPrograms = page.getByRole('dialog', {
+    name: 'Coding agent programs on this computer',
+  });
+  const local = localPrograms.getByRole('list', { name: 'Coding agents on this computer' });
   const localClaude = local.getByRole('listitem', { name: 'Claude Code on this computer' });
   await expect(localClaude).toContainText('Meets the minimum');
   await expect(
@@ -149,7 +151,7 @@ test('the Computers page shows the agent programs of each computer', async ({ pa
 
   // A host without a result asks the user to connect it.
   const newbox = await openHostPrograms(page, settings, 'newbox');
-  await expect(newbox).toContainText('Connect the host to check its agents.');
+  await expect(newbox).toContainText('Connect the host to check its coding agents.');
   await expect(newbox.getByRole('listitem')).toHaveCount(0);
 });
 

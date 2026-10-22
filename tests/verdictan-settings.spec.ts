@@ -143,7 +143,7 @@ test('the Computers page separates account sign-in from execution readiness and 
   await runtime.getByRole('button', { name: 'Install', exact: true }).click();
   await expect(runtime).toContainText('Waiting');
   await expect(computers).toContainText(
-    'Stop the agents that run now. Then select Finish install.',
+    'Stop the coding agents that run now. Then select Finish install.',
   );
   await expect(runtime.getByRole('button', { name: 'Finish install' })).toBeVisible();
   await runtime.getByRole('button', { name: 'Cancel the install on this computer' }).click();

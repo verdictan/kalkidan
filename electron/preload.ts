@@ -23,6 +23,8 @@ const api: API = {
     ipcRenderer.invoke('project-services-request', id, request),
   verdictanSetup: () => ipcRenderer.invoke('verdictan-setup'),
   verdictanSelect: (agent, selection) => ipcRenderer.invoke('verdictan-select', agent, selection),
+  verdictanSetComputerAgent: (computer, agentId) =>
+    ipcRenderer.invoke('verdictan-set-computer-agent', computer, agentId),
   verdictanStatus: () => ipcRenderer.invoke('verdictan-status'),
   verdictanCheck: () => ipcRenderer.invoke('verdictan-check'),
   verdictanAuthorize: (intent) => ipcRenderer.invoke('verdictan-authorize', intent),

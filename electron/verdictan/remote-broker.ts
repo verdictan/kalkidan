@@ -42,12 +42,23 @@ export class RemoteAccountBroker {
       const identity = await this.bindings.identities(host);
       if (epoch !== this.epoch) throw new DesktopProtocolError('desktop.transport_closed');
       if (operation === 'host.identity') return identity;
-      if (operation === 'setup.selection') return setup.selections;
+      // The host gets its own agent only. Older chats on the host keep the agent of their
+      // coding agent.
+      if (operation === 'setup.selection')
+        return {
+          selections: setup.selections,
+          computerAgents: setup.computerAgents?.[host]
+            ? { [host]: setup.computerAgents[host] }
+            : {},
+          ...(setup.defaultAgentId ? { defaultAgentId: setup.defaultAgentId } : {}),
+          legacyAgents: setup.legacyAgents || {},
+        };
       if (operation === 'capabilities' || operation === 'status' || operation === 'setup.inspect')
         return client.request(operation);
       if (operation === 'resources.provision') {
         const p = input.parameters as any;
         // An agent, both policy IDs, or neither. Neither selects the default Kalkidan setup.
+        // Any agent that the user can use: a chat keeps its agent after its computer changed.
         const agentId = p?.agent_id;
         const fallback = p && agentId === undefined && p.configuration_id === undefined;
         if (
@@ -61,18 +72,16 @@ export class RemoteAccountBroker {
           (agentId === undefined &&
             (p.configuration_id === undefined) !== (p.configuration_version_id === undefined)) ||
           (fallback && !setup.defaultPolicy) ||
-          !Object.values(setup.selections).some(
-            (s) =>
-              s &&
-              s.teamId === p.team_id &&
-              (agentId !== undefined
-                ? s.agentId === agentId
-                : fallback
+          (agentId === undefined &&
+            !Object.values(setup.selections).some(
+              (s) =>
+                s &&
+                s.teamId === p.team_id &&
+                (fallback
                   ? usesDefaultPolicy(s)
-                  : !s.agentId &&
-                    s.configurationId === p.configuration_id &&
+                  : s.configurationId === p.configuration_id &&
                     s.configurationVersionId === p.configuration_version_id),
-          )
+            ))
         )
           throw new DesktopProtocolError('desktop.broker_scope_mismatch');
         const event = await client.request(operation, {
@@ -80,7 +89,6 @@ export class RemoteAccountBroker {
             installation_id: identity.installationId,
             host_id: identity.hostId,
             team_id: p.team_id,
-            ...(p.project_id ? { project_id: p.project_id } : {}),
             ...(agentId !== undefined
               ? { agent_id: agentId }
               : fallback
@@ -94,10 +102,9 @@ export class RemoteAccountBroker {
         if (epoch !== this.epoch) throw new DesktopProtocolError('desktop.transport_closed');
         const allowed = this.resources.get(scope) || new Set<string>();
         if (allowed.size >= 100) throw new DesktopProtocolError('desktop.connection_limit');
+        // A gateway serves every project of the host, so the project is not part of the key.
         if (uuid(event.data.agent_id) && typeof event.data.gateway_id === 'string')
-          allowed.add(
-            JSON.stringify([event.data.agent_id, event.data.gateway_id, p.project_id || null]),
-          );
+          allowed.add(JSON.stringify([event.data.agent_id, event.data.gateway_id]));
         this.resources.set(scope, allowed);
         return event;
       }
@@ -120,13 +127,11 @@ export class RemoteAccountBroker {
           (p.provider_connection_id || '') !== selection.providerConnectionId ||
           // A subscription provision never carries a provider connection.
           (subscription && p.provider_connection_id != null) ||
-          !this.resources
-            .get(scope)
-            ?.has(JSON.stringify([p.agent_id, p.gateway_id, p.project_id || null])) ||
+          !this.resources.get(scope)?.has(JSON.stringify([p.agent_id, p.gateway_id])) ||
           this.runtimes.size >= 1000
         )
           throw new DesktopProtocolError('desktop.broker_scope_mismatch');
-        this.setup.validate(setup, agent!, selection);
+        this.setup.validateSaved(setup, agent!, selection);
         const event = await client.request(operation, {
           parameters: {
             installation_id: identity.installationId,

@@ -40,6 +40,11 @@ export function computerAnchor(hostId?: string) {
   return `computer-${hostId || 'local'}`;
 }
 
+/** The element ID of the agent row of one computer in Settings › Computers. */
+export function computerAgentAnchor(hostId?: string) {
+  return `agent-${hostId || 'local'}`;
+}
+
 /** The element ID of the managed runtime of one computer in Settings › Computers. */
 export function runtimeAnchor(hostId?: string) {
   return `runtime-${hostId || 'local'}`;
