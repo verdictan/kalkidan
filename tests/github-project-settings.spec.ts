@@ -1,5 +1,5 @@
 import { test, expect } from './helpers/app';
-test('Board settings opens Project settings › Board and links to the GitHub project settings', async ({
+test('Board settings opens Settings › project › Board and links to the GitHub project settings', async ({
   page,
 }) => {
   await page.addInitScript(() => {
@@ -69,18 +69,20 @@ test('Board settings opens Project settings › Board and links to the GitHub pr
     .getByRole('navigation', { name: 'Project page', exact: true })
     .getByRole('button', { name: 'Tasks', exact: true })
     .click();
-  // Board settings… in the board menu opens Project settings at the Board section.
-  await page.getByRole('button', { name: 'Board actions', exact: true }).click();
+  // Board settings… in the board menu opens the project section of Settings at its Board group.
+  await page.getByRole('button', { name: 'Board: Roadmap #1', exact: true }).click();
   await page.getByRole('menuitem', { name: 'Board settings…', exact: true }).click();
-  const dialog = page.getByRole('dialog', { name: 'Project settings: Platform', exact: true });
-  await expect(dialog.getByRole('tab', { name: 'Board', exact: true })).toHaveAttribute(
-    'aria-selected',
-    'true',
-  );
-  await expect(dialog.getByRole('tab')).toHaveText(['General', 'Code folders', 'Board']);
-  await expect(dialog.getByRole('list', { name: 'Connected board' })).toContainText('Roadmap');
+  const dialog = page.getByRole('dialog', { name: 'Settings', exact: true });
+  await expect(
+    dialog
+      .getByRole('tablist', { name: 'Settings sections' })
+      .getByRole('tab', { name: 'Platform', exact: true }),
+  ).toHaveAttribute('aria-selected', 'true');
+  const board = dialog.getByRole('region', { name: 'Board', exact: true });
+  await expect(board).toBeFocused();
+  await expect(board.getByRole('list', { name: 'Connected board' })).toContainText('Roadmap');
   // Kalkidan does not edit the GitHub project. Its settings open on GitHub.
-  await dialog.getByRole('button', { name: 'Open on GitHub', exact: true }).click();
+  await board.getByRole('button', { name: 'Open on GitHub', exact: true }).click();
   const github = page.getByRole('menu');
   await expect(github.getByRole('menuitem', { name: /^Fields/ })).toHaveAttribute(
     'href',

@@ -45,7 +45,7 @@ test('the palette is a centered modal dialog and the sidebar keeps its navigatio
   const dialog = palette(page);
   await expect(dialog).toHaveAttribute('aria-modal', 'true');
   await expect(input).toHaveAttribute('role', 'combobox');
-  await expect(dialog.getByRole('listbox', { name: 'Recent and suggested' })).toBeVisible();
+  await expect(dialog.getByRole('listbox', { name: 'Recent and actions' })).toBeVisible();
   // The palette shows over the window, not in the sidebar.
   const box = (await dialog.boundingBox())!;
   const viewport = page.viewportSize()!;
@@ -141,11 +141,12 @@ test('search results support arrow keys, Enter, and Escape', async ({ page }) =>
   await expect(page.locator('.conversation-toolbar-title')).toContainText('Refine project');
 });
 
-test('an empty query shows Recent and Suggested with arrow keys', async ({ page }) => {
+test('an empty query shows Recent and Actions with arrow keys', async ({ page }) => {
   await page.goto('/');
   const input = await openPalette(page);
-  const start = page.getByRole('listbox', { name: 'Recent and suggested' });
-  await expect(start.getByRole('heading', { name: 'Suggested', exact: true })).toBeVisible();
+  const start = page.getByRole('listbox', { name: 'Recent and actions' });
+  await expect(start.getByRole('heading', { name: 'Recent', exact: true })).toBeVisible();
+  await expect(start.getByRole('heading', { name: 'Actions', exact: true })).toBeVisible();
   await input.press('ArrowDown');
   const active = await input.getAttribute('aria-activedescendant');
   expect(active).toBeTruthy();

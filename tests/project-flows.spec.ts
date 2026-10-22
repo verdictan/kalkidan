@@ -1,4 +1,11 @@
-import { test, expect, newChat, openSettings, settingsDialog } from './helpers/app';
+import {
+  test,
+  expect,
+  newChat,
+  openSettings,
+  settingsDialog,
+  settingsSection,
+} from './helpers/app';
 import { openCodeFolder, openAddCodeFolders, openProjectTab } from './helpers/navigation';
 const url = '/';
 test('single view ignores old split preferences and preserves conversation drafts while navigating', async ({
@@ -33,19 +40,46 @@ test('single view ignores old split preferences and preserves conversation draft
 });
 
 test('adding a code folder from a project menu adds it to that project', async ({ page }) => {
+  await page.addInitScript(() => {
+    const calls: unknown[] = [];
+    (window as any).folderCalls = calls;
+    (window as any).workspace = {
+      snapshot: async () => ({
+        projects: [],
+        sessions: [],
+        warnings: [],
+        platform: 'darwin',
+        groups: [
+          { id: 'a', name: 'Atlas', repoIds: [] },
+          { id: 'b', name: 'Platform', repoIds: [] },
+        ],
+      }),
+      chooseFolder: async (title: string) => {
+        calls.push(['choose', title]);
+        return '/work/new-service';
+      },
+      scanRepositories: async (root: string) => ({
+        root,
+        rootIsRepository: true,
+        repositories: [{ path: root, name: 'new-service', branch: 'main', added: false }],
+      }),
+      addRepositories: async (groupId: string, paths: string[]) => {
+        calls.push(['add', groupId, paths]);
+        return { added: paths.length, ids: ['r'] };
+      },
+    };
+  });
   await page.goto(url);
-  await openAddCodeFolders(page, 'Atlas');
-  const dialog = page.getByRole('dialog', { name: 'Add code folder', exact: true });
-  // The project is known, so the dialog names it and does not ask for a project.
-  await expect(dialog).toContainText('Adds a Git repository to Atlas.');
-  await expect(dialog.getByRole('combobox', { name: 'Add to project' })).toHaveCount(0);
-  await expect(dialog.getByText('Ungrouped', { exact: true })).toHaveCount(0);
-  // The dialog opens on Local.
-  await expect(dialog.getByRole('button', { name: 'Local', exact: true })).toHaveAttribute(
-    'aria-pressed',
-    'true',
-  );
-  await expect(dialog.getByRole('button', { name: 'Choose folder…', exact: true })).toBeEnabled();
+  // A local project opens the system folder picker at once. There is no dialog first, and the
+  // folder goes to the project of the menu.
+  await openAddCodeFolders(page, 'Platform');
+  await expect
+    .poll(() => page.evaluate(() => (window as any).folderCalls))
+    .toEqual([
+      ['choose', 'Add code folder'],
+      ['add', 'b', ['/work/new-service']],
+    ]);
+  await expect(page.getByRole('dialog')).toHaveCount(0);
 });
 
 test('dragging a task syncs its status and a failed write keeps the original column', async ({
@@ -181,10 +215,15 @@ for (const outcome of ['completed', 'failed', 'stopped']) {
     await expect(page.getByText('Response ended', { exact: true })).toBeVisible();
     expect(await page.evaluate(() => (window as any).writes)).toEqual(['progress']);
     // The run does not complete the task. After a finished run the user marks it done from the
-    // changes row. A failed or stopped run does not offer "Mark task done".
-    const done = page.getByRole('button', { name: 'Mark task done', exact: true });
+    // chat menu. A failed or stopped run does not offer "Mark task done".
+    await page.getByRole('button', { name: 'Chat actions', exact: true }).click();
+    const done = page.getByRole('menuitem', { name: 'Mark task done', exact: true });
     if (outcome === 'completed') await expect(done).toBeVisible();
-    else await expect(done).toHaveCount(0);
+    else {
+      await expect(page.getByRole('menuitem').first()).toBeVisible();
+      await expect(done).toHaveCount(0);
+      await page.keyboard.press('Escape');
+    }
     await expect(page.getByText('Task marked Done.', { exact: true })).toHaveCount(0);
     expect(await page.evaluate(() => (window as any).writes)).toEqual(['progress']);
     if (outcome === 'completed') {
@@ -223,29 +262,24 @@ test('settings shows agent and remote controls without history import', async ({
   await page.goto(url);
   // Below 1100px wide, the sidebar starts closed.
   await page.getByRole('button', { name: 'Toggle sidebar', exact: true }).click();
-  // The agents and the SSH hosts are on the Computers page.
+  // The agents and the SSH hosts are in Settings › Computers.
   const computers = await openSettings(page, 'Computers');
   await expect(computers.getByRole('group', { name: 'Codex', exact: true })).toBeVisible();
   await expect(computers.getByRole('group', { name: 'Claude Code', exact: true })).toBeVisible();
-  await expect(
-    computers.getByRole('form', { name: 'Add host' }).getByRole('textbox', { name: 'SSH target' }),
-  ).toBeVisible();
-  await expect(computers.getByText('Import chat history', { exact: true })).toHaveCount(0);
-  await expect(computers.getByRole('button', { name: 'Preview chat history' })).toHaveCount(0);
-  // Preferences is a dialog over the workspace with the account connections.
-  await openSettings(page);
+  await computers.getByRole('button', { name: 'Add SSH host', exact: true }).click();
+  await expect(computers.getByRole('textbox', { name: 'SSH target' })).toBeVisible();
   const dialog = settingsDialog(page);
-  // Each section is a tab. No tab has a history import.
-  for (const name of ['Chats', 'Connections', 'This app']) {
-    await dialog.getByRole('tab', { name, exact: true }).click();
+  // Each section is a tab. No section has a history import.
+  for (const name of ['General', 'Computers', 'Account']) {
+    await settingsSection(page, name).click();
     await expect(dialog.getByRole('tabpanel', { name, exact: true })).toBeVisible();
     await expect(dialog.getByText('Import chat history', { exact: true })).toHaveCount(0);
     await expect(dialog.getByRole('button', { name: 'Preview chat history' })).toHaveCount(0);
   }
-  await dialog.getByRole('tab', { name: 'Connections', exact: true }).click();
+  // The account connections are in Settings › Account.
   await expect(
     dialog
-      .getByRole('tabpanel', { name: 'Connections' })
+      .getByRole('tabpanel', { name: 'Account' })
       .getByRole('group', { name: 'GitHub and boards' }),
   ).toBeVisible();
   await page.screenshot({ path: 'test-results/settings-page.png', fullPage: true });
@@ -285,15 +319,17 @@ test('project menu connects the chosen project without duplicate authorization',
     .getByRole('navigation', { name: 'Projects and repositories' })
     .getByRole('button', { name: 'Platform', exact: true })
     .click({ button: 'right' });
-  // The row menu has no board item. Project settings has the board connection.
+  // The row menu has no board item. The project section of Settings has the board connection.
   await expect(
     page.getByRole('menuitem', { name: 'Connect a GitHub Projects board…', exact: true }),
   ).toHaveCount(0);
   await page.getByRole('menuitem', { name: 'Project settings…', exact: true }).click();
-  const settings = page.getByRole('dialog', { name: 'Project settings: Platform', exact: true });
-  await expect(settings).toContainText('Platform');
-  await settings.getByRole('tab', { name: 'Board', exact: true }).click();
-  await settings.getByRole('button', { name: 'Connect board…', exact: true }).click();
+  const settings = settingsDialog(page);
+  await expect(settingsSection(page, 'Platform')).toHaveAttribute('aria-selected', 'true');
+  await settings
+    .getByRole('region', { name: 'Board', exact: true })
+    .getByRole('button', { name: 'Connect board…', exact: true })
+    .click();
   // The Connect board dialog checks the board access once.
   const connect = page.getByRole('dialog', { name: 'Connect board', exact: true });
   await expect(connect.getByLabel('GitHub device code')).toHaveValue('ABCD-1234');
@@ -307,24 +343,26 @@ test('project menu connects the chosen project without duplicate authorization',
 test('task conversation returns to the filtered project board', async ({ page }) => {
   await page.goto(url);
   await openProjectTab(page, 'Tasks', 'Atlas');
+  // The Tasks tab lists the boards on the page; one click connects a board.
   await page
     .getByRole('region', { name: 'Project tracker', exact: true })
-    .getByRole('button', { name: 'Connect board', exact: true })
+    .getByRole('button', { name: 'Connect Atlas roadmap #1', exact: true })
     .click();
-  await page.getByRole('button', { name: 'Atlas roadmap #1', exact: true }).click();
-  await page.getByRole('button', { name: 'Connect board', exact: true }).click();
-  await page.getByLabel('Search tasks').fill('authentication');
+  const search = page.getByRole('searchbox', { name: 'Search tasks', exact: true });
+  await page.getByRole('button', { name: 'Search tasks', exact: true }).click();
+  await search.fill('authentication');
   await page.getByRole('button', { name: 'Review authentication', exact: true }).click();
   // The preview cannot make a branch copy, so the agent works in the folder on main.
-  await page.getByRole('button', { name: 'Change', exact: true }).click();
+  await page.getByRole('button', { name: /^Where to work: /, exact: true }).click();
   await page
-    .getByRole('group', { name: 'Where to work' })
-    .getByRole('radio', { name: 'Work on main instead', exact: true })
+    .getByRole('dialog', { name: 'Where to work', exact: true })
+    .getByRole('radio', { name: 'Work on main', exact: true })
     .check();
+  await page.keyboard.press('Escape');
   await page.getByRole('button', { name: 'Start task with Codex', exact: true }).click();
   await expect(page.getByLabel('Message agent')).toHaveValue(/Review authentication/);
   await page.getByRole('button', { name: 'Go back', exact: true }).click();
-  await expect(page.getByLabel('Search tasks')).toHaveValue('authentication');
+  await expect(search).toHaveValue('authentication');
   await expect(page.getByRole('region', { name: 'Tracker board', exact: true })).toBeVisible();
   await expect(
     page.getByRole('button', { name: 'Build the project overview', exact: true }),

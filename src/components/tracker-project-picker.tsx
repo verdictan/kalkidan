@@ -335,9 +335,9 @@ export function TrackerProjectPicker({
 }
 
 /** Asks the tracker for access, and polls while the user approves it in the browser. */
-export function useTrackerAuth(api: API, provider: string, active: boolean) {
+export function useTrackerAuth(api: API, provider: string, active: boolean, start = true) {
   const { client, name: providerName } = useTracker(api, provider);
-  const [auth, setAuth] = useState<TrackerAuthState>({ status: 'idle' });
+  const [auth, setAuth] = useState<TrackerAuthState>({ status: start ? 'checking' : 'idle' });
   async function authorize() {
     setAuth({ status: 'checking' });
     try {
@@ -353,10 +353,19 @@ export function useTrackerAuth(api: API, provider: string, active: boolean) {
   }
   useEffect(() => {
     if (!active) return;
-    // Defer so that a remount in development does not start two checks.
-    const timer = setTimeout(() => void authorize(), 0);
+    // Defer so that a remount in development does not start two checks. Without `start`, only
+    // read the access: a sign-in starts when the person asks for it, never when a page opens.
+    const timer = setTimeout(() => {
+      if (start) void authorize();
+      else
+        void client.authStatus().then(
+          // Signed out is not an error here: the page shows "Connect" instead.
+          (value) => setAuth(value.status === 'signed-out' ? { status: 'idle' } : value),
+          () => setAuth({ status: 'idle' }),
+        );
+    }, 0);
     return () => clearTimeout(timer);
-  }, [active, client]);
+  }, [active, client, start]);
   useEffect(() => {
     if (!active || !trackerAuthPending(auth)) return;
     let live = true;
@@ -387,6 +396,7 @@ function TrackerAccess({
   onRetry,
   onOpenAuth,
   onPreferences,
+  onConnect,
 }: {
   auth: TrackerAuthState;
   providerName: string;
@@ -394,8 +404,16 @@ function TrackerAccess({
   onRetry(): void;
   onOpenAuth(): void;
   onPreferences(): void;
+  /** Starts the sign-in. Given when access is read, not started, as the page opens. */
+  onConnect?(): void;
 }) {
   if (auth.status === 'ready') return null;
+  if (auth.status === 'idle' && onConnect)
+    return (
+      <div>
+        <Button onClick={onConnect}>Connect {providerName}</Button>
+      </div>
+    );
   if (['checking', 'verifying', 'idle'].includes(auth.status))
     return (
       <p role="status" className="m-0 text-sm text-muted-foreground">
@@ -493,7 +511,8 @@ export function ConnectBoardPanel({
   const provider = connection?.provider || 'github';
   const { client, name: providerName, descriptor } = useTracker(api, provider);
   const board = boardLabel(providerName);
-  const { auth, authorize, openAuth } = useTrackerAuth(api, provider, true);
+  // On the Tasks page the panel only reads the access; the sign-in starts on a click.
+  const { auth, authorize, openAuth } = useTrackerAuth(api, provider, true, variant === 'dialog');
   const ready = auth.status === 'ready';
   const [owners, setOwners] = useState<TrackerOwner[]>([]);
   const [ownerId, setOwnerId] = useState('');
@@ -593,6 +612,7 @@ export function ConnectBoardPanel({
         providerName={providerName}
         board={board}
         onRetry={() => void authorize()}
+        onConnect={variant === 'page' ? () => void authorize() : undefined}
         onOpenAuth={() => void openAuth()}
         onPreferences={() =>
           window.dispatchEvent(

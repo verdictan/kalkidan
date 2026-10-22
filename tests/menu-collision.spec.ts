@@ -27,15 +27,8 @@ test('project menu stays inside a short window and scrolls', async ({ page }) =>
   await page.goto('/');
   await page.getByRole('button', { name: 'Manage project Atlas', exact: true }).click();
   await expectInsideWindow(page);
-  // The folder colors are in a submenu. It also stays inside the window.
-  await page.getByRole('menuitem', { name: 'Color', exact: true }).click();
-  await expect(page.getByRole('menuitemradio', { name: 'Default', exact: true })).toBeVisible();
-  const submenu = page.getByRole('menu').last();
-  const box = await submenu.boundingBox();
-  expect(box!.y).toBeGreaterThanOrEqual(titlebarHeight);
-  expect(box!.y + box!.height).toBeLessThanOrEqual(page.viewportSize()!.height);
   await page.keyboard.press('Escape');
-  await page.keyboard.press('Escape');
+  await expect(page.getByRole('menu')).toHaveCount(0);
 
   const project = page.locator('.project-tree').getByRole('button', { name: 'Atlas', exact: true });
   await project.click({ button: 'right' });

@@ -125,9 +125,9 @@ async function fixture(page: Page, extra: string) {
   await page.goto('/');
 }
 
-/** The "Organization setup" row on the Computers page. */
-const setupRow = (page: Page) =>
-  computersPage(page).getByRole('group', { name: 'Organization setup', exact: true });
+/** The "Organization setup…" link at the end of Settings › Computers. */
+const setupLink = (page: Page) =>
+  computersPage(page).getByRole('button', { name: 'Organization setup…', exact: true });
 
 /** The "Organization setup" dialog. */
 const setupDialog = (page: Page) =>
@@ -139,9 +139,7 @@ const setupDialog = (page: Page) =>
  */
 async function openSetup(page: Page) {
   if (!(await computersPage(page).isVisible())) await openComputersPage(page);
-  await setupRow(page)
-    .getByRole('button', { name: /^(Set up|Change)…$/ })
-    .click();
+  await setupLink(page).click();
   const dialog = setupDialog(page);
   await expect(dialog).toBeVisible();
   const codex = dialog.getByRole('button', { name: 'Codex', exact: true });
@@ -156,12 +154,18 @@ async function closeSetup(page: Page) {
   await expect(setupDialog(page)).toHaveCount(0);
 }
 
-/** The agent row of this computer on the Computers page. */
-const agentRow = (page: Page) => computersPage(page).getByRole('group', { name: /^Agent: / });
+/**
+ * The agent row of each computer in Settings › Computers: "Runs as <agent>". It shows only with
+ * two or more agents, or when the agent of the computer has a problem.
+ */
+const agentRow = (page: Page) => computersPage(page).getByRole('group', { name: /^Runs as / });
 
-/** The status of the Codex row on the Computers page, for example "Ready". */
-const codexStatus = (page: Page) =>
-  computersPage(page).getByRole('group', { name: 'Codex', exact: true }).getByRole('status');
+/** The Codex row in Settings › Computers. */
+const codexRow = (page: Page) =>
+  computersPage(page).getByRole('group', { name: 'Codex', exact: true });
+
+/** The status of the Codex row when it needs nothing, for example "Ready". */
+const codexStatus = (page: Page) => codexRow(page).getByRole('status');
 
 /** The visible labels of the options of one choice. The first line is the label. */
 async function options(page: Page, setup: Locator, name: string) {
@@ -202,10 +206,8 @@ test('the first connect bootstraps once and preselects the Kalkidan agent', asyn
   );
   await openComputersPage(page);
   // This computer uses the Kalkidan agent for Codex and Claude Code. Its policy shows.
-  await expect(agentRow(page)).toHaveAccessibleName('Agent: Kalkidan agent');
-  await expect(agentRow(page)).toContainText(
-    'Kalkidan default · 1.1.0 · Codex and Claude Code on this computer use it for new chats.',
-  );
+  await expect(agentRow(page)).toHaveAccessibleName('Runs as Kalkidan agent');
+  await expect(agentRow(page)).toContainText('Kalkidan default · 1.1.0 · For new chats');
   const setup = await openSetup(page);
   await expect(setup.getByRole('note')).toContainText(
     'Kalkidan set up the Kalkidan agent for your organization.',
@@ -275,7 +277,7 @@ test('Change agent shows service names and saves the agent of this computer', as
   await dialog.getByRole('button', { name: 'Change agent', exact: true }).click();
   await expect(dialog).toHaveCount(0);
   expect(await page.evaluate(() => (window as any).computerAgents)).toEqual([['local', release]]);
-  await expect(agentRow(page)).toHaveAccessibleName('Agent: Release bot');
+  await expect(agentRow(page)).toHaveAccessibleName('Runs as Release bot');
   // The coding agent selection saves the model access only. The agent is not in it.
   const setup = await openSetup(page);
   await setup.getByRole('textbox', { name: 'Default model' }).fill('gpt-5');
@@ -316,9 +318,9 @@ test('a removed default shows a calm note and needs another agent', async ({ pag
   await expect(note).not.toHaveClass(/destructive/);
   await closeSetup(page);
   // The Kalkidan agent is gone. This computer has no agent and Codex is not ready.
-  await expect(agentRow(page)).toHaveAccessibleName('Agent: No agent');
+  await expect(agentRow(page)).toHaveAccessibleName('Runs as No agent');
   await expect(agentRow(page)).toContainText('removed the default Kalkidan setup');
-  await expect(codexStatus(page)).toHaveText('Needs setup');
+  await expect(codexRow(page).getByRole('button', { name: 'Set up', exact: true })).toBeVisible();
   await agentRow(page)
     .getByRole('button', { name: 'Change agent for this computer', exact: true })
     .click();
@@ -328,7 +330,10 @@ test('a removed default shows a calm note and needs another agent', async ({ pag
   await page.getByRole('option', { name: /Release bot/ }).click();
   await dialog.getByRole('button', { name: 'Change agent', exact: true }).click();
   expect(await page.evaluate(() => (window as any).computerAgents)).toEqual([['local', release]]);
-  await expect(agentRow(page)).toHaveAccessibleName('Agent: Release bot');
+  // The problem is solved, and Release bot is the only agent, so the agent row hides.
+  await expect(dialog).toHaveCount(0);
+  await expect(agentRow(page)).toHaveCount(0);
+  await expect(computersPage(page)).not.toContainText('removed the default Kalkidan setup');
   await expectNoIds(computersPage(page));
 });
 
@@ -383,7 +388,7 @@ for (const [name, agentId] of [
       };`,
     );
     await openComputersPage(page);
-    await expect(agentRow(page)).toHaveAccessibleName('Agent: Kalkidan agent');
+    await expect(agentRow(page)).toHaveAccessibleName('Runs as Kalkidan agent');
     await expect(codexStatus(page)).toHaveText('Ready');
     const setup = await openSetup(page);
     await expect(setup.getByRole('combobox', { name: 'Model access' })).toHaveText(
@@ -395,7 +400,7 @@ for (const [name, agentId] of [
     expect(await page.evaluate(() => (window as any).savedSelections)).toEqual([]);
   });
 
-test('a complete setup that Kalkidan chose, but did not save, shows Save', async ({ page }) => {
+test('a complete setup that Kalkidan chose, but did not save, saves at once', async ({ page }) => {
   await fixture(
     page,
     `return {
@@ -416,16 +421,15 @@ test('a complete setup that Kalkidan chose, but did not save, shows Save', async
     };`,
   );
   await openComputersPage(page);
-  // The only agent is the agent of this computer. There is nothing to change.
-  await expect(agentRow(page)).toHaveAccessibleName('Agent: Kalkidan agent');
-  await expect(
-    agentRow(page).getByRole('button', { name: 'Change agent for this computer' }),
-  ).toHaveCount(0);
+  // The only agent is the agent of this computer. There is nothing to change, so the agent row
+  // does not show.
+  await expect(codexRow(page)).toBeVisible();
+  await expect(agentRow(page)).toHaveCount(0);
   const setup = await openSetup(page);
-  // Kalkidan chose the only model. The form is a change, so the user confirms it with Save.
+  // Kalkidan chose the only model. One save model: the complete selection saves at once, with
+  // no Save button.
   await expect(setup).toContainText('Default model: GPT-6-Astra');
-  await expect(setup.getByRole('button', { name: 'Save', exact: true })).toBeVisible();
-  await setup.getByRole('button', { name: 'Save', exact: true }).click();
+  await expect(setup.getByRole('button', { name: 'Save', exact: true })).toHaveCount(0);
   await expect.poll(() => page.evaluate(() => (window as any).savedSelections.length)).toBe(1);
   const [[, selection]] = await page.evaluate(() => (window as any).savedSelections);
   expect(selection).toMatchObject({ providerConnectionId: team, model: 'gpt-6-astra' });
@@ -448,11 +452,12 @@ test('each SSH host has its own agent', async ({ page }) => {
   const computers = await openComputersPage(page);
   // This computer keeps the Kalkidan agent. The host has the agent that the user chose for it.
   await expect(agentRow(page)).toHaveCount(2);
-  await expect(computers.getByRole('group', { name: 'Agent: Kalkidan agent' })).toContainText(
-    'on this computer',
-  );
-  const host = computers.getByRole('group', { name: 'Agent: Release bot' });
-  await expect(host).toContainText('Codex and Claude Code on devbox use it for new chats.');
+  const local = computers.getByRole('group', { name: 'Runs as Kalkidan agent' });
+  await expect(
+    local.getByRole('button', { name: 'Change agent for this computer', exact: true }),
+  ).toBeVisible();
+  const host = computers.getByRole('group', { name: 'Runs as Release bot' });
+  await expect(host).toContainText('Strict · 2.0.0 · For new chats');
   await host.getByRole('button', { name: 'Change agent for devbox', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: 'Change the agent for devbox' });
   await dialog.getByRole('combobox', { name: 'Agent' }).click();
@@ -500,11 +505,10 @@ test('a Codex subscription row asks for the Codex sign-in, and Check again reads
     };`,
   );
   await openComputersPage(page);
-  const row = computersPage(page).getByRole('group', { name: 'Codex', exact: true });
-  await expect(codexStatus(page)).toHaveText('Needs agent sign-in');
+  const row = codexRow(page);
   await expect(row).toContainText('run codex login, and sign in with ChatGPT');
   await page.evaluate(() => ((window as any).codexLogin = 'signed-in'));
-  await row.getByRole('button', { name: 'Check the Codex sign-in again' }).click();
+  await row.getByRole('button', { name: 'Check again', exact: true }).click();
   await expect(codexStatus(page)).toHaveText('Ready');
-  await expect(row.getByRole('button', { name: 'Check the Codex sign-in again' })).toHaveCount(0);
+  await expect(row.getByRole('button', { name: 'Check again', exact: true })).toHaveCount(0);
 });

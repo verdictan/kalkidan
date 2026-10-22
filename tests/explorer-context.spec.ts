@@ -7,15 +7,15 @@ test('explorer context menus rename the clicked item and confirm non-destructive
   await page.goto('/');
   const tree = page.getByRole('navigation', { name: 'Projects and repositories' });
   await tree.getByRole('button', { name: 'Atlas', exact: true }).click({ button: 'right' });
-  // The row menu is the shared project menu. It has no copies of the project tabs. Removal is
-  // in Project settings.
+  // The row menu is the shared project menu. It has no copies of the project tabs. Color and
+  // removal are in Project settings.
   await expect(page.getByRole('menuitem')).toHaveText([
     'New chat',
     'New task',
     'New page',
     'Add code folder…',
     'Rename…',
-    'Color',
+    'Usage…',
     'Project settings…',
   ]);
   await page.getByRole('menuitem', { name: 'Rename…' }).click();

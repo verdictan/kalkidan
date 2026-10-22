@@ -132,7 +132,9 @@ export function KnowledgePanel({
   const [query, setQuery] = useState('');
   const [active, setActive] = useState(0);
   const serial = useRef(0);
-  const { memory, facts } = useMemoryFacts(api, group);
+  const { memory, facts, resource: memoryResource } = useMemoryFacts(api, group);
+  // A failed memory read counts as no facts, so the panel can still open the pages.
+  const memoryLoaded = !!memory || memoryResource.state.status === 'error';
   // An API without doc pages (an older bridge) shows no pages instead of an error.
   const metadata = useProjectResource(api, group, 'docs-metadata', () =>
     typeof api.docsMetadata === 'function' ? api.docsMetadata(group.id) : Promise.resolve([]),
@@ -143,10 +145,10 @@ export function KnowledgePanel({
   // The caret goes to "Add a fact" when the panel chose Memory itself.
   const [chosen, setChosen] = useState(false);
   useEffect(() => {
-    if (section || !memory || !pagesLoaded) return;
+    if (section || !memoryLoaded || !pagesLoaded) return;
     setSection(firstKnowledgeSection(facts.length, pages.length));
     setChosen(true);
-  }, [section, !!memory, pagesLoaded]);
+  }, [section, memoryLoaded, pagesLoaded]);
 
   /** Opens a part of the Knowledge tab, from a prop, an event or a search result. */
   function apply(detail: {

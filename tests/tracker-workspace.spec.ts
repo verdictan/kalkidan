@@ -13,51 +13,47 @@ test('board quick creation, issue inspector and status changes share the tracker
     .getByRole('navigation', { name: 'Project page' })
     .getByRole('button', { name: 'Tasks', exact: true })
     .click();
+  // The Tasks tab lists the boards on the page; one click connects a board.
   await page
     .getByRole('region', { name: 'Project tracker' })
-    .getByRole('button', { name: 'Connect board', exact: true })
+    .getByRole('button', { name: 'Connect Atlas roadmap #1', exact: true })
     .click();
-  await page.getByRole('button', { name: 'Atlas roadmap #1', exact: true }).click();
-  await page.getByRole('button', { name: 'Connect board', exact: true }).click();
   const board = page.getByRole('region', { name: 'Tracker board', exact: true });
-  // The "+" of a column adds a title field. Enter creates the task in that column.
-  await board.getByRole('button', { name: 'New task in In progress', exact: true }).click();
-  const quick = board.getByRole('textbox', { name: 'New task in In progress', exact: true });
+  const todo = board.getByRole('region', { name: 'Todo column', exact: true });
+  // New task opens a title field at the top of the first column. Enter adds the task there and
+  // keeps the field open for the next title. There is no New task dialog.
+  await page.getByRole('button', { name: 'New task', exact: true }).click();
+  const quick = todo.getByRole('textbox', { name: 'New task title', exact: true });
   await expect(quick).toBeFocused();
   await quick.fill('Write the release notes');
   await quick.press('Enter');
-  const progress = board.getByRole('region', { name: 'In progress column', exact: true });
   await expect(
-    progress.getByRole('button', { name: 'Write the release notes', exact: true }),
+    todo.getByRole('button', { name: 'Write the release notes', exact: true }),
   ).toBeVisible();
-  // New task adds a title and a description. The task goes to the first status.
-  await page.getByRole('button', { name: 'New task', exact: true }).click();
-  const create = page.getByRole('dialog', { name: 'New task', exact: true });
-  await create.getByLabel('Task title').fill('Polish the issue workflow');
-  await create.getByLabel('Task description').fill('## Acceptance criteria\n- Keep GitHub in sync');
-  // Atlas has code folders, so the primary is Create and start. The menu creates the task only.
-  await create.getByRole('button', { name: 'More ways to create the task', exact: true }).click();
-  await page.getByRole('menuitem', { name: 'Create task only', exact: true }).click();
-  const todo = board.getByRole('region', { name: 'Todo column', exact: true });
+  await expect(quick).toHaveValue('');
+  await expect(quick).toBeFocused();
+  await quick.fill('Polish the issue workflow');
+  await quick.press('Enter');
   await expect(
     todo.getByRole('button', { name: 'Polish the issue workflow', exact: true }),
   ).toBeVisible();
+  await quick.press('Escape');
+  await expect(quick).toHaveCount(0);
+  await expect(page.getByRole('dialog')).toHaveCount(0);
   await todo.getByRole('button', { name: 'Polish the issue workflow', exact: true }).click();
   const detail = page.getByRole('dialog');
-  await expect(detail.getByRole('heading', { name: 'Acceptance criteria' })).toBeVisible();
-  await detail.getByRole('combobox', { name: 'Task status', exact: true }).click();
-  await page.getByRole('option', { name: 'Done', exact: true }).click();
-  await expect(detail.getByRole('combobox', { name: 'Task status', exact: true })).toContainText(
-    'Done',
-  );
+  // The status is a pill in the task sheet. A choice moves the task on the board.
+  await detail.getByRole('button', { name: 'Status: Todo', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Done', exact: true }).click();
+  await expect(detail.getByRole('button', { name: 'Status: Done', exact: true })).toBeVisible();
   // Previous task follows the board order: the task is now in Done, after In progress.
   await detail.getByRole('button', { name: 'Previous task', exact: true }).click();
   await expect(
-    detail.getByRole('heading', { name: 'Write the release notes', exact: true }),
+    detail.getByRole('heading', { name: 'Build the project overview', exact: true }),
   ).toBeVisible();
   await detail.getByRole('button', { name: 'Previous task', exact: true }).click();
   await expect(
-    detail.getByRole('heading', { name: 'Build the project overview', exact: true }),
+    detail.getByRole('heading', { name: 'Write the release notes', exact: true }),
   ).toBeVisible();
   await detail.getByRole('button', { name: 'Previous task', exact: true }).click();
   await expect(
@@ -66,15 +62,16 @@ test('board quick creation, issue inspector and status changes share the tracker
   await page.screenshot({ path: 'test-results/tracker-inspector.png' });
   await page.keyboard.press('Escape');
   // Refresh is in the board menu.
-  await page.getByRole('button', { name: 'Board actions', exact: true }).click();
+  await page.getByRole('button', { name: 'Board: Atlas roadmap #1', exact: true }).click();
   await page.getByRole('menuitem', { name: /^Refresh/ }).click();
   await expect(
     board
       .getByRole('region', { name: 'Done column', exact: true })
       .getByRole('button', { name: 'Polish the issue workflow', exact: true }),
   ).toBeVisible();
-  // Few tasks need no filters: the search shows, the Filter button does not.
-  await expect(page.getByLabel('Search tasks')).toBeVisible();
+  // Few tasks need no filters: the search button shows, the Filter button does not.
+  await page.getByRole('button', { name: 'Search tasks', exact: true }).click();
+  await expect(page.getByRole('searchbox', { name: 'Search tasks', exact: true })).toBeFocused();
   await expect(page.getByRole('button', { name: 'Filter', exact: true })).toHaveCount(0);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.screenshot({ path: 'test-results/tracker-workspace.png' });
@@ -135,21 +132,26 @@ test('failed initial status leaves one created item available for a status retry
   await page.goto('/');
   // The project row opens the overview. The Tasks row opens the board.
   await openProjectTab(page, 'Tasks');
-  // The title field of the Building column creates the task, then sets its status.
-  await page.getByRole('button', { name: 'New task in Building', exact: true }).click();
-  const quick = page.getByRole('textbox', { name: 'New task in Building', exact: true });
+  // The New task field is in the first column, Building. It creates the task, then sets its
+  // status.
+  await page.getByRole('button', { name: 'New task', exact: true }).click();
+  const quick = page
+    .getByRole('region', { name: 'Building column', exact: true })
+    .getByRole('textbox', { name: 'New task title', exact: true });
   await quick.fill('Only create once');
   await quick.press('Enter');
-  // The task exists, so the field closes and Enter cannot create it again.
-  await expect(quick).toHaveCount(0);
+  // The task exists, so the field clears and Enter cannot create it again.
+  await expect(quick).toHaveValue('');
+  await quick.press('Escape');
   await expect(page.getByRole('alert')).toContainText(
     'Task created, but its status could not be set',
   );
   const board = page.getByRole('region', { name: 'Tracker board', exact: true });
   await expect(board.getByRole('button', { name: 'Only create once', exact: true })).toHaveCount(1);
-  // Card actions show on hover.
-  await board.getByRole('button', { name: 'Only create once', exact: true }).hover();
-  await board.getByRole('button', { name: 'Task menu: Only create once', exact: true }).click();
+  // The card menu opens on a right-click.
+  await board
+    .getByRole('button', { name: 'Only create once', exact: true })
+    .click({ button: 'right' });
   await page.getByRole('menuitem', { name: 'Building', exact: true }).click();
   await expect(
     board

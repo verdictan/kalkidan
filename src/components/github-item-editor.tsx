@@ -276,7 +276,11 @@ export function FieldPills({
                 </Hint>
               </span>
             </Popover.Anchor>
-            <DropdownMenuContent align="start">
+            <DropdownMenuContent
+              align="start"
+              // Focus goes to the field popover, not back to "+". Else the popover closes.
+              onCloseAutoFocus={(event) => typing && event.preventDefault()}
+            >
               <DropdownMenuLabel>Set a field</DropdownMenuLabel>
               {empty.map((field) => {
                 const choices = fieldChoices(field);

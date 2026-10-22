@@ -44,22 +44,28 @@ export { expect };
 export const sidebar = (page: Page) =>
   page.getByRole('navigation', { name: 'Projects and repositories' });
 
-/** The Preferences sheet (⌘,). It replaced the Settings dialog. */
+/** The one Settings window (⌘,): General, Computers, Account, and one section per project. */
 export const settingsDialog = (page: Page) =>
-  page.getByRole('dialog', { name: 'Preferences', exact: true });
+  page.getByRole('dialog', { name: 'Settings', exact: true });
+/** @deprecated Preferences is the General section of Settings now. */
 export const preferencesDialog = settingsDialog;
 
-/** The Computers page: this computer, the agents and the SSH hosts. */
-export const computersPage = (page: Page) =>
-  page.getByRole('region', { name: 'Computers', exact: true });
+/** A section tab of Settings: General, Computers, Account or a project name. */
+export const settingsSection = (page: Page, name: string) =>
+  settingsDialog(page)
+    .getByRole('tablist', { name: 'Settings sections' })
+    .getByRole('tab', { name, exact: true });
+
+/** The Computers section of Settings: the agents, the Kalkidan service and the SSH hosts. */
+export const computersPage = settingsDialog;
 
 /** Opens an item of the account menu in the sidebar footer, as a user does. */
 export async function openAccountMenuItem(page: Page, name: string | RegExp) {
   const footer = sidebar(page).locator('.account-menu');
-  // The footer shows "Preferences and help" until the account status loads, then the account
-  // button. Try again when the button changes during the click.
+  // Signed in, the trigger is the account; signed out, it is "Sign in, Settings and help". A
+  // dot that needs attention adds text at the end. Try again when the button changes.
   const trigger = footer.getByRole('button', {
-    name: /^(Account: .*|Preferences and help|Sign in, Preferences and help)$/,
+    name: /^(Account: .*|(.*, )?Settings and help.*)$/,
   });
   const item = page.getByRole('menuitem', { name });
   await expect(async () => {
@@ -68,29 +74,32 @@ export async function openAccountMenuItem(page: Page, name: string | RegExp) {
   }).toPass({ timeout: 15000 });
 }
 
-/** Opens Preferences from the account menu and returns the sheet. */
-export async function openPreferences(page: Page): Promise<Locator> {
-  await openAccountMenuItem(page, /^Preferences…/);
+/** Opens Settings from the account menu at a section, and returns the window. */
+export async function openSettingsWindow(page: Page, section?: string): Promise<Locator> {
+  await openAccountMenuItem(page, /^Settings…/);
   const dialog = settingsDialog(page);
   await expect(dialog).toBeVisible();
+  if (section) {
+    await settingsSection(page, section).click();
+    await expect(settingsSection(page, section)).toHaveAttribute('aria-selected', 'true');
+  }
   return dialog;
 }
 
-/** Opens the Computers page from the sidebar and returns it. */
-export async function openComputersPage(page: Page): Promise<Locator> {
-  await sidebar(page).getByRole('button', { name: 'Computers', exact: true }).click();
-  const region = computersPage(page);
-  await expect(region).toBeVisible();
-  return region;
-}
+/** @deprecated Preferences is Settings › General. */
+export const openPreferences = (page: Page) => openSettingsWindow(page, 'General');
+
+/** Opens Settings › Computers (the Computers page is a section of Settings now). */
+export const openComputersPage = (page: Page) => openSettingsWindow(page, 'Computers');
 
 /**
- * Opens the place that now holds an older Settings section: 'Agents' and 'Computers' open the
- * Computers page, every other section opens Preferences.
+ * Opens the Settings section that now holds an older place: 'Agents' and 'Computers' open
+ * Computers, 'Account' opens Account, everything else opens General.
  */
 export async function openSettings(page: Page, section?: string): Promise<Locator> {
-  if (section === 'Agents' || section === 'Computers') return openComputersPage(page);
-  return openPreferences(page);
+  if (section === 'Agents' || section === 'Computers') return openSettingsWindow(page, 'Computers');
+  if (section === 'Account') return openSettingsWindow(page, 'Account');
+  return openSettingsWindow(page, 'General');
 }
 
 /** The command palette dialog. */

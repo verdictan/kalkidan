@@ -15,12 +15,12 @@ test('a project row shows its recent chats, not code folders or docs', async ({ 
     exact: true,
   });
   await expect(chat).toBeVisible();
-  // The title gets the full row. Atlas has three code folders, so the tooltip names the code
-  // folder of the chat.
+  // The title gets the full row. The agent is in the tooltip, not an icon. Atlas has three code
+  // folders, so the tooltip also names the code folder of the chat.
   await expect(chat.locator('.tree-secondary')).toHaveCount(0);
   await expect(chat).toHaveAttribute(
     'title',
-    'Refine project and repository navigation · atlas-web',
+    'Refine project and repository navigation · Codex · atlas-web',
   );
   // The sidebar has no Docs rows. Pages are in the Knowledge tab of the project.
   await expect(atlas.getByRole('button', { name: 'Docs of Atlas', exact: true })).toHaveCount(0);
@@ -33,10 +33,15 @@ test('a project row shows its recent chats, not code folders or docs', async ({ 
   await expect(tree(page).getByRole('button', { name: /^New chat in / })).toHaveCount(0);
   await expect(tree(page).getByRole('heading', { name: 'Your projects' })).toBeVisible();
   await expect(tree(page).getByRole('button', { name: 'New project', exact: true })).toHaveCount(1);
+  // For a local project, "Add code folder…" opens the folder picker at once, with no dialog.
+  // It adds every Git repository in the chosen folder.
   await page.getByRole('button', { name: 'Manage project Atlas', exact: true }).click();
   await page.getByRole('menuitem', { name: 'Add code folder…', exact: true }).click();
-  await expect(page.getByRole('dialog', { name: 'Add code folder', exact: true })).toBeVisible();
-  await page.keyboard.press('Escape');
+  await tree(page).getByRole('button', { name: 'Atlas', exact: true }).click();
+  await expect(
+    page.getByRole('region', { name: 'Code folders', exact: true }).locator('.folder-chip'),
+  ).toHaveCount(6);
+  await expect(page.getByRole('dialog')).toHaveCount(0);
   // An open chat does not show a second time in an "Open chats" section.
   await chat.click();
   await expect(chat).toHaveAttribute('aria-current', 'page');
@@ -104,16 +109,16 @@ test('the sidebar, All chats and the overview count the same chats', async ({ pa
   await expect(rows).toHaveCount(5);
   // The newest chat is first. A project with one code folder shows no folder name.
   await expect(rows.first()).toContainText('Chat 7');
-  await expect(rows.first()).toHaveAttribute('title', 'Chat 7');
+  await expect(rows.first()).toHaveAttribute('title', 'Chat 7 · Codex');
   await expect(group.getByRole('button', { name: 'Show all 7 chats', exact: true })).toBeVisible();
-  // The Projects page shows the same count in the Chats column.
+  // The Projects page shows the same count in the Activity column.
   await expect(
     page
       .getByRole('region', { name: 'Projects', exact: true })
       .getByRole('row', { name: /^Counted / })
       .getByRole('cell')
-      .nth(2),
-  ).toHaveText('7');
+      .nth(1),
+  ).toHaveText('7 chats');
   await tree(page).getByRole('button', { name: 'All chats', exact: true }).click();
   await expect(
     page.getByRole('region', { name: 'All chats' }).getByRole('button', { name: /^Resume / }),
@@ -125,25 +130,13 @@ test('the sidebar, All chats and the overview count the same chats', async ({ pa
   ).toHaveAttribute('aria-current', 'page');
   const chats = page.getByRole('region', { name: 'Project chats' });
   await expect(chats.getByRole('button', { name: /^Resume / })).toHaveCount(7);
-  // The Overview header counts the same chats.
-  await page
-    .getByRole('navigation', { name: 'Project page' })
-    .getByRole('button', { name: 'Overview', exact: true })
-    .click();
-  await expect(page.locator('.project-header')).toContainText('7 chats');
-  await page
-    .getByRole('navigation', { name: 'Project page' })
-    .getByRole('button', { name: 'Chats', exact: true })
-    .click();
-  const search = chats.getByRole('searchbox', { name: 'Filter chats' });
-  await search.fill('Chat 3');
-  await expect(chats.getByRole('button', { name: /^Resume / })).toHaveCount(1);
-  // Archived chats are a choice of the Filter menu.
+  // A list under 20 chats has no search field. Archived chats are a choice of the Filter menu.
+  await expect(chats.getByRole('searchbox', { name: 'Filter chats' })).toHaveCount(0);
   await chats.getByRole('button', { name: 'Filter chats', exact: true }).click();
   await page.getByRole('menuitemradio', { name: 'Archived (1)', exact: true }).click();
   await page.keyboard.press('Escape');
-  await search.fill('');
   await expect(chats.getByRole('button', { name: /^Resume / })).toHaveCount(1);
+  await expect(chats.getByRole('button', { name: /^Resume / })).toContainText('Chat 0');
 });
 
 test('keyboard moves between project and chat rows, and expands and collapses projects', async ({

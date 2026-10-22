@@ -73,6 +73,18 @@ export function AddHostForm({
   const [target, setTarget] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const form = useRef<HTMLFormElement>(null);
+  // Escape closes the form, not the Settings window. The dialog reads Escape on the document
+  // before React does, so the form reads it on the window, which comes first.
+  useEffect(() => {
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key !== 'Escape' || busy || !form.current?.contains(event.target as Node)) return;
+      event.stopPropagation();
+      onCancel();
+    }
+    window.addEventListener('keydown', onKeyDown, { capture: true });
+    return () => window.removeEventListener('keydown', onKeyDown, { capture: true });
+  }, [busy, onCancel]);
   async function submit(event: FormEvent) {
     event.preventDefault();
     const value = target.trim();
@@ -91,15 +103,10 @@ export function AddHostForm({
   return (
     <div className="computers-add">
       <form
+        ref={form}
         className="computers-add-form"
         aria-label="Add SSH host"
         onSubmit={(event) => void submit(event)}
-        onKeyDown={(event) => {
-          if (event.key !== 'Escape' || busy) return;
-          // Escape closes the form, not the Settings window.
-          event.stopPropagation();
-          onCancel();
-        }}
       >
         <Input
           aria-label="SSH target"

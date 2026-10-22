@@ -236,8 +236,13 @@ export function AddRepository({
     setOpen(false);
     return `Cloned ${short} into ${projectName}.`;
   }
+  // Each request opens the folder picker once, also when React runs the effect again.
+  const handledRequest = useRef(0);
   useEffect(() => {
-    if (openRequest > 0) void start();
+    if (openRequest > 0 && handledRequest.current !== openRequest) {
+      handledRequest.current = openRequest;
+      void start();
+    }
   }, [openRequest]);
   const shown = repos.filter((r) => r.nameWithOwner.toLowerCase().includes(query.toLowerCase()));
   // A caller with a project hides the Project field. The description names the project.

@@ -1739,6 +1739,13 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
                 icon: <CalendarRange />,
                 run: () => planningTool(actionGroup, 'iteration'),
               },
+              {
+                key: 'edit-fields',
+                label: inProject(actionGroup, 'Edit task fields…'),
+                keywords: 'bulk batch change fields estimate',
+                icon: <ListChecks />,
+                run: () => planningTool(actionGroup, 'fields'),
+              },
               ...(['board', 'list'] as const).map((layout) => ({
                 key: `board-layout-${layout}`,
                 label: inProject(
@@ -1901,6 +1908,15 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
       shortcut: shortcutLabel(['mod', 'shift'], 'O'),
       icon: <FolderPlus />,
       run: () => addCodeFolder(),
+    },
+    {
+      // "Add code folder…" opens the folder picker for a local project, so cloning needs its
+      // own entry.
+      key: 'clone-folder',
+      label: 'Clone from GitHub…',
+      keywords: 'repository code folder add clone github',
+      icon: <FolderPlus />,
+      run: () => addCodeFolder(undefined, 'github'),
     },
     {
       key: 'new-project',

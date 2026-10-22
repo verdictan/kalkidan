@@ -3705,6 +3705,7 @@ button.doc-task-chip[data-add] {
   line-height: 16px;
   color: var(--muted-foreground);
   overflow-wrap: anywhere;
+  min-width: 0;
 }
 .settings-row-control {
   display: flex;

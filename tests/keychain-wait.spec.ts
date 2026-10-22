@@ -103,8 +103,11 @@ test('Computers asks for Keychain access on this computer while a request waits'
   await installWorkspace(page);
   await page.goto('/');
   const computers = await openComputersPage(page);
-  const row = computers.getByRole('group', { name: 'Managed agents', exact: true });
-  await expect(row).not.toContainText(waitingText);
+  // The Kalkidan service row shows only when it needs the user. A ready service has no row.
+  await expect(computers.getByRole('group', { name: 'Codex', exact: true })).toBeVisible();
+  const row = computers.getByRole('group', { name: 'Kalkidan service', exact: true });
+  await expect(row).toHaveCount(0);
+  await expect(computers).not.toContainText(waitingText);
   await page.evaluate(() => (window as any).wait());
   await expect(row.getByTestId('keychain-waiting')).toHaveText(waitingText);
 });

@@ -55,33 +55,33 @@ test('the Computers page shows each version and whether it meets the minimum', a
   await installWorkspace(page);
   await page.goto('/');
   const settings = await openComputersPage(page);
-  // The row of each agent shows the state. A program that is too old needs an update.
+  // The row of each agent shows the version. A program that is too old needs an update, and
+  // only that row has a button.
   const claudeRow = settings.getByRole('group', { name: 'Claude Code', exact: true });
-  await expect(claudeRow).toContainText('Needs update');
-  await expect(claudeRow).toContainText('Version 2.1.296 · Needs 2.1.300 or later');
-  await expect(settings.getByRole('group', { name: 'Codex', exact: true })).not.toContainText(
-    'Needs update',
-  );
-  // Locate… on the Codex row opens the Codex program of this computer, with the minimum.
-  await settings
-    .getByRole('group', { name: 'Codex', exact: true })
-    .getByRole('button', { name: 'Locate the Codex program', exact: true })
-    .click();
-  const codexProgram = page.getByRole('dialog', { name: 'Codex on this computer', exact: true });
-  await expect(codexProgram).toContainText('Kalkidan needs Codex 0.160.0 or later');
-  const codex = codexProgram
+  await expect(claudeRow).toContainText('2.1.296 · needs 2.1.300');
+  const codexRow = settings.getByRole('group', { name: 'Codex', exact: true });
+  await expect(codexRow).toBeVisible();
+  await expect(codexRow).not.toContainText('needs');
+  await expect(codexRow.getByRole('button', { name: 'Update Codex' })).toHaveCount(0);
+  // Details › Programs… opens the programs of this computer, with the minimum of each agent.
+  await settings.getByRole('button', { name: 'Details', exact: true }).click();
+  await settings.getByRole('button', { name: 'Programs…', exact: true }).click();
+  const allPrograms = page.getByRole('dialog', {
+    name: 'Coding agent programs on this computer',
+    exact: true,
+  });
+  await expect(allPrograms).toContainText('Kalkidan needs Codex 0.160.0 or later');
+  const codex = allPrograms
     .getByRole('list', { name: 'Coding agents on this computer' })
     .getByRole('listitem', { name: 'Codex on this computer' });
   await expect(codex).toContainText('Meets the minimum');
-  await expect(codexProgram.getByTestId('agent-version-codex')).toContainText(
+  await expect(allPrograms.getByTestId('agent-version-codex')).toContainText(
     'Version 0.163.0-alpha.10.2',
   );
   await page.keyboard.press('Escape');
-  await expect(codexProgram).toHaveCount(0);
-  // Locate… on the Claude Code row opens the Claude Code program, with each version.
-  await claudeRow
-    .getByRole('button', { name: 'Locate the Claude Code program', exact: true })
-    .click();
+  await expect(allPrograms).toHaveCount(0);
+  // "Update Claude Code" on the Claude Code row opens the Claude Code program, with the command.
+  await claudeRow.getByRole('button', { name: 'Update Claude Code', exact: true }).click();
   const programs = page.getByRole('dialog', { name: 'Claude Code on this computer', exact: true });
   await expect(programs).toContainText('Kalkidan needs Claude Code 2.1.300 or later');
   const agents = programs.getByRole('list', { name: 'Coding agents on this computer' });
@@ -119,7 +119,9 @@ test('a Claude Code version below the minimum refuses the send and links to the 
   const settings = computersPage(page);
   await expect(settings).toBeVisible();
   const claude = settings.getByRole('group', { name: 'Claude Code', exact: true });
-  await expect(claude).toContainText('Needs update');
+  await expect(
+    claude.getByRole('button', { name: 'Update Claude Code', exact: true }),
+  ).toBeVisible();
   // The focus moves to the row of the agent in the message.
   await expect(page.locator('#agent-program-local-claude')).toBeFocused();
 });

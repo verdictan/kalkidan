@@ -412,7 +412,7 @@ try {
   await page.reload();
   // The sidebar shows projects and chats only. Open the code folder from the project overview.
   await page.locator('.project-tree .project-select').first().click();
-  await page.locator('.project-home-section .list-row-main').first().click();
+  await page.locator('.project-home-section .folder-chip').first().click();
   // "New chat" starts a chat with the default agent, the first installed agent.
   await page.getByRole('button', { name: 'New chat', exact: true }).first().click();
   await openTool('Browser');

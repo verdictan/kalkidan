@@ -1,7 +1,9 @@
 import { type Page } from '@playwright/test';
-import { test, expect, openComputersPage } from './helpers/app';
+import { test, expect, openSettingsWindow } from './helpers/app';
 
-/** A signed-in desktop. `ask` sends the quit question from the main process. */
+/**
+ * A signed-in desktop with one SSH host. `ask` sends the quit question from the main process.
+ */
 async function fixture(page: Page) {
   await page.addInitScript(() => {
     const w = window as any;
@@ -16,7 +18,9 @@ async function fixture(page: Page) {
         platform: 'darwin',
       }),
       trackerProviders: async () => [],
-      remoteHosts: async () => [],
+      remoteHosts: async () => [
+        { id: 'h1', name: 'Build server', target: 'u@build', status: 'disconnected' },
+      ],
       githubCliCheck: async () => ({ status: 'ready' }),
       githubAuthStatus: async () => ({ status: 'idle' }),
       onMenuCommand: () => () => {},
@@ -106,17 +110,19 @@ test('Stop all with "Don\'t ask again" answers once, and Computers turns the que
   await dialog.getByRole('button', { name: 'Stop all' }).click();
   await expect(dialog).toBeHidden();
   expect(await answers(page)).toEqual([{ id: 'q2', choice: 'stop', dontAsk: true }]);
-  // The main process saves "Don't ask again". Computers › SSH hosts shows it and can turn it on
-  // again.
+  // The main process saves "Don't ask again". Settings › Computers shows it below the SSH hosts
+  // and can turn it on again.
   await page.evaluate(() => ((window as any).asks = false));
-  const computers = await openComputersPage(page);
-  const toggle = computers
-    .getByRole('region', { name: 'SSH hosts', exact: true })
+  const settings = await openSettingsWindow(page, 'Computers');
+  const toggle = settings
+    .getByRole('tabpanel', { name: 'Computers', exact: true })
     .getByRole('switch', { name: 'Ask before quitting while SSH work runs' });
   await expect(toggle).not.toBeChecked();
   await toggle.click();
   await expect(toggle).toBeChecked();
   expect(await page.evaluate(() => (window as any).asks)).toBe(true);
+  await page.keyboard.press('Escape');
+  await expect(settings).toHaveCount(0);
   // A new question starts with the box clear.
   await ask(page, 'q3');
   await expect(question(page).getByRole('checkbox', { name: "Don't ask again" })).not.toBeChecked();

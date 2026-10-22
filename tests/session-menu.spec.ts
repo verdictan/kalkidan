@@ -1,6 +1,13 @@
-import { test, expect } from './helpers/app';
+import { type Page } from '@playwright/test';
+import { test, expect, openPalette, palette } from './helpers/app';
 import { openCodeFolder } from './helpers/navigation';
-async function openSession(page: any) {
+/** Runs an action of the open chat from the command palette. */
+async function runFromPalette(page: Page, name: RegExp) {
+  const input = await openPalette(page);
+  await input.fill(name.source.replace(/^\^/, '').replace(/…$/, ''));
+  await palette(page).getByRole('option', { name }).click();
+}
+async function openSession(page: Page) {
   await page.goto('/');
   await page.locator('.project-tree').getByRole('button', { name: 'Atlas', exact: true }).click();
   await openCodeFolder(page);
@@ -41,9 +48,11 @@ test('session actions rename, pin, fork, and open an independent side session', 
   await expect(page.locator('.conversation-toolbar-title:visible')).toContainText(
     'Release review (fork)',
   );
-  // "Open side chat" is at the top level of the menu.
+  // "Open side chat" is in ⌘K, not in the chat menu.
   await menu();
-  await page.getByRole('menuitem', { name: /^Open side chat/ }).click();
+  await expect(page.getByRole('menuitem', { name: /^Open side chat/ })).toHaveCount(0);
+  await page.keyboard.press('Escape');
+  await runFromPalette(page, /^Open side chat/);
   await expect(page.getByLabel('Message agent')).toHaveCount(3);
   await expect(page.getByRole('button', { name: 'Close side chat' })).toBeVisible();
   await page.screenshot({ animations: 'disabled', path: 'test-results/side-session.png' });
@@ -64,10 +73,9 @@ test('archive closes the session at once and the toast can undo it', async ({ pa
   await expect(page.getByRole('status').filter({ hasText: 'Chat restored' })).toBeVisible();
   await expect(page.getByText(title, { exact: true }).first()).toBeVisible();
 });
-test('chat actions open the managed agent usage history of the chat', async ({ page }) => {
+test('the command palette opens the managed agent usage history of the chat', async ({ page }) => {
   await openSession(page);
-  await page.getByRole('button', { name: 'Chat actions', exact: true }).click();
-  await page.getByRole('menuitem', { name: 'Usage history…' }).click();
+  await runFromPalette(page, /^Usage history…/);
   const dialog = page.getByRole('dialog', { name: 'Usage history' });
   await expect(dialog).toContainText('Verdictan keeps one history for chats and tasks.');
   await expect(dialog).toContainText('No requests. Verdictan may not have them yet.');
@@ -130,8 +138,7 @@ test('usage history loads on open and shows duration and subscription cost', asy
   await page.goto('/');
   await openCodeFolder(page);
   await page.getByRole('button', { name: 'Resume Review', exact: true }).click();
-  await page.getByRole('button', { name: 'Chat actions', exact: true }).click();
-  await page.getByRole('menuitem', { name: 'Usage history…' }).click();
+  await runFromPalette(page, /^Usage history…/);
   const dialog = page.getByRole('dialog', { name: 'Usage history' });
   // The history loads without a button press.
   await expect(dialog).toContainText('Request 1');

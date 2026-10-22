@@ -3,8 +3,9 @@ import {
   expect,
   openAccountMenuItem,
   openComputersPage,
-  openPreferences,
-  preferencesDialog,
+  openSettings,
+  settingsDialog,
+  settingsSection,
   sidebar,
 } from './helpers/app';
 
@@ -104,34 +105,36 @@ test('the Computers page separates account sign-in from execution readiness and 
   });
   await page.goto('/');
   const computers = await openComputersPage(page);
-  // Each agent row tells the user to sign in. The rows have no sign-in button.
+  // Each agent row that needs the user has one button. Signed out, it is "Sign in".
   const codex = computers.getByRole('group', { name: 'Codex', exact: true });
-  await expect(codex.getByRole('status')).toHaveText('Needs sign-in');
-  await expect(codex).toContainText('Sign in to Verdictan to use it');
-  await expect(codex.getByRole('button', { name: /Sign in/ })).toHaveCount(0);
-  // The sidebar footer has the one sign-in of the app: the first item of its menu.
+  const claude = computers.getByRole('group', { name: 'Claude Code', exact: true });
+  await expect(codex.getByRole('button', { name: 'Sign in', exact: true })).toBeVisible();
+  await expect(claude.getByRole('button', { name: 'Sign in', exact: true })).toBeVisible();
+  // The sidebar footer also has the sign-in: the first item of its menu.
   const footer = sidebar(page).locator('.account-menu');
   const signedOut = footer.getByRole('button', {
-    name: 'Sign in, Preferences and help',
-    exact: true,
+    name: /^Sign in, Settings and help/,
   });
+  await page.keyboard.press('Escape');
+  await expect(computers).toHaveCount(0);
   await expect(signedOut).toBeVisible();
-  await openAccountMenuItem(page, 'Sign in');
+  await openAccountMenuItem(page, /^Sign in$/);
   // The region is saved, so the sign-in starts at once and the sheet closes when it is done.
   const signIn = page.getByRole('dialog', { name: 'Sign in to Verdictan' });
   await expect(signIn).toHaveCount(0);
   await expect(footer.getByRole('button', { name: /^Account: / })).toBeVisible();
   // Without a service name the account has a generic label. IDs never show.
   await expect(footer).toContainText('Verdictan');
-  for (const id of ['11111111-1111', '22222222-2222']) {
-    await expect(footer).not.toContainText(id);
+  for (const id of ['11111111-1111', '22222222-2222']) await expect(footer).not.toContainText(id);
+  await openComputersPage(page);
+  await expect(codex).toBeVisible();
+  for (const id of ['11111111-1111', '22222222-2222'])
     await expect(computers).not.toContainText(id);
-  }
   // Sign-in alone does not make the agents ready. The setup is still open.
-  await expect(codex.getByRole('status')).toHaveText('Needs setup');
-  await expect(
-    computers.getByRole('group', { name: 'Claude Code', exact: true }).getByRole('status'),
-  ).toHaveText('Needs setup');
+  await expect(codex.getByRole('button', { name: 'Set up', exact: true })).toBeVisible();
+  await expect(claude.getByRole('button', { name: 'Set up', exact: true })).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(computers).toHaveCount(0);
   // Sign out is in the account menu.
   await openAccountMenuItem(page, /Sign out/);
   // The service did not confirm that it removed the access, so the toast says so.
@@ -141,9 +144,11 @@ test('the Computers page separates account sign-in from execution readiness and 
     }),
   ).toBeVisible();
   await expect(signedOut).toBeVisible();
-  await expect(codex.getByRole('status')).toHaveText('Needs sign-in');
-  // The runtime of this computer is in its "Managed agents" row on the Computers page.
-  const runtime = computers.getByRole('group', { name: 'Managed agents', exact: true });
+  await openComputersPage(page);
+  await expect(codex.getByRole('button', { name: 'Sign in', exact: true })).toBeVisible();
+  // The runtime of this computer is in its "Kalkidan service" row in Settings › Computers. The
+  // row shows because the service needs the user.
+  const runtime = computers.getByRole('group', { name: 'Kalkidan service', exact: true });
   await expect(runtime).toContainText('Not installed');
   await runtime.getByRole('button', { name: 'Install', exact: true }).click();
   await expect(runtime).toContainText('Waiting');
@@ -157,16 +162,15 @@ test('the Computers page separates account sign-in from execution readiness and 
   expect(await page.evaluate(() => (window as any).runtimeFixture.update.operation.phase)).toBe(
     'canceled',
   );
-  // Kalkidan does not update itself. Preferences › This app links to the release page.
-  const settings = await openPreferences(page);
-  await settings.getByRole('tab', { name: 'This app', exact: true }).click();
-  await expect(settings.getByRole('link', { name: /Check for updates/ })).toHaveAttribute(
+  // Kalkidan does not update itself. Settings › General links to the release page.
+  await settingsSection(page, 'General').click();
+  await expect(computers.getByRole('link', { name: /Check for updates/ })).toHaveAttribute(
     'href',
     /verdictan\/packages\/releases/,
   );
 });
 
-test('Preferences requires an explicit EU or US region before sign-in', async ({ page }) => {
+test('Settings requires an explicit EU or US region before sign-in', async ({ page }) => {
   await page.addInitScript(() => {
     const state = {
       account: { phase: 'error', error: 'desktop.region_required', executionReady: false } as any,
@@ -198,15 +202,14 @@ test('Preferences requires an explicit EU or US region before sign-in', async ({
   await expect(
     sidebar(page)
       .locator('.account-menu')
-      .getByRole('button', { name: 'Sign in, Preferences and help', exact: true }),
+      .getByRole('button', { name: /^Sign in, Settings and help/ }),
   ).toBeVisible();
-  // The region is in Preferences › Connections.
-  const settings = await openPreferences(page);
-  await settings.getByRole('tab', { name: 'Connections', exact: true }).click();
+  // The region is in Settings › Account.
+  const settings = await openSettings(page, 'Account');
   const regionRow = settings.getByRole('group', { name: 'Region', exact: true });
   // No region is selected.
   await expect(regionRow).toContainText('Not chosen');
-  // A missing region is not an error in Preferences.
+  // A missing region is not an error in Settings.
   await expect(settings.getByRole('alert')).toHaveCount(0);
   await regionRow.getByRole('button', { name: 'Change the region', exact: true }).click();
   const choose = page.getByRole('dialog', { name: 'Choose a region' });
@@ -231,5 +234,5 @@ test('Preferences requires an explicit EU or US region before sign-in', async ({
   await expect(regionRow).toContainText('European Union');
   expect(await page.evaluate(() => (window as any).regionFixture.regions)).toEqual(['us', 'eu']);
   await page.keyboard.press('Escape');
-  await expect(preferencesDialog(page)).toHaveCount(0);
+  await expect(settingsDialog(page)).toHaveCount(0);
 });

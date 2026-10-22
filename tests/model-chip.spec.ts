@@ -90,8 +90,9 @@ test('one allowed model shows as a label with the reason', async ({ page }) => {
   await openChat(page, { model: 'sonnet', allowed: ['sonnet'] });
   await expect(page.getByRole('button', { name: 'More options', exact: true })).toHaveCount(0);
   await expect(page.getByRole('button', { name: /^Agent and model:/ })).toHaveCount(0);
-  const label = page.getByRole('note', { name: /^Agent and model: Claude Code · Sonnet\./ });
-  await expect(label).toHaveText('Claude Code · Sonnet');
+  // The chip names the model only when the chat uses another model than the default.
+  const label = page.getByRole('note', { name: /^Agent and model: Claude Code\./ });
+  await expect(label).toHaveText('Claude Code');
   await label.focus();
   await expect(page.getByRole('tooltip')).toHaveText('Your organization sets the model.');
   // The chat picks no model, so the setup model applies.
@@ -103,7 +104,8 @@ test('the model chip lists only the allowed models and marks the setup default',
 }) => {
   await openChat(page, { model: 'sonnet', allowed: ['sonnet', 'opus'] });
   const chip = page.getByRole('button', { name: /^Agent and model:/ });
-  await expect(chip).toHaveAccessibleName('Agent and model: Claude Code · Sonnet');
+  // The setup model is the default, so the chip shows only the agent.
+  await expect(chip).toHaveAccessibleName('Agent and model: Claude Code');
   await chip.click();
   await expect(modelItems(page)).toHaveText(['SonnetDefault', 'Opus']);
   await page.getByRole('menuitemradio', { name: 'Opus', exact: true }).click();
@@ -121,7 +123,7 @@ test('the model chip lists only the allowed models and marks the setup default',
 test('without managed setup, the chip keeps the agent models', async ({ page }) => {
   await openChat(page, {});
   const chip = page.getByRole('button', { name: /^Agent and model:/ });
-  await expect(chip).toHaveAccessibleName('Agent and model: Claude Code · Default');
+  await expect(chip).toHaveAccessibleName('Agent and model: Claude Code');
   await chip.click();
   await expect(modelItems(page)).toHaveText(['Default', 'Sonnet', 'Opus', 'Haiku']);
   await page.getByRole('menuitemradio', { name: 'Haiku', exact: true }).click();
