@@ -16,7 +16,7 @@ import { agentProgramAnchor, chooseProgramLabel } from '../domain/agent-programs
 import { settingsAnchors } from '../domain/settings-route';
 
 export type AgentErrorActionKind =
-  'settings' | 'retry' | 'change-agent' | 'install' | 'sign-in' | 'check-status';
+  'settings' | 'retry' | 'change-agent' | 'install' | 'sign-in' | 'check-status' | 'fork';
 
 export interface AgentErrorAction {
   label: string;
@@ -68,8 +68,25 @@ const signInCodes: Record<string, string> = {
   'desktop.account_invalid': 'Sign in to Verdictan again to run agents.',
   'desktop.authorization_timeout': 'The sign-in did not finish. Sign in again to run agents.',
 };
-/** Plain words and the Sign in action for a code that a sign-in fixes. */
-function signInError(code: string): AgentError | undefined {
+/** Opens the fork dialog of the chat. The fork continues with the agent of this computer. */
+const fork: AgentErrorAction = { label: 'Fork chat', kind: 'fork' };
+/**
+ * Verdictan refused the agent connection of one chat, for example after its gateway moved to
+ * another agent. The account is still signed in, so a sign-in does not help.
+ */
+const refusedConnection: AgentError = {
+  message:
+    "This chat's agent connection was refused. Try again, or fork the chat to continue it with the agent of this computer.",
+  action: fork,
+  retryFirst: true,
+  code: 'desktop.session_rejected',
+};
+/**
+ * Plain words and the Sign in action for a code that a sign-in fixes. A rejected session of a
+ * signed-in account is a refused agent connection, not an expired sign-in.
+ */
+function signInError(code: string, context: AgentErrorContext = {}): AgentError | undefined {
+  if (code === 'desktop.session_rejected' && context.signedIn) return refusedConnection;
   const message = signInCodes[code];
   return message ? { message, action: signIn, code } : undefined;
 }
@@ -87,6 +104,8 @@ const setUpCodes = new Set(['desktop.runtime_missing', 'desktop.runtime_not_foun
 /** What Kalkidan knows about the account. A saved region changes some fixes to Sign in. */
 export interface AgentErrorContext {
   regionSaved?: boolean;
+  /** True when the Verdictan account is signed in now. Then a sign-in does not fix an error. */
+  signedIn?: boolean;
 }
 
 // Codes of a check, a gateway or a lock that did not become ready. They are not setup steps.
@@ -95,7 +114,7 @@ const refusalCodes =
 
 /** Plain words and one action for a managed agent code. Uses the backend's code list. */
 function managedError(code: string, context: AgentErrorContext = {}): AgentError {
-  const signInFix = signInError(code);
+  const signInFix = signInError(code, context);
   if (signInFix) return signInFix;
   const { regionSaved } = context;
   const info = managedErrorInfo(code, { regionSaved });
@@ -188,12 +207,16 @@ export interface ManagedLaunchFailure {
  */
 export function managedLaunchError(
   failure: ManagedLaunchFailure,
-  context: Omit<RefusalContext, 'version' | 'path'> & { hostId?: string; agent?: string } = {},
+  context: Omit<RefusalContext, 'version' | 'path'> & {
+    hostId?: string;
+    agent?: string;
+    signedIn?: boolean;
+  } = {},
 ): AgentError {
   if (failure.code && /^desktop\.[a-z_]{1,100}$/.test(failure.code)) {
-    const signInFix = signInError(failure.code);
+    const signInFix = signInError(failure.code, { signedIn: context.signedIn });
     if (signInFix) return { ...signInFix, note: managedOnlyNotice };
-    const { hostId, agent: _agent, ...words } = context;
+    const { hostId, agent: _agent, signedIn: _signedIn, ...words } = context;
     const regionContext = { regionSaved: context.regionSaved };
     const refusal = managedRefusal(failure.code, {
       ...words,

@@ -194,8 +194,16 @@ let stopDispatch = () => {};
 let restoreDispatch = () => {};
 let lastAccount = '';
 let lastPhase = '';
+/** Builds the application menu again. It shows Sign in only while nobody is signed in. */
+let rebuildMenu = () => {};
+let menuSignedIn = false;
 function notifyVerdictan() {
   const status = verdictan?.account.status();
+  const signedIn = status?.phase === 'authenticated';
+  if (signedIn !== menuSignedIn) {
+    menuSignedIn = signedIn;
+    rebuildMenu();
+  }
   const account = status?.account;
   const key = JSON.stringify([
     verdictan?.region,
@@ -3048,9 +3056,11 @@ app.whenReady().then(async () => {
                 ? 'windows'
                 : 'linux',
           chat: chatMenuState,
+          signedIn: menuSignedIn,
         }),
       ),
     );
+  rebuildMenu = buildMenu;
   handle('chat-menu-state', (state: unknown) => {
     const next = parseChatActionState(state);
     if (JSON.stringify(next) === JSON.stringify(chatMenuState)) return;

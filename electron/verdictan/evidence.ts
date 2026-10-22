@@ -250,6 +250,15 @@ export class RuntimeEvidence {
     this.controller?.abort();
     await this.operation;
     await this.poll(5000);
+    // Usage that did not settle before the run ended has no token count yet. The snapshot can
+    // have it. Read it once more, before Kalkidan releases the runtime.
+    if (this.state.requests.some((request) => request.usage && request.tokens === null)) {
+      const status = this.state.status;
+      await this.reconcile(AbortSignal.timeout(5000)).then(
+        () => (this.state.status = status),
+        () => (this.state.status = status),
+      );
+    }
     this.state.finalized = true;
     this.publish();
   }
