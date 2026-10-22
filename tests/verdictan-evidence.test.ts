@@ -170,3 +170,57 @@ test('a response that arrives after cancellation cannot update evidence', async 
   await assert.rejects(feed.reconcile(controller.signal), { name: 'AbortError' });
   assert.deepEqual(feed.status().requests, []);
 });
+
+test('a run that ends before its usage settles reads the token count once more', async () => {
+  const reads: string[] = [];
+  const feed = new RuntimeEvidence(
+    'runtime',
+    'session',
+    async (kind) => {
+      reads.push(kind);
+      // The usage of the Codex request is still open when the turn ends.
+      if (kind === 'events')
+        return eventPage([event('1', 'usage.updated', { usage_status: 'reserved' })]);
+      // The token count arrives after the first read.
+      const late = reads.filter((read) => read === 'snapshot').length > 1;
+      return snapshot([
+        {
+          request_id: 'request',
+          review: null,
+          review_authority: 'account_broker',
+          usage: {
+            state: 'reserved',
+            ...(late ? { total_tokens: '1234' } : {}),
+            provider_charge: 'not_reported',
+            billing: 'user_subscription',
+          },
+        },
+      ]);
+    },
+    () => {},
+  );
+  await feed.poll();
+  assert.equal(feed.status().requests[0].tokens, null);
+  await feed.stop();
+  assert.equal(reads.at(-1), 'snapshot');
+  assert.equal(feed.status().requests[0].tokens, '1234');
+  assert.equal(feed.status().status, 'current');
+  assert.equal(feed.status().finalized, true);
+});
+
+test('a run whose usage has its tokens does not read the snapshot again', async () => {
+  const reads: string[] = [];
+  const feed = new RuntimeEvidence(
+    'runtime',
+    'session',
+    async (kind) => {
+      reads.push(kind);
+      return kind === 'events' ? eventPage() : snapshot();
+    },
+    () => {},
+  );
+  await feed.poll();
+  const before = reads.filter((read) => read === 'snapshot').length;
+  await feed.stop();
+  assert.equal(reads.filter((read) => read === 'snapshot').length, before);
+});
