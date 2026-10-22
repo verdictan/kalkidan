@@ -9,7 +9,7 @@ COPY .husky/install.mjs .husky/install.mjs
 RUN npm install --global npm@12.2.0 \
     && npm ci \
     && npx playwright install --with-deps chromium \
-    && apt-get update && apt-get install -y --no-install-recommends git xvfb xauth \
+    && apt-get update && apt-get install -y --no-install-recommends git xvfb xauth openssl \
     && rm -rf /var/lib/apt/lists/* \
     && mkdir /out && chown -R node:node /workspace /out /opt/playwright
 RUN apt-get update && apt-get install -y --no-install-recommends python3 libgtk-3-0 \
