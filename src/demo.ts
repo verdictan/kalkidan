@@ -649,6 +649,10 @@ export const demo: API = {
   supportBundleExport: async () => {
     throw new Error('Export requires the desktop application.');
   },
+  runtimeUpdateTransfer: async () => {
+    throw new Error('Runtime installation requires the desktop application.');
+  },
+  proxySignIns: async () => [],
   memoryList: async () => ({
     pages: demoMemory.map((entry) => ({
       topic: entry.topic,

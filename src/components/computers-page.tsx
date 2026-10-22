@@ -1,4 +1,6 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
+import { useRefreshTriggers } from '../hooks/use-refresh-triggers';
+import { Button } from './ui/button';
 import type { API, RemoteHost } from '../types';
 import { errorMessage } from '../lib/errors';
 import { settingsAnchors } from '../domain/settings-route';
@@ -30,6 +32,54 @@ function ComputersGroup({ label, children }: { label: string; children: ReactNod
         {children}
       </ul>
     </section>
+  );
+}
+
+/**
+ * The proxy sign-ins that Kalkidan saved in the secret store of the system, with Remove. The
+ * group shows only when a sign-in is saved. The password never comes to the window.
+ */
+function ProxySignIns({ api }: { api: API }) {
+  const [rows, setRows] = useState<{ proxy: string; username: string }[]>([]);
+  const [failure, setFailure] = useState('');
+  const read = useCallback(() => {
+    void api
+      .proxySignIns?.()
+      .then(setRows)
+      .catch(() => setRows([]));
+  }, [api]);
+  useRefreshTriggers(api, true, read);
+  if (!rows.length) return null;
+  return (
+    <ComputersGroup label="Proxy sign-in">
+      {rows.map((row) => (
+        <SettingsRow
+          key={row.proxy}
+          label={row.proxy}
+          help={`${row.username} · Saved in the secret store of this computer`}
+        >
+          <Button
+            variant="outline"
+            size="sm"
+            aria-label={`Remove the proxy sign-in for ${row.proxy}`}
+            onClick={() => {
+              setFailure('');
+              void api
+                .proxySignInRemove?.(row.proxy)
+                .then(read)
+                .catch((error) => setFailure(errorMessage(error)));
+            }}
+          >
+            Remove
+          </Button>
+        </SettingsRow>
+      ))}
+      {failure && (
+        <p role="alert" className="field-error">
+          {failure}
+        </p>
+      )}
+    </ComputersGroup>
   );
 }
 
@@ -148,6 +198,7 @@ export function ComputersPage({
             }}
           />
         </ComputersGroup>
+        <ProxySignIns api={api} />
         {(error || refreshError) && (
           <p role="alert" className="field-error whitespace-pre-wrap break-words">
             {refreshError || error}

@@ -7,6 +7,7 @@ import {
   type NativeAgent,
 } from './gateway';
 import { uuid, type RuntimeCredentials } from './credentials';
+import { prepareEventDirectory } from './event-buffer';
 
 export type RuntimePhase =
   | 'provisioning'
@@ -34,6 +35,8 @@ interface RuntimeOptions {
   client(): Promise<DesktopClient>;
   executable(): Promise<string | null>;
   gateway?(options: GatewayOptions): ManagedGateway;
+  /** The persistent folder of the durable event queue of each gateway. */
+  eventDirectory?: string;
   changed?(): void;
   /** Verdictan revoked a runtime. The runtime is already stopped. */
   revoked?(reason: GatewayRevocation): void;
@@ -148,9 +151,11 @@ export class ManagedRuntimes {
     if (this.closing || item.generation !== this.generation)
       throw new DesktopProtocolError('desktop.runtime_stopped');
     this.set(item, 'starting');
+    if (this.options.eventDirectory) await prepareEventDirectory(this.options.eventDirectory);
     const gateway = (this.options.gateway || ((options) => new ManagedGateway(options)))({
       executable,
       credentials: frame,
+      eventDirectory: this.options.eventDirectory,
       lost: (revocation) => {
         item.gateway = undefined;
         if (revocation && revocation !== 'offline_limit') {
@@ -205,6 +210,10 @@ export class ManagedRuntimes {
     if (item.phase !== 'ready' || !item.gateway)
       throw new DesktopProtocolError('desktop.gateway_unavailable');
     return item.gateway.endpoint();
+  }
+  /** Stop each gateway whose credential expired while the computer slept. */
+  checkExpiry() {
+    for (const item of this.records.values()) item.gateway?.checkExpiry();
   }
   async release(sessionId: string) {
     try {

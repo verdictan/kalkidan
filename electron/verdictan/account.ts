@@ -545,9 +545,11 @@ export function parseCapabilities(data: Record<string, unknown>): VerdictanCapab
  * end-of-support date. See `docs/compatibility.md`. A deprecated runtime before that date works.
  */
 export function assertRuntimeSupported(capabilities: VerdictanCapabilities, now = Date.now()) {
-  const result = runtimeCompatibility(capabilities.cliVersion, now);
+  assertRuntimeVersionSupported(capabilities.cliVersion, now);
+}
+/** The same check for a runtime version that a probe confirmed. */
+export function assertRuntimeVersionSupported(version: string, now = Date.now()) {
+  const result = runtimeCompatibility(version, now);
   if (result.status === 'unsupported' || result.status === 'unknown')
-    throw new DesktopProtocolError('desktop.runtime_version_unsupported', {
-      version: capabilities.cliVersion,
-    });
+    throw new DesktopProtocolError('desktop.runtime_version_unsupported', { version });
 }
