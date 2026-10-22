@@ -24,7 +24,7 @@ function Input({
         'focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-[var(--focus-color)]',
         size === 'sm' && 'h-7 px-2 text-xs',
         variant === 'filled' &&
-          'border-transparent bg-secondary/60 shadow-none dark:bg-secondary/60 focus-visible:bg-transparent',
+          'border-border bg-secondary shadow-none dark:border-transparent dark:bg-secondary/60 focus-visible:bg-transparent',
         'aria-invalid:border-destructive aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40',
         className,
       )}

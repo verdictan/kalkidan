@@ -40,6 +40,30 @@ export interface VerdictanStatus {
   remoteRevocationPending?: boolean;
   /** Account authentication alone does not authorize agent dispatch. */
   executionReady: boolean;
+  /**
+   * The browser sign-in that waits for the user. The URL holds only the public PKCE challenge
+   * and state, never a token. Undefined when no sign-in waits.
+   */
+  authorization?: {
+    url: string;
+    intent: 'login' | 'register';
+    startedAt: string;
+    expiresAt: string;
+  };
+}
+
+/** First-run state that the main process keeps, so it survives a cleared renderer storage. */
+export interface FirstRunState {
+  /** True after the user finished or skipped the Welcome screen once. */
+  welcomeDone: boolean;
+  /** True after any account signed in on this computer. */
+  everSignedIn: boolean;
+}
+
+/** Notification choices. Both are on by default. */
+export interface NotificationPreferences {
+  finished: boolean;
+  needsInput: boolean;
 }
 export interface VerdictanAPI {
   verdictanSetRegion(region: 'eu' | 'us'): Promise<VerdictanStatus>;
@@ -55,6 +79,19 @@ export interface VerdictanAPI {
   verdictanCancel(): Promise<VerdictanStatus>;
   verdictanRenew(): Promise<VerdictanStatus>;
   verdictanLogout(): Promise<VerdictanStatus>;
+  /** Opens the waiting sign-in URL in the browser again. Rejects when no sign-in waits. */
+  verdictanReopenBrowser(): Promise<void>;
+  /** Opens the Verdictan console of the saved region ("Manage account"). */
+  verdictanOpenConsole(): Promise<void>;
+  /**
+   * Saves the recommended setup for every agent that has no saved setup yet, with the same
+   * preselection that Settings shows. Returns the new setup.
+   */
+  verdictanApplyRecommended(): Promise<VerdictanSetup>;
+  firstRunState(): Promise<FirstRunState>;
+  setWelcomeDone(): Promise<FirstRunState>;
+  notificationPreferences(): Promise<NotificationPreferences>;
+  setNotificationPreferences(value: NotificationPreferences): Promise<NotificationPreferences>;
 }
 
 /** Omitted means organization provider connection (BYOK). Unknown values fail validation. */

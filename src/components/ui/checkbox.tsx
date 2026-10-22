@@ -1,8 +1,13 @@
 import type { ComponentProps, ReactNode } from 'react';
 import { cn } from '@/lib/utils';
 
+// A drawn control, so that it looks the same in every theme and on every platform.
 const control =
-  'peer shrink-0 size-4 cursor-pointer accent-[var(--primary)] outline-none focus-visible:shadow-[var(--focus-ring)] disabled:cursor-not-allowed disabled:opacity-50';
+  'peer relative shrink-0 size-4 cursor-pointer appearance-none border border-[var(--border-strong,var(--border))] bg-[var(--background)] outline-none transition-[background-color,border-color] duration-[var(--motion-fast)] hover:border-[var(--muted-foreground)] focus-visible:shadow-[var(--focus-ring)] disabled:cursor-not-allowed disabled:opacity-50 checked:border-[var(--primary)] checked:bg-[var(--primary)]';
+const tick =
+  'checked:bg-[image:var(--checkbox-tick)] checked:bg-center checked:bg-no-repeat checked:bg-[length:12px_12px] indeterminate:border-[var(--primary)] indeterminate:bg-[var(--primary)] indeterminate:bg-[image:var(--checkbox-dash)] indeterminate:bg-center indeterminate:bg-no-repeat indeterminate:bg-[length:10px_10px]';
+const dot =
+  'checked:bg-[image:var(--radio-dot)] checked:bg-center checked:bg-no-repeat checked:bg-[length:6px_6px]';
 
 /** A 16px check box with the app focus ring. Use CheckboxRow for a box with a label. */
 export function Checkbox({ className, ...props }: Omit<ComponentProps<'input'>, 'type'>) {
@@ -10,7 +15,7 @@ export function Checkbox({ className, ...props }: Omit<ComponentProps<'input'>, 
     <input
       type="checkbox"
       data-slot="checkbox"
-      className={cn(control, 'rounded-sm', className)}
+      className={cn(control, tick, 'rounded-sm', className)}
       {...props}
     />
   );
@@ -22,7 +27,7 @@ export function Radio({ className, ...props }: Omit<ComponentProps<'input'>, 'ty
     <input
       type="radio"
       data-slot="radio"
-      className={cn(control, 'rounded-full', className)}
+      className={cn(control, dot, 'rounded-full', className)}
       {...props}
     />
   );
