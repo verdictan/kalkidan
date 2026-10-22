@@ -27,6 +27,8 @@ import { join, basename } from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import { exec, parseWorktrees } from './core';
 import { historyWithManaged } from './history';
+import { RunOutcomeLog } from './operations/run-outcomes';
+import { BindingStore, bindingSummary } from './verdictan/bindings';
 const runningBundleDigest = process.argv?.[1]
   ? readFile(process.argv[1])
       .then((bytes) => createHash('sha256').update(bytes).digest('hex'))
@@ -64,10 +66,25 @@ const worktreeCreation = new WorktreeCreation(
 const locations = new ProjectLocationCache(join(homedir(), '.kalkidan', 'projects'));
 const projectDocs = new Map<string, ProjectDocs>();
 const pty = new PtyTerminal();
-const chats = createAgentRuntimes(async (request) => {
-  if (!verdictanRuntime) throw new DesktopProtocolError('desktop.remote_runtime_missing');
-  return verdictanRuntime.launch.prepare(request);
-});
+// The outcome of each run stays on the host. The desktop reads it when it connects again.
+const runOutcomes = new RunOutcomeLog(join(homedir(), '.kalkidan', 'operations', 'run-outcomes'));
+const bindings = new BindingStore(join(homedir(), '.kalkidan'));
+// True after the desktop connection closed. The helper then stops the runs that are open.
+let disconnected = false;
+const chats = createAgentRuntimes(
+  async (request) => {
+    if (!verdictanRuntime) throw new DesktopProtocolError('desktop.remote_runtime_missing');
+    return verdictanRuntime.launch.prepare(request);
+  },
+  (run) => {
+    // The user did not stop a run that ends because the connection closed.
+    const state =
+      disconnected && run.state.status === 'stopped'
+        ? { ...run.state, status: 'failed' as const, errorCode: 'transport_lost' as const }
+        : run.state;
+    void runOutcomes.finished({ ...run, state }).catch(() => {});
+  },
+);
 const terminal = new CommandTerminal();
 let verdictanRuntime: ReturnType<typeof createVerdictanServices> | undefined;
 let verdictanOwner = '';
@@ -443,6 +460,13 @@ async function dispatch(method: string, args: any[]): Promise<any> {
         ),
       );
     }
+    case 'conversation-binding':
+      if (!['codex', 'claude_code'].includes(a) || !/^[a-zA-Z0-9_-]{1,160}$/.test(b))
+        throw new Error('Invalid conversation binding request.');
+      return bindingSummary(await bindings.read(a, b));
+    case 'run-outcomes':
+      // The host time lets the desktop correct a clock difference between the computers.
+      return { now: new Date().toISOString(), outcomes: await runOutcomes.list() };
     case 'chatStatus':
       return chats.status(a);
     case 'chatStop':
@@ -473,6 +497,7 @@ input.on('line', (line) => {
     );
 });
 const stop = () => {
+  disconnected = true;
   accountProxy.close();
   void verdictanRuntime?.managed.stopAll();
   verdictanRuntime?.account.dispose();

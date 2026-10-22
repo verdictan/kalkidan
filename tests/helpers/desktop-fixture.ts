@@ -23,8 +23,16 @@ export async function desktopFixture(platform = 'linux', failure = '') {
     missingPath: '',
     configError: false,
     stopError: false,
+    // The answers of an SSH host and of the account for the usage and outcome handlers.
+    runOutcomes: undefined as unknown,
+    remoteBinding: null as unknown,
+    localBinding: null as unknown,
   };
   let sequence = 0;
+  const account = {
+    org: '00000000-0000-4000-8000-000000000001',
+    user: '00000000-0000-4000-8000-000000000002',
+  };
   const record =
     (name: string, result: any = undefined) =>
     (...args: any[]) => {
@@ -188,6 +196,7 @@ export async function desktopFixture(platform = 'linux', failure = '') {
   class Remote {
     load = asyncRecord('remoteLoad');
     connectSaved = asyncRecord('remoteAutoConnect');
+    hosts = hosts;
     list = () => hosts;
     busy = () => false;
     add = asyncRecord('remoteAdd');
@@ -208,6 +217,8 @@ export async function desktopFixture(platform = 'linux', failure = '') {
       if (method === 'snapshot')
         return { sessions: [{ ...sessions[0], cwd: '/remote' }], warnings: ['warning'] };
       if (method === 'project-prepare') return '/remote-new';
+      if (method === 'run-outcomes') return state.runOutcomes;
+      if (method === 'conversation-binding') return state.remoteBinding;
       if (method === 'git') return { branch: 'main', changes: 0, worktrees: [] };
       if (method === 'repository-snapshot') return { sessions: [sessions[0]], git: null };
       if (['validate', 'clone', 'worktree'].includes(method))
@@ -348,11 +359,46 @@ export async function desktopFixture(platform = 'linux', failure = '') {
         autoRenew: asyncRecord('verdictanAutoRenew'),
       },
       setup: {
+        inspect: async () => ({
+          account: {
+            apiUrl: 'https://api.test',
+            organizationId: account.org,
+            userId: account.user,
+          },
+          client: {
+            request: async (operation: string, parameters: any) => {
+              calls.push(['account', operation]);
+              if (operation === 'capabilities')
+                return {
+                  data: {
+                    cli_version: '1.0.0',
+                    protocol_min: 1,
+                    protocol_max: 1,
+                    capabilities: ['history.list'],
+                    managed_execution_ready: true,
+                    tested_agents: [],
+                  },
+                };
+              return {
+                data: {
+                  actor_id: account.user,
+                  history_scope: parameters.history_scope,
+                  observed_at: '2026-10-21T12:00:00.000Z',
+                  as_of: null,
+                  items: [],
+                  next_cursor: null,
+                  replay_executes_requests: false,
+                },
+              };
+            },
+          },
+        }),
         status: asyncRecord('verdictanSetup'),
         select: asyncRecord('verdictanSelect'),
         applyRecommended: asyncRecord('verdictanApplyRecommended'),
       },
       launch: { prepare: asyncRecord('managedPrepare') },
+      bindings: { read: asyncRecord('bindingRead', () => state.localBinding) },
       remoteBroker: { reset: record('brokerReset'), request: asyncRecord('brokerRequest') },
     }),
   });
@@ -522,5 +568,5 @@ export async function desktopFixture(platform = 'linux', failure = '') {
       handlers.get(name)!({ sender: w.webContents, senderFrame: w.webContents.mainFrame }, ...args),
     );
   }
-  return { calls, windows, handlers, state, groups, sessions, app, theme, invoke };
+  return { calls, windows, handlers, state, groups, sessions, app, theme, invoke, account };
 }

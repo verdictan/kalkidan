@@ -96,6 +96,41 @@ export function assertCompatible(
   if (decision.status !== 'compatible') throw new ResumeIncompatibleError(decision);
   return decision;
 }
+/**
+ * The binding fields that the desktop needs to read the usage of a chat on an SSH host. They
+ * are identifiers and a folder only, never credentials. The host keeps the full binding.
+ */
+export type BindingSummary = Pick<
+  ConversationBinding,
+  'organization_id' | 'user_id' | 'conversation_id' | 'cwd' | 'provider_access_mode'
+>;
+export function bindingSummary(binding: ConversationBinding | null): BindingSummary | null {
+  if (!binding) return null;
+  return {
+    organization_id: binding.organization_id,
+    user_id: binding.user_id,
+    conversation_id: binding.conversation_id,
+    cwd: binding.cwd,
+    ...(binding.provider_access_mode ? { provider_access_mode: binding.provider_access_mode } : {}),
+  };
+}
+/** Reads a summary that an SSH host sent. A value that is not valid gives null. */
+export function parseBindingSummary(value: unknown): BindingSummary | null {
+  const v = value as BindingSummary;
+  if (
+    !v ||
+    typeof v !== 'object' ||
+    !uuid(v.organization_id) ||
+    !uuid(v.user_id) ||
+    !uuid(v.conversation_id) ||
+    typeof v.cwd !== 'string' ||
+    !v.cwd ||
+    v.cwd.length > 4096 ||
+    (v.provider_access_mode !== undefined && !providerAccessModes.includes(v.provider_access_mode))
+  )
+    return null;
+  return bindingSummary(v as ConversationBinding);
+}
 interface Store {
   schema: 1;
   installationId: string;

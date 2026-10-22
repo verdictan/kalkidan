@@ -116,12 +116,9 @@ test('the chat row menu and the chat header menu show the same actions, except O
 test('actions hide only when they cannot apply', () => {
   const linked = ids({ ...ready, linkedTask: true });
   assert.deepEqual(linked[1], ['organize', ['rename', 'pin', 'open-linked-task']]);
-  // Without managed agents, or on a remote computer, there is no usage history.
-  for (const state of [
-    { ...ready, usageHistory: false },
-    { ...ready, remote: true },
-  ])
-    assert.ok(!moreIds(state).includes('usage-history'));
+  // Without managed agents there is no usage history. A chat on an SSH host has one.
+  assert.ok(!moreIds({ ...ready, usageHistory: false }).includes('usage-history'));
+  assert.ok(moreIds({ ...ready, remote: true }).includes('usage-history'));
   // With a pull request, View pull request #N replaces Create pull request.
   const withPullRequest = chatActionMenu(
     'header',

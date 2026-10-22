@@ -15,6 +15,10 @@ export type ProjectUsageBilling = 'subscription' | 'metered';
 
 export interface ProjectUsageChat extends ProjectUsageChatRef {
   billing: ProjectUsageBilling;
+  /** The SSH host of the chat. A chat on this computer has no host. */
+  hostId?: string;
+  /** The name of the SSH host, for the label of the chat. */
+  hostName?: string;
   entries: ManagedHistoryEntry[];
   /** False when the chat has more requests than Kalkidan reads. */
   complete: boolean;
@@ -29,6 +33,11 @@ export interface ProjectUsage {
   /** Chats that Kalkidan did not read, because the project has too many chats. */
   skipped: number;
   observedAt: string;
+}
+
+/** The label of the computer that runs a chat. */
+export function usageHostLabel(chat: Pick<ProjectUsageChat, 'hostId' | 'hostName'>) {
+  return chat.hostId ? chat.hostName || 'SSH host' : 'This computer';
 }
 
 /** The limits of one read. They keep the number of Verdictan requests small. */
@@ -84,6 +93,8 @@ export interface UsageTotals {
 
 export interface UsageChatSummary extends ProjectUsageChatRef, UsageTotals {
   billing: ProjectUsageBilling;
+  /** The computer that runs the chat: this computer or the name of the SSH host. */
+  host: string;
   complete: boolean;
   models: string[];
   lastTime: string | null;
@@ -157,6 +168,7 @@ export function summarizeProjectUsage(
       agent: chat.agent,
       sessionId: chat.sessionId,
       billing: chat.billing,
+      host: usageHostLabel(chat),
       complete: chat.complete,
       models: [],
       lastTime: null,

@@ -78,13 +78,13 @@ export function ProjectUsageInsights({
 }: {
   api: API;
   groupId: string;
-  /** The chats of the project. Only chats on this computer have a managed history. */
+  /** The chats of the project, on this computer and on SSH hosts. */
   sessions: Session[];
 }) {
   const chats = useMemo(
     () =>
       sessions
-        .filter((session) => !session.hostId && !session.id.startsWith('draft-'))
+        .filter((session) => !session.id.startsWith('draft-'))
         .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)),
     [sessions],
   );
@@ -326,7 +326,7 @@ export function ProjectUsageInsights({
                       {title(chat.agent, chat.sessionId)}
                     </button>
                     <span className="truncate text-xs leading-4 text-muted-foreground">
-                      {agentLabel(chat.agent)} · {plural(chat.requests, 'request')} ·{' '}
+                      {agentLabel(chat.agent)} · {chat.host} · {plural(chat.requests, 'request')} ·{' '}
                       {count(chat.allowed)} allowed · {count(chat.refused)} refused ·{' '}
                       {tokenText(chat.tokens)}
                       {chat.models.length ? ` · ${chat.models.join(', ')}` : ''}

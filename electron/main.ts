@@ -1,5 +1,5 @@
 import { signOutDetail, type VerdictanStatus } from '../src/domain/verdictan';
-import { identityKey } from './verdictan/bindings';
+import { identityKey, parseBindingSummary, type BindingSummary } from './verdictan/bindings';
 import {
   savedVerdictanRegion,
   saveVerdictanRegion,
@@ -8,7 +8,7 @@ import {
 } from './verdictan/region';
 import { ProjectServices } from './verdictan/project-services';
 import { ManagedHistory } from './verdictan/managed-history';
-import { ProjectUsageReader } from './verdictan/project-usage';
+import { ProjectUsageReader, chatHost } from './verdictan/project-usage';
 import { DesktopProtocolError } from './verdictan/protocol';
 import { ParallelDispatch } from './operations/parallel-dispatch';
 import { TaskExecutions } from './operations/task-execution';
@@ -848,6 +848,21 @@ app.whenReady().then(async () => {
   // installs without a chat or a visit to Settings. The check is the same status call that a
   // chat start makes. A host with no region yet, or no runtime, only reports its status.
   remote.onConnected((hostId) => {
+    // The host keeps the outcome of each run, also a run that ended when the app was closed or
+    // the connection was lost. The status dots then show the real outcome. An older helper
+    // does not have the outcomes; then the outcomes stay as they are.
+    void remote
+      .call(hostId, 'run-outcomes', [])
+      .then((value) => chatOutcomes.recover(hostId, value))
+      .then((changed) => {
+        if (!changed) return;
+        for (const window of windows)
+          if (!window.isDestroyed()) window.webContents.send('remote-hosts-changed');
+      })
+      .catch((error) => {
+        if (!/Unsupported remote operation/.test(String(error?.message)))
+          console.warn('Remote run outcomes not recovered', error?.message);
+      });
     if (!verdictan) return;
     void remote
       .call(hostId, 'runtime-update', ['status', app.getVersion(), hostId, verdictan.region])
@@ -1939,6 +1954,21 @@ app.whenReady().then(async () => {
       throw Error('Select a project document to publish verified source content.');
     return projectServices.request(id, request);
   });
+  /**
+   * The Verdictan binding of a chat. The binding of a chat on an SSH host stays on that host, so
+   * the host sends a summary. A host that is offline, or a helper that is too old, gives null.
+   */
+  async function chatBinding(agent: string, sessionId: string): Promise<BindingSummary | null> {
+    const kind = agent === 'codex' ? 'codex' : agent === 'claude' ? 'claude_code' : '';
+    if (!kind) return null;
+    const hostId = chatHost(sessionId);
+    if (!hostId) return verdictan!.bindings.read(kind, sessionId);
+    if (!remote.hosts.some((host) => host.id === hostId)) return null;
+    const value = await remote
+      .call(hostId, 'conversation-binding', [kind, providerSessionId(hostId, sessionId)])
+      .catch(() => null);
+    return parseBindingSummary(value);
+  }
   const managedHistory = new ManagedHistory(async (target) => {
     const { client, account } = await verdictan!.setup.inspect();
     const base = {
@@ -1959,9 +1989,7 @@ app.whenReady().then(async () => {
       return { ...base, keys: { project_id: board.project.id, task_id: target.taskId } };
     }
     // The chat binding holds the conversation key. The renderer sends only the chat.
-    const kind =
-      target.agent === 'codex' ? 'codex' : target.agent === 'claude' ? 'claude_code' : '';
-    const binding = kind ? await verdictan!.bindings.read(kind, target.sessionId) : null;
+    const binding = await chatBinding(target.agent, target.sessionId);
     if (
       !binding ||
       binding.organization_id !== account.organizationId ||
@@ -1982,11 +2010,9 @@ app.whenReady().then(async () => {
       };
     },
     history: (target) => managedHistory.list(target),
+    hostName: (hostId) => remote.hosts.find((host) => host.id === hostId)?.name,
     binding: async (agent, sessionId, account) => {
-      const binding = await verdictan!.bindings.read(
-        agent === 'codex' ? 'codex' : 'claude_code',
-        sessionId,
-      );
+      const binding = await chatBinding(agent, sessionId);
       if (
         !binding ||
         binding.organization_id !== account.organizationId ||
@@ -1995,14 +2021,27 @@ app.whenReady().then(async () => {
         return null;
       return {
         cwd: binding.cwd,
+        conversationId: binding.conversation_id,
         billing: binding.provider_access_mode?.endsWith('_subscription')
           ? 'subscription'
           : 'metered',
       };
     },
-    inProject: async (groupId, cwd) => {
+    inProject: async (groupId, cwd, hostId) => {
       const group = projectGroups.groups.find((group) => group.id === groupId);
-      if (!group || group.hostId) return false;
+      if (!group) return false;
+      // A chat on an SSH host counts only for a project on the same host. The host resolved the
+      // folder of the chat, so the saved folders of the project compare directly.
+      if (hostId || group.hostId)
+        return (
+          group.hostId === hostId &&
+          projects.some(
+            (repo) =>
+              repo.hostId === hostId &&
+              group.repoIds.includes(repo.id) &&
+              pathContains(repo.path, cwd),
+          )
+        );
       for (const repo of projects)
         if (!repo.hostId && group.repoIds.includes(repo.id)) {
           const path = await realpath(repo.path).catch(() => repo.path);
