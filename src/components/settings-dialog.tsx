@@ -411,20 +411,24 @@ function AccountPanel({
         <SettingsRow
           id={settingsAnchors.region}
           label="Region"
-          help={changing ? 'Changing the region…' : undefined}
+          help={
+            changing ? 'Changing the region…' : known ? 'Sign out to change the region.' : undefined
+          }
         >
           <span className="settings-row-value">
             {status?.region ? regionNames[status.region] : 'Not chosen'}
           </span>
-          <Button
-            variant="outline"
-            size="sm"
-            aria-label="Change the region"
-            disabled={busy || authorizing || changing || !status}
-            onClick={() => setRegionOpen(true)}
-          >
-            Change…
-          </Button>
+          {!known && (
+            <Button
+              variant="outline"
+              size="sm"
+              aria-label="Change the region"
+              disabled={busy || authorizing || changing || !status}
+              onClick={() => setRegionOpen(true)}
+            >
+              Change…
+            </Button>
+          )}
         </SettingsRow>
         <GitHubRow services={services} />
       </SettingsRows>

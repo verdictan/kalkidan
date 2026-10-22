@@ -640,6 +640,10 @@ app.whenReady().then(async () => {
   handle('verdictan-set-region', async (region: VerdictanRegion) => {
     verdictanRegion(region);
     if (verdictan!.region === region) return accountStatus();
+    // The region is fixed while an account is signed in. Sign out first to change it.
+    const state = verdictan!.account.status().account?.state;
+    if (state === 'authenticated' || state === 'expired')
+      throw new DesktopProtocolError('desktop.region_locked');
     changingAccount = true;
     accountEpoch++;
     stopDispatch();
