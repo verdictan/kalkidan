@@ -13,4 +13,6 @@ node tests/memory-processes.mjs
 node tests/io-remote.mjs
 # The SSH helper on headless Linux: no display, no D-Bus session, and no keyring.
 node --import tsx tests/headless-linux.mjs --status-only
+# Release requests on Chromium: a PAC file, a proxy that asks for a sign-in, and an enterprise root.
+node tests/network-electron.mjs
 DEBUG=pw:browser node tests/docs-desktop.mjs

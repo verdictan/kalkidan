@@ -31,6 +31,25 @@ download and shows one of these messages:
 To trust an enterprise certificate authority, add it to the system trust store. On an SSH host,
 you can also set `NODE_EXTRA_CA_CERTS` to a PEM file in the shell profile that SSH reads.
 
+### Proxy sign-in
+
+When the proxy of this computer asks for a user name and password, Kalkidan shows **Sign in to
+the proxy server** with the proxy name and port. Only a proxy gets an answer. A server that asks
+for a sign-in gets none.
+
+- With **Remember on this computer**, Kalkidan keeps the password encrypted with the secret store
+  of the system: the macOS Keychain, the Windows data protection API, or the Secret Service on
+  Linux. On Linux without a keyring, Kalkidan keeps the password only until it quits.
+- The password goes only from the window to the desktop process and to the proxy. Kalkidan never
+  writes it to a log, an argument list, or a URL.
+- When the proxy refuses a saved password, Kalkidan removes it and asks again.
+- Settings › Computers › Proxy sign-in lists each saved proxy and user name, without the
+  password. **Remove** deletes it.
+- Without an answer in 5 minutes, the download stops with the proxy message.
+
+The SSH helper uses `HTTPS_PROXY` of the host. Put the user name and password in that URL only on
+a host where other users cannot read the environment.
+
 ## SSH host without access to the release server
 
 When an SSH host cannot reach `github.com`, or GitHub limits its requests, its row in Settings › Computers shows **Copy from this computer**
@@ -83,19 +102,39 @@ An SSH host often has no display, no D-Bus session, and no Secret Service keyrin
 
 ## Tests
 
-| Condition                       | Test                                                                                                          |
-| ------------------------------- | ------------------------------------------------------------------------------------------------------------- |
-| Sleep and wake                  | `tests/network-platform.test.ts`, `tests/desktop-backend.test.ts`                                             |
-| Network change                  | `tests/network-platform.test.ts`                                                                              |
-| Clock difference                | `tests/network-platform.test.ts`, `tests/verdictan-release.test.ts`                                           |
-| Corporate proxy (`HTTPS_PROXY`) | `tests/network-proxy-native.test.ts` (real proxy and HTTPS server)                                            |
-| Enterprise certificates         | `tests/network-proxy-native.test.ts` (`NODE_EXTRA_CA_CERTS`), `tests/network-platform.test.ts` (system store) |
-| Headless Linux                  | `tests/headless-linux.mjs` (CI runs `--status-only` in the `ci/` container)                                   |
-| No keyring                      | `tests/runtime-probe.test.ts`, `tests/browser-profile-backend.test.ts`, `tests/headless-linux.mjs`            |
-| Copy over SSH                   | `tests/verdictan-transfer.test.ts`, `tests/headless-linux.mjs --offline`                                      |
+| Condition                       | Test                                                                                                                                                                                               |
+| ------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Sleep and wake                  | `tests/network-platform.test.ts`, `tests/desktop-backend.test.ts`                                                                                                                                  |
+| Network change                  | `tests/network-platform.test.ts`                                                                                                                                                                   |
+| Clock difference                | `tests/network-platform.test.ts`, `tests/verdictan-release.test.ts`                                                                                                                                |
+| Corporate proxy (`HTTPS_PROXY`) | `tests/network-proxy-native.test.ts` (real proxy and HTTPS server)                                                                                                                                 |
+| PAC file and proxy sign-in      | `tests/network-electron.mjs` (Electron, local PAC file, proxy with Basic sign-in), `tests/proxy-credentials.test.ts`, `tests/proxy-sign-in.spec.ts`                                                |
+| Enterprise certificates         | `tests/network-proxy-native.test.ts` (`NODE_EXTRA_CA_CERTS`), `tests/network-platform.test.ts` (system store), `tests/network-electron.mjs` (a test root in the NSS database of the user on Linux) |
+| Headless Linux                  | `tests/headless-linux.mjs` (CI runs `--status-only` in the `ci/` container)                                                                                                                        |
+| No keyring                      | `tests/runtime-probe.test.ts`, `tests/browser-profile-backend.test.ts`, `tests/headless-linux.mjs`                                                                                                 |
+| Copy over SSH                   | `tests/verdictan-transfer.test.ts`, `tests/headless-linux.mjs --offline`                                                                                                                           |
 
 To test a real SSH host with Docker, run `npm run build:electron`, then:
 
 ```bash
 node --import tsx tests/headless-linux.mjs --ssh <host> --docker node:24.21.0-bookworm-slim --offline
 ```
+
+### Manual steps
+
+These checks need an administrator or a server that the tests cannot start:
+
+1. **Enterprise root on macOS.** Chromium reads the system keychain. A trusted root needs an
+   administrator:
+   1. Make a test authority and a server certificate, as `tests/network-electron.mjs` does.
+   2. Run `sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain ca.pem`.
+   3. Serve a release file with the server certificate, and download it in Kalkidan through a
+      proxy. Make sure that the download completes.
+   4. Remove the root: `sudo security delete-certificate -c "Kalkidan Test Enterprise Root" /Library/Keychains/System.keychain`.
+2. **Enterprise root on Windows.** Import the test root to Trusted Root Certification Authorities
+   of the local computer, then do step 1.3.
+3. **NTLM or Kerberos proxy.** Chromium answers these with the Windows or Kerberos sign-in of the
+   user, without the Kalkidan prompt. Test with the proxy of the organization: download the
+   runtime, then look at the proxy log for the user name.
+4. **PAC from the system settings.** Set the PAC URL in the network settings of the system, then
+   download the runtime. The test sets the PAC file through Electron, not through the system.
