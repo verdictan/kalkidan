@@ -47,7 +47,9 @@ test('overview refreshes only its repository and keeps cached content while reva
   await openCodeFolder(page, 'Test repo');
   await expect(page.locator('.worktree')).toContainText('main');
   const before = await page.evaluate(() => ({ ...(window as any).ioCalls }));
-  await page.getByRole('button', { name: 'Refresh branch copies' }).click();
+  // "Refresh branch copies" is an item of the code folder menu.
+  await page.getByRole('button', { name: 'Repository actions', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Refresh branch copies', exact: true }).click();
   await expect
     .poll(() => page.evaluate(() => (window as any).ioCalls.repository))
     .toBe(before.repository + 1);

@@ -42,8 +42,9 @@ test('a conflicting Docs draft can be saved as a new page without replacing disk
   await page.goto('/');
   await openProjectTab(page, 'Docs');
   await expect(page.getByLabel('Page title', { exact: true })).toHaveValue('Guide');
-  // The View control shows the Markdown source.
-  await page.getByRole('group', { name: 'View' }).getByRole('button', { name: 'Markdown' }).click();
+  // View Markdown in the page actions shows the Markdown source.
+  await page.getByRole('button', { name: 'Page actions', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'View Markdown', exact: true }).click();
   await page.evaluate(() => {
     (window as any).testDocs.p = {
       ...(window as any).testDocs.p,

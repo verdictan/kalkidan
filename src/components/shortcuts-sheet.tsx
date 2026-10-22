@@ -1,12 +1,5 @@
 import { isMac, shortcutLabel } from '../lib/platform';
-import {
-  Dialog,
-  DialogBody,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from './ui/dialog';
+import { Dialog, DialogBody, DialogContent, DialogHeader, DialogTitle } from './ui/dialog';
 
 // On Windows and Linux, AltGr sends Ctrl+Alt, so the chat shortcuts use Ctrl+Shift there.
 // Keep these keys the same as session-menu.tsx.
@@ -20,7 +13,7 @@ export function shortcutGroups(): { title: string; items: [string, string][] }[]
       items: [
         ['Search or run a command', shortcutLabel(['mod'], 'K')],
         ['Show keyboard shortcuts', shortcutLabel(['mod'], '/')],
-        ['Open settings', shortcutLabel(['mod'], ',')],
+        ['Open preferences', shortcutLabel(['mod'], ',')],
         ['New chat', shortcutLabel(['mod'], 'N')],
         ['New project', shortcutLabel(['mod', 'shift'], 'N')],
         ['New task', shortcutLabel(['mod', 'shift'], 'K')],
@@ -34,19 +27,28 @@ export function shortcutGroups(): { title: string; items: [string, string][] }[]
       items: [
         ['Go back', isMac ? shortcutLabel(['mod'], '[') : shortcutLabel(['alt'], '←')],
         ['Go forward', isMac ? shortcutLabel(['mod'], ']') : shortcutLabel(['alt'], '→')],
-        ['Go to the project overview', shortcutLabel(['mod'], '1')],
+        ['Go to Overview', shortcutLabel(['mod'], '1')],
         ['Go to Tasks', shortcutLabel(['mod'], '2')],
         ['Go to Chats', shortcutLabel(['mod'], '3')],
-        ['Go to Docs', shortcutLabel(['mod'], '4')],
-        ['Go to Memory', shortcutLabel(['mod'], '5')],
-        ['Go to Insights', shortcutLabel(['mod'], '6')],
+        ['Go to Knowledge', shortcutLabel(['mod'], '4')],
         ['Show all chats', shortcutLabel(['mod', 'shift'], 'L')],
         ['Move between sidebar rows', '↑ ↓'],
         ['Expand or collapse a project', '→ ←'],
         ['Show the actions of a sidebar row', shortcutLabel(['shift'], 'F10')],
         ['Move between search results', '↑ ↓'],
         ['Open the search result', 'Enter'],
+        ['Ask an agent about the search text', shortcutLabel(['mod'], 'Enter')],
         ['Close the search', 'Esc'],
+      ],
+    },
+    {
+      title: 'Tasks',
+      items: [
+        ['Move between tasks', '↑ ↓ ← →'],
+        ['Select the task', 'Space'],
+        ['Start the task', 'S'],
+        ['Open the task', 'Enter'],
+        ['Select all tasks', shortcutLabel(['mod'], 'A')],
       ],
     },
     {
@@ -73,7 +75,8 @@ export function shortcutGroups(): { title: string; items: [string, string][] }[]
       title: 'Docs',
       items: [
         ['Save the page', shortcutLabel(['mod'], 'S')],
-        ['Add a link to the selected text', shortcutLabel(['mod'], 'K')],
+        ['Add a link to the selected text', shortcutLabel(['mod'], 'L')],
+        ['Link to a page', '[[ or @'],
         ['Insert a block', '/'],
       ],
     },
@@ -90,13 +93,14 @@ export function ShortcutsSheet({
 }) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent size="lg" layout="scroll">
+      <DialogContent
+        size="lg"
+        layout="scroll"
+        aria-describedby={undefined}
+        className="max-h-[min(640px,calc(100dvh-48px))]"
+      >
         <DialogHeader>
           <DialogTitle>Keyboard shortcuts</DialogTitle>
-          <DialogDescription>
-            Text fields and the terminal keep their own keys. In a doc,{' '}
-            {shortcutLabel(['mod'], 'K')} adds a link when text is selected. Else it opens search.
-          </DialogDescription>
         </DialogHeader>
         <DialogBody>
           <div className="shortcuts-sheet">

@@ -105,9 +105,10 @@ test('notifications and a long draft do not push the composer outside the window
         el.closest('.conversation-messages')!.getBoundingClientRect().top,
     ),
   ).toBe(true);
+  // The welcome stays above the composer. A draft hides the starter prompts.
   expect(
     await page
-      .locator('.conversation-welcome p')
+      .locator('.conversation-welcome')
       .evaluate(
         (el) =>
           el.getBoundingClientRect().bottom + 16 <=
@@ -137,7 +138,11 @@ test('the title bar keeps one row at the minimum window width with tools open', 
   await page.getByLabel('Message agent').blur();
   await page.keyboard.press('ControlOrMeta+t');
   await page.keyboard.press('ControlOrMeta+Shift+g');
-  await expect(page.getByRole('tab', { name: /Changes/ })).toBeVisible();
+  await expect(
+    page
+      .getByRole('group', { name: 'Tools', exact: true })
+      .getByRole('button', { name: /^Changes/ }),
+  ).toHaveAttribute('aria-pressed', 'true');
   const topbar = await page.locator('.topbar').boundingBox();
   expect(topbar?.height).toBeLessThanOrEqual(48);
   for (const id of ['conversation-titlebar-heading', 'conversation-titlebar-tabs']) {

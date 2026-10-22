@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import type { API } from '../types';
 import {
   dataDisclosure,
@@ -8,18 +8,13 @@ import {
   type LocalDataDeletion,
   type LocalDataUsage,
 } from '../domain/data-policy';
-import { settingsAnchors } from '../domain/settings-route';
 import { errorMessage } from '../lib/errors';
 import { ConfirmDialog } from './confirm-dialog';
-import {
-  SettingsDisclosure,
-  SettingsGroup,
-  SettingsRow,
-  SettingsRows,
-} from './settings-disclosure';
+import { SettingsDisclosure, SettingsRow, SettingsRows } from './settings-disclosure';
 import { Button } from './ui/button';
 import {
   Dialog,
+  DialogBody,
   DialogContent,
   DialogDescription,
   DialogFooter,
@@ -93,7 +88,7 @@ export function useDataNotice(api: API, signedIn: boolean) {
   };
 }
 
-/** The data notice before the first request. It shows once. Settings › Data keeps it. */
+/** The data notice before the first request. It shows once. Preferences › Your data keeps it. */
 export function DataNoticeDialog({ open, onDone }: { open: boolean; onDone: () => void }) {
   return (
     <Dialog open={open}>
@@ -107,7 +102,8 @@ export function DataNoticeDialog({ open, onDone }: { open: boolean; onDone: () =
         <DialogHeader>
           <DialogTitle>Where your data goes</DialogTitle>
           <DialogDescription id="data-notice-description">
-            Read this before you send the first request. You can read it again in Settings › Data.
+            Read this before you send the first request. You can read it again in Preferences › Your
+            data.
           </DialogDescription>
         </DialogHeader>
         <DataDisclosure />
@@ -121,8 +117,45 @@ export function DataNoticeDialog({ open, onDone }: { open: boolean; onDone: () =
   );
 }
 
+/** One group of the "Your data" dialog with a small label, as in Preferences. */
+function DataGroup({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <section className="preferences-group" aria-label={label}>
+      <h3 className="preferences-group-label">{label}</h3>
+      {children}
+    </section>
+  );
+}
+
+/** The "Your data" dialog of Preferences. */
+export function DataDialog({
+  api,
+  open,
+  onOpenChange,
+}: {
+  api: API;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}) {
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent size="lg" layout="scroll" aria-describedby="data-dialog-description">
+        <DialogHeader>
+          <DialogTitle>Your data</DialogTitle>
+          <DialogDescription id="data-dialog-description">
+            What Kalkidan keeps, where, and for how long.
+          </DialogDescription>
+        </DialogHeader>
+        <DialogBody>
+          <DataSection api={api} open={open} />
+        </DialogBody>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 /**
- * Settings › Data: the data notice, the disk use of the data folder against the limit, export,
+ * Preferences › Your data: the data notice, the disk use of the data folder against the limit, export,
  * deletion, and the retention policy of each store.
  */
 export function DataSection({ api, open }: { api: API; open: boolean }) {
@@ -159,10 +192,10 @@ export function DataSection({ api, open }: { api: API; open: boolean }) {
   const over = usage ? usage.total > usage.limit : false;
   return (
     <div className="grid gap-6">
-      <SettingsGroup id={settingsAnchors.dataNotice} title="Where your data goes">
+      <DataGroup label="Where your data goes">
         <DataDisclosure headingLevel={4} />
-      </SettingsGroup>
-      <SettingsGroup id={settingsAnchors.localData} title="Data on this computer">
+      </DataGroup>
+      <DataGroup label="Data on this computer">
         <SettingsRows label="Data on this computer">
           <SettingsRow
             label="Disk use"
@@ -245,8 +278,8 @@ export function DataSection({ api, open }: { api: API; open: boolean }) {
             {error}
           </p>
         )}
-      </SettingsGroup>
-      <SettingsGroup title="Retention">
+      </DataGroup>
+      <DataGroup label="Retention">
         <SettingsDisclosure title="What each store keeps, and for how long">
           <div className="grid gap-3 text-sm">
             {storePolicies.map((store) => (
@@ -271,7 +304,7 @@ export function DataSection({ api, open }: { api: API; open: boolean }) {
             ))}
           </ul>
         </SettingsDisclosure>
-      </SettingsGroup>
+      </DataGroup>
       <ConfirmDialog
         open={confirm === 'chat-history'}
         title="Delete chat history?"

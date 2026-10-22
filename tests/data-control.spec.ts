@@ -1,5 +1,5 @@
 import { type Page } from '@playwright/test';
-import { test, expect, openSettings, settingsDialog, settingsTab } from './helpers/app';
+import { test, expect, openPreferences } from './helpers/app';
 
 /** A signed-in desktop with the local data methods. `extra` replaces parts of the API. */
 async function fixture(page: Page, extra = '') {
@@ -97,10 +97,12 @@ test('the notice does not show when the user already read it', async ({ page }) 
   await expect(notice(page)).toHaveCount(0);
 });
 
-test('Settings › Data keeps the notice, the disk use, export, and deletion', async ({ page }) => {
+test('Preferences › Your data keeps the notice, the disk use, export, and deletion', async ({
+  page,
+}) => {
   await fixture(page, 'window.noticeSeen = true; return {};');
-  const settings = await openSettings(page);
-  await settingsTab(page, 'Data').click();
+  await (await openPreferences(page)).getByRole('button', { name: 'Manage…' }).last().click();
+  const settings = page.getByRole('dialog', { name: 'Your data' });
   await expect(settings.getByRole('heading', { name: 'Goes to the model provider' })).toBeVisible();
   await expect(settings).toContainText('1.2 GB of 2.0 GB in /Users/dana/.kalkidan');
   await settings.getByRole('button', { name: 'Export…' }).click();
@@ -114,10 +116,10 @@ test('Settings › Data keeps the notice, the disk use, export, and deletion', a
     ['localDataExport'],
     ['localDataDelete', 'chat-history'],
   ]);
-  await expect(settingsDialog(page)).toBeVisible();
+  await expect(settings).toBeVisible();
 });
 
-test('Settings › Data warns when only chat history keeps the folder above the limit', async ({
+test('Preferences › Your data warns when only chat history keeps the folder above the limit', async ({
   page,
 }) => {
   await fixture(
@@ -125,8 +127,8 @@ test('Settings › Data warns when only chat history keeps the folder above the 
     `window.noticeSeen = true;
      return { localDataUsage: async () => ({ root: '/r', total: 2_500_000_000, limit: 2_000_000_000, categories: [] }) };`,
   );
-  const settings = await openSettings(page);
-  await settingsTab(page, 'Data').click();
+  await (await openPreferences(page)).getByRole('button', { name: 'Manage…' }).last().click();
+  const settings = page.getByRole('dialog', { name: 'Your data' });
   await expect(settings.getByRole('alert')).toContainText(
     'Chat history is never removed automatically',
   );

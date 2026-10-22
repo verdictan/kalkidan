@@ -15,7 +15,7 @@ export const revocationOfflineDelaySeconds = 300;
 /** The kinds of local data in the data folder. */
 export type LocalDataCategory =
   'chat-history' | 'projects' | 'browser' | 'settings' | 'runtime' | 'caches' | 'logs' | 'other';
-/** The kinds of local data that the user can delete in Settings › Data. */
+/** The kinds of local data that the user can delete in Preferences › Your data. */
 export type LocalDataDeletion = 'chat-history' | 'caches-and-logs';
 
 export interface LocalDataUsage {
@@ -56,7 +56,7 @@ export interface DisclosureSection {
 }
 
 /**
- * The data notice. Kalkidan shows it once before the first request, and Settings › Data shows
+ * The data notice. Kalkidan shows it once before the first request, and Preferences › Your data shows
  * it again. Each statement agrees with what the code sends and stores.
  */
 export const dataDisclosure: DisclosureSection[] = [
@@ -120,8 +120,8 @@ export const storePolicies: StorePolicy[] = [
     contents: 'Agent transcripts, session titles and notes, run outcomes, and conversation links.',
     retention: 'Until you delete it. Kalkidan never removes it automatically.',
     limit: 'Counts toward the 2 GB limit. Run outcomes keep the newest 2000 entries.',
-    export: 'Settings › Data › Export',
-    deletion: 'Settings › Data › Delete chat history',
+    export: 'Preferences › Your data › Export',
+    deletion: 'Preferences › Your data › Delete chat history',
   },
   {
     id: 'local-projects',
@@ -131,7 +131,7 @@ export const storePolicies: StorePolicy[] = [
     contents: 'Project documents, project memory, clones, and worktrees that Kalkidan made.',
     retention: 'Until you remove the project. Deleted documents stay in docs/.trash.',
     limit: 'Counts toward the 2 GB limit. Memory: 200 entries and 1 MiB for each project.',
-    export: 'Documents and memory: Settings › Data › Export',
+    export: 'Documents and memory: Preferences › Your data › Export',
     deletion: 'Remove the project. Kalkidan does not delete a folder that you selected.',
   },
   {
@@ -142,8 +142,8 @@ export const storePolicies: StorePolicy[] = [
     contents: 'Visited pages, downloads, site data, cookies, and imported passwords (encrypted).',
     retention: 'The newest 500 visits and 100 downloads.',
     limit: 'Counts toward the 2 GB limit.',
-    export: 'History and downloads: Settings › Data › Export',
-    deletion: 'Preview browser › Clear browsing data',
+    export: 'History and downloads: Preferences › Your data › Export',
+    deletion: 'Preferences › Built-in browser data',
   },
   {
     id: 'local-caches-logs',
@@ -153,8 +153,8 @@ export const storePolicies: StorePolicy[] = [
     contents: 'Chromium caches, operation receipts, and old Verdictan runtime versions.',
     retention: 'Kalkidan removes the oldest first when the data folder is above 2 GB.',
     limit: 'Removed first at the 2 GB limit. Logs newer than 24 hours stay.',
-    export: 'Operation receipts: Settings › Data › Export',
-    deletion: 'Settings › Data › Delete caches and logs',
+    export: 'Operation receipts: Preferences › Your data › Export',
+    deletion: 'Preferences › Your data › Delete caches and logs',
   },
   {
     id: 'local-settings-runtime',
@@ -165,7 +165,7 @@ export const storePolicies: StorePolicy[] = [
       'Your choices, the SSH host list (no keys), the region, and the active and previous runtime.',
     retention: 'Until uninstall.',
     limit: 'Counts toward the 2 GB limit.',
-    export: 'Settings files: Settings › Data › Export',
+    export: 'Settings files: Preferences › Your data › Export',
     deletion: 'Delete the ~/.kalkidan folder after you quit Kalkidan.',
   },
   {
@@ -190,7 +190,7 @@ export const storePolicies: StorePolicy[] = [
     retention: 'Until you remove the host and select to delete its Kalkidan data.',
     limit: '2 GB for ~/.kalkidan on the host, with the same rules.',
     export: 'Not exported from the desktop. Copy the folder on the host.',
-    deletion: 'Settings › Computers › Remove host › Delete Kalkidan data on the host',
+    deletion: 'Computers › Remove host › Delete Kalkidan data on the host',
   },
   {
     id: 'verdictan-account',
@@ -240,7 +240,7 @@ export const lifecycleEffects: { action: string; effect: string }[] = [
   {
     action: 'Uninstall Kalkidan',
     effect:
-      'Removing the app does not delete ~/.kalkidan. Delete your data in Settings › Data first, or delete the folder after you quit Kalkidan.',
+      'Removing the app does not delete ~/.kalkidan. Delete your data in Preferences › Your data first, or delete the folder after you quit Kalkidan.',
   },
 ];
 

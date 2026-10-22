@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { Bot, Download, Plus, RotateCw, Server, Trash2, Unplug } from 'lucide-react';
 import type { API, RemoteHost } from '../types';
 import type { ComponentUpdateStatus, HelperUpdateStatus } from '../domain/updates';
@@ -6,33 +6,17 @@ import { computerAnchor, helperUpdateAnchor } from '../domain/settings-route';
 import { displayVersion, helperStatusLabel, shortId } from '../lib/verdictan-labels';
 import { errorMessage } from '../lib/errors';
 import { useRefreshTriggers } from '../hooks/use-refresh-triggers';
-import {
-  AddHostForm,
-  HostSetup,
-  helperSetupText,
-  hostStatusLabels,
-  useHostSetup,
-  useRemoteHosts,
-} from './remote-host-picker';
+import { helperSetupText, hostStatusLabels, useHostSetup } from './remote-host-picker';
 import {
   RuntimeControl,
   RuntimeExtra,
-  RuntimeHistory,
-  ThisComputerRow,
   runtimeExtraShown,
   runtimeView,
   useRuntimeStatus,
 } from './verdictan-settings';
 import { AgentProgramsDialog } from './agent-programs';
 import { ConfirmDialog } from './confirm-dialog';
-import {
-  CopyValue,
-  SettingsAdvanced,
-  SettingsGroup,
-  SettingsRow,
-  SettingsRows,
-  StatusBadge,
-} from './settings-disclosure';
+import { CopyValue, SettingsRow, StatusBadge } from './settings-disclosure';
 import { Button } from './ui/button';
 import { CheckboxRow } from './ui/checkbox';
 import {
@@ -44,13 +28,14 @@ import {
 } from './ui/dropdown-menu';
 import { menuDestructiveClass } from './ui/menu-styles';
 import { EntityIcon } from './ui/entity-icon';
+import { Input } from './ui/input';
 import { MoreButton } from './ui/more-button';
 
 /**
  * The update state of the helper on each SSH host, by host ID. It reads again when a host
  * changes, when the section opens, and on window focus.
  */
-function useHelperUpdates(api: API, open: boolean, hosts: RemoteHost[]) {
+export function useHelperUpdates(api: API, open: boolean, hosts: RemoteHost[]) {
   const key = hosts.map((h) => `${h.id}:${h.status}:${h.installedDigest || ''}`).join(',');
   const [helpers, setHelpers] = useState<Record<string, HelperUpdateStatus>>({});
   const read = () => {
@@ -71,151 +56,62 @@ function useHelperUpdates(api: API, open: boolean, hosts: RemoteHost[]) {
 }
 
 /**
- * Settings › Computers: one row for this computer and one row for each SSH host. A host row
- * has a "…" menu with its actions. The setup checklist shows only while a host is added. The
- * Advanced fold has the install history and the helper builds and digests.
+ * The always-visible "Add host" row of the Computers page: one field for the SSH target and
+ * one Add button. The new host shows as a row at once and checks its connection in the row.
  */
-export function ComputersSection({
-  api,
-  open,
-  onRefresh,
-}: {
-  api: API;
-  open: boolean;
-  /** Reads the projects again after a host connects. */
-  onRefresh?: () => Promise<void>;
-}) {
-  const runtime = useRuntimeStatus(api, open, 'local');
-  const { hosts, setHosts, error } = useRemoteHosts(api, open);
-  const helpers = useHelperUpdates(api, open, hosts);
-  const [adding, setAdding] = useState(false);
-  // The host that was just added. Its checklist shows until it connects or the user closes it.
-  const [added, setAdded] = useState('');
-  const [refreshError, setRefreshError] = useState('');
-  // Read the projects again only when a host becomes connected, not on each render.
-  const connected = useRef<Set<string>>(undefined);
-  useEffect(() => {
-    const now = new Set(hosts.filter((h) => h.status === 'connected').map((h) => h.id));
-    const before = connected.current;
-    connected.current = now;
-    if (!onRefresh || !before || ![...now].some((id) => !before.has(id))) return;
-    setRefreshError('');
-    void onRefresh().catch((failure) =>
-      setRefreshError(`Could not refresh projects: ${errorMessage(failure)}`),
-    );
-  }, [hosts]);
-  function store(host: RemoteHost) {
-    setHosts((previous) =>
-      previous.some((h) => h.id === host.id)
-        ? previous.map((h) => (h.id === host.id ? host : h))
-        : [...previous, host],
-    );
+export function AddHostRow({ api, onAdded }: { api: API; onAdded: (host: RemoteHost) => void }) {
+  const [target, setTarget] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    const value = target.trim();
+    if (busy || !value) return;
+    setBusy(true);
+    setError('');
+    try {
+      onAdded(await api.remoteAdd(value, value));
+      setTarget('');
+    } catch (failure) {
+      setError(errorMessage(failure));
+    } finally {
+      setBusy(false);
+    }
   }
-  const newHost = hosts.find((h) => h.id === added);
   return (
-    <>
-      <SettingsRows label="Computers">
-        <ThisComputerRow api={api} runtime={runtime} />
-        {hosts
-          .filter((host) => host.id !== added)
-          .map((host) => (
-            <HostRow
-              key={host.id}
-              api={api}
-              open={open}
-              host={host}
-              helper={helpers[host.id]}
-              onHost={store}
-              onRemoved={(id) => setHosts((previous) => previous.filter((h) => h.id !== id))}
-            />
-          ))}
-      </SettingsRows>
-      {adding || newHost ? (
-        <SettingsGroup title={newHost ? `Set up ${newHost.name}` : 'Add SSH host'}>
-          <div className="settings-advanced-box py-3">
-            {newHost ? (
-              <>
-                <HostSetup
-                  api={api}
-                  host={newHost}
-                  autoStart
-                  onHost={store}
-                  onRemoved={(id) => {
-                    setHosts((previous) => previous.filter((h) => h.id !== id));
-                    setAdded('');
-                  }}
-                />
-                <div className="mt-3 flex justify-end">
-                  <Button
-                    size="sm"
-                    variant={newHost.status === 'connected' ? 'default' : 'outline'}
-                    onClick={() => setAdded('')}
-                  >
-                    {newHost.status === 'connected' ? 'Done' : 'Close'}
-                  </Button>
-                </div>
-              </>
-            ) : (
-              <AddHostForm
-                api={api}
-                onCancel={() => setAdding(false)}
-                onAdded={(host) => {
-                  store(host);
-                  setAdded(host.id);
-                  setAdding(false);
-                }}
-              />
-            )}
-          </div>
-        </SettingsGroup>
-      ) : (
-        <div className="grid justify-items-start gap-1">
-          <Button variant="outline" size="sm" onClick={() => setAdding(true)}>
-            <Plus />
-            Add SSH host
-          </Button>
-          {!hosts.length && (
-            <p className="form-help mt-0">
-              Run projects on a computer that you reach with SSH. Kalkidan uses your SSH keys.
-            </p>
-          )}
-        </div>
-      )}
-      {(error || refreshError) && (
+    <li className="computers-add">
+      <form
+        className="computers-add-form"
+        aria-label="Add host"
+        onSubmit={(event) => void submit(event)}
+      >
+        <Plus className="computers-add-icon" aria-hidden="true" />
+        <Input
+          aria-label="SSH target"
+          placeholder="user@host or a name from ~/.ssh/config"
+          value={target}
+          disabled={busy}
+          aria-invalid={!!error || undefined}
+          onChange={(event) => {
+            setTarget(event.target.value);
+            setError('');
+          }}
+        />
+        <Button type="submit" size="sm" disabled={busy || !target.trim()}>
+          {busy ? 'Adding…' : 'Add host'}
+        </Button>
+      </form>
+      {error && (
         <p role="alert" className="field-error whitespace-pre-wrap break-words">
-          {refreshError || error}
+          {error}
         </p>
       )}
-      <SettingsAdvanced>
-        <SettingsRows>
-          <RuntimeHistory status={runtime.status} name="this computer" />
-          {runtime.status?.latest && (
-            <SettingsRow
-              label="Managed agents release"
-              help={`Latest ${runtime.status.latest.version}${
-                runtime.status.lastSuccessAt
-                  ? ` · Checked ${new Date(runtime.status.lastSuccessAt).toLocaleString()}`
-                  : ''
-              }`}
-            />
-          )}
-          {hosts.map((host) => (
-            <HelperDetails key={host.id} host={host} helper={helpers[host.id]} />
-          ))}
-          {!runtime.status?.history.length && !runtime.status?.latest && !hosts.length && (
-            <SettingsRow
-              label="No details yet"
-              help="Install history and helper builds show here."
-            />
-          )}
-        </SettingsRows>
-      </SettingsAdvanced>
-    </>
+    </li>
   );
 }
 
-/** The helper builds and digests of one host, for the Advanced fold. */
-function HelperDetails({ host, helper }: { host: RemoteHost; helper?: HelperUpdateStatus }) {
+/** The helper builds and digests of one host, for the Details fold. */
+export function HelperDetails({ host, helper }: { host: RemoteHost; helper?: HelperUpdateStatus }) {
   const digest = host.installedDigest || host.runningDigest;
   return (
     <SettingsRow
@@ -286,12 +182,16 @@ function hostHelp(host: RemoteHost, busy: string, runtime = '') {
   }
 }
 
-/** One SSH host: name, "target · OS · Node.js", status, and a "…" menu with its actions. */
-function HostRow({
+/**
+ * One SSH host: name, "target · OS · Node.js", status, and a "…" menu with its actions.
+ * `autoStart` checks the connection once, for a host that was just added.
+ */
+export function HostRow({
   api,
   open,
   host,
   helper,
+  autoStart = false,
   onHost,
   onRemoved,
 }: {
@@ -299,10 +199,17 @@ function HostRow({
   open: boolean;
   host: RemoteHost;
   helper?: HelperUpdateStatus;
+  autoStart?: boolean;
   onHost: (host: RemoteHost) => void;
   onRemoved: (hostId: string) => void;
 }) {
   const setup = useHostSetup(api, { onHost, onRemoved });
+  const started = useRef(false);
+  useEffect(() => {
+    if (!autoStart || started.current) return;
+    started.current = true;
+    void setup.guide(host);
+  }, [autoStart]);
   const ready = host.status === 'connected';
   const runtime = useRuntimeStatus(api, open && ready, host.id);
   const view = runtimeView(runtime);
@@ -340,10 +247,9 @@ function HostRow({
               {host.status === 'checked' && !host.version && !setup.busy && (
                 <div className="flex flex-wrap items-center gap-2">
                   <p className="form-help mt-0 flex-1">
-                    SSH works. Kalkidan installs a small helper on {host.target}. It needs Node.js
-                    22 or later.
+                    SSH works. Install the Kalkidan helper to connect. It needs Node.js 22 or later.
                   </p>
-                  <Button size="sm" onClick={() => void setup.install(host)}>
+                  <Button variant="outline" size="sm" onClick={() => void setup.install(host)}>
                     Install helper
                   </Button>
                 </div>

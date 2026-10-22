@@ -1,10 +1,10 @@
 import type { Locator } from '@playwright/test';
-import { test, expect, openSettings } from './helpers/app';
+import { test, expect, openComputersPage, openPreferences } from './helpers/app';
 
 const longPath =
   '/Users/someone/.vscode/extensions/openai.chatgpt-26.1007.21434-darwin-arm64/bin/macos-aarch64/codex';
 
-test('Settings tabs have no horizontal overflow and long paths truncate in the middle', async ({
+test('Preferences and Computers have no horizontal overflow and long paths truncate in the middle', async ({
   page,
 }) => {
   await page.setViewportSize({ width: 1080, height: 715 });
@@ -28,9 +28,9 @@ test('Settings tabs have no horizontal overflow and long paths truncate in the m
     };
   }, longPath);
   await page.goto('/');
-  // From 900px wide, the sidebar starts open. The Settings dialog shows over it.
+  // From 900px wide, the sidebar starts open. The Computers page shows beside it.
   await expect(page.getByRole('navigation', { name: 'Projects and repositories' })).toBeVisible();
-  const dialog = await openSettings(page, 'Agents');
+  const computers = await openComputersPage(page);
   /** The horizontal overflow of an element: its scroll width and the children past its edge. */
   const overflowOf = (pane: Locator) =>
     pane.evaluate((pane) => {
@@ -44,14 +44,11 @@ test('Settings tabs have no horizontal overflow and long paths truncate in the m
         wide: wide.slice(0, 3).map((node) => node.outerHTML.slice(0, 120)),
       };
     });
-  // The Advanced fold shows the program paths. "Choose…" opens the programs of this computer.
-  await dialog.getByRole('button', { name: 'Advanced', exact: true }).click();
-  await expect(dialog).toContainText(longPath);
-  expect(await overflowOf(page.locator('.settings-scroll')), 'Agents › Advanced').toEqual({
-    scroll: 0,
-    wide: [],
-  });
-  await dialog.getByRole('button', { name: 'Choose…' }).first().click();
+  await expect(computers.getByRole('group', { name: 'Codex', exact: true })).toBeVisible();
+  await page.waitForTimeout(300);
+  expect(await overflowOf(computers), 'Computers').toEqual({ scroll: 0, wide: [] });
+  // "Choose…" opens the programs of this computer with the program paths.
+  await computers.getByRole('button', { name: 'Choose the Codex program' }).click();
   const programs = page.getByRole('dialog', { name: 'Agent programs on this computer' });
   const shown = programs.getByLabel(longPath, { exact: true });
   await expect(shown).toBeVisible();
@@ -64,17 +61,10 @@ test('Settings tabs have no horizontal overflow and long paths truncate in the m
   await programs.getByRole('button', { name: 'Done', exact: true }).click();
   await expect(programs).toHaveCount(0);
 
-  const tabs = await dialog.getByRole('tab').allTextContents();
-  expect(tabs.length).toBeGreaterThan(3);
-  for (const name of tabs) {
-    await dialog.getByRole('tab', { name, exact: true }).click();
-    // Open the Advanced fold of the section too, when it has one.
-    const advanced = dialog.getByRole('button', { name: 'Advanced', exact: true });
-    if ((await advanced.count()) && (await advanced.getAttribute('aria-expanded')) !== 'true')
-      await advanced.click();
-    expect(await overflowOf(page.locator('.settings-scroll')), name).toEqual({
-      scroll: 0,
-      wide: [],
-    });
-  }
+  const preferences = await openPreferences(page);
+  expect(await overflowOf(page.locator('.preferences-body')), 'Preferences').toEqual({
+    scroll: 0,
+    wide: [],
+  });
+  expect(await overflowOf(preferences), 'Preferences dialog').toEqual({ scroll: 0, wide: [] });
 });

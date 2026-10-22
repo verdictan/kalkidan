@@ -363,9 +363,12 @@ export const menuCommands = [
   'go-overview',
   'go-tasks',
   'go-chats',
+  'go-knowledge',
+  // Older names of Knowledge sections. The renderer opens Knowledge for them.
   'go-docs',
   'go-memory',
   'go-insights',
+  'go-computers',
   'all-sessions',
   'sign-in',
   // The Chat menu sends the commands of the chat action list.
@@ -405,6 +408,19 @@ export interface MemoryAPI {
   memoryList(groupId: string): Promise<import('../domain/memory').ProjectMemory>;
   /** Memory entries with their source session and revision. */
   memoryEntries(groupId: string): Promise<import('../domain/memory').MemoryEntry[]>;
+  /**
+   * What the agent read in one chat: memory facts (from memory tools) and doc passages (from
+   * @docs). Empty when nothing was read. `id` is the provider session ID.
+   */
+  contextUsage(
+    groupId: string,
+    agent: string,
+    id: string,
+  ): Promise<import('../domain/memory').ContextUsage>;
+  /** How many chats read each memory entry and each doc page. Keys are entry and page IDs. */
+  readCounts(
+    groupId: string,
+  ): Promise<{ memory: Record<string, number>; docs: Record<string, number> }>;
   /** Marks an entry as wrong. The entry stops being given to agents. The file keeps a record. */
   memoryForget(groupId: string, id: string, revision: string): Promise<void>;
   /**

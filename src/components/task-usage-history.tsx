@@ -18,7 +18,10 @@ export function TaskUsageHistoryPanel({
   groupId,
   board,
   initialTaskId,
+  taskId,
 }: {
+  /** The task to show. With it, the task filter is outside this panel and the panel has no header. */
+  taskId?: string;
   api: API;
   groupId: string;
   board: TrackerBoard;
@@ -52,44 +55,42 @@ export function TaskUsageHistoryPanel({
     // Only a new task ID selects again. Board refreshes keep the user's choice.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialTaskId]);
+  useEffect(() => {
+    if (taskId !== undefined) load(taskId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [taskId]);
+  const controlled = taskId !== undefined;
   return (
-    <section ref={section} aria-labelledby="usage-title" className="grid gap-3">
-      <SectionHeader
-        title={<span id="usage-title">Usage</span>}
-        actions={
-          task ? (
-            <Button size="sm" variant="ghost" disabled={busy} onClick={() => load(task)}>
-              Refresh
-            </Button>
-          ) : undefined
-        }
-      />
-      <p className="form-help project-usage-intro">
-        Usage and policy records of the managed-agent runs of one task. Kalkidan keeps the last 100
-        runs.
-      </p>
-      <label className="form-label max-w-[360px]">
-        Task
-        <FormSelect
-          label="Task"
-          className="w-full"
-          value={task}
-          disabled={busy}
-          onChange={load}
-          options={board.items.map((item) => ({ value: item.id, label: item.title }))}
+    <section ref={section} aria-label="Task usage" className="grid gap-3">
+      {!controlled && (
+        <SectionHeader
+          title={<span id="usage-title">Usage</span>}
+          actions={
+            task ? (
+              <Button size="sm" variant="ghost" disabled={busy} onClick={() => load(task)}>
+                Refresh
+              </Button>
+            ) : undefined
+          }
         />
-      </label>
+      )}
+      {!controlled && (
+        <label className="form-label max-w-[360px]">
+          Task
+          <FormSelect
+            label="Task"
+            className="w-full"
+            value={task}
+            disabled={busy}
+            onChange={load}
+            options={board.items.map((item) => ({ value: item.id, label: item.title }))}
+          />
+        </label>
+      )}
       <ErrorAlert>{error}</ErrorAlert>
       {busy && <p className="form-help">Loading runs…</p>}
       {history?.length === 0 && (
-        <EmptyState compact icon={<History />} title="No runs yet">
-          This task has no saved managed-agent runs for this account.
-        </EmptyState>
-      )}
-      {!!history?.length && (
-        <p className="form-help m-0">
-          “Unknown” shows when there is no record of a value. Your provider sends the bill.
-        </p>
+        <EmptyState compact icon={<History />} title="No runs for this task"></EmptyState>
       )}
       {!!history?.length && (
         <div className="review-list">

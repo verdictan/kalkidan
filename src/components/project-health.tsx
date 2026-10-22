@@ -9,7 +9,6 @@ import {
   type HealthStatus,
 } from '../domain/project-health';
 import { Button } from './ui/button';
-import { SectionHeader } from './ui/page-header';
 import { SegmentedControl } from './ui/segmented-control';
 import { Textarea } from './ui/textarea';
 import { showToast } from './ui/toast';
@@ -17,19 +16,22 @@ import { ActionRow, ErrorAlert } from './planning-kit';
 import { errorMessage } from '../lib/errors';
 
 /**
- * The health of a project: task counts that open the Tasks page with a filter, and a status
- * update to publish on GitHub.
+ * The health of a project: one row of task counts (each count opens the Tasks page with a
+ * filter), and a status update to publish on GitHub.
  */
 export function ProjectHealth({
   api,
   groupId,
   board,
   onFilter,
+  extraTiles,
 }: {
   api: API;
   groupId: string;
   board: TrackerBoard;
   onFilter: (filter: { status?: string; repository?: string }) => void;
+  /** More counts after the status counts, each with its own action. */
+  extraTiles?: { label: string; count: number; run: () => void }[];
 }) {
   const [body, setBody] = useState(''),
     [snapshot, setSnapshot] = useState<TrackerBoard>(),
@@ -84,55 +86,54 @@ export function ProjectHealth({
       setBusy(false);
     }
   }
+  const tiles = [
+    ...counts.filter((row) => row.label !== 'No status' || row.count > 0),
+    ...(extraTiles || []),
+  ];
   return (
-    <section aria-labelledby="health-title" className="grid gap-3">
-      <SectionHeader title={<span id="health-title">Health</span>} count={board.items.length} />
-      <ul className="count-list" aria-label="Task counts">
-        {counts.map((row) => (
-          <li key={row.label} className="count-item">
-            <span className="count-item-label">{row.label}</span>
-            <span className="count-item-value">{row.count}</span>
-            {row.count > 0 && (
-              <Button
-                size="xs"
-                variant="link"
-                aria-label={`Show ${row.label.toLowerCase()} tasks`}
-                onClick={() => onFilter(row.filter)}
-              >
-                Show
-              </Button>
-            )}
+    <section aria-label="Board health" className="grid gap-4">
+      <ul className="insight-tiles" aria-label="Task counts">
+        {tiles.map((row) => (
+          <li key={row.label}>
+            <button
+              type="button"
+              className="insight-tile"
+              disabled={row.count === 0}
+              aria-label={`${row.count} ${row.label.toLowerCase()}: show the tasks`}
+              onClick={() => ('run' in row ? row.run() : onFilter(row.filter))}
+            >
+              <span className="insight-tile-value">{row.count}</span>
+              <span className="insight-tile-label">{row.label}</span>
+            </button>
           </li>
         ))}
       </ul>
-      <SectionHeader size="sm" as="h4" title="Status update" />
-      <SegmentedControl
-        label="Project health"
-        value={status}
-        onChange={setStatus}
-        className="w-fit max-w-full flex-wrap"
-        options={healthStatuses.map((option) => ({
-          value: option.value,
-          label: option.label,
-          disabled: busy || published,
-          icon: (
-            <span aria-hidden="true" className="health-dot" style={{ background: option.color }} />
-          ),
-        }))}
-      />
-      {!body ? (
-        <>
-          <p className="form-help">
-            Kalkidan writes a report from the board: the tasks in each status and in each
-            repository. You can edit it before you publish it.
-          </p>
-          <ActionRow>
-            <Button variant="outline" disabled={busy} onClick={() => void prepare()}>
-              {busy ? 'Writing report…' : 'Write report'}
-            </Button>
-          </ActionRow>
-        </>
-      ) : (
+      <div className="flex flex-wrap items-center gap-2">
+        <SegmentedControl
+          label="Project health"
+          value={status}
+          onChange={setStatus}
+          className="w-fit max-w-full flex-wrap"
+          options={healthStatuses.map((option) => ({
+            value: option.value,
+            label: option.label,
+            disabled: busy || published,
+            icon: (
+              <span
+                aria-hidden="true"
+                className="health-dot"
+                style={{ background: option.color }}
+              />
+            ),
+          }))}
+        />
+        {!body && (
+          <Button variant="outline" size="sm" disabled={busy} onClick={() => void prepare()}>
+            {busy ? 'Writing report…' : 'Write report'}
+          </Button>
+        )}
+      </div>
+      {body && (
         <div className="panel grid gap-3">
           <div className="flex items-center justify-between gap-2">
             <span className="text-xs font-medium text-muted-foreground">

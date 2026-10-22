@@ -3,13 +3,13 @@
 This document tells you what Kalkidan keeps, where it keeps it, and for how long. It also
 tells you how to export and delete your data, and what happens when you revoke a device, remove
 a host, delete an account, or uninstall Kalkidan. The statements agree with the code. The
-Settings › Data section shows the same information in the app
+Preferences › Your data section shows the same information in the app
 (`src/domain/data-policy.ts`).
 
 ## Before the first request
 
 After the first sign-in, and before you send the first request, Kalkidan shows the notice
-"Where your data goes". It shows one time. Settings › Data shows it again at any time.
+"Where your data goes". It shows one time. Preferences › Your data shows it again at any time.
 
 The notice has three parts.
 
@@ -53,16 +53,16 @@ Verdictan keeps this data in the region that you selected (EU or US):
 
 ### Local stores on this computer (`~/.kalkidan`)
 
-| Store           | Path in `~/.kalkidan`                                                                                         | Contents                                                                                                                          | Retention                                                              | Export                | Delete                                   |
-| --------------- | ------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------- | --------------------- | ---------------------------------------- |
-| Chat history    | `managed-agent-homes/`, `sessions.json`, `chat-outcomes.json`, `verdictan-bindings.json`                      | Agent transcripts, session titles and notes, run outcomes (newest 2000), conversation links (identifiers and the repository path) | Until you delete it. Never removed automatically.                      | Yes                   | Settings › Data › Delete chat history    |
-| Projects        | `projects/`, `docs/`, `projects.json`, `project-groups.json`                                                  | Project documents, memory (200 entries, 1 MiB for each project), clones, and worktrees that Kalkidan made                         | Until you remove the project. Deleted documents stay in `docs/.trash`. | Documents and memory  | Remove the project                       |
-| Preview browser | `browser/`, `Partitions/kalkidan-preview`, Chromium site storage                                              | Visits (newest 500), downloads (newest 100), site data, cookies, imported passwords (encrypted with the OS key store)             | As stated                                                              | History and downloads | Preview browser › Clear browsing data    |
-| Caches          | `Cache`, `Code Cache`, `GPUCache`, other Chromium caches, unused `runtime/verdictan/versions/*`               | Chromium caches, old Verdictan runtime versions                                                                                   | Removed first at the disk limit                                        | No                    | Settings › Data › Delete caches and logs |
-| Logs            | `operations/`, `Crashpad/`, `logs/`                                                                           | Operation receipts and crash reports                                                                                              | Removed first at the disk limit. Logs newer than 24 hours stay.        | Operation receipts    | Settings › Data › Delete caches and logs |
-| Settings        | `preferences.json`, `appearance.json`, `remote-hosts.json`, `verdictan-region.json`, `agent-executables.json` | Your choices, the SSH host list (no keys), the region                                                                             | Until uninstall                                                        | Yes                   | Delete `~/.kalkidan` after you quit      |
-| Runtime         | `runtime/verdictan/`                                                                                          | The active and the previous signed Verdictan runtime                                                                              | The active and the previous version stay                               | No                    | Delete `~/.kalkidan` after you quit      |
-| Event buffer    | Local event buffer of Kalkidan                                                                                | Usage records and other events that did not reach Verdictan yet                                                                   | 30 days                                                                | No                    | Removed after delivery or after 30 days  |
+| Store           | Path in `~/.kalkidan`                                                                                         | Contents                                                                                                                          | Retention                                                              | Export                | Delete                                           |
+| --------------- | ------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------- | --------------------- | ------------------------------------------------ |
+| Chat history    | `managed-agent-homes/`, `sessions.json`, `chat-outcomes.json`, `verdictan-bindings.json`                      | Agent transcripts, session titles and notes, run outcomes (newest 2000), conversation links (identifiers and the repository path) | Until you delete it. Never removed automatically.                      | Yes                   | Preferences › Your data › Delete chat history    |
+| Projects        | `projects/`, `docs/`, `projects.json`, `project-groups.json`                                                  | Project documents, memory (200 entries, 1 MiB for each project), clones, and worktrees that Kalkidan made                         | Until you remove the project. Deleted documents stay in `docs/.trash`. | Documents and memory  | Remove the project                               |
+| Preview browser | `browser/`, `Partitions/kalkidan-preview`, Chromium site storage                                              | Visits (newest 500), downloads (newest 100), site data, cookies, imported passwords (encrypted with the OS key store)             | As stated                                                              | History and downloads | Preferences › Built-in browser data              |
+| Caches          | `Cache`, `Code Cache`, `GPUCache`, other Chromium caches, unused `runtime/verdictan/versions/*`               | Chromium caches, old Verdictan runtime versions                                                                                   | Removed first at the disk limit                                        | No                    | Preferences › Your data › Delete caches and logs |
+| Logs            | `operations/`, `Crashpad/`, `logs/`                                                                           | Operation receipts and crash reports                                                                                              | Removed first at the disk limit. Logs newer than 24 hours stay.        | Operation receipts    | Preferences › Your data › Delete caches and logs |
+| Settings        | `preferences.json`, `appearance.json`, `remote-hosts.json`, `verdictan-region.json`, `agent-executables.json` | Your choices, the SSH host list (no keys), the region                                                                             | Until uninstall                                                        | Yes                   | Delete `~/.kalkidan` after you quit              |
+| Runtime         | `runtime/verdictan/`                                                                                          | The active and the previous signed Verdictan runtime                                                                              | The active and the previous version stay                               | No                    | Delete `~/.kalkidan` after you quit              |
+| Event buffer    | Local event buffer of Kalkidan                                                                                | Usage records and other events that did not reach Verdictan yet                                                                   | 30 days                                                                | No                    | Removed after delivery or after 30 days          |
 
 Outside `~/.kalkidan`:
 
@@ -87,8 +87,8 @@ Kalkidan removes data in this order, oldest first, until the folder is within th
 3. The Chromium caches.
 
 Kalkidan never removes chat history, projects, browser data, or settings automatically. When
-these alone are above the limit, Settings › Data shows a warning. Only you can delete chat
-history, in Settings › Data.
+these alone are above the limit, Preferences › Your data shows a warning. Only you can delete chat
+history, in Preferences › Your data.
 
 The local event buffer has its own limit: 200 MB and 30 days. When it is full, Kalkidan removes
 the oldest events that are not usage records first. Usage records stay until Verdictan receives
@@ -96,7 +96,7 @@ them.
 
 ### Export
 
-Settings › Data › Export copies your data to a new folder `kalkidan-export-<time>` in the folder
+Preferences › Your data › Export copies your data to a new folder `kalkidan-export-<time>` in the folder
 that you select. The export contains:
 
 - the JSON stores in the table above,
@@ -181,7 +181,7 @@ How it works:
 4. When the gateway cannot reach Verdictan for 5 minutes, it stops. This is the offline backstop.
 
 A provider request that Verdictan authorized before the revocation is not undone. Local data
-stays after a revocation. To delete it, use Settings › Data.
+stays after a revocation. To delete it, use Preferences › Your data.
 
 ## End of use
 

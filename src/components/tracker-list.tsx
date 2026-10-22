@@ -5,10 +5,11 @@ import {
   CircleDot,
   GitPullRequest,
   MessageSquare,
+  PanelRight,
   Play,
 } from 'lucide-react';
 import type { MouseEvent, KeyboardEvent } from 'react';
-import type { TrackerBoard, TrackerItem, Session } from '../types';
+import type { Agent, TrackerBoard, TrackerItem, Session } from '../types';
 import { agentLabel } from '../config/agents';
 import {
   ActivityDot,
@@ -25,10 +26,11 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuLabel,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from './ui/dropdown-menu';
+import { MoreButton } from './ui/more-button';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table';
-import { Choice } from './choice';
 import { Hint } from './hint';
 import { pathBasename, plural } from '../lib/platform';
 
@@ -73,8 +75,12 @@ export interface TaskWorkProps {
   /** The background state of open chats, by activityKey(agent, id). */
   activity?: Record<string, SessionActivityState>;
   onOpenChat?: (session: Session) => void;
-  /** Starts a chat on the task. The board shows "Start task" and the S key starts it. */
+  /** Starts a chat on the task. The board shows "Start" on hover and the S key starts it. */
   onStart?: (item: TrackerItem) => void;
+  /** The task that is starting now. Its card shows "Starting…". */
+  startingId?: string;
+  /** The reason that write controls are off, for example "Read only". */
+  readOnly?: string;
   selection?: TaskSelection;
 }
 
@@ -97,8 +103,17 @@ export function chatsActivity(
 ) {
   return strongestActivity(chats.map((s) => activity[activityKey(s.agent, s.id)]));
 }
-export function activityText(state: SessionActivityState) {
-  return activityWords[state];
+/** "Codex working", "Needs your answer" or "Needs approval". */
+export function activityText(state: SessionActivityState, agent?: Agent) {
+  return state === 'running' && agent ? `${agentLabel(agent)} working` : activityWords[state];
+}
+/** The chat of a task that has the given state. */
+function chatWithState(
+  chats: Session[],
+  state: SessionActivityState | undefined,
+  activity: Record<string, SessionActivityState> = {},
+) {
+  return state ? chats.find((s) => activity[activityKey(s.agent, s.id)] === state) : undefined;
 }
 
 const pullRequestWords = { open: 'Open', merged: 'Merged', closed: 'Closed' } as const;
@@ -126,7 +141,7 @@ export function TaskChats({
   if (!chats.length) return null;
   const state = chatsActivity(chats, activity);
   const label = state
-    ? activityWords[state]
+    ? activityText(state, chatWithState(chats, state, activity)?.agent)
     : showAgent && chats.length === 1
       ? agentLabel(chats[0].agent)
       : plural(chats.length, 'chat');
@@ -205,7 +220,16 @@ export function pullRequestStateWord(state?: 'open' | 'merged' | 'closed') {
 }
 
 /** The pull request that a chat of the task opened, as a small link that opens it on GitHub. */
-export function TaskPullRequest({ chats, tabIndex }: { chats: Session[]; tabIndex?: number }) {
+export function TaskPullRequest({
+  chats,
+  tabIndex,
+  short = false,
+}: {
+  chats: Session[];
+  tabIndex?: number;
+  /** Shows only "#41", for a card. */
+  short?: boolean;
+}) {
   const pullRequest = taskPullRequest(chats);
   if (!pullRequest) return null;
   return (
@@ -224,38 +248,98 @@ export function TaskPullRequest({ chats, tabIndex }: { chats: Session[]; tabInde
       >
         <GitPullRequest aria-hidden="true" />
         {pullRequest.number ? `#${pullRequest.number}` : 'PR'}
-        {pullRequest.state ? ` · ${pullRequestWords[pullRequest.state]}` : ''}
+        {!short && pullRequest.state ? ` · ${pullRequestWords[pullRequest.state]}` : ''}
       </a>
     </Button>
   );
 }
 
-/** The "Start task" button of a card or a row. It always shows. The S key does the same. */
+/**
+ * The "Start" button of a card or a row. It shows on hover and on focus, and always with
+ * `always` (the first Todo card). The S key does the same.
+ */
 export function TaskStartButton({
   item,
   onStart,
   tabIndex,
+  always = false,
 }: {
   item: TrackerItem;
   onStart: () => void;
   tabIndex?: number;
+  always?: boolean;
 }) {
   return (
     <Hint label="Start a chat on this task (S)">
       <Button
-        variant="ghost"
+        variant="outline"
         size="xs"
         className="tracker-task-start"
+        data-always={always || undefined}
         aria-label={`Start task: ${item.title}`}
         aria-keyshortcuts="S"
         tabIndex={tabIndex}
         onClick={onStart}
       >
         <Play aria-hidden="true" />
-        Start task
+        Start
       </Button>
     </Hint>
   );
+}
+
+/**
+ * The one chip of a card: "Starting…", the live state of its chat ("Codex working", "Needs
+ * your answer"), else its pull request ("#41"). It opens the chat or the pull request.
+ * Returns null when the task has none of these.
+ */
+export function TaskChip({
+  chats,
+  activity,
+  onOpenChat,
+  starting,
+  tabIndex,
+}: {
+  chats: Session[];
+  activity?: Record<string, SessionActivityState>;
+  onOpenChat?: (session: Session) => void;
+  starting?: boolean;
+  tabIndex?: number;
+}) {
+  if (starting)
+    return (
+      <span className="tracker-task-chip" data-state="running" role="status">
+        <ActivityDot state="running" />
+        Starting…
+      </span>
+    );
+  const state = chatsActivity(chats, activity);
+  const chat = chatWithState(chats, state, activity);
+  if (state && chat) {
+    const label = activityText(state, chat.agent);
+    const name = chat.organization?.title || chat.title;
+    return onOpenChat ? (
+      <Hint label={`Open chat: ${name}`}>
+        <button
+          type="button"
+          className="tracker-task-chip"
+          data-state={state}
+          tabIndex={tabIndex}
+          aria-label={`${label}. Open chat: ${name}`}
+          onClick={() => onOpenChat(chat)}
+        >
+          <ActivityDot state={state} />
+          {label}
+        </button>
+      </Hint>
+    ) : (
+      <span className="tracker-task-chip" data-state={state}>
+        <ActivityDot state={state} />
+        {label}
+      </span>
+    );
+  }
+  return <TaskPullRequest chats={chats} tabIndex={tabIndex} short />;
 }
 
 /** True when a key event comes from a text field or a menu, where keys have other uses. */
@@ -320,8 +404,8 @@ export function selectionClick(event: MouseEvent, item: TrackerItem, selection?:
 }
 
 /**
- * The check box that selects a task. Its outline always shows faintly, so that the place is
- * clear. It shows fully on hover and focus, and while the user selects.
+ * The check box that selects a task. It shows on hover and focus, and on every task while the
+ * user selects.
  */
 export function TaskCheckbox({
   item,
@@ -335,22 +419,28 @@ export function TaskCheckbox({
   tabIndex?: number;
 }) {
   return (
-    <Checkbox
-      className={className ? `tracker-task-select ${className}` : 'tracker-task-select'}
-      aria-label={`Select ${item.title}`}
-      tabIndex={tabIndex}
-      checked={selection.ids.has(item.id)}
-      onClick={(event) => {
-        // The change event has no Shift key, so the click changes the selection. React then
-        // sets the box from the selection.
-        event.stopPropagation();
-        selection.toggle(item, event.shiftKey);
-      }}
-      onChange={() => {}}
-    />
+    <Hint label="Select (Space)">
+      <Checkbox
+        className={className ? `tracker-task-select ${className}` : 'tracker-task-select'}
+        aria-label={`Select ${item.title}`}
+        tabIndex={tabIndex}
+        checked={selection.ids.has(item.id)}
+        onClick={(event) => {
+          // The change event has no Shift key, so the click changes the selection. React then
+          // sets the box from the selection.
+          event.stopPropagation();
+          selection.toggle(item, event.shiftKey);
+        }}
+        onChange={() => {}}
+      />
+    </Hint>
   );
 }
 
+/**
+ * The list view: one group per status, so the rows show no status column. The row menu moves a
+ * task. Columns that are empty on every row do not show.
+ */
 export function TrackerList({
   board,
   items,
@@ -371,7 +461,11 @@ export function TrackerList({
   const selecting = !!selection?.ids.size;
   const allSelected =
     !!selection && items.length > 0 && items.every((i) => selection.ids.has(i.id));
-  const columnCount = 4 + (selection ? 1 : 0) + (work.onStart ? 1 : 0);
+  const chatsOf = new Map(items.map((item) => [item.id, linkedChats(sessions, item.id)]));
+  const showRepository = items.some((item) => item.repository);
+  const showChats = items.some((item) => chatsOf.get(item.id)?.length) || !!work.startingId;
+  const options = board.statusField?.options || [];
+  const columnCount = 2 + (selection ? 1 : 0) + (showRepository ? 1 : 0) + (showChats ? 1 : 0);
   return (
     <Table
       className="tracker-list table-fixed"
@@ -394,21 +488,16 @@ export function TrackerList({
             </TableHead>
           )}
           <TableHead className={selection ? '' : 'first:pl-0'}>Title</TableHead>
-          <TableHead className="w-[18%]">Repository</TableHead>
-          <TableHead className="w-40">Chat</TableHead>
-          <TableHead className="w-40">Status</TableHead>
-          {work.onStart && (
-            <TableHead className="tracker-list-start">
-              <span className="sr-only">Start</span>
-            </TableHead>
-          )}
+          {showRepository && <TableHead className="w-[18%]">Repository</TableHead>}
+          {showChats && <TableHead className="w-44">Chat</TableHead>}
+          <TableHead className="tracker-list-start">
+            <span className="sr-only">Actions</span>
+          </TableHead>
         </TableRow>
       </TableHeader>
       {trackerColumns(board).map((column) => {
         const tasks = items.filter(
-          (i) =>
-            (board.statusField?.options.some((o) => o.id === i.statusId) ? i.statusId : '') ===
-            column.id,
+          (i) => (options.some((o) => o.id === i.statusId) ? i.statusId : '') === column.id,
         );
         if (!tasks.length) return null;
         return (
@@ -423,9 +512,9 @@ export function TrackerList({
               </th>
             </TableRow>
             {tasks.map((item) => {
-              const chats = linkedChats(sessions, item.id);
-              const hasStatus = board.statusField?.options.some((o) => o.id === item.statusId);
+              const chats = chatsOf.get(item.id) || [];
               const selected = !!selection?.ids.has(item.id);
+              const active = !!chatsActivity(chats, work.activity);
               return (
                 <TableRow
                   key={item.id}
@@ -435,7 +524,7 @@ export function TrackerList({
                   onKeyUp={taskKeyUp(work)}
                   onClick={(event) => {
                     if (
-                      (event.target as HTMLElement).closest('button, a, input, [role="combobox"]')
+                      (event.target as HTMLElement).closest('button, a, input, [role="menuitem"]')
                     )
                       return;
                     selectionClick(event, item, selection);
@@ -466,52 +555,45 @@ export function TrackerList({
                       ) : null}
                     </div>
                   </TableCell>
-                  <TableCell
-                    className="max-w-0 truncate text-muted-foreground"
-                    title={item.repository || undefined}
-                  >
-                    {item.repository ? pathBasename(item.repository) : 'Not linked'}
-                  </TableCell>
-                  <TableCell className="max-w-0">
-                    <div className="tracker-list-chat">
-                      {chats.length ? (
-                        <TaskChats
-                          chats={chats}
-                          activity={work.activity}
-                          onOpenChat={work.onOpenChat}
-                          showAgent
-                        />
-                      ) : (
-                        <span className="text-muted-foreground">None</span>
-                      )}
-                    </div>
-                  </TableCell>
-                  <TableCell>
-                    {board.statusField && (
-                      <Choice
-                        size="sm"
-                        variant="ghost"
-                        className="tracker-list-status -ml-2.5"
-                        label={`Status for ${item.title}`}
-                        value={hasStatus ? item.statusId || '' : ''}
-                        disabled={busy}
-                        options={[
-                          // "No status" is a value only when the task has no status.
-                          ...(!hasStatus ? [{ value: '', label: 'No status' }] : []),
-                          ...board.statusField.options.map((o) => ({
-                            value: o.id,
-                            label: o.name,
-                          })),
-                        ]}
-                        onChange={(value) => value && onStatus(item, value)}
-                      />
-                    )}
-                  </TableCell>
-                  {work.onStart && (
-                    <TableCell className="tracker-list-start">
-                      <TaskStartButton item={item} onStart={() => work.onStart?.(item)} />
+                  {showRepository && (
+                    <TableCell
+                      className="max-w-0 truncate text-xs text-muted-foreground"
+                      title={item.repository || undefined}
+                    >
+                      {item.repository ? pathBasename(item.repository) : ''}
                     </TableCell>
                   )}
+                  {showChats && (
+                    <TableCell className="max-w-0">
+                      <div className="tracker-list-chat">
+                        {work.startingId === item.id ? (
+                          <TaskChip chats={chats} starting />
+                        ) : (
+                          <TaskChats
+                            chats={chats}
+                            activity={work.activity}
+                            onOpenChat={work.onOpenChat}
+                            showAgent
+                          />
+                        )}
+                      </div>
+                    </TableCell>
+                  )}
+                  <TableCell className="tracker-list-start">
+                    <span className="tracker-task-actions">
+                      {work.onStart && !active && work.startingId !== item.id && (
+                        <TaskStartButton item={item} onStart={() => work.onStart?.(item)} />
+                      )}
+                      <TaskRowMenu
+                        board={board}
+                        item={item}
+                        busy={busy}
+                        readOnly={work.readOnly}
+                        onOpen={onOpen}
+                        onStatus={onStatus}
+                      />
+                    </span>
+                  </TableCell>
                 </TableRow>
               );
             })}
@@ -519,5 +601,53 @@ export function TrackerList({
         );
       })}
     </Table>
+  );
+}
+
+/** The ⋯ menu of a list row: open the task and move it to a status. */
+function TaskRowMenu({
+  board,
+  item,
+  busy,
+  readOnly,
+  onOpen,
+  onStatus,
+}: {
+  board: TrackerBoard;
+  item: TrackerItem;
+  busy: boolean;
+  readOnly?: string;
+  onOpen: (item: TrackerItem) => void;
+  onStatus: (item: TrackerItem, status: string) => void;
+}) {
+  const options = board.statusField?.options || [];
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <MoreButton size="xs" className="tracker-task-menu" label={`Task menu: ${item.title}`} />
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="min-w-48">
+        <DropdownMenuItem onSelect={() => onOpen(item)}>
+          <PanelRight className="size-4" />
+          Open task
+        </DropdownMenuItem>
+        {!!options.length && (
+          <>
+            <DropdownMenuSeparator />
+            <DropdownMenuLabel>{readOnly ? `Move to · ${readOnly}` : 'Move to'}</DropdownMenuLabel>
+            {options.map((option) => (
+              <DropdownMenuItem
+                key={option.id}
+                disabled={busy || option.id === item.statusId}
+                onSelect={() => onStatus(item, option.id)}
+              >
+                <StatusIcon name={option.name} size={16} />
+                {option.name}
+              </DropdownMenuItem>
+            ))}
+          </>
+        )}
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }

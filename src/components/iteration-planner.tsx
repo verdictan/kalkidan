@@ -211,6 +211,25 @@ export function IterationTool({
   const finished = !!result?.rows.every((row) => row.state === 'confirmed');
   const rowState = (itemId: string) => result?.rows.find((row) => row.itemId === itemId)?.state;
   const form = !request && !plan;
+  // Without an iteration field there is nothing to plan. Show only that, with a link.
+  if (form && !only('ITERATION').length)
+    return (
+      <>
+        <DialogBody className="grid content-start gap-4">
+          <p className="m-0 text-sm">Needs an Iteration field on GitHub.</p>
+        </DialogBody>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>
+            Close
+          </Button>
+          <Button asChild>
+            <a href={board.project.url} target="_blank" rel="noreferrer">
+              Open board on GitHub
+            </a>
+          </Button>
+        </DialogFooter>
+      </>
+    );
   return (
     <>
       <DialogBody className="grid content-start gap-4">
@@ -258,15 +277,6 @@ export function IterationTool({
                 true,
               )}
             </div>
-            <p className="form-help">
-              Kalkidan adds tasks in priority order until the capacity is full. A task must have an
-              estimate. Kalkidan does not add tasks that other issues block or that have a chat.
-            </p>
-            {!only('ITERATION').length && (
-              <ErrorAlert>
-                This board has no iteration field. Add one in Project settings, then try again.
-              </ErrorAlert>
-            )}
           </>
         )}
         {plan && !request && (
@@ -277,7 +287,6 @@ export function IterationTool({
               title={`Proposal: ${plan.used} of ${plan.capacity} used`}
               count={accepted.length}
             />
-            <p className="form-help mb-1">Clear a check box to leave a task out.</p>
             <div className="review-list">
               {plan.rows.map((row) => (
                 <ReviewRow

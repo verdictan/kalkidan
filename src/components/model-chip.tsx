@@ -1,16 +1,29 @@
 import { useEffect, useState } from 'react';
 import type { API } from '../api/contracts';
-import type { VerdictanSetup } from '../domain/verdictan';
+import {
+  completeSelection,
+  initialSelection,
+  usesAgentChoice,
+  type ManagedAgentKind,
+  type VerdictanSetup,
+} from '../domain/verdictan';
 import type { ModelOption } from '../types';
 import { modelChoice, type ModelChoice } from '../domain/model-choice';
 import { allowedModels } from '../lib/verdictan-labels';
-import { managedAgentsChangedEvent } from './verdictan-settings';
+import {
+  onPreferredAgentChange,
+  readPreferredAgent,
+  savePreferredAgent,
+} from '../lib/agent-preference';
+import { managedAgentsChangedEvent, notifyManagedAgentsChanged } from './verdictan-settings';
+import { openComputers } from './computers-page';
 import { ChevronDown, Settings2 } from 'lucide-react';
-import { agentCatalog } from '../config/agents';
+import { agentCatalog, isAgent } from '../config/agents';
 import { AgentIcon } from './ui/agent-icon';
 import { Button } from './ui/button';
 import {
   DropdownMenu,
+  DropdownMenuCheckboxItem,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuLabel,
@@ -20,6 +33,7 @@ import {
   DropdownMenuTrigger,
 } from './ui/dropdown-menu';
 import { Hint } from './hint';
+import { showToast } from './ui/toast';
 
 // The setup choices change seldom. Chats share one read for a short time.
 const setupCache = new WeakMap<API, { at: number; value: Promise<VerdictanSetup | undefined> }>();
@@ -37,6 +51,9 @@ function readSetup(api: API) {
   return value;
 }
 
+/** The API of the last composer. "Use for new chats" saves the default model through it. */
+let setupApi: API | undefined;
+
 /**
  * The models that the composer offers for a chat. A managed setup limits them to the models
  * that the organization allows.
@@ -49,6 +66,7 @@ export function useModelChoice(
 ): ModelChoice {
   const [setup, setSetup] = useState<VerdictanSetup>();
   useEffect(() => {
+    setupApi = api;
     let live = true;
     const read = (fresh = false) => {
       if (fresh) setupCache.delete(api);
@@ -76,14 +94,65 @@ export function useModelChoice(
 /** The value of the default item. A menu item cannot have an empty value. */
 const defaultValue = 'default';
 export const fixedModelHint = 'Your organization sets the model.';
-/** Where the user gets more models. */
-export const moreModelsHint = 'More models: Settings › Agents.';
+/** @deprecated The chip has "Manage agents…" now. */
+export const moreModelsHint = '';
 
-/** Opens Settings › Agents, where each agent has its default model. */
-function manageModels() {
-  window.dispatchEvent(
-    new CustomEvent('kalkidan-open-settings', { detail: { section: 'agents' } }),
-  );
+/** Opens the Computers page at the agents, where each agent has its program and setup. */
+function manageAgents() {
+  openComputers('settings-agents');
+}
+
+/**
+ * Saves the agent and the model of this chat for new chats. The agent is the preference of
+ * this computer. The model is the default model of the organization setup of the agent. A
+ * setup that is not complete keeps its model, and the toast opens the Computers page.
+ */
+async function saveForNewChats(agent: string, model: string, agentName: string) {
+  const before = readPreferredAgent();
+  if (isAgent(agent)) savePreferredAgent(agent);
+  const kind: ManagedAgentKind | undefined =
+    agent === 'codex' || agent === 'claude' ? agent : undefined;
+  const api = setupApi;
+  let saved = !model;
+  if (kind && model && api && typeof api.verdictanSelect === 'function') {
+    try {
+      const setup = await api.verdictanSetup();
+      const current = initialSelection(setup, kind);
+      const next = { ...current, model };
+      if (completeSelection(setup, kind, next)) {
+        const { agentId, ...rest } = next;
+        await api.verdictanSelect(
+          kind,
+          usesAgentChoice(setup) && agentId ? { ...rest, agentId } : rest,
+        );
+        setupCache.delete(api);
+        notifyManagedAgentsChanged();
+        saved = true;
+      }
+    } catch {
+      saved = false;
+    }
+  }
+  if (saved)
+    showToast({
+      message: `New chats use ${agentName}${model ? ` with this model` : ''}`,
+      actions:
+        isAgent(agent) && before !== agent
+          ? [{ label: 'Undo', onClick: () => savePreferredAgent(before) }]
+          : undefined,
+    });
+  else
+    showToast({
+      message: `New chats use ${agentName}. Set up ${agentName} to save the model.`,
+      actions: [{ label: 'Set up', onClick: manageAgents }],
+    });
+}
+
+/** The agent of new chats. It changes when another view saves it. */
+function usePreferredAgent() {
+  const [agent, setAgent] = useState<string>(readPreferredAgent);
+  useEffect(() => onPreferredAgentChange(setAgent), []);
+  return agent;
 }
 
 /**
@@ -116,18 +185,19 @@ export function ModelChip({
   /** Changes the agent of a new chat. Without it, the agent cannot change. */
   onAgentChange?: (agent: string) => void;
 }) {
+  const preferred = usePreferredAgent();
   const current = choice.options.find((option) => option.id === value);
   const modelName = current?.name || (choice.managed ? choice.defaultName : 'Default');
   const label = `${agentName} · ${modelName}`;
   const agents = onAgentChange ? agentCatalog : [];
   if (choice.fixed && agents.length < 2)
     return (
-      <Hint label={`${fixedModelHint} ${moreModelsHint}`}>
+      <Hint label={fixedModelHint}>
         <span
           tabIndex={0}
           role="note"
           aria-label={`Agent and model: ${label}. ${fixedModelHint}`}
-          className="model-chip-label inline-flex h-7 max-w-[220px] min-w-0 items-center gap-1.5 rounded-full px-2.5 text-xs font-medium text-muted-foreground outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-color)]"
+          className="model-chip-label inline-flex h-7 max-w-[220px] min-w-0 shrink items-center gap-1.5 rounded-full px-2.5 text-xs font-medium text-muted-foreground outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-color)]"
         >
           <AgentIcon agent={agent} className="size-3.5" />
           <span className="truncate">{label}</span>
@@ -140,6 +210,10 @@ export function ModelChip({
     : choice.managed
       ? choice.options.find((option) => option.isDefault)?.id || defaultValue
       : defaultValue;
+  // The model that new chats would use: the selected one, or none for the default.
+  const chosen = selected === defaultValue ? '' : selected;
+  const setupModel = choice.options.find((option) => option.isDefault)?.id || '';
+  const usedForNewChats = preferred === agent && (!chosen || chosen === setupModel);
   return (
     <DropdownMenu>
       <Hint
@@ -151,7 +225,7 @@ export function ModelChip({
             variant="chip"
             disabled={disabled}
             aria-label={`Agent and model: ${label}`}
-            className="max-w-[220px] min-w-0 gap-1.5"
+            className="max-w-[220px] min-w-0 shrink gap-1.5"
           >
             <AgentIcon agent={agent} className="size-3.5" />
             <span className="truncate">{label}</span>
@@ -177,7 +251,7 @@ export function ModelChip({
             <DropdownMenuSeparator />
           </>
         )}
-        <DropdownMenuLabel>{agentName} model</DropdownMenuLabel>
+        <DropdownMenuLabel>Model</DropdownMenuLabel>
         <DropdownMenuRadioGroup
           value={selected}
           onValueChange={(next) => onChange(next === defaultValue ? '' : next)}
@@ -201,15 +275,17 @@ export function ModelChip({
             Could not load models. The default model is used.
           </p>
         )}
-        {choice.fixed && (
-          <p className="px-2 py-1.5 text-xs text-muted-foreground">
-            {fixedModelHint} {moreModelsHint}
-          </p>
-        )}
         <DropdownMenuSeparator />
-        <DropdownMenuItem onSelect={manageModels}>
+        <DropdownMenuCheckboxItem
+          checked={usedForNewChats}
+          disabled={usedForNewChats}
+          onSelect={() => void saveForNewChats(agent, chosen, agentName)}
+        >
+          Use for new chats
+        </DropdownMenuCheckboxItem>
+        <DropdownMenuItem onSelect={manageAgents}>
           <Settings2 />
-          Manage models…
+          Manage agents…
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>

@@ -392,7 +392,7 @@ export function HostSetup({
       <ConfirmDialog
         open={confirmRemove}
         title={`Remove ${host.name}?`}
-        description="Kalkidan forgets this host. Files on the host do not change. You cannot remove a host while a project uses it."
+        description="Kalkidan revokes this host in Verdictan and forgets it. Files on the host do not change. You cannot remove a host while a project uses it."
         confirmLabel="Remove host"
         destructive
         busy={busy === 'Removing host…'}

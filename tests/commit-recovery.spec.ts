@@ -24,6 +24,8 @@ test('a failed pull request keeps the successful commit and retries only the pul
         platform: 'darwin',
       }),
       git: async () => null,
+      // The chat saves the link to the new pull request.
+      updateSession: async () => {},
       transcript: async () => ({ messages: [], truncated: false }),
       workingStatus: async () => ({
         branch: 'feature/work',
@@ -79,14 +81,18 @@ test('a failed pull request keeps the successful commit and retries only the pul
   await page.goto('/');
   await openCodeFolder(page);
   await page.getByRole('button', { name: 'Resume Implement feature', exact: true }).click();
-  await page.getByRole('button', { name: 'Chat actions', exact: true }).click();
-  await page.getByRole('menuitem', { name: 'Commit changes…', exact: true }).click();
-  const dialog = page.getByRole('dialog', { name: 'Commit changes' });
-  await dialog.getByRole('button', { name: 'Commit and create pull request' }).click();
+  // The changes row of the chat commits the changes and creates the pull request in one step.
+  await page
+    .getByRole('group', { name: 'Changes from this chat' })
+    .getByRole('button', { name: 'Create pull request…', exact: true })
+    .click();
+  const dialog = page.getByRole('dialog', { name: 'Create pull request' });
+  await dialog.getByRole('button', { name: 'Create pull request', exact: true }).click();
   await expect(dialog.getByRole('alert')).toContainText('GitHub unavailable');
   await expect(dialog.getByRole('status')).toContainText('Committed abcdef1.');
   // The commit is done, so the retry only creates the pull request.
   await dialog.getByRole('button', { name: 'Create pull request', exact: true }).click();
   await expect(dialog.getByRole('link', { name: 'View pull request #1' })).toBeVisible();
+  await expect(dialog.getByRole('alert')).toHaveCount(0);
   expect(await page.evaluate(() => (window as any).operations)).toEqual(['commit', 'pr', 'pr']);
 });

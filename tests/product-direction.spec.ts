@@ -1,5 +1,20 @@
+import { type Page } from '@playwright/test';
 import { test, expect, newChat } from './helpers/app';
 import { openCodeFolder, openProjectTab } from './helpers/navigation';
+import { openTool } from './helpers/tools';
+
+/** Connects the demo board to Atlas from the Tasks page of the project. */
+async function connectAtlasBoard(page: Page) {
+  await page.locator('.project-tree').getByRole('button', { name: 'Atlas', exact: true }).click();
+  await page
+    .getByRole('navigation', { name: 'Project page', exact: true })
+    .getByRole('button', { name: 'Tasks', exact: true })
+    .click();
+  await page.getByRole('button', { name: 'Connect a board', exact: true }).click();
+  await page.getByRole('button', { name: 'Atlas roadmap #1', exact: true }).click();
+  await page.getByRole('button', { name: 'Connect board', exact: true }).click();
+  await expect(page.getByRole('region', { name: 'Tracker board', exact: true })).toBeVisible();
+}
 
 test('project creation is GitHub-backed without client fields or navigation', async ({ page }) => {
   await page.goto('/');
@@ -16,27 +31,31 @@ test('project creation is GitHub-backed without client fields or navigation', as
   const board = dialog.getByRole('button', { name: 'Atlas roadmap #1', exact: true });
   await expect(board).toHaveAttribute('aria-pressed', 'true');
   await expect(dialog.getByRole('button', { name: 'Create project', exact: true })).toBeEnabled();
-  // Without a board, Create project is not available.
+  // Without a board, Create project tells what to do and does not create the project.
   await dialog.getByRole('button', { name: 'Use URL', exact: true }).click();
-  await expect(dialog.getByRole('button', { name: 'Create project', exact: true })).toBeDisabled();
+  await dialog.getByRole('button', { name: 'Create project', exact: true }).click();
+  await expect(dialog.getByRole('alert')).toContainText('or choose Connect later.');
+  await expect(dialog).toBeVisible();
   await dialog.getByRole('button', { name: 'Choose existing', exact: true }).click();
   await board.click();
   await expect(board).toHaveAttribute('aria-pressed', 'true');
   await dialog.getByRole('button', { name: 'Create project', exact: true }).click();
   await expect(dialog).not.toBeVisible();
-  // The Tasks toolbar names the connected board.
+  // The board menu of the Tasks page names the connected board.
   await openProjectTab(page, 'Tasks');
-  await expect(page.locator('.project-toolbar-board')).toContainText('Atlas roadmap #1');
+  await page.getByRole('button', { name: 'Board actions', exact: true }).click();
+  await expect(page.getByRole('menu', { name: 'Board actions' })).toContainText('Atlas roadmap #1');
+  await page.keyboard.press('Escape');
   await page.getByRole('button', { name: 'Manage project Platform' }).click();
   await page.getByRole('menuitem', { name: 'Rename…', exact: true }).click();
   // Rename opens Project settings at the project name.
-  const settings = page.getByRole('dialog', { name: 'Project settings', exact: true });
+  const settings = page.getByRole('dialog', { name: 'Project settings: Platform', exact: true });
   await expect(settings.getByLabel('Project name', { exact: true })).toHaveValue('Platform');
   await expect(settings.getByLabel('Client label', { exact: true })).toHaveCount(0);
   await settings.getByRole('button', { name: 'Close', exact: true }).click();
   await expect(settings).toHaveCount(0);
   await page.getByRole('button', { name: 'Projects', exact: true }).click();
-  const overview = page.getByRole('region', { name: 'Project overview' });
+  const overview = page.getByRole('region', { name: 'Projects', exact: true });
   await expect(overview.getByRole('button', { name: 'Platform', exact: true })).toBeVisible();
   await expect(overview.getByRole('button', { name: 'Atlas', exact: true })).toBeVisible();
   await page.screenshot({ path: 'test-results/project-directory.png' });
@@ -74,7 +93,15 @@ for (const allow of [true, false])
         }),
         git: async () => null,
         transcript: async () => ({ messages: [], truncated: false }),
-        // "Review in Changes" opens the Changes tool, which reads the working tree.
+        // The Changes tool shows when the folder has changed files. It reads the working tree.
+        workingStatus: async () => ({
+          branch: 'feature',
+          changed: run?.diff ? 1 : 0,
+          untracked: 0,
+          ahead: 0,
+          published: false,
+          defaultBranch: 'main',
+        }),
         repositoryDiff: async () => ({
           unstaged: run?.diff || '',
           staged: '',
@@ -126,17 +153,18 @@ for (const allow of [true, false])
     expect(await page.evaluate(() => (window as any).answers)).toEqual([
       { id: 'run', approval: 'approval', allow },
     ]);
-    await page.getByRole('button', { name: 'Activity · 1 step' }).click();
-    await page.getByRole('button', { name: /npm test Running/ }).click();
+    // The steps of the run are folded below its last message. A click on a step shows its output.
+    await page.getByRole('button', { name: /^1 step\b/ }).click();
+    await page.getByRole('button', { name: /npm test/ }).click();
     await expect(page.getByText('Test output', { exact: true })).toBeVisible();
-    await page.getByRole('button', { name: 'Review in Changes', exact: true }).click();
-    await expect(page.getByRole('tab', { name: 'Changes', exact: true })).toHaveAttribute(
-      'aria-selected',
-      'true',
-    );
+    // The changes of the run are in the Changes tool of the title bar.
+    await openTool(page, 'Changes');
     await expect(
-      page.getByRole('tabpanel', { name: 'Changes' }).getByText('+change').first(),
-    ).toBeVisible();
+      page
+        .getByRole('group', { name: 'Tools', exact: true })
+        .getByRole('button', { name: /^Changes/ }),
+    ).toHaveAttribute('aria-pressed', 'true');
+    await expect(page.getByText('+change').first()).toBeVisible();
   });
 
 test('task worktree cancellation keeps the task open and a created worktree becomes the session folder', async ({
@@ -188,9 +216,11 @@ test('task worktree cancellation keeps the task open and a created worktree beco
   await openProjectTab(page, 'Tasks');
   await page.getByRole('button', { name: 'Implement feature', exact: true }).click();
   const dialog = page.getByRole('dialog');
-  await dialog
-    .getByRole('radio', { name: 'In a branch copy on a new branch (recommended)' })
-    .check();
+  // A new branch is the default. Change shows where the task works.
+  await expect(dialog).toContainText('Repo · new branch implement-feature');
+  await dialog.getByRole('button', { name: 'Change', exact: true }).click();
+  const where = dialog.getByRole('group', { name: 'Where to work' });
+  await expect(where.getByRole('radio', { name: /^New branch/ })).toBeChecked();
   // The branch field is filled from the task. An empty branch blocks the start.
   await expect(dialog.getByLabel('Task branch')).not.toHaveValue('');
   await dialog.getByLabel('Task branch').clear();
@@ -200,11 +230,10 @@ test('task worktree cancellation keeps the task open and a created worktree beco
   await expect(dialog).toBeVisible();
   await dialog.getByRole('button', { name: 'Start task with Codex' }).click();
   await expect(dialog).not.toBeVisible();
-  // The tool launcher names the session folder.
-  await page.getByRole('button', { name: 'New tool tab', exact: true }).click();
-  await expect(page.getByRole('region', { name: 'Repository tools', exact: true })).toContainText(
-    'task-worktree · This computer',
-  );
+  // The folder pill of the new chat names the branch copy.
+  await expect(
+    page.getByRole('button', { name: 'Code folder: task-worktree', exact: true }),
+  ).toBeVisible();
   await expect(page.getByLabel('Message agent')).toContainText('Implement feature');
   expect(await page.evaluate(() => (window as any).branches)).toEqual([
     { id: 'r', branch: 'feature/client-task' },
@@ -214,15 +243,14 @@ test('task worktree cancellation keeps the task open and a created worktree beco
 
 test('general conversations can add task context later', async ({ page }) => {
   await page.goto('/');
-  await page.locator('.project-tree').getByRole('button', { name: 'Atlas', exact: true }).click();
-  await page.getByRole('button', { name: 'Connect a GitHub Projects board', exact: true }).click();
-  await page.getByRole('button', { name: 'Atlas roadmap #1', exact: true }).click();
-  await page.getByRole('button', { name: 'Connect board', exact: true }).click();
+  await connectAtlasBoard(page);
   await openCodeFolder(page);
   await newChat(page);
   await page.getByLabel('Message agent').fill('General question');
   await expect(page.getByRole('button', { name: 'Send', exact: true })).toBeEnabled();
-  await page.getByRole('button', { name: 'Link task', exact: true }).click();
+  // Link a task… is in the "+" menu of the composer.
+  await page.getByRole('button', { name: 'Add context', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Link a task…', exact: true }).click();
   await page.getByRole('combobox', { name: 'Chat task' }).click();
   await page.getByRole('option', { name: 'Build the project overview', exact: true }).click();
   await page.getByRole('button', { name: 'Save task link', exact: true }).click();
@@ -236,10 +264,7 @@ test('project opens its board and filters tasks by repository', async ({ page })
     localStorage.setItem('kalkidan-tracker-filters:atlas', JSON.stringify({ sort: 'title' })),
   );
   await page.goto('/');
-  await page.locator('.project-tree').getByRole('button', { name: 'Atlas', exact: true }).click();
-  await page.getByRole('button', { name: 'Connect a GitHub Projects board', exact: true }).click();
-  await page.getByRole('button', { name: 'Atlas roadmap #1', exact: true }).click();
-  await page.getByRole('button', { name: 'Connect board', exact: true }).click();
+  await connectAtlasBoard(page);
   const tracker = page.getByRole('region', { name: 'Project tracker' });
   await expect(tracker.getByRole('button', { name: 'Filter', exact: true })).toHaveAttribute(
     'aria-expanded',
@@ -273,12 +298,11 @@ test('project opens its board and filters tasks by repository', async ({ page })
 
 test('project board moves tasks and starts work in the selected repository', async ({ page }) => {
   await page.goto('/');
-  await page.locator('.project-tree').getByRole('button', { name: 'Atlas', exact: true }).click();
-  await page.getByRole('button', { name: 'Connect a GitHub Projects board', exact: true }).click();
-  await page.getByRole('button', { name: 'Atlas roadmap #1', exact: true }).click();
-  await page.getByRole('button', { name: 'Connect board', exact: true }).click();
+  await connectAtlasBoard(page);
   const tasks = page.getByRole('region', { name: 'Project tracker', exact: true });
   await expect(tasks.getByRole('region', { name: 'Tracker board', exact: true })).toBeVisible();
+  // Card actions show on hover.
+  await tasks.getByRole('button', { name: 'Build the project overview', exact: true }).hover();
   await tasks.getByRole('button', { name: 'Task menu: Build the project overview' }).click();
   await page.getByRole('menuitem', { name: 'Done', exact: true }).click();
   await expect(tasks.getByRole('region', { name: 'Done column', exact: true })).toContainText(
@@ -290,18 +314,18 @@ test('project board moves tasks and starts work in the selected repository', asy
   await page.setViewportSize({ width: 961, height: 988 });
   await page.screenshot({ path: 'test-results/project-board-tasks.png', fullPage: true });
   await tasks.getByRole('button', { name: 'Build the project overview', exact: true }).click();
-  await page.getByRole('combobox', { name: 'Code folder for this task', exact: true }).click();
-  await page.getByRole('option', { name: 'atlas-web', exact: true }).click();
-  await expect(
-    page.getByRole('combobox', { name: 'Code folder for this task', exact: true }),
-  ).toContainText('atlas-web');
-  // On main, a branch copy is the default. The preview has no Git, so work in the folder.
-  await page.getByRole('radio', { name: 'In atlas-web on main', exact: true }).check();
+  // Change shows the code folder and the branch of the task.
+  const sheet = page.getByRole('dialog');
+  await sheet.getByRole('button', { name: 'Change', exact: true }).click();
+  const where = sheet.getByRole('group', { name: 'Where to work' });
+  await where.getByRole('radio', { name: 'api-service', exact: true }).check();
+  await expect(sheet).toContainText('api-service · new branch');
+  await where.getByRole('radio', { name: 'atlas-web', exact: true }).check();
+  await expect(where.getByRole('radio', { name: 'atlas-web', exact: true })).toBeChecked();
+  // On main, a branch copy is the default. The preview has no Git, so work on main.
+  await where.getByRole('radio', { name: 'Work on main instead', exact: true }).check();
   await page.getByRole('button', { name: 'Start task with Codex', exact: true }).click();
   await expect(page.getByLabel('Message agent')).toContainText('Build the project overview');
-  // A narrow chat trail hides the code folder. A wide window shows it.
-  await page.setViewportSize({ width: 1360, height: 960 });
-  await expect(
-    page.getByRole('navigation', { name: 'Breadcrumb' }).getByRole('button', { name: /atlas-web/ }),
-  ).toBeVisible();
+  // The folder pill of the new chat names the selected code folder.
+  await expect(page.getByRole('button', { name: /^Code folder: atlas-web/ })).toBeVisible();
 });

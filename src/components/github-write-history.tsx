@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
+import { Popover } from 'radix-ui';
 import type { API, TrackerBoard } from '../types';
 import {
   canRevertMutation,
@@ -8,16 +9,17 @@ import {
   type GitHubMutationRow,
 } from '../domain/project-batch';
 import type { PlanningLabel } from '../domain/planning-labels';
-import { plural } from '../domain/planning-labels';
 import { fullTime, relativeTime } from '../lib/relative-time';
 import { History } from 'lucide-react';
 import { Button } from './ui/button';
 import { EmptyState } from './ui/empty-state';
 import { SectionHeader } from './ui/page-header';
 import { showToast } from './ui/toast';
+import { menuCollisionPadding, menuContentClass } from './ui/menu-styles';
+import { cn } from '../lib/utils';
 import {
-  describeFieldValue,
   ErrorAlert,
+  fieldChangeText,
   ExternalTextLink,
   githubWritesEvent,
   ReviewRow,
@@ -27,24 +29,33 @@ import {
 export { notifyGitHubWrites } from './planning-kit';
 import { errorMessage } from '../lib/errors';
 
+// Kalkidan warns only about writes that the user made since the app started. Older writes
+// stay in the history on the Insights page.
+const sessionStart = Date.now();
+
 /**
- * For the Tasks page and the Insights tab: the number of GitHub writes that have no confirmed
- * result. It checks when the page opens and after each write. It never shows a toast: the Tasks
- * page shows an inline warning with "Review", and the Insights tab can show a badge.
+ * The GitHub writes of this session that have no confirmed result. It checks when the page
+ * opens and after each write. The board "⋯" menu shows a dot and "Check" for these writes.
  */
-export function useUncertainWrites(api: API, groupId: string, enabled = true) {
-  const [count, setCount] = useState(0);
+export function useUncertainWriteRows(api: API, groupId: string, enabled = true) {
+  const [rows, setRows] = useState<GitHubMutationHistory>([]);
+  const [revision, setRevision] = useState(0);
   useEffect(() => {
     if (!enabled || typeof api.trackerMutationHistory !== 'function') {
-      setCount(0);
+      setRows([]);
       return;
     }
     let disposed = false;
     const check = () =>
       void api
         .trackerMutationHistory(groupId)
-        .then((rows) => {
-          if (!disposed) setCount(rows.filter((row) => row.state === 'unknown-outcome').length);
+        .then((history) => {
+          if (!disposed)
+            setRows(
+              history.filter(
+                (row) => row.state === 'unknown-outcome' && row.updatedAt >= sessionStart,
+              ),
+            );
         })
         .catch(() => {
           // The history is a hint here. The Insights page shows the error.
@@ -58,12 +69,140 @@ export function useUncertainWrites(api: API, groupId: string, enabled = true) {
       disposed = true;
       window.removeEventListener(githubWritesEvent, handle);
     };
-  }, [api, groupId, enabled]);
-  return count;
+  }, [api, groupId, enabled, revision]);
+  const reload = useCallback(() => setRevision((value) => value + 1), []);
+  return { rows, reload };
 }
 
-/** @deprecated The warning is inline now. Use `useUncertainWrites`. Kept for older callers. */
+/** The number of GitHub writes of this session that have no confirmed result. */
+export function useUncertainWrites(api: API, groupId: string, enabled = true) {
+  return useUncertainWriteRows(api, groupId, enabled).rows.length;
+}
+
+/** @deprecated Use `useUncertainWrites`. Kept for older callers. */
 export const useUncertainWritesToast = useUncertainWrites;
+
+/** "1 change may not have reached GitHub" for the board "⋯" menu. */
+export function uncertainWritesText(count: number) {
+  return count === 1
+    ? '1 change may not have reached GitHub'
+    : `${count} changes may not have reached GitHub`;
+}
+
+/**
+ * A popover at the board "⋯" button: the writes of this session that have no confirmed
+ * result, each with "Mark as checked", and a link to the board on GitHub.
+ */
+export function UncertainWritesPopover({
+  api,
+  groupId,
+  board,
+  rows,
+  open,
+  onOpenChange,
+  onChecked,
+  onOpenTask,
+  children,
+}: {
+  api: API;
+  groupId: string;
+  board: TrackerBoard;
+  rows: GitHubMutationHistory;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  /** Called after "Mark as checked", so that the count loads again. */
+  onChecked: () => void;
+  onOpenTask: (itemId: string) => void;
+  /** The anchor, for example the "⋯" button. */
+  children: ReactNode;
+}) {
+  const [busy, setBusy] = useState('');
+  const [error, setError] = useState('');
+  const item = (id?: string) =>
+    [...board.items, ...(board.archivedItems || [])].find((value) => value.id === id);
+  useEffect(() => {
+    if (open) setError('');
+    else if (!rows.length) setBusy('');
+  }, [open, rows.length]);
+  useEffect(() => {
+    if (open && !rows.length) onOpenChange(false);
+  }, [open, rows.length, onOpenChange]);
+  async function check(id: string) {
+    setBusy(id);
+    setError('');
+    try {
+      await api.trackerMutationHistory(groupId, id);
+      window.dispatchEvent(new CustomEvent(githubWritesEvent, { detail: { groupId } }));
+      onChecked();
+    } catch (failure) {
+      setError(errorMessage(failure));
+    } finally {
+      setBusy('');
+    }
+  }
+  return (
+    <Popover.Root open={open} onOpenChange={onOpenChange}>
+      <Popover.Anchor asChild>{children}</Popover.Anchor>
+      <Popover.Portal>
+        <Popover.Content
+          align="end"
+          sideOffset={6}
+          collisionPadding={menuCollisionPadding}
+          aria-label="Changes to check"
+          className={cn(menuContentClass, 'grid w-80 gap-1 p-2')}
+        >
+          <p className="px-1 pt-1 text-sm font-semibold">{uncertainWritesText(rows.length)}</p>
+          <ul className="m-0 grid list-none gap-1 p-0">
+            {rows.map((row) => {
+              const task = item(row.detail?.itemId);
+              const time = new Date(row.updatedAt).toISOString();
+              return (
+                <li key={row.id} className="flex min-h-10 items-center gap-2 rounded-sm px-1">
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate text-sm">
+                      {mutationLabel(row)}
+                      {task && (
+                        <>
+                          <span className="text-muted-foreground"> on </span>
+                          <TaskTitle
+                            title={task.title}
+                            onOpen={() => {
+                              onOpenChange(false);
+                              onOpenTask(task.id);
+                            }}
+                          />
+                        </>
+                      )}
+                    </div>
+                    <time
+                      className="block text-xs text-muted-foreground"
+                      dateTime={time}
+                      title={fullTime(time)}
+                    >
+                      {relativeTime(time)}
+                    </time>
+                  </div>
+                  <Button
+                    size="xs"
+                    variant="outline"
+                    disabled={!!busy}
+                    onClick={() => void check(row.id)}
+                  >
+                    Mark as checked
+                  </Button>
+                </li>
+              );
+            })}
+          </ul>
+          <ErrorAlert>{error}</ErrorAlert>
+          <div className="px-1 pt-1 pb-1 text-sm">
+            <ExternalTextLink href={board.project.url}>Open board on GitHub</ExternalTextLink>
+          </div>
+        </Popover.Content>
+      </Popover.Portal>
+    </Popover.Root>
+  );
+}
 
 const stateTones: Record<GitHubMutationRow['state'], PlanningLabel['tone']> = {
   writing: 'secondary',
@@ -128,16 +267,14 @@ export function GitHubWriteHistory({
         count={rows?.length}
         actions={<ExternalTextLink href={board.project.url}>Open board on GitHub</ExternalTextLink>}
       />
-      <p className="form-help">
-        {unknown
-          ? `Kalkidan could not confirm ${plural(unknown, 'change')}. Kalkidan does not send these changes again. Check each one on GitHub.`
-          : 'The changes that Kalkidan sent to GitHub for this project.'}
-      </p>
+      {!!unknown && (
+        <p className="form-help">
+          {uncertainWritesText(unknown)}. Check {unknown === 1 ? 'it' : 'each one'} on GitHub.
+        </p>
+      )}
       <ErrorAlert>{error}</ErrorAlert>
       {rows && !rows.length && !error && (
-        <EmptyState compact icon={<History />} title="No GitHub changes">
-          Kalkidan has not changed this board on GitHub.
-        </EmptyState>
+        <EmptyState compact icon={<History />} title="No GitHub changes" />
       )}
       {!!rows?.length && (
         <div className="review-list">
@@ -146,7 +283,7 @@ export function GitHubWriteHistory({
             const definition = field(row.detail?.fieldId);
             const changed =
               row.detail?.before !== undefined && row.detail.value !== undefined
-                ? `${definition?.name || 'Field'}: ${describeFieldValue(definition, row.detail.before)} → ${describeFieldValue(definition, row.detail.value)}`
+                ? fieldChangeText(definition, row.detail.before, row.detail.value)
                 : definition
                   ? `Field: ${definition.name}`
                   : '';
@@ -191,7 +328,7 @@ export function GitHubWriteHistory({
                           )
                         }
                       >
-                        I checked this on GitHub
+                        Mark as checked
                       </Button>
                     )}
                     {canRevertMutation(row) && typeof api.trackerMutationRevert === 'function' && (
