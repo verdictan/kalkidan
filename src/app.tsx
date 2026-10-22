@@ -1,3 +1,4 @@
+import { SshQuitDialog } from './components/ssh-quit-dialog';
 import {
   routeKey,
   reconcileRoute,
@@ -2251,6 +2252,7 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
           }}
         />
         <Toaster />
+        <SshQuitDialog api={api} />
       </>
     );
   return (
@@ -2892,6 +2894,7 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
         </div>
       </main>
       <Toaster />
+      <SshQuitDialog api={api} />
       <SignInFlow api={api} />
       <SettingsDialog
         api={api}

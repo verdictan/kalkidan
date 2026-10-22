@@ -266,6 +266,14 @@ test('desktop routes project, docs, agent, terminal and remote handlers to the e
   f.windows[0].emit('closed');
   assert.ok(f.calls.some((c) => c[0] === 'dispose') === false);
   assert.ok(f.calls.some((c) => c[0] === 'chatStop'));
+  // With a connected SSH host, the quit waits for the list of its work. Without work, the app
+  // asks nothing and quits.
+  let waited = 0;
+  f.app.emit('before-quit', { preventDefault: () => waited++ });
+  assert.equal(waited, 1);
+  await new Promise((done) => setTimeout(done, 20));
+  assert.ok(!f.calls.some((c) => c[0] === 'send' && c[1] === 'ssh-quit-request'));
+  assert.ok(f.calls.some((c) => c[0] === 'quit'));
   f.app.emit('before-quit', {
     preventDefault() {
       throw Error('should not prevent');
@@ -302,6 +310,12 @@ test('desktop window lifecycle and session export preserve security on each plat
     f.state.running = 2;
     f.state.choice = 0;
     f.app.emit('before-quit', event);
+    // The quit waits for the list of the work on the connected SSH host, then quits again.
+    assert.equal(prevented, 4);
+    await new Promise((done) => setTimeout(done, 20));
+    assert.ok(f.calls.some((c) => c[0] === 'quit'));
+    f.app.emit('before-quit', event);
+    assert.equal(prevented, 4);
     assert.ok(f.calls.some((c) => c[0] === 'dispose'));
     for (const action of [
       'copy-id',

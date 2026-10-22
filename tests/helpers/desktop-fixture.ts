@@ -93,8 +93,13 @@ export async function desktopFixture(platform = 'linux', failure = '') {
         this.popup = fn;
       },
       focus: record('focus'),
+      isLoading: () => false,
     });
     popup!: Function;
+    isMinimized = () => false;
+    restore = record('restore');
+    show = record('show');
+    focus = record('windowFocus');
     contentView = { addChildView: record('addView'), removeChildView: record('removeView') };
     constructor(public options: any) {
       super();

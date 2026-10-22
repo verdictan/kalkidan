@@ -188,7 +188,7 @@ If a permission request is not in view, a banner above the message box shows "Th
 
 ### Navigation and session management
 
-Use **⌘K** to search. Collapse the project tree when necessary. Drafts and active responses remain available when you change views. Closing the app window stops active responses. Saved conversation history remains available. When you start Kalkidan again, **Open chats** shows the saved chats that were open. A chat is saved when the agent starts. If the agent does not start, the chat is not saved and the error card tells you. When you quit Kalkidan, that chat and its message close. Select **Try again** before you quit.
+Use **⌘K** to search. Collapse the project tree when necessary. Drafts and active responses remain available when you change views. Closing the app window stops active responses on this computer. Responses on an SSH host continue on the host. Kalkidan attaches to them again when it connects to the host. Saved conversation history remains available. When you start Kalkidan again, **Open chats** shows the saved chats that were open. A chat is saved when the agent starts. If the agent does not start, the chat is not saved and the error card tells you. When you quit Kalkidan, that chat and its message close. Select **Try again** before you quit.
 
 Use the repository's session list to manage titles, pins, collections, notes, and archives. Select a session title to resume it. Select **Organize** to change its settings. Kalkidan keeps the selected view and filters for each repository. Archiving hides a session in Kalkidan. It does not delete the agent provider's history. Restore a session from the repository's archived sessions.
 
@@ -241,7 +241,14 @@ The terminal uses xterm.js and a real pseudo-terminal. It requires Python 3 on y
 
 The terminal gets focus only when you open it. The shell uses the Tab key for completion. Press **F6** to move focus from the terminal to the tool tabs.
 
-Shell state remains available until you select **New shell**, close the terminal tab, disconnect the host, or quit Kalkidan. Kalkidan asks you to confirm before **New shell** stops the current shell. Commands and browser previews stop when the app window closes.
+Shell state remains available until you select **New shell** or close the terminal tab. A shell on this computer also stops when you quit Kalkidan. A shell on an SSH host continues when the connection stops or Kalkidan quits. When the terminal opens again, it shows the recent output of that shell. Kalkidan asks you to confirm before **New shell** stops the current shell. Commands and browser previews on this computer stop when the app window closes.
+
+When you quit Kalkidan, or close its last window, while agent runs or shells work on SSH hosts, Kalkidan shows them for each host:
+
+- **Keep running** leaves the work on the hosts. This is the default. Escape does the same.
+- **Stop all** stops the runs and closes the shells, then Kalkidan quits.
+
+Select **Don't ask again** to quit without this question. To see the question again, turn on **Ask before quitting while SSH work runs** in **Preferences › Connections**.
 
 The repository's **Terminal** shortcut opens macOS Terminal. Agent sessions run inside Kalkidan.
 

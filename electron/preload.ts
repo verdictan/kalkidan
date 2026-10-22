@@ -234,6 +234,15 @@ const api: API = {
       ipcRenderer.removeListener('notification-click', listener);
     };
   },
+  onSshQuitRequest: (callback) => {
+    const listener = (_event: unknown, request: Parameters<typeof callback>[0]) =>
+      callback(request);
+    ipcRenderer.on('ssh-quit-request', listener);
+    return () => ipcRenderer.removeListener('ssh-quit-request', listener);
+  },
+  sshQuitAnswer: (answer) => ipcRenderer.invoke('ssh-quit-answer', answer),
+  sshQuitPrompt: () => ipcRenderer.invoke('ssh-quit-prompt'),
+  setSshQuitPrompt: (ask) => ipcRenderer.invoke('set-ssh-quit-prompt', ask),
   onRemoteHostsChange: (callback) => {
     const listener = () => callback();
     ipcRenderer.on('remote-hosts-changed', listener);

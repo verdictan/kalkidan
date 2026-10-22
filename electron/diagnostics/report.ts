@@ -35,8 +35,9 @@ function within<T>(work: Promise<T>, ms: number): Promise<T> {
   return Promise.race([
     work,
     new Promise<T>((_, reject) => {
+      // The timer keeps the process alive, so a host that never answers still times out. The
+      // timer stops when the work ends.
       timer = setTimeout(() => reject(new Error('The host did not answer in time.')), ms);
-      timer.unref?.();
     }),
   ]).finally(() => clearTimeout(timer));
 }
