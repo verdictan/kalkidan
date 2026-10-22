@@ -85,8 +85,15 @@ import {
   nativeTheme,
   powerMonitor,
   Notification,
+  net,
+  safeStorage,
   session,
 } from 'electron';
+import { ProxyAuthenticator, ProxyCredentialStore, ProxyPrompts } from './proxy-credentials';
+import { chromiumFetch, withReleaseErrors } from './verdictan/network';
+import { transferRuntime } from './verdictan/transfer';
+import type { RuntimeTransferProgress } from '../src/domain/updates';
+import { NetworkWatcher, recoverConnections } from './platform-events';
 import { LocalData } from './storage/local-data';
 import { localDataCheckIntervalMs } from '../src/domain/data-policy';
 import { existsSync } from 'node:fs';
@@ -446,11 +453,55 @@ async function git(path: string, args: string[]) {
 }
 const appearanceFile = join(dataRoot, 'appearance.json');
 app.whenReady().then(async () => {
-  powerMonitor.on('resume', () => {
-    void remote?.reconcile().catch(() => {});
-    // The session timer does not run while the computer sleeps. Renew the session now.
-    void verdictan?.account.autoRenew().catch(() => {});
+  // Timers do not run while the computer sleeps, and a network change closes connections. After
+  // either, stop expired gateways, check the SSH hosts, renew the session, and retry a failed
+  // runtime check. Nothing replays a request.
+  const recover = () =>
+    void recoverConnections({
+      checkExpiry: () => verdictan?.managed.checkExpiry(),
+      reconcileHosts: async () => remote?.reconcile(),
+      renewAccount: async () => verdictan?.account.autoRenew(),
+      checkRuntime: async () => verdictan?.installer.check(),
+    });
+  powerMonitor.on('resume', recover);
+  const network = new NetworkWatcher(
+    () => net.isOnline(),
+    (reason) => {
+      if (reason !== 'offline') recover();
+    },
+  );
+  network.start();
+  app.on('will-quit', () => network.close());
+  // A proxy that asks for a sign-in gets the saved one, or the user gets a prompt in the window.
+  // The password goes only through IPC and the OS secret store. TLS verification does not change.
+  const proxyCredentials = new ProxyCredentialStore(
+    join(dataRoot, 'proxy-credentials.json'),
+    safeStorage,
+  );
+  const proxyPrompts = new ProxyPrompts((request) => {
+    const window = [...windows].find((item) => !item.isDestroyed());
+    if (!window) return false;
+    window.webContents.send('proxy-login', request);
+    return true;
   });
+  const proxyAuthenticator = new ProxyAuthenticator(
+    proxyCredentials,
+    (challenge, canSave) => proxyPrompts.ask(challenge, canSave),
+    broadcastVerdictanChanged,
+  );
+  handle('proxy-login-answer', (id: unknown, answer: unknown) => proxyPrompts.answer(id, answer));
+  handle('proxy-sign-ins', () => proxyCredentials.list());
+  handle('proxy-sign-in-remove', async (proxy: unknown) => {
+    if (typeof proxy !== 'string' || proxy.length > 300) throw new Error('Invalid proxy.');
+    proxyAuthenticator.forget(proxy);
+    await proxyCredentials.remove(proxy);
+  });
+  // Release requests use the Chromium network stack, with the system proxy and certificates.
+  const releaseRequest = withReleaseErrors(
+    chromiumFetch(net, {
+      proxyLogin: (challenge, retry) => proxyAuthenticator.login(challenge, retry),
+    }),
+  );
   const makeVerdictan = (region: VerdictanRegion | undefined) =>
     createVerdictanServices({
       region,
@@ -460,6 +511,7 @@ app.whenReady().then(async () => {
       desktopVersion: app.getVersion(),
       busy: () => chatRunner.runningCount() > 0,
       openBrowser: (url) => shell.openExternal(url),
+      request: releaseRequest,
     });
   verdictan = makeVerdictan(await savedVerdictanRegion(dataRoot));
   // The first launch installs the managed agents runtime in the background. Settings shows
@@ -667,17 +719,23 @@ app.whenReady().then(async () => {
       broadcastVerdictanChanged();
     }
   });
+  // The progress of each copy of the runtime to an SSH host. Status reads of the host add it.
+  const transferProgress = new Map<string, RuntimeTransferProgress>();
   for (const action of ['status', 'check', 'install', 'cancel'] as const) {
     handle(`runtime-update-${action}`, async (hostId?: string) => {
       if (hostId && hostId !== 'local') {
         if (typeof hostId !== 'string' || !remote.list().some((host) => host.id === hostId))
           throw new Error('Remote host not found.');
-        return remote.call(hostId, 'runtime-update', [
+        const status = await remote.call(hostId, 'runtime-update', [
           action,
           app.getVersion(),
           hostId,
           verdictan!.region,
         ]);
+        const copy = transferProgress.get(hostId);
+        return copy && status && typeof status === 'object'
+          ? { ...status, transfer: copy }
+          : status;
       }
       if (action === 'status') return verdictan!.installer.check();
       if (action === 'check') return verdictan!.installer.check(true);
@@ -685,6 +743,53 @@ app.whenReady().then(async () => {
       return verdictan!.installer.start();
     });
   }
+  // A host that cannot reach the release server gets a copy from this computer over SSH. This
+  // computer verifies the release first, and the host verifies it again before it installs.
+  const transfers = new Map<string, Promise<unknown>>();
+  handle('runtime-update-transfer', async (hostId: string) => {
+    if (typeof hostId !== 'string' || !remote.list().some((host) => host.id === hostId))
+      throw new Error('Remote host not found.');
+    if (transfers.has(hostId)) throw new Error('A copy to this host is in progress.');
+    let notified = 0;
+    let lastPhase = '';
+    const task = (async () => {
+      const hello = await remote.call(hostId, 'hello', []);
+      if (typeof hello?.systemVersion !== 'string')
+        throw new Error('Update the Kalkidan helper on this host to copy the runtime.');
+      return transferRuntime({
+        host: { platform: hello.platform, arch: hello.arch, systemVersion: hello.systemVersion },
+        desktopVersion: app.getVersion(),
+        directory: app.getPath('temp'),
+        request: releaseRequest,
+        progress: (update) => {
+          transferProgress.set(hostId, update);
+          // Settings reads the status again. Send at most four updates each second.
+          const now = Date.now();
+          if (update.phase !== lastPhase || now - notified >= 250) {
+            lastPhase = update.phase;
+            notified = now;
+            broadcastVerdictanChanged();
+          }
+        },
+        call: (operation, args) =>
+          remote.call(hostId, 'runtime-transfer', [
+            operation,
+            app.getVersion(),
+            hostId,
+            verdictan!.region,
+            ...args,
+          ]),
+      });
+    })();
+    transfers.set(hostId, task);
+    try {
+      return await task;
+    } finally {
+      transfers.delete(hostId);
+      transferProgress.delete(hostId);
+      broadcastVerdictanChanged();
+    }
+  });
   if (!app.isPackaged && existsSync(appIcon)) app.dock?.setIcon(appIcon);
   // Apply the saved appearance before the first window opens, so it opens in the right colors.
   nativeTheme.themeSource = await readAppearanceMode(appearanceFile);

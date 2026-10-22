@@ -20,6 +20,8 @@ import {
   runtimeInstallable,
   runtimeOutdated,
   runtimeProgressLabel,
+  transferPercent,
+  transferProgressLabel,
   runtimeStatusLabel,
   updatePhaseLabel,
   updateRunning,
@@ -136,14 +138,18 @@ export function useRuntimeStatus(api: API, open: boolean, host: string) {
   }, [open, read]);
   useRefreshTriggers(api, open, read);
   // An install that starts has no journal entry yet. `installing` keeps the poll until it ends.
-  const running = runtimeBusy(status) || status?.discovery === 'checking';
+  const running = runtimeBusy(status) || status?.discovery === 'checking' || !!status?.transfer;
   useEffect(() => {
     if (!open || !running) return;
     const timer = setInterval(read, runtimePollMs);
     return () => clearInterval(timer);
   }, [open, running, read]);
   async function action(
-    method: 'runtimeUpdateCheck' | 'runtimeUpdateInstall' | 'runtimeUpdateCancel',
+    method:
+      | 'runtimeUpdateCheck'
+      | 'runtimeUpdateInstall'
+      | 'runtimeUpdateCancel'
+      | 'runtimeUpdateTransfer',
   ) {
     if (pending.current && method !== 'runtimeUpdateCancel') return;
     pending.current = true;
@@ -158,7 +164,12 @@ export function useRuntimeStatus(api: API, open: boolean, host: string) {
         if (accountChanging(failure)) {
           setChanging(true);
           retry.current = setTimeout(read, changeRetryMs);
-        } else setError('The install did not finish. Try again.');
+        } else
+          setError(
+            method === 'runtimeUpdateTransfer'
+              ? 'The copy from this computer did not finish. Try again.'
+              : 'The install did not finish. Try again.',
+          );
     } finally {
       pending.current = false;
       setBusy(false);
@@ -179,16 +190,21 @@ export function runtimeView(runtime: RuntimeState) {
   const running = updateRunning(status);
   const starting = !!status?.installing && !running;
   const waitingForIdle = operation?.phase === 'waiting-for-idle';
-  const percent =
-    operation?.phase === 'downloading' && operation.totalBytes > 0
+  // A copy from this computer to an SSH host runs. The error that led to it no longer shows.
+  const copy = status?.transfer;
+  const percent = copy
+    ? transferPercent(copy)
+    : operation?.phase === 'downloading' && operation.totalBytes > 0
       ? (operation.receivedBytes / operation.totalBytes) * 100
       : undefined;
-  const failure =
-    error ||
-    (status?.error ? withoutManagedCode(status.error) : '') ||
-    (operation?.error && !running && !starting ? withoutManagedCode(operation.error) : '');
+  const failure = copy
+    ? error
+    : error ||
+      (status?.error ? withoutManagedCode(status.error) : '') ||
+      (operation?.error && !running && !starting ? withoutManagedCode(operation.error) : '');
   let help: string;
   if (changing) help = 'Kalkidan changes the account now.';
+  else if (copy) help = transferProgressLabel(copy);
   else if (operation && running)
     help = runtimeProgressLabel(operation.phase, operation.target.version, percent);
   else if (starting && status?.latest)
@@ -201,19 +217,22 @@ export function runtimeView(runtime: RuntimeState) {
     ? { label: 'Needs attention', tone: 'destructive' }
     : changing
       ? { label: 'Waiting…', tone: 'secondary' }
-      : running || starting
-        ? { label: waitingForIdle ? 'Waiting' : 'Installing…', tone: 'secondary' }
-        : runtimeStatusLabel(status);
+      : copy
+        ? { label: 'Copying…', tone: 'secondary' }
+        : running || starting
+          ? { label: waitingForIdle ? 'Waiting' : 'Installing…', tone: 'secondary' }
+          : runtimeStatusLabel(status);
   return {
     help,
     label,
     failure,
     percent,
-    progress: (running && !waitingForIdle) || starting,
+    progress: (running && !waitingForIdle) || starting || !!copy,
     waitingForIdle,
-    running: running || starting,
+    running: running || starting || !!copy,
+    copying: !!copy,
     // An install only when Kalkidan does not do it by itself, or after a failure.
-    installable: runtimeInstallable(status) && !running && !starting,
+    installable: runtimeInstallable(status) && !running && !starting && !copy,
     outdated: runtimeOutdated(status),
     reason: runtimeOutdated(status) && !runtimeInstallable(status) ? status?.reason : undefined,
   };
@@ -241,7 +260,7 @@ export function RuntimeControl({ runtime, name }: { runtime: RuntimeState; name:
   return (
     <>
       <StatusBadge status={view.label} />
-      {view.waitingForIdle ? (
+      {view.copying ? null : view.waitingForIdle ? (
         <>
           <Button
             variant="outline"
@@ -256,16 +275,28 @@ export function RuntimeControl({ runtime, name }: { runtime: RuntimeState; name:
       ) : view.running ? (
         cancel
       ) : view.failure ? (
-        <Button
-          variant="outline"
-          size="sm"
-          disabled={busy}
-          onClick={() =>
-            void action(view.installable ? 'runtimeUpdateInstall' : 'runtimeUpdateCheck')
-          }
-        >
-          Retry
-        </Button>
+        <>
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={busy}
+            onClick={() =>
+              void action(view.installable ? 'runtimeUpdateInstall' : 'runtimeUpdateCheck')
+            }
+          >
+            Retry
+          </Button>
+          {status?.canTransfer && (
+            <Button
+              size="sm"
+              disabled={busy}
+              aria-label={`Copy managed agents from this computer to ${name}`}
+              onClick={() => void action('runtimeUpdateTransfer')}
+            >
+              Copy from this computer
+            </Button>
+          )}
+        </>
       ) : view.installable && (!status?.installed || view.outdated) ? (
         <Button
           variant="outline"
@@ -286,7 +317,12 @@ export function RuntimeExtra({ runtime }: { runtime: RuntimeState }) {
   if (!view.progress && !view.failure && !view.waitingForIdle && !view.reason) return null;
   return (
     <div className="grid gap-2" aria-live="polite">
-      {view.progress && <Progress label="Managed agents install" value={view.percent} />}
+      {view.progress && (
+        <Progress
+          label={view.copying ? 'Managed agents copy' : 'Managed agents install'}
+          value={view.percent}
+        />
+      )}
       {view.waitingForIdle && (
         <p className="form-help mt-0">Stop the agents that run now. Then select Finish install.</p>
       )}

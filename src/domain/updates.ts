@@ -57,6 +57,21 @@ export interface ComponentUpdateStatus {
    * again until it is false.
    */
   installing?: boolean;
+  /**
+   * True when an SSH host cannot reach the release server. The desktop can then download and
+   * verify the release, and copy it to the host over the SSH connection.
+   */
+  canTransfer?: boolean;
+  /** The progress of a copy from this computer to the SSH host, while the copy runs. */
+  transfer?: RuntimeTransferProgress;
+}
+/** The steps of a copy of the runtime from this computer to an SSH host. */
+export interface RuntimeTransferProgress {
+  phase: 'downloading' | 'verifying' | 'copying' | 'installing';
+  /** Bytes done in this step. */
+  bytes: number;
+  /** Bytes of the runtime archive. */
+  totalBytes: number;
 }
 export interface UpdatesAPI {
   /** The version and build of the running Kalkidan app. */
@@ -67,6 +82,31 @@ export interface UpdatesAPI {
   runtimeUpdateCheck(hostId?: string): Promise<ComponentUpdateStatus>;
   runtimeUpdateInstall(hostId?: string): Promise<ComponentUpdateStatus>;
   runtimeUpdateCancel(hostId?: string): Promise<ComponentUpdateStatus>;
+  /** Download and verify the release on this computer, then copy it to an SSH host. */
+  runtimeUpdateTransfer(hostId: string): Promise<ComponentUpdateStatus>;
+  /** Listens for a proxy that asks for a user name and password. Returns the unsubscribe. */
+  onProxyLogin?(listener: (request: ProxyLoginRequest) => void): () => void;
+  /** Answers a proxy sign-in request. Null cancels it. */
+  proxyLoginAnswer?(id: string, answer: ProxyLoginAnswer | null): Promise<void>;
+  /** The saved proxy sign-ins, without passwords. */
+  proxySignIns?(): Promise<{ proxy: string; username: string }[]>;
+  /** Removes the saved sign-in of a proxy (`host:port`). */
+  proxySignInRemove?(proxy: string): Promise<void>;
+}
+/** A proxy asks for a sign-in before a release download can continue. */
+export interface ProxyLoginRequest {
+  id: string;
+  host: string;
+  port: number;
+  realm: string;
+  /** False when the OS has no secret store, so the password cannot be saved. */
+  canSave: boolean;
+}
+export interface ProxyLoginAnswer {
+  username: string;
+  password: string;
+  /** Save the sign-in in the OS secret store for the next downloads. */
+  remember: boolean;
 }
 
 /** The running Kalkidan app, for Settings › General › About. */

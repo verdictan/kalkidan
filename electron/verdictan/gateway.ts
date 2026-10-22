@@ -4,6 +4,7 @@ import type { Writable } from 'node:stream';
 import { StringDecoder } from 'node:string_decoder';
 import { parseRuntimeCredentials, uuid, type RuntimeCredentials } from './credentials';
 import { DesktopProtocolError } from './protocol';
+import { eventBufferEnvironment } from './event-buffer';
 import { claudeSubscriptionRecovery } from '../../src/domain/verdictan';
 import { agentVersionErrorCode, checkAgentVersion } from '../../src/domain/agent-version';
 
@@ -21,6 +22,7 @@ const relayedReadinessCodes = new Set([
   'desktop.readiness_required',
   'desktop.event_authority_unavailable',
   'desktop.evidence_unavailable',
+  'desktop.event_buffer_full',
   'desktop.operation_in_progress',
   'desktop.secure_storage_unavailable',
   'desktop.codex_version_unsupported',
@@ -41,6 +43,8 @@ export interface GatewayOptions {
   launch?: typeof spawn;
   request?: typeof fetch;
   now?: () => number;
+  /** The persistent folder of the durable event queue. Without it, Verdictan uses a temporary one. */
+  eventDirectory?: string;
   /**
    * The gateway stopped without a request from Kalkidan. `revocation` is set when Verdictan
    * revoked the runtime. Then the runtime must not start again with the same credentials.
@@ -87,11 +91,14 @@ export class ManagedGateway {
     this.child = (options.launch || spawn)(options.executable, ['gateway', 'supervise'], {
       stdio: ['pipe', 'pipe', 'pipe', 'pipe'],
       windowsHide: true,
-      env: Object.fromEntries(
-        Object.entries(process.env).filter(
-          ([key]) => !/^(?:VERDICTAN_|OPENAI_|ANTHROPIC_|NODE_OPTIONS$)/i.test(key),
+      env: {
+        ...Object.fromEntries(
+          Object.entries(process.env).filter(
+            ([key]) => !/^(?:VERDICTAN_|OPENAI_|ANTHROPIC_|NODE_OPTIONS$)/i.test(key),
+          ),
         ),
-      ),
+        ...eventBufferEnvironment(options.eventDirectory),
+      },
     });
     this.exited = new Promise((resolve) =>
       this.child.once('close', () => {
@@ -179,6 +186,14 @@ export class ManagedGateway {
     } else if (['credential.expired', 'gateway.stopped', 'error'].includes(event.event)) {
       this.fail('desktop.gateway_unavailable');
     } else if (!['gateway.status', 'gateway.stopping'].includes(event.event)) throw new Error();
+  }
+  /**
+   * Stop this generation when its credential expired. Timers do not count the time while the
+   * computer sleeps, so the expiry timer can fire late. The app calls this after a wake.
+   */
+  checkExpiry() {
+    if (!this.closed && Date.parse(this.credentials.expires_at) <= this.now())
+      this.fail('desktop.runtime_expired');
   }
   private fail(code: string, revocation?: GatewayRevocation) {
     if (this.closed) return;

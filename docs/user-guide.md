@@ -649,6 +649,12 @@ managed agent runs. It records progress and supports cancellation and rollback. 
 before updating an SSH helper. Externally installed Codex and Claude Code remain
 under their installer or package manager.
 
+If an SSH host cannot reach the release server, its row shows the error and
+**Copy from this computer**. This computer then downloads and verifies the
+release, and copies it to the host over the SSH connection. The host verifies
+it again before it installs. For proxies, enterprise certificates, sleep, and
+headless Linux hosts, see [Network and platform conditions](network-and-platform.md).
+
 Remote hosts connect in the background. Retry state does not block local project
 navigation. Explicit disconnect stops retries for the current app session.
 Reconnection refreshes state; it does not replay prompts, approvals, or writes.

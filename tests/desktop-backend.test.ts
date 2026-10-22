@@ -448,3 +448,52 @@ test('desktop reports its own version and the helper state without an update ser
   for (const name of ['component-updates', 'desktop-update-download', 'desktop-update-restart'])
     assert.equal(f.handlers.has(name), false, name);
 });
+
+test('after a wake, the desktop stops expired gateways, then checks hosts, session, and runtime', async () => {
+  const f = await desktopFixture();
+  const start = f.calls.length;
+  f.power.emit('resume');
+  await new Promise((done) => setImmediate(done));
+  const names = f.calls.slice(start).map((call) => call[0]);
+  assert.equal(names[0], 'managedCheckExpiry');
+  for (const name of ['remoteReconcile', 'verdictanAutoRenew', 'runtimeCheck'])
+    assert.ok(names.includes(name), name);
+});
+
+test('the runtime copy reaches only a known SSH host and uses its helper', async () => {
+  const f = await desktopFixture();
+  await assert.rejects(f.invoke('runtime-update-transfer', 'unknown'), /not found/);
+  await assert.rejects(f.invoke('runtime-update-transfer', 42), /not found/);
+  let during: any;
+  (f.state as any).duringCopy = async () => {
+    during = await f.invoke('runtime-update-status', 'host');
+  };
+  const before = f.calls.filter((call) => call[0] === 'send' && call[1] === 'verdictan-changed');
+  assert.deepEqual(await f.invoke('runtime-update-transfer', 'host'), { hostId: 'copied' });
+  // While the copy runs, the status of the host has its progress. It goes away after the copy.
+  assert.deepEqual(during.transfer, { phase: 'copying', bytes: 5, totalBytes: 10 });
+  assert.equal((await f.invoke('runtime-update-status', 'host')).transfer, undefined);
+  // Settings reads the status again when the copy moves on, and when it ends.
+  const after = f.calls.filter((call) => call[0] === 'send' && call[1] === 'verdictan-changed');
+  assert.ok(after.length >= before.length + 2);
+  assert.deepEqual(f.calls.find((call) => call[0] === 'runtimeTransfer')?.[1], {
+    platform: 'linux',
+    arch: 'x64',
+    systemVersion: '6.12.0',
+  });
+  const copy = f.calls.find((call) => call[0] === 'remote' && call[2] === 'runtime-transfer');
+  assert.equal(copy?.[1], 'host');
+  assert.deepEqual(copy?.[3].slice(0, 1), ['begin']);
+  assert.deepEqual(copy?.[3].slice(-2), ['discovered', 'files']);
+});
+
+test('proxy sign-in handlers list no password and check their input', async () => {
+  const f = await desktopFixture();
+  assert.deepEqual(await f.invoke('proxy-sign-ins'), []);
+  await assert.rejects(f.invoke('proxy-sign-in-remove', 42), /Invalid proxy/);
+  await f.invoke('proxy-sign-in-remove', 'proxy.corp.example:3128');
+  assert.equal(
+    await f.invoke('proxy-login-answer', 'unknown', { username: 'u', password: 'p' }),
+    undefined,
+  );
+});

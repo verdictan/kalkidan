@@ -168,3 +168,39 @@ test('browser profile controls history, downloads, imports and credentials throu
   await assert.rejects(profile.action(wc, 'bad', null), /Unsupported/);
   assert.ok(writes.length > 0);
 });
+
+test('password import refuses Linux without a keyring, where Electron stores plain text', async () => {
+  for (const [backend, expected] of [
+    ['basic_text', /Secure OS credential storage is unavailable/],
+    ['gnome_libsecret', /1 passwords imported/],
+    ['kwallet6', /1 passwords imported/],
+  ] as const) {
+    const { BrowserProfile } = backendLoader(
+      {
+        electron: {
+          app: { getPath: () => '/fixture' },
+          dialog: { showOpenDialog: async () => ({ canceled: false, filePaths: ['/import'] }) },
+          safeStorage: {
+            // Electron reports encryption as available with the plain text backend.
+            isEncryptionAvailable: () => true,
+            getSelectedStorageBackend: () => backend,
+            encryptString: (s: string) => Buffer.from(s),
+            decryptString: (b: Buffer) => b.toString(),
+          },
+          shell: { showItemInFolder: () => {} },
+        },
+        'node:fs/promises': {
+          readFile: async () => 'url,username,password\nhttps://example.test,user,secret',
+          stat: async () => ({ size: 60 }),
+        },
+        [resolve('electron/storage/atomic-json.ts')]: { writeJSON: async () => {} },
+      },
+      { process: { ...process, platform: 'linux' } },
+    )(resolve('electron/browser-profile.ts'));
+    const profile = new BrowserProfile();
+    const wc = { getURL: () => 'https://example.test/' };
+    const result = profile.action(wc, 'import', 'passwords');
+    if (backend === 'basic_text') await assert.rejects(result, expected);
+    else assert.match(await result, expected);
+  }
+});

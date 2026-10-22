@@ -208,7 +208,18 @@ test('remote RPC validates envelopes, dispatches supported operations, reports f
   input.emit('line', '{}');
   input.emit('line', 'x'.repeat(16000001));
   assert.equal(outputs.length, 0);
-  assert.equal((await request('hello')).result.protocol, 5);
+  const hello = (await request('hello')).result;
+  assert.equal(hello.protocol, 5);
+  // The desktop needs the OS version of the host to verify a release that it copies there.
+  assert.equal(typeof hello.systemVersion, 'string');
+  assert.match(
+    (await request('runtime-transfer', ['begin', 'not a version', 'host', null])).error,
+    /Invalid runtime update request/,
+  );
+  assert.match(
+    (await request('runtime-update', ['delete', '0.1.0', 'host', null])).error,
+    /Invalid runtime update request/,
+  );
   assert.match((await request('unsupported')).error, /Unsupported/);
   // Only the owner IDs of a chat binding leave the host.
   assert.deepEqual((await request('conversation-owner', ['codex', 'owned'])).result, {
