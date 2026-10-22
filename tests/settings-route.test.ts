@@ -13,14 +13,15 @@ import { managedSetupTargets } from '../src/domain/verdictan';
 import { restoreRoute, routeKey, saveableRoute } from '../src/domain/workspace-route';
 import type { Session } from '../src/domain/conversation';
 
-test('Settings has five tabs in order', () => {
+test('Settings has four tabs in order', () => {
   assert.deepEqual(
     settingsTabs.map((tab) => tab.label),
-    ['General', 'Accounts', 'Agents', 'Computers', 'Updates'],
+    ['General', 'Accounts', 'Agents', 'Computers'],
   );
   assert.equal(isSettingsTab('computers'), true);
   assert.equal(isSettingsTab('remote'), false);
-  assert.equal(settingsTabLabel('updates'), 'Updates');
+  assert.equal(isSettingsTab('updates'), false);
+  assert.equal(settingsTabLabel('computers'), 'Computers');
 });
 
 test('older section names and anchors open their new tab', () => {
@@ -65,8 +66,10 @@ test('older section names and anchors open their new tab', () => {
     tab: 'computers',
     anchor: 'helper-update-h1',
   });
+  // The removed Updates tab opens Computers, at the runtime of this computer by default.
+  assert.deepEqual(settingsTarget('updates'), { tab: 'computers', anchor: 'runtime-local' });
   assert.deepEqual(settingsTarget('updates', 'unknown-anchor'), {
-    tab: 'updates',
+    tab: 'computers',
     anchor: 'unknown-anchor',
   });
 });

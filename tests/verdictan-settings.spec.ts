@@ -110,13 +110,8 @@ test('Settings separates account sign-in from execution readiness and shows upda
   expect(await page.evaluate(() => (window as any).runtimeFixture.update.operation.phase)).toBe(
     'canceled',
   );
-  await settings.getByRole('tab', { name: 'Updates', exact: true }).click();
-  await expect(
-    settings
-      .getByRole('region', { name: 'Updates' })
-      .getByRole('button', { name: 'Check for updates' })
-      .first(),
-  ).toBeVisible();
+  // Kalkidan does not update itself. Settings has no Updates tab.
+  await expect(settings.getByRole('tab', { name: 'Updates' })).toHaveCount(0);
 });
 
 test('Settings requires an explicit EU or US region before sign-in', async ({ page }) => {

@@ -11,7 +11,6 @@ const nativeTests = new Set([
   'remote-node.test.ts',
   'worktree-sessions.test.ts',
   'worktree-operation.test.ts',
-  'desktop-self-update-native.test.ts',
 ]);
 const files = readdirSync('tests')
   .filter((name) => name.endsWith('.test.ts') && !nativeTests.has(name))

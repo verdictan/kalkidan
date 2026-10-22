@@ -398,8 +398,9 @@ export function accountLabel(account?: Pick<VerdictanAccount, 'organizationName'
  * square brackets: "Managed agents are not set up. … [desktop.runtime_missing]". Read the code
  * with `managedErrorCode`. Show the message without the brackets, and never show a code alone.
  *
- * `section` is the Settings section that fixes the error. `retry` is true when the same action
- * can work a second time without a change.
+ * `section` is the Settings section that fixes the error. 'runtime' is the managed runtime in
+ * Settings › Computers. `retry` is true when the same action can work a second time without a
+ * change.
  *
  * There is no fallback to an unmanaged local agent. Each local chat starts through managed agents,
  * so the policy and the inference guard always apply. When managed agents are not set up, the chat
@@ -407,7 +408,7 @@ export function accountLabel(account?: Pick<VerdictanAccount, 'organizationName'
  */
 export interface ManagedErrorInfo {
   message: string;
-  section?: 'managed-agents' | 'agents' | 'updates';
+  section?: 'managed-agents' | 'agents' | 'runtime';
   retry?: boolean;
 }
 const setUp = 'managed-agents' as const;
@@ -428,7 +429,7 @@ export const managedErrors: Record<string, ManagedErrorInfo> = {
   },
   'desktop.executable_invalid': {
     message: 'The managed agents runtime is damaged. Install it again in Settings.',
-    section: 'updates',
+    section: 'runtime',
   },
   'desktop.auth_required': { message: 'Sign in to managed agents.', section: setUp },
   'desktop.auth_expired': {
@@ -588,7 +589,7 @@ export const managedErrors: Record<string, ManagedErrorInfo> = {
   'desktop.runtime_stopped': { message: 'Managed agents stopped. Try again.', retry: true },
   'desktop.operation_unsupported': {
     message: 'The installed managed agents runtime cannot do this. Update the runtime.',
-    section: 'updates',
+    section: 'runtime',
   },
   'desktop.region_required': {
     message: 'Select the EU or US region, then sign in to managed agents.',
@@ -629,7 +630,7 @@ export const managedErrors: Record<string, ManagedErrorInfo> = {
   'desktop.claude_subscription_unsupported': {
     message:
       'This runtime cannot use your Claude subscription. Your work is safe. Update the runtime.',
-    section: 'updates',
+    section: 'runtime',
   },
   'desktop.claude_subscription_login_required': {
     message: `${signInClaude} Kalkidan does not send your message again.`,
@@ -1069,7 +1070,7 @@ function refusalStep(code: string): ManagedSetupStep | null {
   const section = managedErrors[code]?.section;
   return (
     launchBlocks[code]?.[0] ||
-    (section === 'updates' ? 'runtime' : section ? 'agent-setup' : 'status')
+    (section === 'runtime' ? 'runtime' : section ? 'agent-setup' : 'status')
   );
 }
 /**

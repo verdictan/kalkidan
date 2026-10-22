@@ -3,7 +3,7 @@ import { Tabs as TabsPrimitive } from 'radix-ui';
 import { ExternalLink } from 'lucide-react';
 import { agentCatalog } from '../config/agents';
 import type { API, Agent } from '../types';
-import type { DesktopUpdateStatus } from '../domain/updates';
+import type { AppVersion } from '../domain/updates';
 import {
   computerAnchor,
   settingsAnchors,
@@ -26,7 +26,6 @@ import {
 import { displayVersion, shortId } from '../lib/verdictan-labels';
 import { AgentProgramsSettings } from './agent-programs';
 import { Choice } from './choice';
-import { ComponentUpdates } from './component-updates';
 import { ComputersSettings } from './computers-settings';
 import { GitHubAccount } from './github-account';
 import { SettingsDisclosure, SettingsGroup } from './settings-disclosure';
@@ -54,8 +53,8 @@ export interface SettingsFocus {
 }
 
 /**
- * Settings as a page in the main area. The tabs are General, Accounts, Agents, Computers, and
- * Updates. The shell keeps the tab in the route, so Back returns to the tab before.
+ * Settings as a page in the main area. The tabs are General, Accounts, Agents, and Computers.
+ * The shell keeps the tab in the route, so Back returns to the tab before.
  */
 export function SettingsPage({
   api,
@@ -139,9 +138,6 @@ export function SettingsPage({
             onRefresh={onRefresh}
           />
         </SettingsPanel>
-        <SettingsPanel value="updates">
-          <ComponentUpdates api={api} open={tab === 'updates'} onNavigate={onNavigate} />
-        </SettingsPanel>
       </TabsPrimitive.Root>
     </section>
   );
@@ -163,25 +159,23 @@ function SettingsPanel({ value, children }: { value: SettingsTab; children: Reac
 /** Settings › General: the appearance and information about Kalkidan. */
 function GeneralTab({ api, open }: { api: API; open: boolean }) {
   const [appearance, setAppearance] = useState<Appearance>(readAppearance);
-  const [desktop, setDesktop] = useState<DesktopUpdateStatus>();
+  const [app, setApp] = useState<AppVersion>();
   useEffect(() => {
-    // Older desktop builds and the browser demo do not report a version.
-    if (!open || typeof api.componentUpdates !== 'function') return;
+    // Some test stubs do not report a version.
+    if (!open || typeof api.appVersion !== 'function') return;
     let live = true;
     void Promise.resolve()
-      .then(() => api.componentUpdates(false))
+      .then(() => api.appVersion())
       .then(
-        (value) => live && setDesktop(value.desktop),
+        (value) => live && setApp(value),
         () => {},
       );
     return () => {
       live = false;
     };
   }, [api, open]);
-  const version = desktop?.runningVersion
-    ? `Version ${displayVersion(desktop.runningVersion)}`
-    : 'Version not known';
-  const build = desktop?.runningBuild ? `Build ${shortId(desktop.runningBuild)}` : '';
+  const version = app?.version ? `Version ${displayVersion(app.version)}` : 'Version not known';
+  const build = app?.build && app.build !== 'unknown' ? `Build ${shortId(app.build)}` : '';
   return (
     <div className="grid gap-8">
       <SettingsGroup title="Appearance">
@@ -217,7 +211,7 @@ function GeneralTab({ api, open }: { api: API; open: boolean }) {
           <div className="min-w-0">
             <p className="text-sm font-medium">Kalkidan</p>
             <p className="text-xs text-muted-foreground" data-testid="settings-version">
-              {[version, build, desktop?.install.kind === 'development' ? 'Development build' : '']
+              {[version, build, app && !app.packaged ? 'Development build' : '']
                 .filter(Boolean)
                 .join(' · ')}
             </p>

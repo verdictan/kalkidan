@@ -133,7 +133,6 @@ for (const mac of [true, false])
       ['Chat', 'Link task…', 'link-task'],
       ['Chat', 'Commit changes…', 'session-commit'],
       ['Chat', 'Archive', 'session-archive'],
-      [mac ? 'Kalkidan' : 'Help', 'Check for updates…', 'check-updates'],
       ['Help', 'Get started', 'get-started'],
       ['Help', 'Keyboard shortcuts', 'shortcuts'],
     ];
@@ -146,8 +145,8 @@ for (const mac of [true, false])
     // The Chat menu comes before the Window menu.
     const order = template.map((entry) => entry.label);
     assert.ok(order.indexOf('Chat') < order.indexOf('Window'));
-    // Each menu shows Check for updates once.
-    assert.equal(labels(template).filter((label) => label === 'Check for updates…').length, 1);
+    // Kalkidan does not update itself, so no menu checks for updates.
+    assert.ok(!labels(template).some((label) => /update/i.test(label)));
   });
 
 for (const mac of [true, false])

@@ -94,27 +94,22 @@ async function fixture(page: Page, extra = '') {
         return structuredClone(setup);
       },
       runtimeUpdateStatus: async (hostId = 'local') => runtime(hostId),
-      componentUpdates: async () => ({
-        desktop: {
-          installedVersion: '0.1.0-build.100.aaaaaaaaaaaa',
-          runningVersion: '0.1.0-build.100.aaaaaaaaaaaa',
-          runningBuild: 'c'.repeat(64),
-          discovery: 'current',
-          stale: false,
-          install: { kind: 'mac-app', selfUpdate: true },
-        },
-        helpers: [
-          {
-            hostId: 'h1',
-            name: 'devbox',
-            connected: true,
-            installed: 'a'.repeat(64),
-            running: 'a'.repeat(64),
-            approved: 'a'.repeat(64),
-            discovery: 'current',
-          },
-        ],
+      appVersion: async () => ({
+        version: '0.1.0-build.100.aaaaaaaaaaaa',
+        build: 'c'.repeat(64),
+        packaged: true,
       }),
+      helperUpdates: async () => [
+        {
+          hostId: 'h1',
+          name: 'devbox',
+          connected: true,
+          installed: 'a'.repeat(64),
+          running: 'a'.repeat(64),
+          approved: 'a'.repeat(64),
+          discovery: 'current',
+        },
+      ],
     };
     w.workspace = Object.assign(base, new Function(extra)());
   }, extra);
@@ -152,8 +147,6 @@ test('each entry point opens Settings as a page on the right tab', async ({ page
   // The menu command, for example Command-comma.
   await page.evaluate(() => (window as any).menuListeners.forEach((l: any) => l('settings')));
   await expectTab(page, 'General');
-  await page.evaluate(() => (window as any).menuListeners.forEach((l: any) => l('check-updates')));
-  await expectTab(page, 'Updates');
   // An event from another part of the app, with an older section name.
   await page.evaluate(() =>
     window.dispatchEvent(
@@ -171,12 +164,16 @@ test('each entry point opens Settings as a page on the right tab', async ({ page
   await expectTab(page, 'General');
   // Search.
   await page.keyboard.press('ControlOrMeta+k');
-  await page.getByLabel('Search projects and chats').fill('Check for updates');
+  await page.getByLabel('Search projects and chats').fill('Connect GitHub');
   await page
-    .getByRole('option', { name: /Check for updates/ })
+    .getByRole('option', { name: /Connect GitHub/ })
     .first()
     .click();
-  await expectTab(page, 'Updates');
+  await expectTab(page, 'Accounts');
+  // Kalkidan does not update itself. Search has no command that checks for updates.
+  await page.keyboard.press('ControlOrMeta+k');
+  await page.getByLabel('Search projects and chats').fill('Check for updates');
+  await expect(page.getByRole('option', { name: /Check for updates/ })).toHaveCount(0);
 });
 
 test('a deep link opens its tab', async ({ page }) => {
@@ -194,7 +191,6 @@ test('each tab shows its content', async ({ page }) => {
     'Accounts',
     'Agents',
     'Computers',
-    'Updates',
   ]);
   // General: the appearance and About with the version and the build.
   await expect(settings.getByRole('group', { name: 'Appearance' })).toBeVisible();
@@ -256,23 +252,6 @@ test('each tab shows its content', async ({ page }) => {
   await expect(buildbox.getByRole('button', { name: 'Check connection' })).toBeVisible();
   await expect(settings.getByRole('button', { name: 'Add host', exact: true })).toBeVisible();
   await page.screenshot({ path: 'test-results/settings-computers.png', fullPage: true });
-
-  // Updates: the app, and a summary of the runtime and helper of each computer.
-  await settings.getByRole('tab', { name: 'Updates', exact: true }).click();
-  const updates = settings.getByRole('list', { name: 'Components' });
-  await expect(updates.getByRole('group', { name: 'Kalkidan', exact: true })).toContainText(
-    'Up to date',
-  );
-  await expect(
-    updates.getByRole('group', { name: 'Managed agents runtime', exact: true }),
-  ).toBeVisible();
-  await expect(
-    updates.getByRole('group', { name: 'Managed agents runtime on devbox' }),
-  ).toBeVisible();
-  await expect(updates.getByRole('group', { name: 'SSH helper on devbox' })).toContainText(
-    'Up to date',
-  );
-  await page.screenshot({ path: 'test-results/settings-updates.png', fullPage: true });
 });
 
 test('Agents › links and Computers › links move between the tabs', async ({ page }) => {
@@ -294,31 +273,21 @@ test('Agents › links and Computers › links move between the tabs', async ({ 
   await expect(settings.getByRole('group', { name: 'buildbox' })).toBeFocused();
 });
 
-test('Updates opens the host in Computers and focuses it', async ({ page }) => {
+test('the older Updates section and deep link open Computers', async ({ page }) => {
   await fixture(page);
   await page.evaluate(() =>
     window.dispatchEvent(
       new CustomEvent('kalkidan-open-settings', { detail: { section: 'updates' } }),
     ),
   );
-  const settings = settingsPage(page);
-  await settings
-    .getByRole('group', { name: 'SSH helper on devbox' })
-    .getByRole('button', { name: 'Open devbox in Computers' })
-    .click();
   await expectTab(page, 'Computers');
-  await expect(settings.getByRole('group', { name: 'devbox' })).toBeFocused();
-  await settings.getByRole('tab', { name: 'Updates', exact: true }).click();
-  await settings.getByRole('button', { name: 'Open Managed agents runtime in Computers' }).click();
+  await expect(settingsPage(page).getByRole('tab', { name: 'Updates' })).toHaveCount(0);
+  await expect(settingsPage(page).locator('#runtime-local')).toBeFocused();
+  await page.goto('/#settings=updates');
   await expectTab(page, 'Computers');
-  await expect(
-    settings
-      .getByRole('group', { name: 'This computer' })
-      .getByRole('region', { name: 'Managed agents runtime' }),
-  ).toBeFocused();
 });
 
-test('a helper update shows on the host card, and Updates focuses its button', async ({ page }) => {
+test('a helper update shows on the host card and on the Settings button', async ({ page }) => {
   await fixture(
     page,
     `const w = window;
@@ -328,39 +297,33 @@ test('a helper update shows on the host card, and Updates focuses its button', a
         w.installs.push(id);
         return (await w.workspace.remoteHosts()).find((host) => host.id === id);
       },
-      componentUpdates: async () => ({
-        desktop: {
-          installedVersion: '0.1.0-build.100.aaaaaaaaaaaa',
-          runningVersion: '0.1.0-build.100.aaaaaaaaaaaa',
-          runningBuild: 'c'.repeat(64),
-          discovery: 'current',
-          stale: false,
-          install: { kind: 'mac-app', selfUpdate: true },
+      helperUpdates: async () => [
+        {
+          hostId: 'h1',
+          name: 'devbox',
+          connected: true,
+          installed: 'a'.repeat(64),
+          running: 'a'.repeat(64),
+          approved: 'd'.repeat(64),
+          discovery: 'available',
         },
-        helpers: [
-          {
-            hostId: 'h1',
-            name: 'devbox',
-            connected: true,
-            installed: 'a'.repeat(64),
-            running: 'a'.repeat(64),
-            approved: 'd'.repeat(64),
-            discovery: 'available',
-          },
-        ],
-      }),
+      ],
     };`,
   );
+  // The Settings button shows a dot for the helper update and opens Computers.
+  const button = page.getByRole('button', { name: 'Settings', exact: true });
+  await expect(button).toHaveAttribute('aria-description', 'Update available');
+  await button.click();
+  await expectTab(page, 'Computers');
+  // A link to the update button of the host moves the focus to it.
   await page.evaluate(() =>
     window.dispatchEvent(
-      new CustomEvent('kalkidan-open-settings', { detail: { section: 'updates' } }),
+      new CustomEvent('kalkidan-open-settings', {
+        detail: { section: 'computers', anchor: 'helper-update-h1' },
+      }),
     ),
   );
   const settings = settingsPage(page);
-  const summary = settings.getByRole('group', { name: 'SSH helper on devbox' });
-  await expect(summary).toContainText('Update available');
-  await summary.getByRole('button', { name: 'Open devbox in Computers' }).click();
-  await expectTab(page, 'Computers');
   const devbox = settings.getByRole('group', { name: 'devbox' });
   const helper = devbox.getByRole('region', { name: 'Kalkidan helper' });
   const update = helper.getByRole('button', { name: 'Update Kalkidan helper' });
@@ -441,39 +404,20 @@ test('a managed setup choice saves at once and Undo restores the choice before',
   await expect(managed.getByRole('combobox', { name: 'Model' })).not.toContainText('mini');
 });
 
-test('a development build says that updates are off', async ({ page }) => {
+test('About marks a development build', async ({ page }) => {
   await fixture(
     page,
     `return {
-      componentUpdates: async () => ({
-        desktop: {
-          installedVersion: '0.1.0',
-          runningVersion: '0.1.0',
-          runningBuild: 'c'.repeat(64),
-          discovery: 'available',
-          stale: false,
-          release: {
-            version: '0.1.0-build.200.bbbbbbbbbbbb',
-            id: '9',
-            url: 'https://github.com/verdictan/packages/releases/tag/kalkidan-v0.1.0',
-            sha256: 'a'.repeat(64),
-            publishedAt: '2026-10-21T00:00:00Z',
-          },
-          install: { kind: 'development', selfUpdate: false, reason: 'Development builds do not update themselves.' },
-        },
-        helpers: [],
-      }),
+      appVersion: async () => ({ version: '0.1.0', build: 'c'.repeat(64), packaged: false }),
     };`,
   );
-  await page.evaluate(() =>
-    window.dispatchEvent(
-      new CustomEvent('kalkidan-open-settings', { detail: { section: 'updates' } }),
-    ),
+  await page.getByRole('button', { name: 'Settings', exact: true }).click();
+  const about = settingsPage(page).getByRole('region', { name: 'About' });
+  await expect(about.getByTestId('settings-version')).toHaveText(
+    'Version 0.1.0 · Build ccccccc · Development build',
   );
-  const app = settingsPage(page).getByRole('group', { name: 'Kalkidan', exact: true });
-  await expect(app).toContainText('Development build; updates are off');
-  await expect(app.getByRole('link', { name: /Download/ })).toHaveCount(0);
-  await expect(app.getByRole('button', { name: /Download/ })).toHaveCount(0);
+  // Kalkidan does not update itself. Settings has no update action.
+  await expect(settingsPage(page).getByRole('button', { name: /update/i })).toHaveCount(0);
 });
 
 test('Computers adds a host and checks it at once', async ({ page }) => {
@@ -521,7 +465,7 @@ test('no Settings tab overflows horizontally in a narrow window', async ({ page 
   await page.getByRole('button', { name: 'Toggle sidebar', exact: true }).click();
   await page.getByRole('button', { name: 'Settings', exact: true }).click();
   const settings = settingsPage(page);
-  for (const name of ['General', 'Accounts', 'Agents', 'Computers', 'Updates']) {
+  for (const name of ['General', 'Accounts', 'Agents', 'Computers']) {
     await settings.getByRole('tab', { name, exact: true }).click();
     await expect(settings.getByRole('tab', { name, exact: true })).toHaveAttribute(
       'aria-selected',

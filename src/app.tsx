@@ -485,7 +485,6 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
       if (group) openGroup(group, goPage[command]);
       else openOverview();
     } else if (command === 'all-sessions') openAllSessions();
-    else if (command === 'check-updates') openSettings('updates');
     else if (isChatCommand(command) || command.startsWith('session-')) sessionCommand(command);
   };
   useEffect(
@@ -1638,12 +1637,6 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
       run: () => openSettings('accounts'),
     },
     {
-      key: 'check-updates',
-      label: 'Check for updates',
-      keywords: 'version upgrade',
-      run: () => openSettings('updates'),
-    },
-    {
       key: 'managed-agents',
       label: 'Set up managed agents',
       keywords: 'verdictan runtime governance',
@@ -1748,7 +1741,7 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
       className={sidebarAction + ' min-w-0 flex-1 font-normal'}
       aria-description={updates.available ? 'Update available' : undefined}
       aria-current={route.kind === 'settings' ? 'page' : undefined}
-      onClick={() => openSettings(updates.available ? 'updates' : 'general')}
+      onClick={() => openSettings(updates.available ? 'computers' : 'general')}
     >
       <Settings2 />
       Settings

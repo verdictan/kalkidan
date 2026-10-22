@@ -29,7 +29,6 @@ import {
   verdictanErrorMessage,
   type StatusLabel,
 } from '../lib/verdictan-labels';
-import { cn } from '../lib/utils';
 import { runtimeAnchor, settingsAnchors, type SettingsTab } from '../domain/settings-route';
 
 /** The account and setup changed. Onboarding listens to check managed agents again. */
@@ -797,45 +796,5 @@ export function ManagedRuntime({
         </SettingsDisclosure>
       )}
     </section>
-  );
-}
-
-/** One component in Settings › Updates: name, version, status, and one action. */
-export function UpdateCard({
-  name,
-  version,
-  subtitle,
-  status,
-  action,
-  children,
-  className,
-}: {
-  name: string;
-  version?: string;
-  /** Replaces the version line, for example "Build 4a1a9a9". */
-  subtitle?: string;
-  status: StatusLabel;
-  action?: ReactNode;
-  children?: ReactNode;
-  className?: string;
-}) {
-  return (
-    <li className={cn('update-card', className)} role="group" aria-label={name}>
-      <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2">
-        <div className="min-w-0 flex-1">
-          <p className="text-[13px] leading-5 font-semibold">{name}</p>
-          <p className="text-xs leading-4 text-muted-foreground">
-            {subtitle || (version ? `Version ${version}` : 'Version not known')}
-          </p>
-        </div>
-        <StatusBadge status={status} />
-        {action}
-      </div>
-      {children && (
-        <div className="grid justify-items-start gap-2 text-xs leading-4 text-muted-foreground">
-          {children}
-        </div>
-      )}
-    </li>
   );
 }

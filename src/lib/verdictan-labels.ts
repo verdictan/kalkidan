@@ -1,12 +1,7 @@
 // Plain words for managed-agent and update states. The UI never shows the raw API values.
 import { managedErrorInfo, managedErrors, selectionIssue, serviceName } from '../domain/verdictan';
 import type { VerdictanSetup, VerdictanStatus } from '../domain/verdictan';
-import type {
-  ComponentUpdateStatus,
-  DesktopUpdateStatus,
-  HelperUpdateStatus,
-  UpdatePhase,
-} from '../domain/updates';
+import type { ComponentUpdateStatus, HelperUpdateStatus, UpdatePhase } from '../domain/updates';
 
 /** The Badge variant for a status. */
 export type StatusTone = 'success' | 'warning' | 'muted' | 'destructive' | 'secondary';
@@ -99,7 +94,7 @@ export function runtimeOutdated(status: ComponentUpdateStatus | undefined) {
   return !!status?.latest && status.installed?.sha256 !== status.latest.sha256;
 }
 
-/** The runtime state of a computer in Settings › Computers and in Updates. */
+/** The runtime state of a computer in Settings › Computers. */
 export function runtimeStatusLabel(status: ComponentUpdateStatus | undefined): StatusLabel {
   if (!status || status.discovery === 'checking') return { label: 'Checking…', tone: 'secondary' };
   if (updateRunning(status))
@@ -115,27 +110,7 @@ export function runtimeStatusLabel(status: ComponentUpdateStatus | undefined): S
   return { label: `Installed ${status.installed.version}`, tone: 'success' };
 }
 
-/** The desktop app state in Settings › Updates. */
-export function desktopStatusLabel(desktop: DesktopUpdateStatus): StatusLabel {
-  switch (desktop.discovery) {
-    case 'available':
-      return desktop.release
-        ? { label: `Version ${displayVersion(desktop.release.version)} available`, tone: 'warning' }
-        : { label: 'Update available', tone: 'warning' };
-    case 'current':
-      return { label: 'Up to date', tone: 'success' };
-    case 'checking':
-      return { label: 'Checking…', tone: 'secondary' };
-    case 'failed':
-      return { label: 'Check failed', tone: 'destructive' };
-    case 'unsupported':
-      return { label: 'Desktop app only', tone: 'muted' };
-    default:
-      return { label: 'Not checked', tone: 'muted' };
-  }
-}
-
-/** The SSH helper state in Settings › Updates. */
+/** The SSH helper state in Settings › Computers. */
 export function helperStatusLabel(helper: HelperUpdateStatus): StatusLabel {
   if (!helper.connected && helper.discovery !== 'current')
     return { label: 'Disconnected', tone: 'muted' };

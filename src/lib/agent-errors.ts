@@ -11,6 +11,7 @@ import {
   type RefusalContext,
 } from '../domain/verdictan';
 import { agentProgramAnchor, chooseProgramLabel } from '../domain/agent-programs';
+import { runtimeAnchor } from '../domain/settings-route';
 
 export type AgentErrorActionKind = 'settings' | 'retry' | 'change-agent' | 'install';
 
@@ -45,7 +46,12 @@ const changeAgent: AgentErrorAction = { label: 'Change agent', kind: 'change-age
 const sectionActions: Record<string, AgentErrorAction> = {
   'managed-agents': { label: 'Open managed agents', section: 'managed-agents', kind: 'settings' },
   agents: { label: 'Open agent settings', section: 'agents', kind: 'settings' },
-  updates: { label: 'Open updates', section: 'updates', kind: 'settings' },
+  runtime: {
+    label: 'Open managed runtime',
+    section: 'computers',
+    anchor: runtimeAnchor(),
+    kind: 'settings',
+  },
 };
 // Codes that a new chat with the other agent can fix.
 const changeAgentCodes = new Set([

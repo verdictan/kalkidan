@@ -1,12 +1,11 @@
 /** The tabs of the Settings page, in order. */
-export type SettingsTab = 'general' | 'accounts' | 'agents' | 'computers' | 'updates';
+export type SettingsTab = 'general' | 'accounts' | 'agents' | 'computers';
 
 export const settingsTabs: { value: SettingsTab; label: string }[] = [
   { value: 'general', label: 'General' },
   { value: 'accounts', label: 'Accounts' },
   { value: 'agents', label: 'Agents' },
   { value: 'computers', label: 'Computers' },
-  { value: 'updates', label: 'Updates' },
 ];
 
 export function isSettingsTab(value: unknown): value is SettingsTab {
@@ -53,8 +52,9 @@ const anchorTabs: Record<string, SettingsTab> = {
 
 /**
  * The tab and the element that get focus for a request to open Settings. The request can use
- * the names of the older sections: 'about', 'managed-agents', and 'remote'. A known anchor
- * selects its own tab, so an older section name with a moved anchor still opens the anchor.
+ * the names of the older sections: 'about', 'managed-agents', 'remote', and 'updates'. A known
+ * anchor selects its own tab, so an older section name with a moved anchor still opens the
+ * anchor.
  */
 export function settingsTarget(
   section?: string,
@@ -75,6 +75,9 @@ export function settingsTarget(
       return { tab: 'agents', anchor: id || settingsAnchors.managedSetup };
     case 'remote':
       return { tab: 'computers', anchor: id };
+    // The Updates tab was removed. The runtime and the SSH helpers update in Computers.
+    case 'updates':
+      return { tab: 'computers', anchor: id || runtimeAnchor() };
     default:
       return { tab: isSettingsTab(section) ? section : 'general', anchor: id };
   }
