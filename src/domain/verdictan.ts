@@ -5,6 +5,7 @@ import {
   type NativeAgentKind,
 } from './agent-version';
 import { safeProgramPath } from './agent-programs';
+import { supportWindow } from './compatibility';
 import type { PolicyRecord, PolicyRegion, PolicyReview, ReviewDecision } from './policy-result';
 import { runtimeAnchor, settingsAnchors, type SettingsSection } from './settings-route';
 
@@ -236,8 +237,10 @@ export interface VerdictanSetup {
   /**
    * Why the one-time bootstrap did not run. `team_required`: the administrator has no team
    * that can hold the Kalkidan agent. `failed`: another failure; Refresh tries again.
+   * `runtime_too_old`: the runtime has neither `setup.bootstrap` nor a usable
+   * `setup.ensure_default`, so it cannot run the setup. See `supportWindow.runtime.setupMinimum`.
    */
-  bootstrapIssue?: 'team_required' | 'failed';
+  bootstrapIssue?: 'team_required' | 'failed' | 'runtime_too_old';
   /**
    * Agents that the user can attach a host to. Missing when the runtime does not send the
    * list (older runtimes); then the team and policy choice applies.
@@ -735,6 +738,14 @@ export const managedErrors: Record<string, ManagedErrorInfo> = {
     message: 'Managed agents must update their records. Check the status in Settings.',
     section: 'computers',
   },
+  'desktop.runtime_version_unsupported': {
+    message: `Kalkidan does not support this Verdictan runtime version. Update the runtime to ${supportWindow.runtime.minimum} or later in Settings › Computers.`,
+    section: 'computers',
+  },
+  'desktop.protocol_unsupported': {
+    message: `This Verdictan runtime does not support desktop protocol ${supportWindow.protocol.current}. Update the runtime and Kalkidan to their newest versions.`,
+    section: 'computers',
+  },
   'desktop.agent_version_unsupported': {
     message:
       'Kalkidan cannot confirm the version of the installed agent. Check the agent in Settings, then try again.',
@@ -1152,6 +1163,11 @@ const launchBlocks: Record<string, [ManagedSetupStep, string]> = {
   'desktop.runtime_starting': ['status', 'The managed runtime is starting. Wait, then try again.'],
   'desktop.managed_launch_unavailable': ['runtime', runtimeRepair],
   'desktop.capabilities_invalid': ['runtime', runtimeRepair],
+  'desktop.runtime_version_unsupported': [
+    'runtime',
+    `Update the Verdictan runtime to ${supportWindow.runtime.minimum} or later on the machine where work runs.`,
+  ],
+  'desktop.protocol_unsupported': ['runtime', runtimeRepair],
   'desktop.protocol_invalid': ['runtime', runtimeRepair],
   'desktop.operation_unsupported': ['runtime', runtimeRepair],
   'desktop.process_failed': ['runtime', runtimeRepair],

@@ -1,0 +1,188 @@
+{
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "kind": {
+      "const": "desktop.support_bundle"
+    },
+    "uploaded": {
+      "const": false
+    },
+    "capture": {
+      "const": "minimal_metadata"
+    },
+    "identifiers": {
+      "type": "object",
+      "properties": {
+        "installation_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "host_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "project_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "conversation_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "turn_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "session_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "runtime_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "request_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "attempt_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "escalation_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "organization_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "user_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "region_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "provider_connection_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "correlation_id": {
+          "type": "string",
+          "format": "uuid"
+        }
+      },
+      "additionalProperties": false
+    },
+    "versions": {
+      "type": "object",
+      "properties": {
+        "cli": {
+          "type": "string",
+          "pattern": "^\\d{1,6}\\.\\d{1,6}\\.\\d{1,6}$"
+        },
+        "desktop": {
+          "type": "string",
+          "pattern": "^\\d{1,6}\\.\\d{1,6}\\.\\d{1,6}$"
+        },
+        "agent": {
+          "type": "string",
+          "pattern": "^\\d{1,6}\\.\\d{1,6}\\.\\d{1,6}$"
+        }
+      },
+      "additionalProperties": false
+    },
+    "components": {
+      "type": "array",
+      "maxItems": 9,
+      "items": {
+        "type": "object",
+        "properties": {
+          "component": {
+            "enum": [
+              "desktop",
+              "cli",
+              "api",
+              "console",
+              "gateway",
+              "provider",
+              "event_upload",
+              "credential_store",
+              "ssh"
+            ]
+          },
+          "state": {
+            "enum": [
+              "ready",
+              "unavailable",
+              "blocked",
+              "expired",
+              "unknown"
+            ]
+          },
+          "error_code": {
+            "enum": [
+              "desktop.auth_expired",
+              "desktop.permission_denied",
+              "desktop.secure_storage_unavailable",
+              "desktop.region_mismatch",
+              "desktop.gateway_unavailable",
+              "desktop.version_unsupported",
+              "desktop.resume_incompatible",
+              "setup.permission_required",
+              "provider.access_missing",
+              "pricing.unavailable",
+              "budget.depleted",
+              "rate_limited",
+              "policy.denied",
+              "policy.review_required",
+              "audit.delivery_failed",
+              "component.unavailable",
+              null
+            ]
+          }
+        },
+        "required": [
+          "component",
+          "state",
+          "error_code"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "platform": {
+      "enum": [
+        "darwin",
+        "linux",
+        "win32",
+        null
+      ]
+    },
+    "architecture": {
+      "enum": [
+        "arm64",
+        "x64",
+        null
+      ]
+    }
+  },
+  "required": [
+    "schema_version",
+    "kind",
+    "uploaded",
+    "capture",
+    "identifiers",
+    "versions",
+    "components",
+    "platform",
+    "architecture"
+  ],
+  "additionalProperties": false,
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Implemented minimal metadata support bundle"
+}

@@ -1,0 +1,24 @@
+[
+  {
+    "schema_version": 1,
+    "kind": "desktop.support_bundle",
+    "uploaded": false,
+    "capture": "minimal_metadata",
+    "identifiers": {
+      "correlation_id": "11111111-1111-4111-8111-111111111111"
+    },
+    "versions": {
+      "cli": "0.2.1",
+      "desktop": "0.1.0"
+    },
+    "components": [
+      {
+        "component": "gateway",
+        "state": "blocked",
+        "error_code": "policy.denied"
+      }
+    ],
+    "platform": "darwin",
+    "architecture": "arm64"
+  }
+]

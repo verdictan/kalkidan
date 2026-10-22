@@ -11,7 +11,11 @@ import { hostSystemVersion } from './system-version';
 import { ManagedRuntimes } from './runtime';
 import { DesktopProtocol, DesktopProtocolError } from './protocol';
 import { desktopVersion } from './release';
-import { VerdictanAccountService, parseCapabilities } from './account';
+import {
+  VerdictanAccountService,
+  assertRuntimeVersionSupported,
+  parseCapabilities,
+} from './account';
 import { RuntimeInstaller } from './install';
 import { probeRuntime } from './runtime-probe';
 import { proxyConfigured, withReleaseErrors } from './network';
@@ -79,6 +83,9 @@ export function createVerdictanServices(options: {
         await probeRuntime(executable, version, {
           capabilities: async () => parseCapabilities((await client.request('capabilities')).data),
         });
+        // Do not activate a release outside the support window. The probe confirmed that the
+        // executable reports this version, also on a host without a keyring.
+        assertRuntimeVersionSupported(version);
       } finally {
         client.close();
       }

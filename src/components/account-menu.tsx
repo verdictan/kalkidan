@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import {
+  Activity,
   BookOpen,
   ChevronsUpDown,
   CircleAlert,
@@ -34,6 +35,7 @@ import { cn } from '../lib/utils';
 import { useVerdictanStatus } from '../hooks/use-verdictan-status';
 import { userGuideUrl } from './about-section';
 import { openComputers } from './computers-page';
+import { openDiagnostics } from './diagnostics-section';
 import { GetStartedMenuItem } from './onboarding';
 import { Hint } from './hint';
 import { Button } from './ui/button';
@@ -171,7 +173,7 @@ function NotificationItem({ api, open }: { api: API; open: boolean }) {
   );
 }
 
-/** The items that every account menu shows: Computers, Preferences, shortcuts and help. */
+/** The items that every account menu shows: Computers, Preferences, diagnostics and help. */
 function AppItems() {
   return (
     <>
@@ -184,6 +186,10 @@ function AppItems() {
         <Settings2 className="size-4" />
         Preferences…
         <DropdownMenuShortcut>{shortcutLabel(['mod'], ',')}</DropdownMenuShortcut>
+      </DropdownMenuItem>
+      <DropdownMenuItem onSelect={openDiagnostics}>
+        <Activity className="size-4" />
+        Diagnostics
       </DropdownMenuItem>
       <DropdownMenuItem asChild>
         <a href={userGuideUrl} target="_blank" rel="noreferrer">

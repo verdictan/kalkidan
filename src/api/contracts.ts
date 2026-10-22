@@ -8,6 +8,7 @@ import type { GitHubProjectMutationAPI } from '../domain/github-mutations';
 import type { GitHubCliStatus } from '../domain/conversation';
 import type { VerdictanAPI } from '../domain/verdictan';
 import type { UpdatesAPI } from '../domain/updates';
+import type { DiagnosticsAPI } from '../domain/diagnostics';
 import type { DocsAPI } from '../domain/docs';
 import { chatCommands, type ChatActionState } from '../domain/chat-actions';
 import type {
@@ -450,6 +451,7 @@ export interface API
     PublishAPI,
     VerdictanAPI,
     UpdatesAPI,
+    DiagnosticsAPI,
     DocsAPI,
     MemoryAPI,
     TrackerAPI,

@@ -56,7 +56,7 @@ function fixture() {
   };
 }
 const capabilities = {
-  cli_version: '0.2.1',
+  cli_version: '0.6.10',
   protocol_min: 1,
   protocol_max: 1,
   capabilities: ['authorization.browser.pkce'],

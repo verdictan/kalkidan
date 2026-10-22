@@ -1,0 +1,90 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Read-only release discovery; not installation approval",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "revision",
+    "issued_at",
+    "expires_at",
+    "revoked_release_ids",
+    "releases"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "revision": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "issued_at": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "expires_at": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "revoked_release_ids": {
+      "type": "array",
+      "maxItems": 10000,
+      "items": {
+        "type": "string",
+        "pattern": "^[a-f0-9]{64}$"
+      }
+    },
+    "releases": {
+      "type": "array",
+      "maxItems": 100,
+      "items": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "title": "Discovered immutable release",
+        "type": "object",
+        "required": [
+          "release_id",
+          "source_revision",
+          "channel",
+          "ordinal",
+          "published_at",
+          "manifest_sha256",
+          "manifest_json"
+        ],
+        "properties": {
+          "release_id": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "source_revision": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{40}$"
+          },
+          "channel": {
+            "enum": [
+              "stable",
+              "prerelease"
+            ]
+          },
+          "ordinal": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "published_at": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "manifest_sha256": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "manifest_json": {
+            "type": "string",
+            "maxLength": 262144
+          }
+        },
+        "additionalProperties": true
+      }
+    }
+  },
+  "additionalProperties": true
+}

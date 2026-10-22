@@ -1,0 +1,297 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Desktop support window",
+  "description": "The protocol versions, minimum versions, deprecation dates, and contract fixtures that Verdictan and Kalkidan support together.",
+  "type": "object",
+  "$defs": {
+    "version": {
+      "type": "string",
+      "pattern": "^\\d{1,6}\\.\\d{1,6}\\.\\d{1,6}$"
+    },
+    "date": {
+      "type": "string",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+    },
+    "nullableDate": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/date"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "file": {
+      "type": "string",
+      "pattern": "^(?:fixtures/)?[a-z0-9][a-z0-9.-]{0,120}\\.json$"
+    }
+  },
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "kind": {
+      "const": "desktop.support_window"
+    },
+    "decision_status": {
+      "enum": [
+        "proposed",
+        "approved"
+      ]
+    },
+    "published": {
+      "$ref": "#/$defs/date"
+    },
+    "source_of_truth": {
+      "const": "verdictan/cli/docs/contracts"
+    },
+    "protocol": {
+      "type": "object",
+      "properties": {
+        "current": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "supported": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "integer",
+            "minimum": 1
+          }
+        },
+        "versions": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "properties": {
+              "version": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "introduced_in_runtime": {
+                "$ref": "#/$defs/version"
+              },
+              "deprecated": {
+                "$ref": "#/$defs/nullableDate"
+              },
+              "end_of_support": {
+                "$ref": "#/$defs/nullableDate"
+              },
+              "contracts": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "schema": {
+                      "$ref": "#/$defs/file"
+                    },
+                    "fixtures": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "file": {
+                            "$ref": "#/$defs/file"
+                          },
+                          "pointer": {
+                            "type": "string",
+                            "pattern": "^(?:/[a-z_]{1,64}){1,4}$"
+                          }
+                        },
+                        "required": [
+                          "file"
+                        ],
+                        "additionalProperties": false
+                      }
+                    }
+                  },
+                  "required": [
+                    "schema",
+                    "fixtures"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            },
+            "required": [
+              "version",
+              "introduced_in_runtime",
+              "deprecated",
+              "end_of_support",
+              "contracts"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      "required": [
+        "current",
+        "supported",
+        "versions"
+      ],
+      "additionalProperties": false
+    },
+    "runtime": {
+      "type": "object",
+      "properties": {
+        "policy": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 300
+        },
+        "minimum": {
+          "$ref": "#/$defs/version"
+        },
+        "newest_verified": {
+          "$ref": "#/$defs/version"
+        },
+        "deprecation_notice_days": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "capabilities_fixture": {
+          "$ref": "#/$defs/file"
+        },
+        "versions": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "properties": {
+              "version": {
+                "$ref": "#/$defs/version"
+              },
+              "protocol": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "contracts_sha256": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              },
+              "snapshot": {
+                "type": "string",
+                "pattern": "^releases/\\d{1,6}\\.\\d{1,6}\\.\\d{1,6}/$"
+              }
+            },
+            "required": [
+              "version",
+              "protocol",
+              "contracts_sha256"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "deprecations": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "versions": {
+                "type": "object",
+                "properties": {
+                  "minimum": {
+                    "$ref": "#/$defs/version"
+                  },
+                  "maximum": {
+                    "$ref": "#/$defs/version"
+                  }
+                },
+                "required": [
+                  "minimum",
+                  "maximum"
+                ],
+                "additionalProperties": false
+              },
+              "reason": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 300
+              },
+              "replacement": {
+                "$ref": "#/$defs/version"
+              },
+              "deprecated": {
+                "$ref": "#/$defs/date"
+              },
+              "end_of_support": {
+                "$ref": "#/$defs/date"
+              }
+            },
+            "required": [
+              "versions",
+              "reason",
+              "replacement",
+              "deprecated",
+              "end_of_support"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "setup_minimum": {
+          "$ref": "#/$defs/version"
+        }
+      },
+      "required": [
+        "policy",
+        "minimum",
+        "newest_verified",
+        "deprecation_notice_days",
+        "capabilities_fixture",
+        "versions",
+        "deprecations",
+        "setup_minimum"
+      ],
+      "additionalProperties": false
+    },
+    "desktop": {
+      "type": "object",
+      "properties": {
+        "minimum": {
+          "$ref": "#/$defs/version"
+        }
+      },
+      "required": [
+        "minimum"
+      ],
+      "additionalProperties": false
+    },
+    "agents": {
+      "type": "object",
+      "properties": {
+        "owner": {
+          "const": "kalkidan"
+        },
+        "codex": {
+          "$ref": "#/$defs/version"
+        },
+        "claude_code": {
+          "$ref": "#/$defs/version"
+        }
+      },
+      "required": [
+        "owner",
+        "codex",
+        "claude_code"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "required": [
+    "schema_version",
+    "kind",
+    "decision_status",
+    "published",
+    "source_of_truth",
+    "protocol",
+    "runtime",
+    "desktop",
+    "agents"
+  ],
+  "additionalProperties": false
+}

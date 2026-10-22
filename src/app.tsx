@@ -28,6 +28,7 @@ import {
   type SearchAction,
 } from './components/workspace-search';
 import { ShortcutsSheet } from './components/shortcuts-sheet';
+import { DiagnosticsDialog } from './components/diagnostics-section';
 import { branchCopyHelp } from './components/session-menu';
 import { useSidebarOpen, useSidebarWidth } from './hooks/use-sidebar-width';
 import { useProjectBoards, sessionTask } from './hooks/use-project-boards';
@@ -2917,6 +2918,7 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
           if (!open) returnFocus();
         }}
       />
+      <DiagnosticsDialog api={api} />
       <DataNoticeDialog open={dataNotice.show} onDone={() => void dataNotice.acknowledge()} />
       <ProxySignInDialog api={api} />
       {onboardingOpen && !dataNotice.show && (

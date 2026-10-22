@@ -1,4 +1,5 @@
 import test from 'node:test';
+import { runtimeSetupNotice } from '../src/domain/compatibility';
 import assert from 'node:assert/strict';
 import { VerdictanSetupService } from '../electron/verdictan/setup';
 import { provisionedPolicy } from '../electron/verdictan/launch';
@@ -289,6 +290,12 @@ test('an older runtime without setup.bootstrap falls back to setup.ensure_defaul
   const result = await oldest.service.status();
   assert.deepEqual(oldest.operations(), ['status', 'setup.inspect', 'capabilities']);
   assert.equal(result.bootstrapReadiness, 'bootstrap_available');
+  // It cannot run the setup, so Settings names the oldest runtime that can.
+  assert.equal(result.bootstrapIssue, 'runtime_too_old');
+  assert.match(runtimeSetupNotice, /needs runtime 0\.6\.6 or later/);
+  // A setup that needs nothing more does not show the notice.
+  const ready = fixture({ policy: 'default_available', capabilities: ['setup.inspect'] });
+  assert.equal((await ready.service.status()).bootstrapIssue, undefined);
 });
 
 test('a member gets the administrator recovery; other bootstrap failures keep the inspection', async () => {

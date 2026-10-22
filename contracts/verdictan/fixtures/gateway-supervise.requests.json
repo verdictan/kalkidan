@@ -1,0 +1,14 @@
+[
+  {
+    "schema_version": 1,
+    "correlation_id": "control-0",
+    "generation_id": "33333333-3333-4333-8333-333333333333",
+    "operation": "gateway.status"
+  },
+  {
+    "schema_version": 1,
+    "correlation_id": "control-1",
+    "generation_id": "33333333-3333-4333-8333-333333333333",
+    "operation": "gateway.shutdown"
+  }
+]
