@@ -179,7 +179,7 @@ test('a deprecated runtime gets a warning until its end-of-support date', () => 
     const during = runtimeCompatibility(version, Date.parse('2027-01-19T23:59:00Z'));
     assert.equal(during.status, 'deprecated', version);
     assert.equal(during.endOfSupport, '2027-01-20');
-    assert.match(during.message, /Support stops on 2027-01-20\. Update the runtime to 0\.6\.13/);
+    assert.match(during.message, /Support stops on 2027-01-20\. Update the runtime to 0\.6\.14/);
     const after = runtimeCompatibility(version, Date.parse('2027-01-20T00:00:00Z'));
     assert.equal(after.status, 'unsupported', version);
     assert.match(after.message, /stopped on 2027-01-20/);
@@ -247,12 +247,16 @@ test('each recorded release before the window still runs, with a warning, until 
   );
   assert.deepEqual(
     older.map((event: any) => event.data.cli_version),
-    ['0.6.5', '0.6.6', '0.6.7', '0.6.8', '0.6.9', '0.6.10'],
+    ['0.6.5', '0.6.6', '0.6.7', '0.6.8', '0.6.9', '0.6.10', '0.6.11'],
   );
   for (const event of older) {
     const capabilities = parseCapabilities(event.data);
     const during = Date.parse('2027-01-19T12:00:00Z');
-    assert.equal(runtimeCompatibility(capabilities.cliVersion, during).status, 'deprecated');
+    // 0.6.11 is deprecated and also known-broken. It still runs until its end of support.
+    assert.equal(
+      runtimeCompatibility(capabilities.cliVersion, during).status,
+      knownBrokenRuntime(capabilities.cliVersion) ? 'broken' : 'deprecated',
+    );
     assertRuntimeSupported(capabilities, during);
     assert.throws(() => assertRuntimeSupported(capabilities, Date.parse('2027-01-20T00:00:00Z')));
     // Only releases from the setup minimum on can run the one-time Kalkidan setup.
@@ -284,14 +288,23 @@ async function written(requests: [string, Record<string, unknown>][]) {
 }
 
 test('a known-broken release keeps its account, and names the release that fixes it', () => {
-  const result = runtimeCompatibility('0.6.11');
+  const during = Date.parse('2026-11-01T00:00:00Z');
+  const result = runtimeCompatibility('0.6.11', during);
   assert.equal(result.status, 'broken');
-  assert.equal(result.replacement, '0.6.12');
-  assert.match(result.message, /cannot start managed gateways.*0\.6\.12 or later/);
+  assert.equal(result.replacement, '0.6.14');
+  assert.equal(result.endOfSupport, '2027-01-20');
+  assert.match(
+    result.message,
+    /cannot start managed gateways\. Update the runtime to 0\.6\.12 or later\. Support stops on 2027-01-20\./,
+  );
+  // The window decides first: after its end of support, a known-broken release is refused.
+  const after = runtimeCompatibility('0.6.11', Date.parse('2027-01-20T00:00:00Z'));
+  assert.equal(after.status, 'unsupported');
+  assert.match(after.message, /stopped on 2027-01-20/);
   assert.equal(knownBrokenRuntime('0.6.12'), undefined);
   assert.equal(knownBrokenRuntime('0.6.11')?.fixedIn, '0.6.12');
-  // The oldest version in the window is known-broken, so messages name the next one.
-  assert.equal(supportWindow.runtime.minimum, '0.6.11');
+  // Messages name the oldest supported release that is not known-broken.
+  assert.equal(supportWindow.runtime.minimum, '0.6.12');
   assert.equal(recommendedRuntime(), '0.6.12');
   for (const entry of supportWindow.runtime.knownBroken) {
     assert.ok(supportWindow.runtime.supported.includes(entry.fixedIn));

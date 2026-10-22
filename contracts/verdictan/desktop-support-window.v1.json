@@ -172,18 +172,12 @@
   },
   "runtime": {
     "policy": "The current release and the two releases before it.",
-    "minimum": "0.6.11",
-    "newest_verified": "0.6.13",
+    "minimum": "0.6.12",
+    "newest_verified": "0.6.14",
     "setup_minimum": "0.6.6",
     "deprecation_notice_days": 90,
     "capabilities_fixture": "fixtures/runtime-capabilities.json",
     "versions": [
-      {
-        "version": "0.6.11",
-        "protocol": 1,
-        "contracts_sha256": "55f202c8f27ef7d8c12222d4f46cb68a4c2f5ea140e3b3b909d2503b59bb9dd8",
-        "snapshot": "releases/0.6.11/"
-      },
       {
         "version": "0.6.12",
         "protocol": 1,
@@ -192,6 +186,11 @@
       },
       {
         "version": "0.6.13",
+        "protocol": 1,
+        "contracts_sha256": "f0515411eabbaaec7a80b5654d0e9e0b7ef3425887f387d877d83ffebb943323"
+      },
+      {
+        "version": "0.6.14",
         "protocol": 1,
         "contracts_sha256": "f0515411eabbaaec7a80b5654d0e9e0b7ef3425887f387d877d83ffebb943323"
       }
@@ -203,7 +202,7 @@
           "maximum": "0.6.7"
         },
         "reason": "These releases are older than the support window. Releases before 0.6.6 cannot run the Kalkidan setup, because they have no setup.bootstrap. 0.6.6 refuses native agent versions that its release evidence did not test.",
-        "replacement": "0.6.13",
+        "replacement": "0.6.14",
         "deprecated": "2026-10-22",
         "end_of_support": "2027-01-20"
       },
@@ -213,7 +212,7 @@
           "maximum": "0.6.8"
         },
         "reason": "This release is older than the support window.",
-        "replacement": "0.6.13",
+        "replacement": "0.6.14",
         "deprecated": "2026-10-22",
         "end_of_support": "2027-01-20"
       },
@@ -223,7 +222,7 @@
           "maximum": "0.6.9"
         },
         "reason": "This release is older than the support window.",
-        "replacement": "0.6.13",
+        "replacement": "0.6.14",
         "deprecated": "2026-10-22",
         "end_of_support": "2027-01-20"
       },
@@ -233,7 +232,17 @@
           "maximum": "0.6.10"
         },
         "reason": "This release is older than the support window.",
-        "replacement": "0.6.13",
+        "replacement": "0.6.14",
+        "deprecated": "2026-10-22",
+        "end_of_support": "2027-01-20"
+      },
+      {
+        "versions": {
+          "minimum": "0.6.11",
+          "maximum": "0.6.11"
+        },
+        "reason": "This release is older than the support window. It is also known-broken: its managed gateways do not start.",
+        "replacement": "0.6.14",
         "deprecated": "2026-10-22",
         "end_of_support": "2027-01-20"
       }
