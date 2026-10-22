@@ -20,12 +20,24 @@ export function hasHiddenContext(text: string) {
 }
 const userRequest = '\n\nUser request:\n';
 /**
+ * Blocks that an agent adds to the stored user messages. Codex stores its environment (the
+ * folder, the shell, the date, the file system permissions) and its instructions as user
+ * messages. Claude Code adds system reminders. They are not the user's text, and they can hold
+ * local paths.
+ */
+const injectedBlocks =
+  /<(system-reminder|environment_context|user_instructions|permissions_instructions|collaboration_mode|skills_instructions|turn_aborted)>[\s\S]*?<\/\1>/g;
+/** Codex stores the AGENTS.md instructions as a user message with this first line. */
+const agentsInstructions = /^# AGENTS\.md instructions for /;
+/**
  * The part of a user message that the user wrote. Kalkidan wraps project prompts in project
- * context (electron/projects/prompt.ts), and Claude Code adds system-reminder blocks to the
- * stored message. Neither is the user's text.
+ * context (electron/projects/prompt.ts), and the agents add context blocks to the stored
+ * message (see `injectedBlocks`). None of this is the user's text. A message with only added
+ * context gives an empty text, so it does not show.
  */
 export function visibleUserText(text: string) {
-  let visible = text.replace(/<system-reminder>[\s\S]*?<\/system-reminder>/g, '').trim();
+  let visible = text.replace(injectedBlocks, '').trim();
+  if (agentsInstructions.test(visible)) return '';
   if (visible.startsWith(kalkidanContext)) {
     const at = visible.lastIndexOf(userRequest);
     if (at >= 0) visible = visible.slice(at + userRequest.length).trim();
