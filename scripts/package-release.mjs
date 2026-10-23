@@ -70,7 +70,7 @@ const build = (args) => {
     wait(lockWaitMs);
   }
 };
-const architectures = platform === 'darwin' ? ['arm64', 'x64'] : ['x64'];
+const architectures = platform === 'darwin' ? ['arm64'] : ['x64'];
 for (const arch of architectures) {
   build([
     'node_modules/electron-builder/cli.js',
