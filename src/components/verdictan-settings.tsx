@@ -5,7 +5,10 @@ import type { AgentInstallation } from '../domain/conversation';
 import {
   computerAgentIssue,
   keychainWaitingMessage,
+  bootstrapAdminNotice,
   localComputer,
+  managedErrorCode,
+  managedErrorText,
   selectionIssue,
   withoutManagedCode,
   type ManagedAgentKind,
@@ -17,9 +20,12 @@ import { checkAgentVersion, nativeAgentKind } from '../domain/agent-version';
 import { agentProgramAnchor } from '../domain/agent-programs';
 import { useRefreshTriggers } from '../hooks/use-refresh-triggers';
 import { useVerdictanStatus } from '../hooks/use-verdictan-status';
+import { errorMessage } from '../lib/errors';
+import { runtimeSetupNotice } from '../domain/compatibility';
 import {
   accountChanging,
   displayVersion,
+  rejectedSessionText,
   runtimeBusy,
   runtimeInstallable,
   runtimeOutdated,
@@ -596,8 +602,11 @@ export function agentRowState(
   program: AgentInstallation | undefined,
   /** True when the account read failed. The row then does not stay at "Checking…". */
   readFailed = false,
-  /** True when the setup read failed. The row then does not stay at "Checking…". */
-  setupFailed = false,
+  /**
+   * True, or the safe error code, when the setup read failed. The row then does not stay at
+   * "Checking…", and it shows the code.
+   */
+  setupFailed: boolean | string = false,
 ): AgentRowState {
   const kind = nativeAgentKind(agent)!;
   const version = programVersion(program);
@@ -624,6 +633,13 @@ export function agentRowState(
     };
   if (!account)
     return { status: { label: 'Checking…', tone: 'secondary' }, help: version, action: 'none' };
+  // Verdictan did not accept the session. "Signed in" must not show.
+  if (account.phase === 'expired')
+    return {
+      status: { label: 'Sign in again', tone: 'warning' },
+      help: rejectedSessionText(account) || version,
+      action: 'sign-in',
+    };
   if (account.phase !== 'authenticated')
     return {
       status: { label: 'Needs sign-in', tone: 'warning' },
@@ -633,7 +649,9 @@ export function agentRowState(
   if (!setup && setupFailed)
     return {
       status: { label: 'Not known', tone: 'muted' },
-      help: 'Kalkidan could not read the setup of your organization.',
+      help:
+        'Kalkidan could not read the setup of your organization.' +
+        (typeof setupFailed === 'string' ? ` Code: ${setupFailed}` : ''),
       action: 'none',
     };
   if (!setup)
@@ -780,7 +798,8 @@ export function AgentRows({
 /** Reads the setup of the organization while somebody is signed in. */
 function useOrganizationSetup(api: API, open: boolean, signedIn: boolean) {
   const [value, setValue] = useState<VerdictanSetup>();
-  const [failed, setFailed] = useState(false);
+  // False, true, or the safe error code of the failed read.
+  const [failed, setFailed] = useState<boolean | string>(false);
   const read = useCallback(() => {
     if (!signedIn) return;
     void Promise.resolve()
@@ -790,7 +809,7 @@ function useOrganizationSetup(api: API, open: boolean, signedIn: boolean) {
           setValue(next);
           setFailed(false);
         },
-        () => setFailed(true),
+        (error) => setFailed(managedErrorCode(errorMessage(error)) || true),
       );
   }, [api, signedIn]);
   useRefreshTriggers(api, open && signedIn, read);
@@ -912,4 +931,69 @@ export function programText(program: AgentInstallation | undefined) {
         ? 'Set by an environment variable'
         : 'Found automatically';
   return [program.path, program.version, source].filter(Boolean).join(' · ');
+}
+
+/** The words for the setup of this computer after sign-in. See `SignInSetup`. */
+export function computerSetupText(setup: VerdictanSetup) {
+  const gateway = setup.computerGateway;
+  if (setup.bootstrapReadiness === 'bootstrap_requires_admin') return bootstrapAdminNotice;
+  if (setup.bootstrapIssue === 'team_required')
+    return 'Kalkidan could not finish its setup. You need a team that can make and deploy agents. Ask an organization administrator to add you to one.';
+  if (setup.bootstrapIssue === 'runtime_too_old') return runtimeSetupNotice;
+  if (setup.bootstrapIssue === 'failed')
+    return (
+      'Kalkidan could not finish its setup.' + (setup.setupCode ? ` Code: ${setup.setupCode}` : '')
+    );
+  if (!gateway) return 'Kalkidan sets up this computer after sign-in.';
+  if (gateway.status === 'created' || gateway.status === 'existing')
+    return 'The gateway of this computer is ready.';
+  if (gateway.status === 'failed')
+    return `Kalkidan could not make the gateway of this computer. Code: ${gateway.code || 'desktop.operation_failed'}`;
+  return gateway.code
+    ? `No gateway yet. ${withoutManagedCode(managedErrorText(gateway.code))} Code: ${gateway.code}`
+    : 'Kalkidan makes the gateway of this computer at the first chat.';
+}
+
+/**
+ * The setup of this computer in Settings › Computers › Details: the one-time bootstrap and the
+ * gateway of this computer, which Kalkidan makes after sign-in. Refresh runs it again.
+ */
+export function ComputerSetupRow({ api, open }: { api: API; open: boolean }) {
+  const account = useAccountStatus(api, open);
+  const signedIn = account.status?.phase === 'authenticated';
+  const setup = useOrganizationSetup(api, open, signedIn);
+  const [busy, setBusy] = useState(false);
+  if (!signedIn || typeof api.verdictanSetupRefresh !== 'function') return null;
+  async function refresh() {
+    setBusy(true);
+    try {
+      setup.setValue(await api.verdictanSetupRefresh!());
+      notifyManagedAgentsChanged();
+    } catch (error) {
+      const code = managedErrorCode(errorMessage(error));
+      showToast({
+        message: `Kalkidan could not set up this computer.${code ? ` Code: ${code}` : ''}`,
+        tone: 'error',
+      });
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <SettingsRow
+      label="Setup of this computer"
+      help={
+        setup.value
+          ? computerSetupText(setup.value)
+          : setup.failed
+            ? 'Kalkidan could not read the setup of your organization.' +
+              (typeof setup.failed === 'string' ? ` Code: ${setup.failed}` : '')
+            : 'Checking…'
+      }
+    >
+      <Button variant="outline" size="sm" disabled={busy} onClick={() => void refresh()}>
+        {busy ? 'Refreshing…' : 'Refresh'}
+      </Button>
+    </SettingsRow>
+  );
 }

@@ -19,7 +19,7 @@ import {
   saveNewChatAccess,
   type ChatAccess,
 } from '../lib/chat-preferences';
-import { accountNames } from '../lib/verdictan-labels';
+import { accountNames, rejectedSessionText } from '../lib/verdictan-labels';
 import { isMac } from '../lib/platform';
 import { errorMessage } from '../lib/errors';
 import { BrowserSettingsDialog } from './browser-menu';
@@ -376,6 +376,7 @@ function AccountPanel({
   const { status, busy, error, changing, run } = account;
   const known = status?.phase === 'authenticated' || status?.phase === 'expired';
   const signedIn = status?.phase === 'authenticated';
+  const expired = status?.phase === 'expired';
   const authorizing = status?.phase === 'authorizing';
   const names = accountNames(status);
   async function signOut() {
@@ -396,13 +397,21 @@ function AccountPanel({
       <SettingsRows label="Account">
         <SettingsRow
           id={settingsAnchors.account}
-          label={signedIn ? names.user || names.email || 'Signed in' : 'Not signed in'}
+          label={
+            signedIn
+              ? names.user || names.email || 'Signed in'
+              : expired
+                ? 'Sign in again'
+                : 'Not signed in'
+          }
           help={
             signedIn
               ? [names.email !== names.user ? names.email : '', names.organization]
                   .filter(Boolean)
                   .join(' · ') || undefined
-              : undefined
+              : expired
+                ? rejectedSessionText(status) || 'Your session ended.'
+                : undefined
           }
         >
           {signedIn ? (
@@ -435,27 +444,31 @@ function AccountPanel({
             </>
           ) : (
             <Button size="sm" disabled={authorizing} onClick={() => startSignIn('login')}>
-              {authorizing ? 'Finish signing in…' : 'Sign in'}
+              {authorizing ? 'Finish signing in…' : expired ? 'Sign in again' : 'Sign in'}
             </Button>
           )}
         </SettingsRow>
         <SettingsRow
           id={settingsAnchors.region}
           label="Region"
-          help={changing ? 'Changing the region…' : undefined}
+          help={
+            changing ? 'Changing the region…' : known ? 'Sign out to change the region.' : undefined
+          }
         >
           <span className="settings-row-value">
             {status?.region ? regionNames[status.region] : 'Not chosen'}
           </span>
-          <Button
-            variant="outline"
-            size="sm"
-            aria-label="Change the region"
-            disabled={busy || authorizing || changing || !status}
-            onClick={() => setRegionOpen(true)}
-          >
-            Change…
-          </Button>
+          {!known && (
+            <Button
+              variant="outline"
+              size="sm"
+              aria-label="Change the region"
+              disabled={busy || authorizing || changing || !status}
+              onClick={() => setRegionOpen(true)}
+            >
+              Change…
+            </Button>
+          )}
         </SettingsRow>
         <GitHubRow services={services} />
       </SettingsRows>

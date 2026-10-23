@@ -147,6 +147,43 @@ export class VerdictanLaunchService {
     const chosen = findAgent(setup, computerAgentId(setup, this.hostKey))!;
     return this.setup.validate(setup, agent, withAgent(saved, chosen));
   }
+  /**
+   * Makes the gateway of this computer for the agent of this computer, without a chat. The
+   * first chat then has its gateway at once. `resources.provision` is idempotent: a second call
+   * returns the same gateway with `existing`. Without the agent choice, a policy choice makes the
+   * gateway at the first chat, so this does nothing.
+   */
+  async provisionComputer(): Promise<NonNullable<VerdictanSetup['computerGateway']>> {
+    const { client, setup } = await this.setup.inspect();
+    if (!usesAgentChoice(setup)) return { status: 'skipped' };
+    const issue = computerAgentIssue(setup, this.hostKey);
+    if (issue) return { status: 'skipped', code: issue };
+    const agent = findAgent(setup, computerAgentId(setup, this.hostKey))!;
+    const identity = await (this.identities
+      ? this.identities()
+      : this.store.identities(this.hostKey));
+    const hostName = this.hostName?.();
+    const resources = (
+      await client.request('resources.provision', {
+        parameters: {
+          installation_id: identity.installationId,
+          host_id: identity.hostId,
+          team_id: agent.team_id,
+          agent_id: agent.agent_id,
+          ...(hostName ? { host_name: hostName } : {}),
+        },
+      })
+    ).data;
+    if (
+      !['created', 'existing'].includes(String(resources.status)) ||
+      typeof resources.gateway_id !== 'string' ||
+      !/^[A-Za-z0-9_-]{1,128}$/.test(resources.gateway_id) ||
+      resources.installation_id !== identity.installationId ||
+      resources.host_id !== identity.hostId
+    )
+      throw new DesktopProtocolError('desktop.resource_binding_mismatch');
+    return { status: resources.status as 'created' | 'existing' };
+  }
   async prepare(request: ManagedLaunchRequest): Promise<ManagedLaunch> {
     const context: { mode?: ProviderAccessMode } = {};
     try {

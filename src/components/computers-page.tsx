@@ -12,6 +12,7 @@ import { useRemoteHosts } from './remote-host-picker';
 import { AddHostForm, HelperDetails, HostRow, useHelperUpdates } from './computers-settings';
 import {
   AgentRows,
+  ComputerSetupRow,
   OrganizationSetupLink,
   RuntimeHistory,
   ThisComputerRow,
@@ -295,6 +296,7 @@ export function ComputersPanel({
               }`}
             />
           )}
+          <ComputerSetupRow api={api} open={open} />
           <ComputerAgentRow
             api={api}
             open={open}

@@ -24,6 +24,7 @@ const api: API = {
   projectServicesRequest: (id, request) =>
     ipcRenderer.invoke('project-services-request', id, request),
   verdictanSetup: () => ipcRenderer.invoke('verdictan-setup'),
+  verdictanSetupRefresh: () => ipcRenderer.invoke('verdictan-setup-refresh'),
   verdictanSelect: (agent, selection) => ipcRenderer.invoke('verdictan-select', agent, selection),
   verdictanSetComputerAgent: (computer, agentId) =>
     ipcRenderer.invoke('verdictan-set-computer-agent', computer, agentId),

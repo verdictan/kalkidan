@@ -21,6 +21,7 @@ import { proxyConfigured, withReleaseErrors } from './network';
 import { hostDisplayName, hostNameCapability } from './host-name';
 import { GatewayInstances } from './instances';
 import { multiGatewayCapability } from './supervisor';
+import { SignInSetup } from './sign-in-setup';
 
 export function createVerdictanServices(options: {
   root: string;
@@ -155,5 +156,23 @@ export function createVerdictanServices(options: {
   launch.region = region;
   launch.hostName = () => hostName(options.hostId);
   const remoteBroker = new RemoteAccountBroker(setup, bindings, hostName);
-  return { installer, account, managed, setup, launch, bindings, remoteBroker, region };
+  // The desktop runs it after sign-in for this computer. An SSH host does not run it.
+  const signInSetup = new SignInSetup({
+    check: () => setup.status(),
+    provision: () => launch.provisionComputer(),
+    keepGateway: (key, gateway) => setup.keepGateway(key, gateway),
+    sessionRejected: (code) => account.sessionRejected(code),
+    changed: options.changed,
+  });
+  return {
+    installer,
+    account,
+    managed,
+    setup,
+    launch,
+    bindings,
+    remoteBroker,
+    region,
+    signInSetup,
+  };
 }

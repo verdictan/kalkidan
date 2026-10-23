@@ -261,7 +261,11 @@ test('Settings and the account menu show their content', async ({ page }) => {
   await expect(account.getByRole('group', { name: 'Region', exact: true })).toContainText(
     'European Union',
   );
-  await expect(account.getByRole('button', { name: 'Change the region' })).toBeVisible();
+  // The region is fixed while an account is signed in.
+  await expect(account.getByRole('button', { name: 'Change the region' })).toHaveCount(0);
+  await expect(account.getByRole('group', { name: 'Region', exact: true })).toContainText(
+    'Sign out to change the region.',
+  );
   await expect(
     account.getByRole('group', { name: 'GitHub and boards', exact: true }),
   ).toContainText('Boards not allowed');
