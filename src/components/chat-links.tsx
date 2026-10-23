@@ -2,6 +2,7 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import {
   CircleAlert,
+  ExternalLink,
   FileText,
   GitFork,
   LogIn,
@@ -62,23 +63,28 @@ export const openExternal = (url: string) => window.open(url, '_blank', 'norefer
 
 /** Starts the Verdictan sign-in. The sign-in flow shows the waiting screen. */
 export const startSignIn = () => dispatchApp('kalkidan-sign-in', { intent: 'login' });
-/** Checks the managed agents account again. The account strip above the page listens. */
+/** Checks the Verdictan account again. The account menu listens. */
 export const checkStatusEvent = 'kalkidan-check-status';
 export const requestCheckStatus = () => dispatchApp(checkStatusEvent, {});
 
 /**
- * The action buttons for a chat error. The fix (Sign in or a Settings page) is the filled
- * button, "Try again" is outline and "Use another agent" is ghost. A retryable error shows
- * "Try again" first.
+ * The action buttons for a chat error. The fix (Sign in, Install guide or a Settings part) is
+ * the filled button, "Try again" is outline and "Use another agent" is ghost. A retryable error
+ * shows "Try again" first. A gateway failure has one "Try again": it repairs the gateway
+ * runtime (`gatewayRuntimeRetry`), then sends again. A missing agent CLI shows "Install guide ↗"
+ * and "Tools…" (Settings › Tools).
  */
 export function AgentErrorActions({
   error,
+  api,
   onRetry,
   onChangeAgent,
   onFork,
   busy,
 }: {
   error: AgentError;
+  /** For the gateway "Try again". Without it, the button only sends again. */
+  api?: Pick<API, 'gatewayRuntimeRetry'>;
   onRetry?: () => void;
   onChangeAgent?: () => void;
   /** Opens the fork dialog of the chat, for an error whose action is Fork. */
@@ -87,12 +93,46 @@ export function AgentErrorActions({
 }) {
   const action = error.action;
   const buttons: ReactNode[] = [];
+  const [repairing, setRepairing] = useState(false);
+  async function repairGateway() {
+    setRepairing(true);
+    try {
+      const state = await api?.gatewayRuntimeRetry?.();
+      if (state?.state === 'failed') {
+        showToast({ message: state.message || 'The Verdictan gateway is not ready.' });
+        return;
+      }
+      onRetry?.();
+    } catch (e) {
+      showToast({ message: errorMessage(e) });
+    } finally {
+      setRepairing(false);
+    }
+  }
+  if (action?.kind === 'gateway-retry') {
+    buttons.push(
+      <Button
+        key="gateway"
+        size="sm"
+        disabled={busy || repairing}
+        onClick={() => void repairGateway()}
+      >
+        <RefreshCw aria-hidden="true" />
+        {repairing ? 'Trying again…' : busy ? 'Sending…' : action.label}
+      </Button>,
+    );
+    if (onChangeAgent)
+      buttons.push(
+        <Button key="agent" size="sm" variant="ghost" disabled={busy} onClick={onChangeAgent}>
+          <Shuffle aria-hidden="true" />
+          Use another agent
+        </Button>,
+      );
+    return <div className="flex flex-wrap gap-2">{buttons}</div>;
+  }
   const fix =
     action &&
-    (action.kind === 'settings' ||
-      action.kind === 'install' ||
-      action.kind === 'sign-in' ||
-      action.kind === 'check-status');
+    (action.kind === 'settings' || action.kind === 'sign-in' || action.kind === 'check-status');
   // A retryable error shows "Try again" first. The fix is then the second choice.
   const retryFirst = !!error.retryFirst && !!onRetry;
   const retryButton = (filled: boolean) => (
@@ -108,6 +148,26 @@ export function AgentErrorActions({
     </Button>
   );
   if (onRetry && retryFirst) buttons.push(retryButton(true));
+  if (action?.kind === 'install') {
+    if (action.url)
+      buttons.push(
+        <Button
+          key="guide"
+          size="sm"
+          variant={buttons.length ? 'outline' : 'default'}
+          onClick={() => openExternal(action.url!)}
+        >
+          {action.label}
+          <ExternalLink aria-hidden="true" />
+        </Button>,
+      );
+    buttons.push(
+      <Button key="tools" size="sm" variant="outline" onClick={() => openSettings('tools')}>
+        <Settings aria-hidden="true" />
+        Tools…
+      </Button>,
+    );
+  }
   if (fix)
     buttons.push(
       <Button
@@ -180,6 +240,7 @@ export function AgentErrorNote({ note, code }: { note?: string; code?: string })
 export function SendFailure({
   agentName,
   error,
+  api,
   onRetry,
   onChangeAgent,
   onFork,
@@ -189,6 +250,8 @@ export function SendFailure({
   /** The name of the agent, for example "Codex". */
   agentName: string;
   error: AgentError;
+  /** For the gateway "Try again". */
+  api?: Pick<API, 'gatewayRuntimeRetry'>;
   onRetry?: () => void;
   onChangeAgent?: () => void;
   onFork?: () => void;
@@ -210,6 +273,7 @@ export function SendFailure({
       </p>
       <AgentErrorActions
         error={error}
+        api={api}
         onRetry={onRetry}
         onChangeAgent={onChangeAgent}
         onFork={onFork}

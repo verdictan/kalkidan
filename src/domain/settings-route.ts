@@ -1,18 +1,25 @@
 import { checkAgentVersion, nativeAgentKind } from './agent-version';
 
 /**
- * The one Settings window (⌘,) has these sections: General, Computers, Account, and one
- * section for each project. `settingsPane` maps every older section name and anchor to one of
- * them, so that older links still open the right place.
+ * Settings (⌘,) is one page with these parts, from the top: the account, Tools, Preferences,
+ * and the current project. `settingsPane` maps every older section name and anchor to one of
+ * them, so that older links still open the right place. 'general' is the top of the page.
  */
-export type SettingsPane = 'general' | 'computers' | 'account' | `project:${string}`;
+export type SettingsPane = 'general' | 'account' | 'tools' | 'preferences' | `project:${string}`;
 
 /**
  * A section name that other parts of the app can send. It includes the names of the older
  * sections ('agents' and 'about') and the section of a project ('project:<id>').
  */
 export type SettingsSection =
-  'general' | 'account' | 'agents' | 'computers' | 'about' | `project:${string}`;
+  | 'general'
+  | 'account'
+  | 'tools'
+  | 'preferences'
+  | 'agents'
+  | 'computers'
+  | 'about'
+  | `project:${string}`;
 
 /**
  * A section name that other parts of the app can send. It includes the names of the older
@@ -20,17 +27,19 @@ export type SettingsSection =
  */
 export type SettingsTab = SettingsSection | 'accounts' | 'updates';
 
-/** The fixed sections of Settings, in the order of the nav. Projects follow them. */
-export const settingsPanes: { value: 'general' | 'computers' | 'account'; label: string }[] = [
-  { value: 'general', label: 'General' },
-  { value: 'computers', label: 'Computers' },
+/** The fixed parts of the Settings page, from the top. The current project follows them. */
+export const settingsPanes: { value: 'account' | 'tools' | 'preferences'; label: string }[] = [
   { value: 'account', label: 'Account' },
+  { value: 'tools', label: 'Tools' },
+  { value: 'preferences', label: 'Preferences' },
 ];
 
 /** @deprecated The older sections. Use `settingsPanes`. */
 export const settingsSections: { value: SettingsSection; label: string }[] = [
   { value: 'general', label: 'General' },
   { value: 'account', label: 'Account' },
+  { value: 'tools', label: 'Tools' },
+  { value: 'preferences', label: 'Preferences' },
   { value: 'agents', label: 'Agents' },
   { value: 'computers', label: 'Computers' },
   { value: 'about', label: 'About' },
@@ -57,10 +66,10 @@ export function paneGroupId(pane: string | undefined) {
   return pane?.startsWith('project:') ? pane.slice('project:'.length) || undefined : undefined;
 }
 
-/** The label of a section, for example "Computers". An older name gets the label of its pane. */
+/** The label of a part, for example "Tools". An older name gets the label of its part. */
 export function settingsTabLabel(tab: SettingsTab | string) {
   const pane = settingsPane(tab).pane;
-  return settingsPanes.find((item) => item.value === pane)?.label || 'General';
+  return settingsPanes.find((item) => item.value === pane)?.label || 'Settings';
 }
 
 /** The element ID of one computer in Settings › Computers. No host ID means this computer. */
@@ -148,25 +157,54 @@ export function settingsTarget(
   return { tab: isSettingsSection(section) ? section : 'general', anchor: id };
 }
 
-/** The pane of each older section. */
+/** The part of each older section. 'general' is the top of the page. */
 const sectionPanes: Record<string, SettingsPane> = {
   general: 'general',
-  about: 'general',
+  about: 'preferences',
+  preferences: 'preferences',
   account: 'account',
-  agents: 'computers',
-  computers: 'computers',
+  agents: 'tools',
+  computers: 'tools',
+  tools: 'tools',
 };
 
+/** The part of the anchors that other parts of the app send. */
+const anchorPanes: Record<string, SettingsPane> = {
+  [settingsAnchors.account]: 'account',
+  [settingsAnchors.region]: 'account',
+  [settingsAnchors.services]: 'tools',
+  [settingsAnchors.github]: 'tools',
+  [settingsAnchors.agents]: 'tools',
+  [settingsAnchors.defaultAgent]: 'tools',
+  [settingsAnchors.managedSetup]: 'tools',
+  [settingsAnchors.notifications]: 'preferences',
+  [settingsAnchors.data]: 'preferences',
+  [settingsAnchors.about]: 'preferences',
+};
+
+/** The anchors that are still elements of the Settings page. */
+const liveAnchors = new Set<string>([
+  settingsAnchors.account,
+  settingsAnchors.region,
+  settingsAnchors.github,
+  settingsAnchors.agents,
+  settingsAnchors.notifications,
+  settingsAnchors.data,
+  settingsAnchors.about,
+]);
+
 /**
- * The section of the one Settings window and the element to move to, for a request to open
- * Settings. Every older section name and anchor maps to its new place:
- * - general, about, and the version, data and notifications anchors → General.
- * - account, accounts, and the account, region, GitHub and connected-services anchors →
- *   Account. The connected services are now one GitHub row.
- * - agents, computers, remote, remote-hosts, updates, managed-agents, and the computer,
- *   runtime, agent, default-agent, helper and organization setup anchors → Computers.
- * - 'project:<id>' → the section of that project. Its anchor names a part of the project
- *   section, for example 'board' or 'roadmap-dates'.
+ * The part of the Settings page and the element to move to, for a request to open Settings.
+ * Every older section name and anchor maps to its new place:
+ * - no section and 'general' → the top of the page.
+ * - account, accounts, and the account and region anchors → the account.
+ * - tools, agents, computers, remote, remote-hosts, updates, managed-agents, and the computer,
+ *   runtime, agent, default-agent, helper, organization setup, GitHub and connected-services
+ *   anchors → Tools. Kalkidan only detects the tools now, so the anchor is the Tools part,
+ *   or the row of one SSH host.
+ * - preferences, about, and the data and notifications anchors → Preferences.
+ * - 'project:<id>' → the part of that project. Its anchor names a part of the project, for
+ *   example 'board' or 'roadmap-dates'.
  */
 export function settingsPane(
   section?: string,
@@ -175,15 +213,17 @@ export function settingsPane(
   if (paneGroupId(section)) return { pane: section as SettingsPane, anchor: anchor || undefined };
   const target = settingsTarget(section, anchor);
   const id = target.anchor;
-  // The default agent is now the agent rows. The connected services are now the GitHub row.
-  if (id === settingsAnchors.defaultAgent)
-    return { pane: 'computers', anchor: settingsAnchors.agents };
-  if (id === settingsAnchors.services) return { pane: 'account', anchor: settingsAnchors.github };
-  if (id === settingsAnchors.github) return { pane: 'account', anchor: id };
-  if (id === settingsAnchors.data) return { pane: 'general', anchor: id };
-  // The agents section without an element opens the agent rows.
-  if (target.tab === 'agents') return { pane: 'computers', anchor: id || settingsAnchors.agents };
-  return { pane: sectionPanes[target.tab] || 'general', anchor: id };
+  if (id && anchorPanes[id]) {
+    const pane = anchorPanes[id];
+    // The connected services are the GitHub CLI row now. Rows that are gone open their part.
+    if (id === settingsAnchors.services) return { pane, anchor: settingsAnchors.github };
+    return { pane, anchor: liveAnchors.has(id) ? id : undefined };
+  }
+  if (id?.startsWith('computer-') && id !== computerAnchor()) return { pane: 'tools', anchor: id };
+  if (id && /^(computer|runtime|helper-update|agent)-/.test(id))
+    return { pane: 'tools', anchor: undefined };
+  const name = section && sectionPanes[section] ? section : target.tab;
+  return { pane: sectionPanes[name] || 'general', anchor: undefined };
 }
 
 /**

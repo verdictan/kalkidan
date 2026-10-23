@@ -1,5 +1,5 @@
 import { type Page } from '@playwright/test';
-import { test, expect, newChat, openComputersPage } from './helpers/app';
+import { test, expect, newChat } from './helpers/app';
 import { openCodeFolder } from './helpers/navigation';
 
 const waitingText =
@@ -95,19 +95,4 @@ test('the chat asks for Keychain access while a start waits for the macOS prompt
   await page.evaluate(() => (window as any).allow());
   await expect(page.getByText('OK.', { exact: true })).toBeVisible();
   await expect(page.getByText(waitingText)).toHaveCount(0);
-});
-
-test('Computers asks for Keychain access on this computer while a request waits', async ({
-  page,
-}) => {
-  await installWorkspace(page);
-  await page.goto('/');
-  const computers = await openComputersPage(page);
-  // The Kalkidan service row shows only when it needs the user. A ready service has no row.
-  await expect(computers.getByRole('group', { name: 'Codex', exact: true })).toBeVisible();
-  const row = computers.getByRole('group', { name: 'Kalkidan service', exact: true });
-  await expect(row).toHaveCount(0);
-  await expect(computers).not.toContainText(waitingText);
-  await page.evaluate(() => (window as any).wait());
-  await expect(row.getByTestId('keychain-waiting')).toHaveText(waitingText);
 });

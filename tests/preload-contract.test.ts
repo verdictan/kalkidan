@@ -18,6 +18,8 @@ const contractFiles = [
   'src/domain/github-relations.ts',
   'src/domain/github-resources.ts',
   'src/domain/github-mutations.ts',
+  'src/domain/code-files.ts',
+  'src/domain/desktop.ts',
 ];
 
 const opening: Record<string, string> = { '(': ')', '[': ']', '{': '}', '<': '>' };

@@ -164,8 +164,9 @@ export function ProjectHealth({
 }
 
 /**
- * The board health line of the Tasks header (Knowledge B4): "4 Todo  2 In progress  7 Done
- * 1 No repository", then hidden tasks and the sync state. Each count filters the board.
+ * The board health line of the Tasks header: only what needs action. "1 No repository",
+ * hidden tasks and the sync state. The columns show the status counts, so this line does not
+ * repeat them. A count filters the board.
  */
 export function BoardHealthLine({
   board,
@@ -174,8 +175,14 @@ export function BoardHealthLine({
   onRetry,
   onSignIn,
   onFilter,
+  noRepository: noRepositoryCount,
 }: {
   board: TrackerBoard;
+  /**
+   * The tasks with no code folder. The board knows the repo of a new draft, so it can count
+   * better than the GitHub data alone.
+   */
+  noRepository?: number;
   syncing: boolean;
   /** The last sync error. "Could not sync" shows with Try again, or Sign in with `onSignIn`. */
   syncError?: string;
@@ -184,23 +191,11 @@ export function BoardHealthLine({
   onFilter(filter: { status?: string; repository?: string }): void;
 }) {
   const counts = projectHealthCounts(board);
-  const noRepository = counts.find((row) => row.label === 'No repository');
+  const found = counts.find((row) => row.label === 'No repository');
+  const noRepository =
+    found && noRepositoryCount !== undefined ? { ...found, count: noRepositoryCount } : found;
   const hidden = board.restrictedItems || 0;
-  // Every status shows, also at 0. "No status" and "No repository" show only when they count.
-  const statuses = counts.filter(
-    (row) => row.filter.status && (row.count > 0 || row.filter.status !== 'none'),
-  );
   const parts = [
-    ...statuses.map((row) => (
-      <button
-        key={row.label}
-        type="button"
-        className="board-health-link"
-        onClick={() => onFilter(row.filter)}
-      >
-        <b>{row.count}</b> {row.label}
-      </button>
-    )),
     noRepository && noRepository.count > 0 && (
       <button
         key="repository"
@@ -208,7 +203,7 @@ export function BoardHealthLine({
         className="board-health-link"
         onClick={() => onFilter(noRepository.filter)}
       >
-        <b>{noRepository.count}</b> No repository
+        <b>{noRepository.count}</b> No repo
       </button>
     ),
     hidden > 0 && (

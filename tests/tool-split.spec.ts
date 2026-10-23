@@ -1,6 +1,6 @@
 import { test, expect, newChat } from './helpers/app';
 import { openCodeFolder } from './helpers/navigation';
-import { openTool } from './helpers/tools';
+import { openTool, toolTab, toolTabs, toolsButton } from './helpers/tools';
 
 test('tool pane resizes, keeps the composer visible, and preserves independent tabs', async ({
   page,
@@ -10,13 +10,11 @@ test('tool pane resizes, keeps the composer visible, and preserves independent t
   await openCodeFolder(page);
   await newChat(page);
   await page.getByLabel('Message agent').fill('Keep this draft');
-  // The title bar shows the tools with their names. A new chat has no changes, so Changes does
-  // not show.
-  const sessionTools = page.getByRole('group', { name: 'Tools', exact: true });
-  for (const name of ['Terminal', 'Browser'])
-    await expect(sessionTools.getByRole('button', { name, exact: true })).toBeVisible();
-  await expect(sessionTools.getByRole('button', { name: /^Changes/ })).toHaveCount(0);
+  // The title bar shows one Tools button. The pane has the tabs Changes, Terminal and Browser.
+  await expect(toolsButton(page)).toHaveAttribute('aria-pressed', 'false');
   await openTool(page, 'Terminal');
+  for (const name of ['Changes', 'Terminal', 'Browser'] as const)
+    await expect(toolTab(page, name)).toBeVisible();
   await expect(page.getByLabel('Message agent')).toBeVisible();
   const divider = page.getByRole('separator', { name: 'Resize session and tools' });
   const before = await page.locator('.conversation-chat-column').boundingBox();
@@ -31,8 +29,9 @@ test('tool pane resizes, keeps the composer visible, and preserves independent t
   await divider.focus();
   await page.keyboard.press('ArrowRight');
   await openTool(page, 'Browser');
-  // One tab of each kind shows no tab strip. The title bar buttons switch the tools.
-  await expect(page.getByRole('tablist')).toHaveCount(0);
+  // One tab of each kind shows no tab strip. The pane tabs switch the tools.
+  await expect(page.getByRole('tablist')).toHaveCount(1);
+  await expect(toolTabs(page)).toBeVisible();
   await page.getByLabel('Preview URL').fill('http://localhost:5000');
   await openTool(page, 'Terminal');
   await expect(page.getByLabel('Preview URL')).toBeHidden();
@@ -49,7 +48,9 @@ test('tool pane resizes, keeps the composer visible, and preserves independent t
   await page.getByRole('button', { name: 'Close terminal', exact: true }).click();
   // With one terminal again, the tab strip does not show.
   await expect(terminalTabs).toHaveCount(0);
-  await expect(page.getByRole('region', { name: 'Repository tools' })).toBeVisible();
+  // The pane stays open on the last tab.
+  await expect(page.getByRole('button', { name: 'Close tools', exact: true })).toBeVisible();
+  await expect(toolsButton(page)).toHaveAttribute('aria-pressed', 'true');
   await page.setViewportSize({ width: 961, height: 988 });
   await expect(page.getByRole('button', { name: 'Send', exact: true })).toBeInViewport();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);

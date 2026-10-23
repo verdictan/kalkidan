@@ -1,5 +1,5 @@
 import { test, expect, newChat } from './helpers/app';
-import { openCodeFolder, openAddCodeFolders } from './helpers/navigation';
+import { openCodeFolder, openAddCodeFolders, openNewProject } from './helpers/navigation';
 
 test('remote project flow checks and installs the host, picks remote folders, and routes sessions remotely', async ({
   page,
@@ -85,8 +85,8 @@ test('remote project flow checks and installs the host, picks remote folders, an
     };
   });
   await page.goto('/');
-  // The Projects page always has "New project". A remote project starts empty.
-  await page.getByRole('main').getByRole('button', { name: 'New project', exact: true }).click();
+  // Without projects there is no sidebar: ⌘K has New project. A remote project starts empty.
+  await openNewProject(page);
   const dialog = page.getByRole('dialog', { name: 'New project', exact: true });
   await dialog.getByLabel('Project name', { exact: true }).fill('Remote platform');
   await dialog.getByRole('button', { name: 'More options', exact: true }).click();

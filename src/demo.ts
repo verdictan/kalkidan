@@ -7,7 +7,6 @@ import { canRevertMutation, type GitHubMutationHistory } from './domain/project-
 import { githubDescriptor } from './domain/tracker';
 import {
   managedErrorText,
-  managedOnlyNotice,
   recommendedSelection,
   type VerdictanCapabilities,
   type VerdictanSetup,
@@ -21,6 +20,15 @@ import {
   type DiagnosticsReport,
 } from './domain/diagnostics';
 import type { API, Project, Session, ProjectGroup } from './types';
+import { demoCodeFiles } from './demo-code-files';
+import { demoDesktop, demoSubagents } from './demo-desktop';
+import { demoIdentityAssignments, seedIdentityOverrides } from './domain/identity';
+import type { ChatRun } from './domain/conversation';
+
+// The browser demo uses the same identity colors as the agreed frames. The desktop app does not.
+if (typeof window !== 'undefined' && !window.workspace)
+  seedIdentityOverrides(demoIdentityAssignments);
+
 const now = new Date().toISOString();
 let projects: Project[] = [
   {
@@ -57,6 +65,7 @@ const sessions: Session[] = [
     cwd: projects[0].path,
     updatedAt: now,
     title: 'Refine project and repository navigation',
+    subagents: demoSubagents,
   },
   {
     id: 'demo-claude',
@@ -66,6 +75,104 @@ const sessions: Session[] = [
     title: 'Review the authentication flow and add integration tests',
   },
 ];
+// The navigation frames show three projects. Opt in with kalkidan-demo-workspace = 'full'.
+const demoFullWorkspace = (() => {
+  try {
+    return ['full', 'knowledge'].includes(localStorage.getItem('kalkidan-demo-workspace') || '');
+  } catch {
+    return false;
+  }
+})();
+// The Knowledge frames: the full workspace with their own sample data (kalkidan-demo-workspace =
+// 'knowledge').
+const demoKnowledgeFrame = (() => {
+  try {
+    return localStorage.getItem('kalkidan-demo-workspace') === 'knowledge';
+  } catch {
+    return false;
+  }
+})();
+if (demoFullWorkspace) {
+  // Agent history gives short titles; the frames show them.
+  const review = sessions.find((session) => session.id === 'demo-claude');
+  if (review) review.title = 'Review the authentication flow';
+  projects.push(
+    {
+      id: '4',
+      name: 'ledger-api',
+      path: '/Users/you/Developer/ledger-api',
+      favorite: false,
+      notes: '',
+      addedAt: now,
+    },
+    {
+      id: '5',
+      name: 'harbor-app',
+      path: '/Users/you/Developer/harbor-app',
+      favorite: false,
+      notes: '',
+      addedAt: now,
+    },
+    {
+      id: '6',
+      name: 'harbor-api',
+      path: '/Users/you/Developer/harbor-api',
+      favorite: false,
+      notes: '',
+      addedAt: now,
+    },
+  );
+  groups = [
+    ...groups,
+    { id: 'ledger', name: 'Ledger', repoIds: ['4'] },
+    { id: 'harbor', name: 'Harbor', repoIds: ['5', '6'] },
+  ];
+  // The splash hand-off frame (SP-C2) lists api-service before design-system and the
+  // navigation chat before the review chat. Opt in with kalkidan-demo-order = 'splash'.
+  try {
+    if (localStorage.getItem('kalkidan-demo-order') === 'splash') {
+      groups = groups.map((group) =>
+        group.id === 'atlas' ? { ...group, repoIds: ['1', '3', '2'] } : group,
+      );
+      const review = sessions.find((session) => session.id === 'demo-claude');
+      if (review) review.updatedAt = new Date(Date.parse(now) - 60_000).toISOString();
+    }
+  } catch {
+    // Without storage the demo keeps its usual order.
+  }
+  sessions.push(
+    {
+      id: 'demo-token',
+      agent: 'codex',
+      cwd: projects[2].path,
+      updatedAt: now,
+      title: 'Fix token refresh race',
+    },
+    // The navigation frames show design-system with one older chat, so its row can expand.
+    {
+      id: 'demo-tokens',
+      agent: 'codex',
+      cwd: projects[1].path,
+      updatedAt: new Date(Date.now() - 3 * 3600000).toISOString(),
+      title: 'Update the button tokens',
+    },
+    {
+      id: 'demo-ledger',
+      agent: 'claude',
+      cwd: '/Users/you/Developer/ledger-api',
+      // The Projects table (SP-C2): Ledger 2 d, Harbor 5 min.
+      updatedAt: new Date(Date.now() - 2 * 86400000).toISOString(),
+      title: 'Migrate invoices to Stripe v2',
+    },
+    {
+      id: 'demo-harbor',
+      agent: 'codex',
+      cwd: '/Users/you/Developer/harbor-app',
+      updatedAt: new Date(Date.now() - 5 * 60000).toISOString(),
+      title: 'Add the shipment timeline',
+    },
+  );
+}
 const board = {
   project: {
     id: 'demo-project',
@@ -101,6 +208,264 @@ const board = {
     },
   ],
 };
+// The Tasks frames (TK-A) of the browser demo: more tasks and the chats that work on them. Only
+// with the flag, so the other demo pages keep their data.
+const demoTasksFrame = (() => {
+  try {
+    return localStorage.getItem('kalkidan-demo-tasks') === '1';
+  } catch {
+    return false;
+  }
+})();
+if (demoTasksFrame) {
+  const issue = (number: number, repository: string) => ({
+    kind: 'Issue',
+    number,
+    repository: `example/${repository}`,
+    url: `https://github.com/example/${repository}/issues/${number}`,
+  });
+  board.items.splice(
+    0,
+    board.items.length,
+    ...([
+      {
+        id: 'task-3',
+        title: 'Add rate limiting to /v1/search',
+        body:
+          'Limit /v1/search to 60 requests per minute per API key. Return 429 with a ' +
+          'Retry-After header.\n\n- Token bucket in Redis\n- Integration test for the 61st request',
+        status: 'Todo',
+        statusId: 'todo',
+        ...issue(142, 'api-service'),
+      },
+      {
+        id: 'task-4',
+        title: 'Dark tokens for Button and Input',
+        body: '',
+        status: 'Todo',
+        statusId: 'todo',
+        ...issue(131, 'design-system'),
+      },
+      { ...board.items[1], ...issue(118, 'api-service') },
+      { ...board.items[0], ...issue(97, 'atlas-web') },
+      {
+        id: 'task-5',
+        title: 'Move the session store to Redis',
+        body: '',
+        status: 'In progress',
+        statusId: 'progress',
+        ...issue(139, 'api-service'),
+      },
+      {
+        id: 'task-6',
+        title: 'Fix the flaky sign-in test',
+        body: '',
+        status: 'Done',
+        statusId: 'done',
+        ...issue(121, 'api-service'),
+      },
+      {
+        id: 'task-7',
+        title: 'Card spacing tokens',
+        body: '',
+        status: 'Done',
+        statusId: 'done',
+        ...issue(119, 'design-system'),
+      },
+    ] as typeof board.items),
+  );
+  const pullRequest = (number: number, repository: string) => ({
+    url: `https://github.com/example/${repository}/pull/${number}`,
+    number,
+    state: 'merged' as const,
+  });
+  sessions.push(
+    {
+      id: 'demo-overview',
+      agent: 'codex',
+      cwd: projects[0].path,
+      updatedAt: now,
+      title: 'Build the project overview',
+      organization: { taskId: 'task-1' },
+    },
+    {
+      id: 'demo-redis',
+      agent: 'claude',
+      cwd: projects[2].path,
+      updatedAt: now,
+      title: 'Move the session store to Redis',
+      organization: { taskId: 'task-5' },
+    },
+    {
+      id: 'demo-flaky',
+      agent: 'codex',
+      cwd: projects[2].path,
+      updatedAt: now,
+      title: 'Fix the flaky sign-in test',
+      organization: {
+        taskId: 'task-6',
+        archived: true,
+        pullRequest: pullRequest(128, 'api-service'),
+      },
+    },
+    {
+      id: 'demo-spacing',
+      agent: 'codex',
+      cwd: projects[1].path,
+      updatedAt: now,
+      title: 'Card spacing tokens',
+      organization: {
+        taskId: 'task-7',
+        archived: true,
+        pullRequest: pullRequest(126, 'design-system'),
+      },
+    },
+  );
+}
+// The agreed frames of the full workspace: the review chat has two subagents and waits for an
+// approval (a live run that the chat attaches to), and api-service is on a branch.
+const demoReviewRunId = 'demo-run-review';
+const demoReviewRun = {
+  approval: 'pending' as 'pending' | 'approved' | 'denied',
+  stopped: false,
+};
+if (demoFullWorkspace) {
+  const review = sessions.find((session) => session.id === 'demo-claude');
+  // The review chat is the newest chat of atlas-web.
+  const refine = sessions.find((session) => session.id === 'demo-session');
+  if (refine) refine.updatedAt = new Date(Date.now() - 60000).toISOString();
+  if (review) {
+    review.liveRunId = demoReviewRunId;
+    review.subagents = [
+      {
+        id: 'demo-sub-test-runner',
+        title: 'test-runner',
+        status: 'running',
+        activity: 'running 14 tests',
+      },
+      { id: 'demo-sub-lint-fixer', title: 'lint-fixer', status: 'done' },
+    ];
+  }
+  // The sample colors of the sessions and subagents. A color that the user chose stays.
+  if (typeof window !== 'undefined' && !window.workspace)
+    seedIdentityOverrides([
+      { kind: 'session', key: 'demo-session', color: 'pink' },
+      { kind: 'session', key: 'demo-claude', color: 'slate' },
+      { kind: 'session', key: 'demo-token', color: 'plum' },
+      { kind: 'subagent', key: 'demo-sub-test-runner', color: 'violet' },
+      { kind: 'subagent', key: 'demo-sub-lint-fixer', color: 'teal' },
+    ]);
+}
+/** The live run of the review chat in the full workspace: one approval waits. */
+function demoReviewChatRun(): ChatRun {
+  const review = sessions.find((session) => session.id === 'demo-claude');
+  const done = demoReviewRun.stopped || demoReviewRun.approval !== 'pending';
+  return {
+    id: demoReviewRunId,
+    agent: 'claude',
+    sessionId: 'demo-claude',
+    sessionReady: true,
+    status: demoReviewRun.stopped ? 'stopped' : done ? 'completed' : 'running',
+    activity: '',
+    messages: [
+      {
+        id: 'demo-review-1',
+        role: 'assistant',
+        text: 'I read the sign-in flow in `src/auth`. test-runner runs the auth tests now.',
+      },
+    ],
+    approvals: [
+      {
+        id: 'demo-review-approval',
+        title: 'Run',
+        detail: 'npm test -- auth',
+        status: demoReviewRun.approval,
+      },
+    ],
+    tools: [],
+    subagents: review?.subagents || [],
+  };
+}
+// The Tasks frames (TK-A1): the board chats only, and one GitHub change of this session that has
+// no confirmed result yet.
+if (demoTasksFrame) {
+  const keep = new Set([
+    'demo-claude',
+    'demo-overview',
+    'demo-redis',
+    'demo-flaky',
+    'demo-spacing',
+  ]);
+  for (let index = sessions.length - 1; index >= 0; index -= 1)
+    if (!keep.has(sessions[index].id) && !sessions[index].id.startsWith('demo-ledger')) {
+      if (sessions[index].id === 'demo-harbor')
+        sessions[index].outcome = { outcome: 'failed', reason: 'agent_error', at: now };
+      else sessions.splice(index, 1);
+    }
+  const review = sessions.find((session) => session.id === 'demo-claude');
+  if (review) {
+    review.cwd = projects[2].path;
+    review.updatedAt = new Date(Date.now() - 60000).toISOString();
+    delete review.liveRunId;
+    delete review.subagents;
+  }
+  const overview = sessions.find((session) => session.id === 'demo-overview');
+  if (overview)
+    overview.subagents = [
+      {
+        id: 'demo-sub-overview',
+        title: 'Explore overview components',
+        status: 'running',
+      },
+    ];
+  // The Tasks frames list api-service before design-system.
+  projects = [projects[0], projects[2], projects[1], ...projects.slice(3)];
+}
+// The Knowledge frames (KN-B): the full workspace with their sample sessions. The review chat has
+// one subagent, and the other chats have the short titles of the frames.
+if (demoKnowledgeFrame) {
+  const titles: Record<string, string> = {
+    'demo-session': 'Refine repository settings',
+    'demo-token': 'Fix flaky sign-in test',
+  };
+  for (const session of sessions) {
+    if (titles[session.id]) session.title = titles[session.id];
+    if (session.id === 'demo-session') delete session.subagents;
+    if (session.id === 'demo-claude')
+      session.subagents = [
+        { id: 'demo-sub-explore-sign-in', title: 'Explore sign-in tests', status: 'running' },
+      ];
+  }
+  projects = [projects[0], projects[2], projects[1], ...projects.slice(3)];
+}
+/**
+ * The Usage card of the Knowledge frames (KN-B4): $18.40, 412 requests, 3 refused. The requests
+ * of each day make the bars of the frame: [chat, paid requests, refused, free requests].
+ */
+const demoKnowledgeUsage = {
+  days: [16, 27, 11, 1, 0, 32, 48, 37, 59, 21, 0, 43, 64, 53],
+  chats: { 'demo-session': [196, 3, 0], 'demo-claude': [122, 0, 0], 'demo-token': [50, 0, 41] },
+} as const;
+// The GitHub sign-in of the connect frame (TK-A3): a code that waits for approval.
+const demoGitHubWaiting = (() => {
+  try {
+    return localStorage.getItem('kalkidan-demo-github') === 'waiting';
+  } catch {
+    return false;
+  }
+})();
+// The full workspace has Atlas on its board, except in the connect frame.
+if (demoFullWorkspace && !demoGitHubWaiting)
+  groups = groups.map((group) =>
+    group.id === 'atlas'
+      ? {
+          ...group,
+          github: structuredClone(board.project),
+          tracker: { provider: 'github', project: structuredClone(board.project) },
+        }
+      : group,
+  );
+let demoGitHubStarted = false;
 // The names of the sample repositories that the preview finds in any folder.
 const scanNames = [
   { name: 'atlas-web', branch: 'main' },
@@ -120,8 +485,9 @@ function previewBranch(branch: string) {
     throw new Error(`"${branch}" is not a valid branch name.`);
   return branch;
 }
-/** The browser preview never starts an agent. Agents run only as managed Verdictan agents. */
-const previewAgentBlock = `${managedOnlyNotice} The browser preview cannot start managed agents. Open the desktop app and complete managed agent setup.`;
+/** The browser preview never starts an agent CLI. Chats run only in the desktop app. */
+const previewAgentBlock =
+  'The browser preview cannot run agents. Open the Kalkidan desktop app to chat with an agent.';
 const nativeOnly = async () => {
   throw new Error('Open the desktop app to use native folder and Terminal actions.');
 };
@@ -185,6 +551,14 @@ let demoMemory: MemoryEntry[] = [
     supersedes: [],
   },
 ];
+// The Memory frame (KN-B3) has two topics.
+if (demoFullWorkspace) {
+  demoMemory = demoMemory.filter((entry) => entry.topic !== 'Authentication');
+  const tokens = demoMemory.find((entry) => entry.topic === 'Design tokens');
+  if (tokens)
+    tokens.content =
+      'Colors come from design-system tokens. Never add raw hex values in atlas-web.';
+}
 // The sample chats read two facts and the first page of the project.
 const demoContextChats = new Set(['codex:demo-session', 'claude:demo-claude']);
 const demoContextFacts = [demoMemoryId(1), demoMemoryId(2)];
@@ -209,6 +583,8 @@ let demoWrites: GitHubMutationHistory = [
     detail: { itemId: 'task-2' },
   },
 ];
+// The Tasks frames date the change without a result at the first read (TK-A1 health line).
+let demoWritesDated = false;
 function demoStatusWrite(item: string, before: string, value: string, revertOf?: string) {
   const id = crypto.randomUUID();
   demoWrites = [
@@ -337,7 +713,15 @@ function demoStatus(): VerdictanStatus {
     return {
       region,
       phase: 'signed-out',
-      account: { state: 'signed-out', apiUrl },
+      account: {
+        state: 'signed-out',
+        apiUrl,
+        // The full workspace knows the organization of the last sign-in.
+        ...(demoFullWorkspace &&
+        demoRead(demoFirstRunKey, { welcomeDone: false, everSignedIn: false }).everSignedIn
+          ? { organizationName: 'Acme Corp' }
+          : {}),
+      },
       executionReady: false,
     };
   const state = demoAccount.expired ? 'expired' : 'authenticated';
@@ -534,8 +918,81 @@ function demoRuntime(hostId?: string): ComponentUpdateStatus {
   };
 }
 export const demo: API = {
-  projectUsage: async () => {
-    throw new Error('Managed-agent history requires the desktop app.');
+  ...demoCodeFiles,
+  ...demoDesktop,
+  // The preview shows a sample of 14 days of gateway requests for the chats of a project.
+  projectUsage: async (_group, chats) => {
+    const day = 86400000;
+    const perDay = [3, 5, 2, 0, 0, 6, 9, 7, 11, 4, 0, 8, 12, 10];
+    const entry = (time: number, cost: string, refused: boolean) => ({
+      time: new Date(time).toISOString(),
+      decision: refused ? 'denied' : 'allowed',
+      reason: null,
+      review: null,
+      provider: null,
+      model: null,
+      agent: null,
+      inputTokens: '1200',
+      outputTokens: '300',
+      cachedInputTokens: '800',
+      totalTokens: '2300',
+      cost: refused ? '0' : cost,
+      currency: 'USD',
+      settlement: null,
+      corrected: false,
+      releasedAt: null,
+      settledAt: null,
+      startedAt: null,
+      completedAt: null,
+      latencyMs: null,
+      audited: false,
+      subscription: null,
+    });
+    if (demoKnowledgeFrame) {
+      // One day for each request, oldest first; each chat takes its requests in turn.
+      const days = demoKnowledgeUsage.days.flatMap((count, d) =>
+        Array.from({ length: count }, (_, i) => Date.now() - (13 - d) * day - i * 60000),
+      );
+      const plan = demoKnowledgeUsage.chats as Record<string, readonly number[]>;
+      return {
+        chats: chats
+          .filter((chat) => plan[chat.sessionId])
+          .map((chat) => {
+            const [paid, refused, free] = plan[chat.sessionId];
+            const costs = [
+              ...Array.from({ length: paid }, () => '0.05'),
+              ...Array.from({ length: refused }, () => ''),
+              ...Array.from({ length: free }, () => '0'),
+            ];
+            return {
+              ...chat,
+              billing: 'metered' as const,
+              complete: true,
+              entries: costs.map((cost) => entry(days.shift() || Date.now(), cost || '0', !cost)),
+            };
+          }),
+        unmanaged: 0,
+        failed: 0,
+        skipped: 0,
+        observedAt: new Date().toISOString(),
+      };
+    }
+    return {
+      chats: chats.map((chat, c) => ({
+        ...chat,
+        billing: 'metered' as const,
+        complete: true,
+        entries: perDay.flatMap((count, d) =>
+          Array.from({ length: Math.max(0, count - c * 3) }, (_, i) =>
+            entry(Date.now() - (13 - d) * day - i * 60000, c ? '0.10' : '0.15', (d + i) % 29 === 7),
+          ),
+        ),
+      })),
+      unmanaged: 0,
+      failed: 0,
+      skipped: 0,
+      observedAt: new Date().toISOString(),
+    };
   },
   taskUsageHistory: async () => [],
   managedHistory: async () => ({
@@ -791,7 +1248,7 @@ export const demo: API = {
   pullRequestStatus: async (_id, url) => {
     const number = Number(/\/pull\/(\d+)/.exec(url)?.[1]);
     if (!number) throw new Error('Enter a pull request link.');
-    return { state: 'open', number, title: 'Build the project overview' };
+    return { state: 'open', number, title: 'Build the project overview', checks: 'pass' };
   },
   docsMetadata: async (group) =>
     (demoDocs[group] || []).map(({ id, title, parentId, order }) => ({
@@ -892,6 +1349,12 @@ export const demo: API = {
     const content = demoContentFor(item);
     if (content.revision !== revision)
       throw new Error('The content changed. Reload before saving.');
+    // Undo of "Converted N drafts" closes the new issue as not planned.
+    if (action.kind === 'close') {
+      content.state = 'CLOSED';
+      content.revision = crypto.randomUUID();
+      return structuredClone(content);
+    }
     if (action.kind !== 'comment')
       throw new Error('Open the desktop app to make this change on GitHub.');
     if (!action.body.trim()) throw new Error('Enter a comment.');
@@ -933,10 +1396,34 @@ export const demo: API = {
   },
   // The preview has no tasks assigned to the user.
   trackerPortfolio: async () => [],
-  trackerDocsPlan: async () => {
-    throw new Error('Issue publication requires the desktop app.');
+  // The preview adds each planned task as an issue of the board, numbered from #142.
+  trackerDocsPlan: async (_group, plan) => {
+    const items = board.items as ((typeof board.items)[number] & {
+      number?: number;
+      url?: string;
+    })[];
+    const rows = plan.entries.map((entry, index) => {
+      const number = 142 + items.filter((item) => item.number).length;
+      const id = crypto.randomUUID();
+      items.push({
+        id,
+        title: entry.title,
+        body: entry.body,
+        repository: plan.repository,
+        status: 'Todo',
+        statusId: 'todo',
+        number,
+        url: `https://github.com/${plan.repository}/issues/${number}`,
+      });
+      return { index, itemId: id, state: 'complete' as const };
+    });
+    return { id: plan.id, rows };
   },
   trackerMutationHistory: async (_group, reviewedId) => {
+    if ((demoTasksFrame || demoFullWorkspace) && !demoWritesDated) {
+      demoWritesDated = true;
+      for (const row of demoWrites) if (row.state === 'unknown-outcome') row.updatedAt = Date.now();
+    }
     if (reviewedId) {
       const row = demoWrites.find((value) => value.id === reviewedId);
       if (!row || row.state !== 'unknown-outcome')
@@ -971,8 +1458,29 @@ export const demo: API = {
   trackerField: async () => {
     throw new Error('Connect GitHub in the desktop app to edit fields.');
   },
-  trackerItemAction: async () => {
-    throw new Error('Connect GitHub in the desktop app to change items.');
+  trackerItemAction: async (_group, itemId, action) => {
+    // A draft becomes an issue on Start, with the next issue number of the preview.
+    if (action.kind === 'convert') {
+      const items = board.items as ((typeof board.items)[number] & {
+        kind?: string;
+        number?: number;
+        url?: string;
+      })[];
+      const task = items.find((item) => item.id === itemId);
+      if (!task || task.kind !== 'DraftIssue')
+        throw new Error('This item is no longer a draft. Refresh this project.');
+      const number = Math.max(150, ...items.map((item) => item.number || 0)) + 1;
+      Object.assign(task, {
+        kind: 'Issue',
+        repository: action.repository,
+        number,
+        url: `https://github.com/${action.repository}/issues/${number}`,
+      });
+      return;
+    }
+    if (action.kind !== 'remove')
+      throw new Error('Connect GitHub in the desktop app to change items.');
+    board.items = board.items.filter((item) => item.id !== itemId);
   },
   trackerStatus: (id, item, status) => demo.githubStatus(id, item, status),
   trackerDraft: (id, title, body) => demo.githubDraft(id, title, body),
@@ -994,7 +1502,19 @@ export const demo: API = {
   ],
   browserAction: nativeOnly,
   sessionAction: nativeOnly,
-  remoteHosts: async () => [],
+  remoteHosts: async () =>
+    demoFullWorkspace
+      ? [
+          {
+            id: 'demo-host',
+            name: 'build-server',
+            target: 'dana@build-server',
+            status: 'connected',
+            version: '0.6.9',
+            platform: 'linux',
+          },
+        ]
+      : [],
   remoteAdd: nativeOnly,
   remoteCheck: nativeOnly,
   remoteInstall: nativeOnly,
@@ -1061,8 +1581,16 @@ export const demo: API = {
           { id: 'haiku', name: 'Haiku' },
         ]
       : [],
-  githubAuthStart: async () => ({ status: 'ready' }),
-  githubAuthStatus: async () => ({ status: 'ready' }),
+  githubAuthStart: async () => {
+    demoGitHubStarted = true;
+    return demoGitHubWaiting ? { status: 'waiting', code: '4F2A-91KD' } : { status: 'ready' };
+  },
+  githubAuthStatus: async () =>
+    !demoGitHubWaiting
+      ? { status: 'ready' }
+      : demoGitHubStarted
+        ? { status: 'waiting', code: '4F2A-91KD' }
+        : { status: 'idle' },
   githubAuthCancel: async () => ({ status: 'idle' }),
   githubAuthOpen: async () => {},
   githubOwners: async () => [{ id: 'example', login: 'example', kind: 'organization' }],
@@ -1109,7 +1637,8 @@ export const demo: API = {
       repository: '',
       status: 'Todo',
       statusId: 'todo',
-    });
+      kind: 'DraftIssue',
+    } as (typeof board.items)[number]);
     return id;
   },
   githubAddIssue: nativeOnly,
@@ -1153,15 +1682,24 @@ export const demo: API = {
     messages: [
       {
         id: 'preview-user',
-        role: 'user',
+        role: 'user' as const,
         text:
-          sessions.find((s) => s.agent === agent && s.id === id)?.title || 'Continue this project',
+          (demoFullWorkspace && id === 'demo-claude'
+            ? 'Review the authentication flow and add integration tests'
+            : undefined) ||
+          sessions.find((s) => s.agent === agent && s.id === id)?.title ||
+          'Continue this project',
       },
-      {
-        id: 'preview-assistant',
-        role: 'assistant',
-        text: 'This is a sample conversation. In the desktop app, your original messages appear here and you can continue with the same agent.',
-      },
+      // The review chat of the full workspace continues in its live run.
+      ...(sessions.find((s) => s.agent === agent && s.id === id)?.liveRunId === demoReviewRunId
+        ? []
+        : [
+            {
+              id: 'preview-assistant',
+              role: 'assistant' as const,
+              text: 'This is a sample conversation. In the desktop app, your original messages appear here and you can continue with the same agent.',
+            },
+          ]),
     ],
     truncated: false,
   }),
@@ -1169,11 +1707,20 @@ export const demo: API = {
   chatStart: async () => {
     throw new Error(previewAgentBlock);
   },
-  chatStatus: async () => {
+  chatStatus: async (runId) => {
+    if (demoFullWorkspace && runId === demoReviewRunId) return demoReviewChatRun();
     throw new Error('No active conversation in preview mode.');
   },
-  chatStop: nativeOnly,
-  chatApprove: nativeOnly,
+  chatStop: async (runId) => {
+    if (!demoFullWorkspace || runId !== demoReviewRunId) return nativeOnly();
+    demoReviewRun.stopped = true;
+  },
+  chatApprove: async (runId, _approvalId, allow) => {
+    if (!demoFullWorkspace || runId !== demoReviewRunId) return nativeOnly();
+    demoReviewRun.approval = allow ? 'approved' : 'denied';
+    const review = sessions.find((session) => session.id === 'demo-claude');
+    if (review) delete review.liveRunId;
+  },
   chatRespond: nativeOnly,
   dispatchReconcile: async () => {
     throw Error('Dispatch recovery requires the desktop app.');
@@ -1296,6 +1843,15 @@ export const demo: API = {
     return { added: 0 };
   },
   chooseFolder: async () => '~/code/atlas',
+  // The found code folders of the first composer (ST-C2). Only the full demo workspace has them.
+  findCodeFolders: async () =>
+    demoFullWorkspace
+      ? [
+          { name: 'atlas', path: '~/code/atlas', repos: 3, modifiedAt: 3 },
+          { name: 'ledger', path: '~/code/ledger', repos: 1, modifiedAt: 2 },
+          { name: 'harbor', path: '~/code/harbor', repos: 1, modifiedAt: 1 },
+        ]
+      : [],
   scanRepositories: async (path) => {
     const root = folderPath(path);
     return {
@@ -1372,8 +1928,8 @@ export const demo: API = {
     projects = projects.filter((p) => p.id !== id);
     groups = groups.map((g) => ({ ...g, repoIds: g.repoIds.filter((r) => r !== id) }));
   },
-  workingStatus: async () => ({
-    branch: 'main',
+  workingStatus: async (id) => ({
+    branch: demoFullWorkspace && !demoTasksFrame && id === '3' ? 'fix/token' : 'main',
     changed: 2,
     untracked: 1,
     ahead: 0,

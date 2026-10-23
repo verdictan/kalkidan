@@ -29,7 +29,7 @@ test('the row status reads the saved outcome, then the draft outcome in memory',
   assert.equal(saved?.label, 'The last run failed. The agent did not respond in time.');
   const draft = chatStatusInfo({ agent: 'codex', id: 'draft-1' }, undefined, store);
   assert.equal(draft?.state, 'refused');
-  assert.match(draft?.label || '', /Sign in to managed agents/);
+  assert.match(draft?.label || '', /Sign in to Verdictan/);
   assert.deepEqual(chatStatusInfo({ agent: 'codex', id: 'draft-1' }, 'running', store), {
     state: 'running',
   });

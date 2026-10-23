@@ -213,9 +213,8 @@ export function InteractiveTerminal({
   const restart = () => (exited ? setGeneration((n) => n + 1) : setConfirmRestart(true));
   return (
     <div hidden={!visible} className="terminal-pane">
-      {/* The pane header: "Terminal", the folder or "Shell exited", then two 28px icons. */}
+      {/* The toolbar: the folder or "Shell exited", then 28px icons. The pane tab names it. */}
       <div className="tool-toolbar terminal-header">
-        <h2 className="tool-pane-title">Terminal</h2>
         <span className="tool-toolbar-status" title={exited ? undefined : cwd}>
           {exited ? 'Shell exited' : cwd}
         </span>
@@ -230,16 +229,19 @@ export function InteractiveTerminal({
             <Paperclip aria-hidden="true" />
           </Button>
         </Hint>
-        <Hint label={exited ? 'Restart terminal' : 'New shell'}>
-          <Button
-            size="icon-sm"
-            variant="ghost"
-            aria-label={exited ? 'Restart terminal' : 'New shell'}
-            onClick={restart}
-          >
-            <RotateCcw aria-hidden="true" />
-          </Button>
-        </Hint>
+        {/* A stopped shell has one Restart: the button in the pane message (CH-23). */}
+        {!(exited && error) && (
+          <Hint label={exited ? 'Restart terminal' : 'New shell'}>
+            <Button
+              size="icon-sm"
+              variant="ghost"
+              aria-label={exited ? 'Restart terminal' : 'New shell'}
+              onClick={restart}
+            >
+              <RotateCcw aria-hidden="true" />
+            </Button>
+          </Hint>
+        )}
       </div>
       <div
         ref={element}
@@ -252,10 +254,10 @@ export function InteractiveTerminal({
       {exited && error && (
         <PaneMessage
           tone="danger"
-          title="The terminal stopped"
+          title="Shell exited"
           action={
             <Button size="sm" variant="outline" onClick={restart}>
-              Restart terminal
+              Restart
             </Button>
           }
         >

@@ -50,7 +50,7 @@ test('older project pages open Knowledge at their section', () => {
   assert.deepEqual(projectPageOf('docs'), { page: 'knowledge', section: 'pages' });
   assert.deepEqual(projectPageOf('memory'), { page: 'knowledge', section: 'memory' });
   assert.deepEqual(projectPageOf('insights'), { page: 'knowledge', section: 'insights' });
-  assert.deepEqual(projectPageOf('chats'), { page: 'chats' });
+  assert.deepEqual(projectPageOf('chats'), { page: 'board' });
   assert.equal(projectPageOf('nope'), null);
   assert.deepEqual(
     restoreRoute({ kind: 'project', groupId: 'g', page: 'memory' }, [{ id: 'g' }], [], []),
@@ -65,9 +65,21 @@ test('older project pages open Knowledge at their section', () => {
   );
 });
 
-test('the Waiting for you page is a route of its own that a launch restores', () => {
-  const route: WorkspaceRoute = { kind: 'waiting' };
-  assert.equal(routeKey(route), 'waiting');
-  const saved = JSON.parse(JSON.stringify(saveableRoute(route))) as unknown;
-  assert.deepEqual(restoreRoute(saved, [], [], []), { kind: 'waiting' });
+test('removed pages open their nearest page', () => {
+  for (const kind of ['waiting', 'sessions', 'computers'])
+    assert.deepEqual(restoreRoute({ kind }, [], [], []), { kind: 'home' });
+  const groups = [{ id: 'g', repoIds: ['r'] }];
+  assert.deepEqual(restoreRoute({ kind: 'repository', repositoryId: 'r' }, groups, [], []), {
+    kind: 'project',
+    groupId: 'g',
+    page: 'board',
+  });
+  assert.deepEqual(restoreRoute({ kind: 'repository', repositoryId: 'x' }, groups, [], []), {
+    kind: 'home',
+  });
+  assert.deepEqual(restoreRoute({ kind: 'project', groupId: 'g', page: 'chats' }, groups, [], []), {
+    kind: 'project',
+    groupId: 'g',
+    page: 'board',
+  });
 });

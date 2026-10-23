@@ -44,29 +44,29 @@ export { expect };
 export const sidebar = (page: Page) =>
   page.getByRole('navigation', { name: 'Projects and repositories' });
 
-/** The one Settings window (⌘,): General, Computers, Account, and one section per project. */
+/** The one Settings page (⌘,): account, Tools, preferences and the current project. */
 export const settingsDialog = (page: Page) =>
   page.getByRole('dialog', { name: 'Settings', exact: true });
-/** @deprecated Preferences is the General section of Settings now. */
+/** @deprecated Preferences is a part of the Settings page now. */
 export const preferencesDialog = settingsDialog;
 
-/** A section tab of Settings: General, Computers, Account or a project name. */
+/** The heading of a part of the Settings page. Old section names map to the new parts. */
+const settingsParts: Record<string, string> = {
+  General: 'Preferences',
+  Preferences: 'Preferences',
+  Computers: 'Tools',
+  Agents: 'Tools',
+  Tools: 'Tools',
+};
 export const settingsSection = (page: Page, name: string) =>
-  settingsDialog(page)
-    .getByRole('tablist', { name: 'Settings sections' })
-    .getByRole('tab', { name, exact: true });
+  settingsDialog(page).getByRole('heading', { name: settingsParts[name] || name });
 
-/** The Computers section of Settings: the agents, the Kalkidan service and the SSH hosts. */
+/** The Tools part of Settings: the detected agent CLIs, the GitHub CLI and the SSH hosts. */
 export const computersPage = settingsDialog;
 
-/** Opens an item of the account menu in the sidebar footer, as a user does. */
+/** Opens an item of the account menu in the sidebar footer (signed in only). */
 export async function openAccountMenuItem(page: Page, name: string | RegExp) {
-  const footer = sidebar(page).locator('.account-menu');
-  // Signed in, the trigger is the account; signed out, it is "Sign in, Settings and help". A
-  // dot that needs attention adds text at the end. Try again when the button changes.
-  const trigger = footer.getByRole('button', {
-    name: /^(Account: .*|(.*, )?Settings and help.*)$/,
-  });
+  const trigger = sidebar(page).getByRole('button', { name: /^Account: / });
   const item = page.getByRole('menuitem', { name });
   await expect(async () => {
     if (!(await item.isVisible())) await trigger.first().click({ timeout: 2000 });
@@ -74,33 +74,38 @@ export async function openAccountMenuItem(page: Page, name: string | RegExp) {
   }).toPass({ timeout: 15000 });
 }
 
-/** Opens Settings from the account menu at a section, and returns the window. */
-export async function openSettingsWindow(page: Page, section?: string): Promise<Locator> {
-  await openAccountMenuItem(page, /^Settings…/);
-  const dialog = settingsDialog(page);
-  await expect(dialog).toBeVisible();
-  if (section) {
-    await settingsSection(page, section).click();
-    await expect(settingsSection(page, section)).toHaveAttribute('aria-selected', 'true');
-  }
-  return dialog;
-}
-
-/** @deprecated Preferences is Settings › General. */
-export const openPreferences = (page: Page) => openSettingsWindow(page, 'General');
-
-/** Opens Settings › Computers (the Computers page is a section of Settings now). */
-export const openComputersPage = (page: Page) => openSettingsWindow(page, 'Computers');
-
 /**
- * Opens the Settings section that now holds an older place: 'Agents' and 'Computers' open
- * Computers, 'Account' opens Account, everything else opens General.
+ * Opens the Settings page, at a part, and returns it. Signed in, it uses "Settings…" in the
+ * account menu of the sidebar footer; signed out, it uses ⌘, (Ctrl+, on other systems).
  */
-export async function openSettings(page: Page, section?: string): Promise<Locator> {
-  if (section === 'Agents' || section === 'Computers') return openSettingsWindow(page, 'Computers');
-  if (section === 'Account') return openSettingsWindow(page, 'Account');
-  return openSettingsWindow(page, 'General');
+export async function openSettingsWindow(page: Page, section?: string): Promise<Locator> {
+  const settings = settingsDialog(page);
+  // Settings is a sheet over the window. While it is open, the sidebar is behind it.
+  if (!(await settings.isVisible())) {
+    const account = sidebar(page).getByRole('button', { name: /^Account: / });
+    if (await account.isVisible()) await openAccountMenuItem(page, /^Settings…/);
+    else
+      // A dialog that is still closing takes no shortcut. Press again until Settings shows.
+      await expect(async () => {
+        if (!(await settings.isVisible())) await page.keyboard.press('ControlOrMeta+Comma');
+        await expect(settings).toBeVisible({ timeout: 1000 });
+      }).toPass({ timeout: 10000 });
+  }
+  await expect(settings).toBeVisible();
+  if (section && section !== 'Account')
+    await settingsSection(page, section).scrollIntoViewIfNeeded();
+  return settings;
 }
+
+/** @deprecated Preferences is a part of the Settings page. */
+export const openPreferences = (page: Page) => openSettingsWindow(page, 'Preferences');
+
+/** Opens Settings at Tools (the Computers page is the Tools part of Settings now). */
+export const openComputersPage = (page: Page) => openSettingsWindow(page, 'Tools');
+
+/** Opens the Settings page at the part that now holds an older place. */
+export const openSettings = (page: Page, section?: string): Promise<Locator> =>
+  openSettingsWindow(page, section);
 
 /** The command palette dialog. */
 export const palette = (page: Page) =>

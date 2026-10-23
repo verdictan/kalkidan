@@ -1,12 +1,10 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
-import { ChevronDown, FileText, Lightbulb } from 'lucide-react';
-import type { API, ProjectGroup, Session } from '../types';
-import type { DocPassage } from '../domain/docs';
+import { ChevronDown, Search } from 'lucide-react';
+import type { API, Project, ProjectGroup, Session } from '../types';
+import type { ProjectDoc } from '../domain/docs';
 import { useProjectResource } from '../hooks/use-project-resource';
-import { plural } from '../lib/platform';
+import { hasPrimaryModifier, plural } from '../lib/platform';
 import { Button } from './ui/button';
-import { NavRow } from './ui/nav-row';
-import { SearchInput } from './ui/search-input';
 import { ProjectDocsPanel, type DocOpenRequest } from './project-docs';
 import { ProjectMemoryPanel, useMemoryFacts } from './project-memory';
 import { openProjectUsage } from './project-usage';
@@ -14,7 +12,7 @@ import { useReadCounts } from './context-usage-chip';
 
 /**
  * A part of the Knowledge tab. 'insights' is an old name only: Board health and GitHub checks
- * are on the Tasks tab now, and Agent usage is the Usage sheet.
+ * are on the Tasks tab now, and Agent usage is the Usage card of the project menu.
  */
 export type KnowledgeSection = 'pages' | 'memory' | 'insights';
 
@@ -46,36 +44,84 @@ export function wordStartMatch(text: string, query: string) {
   return wordsOf(query).every((part) => words.some((word) => word.startsWith(part)));
 }
 
-/** The text with each word start that the query matches in a <mark>. */
-function Highlight({ text, query }: { text: string; query: string }) {
+/**
+ * The number of words in the text that start with a word of the query. Zero when one word of
+ * the query starts no word of the text.
+ */
+export function matchCount(text: string, query: string) {
   const parts = wordsOf(query);
-  if (!parts.length) return <>{text}</>;
-  const pattern = new RegExp(
-    `(?<![\\p{L}\\p{N}])(${parts.map((p) => p.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')})`,
-    'giu',
-  );
-  const pieces = text.split(pattern);
-  return (
-    <>{pieces.map((piece, index) => (index % 2 ? <mark key={index}>{piece}</mark> : piece))}</>
-  );
+  if (!parts.length || !wordStartMatch(text, query)) return 0;
+  return wordsOf(text).filter((word) => parts.some((part) => word.startsWith(part))).length;
 }
 
-/** A passage as plain text: no HTML entities and no list markers. */
-const plainExcerpt = (text: string) =>
-  text
-    .replace(/&nbsp;/g, ' ')
-    .replace(/(^|\s)(?:[-*+]|\d+[.)])\s+(?:\[[ xX]\]\s+)?/g, '$1')
-    .replace(/\s+/g, ' ')
-    .trim();
+/** The text ranges of the words that start with a word of the query: [start, end] pairs. */
+export function matchRanges(text: string, query: string) {
+  const parts = wordsOf(query);
+  const ranges: [number, number][] = [];
+  if (!parts.length) return ranges;
+  for (const match of text.matchAll(/[\p{L}\p{N}]+/gu)) {
+    const word = match[0].toLowerCase();
+    if (parts.some((part) => word.startsWith(part)))
+      ranges.push([match.index, match.index + match[0].length]);
+  }
+  return ranges;
+}
 
-type Result =
-  | { kind: 'page'; key: string; docId: string; title: string; detail: string; heading?: string }
-  | { kind: 'fact'; key: string; id: string; topic: string; title: string; detail: string };
+type HighlightRegistry = {
+  set: (name: string, value: unknown) => void;
+  delete: (name: string) => void;
+};
+const findHighlight = 'knowledge-find';
 
-const resultGroups: { kind: Result['kind']; label: string }[] = [
-  { kind: 'fact', label: 'Memory' },
-  { kind: 'page', label: 'Pages' },
-];
+/**
+ * Highlights the words that Find matches in the open page or in Memory, with the CSS Custom
+ * Highlight API. The text and the editor do not change. Without the API, nothing shows.
+ */
+function useFindHighlight(root: HTMLElement | null, query: string) {
+  useEffect(() => {
+    const scope = globalThis as unknown as {
+      Highlight?: new (...ranges: Range[]) => unknown;
+      CSS?: { highlights?: HighlightRegistry };
+    };
+    const registry = scope.CSS?.highlights;
+    if (!registry || !scope.Highlight) return;
+    if (!root || !query.trim()) {
+      registry.delete(findHighlight);
+      return;
+    }
+    const Highlight = scope.Highlight;
+    let frame = 0;
+    const paint = () => {
+      frame = 0;
+      const ranges: Range[] = [];
+      const panes = root.querySelectorAll('.doc-workspace, .knowledge-pane');
+      for (const pane of panes) {
+        const walker = document.createTreeWalker(pane, NodeFilter.SHOW_TEXT);
+        for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+          if (node.parentElement?.closest('.knowledge-switcher-row, [contenteditable="false"]'))
+            continue;
+          for (const [start, end] of matchRanges(node.textContent || '', query)) {
+            const range = document.createRange();
+            range.setStart(node, start);
+            range.setEnd(node, end);
+            ranges.push(range);
+          }
+        }
+      }
+      registry.set(findHighlight, new Highlight(...ranges));
+    };
+    paint();
+    const observer = new MutationObserver(() => {
+      if (!frame) frame = requestAnimationFrame(paint);
+    });
+    observer.observe(root, { subtree: true, childList: true, characterData: true });
+    return () => {
+      observer.disconnect();
+      cancelAnimationFrame(frame);
+      registry.delete(findHighlight);
+    };
+  }, [root, query]);
+}
 
 /**
  * The first part of the Knowledge tab to show, in the order of the rail: Memory when it has
@@ -85,14 +131,19 @@ export function firstKnowledgeSection(facts: number, pages: number): 'memory' | 
   return facts || !pages ? 'memory' : 'pages';
 }
 
+/** The window event that puts the caret in Find of the Knowledge tab. detail: { groupId }. */
+export const knowledgeFindEvent = 'kalkidan-knowledge-find';
+
 /**
- * The Knowledge tab of a project: what agents read. One rail list has Memory first, then the
- * pages, with one search for both. Enter opens the selected result on the right.
+ * The Knowledge tab of a project: what agents read. The rail is the search: Find (⌘F) filters
+ * Memory and the pages in place, shows the number of matches and highlights them in the open
+ * page. Memory is the first row and opens as a page.
  */
 export function KnowledgePanel({
   api,
   group,
   sessions = [],
+  repos,
   section: sectionProp,
   docId,
   topic,
@@ -103,9 +154,9 @@ export function KnowledgePanel({
   group: ProjectGroup;
   /** The chats of the app. They give the titles of the source chats of facts. */
   sessions?: Session[];
-  /** The code folders of the project. Not used now; the shell still passes them. */
-  repos?: unknown;
-  /** The part to open: pages or memory. 'insights' opens Tasks or the Usage sheet. */
+  /** The code folders of the project. They give the repository colors of task rows. */
+  repos?: Project[];
+  /** The part to open: pages or memory. 'insights' opens Tasks or the Usage card. */
   section?: KnowledgeSection;
   /** Opens this page. */
   docId?: string;
@@ -113,7 +164,7 @@ export function KnowledgePanel({
   topic?: string;
   /** Scrolls the opened page to the heading with this text. */
   heading?: string;
-  /** Opens the Usage sheet at this task. */
+  /** Opens the Usage card at this task. */
   taskId?: string;
 }) {
   // Without a part to open, the panel waits for memory and pages, then opens the first part
@@ -130,7 +181,6 @@ export function KnowledgePanel({
   const [request, setRequest] = useState<DocOpenRequest>();
   const [railOpen, setRailOpen] = useState(false);
   const [query, setQuery] = useState('');
-  const [active, setActive] = useState(0);
   const serial = useRef(0);
   const { memory, facts, resource: memoryResource } = useMemoryFacts(api, group);
   // A failed memory read counts as no facts, so the panel can still open the pages.
@@ -205,95 +255,97 @@ export function KnowledgePanel({
     return () => window.removeEventListener('kalkidan-open-project-page', open);
   }, [group.id]);
 
-  // Search: page titles and passages, and facts.
-  const [passages, setPassages] = useState<DocPassage[]>([]);
+  // Find: the text of every page loads once while Find has text. The counts follow the text.
   const trimmed = query.trim();
+  const [texts, setTexts] = useState<ProjectDoc[] | null>(null);
+  const finding = !!trimmed;
   useEffect(() => {
-    if (!trimmed || typeof api.docsSearch !== 'function') {
-      setPassages([]);
+    if (!finding || typeof api.docsList !== 'function') {
+      setTexts(null);
       return;
     }
     let live = true;
-    const timer = setTimeout(() => {
-      api
-        .docsSearch(group.id, trimmed, 8)
-        .then((value) => live && setPassages(value))
-        .catch(() => live && setPassages([]));
-    }, 150);
+    api
+      .docsList(group.id)
+      .then((value) => live && setTexts(value))
+      .catch(() => live && setTexts([]));
     return () => {
       live = false;
-      clearTimeout(timer);
     };
-  }, [api, group.id, trimmed]);
-  const results = useMemo<Result[]>(() => {
-    if (!trimmed) return [];
-    const pageResults: Result[] = [];
-    for (const page of pages)
-      if (wordStartMatch(page.title, trimmed))
-        pageResults.push({
-          kind: 'page',
-          key: 'page:' + page.id,
-          docId: page.id,
-          title: page.title || 'Untitled',
-          detail: '',
-        });
-    for (const passage of passages) {
-      const known = pageResults.find((item) => item.kind === 'page' && item.docId === passage.id);
-      if (known) {
-        if (!known.detail) known.detail = plainExcerpt(passage.excerpt);
-        continue;
-      }
-      pageResults.push({
-        kind: 'page',
-        key: 'page:' + passage.id,
-        docId: passage.id,
-        title: passage.title || 'Untitled',
-        detail: plainExcerpt(passage.excerpt),
-        heading: passage.heading || undefined,
-      });
+  }, [api, group.id, finding, metadata.state.value]);
+  const matches = useMemo(() => {
+    if (!trimmed) return undefined;
+    const result: Record<string, number> = {};
+    for (const page of pages) {
+      const text = texts?.find((doc) => doc.id === page.id);
+      const count = matchCount(`${page.title} ${text?.markdown || ''}`, trimmed);
+      if (count) result[page.id] = count;
     }
-    const factResults: Result[] = facts
-      .filter((fact) => wordStartMatch(`${fact.topic} ${fact.content}`, trimmed))
-      .slice(0, 8)
-      .map((fact) => ({
-        kind: 'fact',
-        key: 'fact:' + fact.id,
-        id: fact.id,
-        topic: fact.topic,
-        title: fact.content.replace(/\s+/g, ' ').slice(0, 160),
-        detail: [
-          fact.topic,
-          reads?.memory[fact.id] ? `read in ${plural(reads.memory[fact.id], 'chat')}` : '',
-        ]
-          .filter(Boolean)
-          .join(' · '),
-      }));
-    return [...factResults, ...pageResults.slice(0, 8)];
-  }, [trimmed, pages, passages, facts, reads]);
-  const current = Math.min(active, Math.max(0, results.length - 1));
+    return result;
+  }, [trimmed, pages, texts]);
+  const memoryMatches = useMemo(
+    () =>
+      trimmed
+        ? facts.reduce((sum, fact) => sum + matchCount(`${fact.topic} ${fact.content}`, trimmed), 0)
+        : 0,
+    [trimmed, facts],
+  );
+  const noMatches =
+    !!trimmed && texts !== null && !memoryMatches && !Object.keys(matches || {}).length;
 
-  function openResult(result: Result) {
-    setQuery('');
-    if (result.kind === 'page')
-      apply({ section: 'pages', docId: result.docId, heading: result.heading });
-    else apply({ section: 'memory', topic: result.topic, factId: result.id });
+  const [rootElement, setRootElement] = useState<HTMLDivElement | null>(null);
+  useFindHighlight(rootElement, trimmed);
+  const findField = useRef<HTMLInputElement>(null);
+  const [findFocused, setFindFocused] = useState(false);
+  // ⌘F puts the caret in Find while the Knowledge tab shows. ⌘K sends an event.
+  useEffect(() => {
+    const focusFind = () => {
+      setRailOpen(true);
+      requestAnimationFrame(() => {
+        findField.current?.focus();
+        findField.current?.select();
+      });
+    };
+    const key = (event: globalThis.KeyboardEvent) => {
+      if (!hasPrimaryModifier(event) || event.shiftKey || event.key.toLowerCase() !== 'f') return;
+      event.preventDefault();
+      focusFind();
+    };
+    const requested = (event: Event) => {
+      const detail = (event as CustomEvent<{ groupId?: string }>).detail;
+      if (!detail?.groupId || detail.groupId === group.id) focusFind();
+    };
+    window.addEventListener('keydown', key);
+    window.addEventListener(knowledgeFindEvent, requested);
+    return () => {
+      window.removeEventListener('keydown', key);
+      window.removeEventListener(knowledgeFindEvent, requested);
+    };
+  }, [group.id]);
+  /** The first row that Find shows: Memory, else the first page in rail order. */
+  function firstMatch() {
+    if (memoryMatches) return apply({ section: 'memory' });
+    const page = rootElement?.querySelector<HTMLButtonElement>(
+      '.knowledge-rail-pages .wiki-tree-row:not([data-dim]) .doc-tree-page',
+    );
+    page?.click();
   }
-  function searchKeys(event: KeyboardEvent<HTMLInputElement>) {
+  function findKeys(event: KeyboardEvent<HTMLInputElement>) {
     if (event.key === 'Escape' && query) {
       event.preventDefault();
       event.stopPropagation();
       setQuery('');
-    } else if ((event.key === 'ArrowDown' || event.key === 'ArrowUp') && results.length) {
+    } else if (event.key === 'Enter' && trimmed) {
       event.preventDefault();
-      const step = event.key === 'ArrowDown' ? 1 : -1;
-      setActive((current + step + results.length) % results.length);
-    } else if (event.key === 'Enter' && results[current]) {
+      firstMatch();
+    } else if (event.key === 'ArrowDown') {
       event.preventDefault();
-      openResult(results[current]);
+      rootElement
+        ?.querySelector<HTMLButtonElement>('.knowledge-rail-scroll .doc-tree-page')
+        ?.focus();
     }
   }
   // In a narrow window the rail shows over the content. A click outside it closes it.
-  const root = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!railOpen) return;
     const close = (event: PointerEvent) => {
@@ -326,88 +378,58 @@ export function KnowledgePanel({
       <ChevronDown aria-hidden="true" />
     </Button>
   );
-  const resultId = (index: number) => `knowledge-result-${group.id}-${index}`;
-  const searchBox = (
-    <div className="knowledge-search">
-      <SearchInput
-        size="sm"
-        aria-label="Search knowledge"
-        placeholder="Search"
+  const find = (
+    <div className="knowledge-find" data-active={findFocused || !!query || undefined}>
+      <Search size={14} aria-hidden="true" />
+      <input
+        ref={findField}
+        type="search"
+        aria-label="Find in knowledge"
+        aria-keyshortcuts="Meta+F"
+        placeholder="Find"
         value={query}
-        role="combobox"
-        aria-expanded={!!trimmed}
-        aria-controls={`knowledge-results-${group.id}`}
-        aria-activedescendant={results[current] ? resultId(current) : undefined}
-        onChange={(event) => {
-          setQuery(event.target.value);
-          setActive(0);
-        }}
-        onKeyDown={searchKeys}
+        onChange={(event) => setQuery(event.target.value)}
+        onFocus={() => setFindFocused(true)}
+        onBlur={() => setFindFocused(false)}
+        onKeyDown={findKeys}
       />
+      <kbd aria-hidden="true">{query ? 'esc' : '⌘F'}</kbd>
     </div>
   );
   // Memory is the first row of the one rail list. The pages follow it.
-  const memoryRow = (
-    <NavRow
-      className="knowledge-rail-memory"
-      size="sm"
-      icon={<Lightbulb aria-hidden="true" />}
-      label="Memory"
-      current={!trimmed && section === 'memory'}
-      onClick={() => apply({ section: 'memory' })}
-    />
+  const memoryRow =
+    trimmed && !memoryMatches ? null : (
+      <div className="wiki-tree-row knowledge-memory-row" data-selected={section === 'memory'}>
+        <button
+          type="button"
+          className="doc-tree-page"
+          aria-current={section === 'memory' ? 'page' : undefined}
+          onClick={() => apply({ section: 'memory' })}
+        >
+          Memory
+          {memoryMatches > 0 && (
+            <span className="sr-only">, {plural(memoryMatches, 'match', 'matches')}</span>
+          )}
+        </button>
+        {memoryMatches > 0 && (
+          <span className="knowledge-count" aria-hidden="true">
+            {memoryMatches}
+          </span>
+        )}
+      </div>
+    );
+  const railLead = (
+    <>
+      {memoryRow}
+      {noMatches && (
+        <p className="knowledge-no-matches" role="status">
+          No matches
+        </p>
+      )}
+    </>
   );
-  const searchPane = trimmed ? (
-    <div className="knowledge-results" id={`knowledge-results-${group.id}`} role="listbox">
-      {switcher && <div className="knowledge-pane-bar">{switcher}</div>}
-      {/* The groups show the results. Only "no results" needs a line. */}
-      <p className={results.length ? 'sr-only' : 'knowledge-results-empty'} role="status">
-        {results.length
-          ? `${plural(results.length, 'result')} for “${trimmed}”`
-          : `No results for “${trimmed}”`}
-      </p>
-      {resultGroups.map(({ kind, label }) => {
-        const items = results.filter((item) => item.kind === kind);
-        if (!items.length) return null;
-        return (
-          <div key={kind} role="group" aria-label={label} className="knowledge-result-group">
-            <p className="group-label knowledge-result-label">{label}</p>
-            {items.map((item) => {
-              const index = results.indexOf(item);
-              const Icon = kind === 'page' ? FileText : Lightbulb;
-              return (
-                <div
-                  key={item.key}
-                  id={resultId(index)}
-                  role="option"
-                  aria-selected={index === current}
-                  className="knowledge-result"
-                  onMouseMove={() => setActive(index)}
-                  onMouseDown={(event) => event.preventDefault()}
-                  onClick={() => openResult(item)}
-                >
-                  <Icon size={16} aria-hidden="true" />
-                  <span className="min-w-0 flex-1">
-                    <span className="knowledge-result-title">
-                      <Highlight text={item.title} query={trimmed} />
-                    </span>
-                    {item.detail && (
-                      <span className="knowledge-result-detail">
-                        <Highlight text={item.detail} query={trimmed} />
-                      </span>
-                    )}
-                  </span>
-                </div>
-              );
-            })}
-          </div>
-        );
-      })}
-    </div>
-  ) : null;
   const pane =
-    searchPane ||
-    (section === 'memory' ? (
+    section === 'memory' ? (
       <ProjectMemoryPanel
         api={api}
         group={group}
@@ -421,21 +443,22 @@ export function KnowledgePanel({
     ) : section === null ? (
       // Memory and pages load. The pane stays empty for this short time.
       <span aria-busy="true" />
-    ) : undefined);
+    ) : undefined;
   return (
-    <div ref={root} className="knowledge-root">
+    <div ref={setRootElement} className="knowledge-root">
       <ProjectDocsPanel
         api={api}
         group={group}
+        repos={repos}
         request={request}
-        search={searchBox}
-        railLead={memoryRow}
+        find={find}
+        matches={matches}
+        railLead={railLead}
         railOpen={railOpen}
         pane={pane}
         switcher={switcher}
         readCounts={reads?.docs}
         onPageOpen={() => {
-          setQuery('');
           setSection('pages');
           setRailOpen(false);
         }}

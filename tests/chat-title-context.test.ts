@@ -49,7 +49,7 @@ test('a Codex thread named after the hidden project context gets the user text a
       (await history(root, join(root, 'claude'))).sessions.map((s) => [s.id, s.title]),
     );
     assert.deepEqual(titles, {
-      cut: 'Reply with the single word: pong',
+      cut: 'Reply with the single word',
       full: 'Fix the login page',
       lost: 'Agent session',
       plain: 'My own words',

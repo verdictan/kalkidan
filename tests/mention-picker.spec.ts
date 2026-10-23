@@ -1,6 +1,6 @@
 import { type Page } from '@playwright/test';
 import { test, expect } from './helpers/app';
-import { openCodeFolder } from './helpers/navigation';
+import { openCodeFolder, openTreeChat } from './helpers/navigation';
 
 /** Opens a chat in a project. `board` connects a task board to the project. */
 async function openChat(page: Page, setup: { board?: boolean }) {
@@ -70,7 +70,7 @@ async function openChat(page: Page, setup: { board?: boolean }) {
   }, setup);
   await page.goto('/');
   await openCodeFolder(page);
-  await page.getByRole('button', { name: 'Resume Review', exact: true }).click();
+  await openTreeChat(page, 'Review');
   return page.getByLabel('Message agent');
 }
 

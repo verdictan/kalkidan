@@ -128,7 +128,7 @@ test('Memory renders agent files and refreshes changes without open edit fields'
   await expect(panel.getByRole('textbox', { name: 'Add a fact', exact: true })).toBeVisible();
   await panel.getByText('Run npm test and lint.').click();
   await expect(panel.getByRole('textbox', { name: 'Fact', exact: true })).toHaveCount(0);
-  await expect(rail(page).getByRole('combobox', { name: 'Search knowledge' })).toBeVisible();
+  await expect(rail(page).getByRole('searchbox', { name: 'Find in knowledge' })).toBeVisible();
   await page.setViewportSize({ width: 757, height: 988 });
   await expect(panel.getByRole('heading', { name: 'Test conventions' })).toBeVisible();
 });

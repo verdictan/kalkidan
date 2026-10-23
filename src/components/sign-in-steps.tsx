@@ -14,7 +14,6 @@ import {
   accountNames,
   allowedModels,
   providerName,
-  runtimeBusy,
   verdictanErrorMessage,
 } from '../lib/verdictan-labels';
 import {
@@ -57,14 +56,16 @@ export interface SignInResult {
   groupId?: string;
 }
 
-/** Where the sign-in shows: the full window, a dialog, or step 1 of the Welcome card. */
-export type SignInMode = 'window' | 'dialog' | 'step';
+/**
+ * Where the sign-in shows: the full window, a dialog, step 1 of the Welcome card, or the card
+ * under a message that waits for the sign-in (gate).
+ */
+export type SignInMode = 'window' | 'dialog' | 'step' | 'gate';
 
 type View = 'start' | 'waiting' | 'setup' | 'error';
 
 // The runtime waits 310 seconds for the browser. Use it when the status has no end time.
 const authorizationWindowMs = 310_000;
-const installPollMs = 1500;
 // The longest wait for the setup of the organization after the sign-in. It continues after.
 const setupWaitMs = 8000;
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -250,24 +251,8 @@ export function SignInSteps({
         if (id !== attempt.current) return;
         account.setStatus(current);
       }
-      // The runtime owns the browser sign-in, so it must be installed first.
-      let installed = await runtime.read();
-      if (installed && !installed.installed) {
-        if (!runtimeBusy(installed) && installed.canInstall)
-          installed = await api.runtimeUpdateInstall('local');
-        while (installed && !installed.installed && runtimeBusy(installed)) {
-          await delay(installPollMs);
-          if (id !== attempt.current || !live.current) return;
-          installed = await runtime.read();
-        }
-        if (id !== attempt.current) return;
-        if (installed && !installed.installed && installed.operation?.phase === 'failed') {
-          setRuntimeReason(installed.reason || '');
-          setErrorCode('runtime');
-          setView('error');
-          return;
-        }
-      }
+      // The desktop installs or repairs the gateway runtime by itself. A runtime that is not
+      // there comes back as the phase 'missing', and the error view offers Try again.
       setPreparing(undefined);
       setStartedAt(Date.now());
       setView('waiting');
@@ -314,15 +299,13 @@ export function SignInSteps({
     if (status.region) void begin(requestedIntent || 'login', status.region);
   }, [autoStart, status]);
 
-  // After the sign-in: save the recommended setup for both agents, then continue. The setup
-  // runs in the background, so a slow answer does not hold the user here.
+  // After the sign-in: read the setup of the organization, then continue. The desktop applies
+  // the organization default by itself. Only a setup that stops managed agents (for example
+  // billing) stops here. A slow answer does not hold the user.
   useEffect(() => {
     if (view !== 'setup') return;
     let active = true;
-    const apply =
-      typeof api.verdictanApplyRecommended === 'function'
-        ? () => api.verdictanApplyRecommended()
-        : () => api.verdictanSetup();
+    const apply = () => api.verdictanSetup();
     void Promise.race([Promise.resolve().then(apply), delay(setupWaitMs)]).then(
       () => active && onFinished({ signedIn: true }),
       (error) => {
@@ -415,6 +398,51 @@ export function SignInSteps({
     return () => window.removeEventListener('online', retry);
   }, [view, errorCode, intent]);
 
+  if (mode === 'gate')
+    return (
+      <GateCard
+        status={status}
+        region={region}
+        regionMenuOpen={regionMenuOpen}
+        onRegionMenuOpenChange={(open) => {
+          setRegionMenuOpen(open);
+          if (!open && !region) pendingIntent.current = undefined;
+        }}
+        onRegion={(value) => void chooseRegion(value)}
+        view={view}
+        preparing={!!preparing}
+        error={
+          setupError
+            ? managedErrorInfo(setupError).message
+            : view === 'error'
+              ? errorCopy(errorCode, {
+                  region: status?.region || region,
+                  runtimeReason,
+                  canCopy: !!lastUrl,
+                  retry: () => void begin(intent),
+                  copy: () => void copyLink(lastUrl),
+                  useRegion: (value) => {
+                    setChosenRegion(value);
+                    void begin(intent, value);
+                  },
+                  cancel: () => setView('start'),
+                })
+              : undefined
+        }
+        canCopy={!!(status?.authorization?.url || lastUrl)}
+        onSignIn={() => {
+          setSetupError('');
+          void begin('login');
+        }}
+        onCopy={() => void copyLink()}
+        onCancel={() => {
+          void cancel();
+          setView('start');
+        }}
+        onContinue={() => onFinished({ signedIn: true })}
+      />
+    );
+
   if (setupError) {
     const names = accountNames(status);
     const done = { label: 'Continue', run: () => onFinished({ signedIn: true }) };
@@ -426,7 +454,7 @@ export function SignInSteps({
       <ErrorView
         mode={mode}
         copy={{
-          title: `${names.organization || 'Your organization'} cannot use managed agents yet`,
+          title: `${names.organization || 'Your organization'} cannot run agents through Verdictan yet`,
           body: managedErrorInfo(setupError).message,
           primary: manage || done,
           secondary: manage ? done : undefined,
@@ -476,7 +504,7 @@ export function SignInSteps({
       ? 'Run Codex and Claude Code on your code.'
       : mode === 'step'
         ? ''
-        : 'Chats run as managed agents through your Verdictan account.';
+        : 'Chats run your agent CLI through the Verdictan gateway of your account.';
   /** Stops the preparation or the browser sign-in, and shows the start again. */
   function stop() {
     void cancel();
@@ -607,7 +635,7 @@ export function RuntimeReadiness({ api }: { api: API }) {
   return (
     <div className="sign-in-readiness" role="status">
       <span>Getting ready</span>
-      <Progress value={progress} label="Getting managed agents ready" className="w-16" />
+      <Progress value={progress} label="Getting agents ready" className="w-16" />
     </div>
   );
 }
@@ -634,15 +662,18 @@ function RegionMenu({
   open,
   onOpenChange,
   onChange,
+  bare = false,
 }: {
   value?: Region;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onChange: (region: Region) => void;
+  /** Only the value and the chevron, with no "Region:" label. */
+  bare?: boolean;
 }) {
   return (
     <span className="sign-in-region-group">
-      <span>Region:</span>
+      {!bare && <span>Region:</span>}
       <DropdownMenu open={open} onOpenChange={onOpenChange}>
         <DropdownMenuTrigger asChild>
           <button
@@ -825,7 +856,7 @@ function errorCopy(
     };
   if (code === 'runtime')
     return {
-      title: 'Kalkidan could not get managed agents ready',
+      title: 'Kalkidan could not get the Verdictan gateway ready',
       body:
         context.runtimeReason ||
         'The download did not finish. Check the internet connection, then try again.',
@@ -850,4 +881,123 @@ function useCountdown(end: number) {
 function formatCountdown(ms: number) {
   const seconds = Math.ceil(ms / 1000);
   return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
+}
+
+/**
+ * The sign-in card under a message that waits for the sign-in (ST-C3): "Sign in to run agents",
+ * the account or the region, and one brown "Sign in". While the browser is open, the card shows
+ * one line: a spinner, "Waiting for browser", Copy link and Cancel. A failure shows in the card
+ * with its one action. No dialog opens.
+ */
+function GateCard({
+  status,
+  region,
+  regionMenuOpen,
+  onRegionMenuOpenChange,
+  onRegion,
+  view,
+  preparing,
+  error,
+  canCopy,
+  onSignIn,
+  onCopy,
+  onCancel,
+  onContinue,
+}: {
+  status: VerdictanStatus | undefined;
+  region: Region | undefined;
+  regionMenuOpen: boolean;
+  onRegionMenuOpenChange: (open: boolean) => void;
+  onRegion: (region: Region) => void;
+  view: View;
+  preparing: boolean;
+  /** The words of a failure, or the message of a setup that stops managed agents. */
+  error: ErrorCopy | string | undefined;
+  canCopy: boolean;
+  onSignIn: () => void;
+  onCopy: () => void;
+  onCancel: () => void;
+  onContinue: () => void;
+}) {
+  const organization = accountNames(status).organization;
+  const waiting = view === 'waiting' || preparing;
+  const settingUp = view === 'setup' && !error;
+  const mark = (
+    <img
+      src="./brand/kalkidan-mark.svg"
+      alt=""
+      aria-hidden="true"
+      width="28"
+      height="28"
+      className="sign-in-gate-mark"
+    />
+  );
+  if (error) {
+    const copy: ErrorCopy =
+      typeof error === 'string'
+        ? {
+            title: `${organization || 'Your organization'} cannot run agents through Verdictan yet`,
+            body: error,
+            primary: { label: 'Continue', run: onContinue },
+          }
+        : error;
+    return (
+      <section className="sign-in-gate" aria-label="Sign in" data-state="error">
+        {mark}
+        <span className="sign-in-gate-text">
+          <span className="sign-in-gate-title" role="alert">
+            {copy.title}
+          </span>
+          <span className="sign-in-gate-detail">{copy.body}</span>
+        </span>
+        {copy.secondary && (
+          <Button variant="ghost" onClick={copy.secondary.run}>
+            {copy.secondary.label}
+          </Button>
+        )}
+        <Button onClick={copy.primary.run}>{copy.primary.label}</Button>
+      </section>
+    );
+  }
+  return (
+    <section className="sign-in-gate" aria-label="Sign in" data-state={waiting ? 'waiting' : view}>
+      {mark}
+      <span className="sign-in-gate-text">
+        <span className="sign-in-gate-title">Sign in to run agents</span>
+        {waiting || settingUp ? (
+          <span className="sign-in-gate-detail sign-in-gate-wait" role="status">
+            <LoaderCircle className="animate-spin" aria-hidden="true" />
+            {settingUp ? 'Getting agents ready' : 'Waiting for browser'}
+          </span>
+        ) : (
+          <span className="sign-in-gate-detail">
+            Verdictan ·{' '}
+            {organization || (
+              <RegionMenu
+                value={region}
+                open={regionMenuOpen}
+                onOpenChange={onRegionMenuOpenChange}
+                onChange={onRegion}
+                bare
+              />
+            )}
+          </span>
+        )}
+      </span>
+      {waiting ? (
+        <>
+          {canCopy && (
+            <Button variant="ghost" size="sm" onClick={onCopy}>
+              <Copy /> Copy link
+            </Button>
+          )}
+          <Button variant="ghost" size="sm" onClick={onCancel}>
+            Cancel
+          </Button>
+        </>
+      ) : (
+        !settingUp && <Button onClick={onSignIn}>Sign in</Button>
+      )}
+    </section>
+  );
 }

@@ -43,7 +43,7 @@ test('history reads both agents, skips truncated lines, and handles missing stor
     await rm(root, { recursive: true, force: true });
   }
 });
-test('history uses the first Codex user response item as the session title', async () => {
+test('history uses a short title from the first Codex user response item', async () => {
   const root = await mkdtemp(join(tmpdir(), 'kalkidan-title-'));
   try {
     const codex = join(root, 'codex');
@@ -65,7 +65,7 @@ test('history uses the first Codex user response item as the session title', asy
     const result = await history(codex, join(root, 'claude'));
     assert.deepEqual(
       result.sessions.map((s) => s.title),
-      ['Add a dark mode toggle to the header'],
+      ['Add a dark mode toggle'],
     );
   } finally {
     await rm(root, { recursive: true, force: true });

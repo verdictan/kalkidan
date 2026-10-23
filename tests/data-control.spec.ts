@@ -56,19 +56,21 @@ async function fixture(page: Page, extra = '') {
   await page.goto('/');
 }
 
-/** Opens Settings › General › Your data with the help link of the Your data row. */
+/** Opens Your data from "Data · 1.2 GB on this Mac" in the footer of Settings. */
 async function openYourData(page: Page) {
-  const settings = await openSettingsWindow(page, 'General');
-  await settings
-    .getByRole('group', { name: 'Your data', exact: true })
-    .getByRole('button', { name: /^Manage your data/ })
-    .click();
+  const settings = await openSettingsWindow(page);
+  await settings.getByRole('button', { name: /^Manage data/ }).click();
 }
 
-test('Settings › General › Your data keeps the disk use, export, and deletion', async ({
-  page,
-}) => {
+test('Settings › Data keeps the disk use, export, and deletion', async ({ page }) => {
   await fixture(page);
+  // The footer of Settings shows the disk use of this Mac.
+  await expect(
+    (await openSettingsWindow(page)).getByRole('button', {
+      name: 'Manage data, 1.2 GB on this Mac',
+      exact: true,
+    }),
+  ).toBeVisible();
   await openYourData(page);
   const settings = page.getByRole('dialog', { name: 'Your data' });
   await expect(settings).toContainText('1.2 GB of 2.0 GB in /Users/dana/.kalkidan');
@@ -97,7 +99,7 @@ test('Settings › General › Your data keeps the disk use, export, and deletio
   await expect(settings).toBeVisible();
 });
 
-test('Settings › General › Your data warns when only chat history keeps the folder above the limit', async ({
+test('Settings › Data warns when only chat history keeps the folder above the limit', async ({
   page,
 }) => {
   await fixture(

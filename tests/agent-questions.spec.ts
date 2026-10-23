@@ -1,5 +1,5 @@
 import { test, expect } from './helpers/app';
-import { openCodeFolder } from './helpers/navigation';
+import { openCodeFolder, openTreeChat } from './helpers/navigation';
 
 test('agent questions accept keyboard answers without granting permissions', async ({ page }) => {
   await page.addInitScript(() => {
@@ -78,20 +78,21 @@ test('agent questions accept keyboard answers without granting permissions', asy
   });
   await page.goto('/');
   await openCodeFolder(page);
-  await page.getByRole('button', { name: 'Resume Plan work', exact: true }).click();
+  await openTreeChat(page, 'Plan work');
   await page.getByLabel('Message agent').fill('Plan the implementation');
   await page.getByRole('button', { name: 'Send', exact: true }).click();
-  const form = page.getByRole('form', { name: 'Agent questions' });
-  await expect(form.getByRole('button', { name: 'Send answer' })).toBeDisabled();
+  // The question shows in the frame of the composer, in place of the text box.
+  const form = page.getByRole('form', { name: 'Agent question' });
+  await expect(form.getByRole('button', { name: 'Answer', exact: true })).toBeDisabled();
   await form.getByLabel('Name', { exact: true }).fill('Atlas');
-  await form.getByRole('radio', { name: /SQLite/ }).focus();
+  await form.getByRole('radio', { name: /Postgres/ }).focus();
   await page.keyboard.press('Space');
-  await form.getByRole('button', { name: 'Send answer' }).focus();
+  await form.getByRole('button', { name: 'Answer', exact: true }).focus();
   await page.keyboard.press('Enter');
-  // The dock shows only open questions. A toast confirms the answer.
-  await expect(page.getByRole('status').filter({ hasText: 'Answer sent to Codex.' })).toBeVisible();
+  // The composer shows only open questions.
   await expect(form).toHaveCount(0);
+  await expect(page.getByLabel('Message agent')).toBeVisible();
   expect(await page.evaluate(() => (window as any).sentAnswers)).toEqual([
-    { id: 'run', request: 'q', answers: { name: ['Atlas'], db: ['SQLite'] } },
+    { id: 'run', request: 'q', answers: { name: ['Atlas'], db: ['Postgres'] } },
   ]);
 });

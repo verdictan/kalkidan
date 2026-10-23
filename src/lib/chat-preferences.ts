@@ -19,6 +19,18 @@ export function readNewChatAccess(): ChatAccess {
   }
 }
 
+/**
+ * The access of a new chat in the composers: the Settings choice when the user made one, else
+ * "Can edit" (each chat edits its own branch copy).
+ */
+export function newChatAccess(): ChatAccess {
+  try {
+    return localStorage.getItem(newChatAccessKey) === 'read' ? 'read' : 'edit';
+  } catch {
+    return 'edit';
+  }
+}
+
 export function saveNewChatAccess(value: ChatAccess) {
   try {
     localStorage.setItem(newChatAccessKey, value);

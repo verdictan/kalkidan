@@ -1,37 +1,36 @@
 import {
-  ChartColumn,
-  Check,
-  FilePlus2,
-  FolderPlus,
-  ListPlus,
-  MessageSquarePlus,
-  Palette,
+  AppWindow,
   PenLine,
-  Settings2,
+  Plus,
+  SlidersHorizontal,
+  SquarePen,
+  Trash2,
   Unplug,
 } from 'lucide-react';
-import { projectColors, type ProjectColor } from '../domain/project-colors';
 import { Fragment, type ReactElement, type ReactNode } from 'react';
-import { ContextMenu, DropdownMenu as Menu } from 'radix-ui';
+import { ContextMenu } from 'radix-ui';
 import { cn } from '../lib/utils';
+import { shortcutLabel } from '../lib/platform';
+import type { IdentityColor } from '../domain/identity';
 import { Hint } from './hint';
 import { MoreButton } from './ui/more-button';
+import { IdentitySwatches } from './ui/identity-swatches';
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuSeparator,
-  DropdownMenuSub,
-  DropdownMenuSubContent,
-  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from './ui/dropdown-menu';
 import {
   menuCollisionPadding,
-  menuContentClass,
   menuDestructiveClass,
   menuItemClass,
+  menuLabelClass,
   menuSeparatorClass,
+  menuShortcutClass,
+  menuWideClass,
+  menuSurfaceClass,
 } from './ui/menu-styles';
 
 export interface TreeAction {
@@ -39,125 +38,71 @@ export interface TreeAction {
   action(): void;
   /** A 16px icon before the label. */
   icon?: ReactNode;
+  /** A key hint at the right side, such as "⌘N". */
+  shortcut?: string;
   disabled?: boolean;
   destructive?: boolean;
   /** Tells the user why the action is disabled. */
   reason?: string;
   /** Draws a separator above this item. */
   separator?: boolean;
-  /** Shows the Color submenu just before this item and its separator. */
+  /** Shows the Color swatches and the extra rows (Usage) just before this item. */
   colorBefore?: boolean;
 }
-/** The folder color choices of a project menu. */
-export interface FolderColorChoice {
-  value?: ProjectColor;
-  disabled?: boolean;
-  onChange: (color: ProjectColor | null) => void;
-}
-export const folderColorOptions: [string, string][] = [
-  ['default', 'var(--muted-foreground)'],
-  ...Object.entries(projectColors),
-];
-export const colorName = (name: string) => name[0].toUpperCase() + name.slice(1);
-
-/** One color choice row: the swatch, the name and a check on the current color. */
-function ColorItems({
-  parts,
-  folderColor,
-}: {
-  parts: typeof ContextMenu | typeof Menu;
-  folderColor: FolderColorChoice;
-}) {
-  return (
-    <parts.RadioGroup
-      value={folderColor.value || 'default'}
-      onValueChange={(value) =>
-        folderColor.onChange(value === 'default' ? null : (value as ProjectColor))
-      }
-    >
-      {folderColorOptions.map(([name, color]) => (
-        <parts.RadioItem
-          key={name}
-          value={name}
-          disabled={folderColor.disabled}
-          className={menuItemClass}
-        >
-          <span className="size-3 shrink-0 rounded-full" style={{ backgroundColor: color }} />
-          <span className="flex-1">{colorName(name)}</span>
-          <parts.ItemIndicator aria-hidden="true">
-            <Check />
-          </parts.ItemIndicator>
-        </parts.RadioItem>
-      ))}
-    </parts.RadioGroup>
-  );
-}
-
-/** The Color submenu of a right-click menu. */
-function ContextColor({ folderColor }: { folderColor: FolderColorChoice }) {
-  return (
-    <ContextMenu.Sub>
-      <ContextMenu.SubTrigger className={menuItemClass}>
-        <Palette className="size-4" />
-        <span className="flex-1">Color</span>
-      </ContextMenu.SubTrigger>
-      <ContextMenu.Portal>
-        <ContextMenu.SubContent
-          collisionPadding={menuCollisionPadding}
-          className={menuContentClass}
-        >
-          <ColorItems parts={ContextMenu} folderColor={folderColor} />
-        </ContextMenu.SubContent>
-      </ContextMenu.Portal>
-    </ContextMenu.Sub>
-  );
-}
-
-/** The Color submenu of a ⋯ menu. */
-function DropdownColor({ folderColor }: { folderColor: FolderColorChoice }) {
-  return (
-    <DropdownMenuSub>
-      <DropdownMenuSubTrigger>
-        <Palette className="size-4" />
-        Color
-      </DropdownMenuSubTrigger>
-      <DropdownMenuSubContent>
-        <ColorItems parts={Menu} folderColor={folderColor} />
-      </DropdownMenuSubContent>
-    </DropdownMenuSub>
-  );
+/** The identity color choice of a menu: 8 swatches and Automatic. */
+export interface ColorChoice {
+  /** The color that the item shows now. */
+  value: IdentityColor;
+  /** True when the user chose the color. Automatic then shows. */
+  chosen?: boolean;
+  onChange: (color: IdentityColor | null) => void;
 }
 
 /** What the one project menu does. The sidebar row and the project header use the same menu. */
 export interface ProjectMenuHandlers {
+  projectName: string;
+  /** Opens the project in its own window. */
+  onOpenWindow?(): void;
   onNewChat(): void;
-  onNewTask(): void;
-  onNewPage(): void;
   /** Opens the one Add code folder dialog. It has the Local and Clone from GitHub sources. */
   onAddFolder(): void;
   onRename(): void;
-  /** Opens the Usage sheet of the project: agent runs and their cost. */
-  onUsage?(): void;
   onSettings(): void;
+  /** Removes the project from Kalkidan, after a confirmation. The last item, in red. */
+  onRemove?(): void;
   /** Shows "Reconnect to host" for a remote project whose host is not connected. */
   reconnect?: { host: string; disabled?: boolean; run(): void };
   busy?: boolean;
 }
 
 /**
- * The items of the one project menu, in this order: New chat, New task, New page — Add code
- * folder — Rename, Color — Usage, Project settings. Give the color choice to the menu as
- * `folderColor`. The Color submenu then shows after "Rename".
+ * The items of the one project menu (SH-A2), in this order: Open in new window, New chat — Add
+ * repo, Rename, Color — Settings, then Remove project when the caller gives `onRemove`. New task
+ * and New page are in search. Give the color choice to the menu as `color`; it shows before
+ * Settings, with the extra rows that the caller gives.
  */
 export function projectMenuActions(handlers: ProjectMenuHandlers): TreeAction[] {
-  const icon = (Icon: typeof Palette) => <Icon className="size-4" />;
+  const icon = (Icon: typeof Plus) => <Icon className="size-4" />;
   return [
-    { label: 'New chat', icon: icon(MessageSquarePlus), action: handlers.onNewChat },
-    { label: 'New task', icon: icon(ListPlus), action: handlers.onNewTask },
-    { label: 'New page', icon: icon(FilePlus2), action: handlers.onNewPage },
+    ...(handlers.onOpenWindow
+      ? [
+          {
+            label: 'Open in new window',
+            icon: icon(AppWindow),
+            shortcut: shortcutLabel(['shift'], '↵'),
+            action: handlers.onOpenWindow,
+          },
+        ]
+      : []),
     {
-      label: 'Add code folder…',
-      icon: icon(FolderPlus),
+      label: `New chat in ${handlers.projectName}`,
+      icon: icon(SquarePen),
+      shortcut: shortcutLabel(['mod'], 'N'),
+      action: handlers.onNewChat,
+    },
+    {
+      label: 'Add repo…',
+      icon: icon(Plus),
       separator: true,
       disabled: handlers.busy,
       action: handlers.onAddFolder,
@@ -175,40 +120,56 @@ export function projectMenuActions(handlers: ProjectMenuHandlers): TreeAction[] 
     {
       label: 'Rename…',
       icon: icon(PenLine),
-      separator: true,
       disabled: handlers.busy,
       action: handlers.onRename,
     },
-    ...(handlers.onUsage
+    {
+      label: 'Settings…',
+      icon: icon(SlidersHorizontal),
+      separator: true,
+      colorBefore: true,
+      action: handlers.onSettings,
+    },
+    ...(handlers.onRemove
       ? [
           {
-            label: 'Usage…',
-            icon: icon(ChartColumn),
+            label: 'Remove project…',
+            icon: icon(Trash2),
+            destructive: true,
             separator: true,
-            colorBefore: true,
-            action: handlers.onUsage,
+            action: handlers.onRemove,
           },
         ]
       : []),
-    {
-      label: 'Project settings…',
-      icon: icon(Settings2),
-      separator: !handlers.onUsage,
-      colorBefore: !handlers.onUsage,
-      action: handlers.onSettings,
-    },
   ];
 }
 
 /** The label of an item, with the reason of a disabled item as a second line. */
 function ItemLabel({ item }: { item: TreeAction }) {
   return item.disabled && item.reason ? (
-    <span className="grid min-w-0">
+    <span className="grid min-w-0 flex-1">
       <span>{item.label}</span>
       <span className="text-xs text-muted-foreground">{item.reason}</span>
     </span>
   ) : (
-    <>{item.label}</>
+    <span className="flex-1">{item.label}</span>
+  );
+}
+
+/** The Color label and the 8 swatches of a menu. */
+function ColorSection({ color }: { color: ColorChoice }) {
+  return (
+    <div className="menu-color" role="group" aria-label="Color">
+      <div className={menuLabelClass} aria-hidden="true">
+        Color
+      </div>
+      <IdentitySwatches
+        label="Color"
+        value={color.value}
+        onChange={color.onChange}
+        withAutomatic={color.chosen}
+      />
+    </div>
   );
 }
 
@@ -216,19 +177,38 @@ function ItemLabel({ item }: { item: TreeAction }) {
 export function TreeContextMenu({
   children,
   actions,
-  folderColor,
+  color,
+  extra,
   label = 'Item actions',
+  disabled = false,
 }: {
   children: ReactElement;
   /** The accessible name of the menu, such as "Project actions". */
   label?: string;
   actions: TreeAction[];
-  folderColor?: FolderColorChoice;
+  color?: ColorChoice;
+  /** More rows after the Color swatches, such as Usage. Context menu parts only. */
+  extra?: ReactNode;
+  disabled?: boolean;
 }) {
+  const hasSlot = actions.some((item) => item.colorBefore);
+  const slot = (
+    <>
+      {/* SH-A2: Color follows Rename… without a line. */}
+      {color && <ColorSection color={color} />}
+      {extra && (
+        <>
+          <ContextMenu.Separator className={menuSeparatorClass} />
+          {extra}
+        </>
+      )}
+    </>
+  );
   return (
     <ContextMenu.Root>
       <ContextMenu.Trigger
         asChild
+        disabled={disabled}
         onKeyDown={(event) => {
           if ((event.shiftKey && event.key === 'F10') || event.key === 'ContextMenu') {
             event.preventDefault();
@@ -250,14 +230,16 @@ export function TreeContextMenu({
         <ContextMenu.Content
           collisionPadding={menuCollisionPadding}
           className={cn(
-            menuContentClass,
+            menuSurfaceClass,
+            // The project menu with its Color swatches is 248px wide (SH-A2).
+            color ? 'w-[248px] min-w-fit' : menuWideClass,
             'max-h-(--radix-context-menu-content-available-height) origin-(--radix-context-menu-content-transform-origin)',
           )}
           aria-label={label}
         >
           {actions.map((item) => (
             <Fragment key={item.label}>
-              {item.colorBefore && folderColor && <ContextColor folderColor={folderColor} />}
+              {item.colorBefore && slot}
               {item.separator && <ContextMenu.Separator className={menuSeparatorClass} />}
               <ContextMenu.Item
                 disabled={item.disabled}
@@ -271,15 +253,11 @@ export function TreeContextMenu({
               >
                 {item.icon}
                 <ItemLabel item={item} />
+                {item.shortcut && <span className={menuShortcutClass}>{item.shortcut}</span>}
               </ContextMenu.Item>
             </Fragment>
           ))}
-          {folderColor && !actions.some((item) => item.colorBefore) && (
-            <>
-              <ContextMenu.Separator className={menuSeparatorClass} />
-              <ContextColor folderColor={folderColor} />
-            </>
-          )}
+          {!hasSlot && slot}
         </ContextMenu.Content>
       </ContextMenu.Portal>
     </ContextMenu.Root>
@@ -293,7 +271,8 @@ export function TreeContextMenu({
 export function TreeActionsMenu({
   label,
   actions,
-  folderColor,
+  color,
+  extra,
   disabled,
   className,
   size = 'xs',
@@ -301,13 +280,27 @@ export function TreeActionsMenu({
 }: {
   label: string;
   actions: TreeAction[];
-  folderColor?: FolderColorChoice;
+  color?: ColorChoice;
+  /** More rows after the Color swatches, such as Usage. Dropdown menu parts only. */
+  extra?: ReactNode;
   disabled?: boolean;
   className?: string;
   /** md (32px) in page headers, sm (28px) in toolbars, xs (24px) in list and tree rows. */
   size?: 'md' | 'sm' | 'xs';
   align?: 'start' | 'end';
 }) {
+  const hasSlot = actions.some((item) => item.colorBefore);
+  const slot = (
+    <>
+      {color && <ColorSection color={color} />}
+      {extra && (
+        <>
+          <DropdownMenuSeparator />
+          {extra}
+        </>
+      )}
+    </>
+  );
   return (
     <DropdownMenu>
       <Hint label={label} disabled={disabled}>
@@ -315,10 +308,14 @@ export function TreeActionsMenu({
           <MoreButton size={size} label={label} className={className} disabled={disabled} />
         </DropdownMenuTrigger>
       </Hint>
-      <DropdownMenuContent align={align} aria-label={label}>
+      <DropdownMenuContent
+        align={align}
+        aria-label={label}
+        className={actions.some((item) => item.shortcut) ? menuWideClass : undefined}
+      >
         {actions.map((item) => (
           <Fragment key={item.label}>
-            {item.colorBefore && folderColor && <DropdownColor folderColor={folderColor} />}
+            {item.colorBefore && slot}
             {item.separator && <DropdownMenuSeparator />}
             <DropdownMenuItem
               variant={item.destructive ? 'destructive' : 'default'}
@@ -328,15 +325,11 @@ export function TreeActionsMenu({
             >
               {item.icon}
               <ItemLabel item={item} />
+              {item.shortcut && <span className={menuShortcutClass}>{item.shortcut}</span>}
             </DropdownMenuItem>
           </Fragment>
         ))}
-        {folderColor && !actions.some((item) => item.colorBefore) && (
-          <>
-            <DropdownMenuSeparator />
-            <DropdownColor folderColor={folderColor} />
-          </>
-        )}
+        {!hasSlot && slot}
       </DropdownMenuContent>
     </DropdownMenu>
   );

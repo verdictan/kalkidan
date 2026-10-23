@@ -54,7 +54,7 @@
   flex: 1;
   min-height: 0;
   overflow: auto;
-  padding-block: 28px 24px;
+  padding-block: 24px;
   padding-left: max(24px, calc((100% - var(--chat-column)) / 2));
   padding-right: max(
     calc(24px - var(--scrollbar-width, 0px)),
@@ -81,7 +81,7 @@
   max-width: 85%;
   background: var(--secondary);
   border-radius: 16px;
-  padding: 10px 14px;
+  padding: 8px 14px;
 }
 .chat-message.user .chat-message-author {
   position: absolute;
@@ -182,13 +182,78 @@
   margin: 0 0 16px;
   overflow-wrap: anywhere;
 }
-/* "Waiting for your approval": a 6px amber dot on the column edge. */
-.chat-activity-dot {
-  width: 6px;
-  height: 6px;
+/* "Stopped · Continue" on the left edge of the column (CH-7). */
+.chat-stopped > svg {
   flex-shrink: 0;
-  border-radius: var(--radius-full);
-  background: var(--warning);
+}
+.chat-stopped [data-variant='link'] {
+  font-size: var(--text-xs);
+}
+/* A failure under the answer: a red cross, the plain sentence, then its actions (CH-6). */
+.chat-failure {
+  display: flex;
+  gap: 8px;
+  margin: -8px 0 24px;
+  font-size: var(--text-sm);
+  line-height: 20px;
+}
+.chat-failure-icon {
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+  margin-top: 2px;
+  color: var(--destructive);
+}
+.chat-failure-body {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+.chat-failure-body > p {
+  margin: 0;
+}
+.chat-failure-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.chat-failure-actions:empty {
+  display: none;
+}
+/* A message that waits for the sign-in: the bubble, then "Sends after sign-in" (ST-C3). */
+.chat-message.user[data-queued] {
+  margin-bottom: 8px;
+}
+.chat-queued-meta {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  margin: 0 0 16px;
+  font-size: var(--text-xs);
+  line-height: 16px;
+  color: var(--muted-foreground);
+}
+.chat-queued-meta > svg {
+  width: 12px;
+  height: 12px;
+}
+.chat-queued-meta [data-variant='link'] {
+  font-size: var(--text-xs);
+}
+/* Cancel shows on hover and keyboard focus, so the line reads as in the agreed frame. */
+.chat-queued-meta:not(:hover, :focus-within) [data-variant='link'] {
+  position: absolute;
+  right: 0;
+  opacity: 0;
+}
+/* The sign-in card in a chat is a white card with a border (ST-C3). */
+.chat-queued-meta + .sign-in-gate {
+  border: 1px solid var(--border);
+  background: var(--card);
 }
 
 /* The composer dock holds the approval banner and the composer. It has the message width,
@@ -201,18 +266,154 @@
   container: composer-dock / inline-size;
 }
 /* The one composer (composer.tsx), in a chat and on the project Overview. 16px inside the
-   border: the text starts 16px from the left edge of the message column. The pills and Send
-   sit 8px from the border. Focus makes the border darker, not brown. */
+   border: the text starts 16px from the left edge of the message column. The chips sit 8px
+   from the border, Send 12px. Focus makes the border darker, not brown. */
 .conversation-composer {
   position: relative;
   display: flex;
   flex-direction: column;
   gap: 8px;
-  padding: 12px 16px 8px;
+  padding: 12px 12px 8px 16px;
   border: 1px solid var(--border);
   border-radius: 16px;
   background: var(--card);
   color: var(--card-foreground);
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.03);
+}
+/* A question or an approval in the frame of the composer (CH-B1): a stronger border, 16px
+   inside, the question 14/22 500, the options as 36px rows with key boxes. */
+.conversation-composer.composer-asking,
+.conversation-composer.composer-asking:focus-within {
+  gap: 0;
+  padding: 16px 12px 12px 16px;
+  border-color: var(--chat-faint);
+}
+.composer-ask {
+  display: grid;
+  min-width: 0;
+}
+/* The frame takes the focus, so 1, 2 and ⏎ work at once. The composer border shows it. */
+.composer-ask:focus {
+  outline: none;
+}
+.composer-ask-body {
+  display: grid;
+  gap: 12px;
+  /* Room for the option rows, which start 8px left of the text. */
+  margin-left: -8px;
+  padding-left: 8px;
+  max-height: min(320px, 45vh);
+  overflow-y: auto;
+}
+.composer-ask-fieldset {
+  display: grid;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.composer-ask-question {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 0 0 8px;
+  padding: 0;
+  font-size: 14px;
+  line-height: 22px;
+  font-weight: 500;
+}
+.composer-ask-count {
+  font-size: var(--text-xs);
+  font-weight: 400;
+  color: var(--muted-foreground);
+}
+.composer-ask-option {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  height: 36px;
+  margin-left: -8px;
+  padding: 0 8px;
+  border-radius: 8px;
+  font-size: 13px;
+  line-height: 20px;
+  cursor: pointer;
+}
+.composer-ask-option:hover,
+.composer-ask-option[data-selected] {
+  background: var(--surface-hover);
+}
+.composer-ask-option:has(:focus-visible) {
+  box-shadow: var(--focus-ring-inset);
+}
+.composer-ask-key {
+  display: grid;
+  flex-shrink: 0;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  font-size: 11px;
+  line-height: 1;
+  color: var(--muted-foreground);
+}
+.composer-ask-option[data-selected] .composer-ask-key {
+  border-color: var(--foreground);
+  color: var(--foreground);
+}
+.composer-ask-label {
+  flex-shrink: 0;
+}
+.composer-ask-detail {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted-foreground);
+}
+.composer-ask-command {
+  margin: 0 0 4px;
+  max-height: 120px;
+  overflow: auto;
+  padding: 4px 8px;
+  border-radius: 8px;
+  background: var(--secondary);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  line-height: 20px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.composer-ask-foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+.composer-ask-foot[data-divided] {
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+.composer-ask-other {
+  flex: 1;
+  min-width: 0;
+  height: 28px;
+  border: 0;
+  background: transparent;
+  font-size: 14px;
+  line-height: 22px;
+  color: var(--foreground);
+  outline: none;
+}
+.composer-ask-other::placeholder {
+  color: var(--muted-foreground);
+}
+.composer-ask-key-hint {
+  font-size: 11px;
+  font-weight: 400;
+  opacity: 0.7;
 }
 .conversation-composer:focus-within {
   border-color: color-mix(in oklab, var(--foreground) 20%, var(--border));
@@ -324,20 +525,6 @@
   min-width: 0;
 }
 /* A command or other text that the agent asks to run: a quiet mono block. */
-.chat-card-command {
-  margin: 0;
-  max-height: 160px;
-  overflow: auto;
-  padding: 6px 10px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  background: var(--navigation);
-  font-family: var(--font-mono);
-  font-size: var(--text-xs);
-  line-height: 20px;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-}
 .chat-card:focus-visible {
   outline: none;
   box-shadow: var(--focus-ring);
@@ -423,14 +610,6 @@
   width: var(--control-sm);
   padding-inline: 0;
 }
-/* The approval and question cards dock above the composer, so they never scroll away. */
-.request-dock {
-  display: grid;
-  gap: 8px;
-  max-height: 50cqh;
-  margin: 0 0 8px;
-  overflow: auto;
-}
 /* "This conversation belongs to another organization. It is read-only." and a new conversation. */
 .chat-read-only {
   display: flex;
@@ -443,60 +622,74 @@
   color: var(--foreground);
   line-height: 16px;
 }
-/* "3 files +86 −4 · Review · Create pull request" after a run: 40px, radius 12, 12px text
-   with the icon 12px from the edge. The count never shortens. A narrow row says "Create PR". */
-.run-changes {
+/* After shipping, one 40px PR row above the composer (CH-B5): the PR number and title, the
+   state, and Open on GitHub. */
+.pr-row {
   display: flex;
   align-items: center;
   gap: 8px;
   height: 40px;
   margin: 0 0 8px;
-  padding: 0 4px 0 12px;
+  padding: 0 6px 0 16px;
   border: 1px solid var(--border);
   border-radius: 12px;
   background: var(--card);
-  color: var(--muted-foreground);
-  font-size: var(--text-xs);
-  line-height: 16px;
+  font-size: var(--text-sm);
+  line-height: 20px;
 }
-.run-changes-text {
-  display: flex;
-  flex: 1;
-  align-items: baseline;
-  gap: 6px;
+.pr-row-title {
   min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
-}
-.run-changes-count {
-  flex-shrink: 0;
-  color: var(--foreground);
   font-weight: 500;
 }
-.run-changes-lines {
+.pr-row-state {
+  display: inline-flex;
   flex-shrink: 0;
-}
-.run-changes-actions {
-  display: flex;
-  flex-shrink: 1;
-  min-width: 0;
   align-items: center;
   gap: 4px;
+  height: 20px;
+  padding: 0 8px;
+  border-radius: var(--radius-full);
+  background: var(--secondary);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--muted-foreground);
 }
-.run-changes-primary {
+.pr-row-state:is([data-state='open'], [data-state='pass']) {
+  background: color-mix(in srgb, var(--success) 10%, transparent);
+  color: var(--success);
+}
+.pr-row-state[data-state='fail'] {
+  background: color-mix(in srgb, var(--destructive) 10%, transparent);
+  color: var(--destructive);
+}
+.pr-row-state > svg {
+  width: 12px;
+  height: 12px;
+}
+/* The repo chip: the ring mark, the name and " · branch" (CH-B4). */
+.composer-folder {
   min-width: 0;
+  max-width: 320px;
 }
-.run-changes-short {
-  display: none;
+.composer-folder .identity-mark {
+  flex-shrink: 0;
 }
-@container composer-dock (max-width: 440px) {
-  .run-changes-long {
-    display: none;
-  }
-  .run-changes-short {
-    display: inline;
-  }
+.composer-folder-label {
+  display: inline-flex;
+  align-items: center;
+  height: 28px;
+  color: var(--muted-foreground);
+  font-size: var(--text-sm);
+  white-space: nowrap;
 }
-/* The access pill keeps its label. The model chip and the folder pill shorten first. */
+.composer-folder-dot {
+  opacity: 0.6;
+}
+/* "Read only" when the chat menu made the chat read only. */
+/* The access chip (SH-A1, ST-C3): "Can edit" or "Read only", with its two-line menu. */
 .composer-access {
   flex-shrink: 0;
 }
@@ -510,16 +703,67 @@
   line-height: 16px;
   white-space: normal;
 }
-.composer-folder {
-  min-width: 0;
-  max-width: 280px;
+/* A narrow composer (the chat next to the tool pane, CH-B2) drops the branch first, then shows
+   the access as its icon only. The name stays for screen readers. */
+@container composer (max-width: 520px) {
+  .composer-folder-dot,
+  .composer-folder-dot + .truncate {
+    display: none;
+  }
+}
+@container composer (max-width: 400px) {
+  .composer-access-label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+  .composer-access > svg + .composer-access-label + svg,
+  .composer-agent > svg {
+    display: none;
+  }
+}
+/* The agent picker menu (CH-B4): 264 wide, a 24px head "On this computer · through
+   Verdictan", the agents with their versions, then the restart line. */
+.agent-picker-menu {
+  width: 264px;
+}
+.agent-picker-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 24px;
+  padding: 0 8px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--muted-foreground);
+}
+.agent-picker-through {
+  font-size: 12px;
+  font-weight: 400;
+}
+.agent-picker-version {
+  margin-left: auto;
+  font-size: var(--text-xs);
+  color: var(--muted-foreground);
+  font-variant-numeric: tabular-nums;
+}
+.agent-picker-note {
+  margin: 0;
+  padding: 4px 8px 6px;
+  font-size: 11px;
+  line-height: 16px;
+  color: var(--muted-foreground);
+  white-space: normal;
 }
 /* The activity of a run sits under its answer as one quiet line, "N steps · M files edited".
    Steps, sources, policy and usage open behind it. One 24px line for each step. */
 .agent-activity {
   display: grid;
   gap: 4px;
-  margin: -12px 0 8px;
+  margin: -16px 0 8px;
 }
 .agent-activity-detail {
   display: grid;
@@ -599,28 +843,14 @@ button.agent-step:hover {
   padding: var(--space-1) 0 var(--space-2) var(--space-6);
 }
 
-.conversation-welcome {
-  text-align: center;
-  padding: 16px 0;
-  flex-shrink: 0;
-}
-.conversation-welcome h3 {
-  font-size: var(--text-xl);
-  line-height: 28px;
-  font-weight: 600;
-  letter-spacing: -0.01em;
-}
-/* Until the first message, the welcome block and the composer sit together in the middle of
-   the panel, 64px above the centre. The title is 20px above the composer. */
+/* Until the first message, the composer sits in the middle of the panel, 64px above the
+   centre (CH-B4). There is no heading. */
 .conversation-empty {
   justify-content: center;
   padding-bottom: 64px;
 }
-.conversation-empty .conversation-welcome {
-  padding: 0 0 20px;
-}
 .conversation-empty .composer-dock {
-  padding-bottom: 0;
+  padding-block: 0;
 }
 .conversation-empty .conversation-messages {
   display: flex;
@@ -628,16 +858,6 @@ button.agent-step:hover {
   flex-direction: column;
   justify-content: flex-end;
   padding-block: 0;
-}
-/* Compact: a narrow session column (next to tools or a side session) or a short panel. */
-@container conversation (max-width: 720px) or (max-height: 640px) {
-  .conversation-welcome {
-    padding: 8px 0;
-  }
-  .conversation-welcome h3 {
-    font-size: var(--text-xl);
-    line-height: 28px;
-  }
 }
 /* In a very short window, the empty chat uses the full height. */
 @media (max-height: 480px) {
@@ -655,96 +875,60 @@ button.agent-step:hover {
   white-space: nowrap;
 }
 
-/* The file list in the commit dialog: a checkbox, the name, the folder and the change. */
-.commit-file-list {
-  max-height: 220px;
-}
-.commit-file {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  width: 100%;
-  min-width: 0;
-  min-height: var(--row-height);
-  font-size: var(--text-sm);
-  line-height: 20px;
-  cursor: pointer;
-}
-.commit-file-list .list-box-row:hover {
-  background: var(--surface-hover);
-}
-.commit-file-list .list-box-row:has(:focus-visible) {
-  box-shadow: var(--focus-ring-inset);
-}
-.commit-file-list input:focus-visible {
-  outline: none;
-}
-.commit-file-name {
-  flex-shrink: 0;
-  font-weight: 500;
-}
-.commit-file-path {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: var(--text-xs);
-  line-height: 16px;
-  color: var(--muted-foreground);
-}
-.commit-file-status {
-  flex-shrink: 0;
-  font-size: var(--text-xs);
-  line-height: 16px;
-  color: var(--muted-foreground);
-}
-
-/* The session breadcrumb in the title bar: repository › session title. The repository name
-   starts at the same x as .topbar-title on other pages. */
+/* The chat crumb in the header: project / repo / chat, each with its identity mark (CH-B).
+   The crumb starts on the left edge of the chat column. */
 .conversation-toolbar {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 6px;
   min-width: 0;
-  border-right: 1px solid var(--border);
+  font-size: var(--text-sm);
 }
-.conversation-breadcrumb-repo {
-  flex-shrink: 1;
-  min-width: 0;
-  max-width: 40%;
+#conversation-titlebar-heading > .conversation-heading {
+  flex: 1 1 auto;
+}
+/* The project and the repo shorten first; the chat title keeps its words longest. */
+.conversation-crumb {
+  display: inline-flex;
+  flex: 0 4 auto;
+  align-items: center;
+  min-width: 24px;
   height: var(--control-sm);
   padding: 0;
   border-radius: var(--radius-sm);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: var(--text-sm);
   color: var(--muted-foreground);
+  white-space: nowrap;
   -webkit-app-region: no-drag;
 }
-.conversation-breadcrumb-repo:hover {
+button.conversation-crumb:hover {
   color: var(--foreground);
 }
-.conversation-breadcrumb-repo:focus-visible {
+.conversation-crumb:focus-visible {
   outline: none;
   box-shadow: var(--focus-ring);
 }
+.conversation-crumb-slash {
+  flex-shrink: 0;
+  margin: 0 2px;
+  color: var(--chat-faint);
+}
 .conversation-toolbar-title {
-  flex: 1;
-  min-width: 0;
+  display: inline-flex;
+  flex: 0 1 auto;
+  min-width: 48px;
   overflow: hidden;
-  text-overflow: ellipsis;
   white-space: nowrap;
   font-size: var(--text-sm);
   font-weight: 500;
   color: var(--foreground);
+}
+.conversation-toolbar-title .identity-token {
+  min-width: 0;
 }
 /* The chat trail shortens from the middle: the project or code folder goes first, then
    "Projects". The chat title stays. */
 @container chat-trail (max-width: 560px) {
-  .conversation-trail [data-middle],
-  .conversation-trail [data-middle] + svg {
+  .conversation-trail [data-middle] {
     display: none;
   }
 }
@@ -800,4 +984,48 @@ button.agent-step:hover {
   .chat-markdown > pre {
     margin-inline: calc(-1 * var(--space-16));
   }
+}
+
+/* The subagents of a run (SH-A3): one 56px card each, under the answer that started them. */
+.subagent-cards {
+  display: grid;
+  gap: 8px;
+  margin: 16px 0;
+}
+.subagent-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  height: 56px;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--card);
+  scroll-margin: 24px;
+}
+.subagent-card:focus-visible,
+.subagent-card[data-focused] {
+  outline: 2px solid var(--ring);
+  outline-offset: 1px;
+}
+.subagent-card-text {
+  display: grid;
+  flex: 1;
+  min-width: 0;
+}
+.subagent-card-title,
+.subagent-card-detail {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.subagent-card-title {
+  font-size: var(--text-sm);
+  line-height: 20px;
+  font-weight: 500;
+}
+.subagent-card-detail {
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--muted-foreground);
 }

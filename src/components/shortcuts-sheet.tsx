@@ -24,10 +24,11 @@ export function shortcutGroups(): { title: string; items: [string, string][] }[]
         ['Go back', isMac ? shortcutLabel(['mod'], '[') : shortcutLabel(['alt'], '←')],
         ['Go forward', isMac ? shortcutLabel(['mod'], ']') : shortcutLabel(['alt'], '→')],
         [
-          'Go to Overview, Tasks, Chats or Knowledge',
-          `${shortcutLabel(['mod'], '1')}–${shortcutLabel(['mod'], '4')}`,
+          'Go to Overview, Tasks or Knowledge',
+          `${shortcutLabel(['mod'], '1')}–${shortcutLabel(['mod'], '3')}`,
         ],
-        ['Show all chats', shortcutLabel(['mod', 'shift'], 'L')],
+        ['Open the project in a new window', shortcutLabel(['shift'], '↵')],
+        ['Allow the selected approval in search', shortcutLabel(['mod'], '↵')],
       ],
     },
     {

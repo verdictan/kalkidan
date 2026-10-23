@@ -91,7 +91,7 @@ export function uncertainWritesText(count: number) {
 
 /**
  * The popover of the GitHub check chip, "Not confirmed on GitHub": the writes of this session
- * that have no confirmed result, each with "Mark as checked" and "Open on GitHub".
+ * that have no confirmed result, each with "Dismiss" and "Open on GitHub".
  */
 export function UncertainWritesPopover({
   api,
@@ -110,7 +110,7 @@ export function UncertainWritesPopover({
   rows: GitHubMutationHistory;
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  /** Called after "Mark as checked", so that the count loads again. */
+  /** Called after "Dismiss", so that the count loads again. */
   onChecked: () => void;
   onOpenTask: (itemId: string) => void;
   /** The anchor, for example the "⋯" button. */
@@ -195,7 +195,7 @@ export function UncertainWritesPopover({
                         disabled={!!busy}
                         onClick={() => void check(row.id)}
                       >
-                        Mark as checked
+                        Dismiss
                       </Button>
                       <Button asChild size="xs" variant="ghost">
                         <a href={href} target="_blank" rel="noreferrer">
@@ -216,13 +216,13 @@ export function UncertainWritesPopover({
   );
 }
 
-/** "1 change not confirmed", the short text of the Tasks header chip. */
+/** "1 change not on GitHub yet", the short text of the Tasks header chip. */
 export function unconfirmedWritesText(count: number) {
-  return count === 1 ? '1 change not confirmed' : `${count} changes not confirmed`;
+  return count === 1 ? '1 change not on GitHub yet' : `${count} changes not on GitHub yet`;
 }
 
 /**
- * The GitHub check of the Tasks header: an amber chip "1 change not confirmed" that opens the
+ * The GitHub check of the Tasks header: an amber chip "1 change not on GitHub yet" that opens the
  * changes to check. It shows nothing when every change is confirmed.
  */
 export function UncertainWritesChip({
@@ -237,7 +237,7 @@ export function UncertainWritesChip({
       <Button
         variant="ghost"
         size="xs"
-        className="uncertain-writes-chip gap-1.5 rounded-full px-2 font-medium text-[var(--warning)] has-[>svg]:px-2 hover:bg-[color-mix(in_oklab,var(--warning)_14%,var(--background))] hover:text-[var(--warning)] [&_svg]:size-3.5"
+        className="uncertain-writes-chip gap-1.5 px-0 font-normal text-[var(--warning)] has-[>svg]:px-0 hover:bg-transparent hover:text-[var(--warning)] hover:underline [&_svg]:size-3.5"
         aria-haspopup="dialog"
         aria-expanded={open}
         aria-label={`${uncertainWritesText(rows.length)}. Check`}
@@ -384,7 +384,7 @@ export function GitHubWriteHistory({
                           )
                         }
                       >
-                        Mark as checked
+                        Dismiss
                       </Button>
                     )}
                     {canRevertMutation(row) && typeof api.trackerMutationRevert === 'function' && (

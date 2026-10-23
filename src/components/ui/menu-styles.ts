@@ -9,18 +9,19 @@ export const menuMotionClass =
 export const menuWidthClass = 'w-[var(--menu-width)] min-w-fit';
 export const menuWideClass = 'w-[var(--menu-width-wide)] min-w-fit';
 /** The menu surface without a width. Menus set menuWidthClass or menuWideClass. */
+/** SY-B: radius 12, no border, a hairline ring plus the md shadow. */
 export const menuSurfaceClass =
-  'z-[var(--z-popover)] overflow-x-hidden overflow-y-auto rounded-lg border bg-popover p-1 text-popover-foreground shadow-md ' +
+  'z-[var(--z-popover)] overflow-x-hidden overflow-y-auto rounded-lg bg-popover p-1 text-popover-foreground shadow-[var(--shadow-floating)] ' +
   menuMotionClass;
 /** The menu surface at the default width. */
 export const menuContentClass = menuSurfaceClass + ' ' + menuWidthClass;
 /**
- * A 28px item, radius 6, with a 14px muted icon and an 8px gap. The highlighted item is the
- * 4% hover fill. Destructive items set `--menu-icon` to red.
+ * A 32px item, radius 8, with a 16px muted icon and an 8px gap. The highlighted item is the
+ * grey fill. Destructive items set `--menu-icon` to red.
  */
 export const menuItemClass =
-  "relative flex h-7 cursor-default items-center gap-2 rounded-sm px-2 text-sm whitespace-nowrap outline-hidden select-none focus:bg-[var(--surface-hover)] focus:text-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50 data-[state=open]:bg-[var(--surface-hover)] [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-3.5 [&_svg:not([class*='text-'])]:text-[var(--menu-icon,var(--muted-foreground))]";
-/** One group-label style for menus, select lists, the sidebar and settings: 11/16, 500. */
+  "relative flex h-8 cursor-default items-center gap-2 rounded-sm px-2 text-sm whitespace-nowrap outline-hidden select-none focus:bg-[var(--fill)] focus:text-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50 data-[state=open]:bg-[var(--fill)] [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 [&_svg:not([class*='text-'])]:text-[var(--menu-icon,var(--muted-foreground))]";
+/** One group-label style for menus, select lists, the sidebar and settings: 12/16, 400. */
 export const menuLabelClass = 'group-label px-2 pt-2 pb-1';
 /** Destructive items in dropdown and context menus. */
 export const menuDestructiveClass =
@@ -30,6 +31,6 @@ export const menuShortcutClass = 'ml-auto pl-4 text-xs text-muted-foreground';
 /**
  * The space that menus, select lists and tooltips keep from the window edges. The top value
  * is larger: the 40px title bar and the macOS window controls are at the top of the window.
- * Keep it equal to `--titlebar-height` (40px) in theme.css plus 4px.
+ * Keep it equal to `--header-height` (48px) in theme.css plus 4px.
  */
-export const menuCollisionPadding = { top: 44, right: 8, bottom: 8, left: 8 };
+export const menuCollisionPadding = { top: 52, right: 8, bottom: 8, left: 8 };

@@ -60,6 +60,8 @@ export interface ChatActionState {
   board?: boolean;
   /** The linked task can be marked done now. Only then the menus show Mark task done. */
   canMarkDone?: boolean;
+  /** The open chat is read only: the agent reads files and does not change them. */
+  readOnly?: boolean;
 }
 
 export type ChatActionId =
@@ -72,6 +74,7 @@ export type ChatActionId =
   | 'open-linked-task'
   | 'notes'
   | 'commit'
+  | 'read-only'
   | 'mark-task-done'
   | 'create-pull-request'
   // "View pull request #N". The ID stays for the surfaces that open the pull request.
@@ -207,14 +210,14 @@ export const chatActions: readonly ChatActionDefinition[] = [
     // An open chat cannot open again. The menu bar and the palette act on the open chat.
     visible: ({ state }) => !state.open,
   }),
+  // The side chat is removed (round 11). "Fork chat…" opens a new chat. The ID and the command
+  // stay for old commands, but the action shows nowhere.
   define({
     id: 'open-beside',
     label: 'Open side chat',
     group: 'open',
-    keywords: 'side split new chat',
-    shortcut: sessionShortcut('S', 'S'),
     command: 'session-side-chat',
-    enabled: all(checks.repository),
+    visible: () => false,
   }),
   define({
     id: 'open-window',
@@ -266,6 +269,8 @@ export const chatActions: readonly ChatActionDefinition[] = [
     keywords: 'note comment remember',
     command: 'session-notes',
   }),
+  // Commit opens the Changes tab of the tool pane. "Commit only" is on the arrow of its
+  // Create pull request button.
   define({
     id: 'commit',
     label: 'Commit changes…',
@@ -273,6 +278,17 @@ export const chatActions: readonly ChatActionDefinition[] = [
     keywords: 'git save changes commit',
     command: 'session-commit',
     enabled: all(checks.repository, checks.idle, (state) => !!state.noChanges && reasons.noChanges),
+  }),
+  // Each chat can edit its own branch copy. "Read only" stops the agent from changing files.
+  define({
+    id: 'read-only',
+    label: (state) => (state.readOnly ? 'Allow file edits' : 'Read only'),
+    group: 'work',
+    keywords: 'read only access permission edit files lock',
+    command: 'session-read-only',
+    // Only the open chat knows its access.
+    visible: ({ state }) => state.open && state.readOnly !== undefined,
+    enabled: all(checks.idle),
   }),
   define({
     id: 'mark-task-done',
@@ -464,6 +480,7 @@ export const chatCommands = [
   'open-linked-task',
   'session-notes',
   'session-commit',
+  'session-read-only',
   'session-mark-task-done',
   'session-create-pull-request',
   'open-pull-request',
@@ -565,8 +582,8 @@ function resolve(
 /**
  * The layout of the chat row menu and the Chat actions menu: two levels, few items. A click on a
  * row opens the chat, so the menu has no Open. The pull request is not in these menus: the
- * changes row of the chat shows it. Commit and Mark task done show only when they can run.
- * Notes, side chat, export and usage history are in ⌘K and the menu bar.
+ * Changes tab of the chat ships it. Commit is on the arrow of Create pull request. Mark task done
+ * shows only when it can run. Notes, export and usage history are in ⌘K and the menu bar.
  */
 type MenuEntry =
   ChatActionId | { id: 'open-in' | 'export'; label: string; children: ChatActionId[] };
@@ -575,7 +592,7 @@ const chatMenuLayout: { group: ChatActionGroup; items: MenuEntry[] }[] = [
   {
     group: 'work',
     items: [
-      'commit',
+      'read-only',
       'mark-task-done',
       'fork',
       {
@@ -588,10 +605,7 @@ const chatMenuLayout: { group: ChatActionGroup; items: MenuEntry[] }[] = [
   { group: 'archive', items: ['archive'] },
 ];
 /** Items of the layout that show only in some states. */
-const layoutVisible: Partial<Record<ChatActionId, (state: ChatActionState) => boolean>> = {
-  // Commit shows when the folder has changes. An unknown state hides it.
-  commit: (state) => state.noChanges === false,
-};
+const layoutVisible: Partial<Record<ChatActionId, (state: ChatActionState) => boolean>> = {};
 /** The submenus of the layout. They have no command and run nothing themselves. */
 function submenuAction(id: 'open-in' | 'export', label: string): ChatActionDefinition {
   return { id, label, group: id === 'open-in' ? 'work' : 'share', run: () => {} };
@@ -752,6 +766,7 @@ const optionalKeys: (keyof ChatActionState)[] = [
   'noBranchWork',
   'board',
   'canMarkDone',
+  'readOnly',
 ];
 /** Reads a state from an untrusted value, such as an IPC message. Returns null when invalid. */
 export function parseChatActionState(value: unknown): ChatActionState | null {

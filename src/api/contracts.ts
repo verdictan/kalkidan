@@ -53,6 +53,8 @@ import type {
   TrackerConnection,
 } from '../domain/tracker';
 import type { DataControlAPI } from '../domain/data-policy';
+import type { CodeFilesAPI } from '../domain/code-files';
+import type { DesktopAPI } from '../domain/desktop';
 export type {
   TrackerProject,
   TrackerItem,
@@ -91,11 +93,15 @@ export interface TrackerAPI
 }
 export interface AgentAPI {
   githubCliCheck(): Promise<GitHubCliStatus>;
-  /** Checks the agent programs. No host ID means this computer. */
+  /**
+   * Checks the agent programs. No host ID means this computer.
+   * @deprecated Kalkidan does not manage agents. Use `toolStatus` or `computerTools`.
+   */
   agentInstallations(hostId?: string): Promise<AgentInstallation[]>;
   /**
    * Keeps the program that launches use for an agent on one computer, then checks again.
    * `null` returns to automatic detection. Rejects a file that does not report a version.
+   * @deprecated Kalkidan does not manage agents. Remove its UI (Programs).
    */
   chooseAgentExecutable?(
     agent: Agent,
@@ -298,6 +304,8 @@ export interface ProjectAPI {
     number: number;
     title?: string;
     draft?: boolean;
+    /** The CI checks from `statusCheckRollup`. Not set when the pull request has no checks. */
+    checks?: 'pass' | 'fail' | 'pending';
   }>;
   /** Opens the native folder dialog. Resolves null when the user cancels. Electron only. */
   chooseFolder(title?: string, buttonLabel?: string): Promise<string | null>;
@@ -308,6 +316,11 @@ export interface ProjectAPI {
    * Skips hidden folders, node_modules and the folders inside a repository.
    */
   scanRepositories(path: string, hostId?: string): Promise<FolderScan>;
+  /**
+   * Folders with code in the usual places of the home folder (~/code, ~/Developer, ~/src,
+   * ~/Projects and similar), newest first. The first composer shows them as chips.
+   */
+  findCodeFolders?(): Promise<FoundCodeFolder[]>;
   /** Adds these folders to a project as repositories. Skips folders that are already added. */
   addRepositories(groupId: string, paths: string[]): Promise<{ added: number }>;
   /**
@@ -349,6 +362,14 @@ export interface ProjectAPI {
    * Returns the pull request URL. Rejects on the default branch.
    */
   gitPullRequest(id: string, title: string, body: string): Promise<{ url: string }>;
+}
+/** A folder with code that the first composer offers, for example "atlas · 3 repos". */
+export interface FoundCodeFolder {
+  name: string;
+  path: string;
+  /** 1 for a repository. For a folder that holds repositories, the number of them. */
+  repos: number;
+  modifiedAt: number;
 }
 export interface FolderScan {
   /** The folder that was scanned, as a canonical path. */
@@ -466,7 +487,9 @@ export interface MemoryAPI {
 }
 export interface API
   extends
+    DesktopAPI,
     DataControlAPI,
+    CodeFilesAPI,
     ProjectServicesAPI,
     ParallelDispatchAPI,
     PublishAPI,

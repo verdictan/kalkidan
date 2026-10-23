@@ -36,16 +36,27 @@ export function pullRequestBody({
   sessionTitle: string;
 }) {
   const lines: string[] = [];
-  const intro =
-    summary?.trim() || (title.trim() && title.trim() !== sessionTitle ? title.trim() : '');
+  // The answer of the agent often starts with "Done." That word says nothing in a pull request.
+  const answer = summary?.trim().replace(/^(done|finished|all done)[.!]\s*/i, '');
+  const intro = answer || (title.trim() && title.trim() !== sessionTitle ? title.trim() : '');
   if (intro) lines.push(intro, '');
   if (task) {
     lines.push(task.url ? `Task: [${task.title}](${task.url})` : `Task: ${task.title}`);
     if (closesTask(task)) lines.push('', `Closes ${task.repository}#${task.number}`);
-    lines.push('');
   }
-  lines.push(`Made with an agent in the Kalkidan chat “${sessionTitle}”.`);
   return lines.join('\n').trim();
+}
+
+/**
+ * The generated pull request title (CH-20): the chat title, or its first sentence, at most 72
+ * characters and cut at a whole word. A chat without a title gives an empty text.
+ */
+export function pullRequestTitle(chatTitle: string) {
+  const text = chatTitle.replace(/\s+/g, ' ').trim();
+  if (!text || /^New( .*)? (session|chat)$/.test(text)) return '';
+  const sentence = text.match(/^(.+?[.!?])(\s|$)/)?.[1]?.replace(/[.!?]$/, '') || text;
+  if (sentence.length <= 72) return sentence;
+  return sentence.slice(0, 72).replace(/\s+\S*$/, '');
 }
 
 /** The pull request number from its GitHub URL. */

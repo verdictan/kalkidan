@@ -1,0 +1,969 @@
+/* Settings, the first-run tools check, the sign-in card and the account row (SETTINGS owner).
+   SY-B craft: one grey fill, no borders inside content, radii 8 and 12, 12/13/15/22 text. */
+
+/* ---------- The Settings page ---------- */
+
+/* The page as a layer over the main area (SettingsDialog). The shell page has no layer. */
+#main-content:has(> .st-surface) {
+  position: relative;
+}
+.st-surface {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  background: var(--background);
+}
+.st-header {
+  height: var(--header-height);
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 0 var(--space-4) 0 var(--frame-x, 32px);
+  border-bottom: 1px solid var(--border);
+  -webkit-app-region: drag;
+}
+/* Without the sidebar, the title bar controls of the shell sit at the start of the header. */
+.st-surface[data-sidebar-hidden] .st-header {
+  padding-left: calc(var(--collapsed-controls, 44px) + var(--space-6));
+}
+.st-header h1 {
+  flex: 1;
+  margin: 0;
+  font-size: 15px;
+  line-height: 24px;
+  font-weight: 600;
+}
+.st-header button {
+  -webkit-app-region: no-drag;
+}
+.st-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--space-4) var(--frame-x, 32px) var(--space-8);
+}
+.st-scroll.st-embedded {
+  padding: 0;
+  overflow: visible;
+}
+.st-page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  max-width: 640px;
+}
+/* The Settings page of the shell: less space above the account, so the account, Tools,
+   Preferences and the current project fit in a 620px window (ST-C4). */
+.project-frame[data-page='settings'] .project-frame-body {
+  padding-top: var(--space-4);
+}
+
+/* ---------- Settings as a sheet over the window (ST-C4) ---------- */
+
+/* A light scrim: the tree and the page stay in view. */
+.st-sheet-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-dialog);
+  background: color-mix(in srgb, var(--foreground) 16%, transparent);
+}
+/* Under the sheet, the page keeps only its title bar (ST-C4): the tree stays in view. */
+body:has(.st-sheet) .management-pane > * > :not(.app-header) {
+  visibility: hidden;
+}
+/* 640px wide, 40px from the top and 24px from the bottom of the window, radius 12. */
+.st-sheet {
+  position: fixed;
+  z-index: var(--z-dialog);
+  top: 40px;
+  left: 50%;
+  width: min(640px, calc(100vw - 32px));
+  height: min(720px, calc(100vh - 64px));
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border-radius: var(--radius-floating, 12px);
+  background: var(--background);
+  box-shadow:
+    0 0 0 1px var(--border),
+    0 24px 64px rgb(0 0 0 / 0.16),
+    0 2px 6px rgb(0 0 0 / 0.06);
+  outline: none;
+}
+.st-sheet .st-sheet-page {
+  flex: 1;
+  min-height: 0;
+  max-width: none;
+  gap: 0;
+}
+/* The head: avatar, name · organization · region, Sign out, ×. */
+.st-sheet-head {
+  height: 56px;
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: 0 var(--space-4) 0 var(--space-8);
+  border-bottom: 1px solid var(--border);
+}
+.st-sheet-head .st-account {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  gap: var(--space-3);
+}
+.st-sheet-head .st-account-name {
+  font-size: 16px;
+  line-height: 20px;
+}
+.st-sheet-head .st-avatar {
+  font-size: 11px;
+}
+
+.st-sheet .st-sheet-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-8) var(--space-6);
+}
+/* A part: a 36px label row with a line under it, then 48px rows with lines between them. */
+.st-sheet .st-section-head {
+  height: 36px;
+  min-height: 36px;
+  align-items: flex-end;
+  margin: 0;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border);
+}
+.st-sheet .st-rows > li {
+  min-height: 48px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--border);
+}
+.st-sheet .st-rows > li:last-child {
+  border-bottom: 0;
+}
+.st-sheet .st-section > .st-rows + .st-foot {
+  margin-top: -1px;
+  border-top: 1px solid var(--border);
+}
+.st-sheet .st-tile {
+  border-radius: 6px;
+}
+.st-sheet .st-foot {
+  margin: 0;
+  padding-top: var(--space-2);
+}
+.st-sheet .st-through {
+  gap: 6px;
+}
+.st-sheet .st-add-host {
+  align-self: flex-start;
+  margin: var(--space-2) 0 0 calc(-1 * var(--space-2));
+}
+/* The project: the mark and the name open its menu. The chips have a 1px line. */
+.st-sheet #settings-project .st-section-head {
+  padding-bottom: 6px;
+}
+.st-sheet .st-project-title {
+  font-size: 12px !important;
+  line-height: 20px !important;
+}
+.st-project-menu {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: -4px -6px;
+  padding: 4px 6px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  outline: none;
+}
+.st-project-menu:hover,
+.st-project-menu[aria-expanded='true'] {
+  background: var(--fill);
+}
+.st-project-menu:focus-visible {
+  box-shadow: var(--focus-ring);
+}
+.st-sheet .st-project-row {
+  min-height: 48px;
+  padding: 6px 0;
+}
+.st-sheet .st-chip {
+  gap: 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--background);
+}
+.st-sheet .st-chip svg {
+  width: 12px;
+  height: 12px;
+}
+.st-sheet .st-board-chip {
+  gap: 6px;
+}
+/* The hidden remove button takes no room, so the chip is as wide as its mark and name. */
+.st-sheet .st-chip-remove {
+  margin-right: -8px;
+}
+.st-sheet .st-chip:hover .st-chip-remove,
+.st-sheet .st-chip-remove:focus-visible {
+  margin-right: -4px;
+}
+.st-sheet button.st-chip:hover,
+.st-sheet .st-board-chip[aria-expanded='true'] {
+  background: var(--fill);
+}
+.st-sheet .st-chip-add {
+  width: 34px;
+  border-style: dashed;
+  background: none;
+}
+/* The last line sits under the fold: the sheet shows the account, Tools, Preferences and the
+   project in a 620px window. */
+.st-sheet .st-about {
+  margin-top: var(--space-8);
+}
+
+/* The account: avatar, name, organization and region, then its actions. */
+.st-account {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-height: 40px;
+  scroll-margin-top: var(--space-6);
+}
+.st-account-name {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 15px;
+  line-height: 24px;
+  font-weight: 600;
+}
+.st-account-detail {
+  font-size: 13px;
+  font-weight: 400;
+  color: var(--muted-foreground);
+}
+.st-avatar {
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  border-radius: var(--radius-full, 9999px);
+  background: var(--fill-strong);
+  color: var(--foreground);
+  font-size: 12px;
+  line-height: 16px;
+  font-weight: 600;
+}
+.st-avatar svg {
+  width: 14px;
+  height: 14px;
+  color: var(--muted-foreground);
+}
+.st-avatar-sm {
+  width: 24px;
+  height: 24px;
+  font-size: 11px;
+}
+
+/* A part: a 12/16 label row with an action, then rows with no dividers. */
+.st-section {
+  display: flex;
+  flex-direction: column;
+  scroll-margin-top: var(--space-6);
+}
+.st-section:focus {
+  outline: none;
+}
+.st-section-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 32px;
+  margin-bottom: var(--space-1);
+}
+.st-section-head h2 {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  font-size: 12px;
+  line-height: 16px;
+  font-weight: 600;
+}
+.st-head-action {
+  color: var(--muted-foreground);
+  font-size: 12px;
+}
+.st-rows {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+}
+.st-row {
+  min-height: var(--row-height-lg, 48px);
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  scroll-margin-top: var(--space-6);
+}
+.st-row.st-setting {
+  min-height: var(--row-height-setting, 40px);
+}
+.st-row-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 500;
+}
+.st-row-meta {
+  color: var(--muted-foreground);
+  font-size: 12px;
+  line-height: 16px;
+  white-space: nowrap;
+}
+.st-tile {
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  border-radius: var(--radius-control, 8px);
+  background: var(--fill);
+  color: var(--foreground);
+}
+.st-tile svg,
+.st-tile img {
+  width: 16px;
+  height: 16px;
+}
+.st-tool-ok,
+.st-tool-warn {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+}
+.st-tool-ok {
+  color: var(--success);
+}
+.st-tool-warn {
+  color: var(--warning);
+}
+.st-link {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  color: var(--foreground);
+  font-size: 12px;
+  line-height: 16px;
+  white-space: nowrap;
+  text-decoration: underline;
+  text-decoration-color: var(--border-strong, #d4d4d4);
+  text-underline-offset: 3px;
+  border-radius: 4px;
+  outline: none;
+}
+.st-link:hover {
+  text-decoration-color: currentColor;
+}
+.st-link:focus-visible {
+  box-shadow: var(--focus-ring);
+}
+.st-link svg {
+  width: 12px;
+  height: 12px;
+  color: var(--muted-foreground);
+}
+.st-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1) var(--space-4);
+  margin: var(--space-2) 0 0;
+  color: var(--muted-foreground);
+  font-size: 12px;
+  line-height: 16px;
+}
+.st-through {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.st-restart {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--muted-foreground);
+  font-size: 12px;
+  line-height: 16px;
+}
+.st-empty {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 40px;
+  margin: 0;
+  color: var(--muted-foreground);
+}
+.st-empty svg {
+  width: 16px;
+  height: 16px;
+}
+
+/* SSH hosts in Tools. */
+.st-host {
+  margin-top: var(--space-4);
+}
+.st-host-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 32px;
+}
+.st-host-name {
+  font-size: 12px;
+  line-height: 16px;
+  font-weight: 600;
+}
+.st-host-state {
+  flex: 1;
+}
+.st-section .computers-add {
+  margin-top: var(--space-2);
+}
+.st-section .computers-add-form {
+  display: flex;
+  gap: var(--space-2);
+  max-width: 440px;
+}
+
+/* The project: the mark and name (its menu); repo chips and the board chip. */
+.st-project-title {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: 13px !important;
+  line-height: 20px !important;
+}
+.st-project-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-height: 48px;
+}
+.st-chips {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.st-chip {
+  position: relative;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: var(--radius-control, 8px);
+  background: var(--fill);
+  color: var(--foreground);
+  font-size: 13px;
+  line-height: 20px;
+  white-space: nowrap;
+}
+.st-chip svg {
+  width: 14px;
+  height: 14px;
+  color: var(--muted-foreground);
+}
+button.st-chip {
+  outline: none;
+}
+button.st-chip:hover {
+  background: var(--fill-strong);
+}
+button.st-chip:focus-visible,
+.st-chip-remove:focus-visible {
+  box-shadow: var(--focus-ring);
+}
+.st-chip-add {
+  width: 28px;
+  padding: 0;
+  justify-content: center;
+}
+.st-chip-remove {
+  width: 0;
+  height: 16px;
+  margin-right: -4px;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--muted-foreground);
+  opacity: 0;
+  outline: none;
+}
+.st-chip:hover .st-chip-remove,
+.st-chip-remove:focus-visible {
+  width: 16px;
+  opacity: 1;
+}
+.st-chip-remove:hover {
+  color: var(--foreground);
+}
+.st-chip-remove svg {
+  width: 12px;
+  height: 12px;
+}
+.st-board-chip[aria-expanded='true'] {
+  background: var(--fill-strong);
+}
+.st-board {
+  display: grid;
+  gap: var(--space-3);
+  margin-top: var(--space-2);
+  padding: var(--space-4);
+  border-radius: var(--radius-floating, 12px);
+  background: var(--fill);
+  outline: none;
+}
+
+/* The quiet last line: version, data, browsing data. */
+.st-about {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--muted-foreground);
+  font-size: 12px;
+  line-height: 16px;
+}
+.st-about a,
+.st-about button {
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  outline: none;
+}
+.st-about a:hover,
+.st-about button:hover {
+  color: var(--foreground);
+}
+.st-about a:focus-visible,
+.st-about button:focus-visible {
+  box-shadow: var(--focus-ring);
+}
+
+/* ---------- The first-run tools check (SP-C5) ---------- */
+
+.st-first-run-main {
+  overflow-y: auto;
+  padding: 0 var(--space-4) var(--space-10, 40px);
+}
+/* One 440px column, centered. The lockup sits at y 88 (x 280 in a 1000px window), where the
+   launch splash lockup glides to (SP-C5). */
+.st-first-run-column {
+  width: min(440px, 100%);
+  margin: 0 auto;
+  padding-top: 88px;
+}
+/* The splash lockup at 0.8 scale: a 32px mark, 9.6px apart, and the 22px name at 17.6px. */
+.st-first-run-lockup {
+  height: 32px;
+  display: flex;
+  align-items: center;
+  gap: 9.6px;
+  margin-bottom: var(--space-8, 32px);
+  font-size: 17.6px;
+  line-height: 22.4px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+.st-first-run-lockup img {
+  flex: none;
+}
+.st-first-run-heading {
+  margin: 0 0 var(--space-3);
+  font-size: 15px;
+  line-height: 20px;
+  font-weight: 600;
+}
+.st-check-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+.st-check-row {
+  height: 56px;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: 0 var(--space-4);
+  border-top: 1px solid var(--border);
+}
+.st-check-row:first-child {
+  border-top: 0;
+}
+.st-check-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  line-height: 18px;
+}
+.st-check-name {
+  font-size: 13px;
+  font-weight: 500;
+}
+.st-check-detail {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted-foreground);
+  font-size: 12px;
+  line-height: 18px;
+}
+.st-check-ready {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  flex: none;
+  color: var(--success);
+  font-size: 12px;
+  line-height: 16px;
+  font-weight: 500;
+}
+.st-check-ready svg {
+  width: 16px;
+  height: 16px;
+}
+.st-check-link {
+  flex: none;
+  font-weight: 500;
+}
+.st-check-link svg {
+  color: currentColor;
+}
+.st-check-restart {
+  display: block;
+  margin: var(--space-4) 0 0;
+  font-size: 12px;
+  line-height: 16px;
+}
+.st-check-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: var(--space-6);
+}
+.st-check-continue {
+  min-width: 92px;
+}
+
+/* ---------- The sign-in card under a waiting message (ST-C3) ---------- */
+
+.sign-in-gate {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  padding: var(--space-4) var(--space-5, 20px);
+  border-radius: var(--radius-floating, 12px);
+  background: var(--fill);
+}
+.sign-in-gate-mark {
+  flex-shrink: 0;
+}
+.sign-in-gate-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.sign-in-gate-title {
+  font-weight: 600;
+}
+.sign-in-gate-detail {
+  display: block;
+  color: var(--muted-foreground);
+  font-size: 12px;
+  line-height: 16px;
+}
+.sign-in-gate-wait {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.sign-in-gate-wait svg {
+  width: 12px;
+  height: 12px;
+}
+.sign-in-gate .sign-in-region-group {
+  display: inline-flex;
+}
+.sign-in-gate .sign-in-region-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+}
+.sign-in-gate .sign-in-region-trigger svg {
+  width: 12px;
+  height: 12px;
+}
+
+/* ---------- The account row in the sidebar footer: avatar, name and organization, chevron ---------- */
+
+.st-account-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  width: 100%;
+  min-width: 0;
+}
+.st-account-trigger {
+  flex: 1;
+  min-width: 0;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 0 var(--space-2);
+  border: 0;
+  border-radius: var(--radius-control, 8px);
+  background: transparent;
+  color: var(--foreground);
+  text-align: left;
+  outline: none;
+}
+button.st-account-trigger:hover,
+button.st-account-trigger[data-state='open'] {
+  background: var(--sidebar-hover, var(--fill));
+}
+.st-account-who {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  line-height: 16px;
+}
+.st-account-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  line-height: 16px;
+}
+.st-account-org {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted-foreground);
+  font-size: 12px;
+  line-height: 16px;
+}
+.st-account-chevron-icon {
+  flex-shrink: 0;
+  color: var(--muted-foreground);
+  width: 14px;
+  height: 14px;
+}
+
+/* The gateway runtime failed: the one thing the user can act on. */
+.st-runtime-failed {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+  padding: 0 0 0 var(--space-2);
+  font-size: 12px;
+  line-height: 16px;
+}
+
+/* A switch that is on is foreground black here: brown is only the one primary action (ST-4).
+   The switch colors are utilities, so this rule needs !important to win over them. */
+.st-setting [data-slot='switch'][data-state='checked'] {
+  background: var(--foreground) !important;
+}
+/* A switch that is off is a light grey track (ST-C4). */
+.st-setting [data-slot='switch'][data-state='unchecked'] {
+  background: #a3a3a3 !important;
+}
+
+/* ---------- The agent picker of the first composer (ST-C2) ---------- */
+
+/* One group for each computer: "This Mac", then each SSH host. */
+.agent-picker-computer {
+  font-weight: 500;
+}
+/* The menu: radius 10, a 1px line and a soft shadow. */
+.agent-picker-computers {
+  border-radius: 10px !important;
+  box-shadow:
+    0 0 0 1px var(--border),
+    0 12px 32px rgb(0 0 0 / 0.12) !important;
+}
+/* 3px under the chip. */
+.agent-picker-computers[data-side='bottom'] {
+  margin-top: -3px;
+}
+/* Rows with radius 6. */
+.agent-picker-computers [role='menuitem'] {
+  border-radius: 6px !important;
+}
+/* The agent of the new chat has the hover fill. */
+.agent-picker-computers .agent-picker-current {
+  background: var(--fill);
+}
+/* "Not installed" and its link icon, 4px apart. */
+.agent-picker-missing {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+  font-size: var(--text-xs);
+  color: var(--muted-foreground);
+}
+
+/* ---------- The first composer (ST-C2) ---------- */
+
+/* The column starts 136px from the top of a 620px window. */
+.start-page:has(> .start-composer) {
+  padding-top: max(var(--space-8), calc(50vh - 174px));
+}
+/* The mark, 20px to the 24px question, 24px to the composer, 16px to the found folders. */
+.start-page .start-composer {
+  gap: 0;
+}
+.start-page .start-composer-mark {
+  margin: 0;
+}
+.start-page .start-composer-title {
+  margin: 20px 0 24px;
+  font-size: 24px;
+  line-height: 32px;
+  letter-spacing: -0.02em;
+}
+.start-page .found-folders {
+  margin-top: var(--space-4);
+}
+/* The composer: radius 12, a 24px line, 12px to the chips, and Send inside the padding. */
+.start-page .conversation-composer {
+  gap: 12px;
+  border-radius: 12px;
+  box-shadow:
+    0 1px 2px rgb(0 0 0 / 0.03),
+    0 4px 16px rgb(0 0 0 / 0.04);
+}
+.start-page .conversation-composer textarea {
+  min-height: 24px !important;
+  line-height: 24px !important;
+}
+.start-page .composer-actions {
+  margin-right: 0;
+}
+/* The 12px arrows at the end of the chips. */
+.start-page .composer-settings button > svg:last-child:not(:first-child) {
+  width: 12px !important;
+  height: 12px !important;
+}
+/* The agent chip of an open picker. The hint sets its own data-state, so this reads
+   aria-expanded. */
+.start-page .composer-agent[aria-expanded='true'] {
+  background: var(--fill) !important;
+  color: var(--foreground) !important;
+}
+
+/* The project menu in Settings has no item icons: the swatches start on the item labels. */
+.st-project-color.menu-color .identity-swatches {
+  padding-left: var(--space-2);
+}
+
+/* A long host name or target ends with "…", so the ⋯ of the host stays in view. */
+.st-host-head > .st-host-name,
+.st-host-head > .st-row-meta {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.st-host-head > .st-host-name {
+  white-space: nowrap;
+}
+
+/* ---------- The found code folders under the first composer (ST-C2) ---------- */
+
+/* The chips come after the composer, so the composer keeps the full width of the column. */
+.start-composer > :nth-last-child(2):has(+ .found-folders) {
+  justify-self: stretch;
+}
+.found-folders {
+  width: 100%;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.found-folder {
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 0 12px 0 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-full, 9999px);
+  background: var(--background);
+  color: var(--foreground);
+  font: inherit;
+  font-weight: 500;
+  white-space: nowrap;
+  outline: none;
+}
+.found-folder:hover:not(:disabled),
+.found-folder[aria-pressed='true'] {
+  background: var(--fill);
+}
+.found-folder:focus-visible {
+  box-shadow: var(--focus-ring);
+}
+.found-folder-count {
+  color: var(--muted-foreground);
+  font-weight: 400;
+}

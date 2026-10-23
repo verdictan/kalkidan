@@ -263,6 +263,7 @@ test('pull request status reads gh pr view and maps the state', async (t) => {
     script,
     "const args = process.argv.slice(2);\nif (args.includes('https://github.com/o/r/pull/9')) process.exit(1);\n" +
       "if (args.includes('https://github.com/o/r/pull/8')) console.log(JSON.stringify({ state: 'OPEN', number: 8, isDraft: true }));\n" +
+      "else if (args.includes('https://github.com/o/r/pull/6') && args.join(' ').includes('statusCheckRollup')) console.log(JSON.stringify({ state: 'OPEN', number: 6, statusCheckRollup: [{ __typename: 'CheckRun', status: 'COMPLETED', conclusion: 'SUCCESS' }] }));\n" +
       "else console.log(JSON.stringify({ state: 'MERGED', number: 7, title: 'Add search', extra: true, isDraft: false }));\n",
   );
   const gh = async () => ({ path: process.execPath, args: [script], env: process.env });
@@ -275,6 +276,11 @@ test('pull request status reads gh pr view and maps the state', async (t) => {
     state: 'open',
     number: 8,
     draft: true,
+  });
+  assert.deepEqual(await pullRequestStatus(root, 'https://github.com/o/r/pull/6', gh), {
+    state: 'open',
+    number: 6,
+    checks: 'pass',
   });
   await assert.rejects(pullRequestStatus(root, 'https://github.com/o/r/pull/9', gh), Error);
   await assert.rejects(pullRequestStatus(root, '--repo=x', gh), /pull request link/);

@@ -6,6 +6,7 @@ import {
   type ChatRowStatus,
 } from '../domain/chat-outcome';
 import type { Session } from '../domain/conversation';
+import { StatusGlyph } from './ui/status-glyph';
 
 /** What an open chat does when the user is not looking at it. */
 export type SessionActivityState = 'running' | 'approval' | 'question';
@@ -16,6 +17,32 @@ export interface SessionActivity {
   cwd: string;
   hostId?: string;
   state: SessionActivityState;
+  /**
+   * The approval that the chat waits for, when the state is 'approval': its title (for example
+   * "Run npm test -- auth"), an optional detail and the ISO time when the chat started to wait.
+   * The chat fills it. Overview and search show it.
+   */
+  approval?: { title: string; detail?: string; since?: string };
+}
+/**
+ * Allows or denies the oldest approval that a chat waits for, from a place outside the chat
+ * (Overview, search, the tree). The chat that owns the run answers it.
+ */
+export function answerApproval(session: { agent: string; id: string }, allow: boolean) {
+  window.dispatchEvent(
+    new CustomEvent('kalkidan-answer-approval', {
+      detail: { agent: session.agent, id: session.id, allow },
+    }),
+  );
+}
+/** The status glyph of a row for a chat status: working, needs you, failed, or none. */
+export function itemStatusOf(
+  state: ChatStatus | undefined,
+): 'working' | 'needs-you' | 'failed' | null {
+  if (state === 'running') return 'working';
+  if (state === 'approval' || state === 'question') return 'needs-you';
+  if (state === 'failed' || state === 'refused') return 'failed';
+  return null;
 }
 export const activityKey = (agent: string, id: string) => agent + ':' + id;
 export const activityLabels: Record<SessionActivityState, string> = {
@@ -40,7 +67,7 @@ export type ChatStatus = ChatRowStatus;
 const statusLabels: Record<ChatStatus, string> = {
   ...activityLabels,
   failed: 'The last run failed.',
-  refused: 'Managed agents did not start the last run.',
+  refused: 'Verdictan did not start the last run.',
   done: 'Agent finished. You did not open the chat yet.',
 };
 /**
@@ -53,48 +80,6 @@ export function ActivityDot({ state, label }: { state?: ChatStatus; label?: stri
   const text = label || statusLabels[state];
   return (
     <span className="activity-dot" data-state={state} role="img" aria-label={text} title={text} />
-  );
-}
-
-/**
- * The status mark of a sidebar row, in a 12px slot before the title: an amber dot when the
- * chat waits for the user, a turning ring while the agent works, and the ActivityDot shapes for
- * the other states. A draft that was not sent yet gets a hollow grey dot. Without a state, the
- * slot stays empty, so every title starts at the same x.
- */
-export function StatusMark({
-  state,
-  label,
-  draft = false,
-}: {
-  state?: ChatStatus;
-  label?: string;
-  draft?: boolean;
-}) {
-  if (state === 'running') {
-    const text = label || statusLabels.running;
-    return (
-      <span className="status-mark">
-        <span className="status-ring" role="img" aria-label={text} title={text} />
-      </span>
-    );
-  }
-  if (!state && draft)
-    return (
-      <span className="status-mark">
-        <span
-          className="activity-dot"
-          data-state="draft"
-          role="img"
-          aria-label="Draft: not sent yet"
-          title="Draft: not sent yet"
-        />
-      </span>
-    );
-  return (
-    <span className="status-mark">
-      <ActivityDot state={state} label={label} />
-    </span>
   );
 }
 
@@ -193,6 +178,17 @@ export function useChatStatus() {
     session: Pick<Session, 'agent' | 'id' | 'outcome' | 'liveRunId'>,
     live?: SessionActivityState,
   ) => chatStatusInfo(session, live, store);
+}
+/** The status glyph of one chat row: working, needs you or failed, after the title. */
+export function ChatStatusGlyph({
+  session,
+  live,
+}: {
+  session: Pick<Session, 'agent' | 'id' | 'outcome' | 'liveRunId'>;
+  live?: SessionActivityState;
+}) {
+  const info = chatStatusInfo(session, live, useActivityState());
+  return <StatusGlyph status={itemStatusOf(info?.state)} label={info?.label} />;
 }
 /** The status dot of one chat row. */
 export function ChatStatusDot({

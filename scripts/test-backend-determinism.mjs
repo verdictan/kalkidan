@@ -22,6 +22,9 @@ const nativeTests = new Set([
   'network-proxy-native.test.ts',
   // This starts the real Codex app-server when the computer has one.
   'codex-provider-native.test.ts',
+  // These start Git and fake agent and GitHub CLI executables.
+  'code-files.test.ts',
+  'tool-detection.test.ts',
 ]);
 const files = readdirSync('tests')
   .filter((name) => name.endsWith('.test.ts') && !nativeTests.has(name))

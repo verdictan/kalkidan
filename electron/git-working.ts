@@ -301,6 +301,42 @@ export interface PullRequestState {
   number: number;
   title?: string;
   draft?: boolean;
+  /** The CI checks of the pull request. Not set when it has no checks. */
+  checks?: PullRequestChecks;
+}
+
+export type PullRequestChecks = 'pass' | 'fail' | 'pending';
+
+const failedConclusions = new Set([
+  'FAILURE',
+  'ERROR',
+  'CANCELLED',
+  'TIMED_OUT',
+  'ACTION_REQUIRED',
+  'STARTUP_FAILURE',
+  'STALE',
+]);
+
+/**
+ * One result for the `statusCheckRollup` of `gh pr view`: "fail" when a check failed, else
+ * "pending" when a check did not finish, else "pass". Undefined when there are no checks.
+ */
+export function pullRequestChecks(rollup: unknown): PullRequestChecks | undefined {
+  if (!Array.isArray(rollup)) return undefined;
+  let pending = false;
+  let count = 0;
+  for (const check of rollup) {
+    if (!check || typeof check !== 'object') continue;
+    count++;
+    // A check run has a status and a conclusion. A commit status has a state.
+    const conclusion = String(check.conclusion || check.state || '').toUpperCase();
+    const status = String(check.status || '').toUpperCase();
+    if (failedConclusions.has(conclusion)) return 'fail';
+    if ((status && status !== 'COMPLETED') || ['PENDING', 'EXPECTED', ''].includes(conclusion))
+      pending = true;
+  }
+  if (!count) return undefined;
+  return pending ? 'pending' : 'pass';
 }
 
 /** Reads the state of a pull request with `gh pr view`. `url` must be a pull request link. */
@@ -316,7 +352,14 @@ export async function pullRequestStatus(
   try {
     ({ stdout } = await exec(
       gh.path,
-      [...(gh.args || []), 'pr', 'view', url, '--json', 'state,number,title,isDraft'],
+      [
+        ...(gh.args || []),
+        'pr',
+        'view',
+        url,
+        '--json',
+        'state,number,title,isDraft,statusCheckRollup',
+      ],
       { cwd, env: { ...gh.env, GIT_TERMINAL_PROMPT: '0' }, timeout: 30000, maxBuffer: 256 * 1024 },
     ));
   } catch (error: any) {
@@ -332,10 +375,12 @@ export async function pullRequestStatus(
   const state = String(value?.state || '').toLowerCase();
   if (!['open', 'merged', 'closed'].includes(state) || !Number.isSafeInteger(value?.number))
     throw new Error('GitHub returned a pull request that Kalkidan cannot read.');
+  const checks = pullRequestChecks(value.statusCheckRollup);
   return {
     state: state as PullRequestState['state'],
     number: value.number,
     ...(typeof value.title === 'string' ? { title: value.title.slice(0, 300) } : {}),
     ...(value.isDraft === true ? { draft: true } : {}),
+    ...(checks ? { checks } : {}),
   };
 }

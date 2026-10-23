@@ -36,6 +36,11 @@ import { appMenuTemplate } from './app-menu';
 import { parseChatActionState, type ChatActionState } from '../src/domain/chat-actions';
 import { pathContains } from './platform';
 import { githubCliCheck } from './github-cli-check';
+import { ProjectWindows } from './project-windows';
+import { localToolStatus } from './local-tools';
+import { ToolStatusCache, toolsFromInstallations, withGatewayAccess } from './tool-detection';
+import { GatewayRuntime, needsRepair } from './gateway-runtime';
+import { projectWindowQuery, type ComputerTools } from '../src/domain/desktop';
 import { listDirectory } from './storage/directory-list';
 import {
   ProjectLocationCache,
@@ -54,6 +59,14 @@ import { HistoryImport } from './history-import';
 import { isAgent } from '../src/config/agents';
 import { createProjectPrompt } from './projects/prompt';
 import { listMentionFiles, readMentionFile } from './projects/mention-files';
+import {
+  codeFileChanges,
+  codeFileRevision,
+  listCodeFiles,
+  readCodeFile,
+  searchCode,
+  writeCodeFile,
+} from './code-files';
 import { providerSessionId, sessionHostMethods } from '../src/domain/host';
 import {
   chatLink,
@@ -121,6 +134,7 @@ import {
   worktreePreview,
 } from './git-working';
 import { scanRepositories } from './repository-scan';
+import { findCodeFolders } from './code-folders';
 import { historyWithManaged } from './history';
 const history = (codex: string, claude: string, sources?: Map<string, string>) =>
   historyWithManaged(dataRoot, codex, claude, sources);
@@ -235,6 +249,8 @@ function notifyVerdictan() {
     // account, in the background, so the sign-in does not wait for it.
     const setupKey = accountSetupKey();
     if (setupKey) void verdictan?.signInSetup.run(setupKey).catch(() => {});
+    // After sign-in, install or repair the gateway runtime without a user step.
+    if (installOnLaunch) void gatewayRuntime.ensure();
   }
   if (key === lastAccount) {
     if (phase !== previousPhase) broadcastVerdictanChanged();
@@ -277,6 +293,14 @@ function broadcastVerdictanChanged() {
     if (!window.isDestroyed()) window.webContents.send('verdictan-changed');
 }
 let verdictan: ReturnType<typeof createVerdictanServices> | undefined;
+// The managed gateway runtime installs and repairs itself. It is never a user task. Test runs
+// install nothing.
+const installOnLaunch = app.isPackaged || !process.env.KALKIDAN_TEST_DATA;
+const gatewayRuntime = new GatewayRuntime({
+  check: async () => verdictan?.installer.check(),
+  install: async () => verdictan?.installer.install(),
+  changed: () => broadcastVerdictanChanged(),
+});
 // The user confirmed that running agents can stop. Do not ask again while the app quits.
 let stopAgentsConfirmed = false;
 // Work on SSH hosts continues without the app. The app asks once for each quit what to do with
@@ -595,14 +619,13 @@ app.whenReady().then(async () => {
       request: releaseRequest,
     });
   verdictan = makeVerdictan(await savedVerdictanRegion(dataRoot));
-  // The first launch installs the managed agents runtime in the background. Settings shows
-  // the progress. A failed install starts again at the next launch. Test runs install nothing.
-  const installOnLaunch = app.isPackaged || !process.env.KALKIDAN_TEST_DATA;
+  // The launch installs or repairs the managed gateway runtime in the background. Settings
+  // shows only a failure. A failed install starts again after sign-in and at the next launch.
   void verdictan.installer
     .check()
     .then(async (status) => {
-      if (installOnLaunch && status && !status.installed && !status.installing)
-        void verdictan!.installer.install().catch(() => {});
+      if (installOnLaunch && status && needsRepair(status) && !status.installing)
+        void gatewayRuntime.ensure();
       await verdictan!.account.check();
     })
     .catch(() => {});
@@ -1705,6 +1728,55 @@ app.whenReady().then(async () => {
     const transcript = await sessionTranscript(agent, id);
     return { title: session.organization?.title || session.title, messages: transcript.messages };
   }
+  // The code editor. The folder must be in a project on that computer. The file functions keep
+  // each path inside the folder, also on an SSH host.
+  function codeFolder(cwd: unknown, hostId: unknown) {
+    if (
+      typeof cwd !== 'string' ||
+      (hostId !== undefined && hostId !== null && typeof hostId !== 'string') ||
+      !projects.some((p) => p.hostId === (hostId || undefined) && pathContains(p.path, cwd))
+    )
+      throw new Error('Add this folder to a project first.');
+    return { cwd, hostId: (hostId || undefined) as string | undefined };
+  }
+  handle('code-files', (cwd, hostId) => {
+    const folder = codeFolder(cwd, hostId);
+    return folder.hostId
+      ? remote.call(folder.hostId, 'code-files', [folder.cwd]).catch(helperTooOld)
+      : listCodeFiles(folder.cwd);
+  });
+  handle('code-file-read', (cwd, path, hostId) => {
+    const folder = codeFolder(cwd, hostId);
+    return folder.hostId
+      ? remote.call(folder.hostId, 'code-file-read', [folder.cwd, path]).catch(helperTooOld)
+      : readCodeFile(folder.cwd, path);
+  });
+  handle('code-file-write', (cwd, path, content, expectedRevision, hostId) => {
+    const folder = codeFolder(cwd, hostId);
+    return folder.hostId
+      ? remote
+          .call(folder.hostId, 'code-file-write', [folder.cwd, path, content, expectedRevision])
+          .catch(helperTooOld)
+      : writeCodeFile(folder.cwd, path, content, expectedRevision);
+  });
+  handle('code-file-revision', (cwd, path, hostId) => {
+    const folder = codeFolder(cwd, hostId);
+    return folder.hostId
+      ? remote.call(folder.hostId, 'code-file-revision', [folder.cwd, path]).catch(helperTooOld)
+      : codeFileRevision(folder.cwd, path);
+  });
+  handle('code-file-changes', (cwd, path, hostId) => {
+    const folder = codeFolder(cwd, hostId);
+    return folder.hostId
+      ? remote.call(folder.hostId, 'code-file-changes', [folder.cwd, path]).catch(helperTooOld)
+      : codeFileChanges(folder.cwd, path);
+  });
+  handle('code-search', (cwd, query, hostId) => {
+    const folder = codeFolder(cwd, hostId);
+    return folder.hostId
+      ? remote.call(folder.hostId, 'code-search', [folder.cwd, query]).catch(helperTooOld)
+      : searchCode(folder.cwd, query);
+  });
   handle('mention-files', (cwd, hostId) => {
     if (
       typeof cwd !== 'string' ||
@@ -2027,6 +2099,7 @@ app.whenReady().then(async () => {
       }
     } else if (projects.some((p) => repoIds.has(p.id)))
       throw new Error('Move this project’s repositories to another project before removing it.');
+    projectWindows.close(id);
     return projectGroups.remove(id);
   });
   handle('repo-move', (id, groupId) => {
@@ -2073,6 +2146,12 @@ app.whenReady().then(async () => {
       ? await dialog.showOpenDialog(parent, options)
       : await dialog.showOpenDialog(options);
     return result.canceled || !result.filePaths[0] ? null : result.filePaths[0];
+  });
+  handle('find-code-folders', async () => {
+    // The folders that are in Kalkidan already are not offered again.
+    const library = new Set(projects.filter((p) => !p.hostId).map((p) => p.path));
+    const found = await findCodeFolders(homedir(), { limit: 12 });
+    return found.filter((folder) => !library.has(folder.path)).slice(0, 6);
   });
   handle('scan-repositories', async (path: string, hostId?: string) => {
     if (typeof path !== 'string' || !path) throw new Error('Choose a folder.');
@@ -2822,7 +2901,7 @@ app.whenReady().then(async () => {
   const titleBarOverlay = {
     color: windowColors.chrome,
     symbolColor: windowColors.symbol,
-    height: 40,
+    height: 48,
   };
   // Electron can release a notification that has no reference, and then a click does nothing.
   const notifications = new Set<Notification>();
@@ -2886,19 +2965,20 @@ app.whenReady().then(async () => {
     }
     if (['http:', 'https:', 'mailto:'].includes(url.protocol)) void shell.openExternal(url.href);
   }
-  function createWindow(session?: Session) {
+  function createWindow(session?: Session, groupId?: string) {
     stopAgentsConfirmed = false;
     sshQuitDecided = false;
+    const projectName = groupId && projectGroups.groups.find((g) => g.id === groupId)?.name;
     const window = new BrowserWindow({
       width: 1360,
       height: 900,
       minWidth: 980,
       minHeight: 680,
-      title: 'Kalkidan',
+      title: projectName || 'Kalkidan',
       icon: appIcon,
       backgroundColor: windowColors.background,
       ...(process.platform === 'darwin'
-        ? { titleBarStyle: 'hiddenInset', trafficLightPosition: { x: 22, y: 13 } }
+        ? { titleBarStyle: 'hiddenInset', trafficLightPosition: { x: 22, y: 17 } }
         : { titleBarStyle: 'hidden', titleBarOverlay }),
       webPreferences: {
         preload: join(__dirname, 'preload.cjs'),
@@ -2914,8 +2994,11 @@ app.whenReady().then(async () => {
     const base = dev
       ? 'http://127.0.0.1:5173'
       : pathToFileURL(join(__dirname, '../dist/index.html')).href;
+    // A project window loads the app with the project scope in the query, so links in the
+    // hash still work.
     const url =
       base +
+      (groupId ? projectWindowQuery(groupId) : '') +
       (session
         ? '#session=' + encodeURIComponent(JSON.stringify({ agent: session.agent, id: session.id }))
         : '');
@@ -2939,6 +3022,13 @@ app.whenReady().then(async () => {
         event.preventDefault();
     });
     // macOS hides the window buttons in full screen, so the title bar can use that space.
+    // A project window keeps the project name as its title.
+    if (groupId)
+      window.on('page-title-updated', (event) => {
+        event.preventDefault();
+        const name = projectGroups.groups.find((g) => g.id === groupId)?.name;
+        if (name) window.setTitle(name);
+      });
     window.on('enter-full-screen', () => window.webContents.send('full-screen', true));
     window.on('leave-full-screen', () => window.webContents.send('full-screen', false));
     // A reload or a window that opens in full screen must also know the current state.
@@ -2961,7 +3051,103 @@ app.whenReady().then(async () => {
       }
     });
     void window.loadURL(url);
+    return window;
   }
+  // One window for each project. The windows get the list of project windows, so the main
+  // window can mark the projects that are open in their own window.
+  const projectWindows = new ProjectWindows<BrowserWindow>({
+    create: (groupId) => createWindow(undefined, groupId),
+    exists: (groupId) => projectGroups.groups.some((g) => g.id === groupId),
+    changed: (groupIds) => {
+      for (const window of windows)
+        if (!window.isDestroyed()) window.webContents.send('project-windows', groupIds);
+    },
+  });
+  handle('project-window-open', (groupId: unknown) => projectWindows.open(groupId));
+  handle('project-windows', () => projectWindows.list());
+  // The tools of each computer. Kalkidan only detects them: it never installs or signs in.
+  const toolCache = new ToolStatusCache<ComputerTools>();
+  const gatewayReady = () => verdictan?.account.status().executionReady === true;
+  const sendTools = (result: ComputerTools) => {
+    for (const window of windows)
+      if (!window.isDestroyed()) window.webContents.send('tools-changed', result);
+    return result;
+  };
+  const computerToolStatus = (computer: unknown, fresh = false): Promise<ComputerTools> => {
+    const id = computer === undefined || computer === null || computer === '' ? 'local' : computer;
+    if (typeof id !== 'string') throw new Error('Computer not found.');
+    if (id === 'local')
+      return toolCache
+        .get(
+          'local',
+          async () =>
+            sendTools({
+              computer: 'local',
+              name: process.platform === 'darwin' ? 'This Mac' : 'This computer',
+              connected: true,
+              tools: await localToolStatus(),
+              checkedAt: new Date().toISOString(),
+            }),
+          fresh,
+        )
+        .then((result) => ({ ...result, tools: withGatewayAccess(result.tools, gatewayReady()) }));
+    const host = remote.list().find((item) => item.id === id);
+    if (!host) throw new Error('Computer not found.');
+    if (host.status !== 'connected')
+      return Promise.resolve({
+        computer: id,
+        name: host.name,
+        connected: false,
+        tools: [],
+        checkedAt: new Date().toISOString(),
+      });
+    return toolCache
+      .get(
+        id,
+        async () => {
+          const tools = await remote.call(id, 'tool-status', []).catch(async (error) => {
+            // An older helper has no tool check. Its agent check gives the agents.
+            if (error instanceof Error && /Unsupported remote operation/.test(error.message))
+              return toolsFromInstallations(await remote.agentInstallations(id));
+            throw error;
+          });
+          return sendTools({
+            computer: id,
+            name: host.name,
+            connected: true,
+            tools,
+            checkedAt: new Date().toISOString(),
+          });
+        },
+        fresh,
+      )
+      .then((result) => ({ ...result, tools: withGatewayAccess(result.tools, gatewayReady()) }));
+  };
+  handle('tool-status', (computer: unknown, options?: { fresh?: unknown }) =>
+    computerToolStatus(computer, options?.fresh === true),
+  );
+  handle('computer-tools', async (options?: { fresh?: unknown }) => {
+    const fresh = options?.fresh === true;
+    const ids = ['local', ...remote.list().map((host) => host.id)];
+    return Promise.all(
+      ids.map((id) =>
+        computerToolStatus(id, fresh).catch(() => ({
+          computer: id,
+          name: remote.list().find((host) => host.id === id)?.name || id,
+          connected: false,
+          tools: [],
+          checkedAt: new Date().toISOString(),
+        })),
+      ),
+    );
+  });
+  // "Restart Kalkidan" after the user installs a tool. The quit asks first when work runs.
+  handle('restart-app', () => {
+    app.relaunch();
+    app.quit();
+  });
+  handle('gateway-runtime', () => gatewayRuntime.current());
+  handle('gateway-runtime-retry', () => gatewayRuntime.ensure());
   async function resolveSession(value: Session): Promise<Session> {
     if (value.hostId) {
       const scan = await remote.call(value.hostId, 'snapshot', []);

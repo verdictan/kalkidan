@@ -2,77 +2,19 @@ import { test, expect } from './helpers/app';
 import { type Page } from '@playwright/test';
 import { openCodeFolder } from './helpers/navigation';
 
-/** The header subtitle of the code folder page. It starts with the branch of the main folder. */
-const subtitle = (page: Page) => page.getByRole('main').locator('.page-subtitle');
+/** The muted branch text after the name of a repo row in the tree. */
+const branchOf = (page: Page, name: string) =>
+  page
+    .locator('.tree-row[data-kind="repo"]')
+    .filter({ has: page.locator('.tree-label', { hasText: new RegExp(`^${name}$`) }) })
+    .locator('.tree-meta');
 
-test('overview refreshes only its repository and keeps cached content while revalidating', async ({
+test('the tree shows the branch of each repo and keeps it while the user moves', async ({
   page,
 }) => {
   await page.addInitScript(() => {
-    const calls = { snapshot: 0, repository: 0, git: 0 };
+    const calls: Record<string, number> = { snapshot: 0, git: 0, repository: 0 };
     (window as any).ioCalls = calls;
-    const project = {
-      id: 'repo',
-      name: 'Test repo',
-      path: '/tmp/repo',
-      favorite: false,
-      notes: '',
-      addedAt: '',
-    };
-    (window as any).workspace = {
-      trackerProviders: async () => [],
-      githubAuthCancel: async () => ({ status: 'idle' }),
-      snapshot: async () => {
-        calls.snapshot++;
-        return {
-          projects: [project],
-          groups: [{ id: 'group', name: 'Test project', repoIds: ['repo'] }],
-          sessions: [],
-          warnings: [],
-          platform: 'darwin',
-        };
-      },
-      git: async () => {
-        calls.git++;
-        throw Error('Separate Git call should not occur');
-      },
-      repositorySnapshot: async (id: string) => {
-        if (id !== 'repo') throw Error('Wrong repository');
-        calls.repository++;
-        return {
-          git: { branch: 'main', changes: 0, worktrees: [{ path: '/tmp/repo', branch: 'main' }] },
-          sessions: [],
-          warnings: [],
-        };
-      },
-    };
-  });
-  await page.goto('/');
-  await openCodeFolder(page, 'Test repo');
-  await expect(subtitle(page)).toHaveText(/^main\s*·/);
-  const before = await page.evaluate(() => ({ ...(window as any).ioCalls }));
-  // "Refresh branch copies" is an item of the code folder menu.
-  await page.getByRole('button', { name: 'Repository actions', exact: true }).click();
-  await page.getByRole('menuitem', { name: 'Refresh branch copies', exact: true }).click();
-  await expect
-    .poll(() => page.evaluate(() => (window as any).ioCalls.repository))
-    .toBe(before.repository + 1);
-  await page.evaluate(() => window.dispatchEvent(new Event('focus')));
-  await expect
-    .poll(() => page.evaluate(() => (window as any).ioCalls.repository))
-    .toBe(before.repository + 2);
-  const after = await page.evaluate(() => (window as any).ioCalls);
-  expect(after.snapshot).toBe(before.snapshot);
-  // The project overview reads branches. The code folder page does not call Git again.
-  expect(after.git).toBe(before.git);
-});
-
-test('switching projects reuses details and keeps cached content after a failed refresh', async ({
-  page,
-}) => {
-  await page.addInitScript(() => {
-    const calls: Record<string, number> = {};
-    (window as any).detailCalls = calls;
     const projects = ['Alpha', 'Beta'].map((name) => ({
       id: name,
       name,
@@ -84,43 +26,47 @@ test('switching projects reuses details and keeps cached content after a failed 
     (window as any).workspace = {
       trackerProviders: async () => [],
       githubAuthCancel: async () => ({ status: 'idle' }),
-      // The project overview reads the branch of each code folder.
-      git: async () => null,
-      snapshot: async () => ({
-        projects,
-        groups: [{ id: 'group', name: 'Test project', repoIds: ['Alpha', 'Beta'] }],
-        sessions: [],
-        warnings: [],
-        platform: 'darwin',
-      }),
-      repositorySnapshot: async (id: string) => {
-        calls[id] = (calls[id] || 0) + 1;
-        if ((window as any).failDetails) throw Error('Host is unavailable');
+      snapshot: async () => {
+        calls.snapshot++;
         return {
-          git: { branch: id, changes: 0, worktrees: [{ path: `/tmp/${id}`, branch: id }] },
+          projects,
+          groups: [
+            { id: 'one', name: 'First project', repoIds: ['Alpha'] },
+            { id: 'two', name: 'Second project', repoIds: ['Beta'] },
+          ],
           sessions: [],
           warnings: [],
+          platform: 'darwin',
         };
+      },
+      git: async () => {
+        calls.git++;
+        throw Error('Separate Git call should not occur');
+      },
+      repositorySnapshot: async () => {
+        calls.repository++;
+        throw Error('The tree does not read repository details');
+      },
+      workingStatus: async (id: string) => {
+        calls[id] = (calls[id] || 0) + 1;
+        return { branch: `${id.toLowerCase()}-branch`, files: [], changes: 0 };
       },
     };
   });
   await page.goto('/');
   await openCodeFolder(page, 'Alpha');
-  await expect(subtitle(page)).toHaveText(/^Alpha\s*·/);
+  await expect(branchOf(page, 'Alpha')).toHaveText('alpha-branch');
   await openCodeFolder(page, 'Beta');
-  await expect(subtitle(page)).toHaveText(/^Beta\s*·/);
+  await expect(branchOf(page, 'Beta')).toHaveText('beta-branch');
+  const before = await page.evaluate(() => ({ ...(window as any).ioCalls }));
+  // The tree keeps the branches while the user moves between projects.
   await openCodeFolder(page, 'Alpha');
-  await expect(subtitle(page)).toHaveText(/^Alpha\s*·/);
-  expect(await page.evaluate(() => (window as any).detailCalls)).toEqual({ Alpha: 1, Beta: 1 });
-  await page.evaluate(() => {
-    (window as any).failDetails = true;
-    window.dispatchEvent(new Event('focus'));
-  });
-  await expect(page.getByText('Host is unavailable', { exact: true })).toBeVisible();
-  await expect(subtitle(page)).toHaveText(/^Alpha\s*·/);
-  await page.evaluate(() => {
-    (window as any).failDetails = false;
-    window.dispatchEvent(new Event('focus'));
-  });
-  await expect(page.getByText('Host is unavailable', { exact: true })).toHaveCount(0);
+  await expect(branchOf(page, 'Alpha')).toHaveText('alpha-branch');
+  await openCodeFolder(page, 'Beta');
+  await expect(branchOf(page, 'Beta')).toHaveText('beta-branch');
+  const after = await page.evaluate(() => (window as any).ioCalls);
+  // Moving between projects does not reload the workspace snapshot.
+  expect(after.snapshot).toBe(before.snapshot);
+  expect(after.git).toBe(0);
+  expect(after.repository).toBe(0);
 });

@@ -1,38 +1,55 @@
-import { useEffect, useState, type DragEvent } from 'react';
-import { Check } from 'lucide-react';
-import type { API, FolderScan } from '../api/contracts';
-import { useFirstRunState, useVerdictanStatus } from '../hooks/use-verdictan-status';
-import { errorMessage } from '../lib/errors';
-import { regionNames } from '../lib/region-suggestion';
-import { accountNames } from '../lib/verdictan-labels';
-import { folderName, RepositoryChecklist } from './repository-import';
-import { RuntimeReadiness, SignInSteps, type SignInResult } from './sign-in-steps';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { ArrowUpRight, CircleAlert } from 'lucide-react';
+import type { API } from '../api/contracts';
+import { toolDetail, toolsNeedAttention, type ToolStatus } from '../domain/desktop';
+import { useFirstRunState } from '../hooks/use-verdictan-status';
+import { hideSplash } from '../lib/splash';
+import { ReadyCheck, restartKalkidan, sortTools, useComputerTools } from './settings-tools';
+import type { SignInResult } from './sign-in-steps';
 import { Button } from './ui/button';
 
+/** The demo keeps its first-run state here. The preview shows the tools check only with it. */
+const demoFirstRunKey = 'kalkidan-demo-first-run';
+
+function demoFirstRunSet() {
+  try {
+    return localStorage.getItem(demoFirstRunKey) !== null;
+  } catch {
+    return false;
+  }
+}
+
 /**
- * True when the shell must show the Welcome screen: the user did not finish or skip it yet,
- * no account ever signed in on this computer, and no account is signed in now. A returning user
- * with an ended session gets the SessionBanner instead. Undefined while Kalkidan reads the state. Always false in the
- * browser preview and in builds without the first-run state.
+ * True when the shell must show the tools check ("Almost ready") before the composer: this is
+ * the first run, and a tool is missing, not signed in, or has no access. With every tool found,
+ * the first run ends here and the check never shows. Undefined while Kalkidan reads the state.
+ * The browser preview shows it only when the demo first-run state is set.
  */
 export function useWelcomeGate(api: API, preview = false) {
   const firstRun = useFirstRunState(api);
-  const account = useVerdictanStatus(api, !preview);
+  const allowed = !preview || demoFirstRunSet();
+  const firstTime =
+    allowed && firstRun.supported && !!firstRun.state && !firstRun.state.welcomeDone;
+  const tools = useComputerTools(api, firstTime);
   const [decided, setDecided] = useState<boolean>();
   useEffect(() => {
-    // Decide once at launch. A sign-in later does not show the Welcome screen again.
+    // Decide once at launch. A tool that the user installs later does not show the check again.
     if (decided !== undefined) return;
-    if (preview || !firstRun.supported || !account.supported) return setDecided(false);
-    if (!firstRun.state || !account.status) return;
-    setDecided(
-      !firstRun.state.welcomeDone &&
-        !firstRun.state.everSignedIn &&
-        account.status.phase !== 'authenticated',
-    );
-  }, [decided, preview, firstRun.supported, firstRun.state, account.supported, account.status]);
+    if (!allowed || !firstRun.supported) return setDecided(false);
+    if (!firstRun.state) return;
+    if (firstRun.state.welcomeDone || firstRun.state.everSignedIn) return setDecided(false);
+    if (!tools.supported) return setDecided(false);
+    if (!tools.computers) return;
+    const show = toolsNeedAttention(tools.local);
+    if (!show && typeof api.setWelcomeDone === 'function')
+      void Promise.resolve()
+        .then(() => api.setWelcomeDone())
+        .catch(() => undefined);
+    setDecided(show);
+  }, [decided, allowed, firstRun.supported, firstRun.state, tools.supported, tools.computers]);
   return {
     show: decided,
-    /** Call after Welcome finishes. */
+    /** Call after the tools check finishes. */
     hide: () => setDecided(false),
   };
 }
@@ -42,258 +59,141 @@ export function shortPath(path: string) {
   return path.replace(/^(\/Users\/[^/]+|\/home\/[^/]+|[A-Za-z]:\\Users\\[^\\]+)/, '~');
 }
 
-/** "3 Git repositories", or "No Git repositories" for a folder without one. */
-function repositoryCount(count: number) {
-  return count
-    ? `${count} Git ${count === 1 ? 'repository' : 'repositories'}`
-    : 'No Git repositories';
+/**
+ * The short name of an official page: the host, for example "docs.anthropic.com". A page on
+ * github.com also shows its path, for example "github.com/openai/codex".
+ */
+function pageHost(url: string) {
+  try {
+    const page = new URL(url);
+    return page.host === 'github.com' ? page.host + page.pathname.replace(/\/$/, '') : page.host;
+  } catch {
+    return url;
+  }
 }
 
-/** The path of a dropped folder. The desktop gives it; the browser preview does not. */
-type DropApi = API & { pathForFile?: (file: File) => string | undefined };
+/** The order of the tools check rows, as on the agreed frame: Claude Code, Codex, GitHub CLI. */
+function checkOrder(tools: ToolStatus[] | undefined) {
+  const rank = (tool: ToolStatus) =>
+    tool.tool === 'claude' ? 0 : tool.tool === 'codex' ? 1 : tool.kind === 'agent' ? 2 : 3;
+  return [...(tools || [])].sort((a, b) => rank(a) - rank(b));
+}
 
 /**
- * The first run in one card, with two steps. 1: sign in to Verdictan (or "Later"). 2: choose or
- * drop a folder. The card lists the Git repositories in it, all checked, and "Start in <name>"
- * makes the project with them and opens it on the composer. There is no Get started dialog and
- * no question about the repositories. The shell shows the card in place of the workspace.
- *
- * `onDone` receives the result: `signedIn`, and `groupId` when the card made a project.
+ * One tool on the tools check: the name, one line of detail and, at the right, "Ready" or a link
+ * to its official page ("Get Codex ↗" when it is not installed, else "Install guide ↗").
  */
-export function Welcome({ api, onDone }: { api: API; onDone: (result: SignInResult) => void }) {
-  const account = useVerdictanStatus(api);
-  const status = account.status;
-  const signedIn = status?.phase === 'authenticated';
-  // Step 1 ends when the sign-in finishes (with the setup of the organization) or on "Later".
-  const [finished, setFinished] = useState(false);
-  const [skipped, setSkipped] = useState(false);
-  const signInDone = finished || skipped;
-  const [scan, setScan] = useState<FolderScan>();
-  const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [busy, setBusy] = useState<'' | 'scan' | 'create'>('');
-  const [error, setError] = useState('');
-  const [dragging, setDragging] = useState(false);
-  const canChoose = typeof api.chooseFolder === 'function';
-  async function finish(result: SignInResult) {
-    try {
-      if (typeof api.setWelcomeDone === 'function') await api.setWelcomeDone();
-    } catch {
-      /* The Welcome card shows again at the next launch. Nothing else depends on it. */
-    }
-    onDone(result);
-  }
-  async function scanPath(path: string) {
-    setBusy('scan');
-    setError('');
-    try {
-      const result =
-        typeof api.scanRepositories === 'function'
-          ? await api.scanRepositories(path)
-          : { root: path, rootIsRepository: false, repositories: [] };
-      setScan(result);
-      setSelected(new Set(result.repositories.filter((r) => !r.added).map((r) => r.path)));
-    } catch (failure) {
-      setError(errorMessage(failure));
-    } finally {
-      setBusy('');
-    }
-  }
-  async function chooseFolder() {
-    if (!canChoose) return;
-    const path = await api.chooseFolder('Choose a code folder', 'Choose');
-    if (path) await scanPath(path);
-  }
-  /** Makes the project with the checked repositories, then opens it. */
-  async function start() {
-    if (!scan || busy) return;
-    const paths = scan.repositories.length ? [...selected] : [scan.root];
-    if (!paths.length) return;
-    setBusy('create');
-    setError('');
-    const key = `kalkidan-onboarding-create:${scan.root}`;
-    try {
-      let operationId = '';
-      try {
-        operationId = localStorage.getItem(key) || crypto.randomUUID();
-        localStorage.setItem(key, operationId);
-      } catch {
-        operationId = crypto.randomUUID();
-      }
-      const groupId = await api.createGroup(
-        folderName(scan.root),
-        '',
-        undefined,
-        'github',
-        undefined,
-        operationId,
-        paths,
-      );
-      try {
-        localStorage.removeItem(key);
-      } catch {
-        /* The next try makes a new project. */
-      }
-      await finish({ signedIn, groupId });
-    } catch (failure) {
-      setError(errorMessage(failure));
-      setBusy('');
-    }
-  }
-  function onDrop(event: DragEvent<HTMLElement>) {
-    event.preventDefault();
-    setDragging(false);
-    if (!signInDone || busy) return;
-    const file = event.dataTransfer.files[0];
-    const path = file && (api as DropApi).pathForFile?.(file);
-    if (path) void scanPath(path);
-  }
-  const name = scan ? folderName(scan.root) : '';
-  const available = scan ? scan.repositories.filter((r) => !r.added) : [];
-  const names = accountNames(status);
-  const region = status?.region ? regionNames[status.region] : '';
+function CheckRow({ tool }: { tool: ToolStatus }) {
+  const ready = tool.state === 'ready';
   return (
-    <div className="welcome" data-testid="welcome">
-      <header className="welcome-titlebar">
-        <RuntimeReadiness api={api} />
-      </header>
-      <main className="welcome-main">
-        <section
-          className="welcome-card"
-          aria-label="Welcome to Kalkidan"
-          data-dragging={dragging || undefined}
-          onDragOver={(event) => {
-            if (!signInDone) return;
-            event.preventDefault();
-            setDragging(true);
-          }}
-          onDragLeave={() => setDragging(false)}
-          onDrop={onDrop}
+    <li className="st-check-row" data-state={tool.state}>
+      <span className="st-check-text">
+        <span className="st-check-name">{tool.name}</span>
+        <span className="st-check-detail">{toolDetail(tool)}</span>
+      </span>
+      {ready ? (
+        <span className="st-check-ready">
+          <ReadyCheck label="Ready" />
+          Ready
+        </span>
+      ) : (
+        <a
+          className="st-link st-check-link"
+          href={tool.installUrl}
+          target="_blank"
+          rel="noreferrer"
+          aria-label={`${tool.name}: ${pageHost(tool.installUrl)} (opens in the browser)`}
         >
-          <h1 className="welcome-brand">
-            <img src="./brand/kalkidan-mark.svg" alt="" aria-hidden="true" width="32" height="32" />
-            Kalkidan
-          </h1>
-          <ol className="welcome-steps">
-            <li className="welcome-step" data-state={signInDone ? 'done' : 'current'}>
-              <StepMark number={1} done={finished || (skipped && signedIn)} />
-              <div className="welcome-step-body">
-                {signInDone ? (
-                  <>
-                    <p className="welcome-step-title">
-                      {signedIn ? names.user || names.email || 'Signed in' : 'Not signed in'}
-                    </p>
-                    <p className="welcome-step-help">
-                      {signedIn ? (
-                        [names.organization, region].filter(Boolean).join(' · ')
-                      ) : (
-                        <Button
-                          variant="link"
-                          className="text-foreground underline"
-                          onClick={() => setSkipped(false)}
-                        >
-                          Sign in
-                        </Button>
-                      )}
-                    </p>
-                  </>
-                ) : (
-                  <>
-                    <p className="welcome-step-title">Sign in</p>
-                    <SignInSteps
-                      api={api}
-                      mode="step"
-                      onFinished={(result) => {
-                        if (result.signedIn) setFinished(true);
-                        else setSkipped(true);
-                      }}
-                      onSkip={() => setSkipped(true)}
-                    />
-                  </>
-                )}
-              </div>
-            </li>
-            <li
-              className="welcome-step"
-              data-state={signInDone ? 'current' : 'next'}
-              aria-disabled={!signInDone || undefined}
-            >
-              <StepMark number={2} />
-              <div className="welcome-step-body">
-                <p className="welcome-step-title">{scan ? name : 'Choose a code folder'}</p>
-                {scan && (
-                  <p className="welcome-step-help" title={scan.root}>
-                    {shortPath(scan.root)} · {repositoryCount(available.length)}
-                  </p>
-                )}
-                {signInDone && scan && (
-                  <RepositoryChecklist
-                    scan={scan}
-                    selected={selected}
-                    onChange={setSelected}
-                    disabled={!!busy}
-                    className="welcome-repositories"
-                  />
-                )}
-                {signInDone && (
-                  <div className="welcome-actions">
-                    {scan ? (
-                      <>
-                        <Button
-                          size="lg"
-                          disabled={!!busy || (!!scan.repositories.length && !selected.size)}
-                          onClick={() => void start()}
-                        >
-                          {busy === 'create' ? 'Starting…' : `Start in ${name}`}
-                        </Button>
-                        <Button
-                          size="lg"
-                          variant="ghost"
-                          disabled={!!busy || !canChoose}
-                          onClick={() => void chooseFolder()}
-                        >
-                          Other folder…
-                        </Button>
-                      </>
-                    ) : (
-                      <>
-                        <Button
-                          size="lg"
-                          disabled={!!busy || !canChoose}
-                          onClick={() => void chooseFolder()}
-                        >
-                          {busy === 'scan' ? 'Looking for repositories…' : 'Choose folder…'}
-                        </Button>
-                        <Button
-                          size="lg"
-                          variant="ghost"
-                          disabled={!!busy}
-                          onClick={() => void finish({ signedIn })}
-                        >
-                          Later
-                        </Button>
-                      </>
-                    )}
-                  </div>
-                )}
-                {error && (
-                  <p role="alert" className="field-error">
-                    {error}
-                  </p>
-                )}
-              </div>
-            </li>
-          </ol>
-        </section>
-      </main>
-    </div>
+          <CircleAlert className="sr-only" role="img" aria-label="Needs you" />
+          {tool.installed ? 'Install guide' : `Get ${tool.name}`}
+          <ArrowUpRight aria-hidden="true" />
+        </a>
+      )}
+    </li>
   );
 }
 
-/** The mark of a step: a number, or a green check when it is done. */
-function StepMark({ number, done = false }: { number: number; done?: boolean }) {
+/**
+ * The first-run tools check (SP-C5). It shows only when a tool is missing: the Kalkidan lockup,
+ * "Your tools" and one row for Claude Code, Codex and the GitHub CLI, each with its state and,
+ * when it is not ready, a link to its official page. Kalkidan does not install or set up these
+ * tools. "Continue" opens the composer with the first agent found. With no agent found, the one
+ * action is "Restart Kalkidan". The sign-in comes later, at the first send.
+ *
+ * `onDone` receives `{ signedIn: false }`.
+ */
+export function Welcome({ api, onDone }: { api: API; onDone: (result: SignInResult) => void }) {
+  const tools = useComputerTools(api);
+  const lockup = useRef<HTMLDivElement>(null);
+  const [busy, setBusy] = useState(false);
+  const list = useMemo(() => checkOrder(tools.local?.tools), [tools.local]);
+  const agent = sortTools(list).find((tool) => tool.kind === 'agent' && tool.usable);
+  // The launch splash lockup glides into this lockup (SP-C5).
+  useLayoutEffect(() => {
+    if (!lockup.current) return;
+    hideSplash({ glideTo: lockup.current });
+  }, []);
+  async function finish() {
+    setBusy(true);
+    try {
+      if (typeof api.setWelcomeDone === 'function') await api.setWelcomeDone();
+    } catch {
+      /* The tools check shows again at the next launch. Nothing else depends on it. */
+    }
+    onDone({ signedIn: false });
+  }
   return (
-    <span className="welcome-step-mark" data-done={done || undefined} aria-hidden="true">
-      {done ? <Check /> : number}
-    </span>
+    <div className="welcome st-first-run" data-testid="welcome">
+      <header className="welcome-titlebar" />
+      <main className="st-first-run-main">
+        <div className="st-first-run-column">
+          <div ref={lockup} id="first-run-lockup" className="st-first-run-lockup">
+            <img src="./brand/kalkidan-mark.svg" alt="" aria-hidden="true" width="32" height="32" />
+            <span>Kalkidan</span>
+          </div>
+          <h1 id="first-run-tools" className="st-first-run-heading">
+            Your tools
+          </h1>
+          <ul
+            className="st-check-list"
+            aria-labelledby="first-run-tools"
+            aria-busy={!tools.computers}
+          >
+            {list.map((tool) => (
+              <CheckRow key={tool.tool} tool={tool} />
+            ))}
+          </ul>
+          <p className="st-restart st-check-restart">
+            Installed something? Restart Kalkidan to find it.
+          </p>
+          <div className="st-check-actions">
+            {agent ? (
+              <>
+                <Button
+                  className="st-check-continue"
+                  disabled={busy}
+                  aria-label={`Continue with ${agent.name}`}
+                  onClick={() => void finish()}
+                >
+                  Continue
+                </Button>
+                <Button
+                  variant="secondary"
+                  className="bg-background px-[13px] shadow-[inset_0_0_0_1px_var(--border)] hover:bg-[var(--fill)]"
+                  disabled={busy}
+                  onClick={() => restartKalkidan(api)}
+                >
+                  Restart Kalkidan
+                </Button>
+              </>
+            ) : (
+              <Button disabled={busy || !tools.computers} onClick={() => restartKalkidan(api)}>
+                Restart Kalkidan
+              </Button>
+            )}
+          </div>
+        </div>
+      </main>
+    </div>
   );
 }

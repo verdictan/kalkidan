@@ -126,6 +126,24 @@ const api: API = {
   trackerAddIssue: (...args) => ipcRenderer.invoke('tracker-add-issue', ...args),
   trackerConfigure: (...args) => ipcRenderer.invoke('tracker-configure', ...args),
 
+  openProjectWindow: (groupId) => ipcRenderer.invoke('project-window-open', groupId),
+  projectWindows: () => ipcRenderer.invoke('project-windows'),
+  onProjectWindowsChange: (callback) => {
+    const listener = (_event: unknown, groupIds: string[]) => callback(groupIds);
+    ipcRenderer.on('project-windows', listener);
+    return () => ipcRenderer.removeListener('project-windows', listener);
+  },
+  computerTools: (options) => ipcRenderer.invoke('computer-tools', options),
+  toolStatus: (computer, options) => ipcRenderer.invoke('tool-status', computer, options),
+  onToolsChange: (callback) => {
+    const listener = (_event: unknown, computer: Parameters<typeof callback>[0]) =>
+      callback(computer);
+    ipcRenderer.on('tools-changed', listener);
+    return () => ipcRenderer.removeListener('tools-changed', listener);
+  },
+  restartApp: () => ipcRenderer.invoke('restart-app'),
+  gatewayRuntime: () => ipcRenderer.invoke('gateway-runtime'),
+  gatewayRuntimeRetry: () => ipcRenderer.invoke('gateway-runtime-retry'),
   githubCliCheck: () => ipcRenderer.invoke('github-cli-check'),
   agentInstallations: (hostId) => ipcRenderer.invoke('agent-installations', hostId),
   chooseAgentExecutable: (agent, path, hostId) =>
@@ -143,6 +161,15 @@ const api: API = {
     ipcRenderer.invoke('remote-call', id, method, args)) as API['remoteCall'],
   directoryList: (path, hostId) => ipcRenderer.invoke('directory-list', path, hostId),
   mentionFiles: (cwd, hostId) => ipcRenderer.invoke('mention-files', cwd, hostId),
+  codeFiles: (cwd, hostId) => ipcRenderer.invoke('code-files', cwd, hostId),
+  codeFileRead: (cwd, path, hostId) => ipcRenderer.invoke('code-file-read', cwd, path, hostId),
+  codeFileWrite: (cwd, path, content, expectedRevision, hostId) =>
+    ipcRenderer.invoke('code-file-write', cwd, path, content, expectedRevision, hostId),
+  codeFileRevision: (cwd, path, hostId) =>
+    ipcRenderer.invoke('code-file-revision', cwd, path, hostId),
+  codeFileChanges: (cwd, path, hostId) =>
+    ipcRenderer.invoke('code-file-changes', cwd, path, hostId),
+  codeSearch: (cwd, query, hostId) => ipcRenderer.invoke('code-search', cwd, query, hostId),
   remoteFolders: (id, path) => ipcRenderer.invoke('remote-folders', id, path),
   remoteAddRepository: (id, path, clone) =>
     ipcRenderer.invoke('remote-add-repository', id, path, clone),
@@ -207,6 +234,7 @@ const api: API = {
   discover: (groupId) => ipcRenderer.invoke('discover', groupId),
   chooseFolder: (title, buttonLabel) => ipcRenderer.invoke('choose-folder', title, buttonLabel),
   scanRepositories: (path, hostId) => ipcRenderer.invoke('scan-repositories', path, hostId),
+  findCodeFolders: () => ipcRenderer.invoke('find-code-folders'),
   addRepositories: (groupId, paths) => ipcRenderer.invoke('add-repositories', groupId, paths),
   worktreePreview: (id, branch) => ipcRenderer.invoke('worktree-preview', id, branch),
   gitSwitchNewBranch: (id, branch) => ipcRenderer.invoke('git-switch-new-branch', id, branch),

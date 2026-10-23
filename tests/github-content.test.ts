@@ -188,6 +188,15 @@ test('content writes use issue permissions, repository labels, revisions and typ
   assert.deepEqual(writes[0], { id: 'issue', title: 'New title', body: 'New body' });
   for (const kind of ['close', 'reopen'] as const)
     await service.change(project, 'item', snapshot.revision, { kind });
+  await service.change(project, 'item', snapshot.revision, {
+    kind: 'close',
+    reason: 'not-planned',
+  });
+  assert.deepEqual(writes.at(-1), { issueId: 'issue', stateReason: 'NOT_PLANNED' });
+  await assert.rejects(
+    service.change(project, 'item', snapshot.revision, { kind: 'close', reason: 'wontfix' as any }),
+    /Invalid close reason/,
+  );
   for (const kind of ['assign', 'unassign'] as const)
     await service.change(project, 'item', snapshot.revision, { kind, login: 'alice' });
   for (const kind of ['label', 'unlabel'] as const)
@@ -197,12 +206,12 @@ test('content writes use issue permissions, repository labels, revisions and typ
   await assert.rejects(
     service.change(project, 'item', snapshot.revision, { kind: 'comment', body: 'Hello' }),
   );
-  assert.equal(writes.length, 8);
+  assert.equal(writes.length, 9);
   permission = false;
   const denied = await service.read(project, 'item');
   await assert.rejects(
     service.change(project, 'item', denied.revision, { kind: 'edit', title: 'Bad', body: '' }),
     /cannot edit/,
   );
-  assert.equal(writes.length, 8);
+  assert.equal(writes.length, 9);
 });

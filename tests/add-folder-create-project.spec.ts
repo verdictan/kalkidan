@@ -18,12 +18,13 @@ test('a project created with a code folder closes the flow and opens the new pro
   // The flow is complete. No other dialog opens, and a success needs no toast.
   await page.waitForTimeout(300);
   await expect(page.getByRole('dialog')).toHaveCount(0);
-  // The new project shows with its code folders.
+  // The new project shows with its repos (code folders). The last item of the list is "Add
+  // repo…".
   await expect(page.getByRole('main').getByRole('heading', { name: 'Mobile' })).toBeVisible();
-  const folders = page.getByRole('region', { name: 'Code folders', exact: true });
-  await expect(folders.locator('.folder-chip')).toHaveCount(3);
+  const folders = page.getByRole('region', { name: 'Repos', exact: true });
+  await expect(folders.getByRole('listitem')).toHaveCount(4);
 
-  // "Add code folder…" of a local project opens the folder picker at once, with no dialog. The
+  // "Add repo…" of a local project opens the folder picker at once, with no dialog. The
   // preview picker chooses the same folder again, so nothing new is added and a toast says so.
   await page
     .locator('.project-tree')
@@ -33,12 +34,12 @@ test('a project created with a code folder closes the flow and opens the new pro
   await create.getByRole('button', { name: 'Create project', exact: true }).click();
   await expect(create).not.toBeVisible();
   await expect(page.getByRole('main').getByRole('heading', { name: 'Empty' })).toBeVisible();
-  await folders.getByRole('button', { name: 'Add code folder…', exact: true }).click();
+  await folders.getByRole('button', { name: 'Add repo…', exact: true }).click();
   await expect(
     page
       .getByRole('status')
       .filter({ hasText: 'Every Git repository in atlas is already in Kalkidan.' }),
   ).toBeVisible();
   await expect(page.getByRole('dialog')).toHaveCount(0);
-  await expect(folders.locator('.folder-chip')).toHaveCount(0);
+  await expect(folders.getByRole('listitem')).toHaveCount(1);
 });

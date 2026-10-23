@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Check, CircleAlert, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from './button';
@@ -8,7 +8,20 @@ export interface ToastAction {
   onClick: () => void;
 }
 export interface ToastInput {
+  /** The text. Screen readers read it, and it shows when there is no `content`. */
   message: string;
+  /**
+   * Optional rich text that shows in place of `message`, for example a repo mark before the repo
+   * name. Keep its words the same as `message`.
+   */
+  content?: ReactNode;
+  /** Optional node before the text, after the tone icon, for example an identity mark. */
+  leading?: ReactNode;
+  /**
+   * Shows the close button. Default: true. A toast with actions can leave it out: an action or a
+   * page change closes it.
+   */
+  closable?: boolean;
   /**
    * Error toasts show an alert icon and stay until the user closes them. Success toasts show a
    * check.
@@ -109,7 +122,7 @@ export function Toaster({ className, resetKey }: { className?: string; resetKey?
     <div
       className={cn(
         // Above the dialogs and menus, so a toast with Undo stays usable while a dialog shows.
-        'pointer-events-none fixed right-5 bottom-[calc(1.25rem+var(--toast-offset,0px))] z-[var(--z-toast)] flex w-[min(420px,calc(100vw-2.5rem))] flex-col items-end gap-2',
+        'pointer-events-none fixed right-4 bottom-[calc(1rem+var(--toast-offset,0px))] z-[var(--z-toast)] flex w-[min(420px,calc(100vw-2rem))] flex-col items-end gap-2',
         className,
       )}
     >
@@ -130,24 +143,30 @@ export function Toaster({ className, resetKey }: { className?: string; resetKey?
           onFocus={() => pauseTimer(item.id)}
           onBlur={() => startTimer(item.id)}
           className={cn(
-            // One dark toast: 40px, radius 10, 12px text, the actions in bold white.
-            'pointer-events-auto flex max-w-full min-h-10 items-center gap-1 rounded-lg bg-foreground py-1.5 pr-2 pl-3.5 text-xs text-background shadow-[var(--shadow-toast)]',
+            // One dark toast (KN-B2): 40px, radius 8, padding 0 8 0 16, 16px between the parts,
+            // 13/20 text, actions 13/20 600.
+            'pointer-events-auto flex max-w-full min-h-10 items-center gap-4 rounded-md bg-foreground py-1 pr-2 pl-4 text-sm text-background shadow-[var(--shadow-toast)]',
             'motion-safe:animate-in motion-safe:fade-in-0 motion-safe:slide-in-from-bottom-2 motion-safe:duration-[var(--motion-base)]',
           )}
         >
           {item.tone === 'error' && (
-            <CircleAlert className="mr-1 size-4 shrink-0 text-background" aria-hidden="true" />
+            <CircleAlert className="size-4 shrink-0 text-background" aria-hidden="true" />
           )}
           {item.tone === 'success' && (
-            <Check className="mr-1 size-4 shrink-0 text-background/70" aria-hidden="true" />
+            <Check className="size-3.5 shrink-0 text-background/70" aria-hidden="true" />
           )}
-          <span className="min-w-0 flex-1 pr-2">{item.message}</span>
+          {item.leading && (
+            <span className="flex shrink-0 items-center" aria-hidden="true">
+              {item.leading}
+            </span>
+          )}
+          <span className="min-w-0 flex-1">{item.content ?? item.message}</span>
           {item.actions?.map((action) => (
             <Button
               key={action.label}
               size="sm"
               variant="ghost"
-              className="px-2 text-xs font-semibold text-background hover:bg-background/10 hover:text-background"
+              className="h-7 px-2 text-sm font-semibold text-background hover:bg-background/10 hover:text-background"
               onClick={() => {
                 action.onClick();
                 close(item.id);
@@ -156,15 +175,17 @@ export function Toaster({ className, resetKey }: { className?: string; resetKey?
               {action.label}
             </Button>
           ))}
-          <Button
-            size="icon-sm"
-            variant="ghost"
-            className="text-background/70 hover:bg-background/10 hover:text-background"
-            aria-label="Close notification"
-            onClick={() => close(item.id)}
-          >
-            <X />
-          </Button>
+          {item.closable !== false && (
+            <Button
+              size="icon-sm"
+              variant="ghost"
+              className="text-background/70 hover:bg-background/10 hover:text-background"
+              aria-label="Close notification"
+              onClick={() => close(item.id)}
+            >
+              <X />
+            </Button>
+          )}
         </div>
       ))}
     </div>

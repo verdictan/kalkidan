@@ -5,6 +5,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type CSSProperties,
   type ReactNode,
   type RefObject,
 } from 'react';
@@ -30,14 +31,15 @@ import { isMac, plural, shortcutLabel } from '../lib/platform';
 import type { API, Project, ProjectGroup, Session } from '../types';
 import { relativeTime } from '../lib/relative-time';
 import {
-  ChatStatusDot,
+  ChatStatusGlyph,
   activityKey,
   waitsForUser,
   type SessionActivityState,
 } from './activity-dot';
-import { AgentIcon } from './ui/agent-icon';
 import { Button } from './ui/button';
 import { Dialog, DialogContent, DialogTitle } from './ui/dialog';
+import { IdentityMark, IdentityToken } from './ui/identity-mark';
+import type { IdentityColor, IdentityKind } from '../domain/identity';
 
 type Transcript = { messages: { text: string }[]; truncated: boolean };
 
@@ -67,9 +69,21 @@ export interface RecentPlace {
   label: string;
   /** The project and the kind or agent, shown after the label. */
   context?: string;
-  kind: 'chat' | 'task' | 'doc' | 'project';
+  kind: 'chat' | 'task' | 'doc' | 'project' | 'repo';
   agent?: string;
+  /** The identity mark of the item: a session dot or a project square. */
+  mark?: { kind: IdentityKind; color: IdentityColor };
+  /** The project of the item, as a mark and a name at the right side. */
+  place?: { name: string; color: IdentityColor };
+  /** Allows the approval that the chat waits for. The selected row shows it; Mod+Enter runs it. */
+  allow?: () => void;
   open: () => void;
+}
+/** The identity colors of the items that search finds. */
+export interface SearchMarks {
+  session: (session: Session) => IdentityColor;
+  project: (group: ProjectGroup) => IdentityColor;
+  repo: (repo: Project) => IdentityColor;
 }
 
 /** The words of a text, for word-start matching. "Re-check auth_flow" → re, check, auth, flow. */
@@ -119,14 +133,19 @@ function Highlight({ text, term }: { text: string; term: string }) {
   return <>{out}</>;
 }
 
-/** The icon of a recent chat, task or page. */
+/** The icon of a recent chat, task or page: the identity mark of a chat or project. */
 function RecentIcon({ place }: { place: RecentPlace }) {
-  if (place.kind === 'chat' && place.agent)
-    return <AgentIcon agent={place.agent} className="size-4" />;
+  if (place.mark) return <IdentityMark kind={place.mark.kind} color={place.mark.color} />;
   if (place.kind === 'task') return <ListTodo />;
   if (place.kind === 'doc') return <FileText />;
   if (place.kind === 'project') return <Folder />;
   return <Clock />;
+}
+
+/** The width of the sidebar of the window, from the app shell. 0px without a sidebar. */
+function navigationWidth() {
+  const shell = document.querySelector('.app-shell');
+  return (shell && getComputedStyle(shell).getPropertyValue('--navigation-width').trim()) || '0px';
 }
 
 /** The content of one result row. Each part stays on one line. */
@@ -139,6 +158,8 @@ interface RowContent {
   meta?: ReactNode;
   /** The full text, for the tooltip. */
   tooltip?: string;
+  /** A button at the far right, such as Allow on the selected "Needs you" row. */
+  action?: ReactNode;
   className?: string;
 }
 
@@ -153,6 +174,8 @@ export function WorkspaceSearch({
   open,
   onOpenChange,
   triggerRef,
+  trigger = true,
+  markOf,
   projects,
   groups,
   sessions,
@@ -174,6 +197,10 @@ export function WorkspaceSearch({
   onOpenChange: (open: boolean) => void;
   /** The sidebar button that opens the palette. */
   triggerRef?: RefObject<HTMLButtonElement | null>;
+  /** False: no Search row in the sidebar (a project window has a Search icon instead). */
+  trigger?: boolean;
+  /** The identity colors of chats, projects and code folders. */
+  markOf?: SearchMarks;
   /** Commands that show in the results when they match the query. */
   actions?: SearchAction[];
   /** Commands that show with an empty query, under "Actions". */
@@ -565,8 +592,23 @@ export function WorkspaceSearch({
           </span>
         )}
         {content.meta && <span className="search-option-meta">{content.meta}</span>}
+        {content.action}
       </div>
     );
+  }
+  /** The project of a row at its right side: the project square and the name. */
+  const placeToken = (place?: RecentPlace['place']) =>
+    place && <IdentityToken kind="project" color={place.color} name={place.name} />;
+  /** Allows the approval of the active "Needs you" row. True when it did. */
+  function allowActive() {
+    const place = activeOption?.key.startsWith('needs:')
+      ? needsYou.find((item) => 'needs:' + item.key === activeOption.key)
+      : undefined;
+    if (!place?.allow) return false;
+    chose.current = true;
+    onOpenChange(false);
+    place.allow();
+    return true;
   }
   function group(name: string, label: string, rows: ReactNode) {
     return (
@@ -588,29 +630,33 @@ export function WorkspaceSearch({
   const askKeys = shortcutLabel(['mod'], '↵');
   return (
     <>
-      <button
-        ref={triggerRef}
-        type="button"
-        className="search-trigger"
-        aria-label="Search or run a command"
-        aria-haspopup="dialog"
-        aria-expanded={open}
-        aria-keyshortcuts={isMac ? 'Meta+K' : 'Control+K'}
-        onClick={() => onOpenChange(true)}
-      >
-        <Search className="search-trigger-icon" aria-hidden="true" />
-        <span className="search-trigger-label">Search</span>
-        <kbd className="kbd search-kbd" aria-hidden="true">
-          {shortcut}
-        </kbd>
-      </button>
+      {trigger && (
+        <button
+          ref={triggerRef}
+          type="button"
+          className="search-trigger"
+          aria-label="Search or run a command"
+          aria-haspopup="dialog"
+          aria-expanded={open}
+          aria-keyshortcuts={isMac ? 'Meta+K' : 'Control+K'}
+          onClick={() => onOpenChange(true)}
+        >
+          <Search className="search-trigger-icon" aria-hidden="true" />
+          <span className="search-trigger-label">Search</span>
+          <kbd className="kbd search-kbd" aria-hidden="true">
+            {shortcut}
+          </kbd>
+        </button>
+      )}
       <Dialog open={open} onOpenChange={onOpenChange}>
         <DialogContent
           showCloseButton={false}
           layout="scroll"
           aria-modal="true"
+          // SH-A4: the palette centers over the page, not over the sidebar.
+          style={{ '--navigation-width': navigationWidth() } as CSSProperties}
           aria-describedby={undefined}
-          className="command-palette top-[84px] max-h-[min(60vh,560px)] translate-y-0 sm:max-w-[600px]"
+          className="command-palette top-[72px] left-[calc(50%+var(--navigation-width,0px)/2)] max-h-[min(60vh,560px)] translate-y-0 sm:max-w-[560px]"
           onOpenAutoFocus={(event) => {
             event.preventDefault();
             inputRef.current?.focus();
@@ -637,7 +683,7 @@ export function WorkspaceSearch({
               aria-controls={expanded ? listId : undefined}
               aria-autocomplete="list"
               aria-activedescendant={activeOption ? optionId(activeOption.key) : undefined}
-              placeholder="Search chats, projects, pages or run a command"
+              placeholder="Search or run a command"
               autoComplete="off"
               spellCheck={false}
               value={query}
@@ -649,7 +695,11 @@ export function WorkspaceSearch({
                   const step = event.key === 'ArrowDown' ? 1 : -1;
                   setActive((current) => (Math.max(current, 0) + step + total) % total);
                 } else if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
-                  // Mod+Enter turns the query into a new chat.
+                  // Mod+Enter allows the selected approval, or turns the query into a new chat.
+                  if (allowActive()) {
+                    event.preventDefault();
+                    return;
+                  }
                   if (!ask) return;
                   event.preventDefault();
                   choose({ key: 'ask', open: () => onAsk?.(ask) });
@@ -687,8 +737,25 @@ export function WorkspaceSearch({
                       row('needs:' + place.key, {
                         icon: <RecentIcon place={place} />,
                         title: place.label,
-                        meta: place.context,
+                        meta: placeToken(place.place) || place.context,
                         tooltip: [place.label, place.context].filter(Boolean).join(' · '),
+                        // Allow is the one primary action. It shows on the selected row.
+                        action:
+                          place.allow && activeOption?.key === 'needs:' + place.key ? (
+                            <Button
+                              size="xs"
+                              className="search-allow h-6 gap-1.5 rounded-[6px] px-2.5 text-xs"
+                              aria-label={`Allow ${place.label}`}
+                              aria-keyshortcuts={isMac ? 'Meta+Enter' : 'Control+Enter'}
+                              onMouseDown={(event) => event.preventDefault()}
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                allowActive();
+                              }}
+                            >
+                              Allow <span className="search-allow-key">{askKeys}</span>
+                            </Button>
+                          ) : undefined,
                       }),
                     ),
                   )}
@@ -700,7 +767,7 @@ export function WorkspaceSearch({
                       row('recent:' + place.key, {
                         icon: <RecentIcon place={place} />,
                         title: place.label,
-                        meta: place.context,
+                        meta: placeToken(place.place) || place.context,
                         tooltip: [place.label, place.context].filter(Boolean).join(' · '),
                       }),
                     ),
@@ -722,13 +789,13 @@ export function WorkspaceSearch({
             </section>
           ) : term ? (
             <section className="workspace-search-results" aria-label="Search results">
-              <p role="status" className="search-status">
+              {/* No count: the rows show what was found. Only work in progress shows. */}
+              <p role="status" className="search-status" hidden={!busy && !(shortTerm && !found)}>
                 {shortTerm && !found
                   ? 'Type at least two characters to search message text.'
-                  : busy && !found
+                  : busy
                     ? 'Searching chat messages…'
-                    : plural(found, 'match', 'matches') +
-                      (busy ? ' · Searching chat messages…' : '')}
+                    : ''}
               </p>
               <div id={listId} role="listbox" aria-label="Results">
                 {!!sessionResults.length &&
@@ -750,11 +817,15 @@ export function WorkspaceSearch({
                             : relativeTime(s.updatedAt);
                       const where = [projectOf(repo), state].filter(Boolean).join(' · ');
                       return row('session:' + sessionKey(s), {
-                        icon: <AgentIcon agent={s.agent} className="size-4" />,
+                        icon: markOf ? (
+                          <IdentityMark kind="session" color={markOf.session(s)} />
+                        ) : (
+                          <MessageSquarePlus />
+                        ),
                         title: (
                           <>
                             <Highlight text={title(s)} term={term} />
-                            <ChatStatusDot session={s} live={live} />
+                            <ChatStatusGlyph session={s} live={live} />
                           </>
                         ),
                         detail: excerpt ? <Highlight text={excerpt} term={term} /> : where,
@@ -805,7 +876,11 @@ export function WorkspaceSearch({
                   group('projects', 'Projects', [
                     ...projectMatches.map((g) =>
                       row('project:' + g.id, {
-                        icon: <Folder />,
+                        icon: markOf ? (
+                          <IdentityMark kind="project" color={markOf.project(g)} />
+                        ) : (
+                          <Folder />
+                        ),
                         title: <Highlight text={g.name} term={term} />,
                         detail: plural(g.repoIds.length, 'code folder'),
                         tooltip: g.name,
@@ -813,7 +888,11 @@ export function WorkspaceSearch({
                     ),
                     ...repoMatches.map((p) =>
                       row('repo:' + p.id, {
-                        icon: <FolderGit2 />,
+                        icon: markOf ? (
+                          <IdentityMark kind="repo" color={markOf.repo(p)} />
+                        ) : (
+                          <FolderGit2 />
+                        ),
                         title: <Highlight text={p.name} term={term} />,
                         detail: [projectOf(p), 'Code folder'].filter(Boolean).join(' · '),
                         tooltip: p.path,
@@ -855,17 +934,6 @@ export function WorkspaceSearch({
               )}
             </section>
           ) : null}
-          {/* Two keys: Open and Ask an agent. Each action shows its own key on its row. */}
-          <div className="command-palette-footer" aria-hidden="true">
-            <span>
-              <kbd className="kbd kbd-cap">↵</kbd> Open
-            </span>
-            {onAsk && (
-              <span>
-                <kbd className="kbd kbd-cap">{askKeys}</kbd> Ask an agent
-              </span>
-            )}
-          </div>
         </DialogContent>
       </Dialog>
     </>

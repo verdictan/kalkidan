@@ -1,30 +1,24 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { BarChart3, MessageSquare } from 'lucide-react';
+import { ContextMenu, DropdownMenu as DropdownMenuPrimitive } from 'radix-ui';
 import type { API, Project, ProjectGroup, Session } from '../types';
 import {
-  projectUsageLimits,
   summarizeProjectUsage,
-  usageCostText,
   type ProjectUsage,
-  type UsageTokens,
+  type ProjectUsageSummary,
+  type UsageTotals,
 } from '../domain/project-usage';
-import { agentLabel } from '../config/agents';
-import { usageValuesNote } from '../domain/managed-history';
 import { managedErrorInfo } from '../domain/verdictan';
+import { assignIdentityColors, identityVar, type IdentityColor } from '../domain/identity';
+import { useIdentityOverrides } from '../hooks/use-identity';
 import { errorMessage } from '../lib/errors';
 import { plural } from '../lib/platform';
-import { fullTime, relativeTime } from '../lib/relative-time';
 import { sessionRepo } from '../lib/session-repository';
+import { cn } from '../lib/utils';
 import { openChat } from './planning-kit';
-import { AgentIcon } from './ui/agent-icon';
-import { Button } from './ui/button';
-import { EmptyState } from './ui/empty-state';
-import { Dialog, DialogBody, DialogContent, DialogHeader, DialogTitle } from './ui/dialog';
+import { Dialog, DialogContent, DialogTitle } from './ui/dialog';
+import { menuCollisionPadding, menuItemClass, menuSurfaceClass } from './ui/menu-styles';
 
 const count = (value: number) => value.toLocaleString('en-US');
-function tokenText(tokens: UsageTokens) {
-  return `${count(tokens.input)} in · ${count(tokens.output)} out · ${count(tokens.cached)} cached`;
-}
 // The last usage of each project in this window. It shows at once while the usage loads
 // again. It is for a short time only, as the backend cache.
 const recentUsageMs = 60_000;
@@ -64,351 +58,84 @@ export function usageErrorAction(
   return { kind: 'none' };
 }
 
-const dayLabel = (date: string) =>
-  new Date(`${date}T12:00:00`).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+/** The number of days that the Usage card shows. */
+export const usageDays = 14;
 
-/**
- * The managed-agent usage of a project: requests, policy decisions, tokens, models, chats and
- * requests for each day. The data comes from the Verdictan history of each chat. Kalkidan does
- * not calculate a price. A subscription has no provider charge to show.
- */
-export function ProjectUsageInsights({
-  api,
-  groupId,
-  sessions,
-}: {
-  api: API;
-  groupId: string;
-  /** The chats of the project, on this computer and on SSH hosts. */
-  sessions: Session[];
-}) {
-  const chats = useMemo(
-    () =>
-      sessions
-        .filter((session) => !session.id.startsWith('draft-'))
-        .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)),
-    [sessions],
-  );
-  const key = chats.map((chat) => `${chat.agent}:${chat.id}`).join(',');
-  const [usage, setUsage] = useState<ProjectUsage>();
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState('');
-  const available = typeof api.projectUsage === 'function';
-  const current = useRef('');
-  current.current = groupId + '|' + key;
-  /** Loads the usage. `fresh` reads each chat again, also a chat that the backend keeps. */
-  async function load(fresh = false) {
-    if (!available || !chats.length) return;
-    const requested = current.current;
-    setBusy(true);
-    setError('');
-    try {
-      const next = await api.projectUsage(
-        groupId,
-        chats.map((chat) => ({ agent: chat.agent, sessionId: chat.id })),
-        fresh ? { fresh: true } : undefined,
-      );
-      recentUsage.set(requested, { at: Date.now(), usage: next });
-      if (current.current === requested) setUsage(next);
-    } catch (failure) {
-      recentUsage.delete(requested);
-      if (current.current === requested) {
-        setUsage(undefined);
-        setError(errorMessage(failure));
-      }
-    } finally {
-      if (current.current === requested) setBusy(false);
-    }
-  }
-  useEffect(() => {
-    // Show the last usage of this project at once. The new usage replaces it.
-    setUsage(cachedUsage(current.current));
-    setError('');
-    void load();
-    // A new project or a new chat loads again.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [groupId, key, available]);
-  // When the window gets focus again, read the usage again. The backend keeps recent chats.
-  const loadRef = useRef(load);
-  loadRef.current = load;
-  useEffect(() => {
-    const focus = () => {
-      if (!document.hidden) void loadRef.current();
-    };
-    window.addEventListener('focus', focus);
-    return () => window.removeEventListener('focus', focus);
-  }, []);
-  const errorAction = error ? usageErrorAction(error) : undefined;
-  const summary = useMemo(
-    () => (usage ? summarizeProjectUsage(usage, Date.parse(usage.observedAt) || Date.now()) : null),
-    [usage],
-  );
-  const title = (agent: string, id: string) => {
-    const chat = chats.find((value) => value.agent === agent && value.id === id);
-    return chat ? chat.organization?.title || chat.title : 'Chat';
+/** The usage of the last `days` days only: requests without a time or before that go. */
+export function recentProjectUsage(usage: ProjectUsage, now: number, days = usageDays) {
+  const start = new Date(now);
+  start.setHours(0, 0, 0, 0);
+  start.setDate(start.getDate() - (days - 1));
+  return {
+    ...usage,
+    chats: usage.chats.map((chat) => ({
+      ...chat,
+      entries: chat.entries.filter((entry) => {
+        const time = entry.time ? Date.parse(entry.time) : NaN;
+        return Number.isFinite(time) && time >= start.getTime();
+      }),
+    })),
   };
-  const peak = Math.max(1, ...(summary?.days.map((day) => day.requests) || [1]));
-  return (
-    <section aria-label="Usage details" className="grid gap-4" aria-busy={busy}>
-      {!available ? (
-        <EmptyState icon={<BarChart3 />} title="Usage history is not available">
-          This version of Kalkidan cannot read the usage history. Update Kalkidan.
-        </EmptyState>
-      ) : !chats.length ? (
-        <EmptyState
-          icon={<MessageSquare />}
-          title="No chats yet"
-          action={
-            <Button
-              variant="outline"
-              onClick={() =>
-                window.dispatchEvent(
-                  new CustomEvent('kalkidan-new-session', { detail: { groupId } }),
-                )
-              }
-            >
-              New chat
-            </Button>
-          }
-        />
-      ) : error ? (
-        <EmptyState
-          icon={<BarChart3 />}
-          title="Usage history is not available"
-          action={
-            errorAction?.kind === 'retry' ? (
-              <Button variant="outline" disabled={busy} onClick={() => void load(true)}>
-                Try again
-              </Button>
-            ) : errorAction?.kind === 'sign-in' ? (
-              <Button
-                variant="outline"
-                onClick={() =>
-                  window.dispatchEvent(
-                    new CustomEvent('kalkidan-sign-in', { detail: { intent: 'login' } }),
-                  )
-                }
-              >
-                Sign in
-              </Button>
-            ) : errorAction?.kind === 'settings' ? (
-              <Button
-                variant="outline"
-                onClick={() =>
-                  window.dispatchEvent(
-                    new CustomEvent('kalkidan-open-settings', {
-                      detail: { section: errorAction.section },
-                    }),
-                  )
-                }
-              >
-                Open Settings
-              </Button>
-            ) : undefined
-          }
-        >
-          {error}
-        </EmptyState>
-      ) : !summary ? (
-        <p className="form-help m-0">Loading the usage…</p>
-      ) : summary.requests === 0 ? (
-        <EmptyState icon={<BarChart3 />} title="No managed-agent requests">
-          {usage!.chats.length
-            ? 'Verdictan has no requests for the chats of this project yet.'
-            : 'The chats of this project do not use a managed agent with this account.'}
-        </EmptyState>
-      ) : (
-        <>
-          <dl className="project-usage-stats" aria-label="Usage totals">
-            <div>
-              <dt>Requests</dt>
-              <dd>{count(summary.requests)}</dd>
-            </div>
-            <div>
-              <dt>Allowed</dt>
-              <dd>{count(summary.allowed)}</dd>
-            </div>
-            <div>
-              <dt>Refused</dt>
-              <dd>{count(summary.refused)}</dd>
-            </div>
-            {summary.other > 0 && (
-              <div>
-                <dt>Other decisions</dt>
-                <dd>{count(summary.other)}</dd>
-              </div>
-            )}
-            <div>
-              <dt>Tokens</dt>
-              <dd>{tokenText(summary.tokens)}</dd>
-            </div>
-            <div>
-              <dt>Measured cost</dt>
-              <dd>{usageCostText(summary)}</dd>
-            </div>
-          </dl>
-          {summary.tokens.unknown > 0 && (
-            <p className="form-help m-0">
-              {plural(summary.tokens.unknown, 'request')} with unknown token counts. The totals do
-              not include them.
-            </p>
-          )}
-          <section aria-labelledby="usage-days-title" className="grid gap-2">
-            <h4 id="usage-days-title" className="text-xs font-semibold text-muted-foreground">
-              Requests for each day
-            </h4>
-            <ol className="project-usage-days" aria-label="Requests for each day, last 14 days">
-              {summary.days.map((day) => (
-                <li
-                  key={day.date}
-                  title={`${dayLabel(day.date)}: ${plural(day.requests, 'request')}`}
-                >
-                  <span
-                    className="project-usage-bar"
-                    style={{ height: `${Math.round((day.requests / peak) * 100)}%` }}
-                    aria-hidden="true"
-                  />
-                  <span className="sr-only">
-                    {dayLabel(day.date)}: {plural(day.requests, 'request')}
-                  </span>
-                </li>
-              ))}
-            </ol>
-            <div className="flex justify-between text-xs text-muted-foreground" aria-hidden="true">
-              <span>{dayLabel(summary.days[0].date)}</span>
-              <span>{dayLabel(summary.days[summary.days.length - 1].date)}</span>
-            </div>
-            {summary.undated > 0 && (
-              <p className="form-help m-0">
-                {plural(summary.undated, 'request')} with an unknown time. The days do not show
-                them.
-              </p>
-            )}
-          </section>
-          {summary.models.length > 0 && (
-            <section aria-labelledby="usage-models-title" className="grid gap-2">
-              <h4 id="usage-models-title" className="text-xs font-semibold text-muted-foreground">
-                Models
-              </h4>
-              <ul className="flex flex-wrap gap-2" aria-label="Models used">
-                {summary.models.map((model) => (
-                  <li key={model.name} className="project-usage-chip">
-                    {model.name} · {plural(model.requests, 'request')}
-                  </li>
-                ))}
-              </ul>
-            </section>
-          )}
-          <section aria-labelledby="usage-chats-title" className="grid gap-2">
-            <h4 id="usage-chats-title" className="text-xs font-semibold text-muted-foreground">
-              Chats
-            </h4>
-            <ul className="review-list" aria-label="Usage by chat">
-              {summary.chats.map((chat) => (
-                <li key={chat.agent + chat.sessionId} className="list-row row-hover px-2">
-                  <AgentIcon agent={chat.agent as Session['agent']} />
-                  <div className="grid min-w-0 flex-1 gap-0.5">
-                    <button
-                      type="button"
-                      className="truncate text-left text-sm font-medium hover:underline"
-                      onClick={() => openChat(chat.agent as Session['agent'], chat.sessionId)}
-                    >
-                      {title(chat.agent, chat.sessionId)}
-                    </button>
-                    <span className="truncate text-xs leading-4 text-muted-foreground">
-                      {agentLabel(chat.agent)} · {chat.host} · {plural(chat.requests, 'request')} ·{' '}
-                      {count(chat.allowed)} allowed · {count(chat.refused)} refused ·{' '}
-                      {tokenText(chat.tokens)}
-                      {chat.models.length ? ` · ${chat.models.join(', ')}` : ''}
-                    </span>
-                  </div>
-                  <div className="grid shrink-0 justify-items-end gap-0.5 text-xs text-muted-foreground">
-                    <span>
-                      {chat.billing === 'subscription'
-                        ? 'Included in your subscription'
-                        : usageCostText(chat)}
-                    </span>
-                    {chat.lastTime && (
-                      <span title={fullTime(chat.lastTime)}>
-                        Last request {relativeTime(chat.lastTime)}
-                      </span>
-                    )}
-                  </div>
-                </li>
-              ))}
-            </ul>
-          </section>
-          {(summary.partial || usage!.unmanaged > 0 || usage!.failed > 0) && (
-            <ul className="form-help m-0 grid gap-1" aria-label="Notes about the usage">
-              {summary.partial && (
-                <li>
-                  Kalkidan reads the {projectUsageLimits.chats} most recent chats and{' '}
-                  {projectUsageLimits.pages * 25} requests for each chat. The totals can be
-                  incomplete.
-                </li>
-              )}
-              {usage!.unmanaged > 0 && (
-                <li>
-                  {plural(usage!.unmanaged, 'chat')} without managed-agent history for this account.
-                </li>
-              )}
-              {usage!.failed > 0 && (
-                <li>
-                  The history of {plural(usage!.failed, 'chat')} could not be read. Load the usage
-                  again.
-                </li>
-              )}
-            </ul>
-          )}
-          <p className="form-help m-0">
-            {usageValuesNote} Requests until {fullTime(usage!.observedAt)}.{' '}
-            <Button type="button" variant="link" disabled={busy} onClick={() => void load(true)}>
-              {busy ? 'Loading…' : 'Load again'}
-            </Button>
-          </p>
-        </>
-      )}
-    </section>
-  );
 }
 
-/** The window event that opens the Usage sheet of a project. detail: { groupId, taskId? }. */
+/**
+ * A cost as one short text: "$18.40", "€3.10 · $2.00", "Included" for a subscription, or "" when
+ * there is nothing to show. "≈ " marks a total that misses requests (unknown costs or chats that
+ * Kalkidan did not read).
+ */
+export function costText(
+  totals: Pick<UsageTotals, 'cost' | 'costUnknown' | 'subscription' | 'requests'>,
+  partial = false,
+) {
+  const amounts = Object.entries(totals.cost)
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([currency, amount]) => {
+      try {
+        return new Intl.NumberFormat('en-US', { style: 'currency', currency }).format(
+          Number(amount),
+        );
+      } catch {
+        return `${amount} ${currency}`;
+      }
+    });
+  if (!amounts.length)
+    return totals.requests && totals.subscription === totals.requests ? 'Included' : '';
+  const rough = partial || totals.costUnknown > 0;
+  return (rough ? '≈ ' : '') + amounts.join(' · ');
+}
+
+/** The time of a usage read. Without a valid time, now. */
+function observedTime(usage: ProjectUsage) {
+  return Date.parse(usage.observedAt) || Date.now();
+}
+
+const dayLabel = (date: string) =>
+  new Date(`${date}T12:00:00`).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+
+/** The window event that opens the Usage card of a project. detail: { groupId, taskId? }. */
 export const openProjectUsageEvent = 'kalkidan-open-project-usage';
 
-/** Opens the Usage sheet of a project. The shell mounts one ProjectUsageSheetHost. */
+/** Opens the Usage card of a project. The shell mounts one ProjectUsageSheetHost. */
 export function openProjectUsage(groupId: string, taskId?: string) {
   window.dispatchEvent(new CustomEvent(openProjectUsageEvent, { detail: { groupId, taskId } }));
 }
 
-/** The chats of a project: the chats in one of its code folders. */
-function projectChats(group: ProjectGroup, sessions: Session[], repos: Project[]) {
-  const own = repos.filter((repo) => group.repoIds.includes(repo.id));
-  return sessions.filter((session) => !!sessionRepo(session, own));
+interface UsageProps {
+  api: API;
+  group: ProjectGroup;
+  /** The chats of the app. The card keeps the chats of this project. */
+  sessions?: Session[];
+  /** The code folders of the app. Without them, the card reads them once. */
+  repos?: Project[];
 }
 
 /**
- * The Usage sheet of a project: the managed-agent usage of its chats. It opens from the project
- * menu and from ⌘K.
+ * The managed-agent usage of a project for the last 14 days. It loads when `active` is true,
+ * and again when the window gets focus.
  */
-export function ProjectUsageSheet({
-  api,
-  group,
-  open,
-  onOpenChange,
-  sessions: sessionsProp,
-  repos: reposProp,
-}: {
-  api: API;
-  group: ProjectGroup;
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  /** The chats of the app. The sheet keeps the chats of this project. */
-  sessions?: Session[];
-  /** The code folders of the app. Without them, the sheet reads them once. */
-  repos?: Project[];
-}) {
+function useProjectUsage({ api, group, sessions: sessionsProp, repos: reposProp }: UsageProps) {
   const [loaded, setLoaded] = useState<{ sessions: Session[]; projects: Project[] }>();
-  const needsSnapshot = open && (!sessionsProp || !reposProp);
+  const needsSnapshot = !sessionsProp || !reposProp;
   useEffect(() => {
     if (!needsSnapshot || loaded) return;
     let live = true;
@@ -422,31 +149,300 @@ export function ProjectUsageSheet({
   }, [api, needsSnapshot, !!loaded]);
   const sessions = sessionsProp || loaded?.sessions;
   const repos = reposProp || loaded?.projects;
-  const chats = useMemo(
-    () => (sessions && repos ? projectChats(group, sessions, repos) : undefined),
-    [group, sessions, repos],
+  const repoIds = group.repoIds.join(',');
+  const own = useMemo(
+    () => (repos || []).filter((repo) => repoIds.split(',').includes(repo.id)),
+    [repos, repoIds],
   );
+  const chats = useMemo(
+    () =>
+      sessions && repos
+        ? sessions.filter(
+            (session) => !session.id.startsWith('draft-') && !!sessionRepo(session, own),
+          )
+        : undefined,
+    [sessions, repos, own],
+  );
+  const key = group.id + '|' + (chats || []).map((chat) => `${chat.agent}:${chat.id}`).join(',');
+  const [usage, setUsage] = useState<ProjectUsage | undefined>(() => cachedUsage(key));
+  const [error, setError] = useState('');
+  const available = typeof api.projectUsage === 'function';
+  const current = useRef(key);
+  current.current = key;
+  async function load(fresh = false) {
+    if (!available || !chats?.length) return;
+    const requested = key;
+    setError('');
+    try {
+      const next = await api.projectUsage(
+        group.id,
+        chats.map((chat) => ({ agent: chat.agent, sessionId: chat.id })),
+        fresh ? { fresh: true } : undefined,
+      );
+      recentUsage.set(requested, { at: Date.now(), usage: next });
+      if (current.current === requested) setUsage(next);
+    } catch (failure) {
+      recentUsage.delete(requested);
+      if (current.current === requested) {
+        setUsage(undefined);
+        setError(errorMessage(failure));
+      }
+    }
+  }
+  const loadRef = useRef(load);
+  loadRef.current = load;
+  useEffect(() => {
+    if (!chats) return;
+    setUsage(cachedUsage(key));
+    void loadRef.current();
+  }, [key, !!chats, available]);
+  useEffect(() => {
+    const focus = () => {
+      if (!document.hidden) void loadRef.current();
+    };
+    window.addEventListener('focus', focus);
+    return () => window.removeEventListener('focus', focus);
+  }, []);
+  const summary = useMemo<ProjectUsageSummary | null>(() => {
+    if (!usage) return null;
+    const now = observedTime(usage);
+    return summarizeProjectUsage(recentProjectUsage(usage, now), now, usageDays);
+  }, [usage]);
+  const partial = !!summary?.partial || !!usage?.failed;
+  return {
+    chats,
+    own,
+    summary,
+    partial,
+    error,
+    available,
+    loading: !!chats?.length && !usage && !error,
+    reload: () => void load(true),
+  };
+}
+
+/** The short cost text for the Usage row, for example "$18.40", or "" while it loads. */
+export function useProjectUsageCost(props: UsageProps) {
+  const { summary, partial } = useProjectUsage(props);
+  return summary ? costText(summary, partial) : '';
+}
+
+/** The identity color of each chat: the colors of the sessions of its repository. */
+function useSessionColors(chats: Session[] | undefined, repos: Project[]) {
+  const overrides = useIdentityOverrides();
+  return useMemo(() => {
+    const colors = new Map<string, IdentityColor>();
+    const prefix = 'session:';
+    const own: Record<string, IdentityColor> = {};
+    for (const [key, color] of Object.entries(overrides))
+      if (key.startsWith(prefix)) own[key.slice(prefix.length)] = color;
+    for (const repo of repos) {
+      const siblings = (chats || []).filter((chat) => sessionRepo(chat, repos)?.id === repo.id);
+      const assigned = assignIdentityColors(
+        'session',
+        siblings.map((chat) => ({ key: chat.id, name: chat.title || chat.id })),
+        own,
+      );
+      for (const [key, color] of assigned) colors.set(key, color);
+    }
+    return colors;
+  }, [chats, repos, overrides]);
+}
+
+/**
+ * The Usage card of a project: the cost of the last 14 days, the requests and the requests
+ * that the gateway refused, the requests for each day, and the sessions by cost. A session row
+ * opens the chat. The tokens show in the tooltip of a row.
+ */
+export function ProjectUsageCard(props: UsageProps & { className?: string }) {
+  const usage = useProjectUsage(props);
+  const { summary, chats, own, partial, error } = usage;
+  const colors = useSessionColors(chats, own);
+  const title = (id: string) => chats?.find((chat) => chat.id === id)?.title || 'Chat';
+  const peak = Math.max(1, ...(summary?.days.map((day) => day.requests) || [1]));
+  const rows = (summary?.chats || [])
+    .map((chat) => ({ chat, cost: costText(chat), amount: Number(Object.values(chat.cost)[0]) }))
+    .sort((a, b) => (b.amount || 0) - (a.amount || 0) || b.chat.requests - a.chat.requests)
+    .slice(0, 5);
+  const errorAction = error ? usageErrorAction(error) : undefined;
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent size="lg" layout="scroll" aria-describedby={undefined}>
-        <DialogHeader>
-          <DialogTitle>Usage</DialogTitle>
-        </DialogHeader>
-        <DialogBody>
-          {chats ? (
-            <ProjectUsageInsights api={api} groupId={group.id} sessions={chats} />
-          ) : (
-            <p className="form-help m-0">Loading the usage…</p>
+    <section
+      className={cn('usage-card', props.className)}
+      aria-label={`Usage of ${props.group.name}`}
+      aria-busy={usage.loading}
+    >
+      <p className="usage-card-label">
+        {props.group.name} · last {usageDays} days
+      </p>
+      {!usage.available ? (
+        <p className="usage-card-note">This version of Kalkidan cannot read the usage.</p>
+      ) : chats && !chats.length ? (
+        <p className="usage-card-note">No sessions yet.</p>
+      ) : error ? (
+        <p className="usage-card-note">
+          {errorAction?.kind === 'none' ? 'Usage shows in the desktop app.' : error}{' '}
+          {errorAction?.kind === 'retry' && (
+            <button type="button" className="usage-card-link" onClick={usage.reload}>
+              Try again
+            </button>
           )}
-        </DialogBody>
-      </DialogContent>
-    </Dialog>
+          {errorAction?.kind === 'sign-in' && (
+            <button
+              type="button"
+              className="usage-card-link"
+              onClick={() =>
+                window.dispatchEvent(
+                  new CustomEvent('kalkidan-sign-in', { detail: { intent: 'login' } }),
+                )
+              }
+            >
+              Sign in
+            </button>
+          )}
+        </p>
+      ) : !summary ? (
+        <p className="usage-card-note">Loading…</p>
+      ) : (
+        <>
+          <p className="usage-card-cost">{costText(summary, partial) || '$0.00'}</p>
+          <p className="usage-card-label">
+            {plural(summary.requests, 'request')} · {count(summary.refused)} refused
+          </p>
+          <ol className="usage-card-days" aria-label={`Requests for each day`}>
+            {summary.days.map((day, index) => (
+              <li
+                key={day.date}
+                title={`${dayLabel(day.date)}: ${plural(day.requests, 'request')}`}
+                data-today={index === summary.days.length - 1 || undefined}
+              >
+                <span
+                  aria-hidden="true"
+                  style={{ height: `${Math.max(2, Math.round((day.requests / peak) * 48))}px` }}
+                />
+                <span className="sr-only">
+                  {dayLabel(day.date)}: {plural(day.requests, 'request')}
+                </span>
+              </li>
+            ))}
+          </ol>
+          <div className="usage-card-axis" aria-hidden="true">
+            <span>{dayLabel(summary.days[0].date)}</span>
+            <span>Today</span>
+          </div>
+          {rows.length > 0 && (
+            <ul className="usage-card-sessions" aria-label="Usage by session">
+              {rows.map(({ chat, cost }) => {
+                const color = colors.get(chat.sessionId);
+                return (
+                  <li key={chat.agent + chat.sessionId}>
+                    <button
+                      type="button"
+                      title={`${count(chat.tokens.input)} in · ${count(chat.tokens.output)} out · ${count(chat.tokens.cached)} cached`}
+                      onClick={() => openChat(chat.agent as Session['agent'], chat.sessionId)}
+                    >
+                      <span
+                        className="usage-card-dot"
+                        aria-hidden="true"
+                        style={color ? { background: identityVar(color) } : undefined}
+                      />
+                      <span className="usage-card-title">{title(chat.sessionId)}</span>
+                      <span className="usage-card-amount">
+                        {cost || plural(chat.requests, 'request')}
+                      </span>
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </>
+      )}
+    </section>
+  );
+}
+
+const usageTriggerClass = cn(menuItemClass, 'usage-menu-row');
+/** The card is 8px from the menu edge. The row is 4px inside the edge, so 12px from the row. */
+const usageCardGap = 12;
+/** The card can go up to the title bar (40px), as high as the menu beside it. */
+const usageCardPadding = { ...menuCollisionPadding, top: 40 };
+
+/**
+ * The Usage card starts at the top of the menu, not at the Usage row (KN-B4). The trigger
+ * measures how far its row is from the top of the menu each time it opens the card.
+ */
+function useMenuTopAlign() {
+  const [offset, setOffset] = useState(0);
+  const measure = (row: HTMLElement) => {
+    const menu = row.closest('[role="menu"]');
+    if (!menu) return;
+    // Layout offsets, not screen boxes: the menu can still scale in while it opens.
+    if (menu instanceof HTMLElement && row.offsetParent === menu.offsetParent)
+      setOffset(menu.offsetTop - row.offsetTop);
+  };
+  return {
+    offset,
+    trigger: {
+      onPointerEnter: (event: { currentTarget: HTMLElement }) => measure(event.currentTarget),
+      onFocus: (event: { currentTarget: HTMLElement }) => measure(event.currentTarget),
+    },
+  };
+}
+
+/**
+ * The Usage row of the project menu: "Usage" with the cost on the right. Hover, the right arrow
+ * key or a click shows the Usage card beside the menu. Put it in a DropdownMenuContent.
+ */
+export function ProjectUsageMenuItem(props: UsageProps) {
+  const cost = useProjectUsageCost(props);
+  const align = useMenuTopAlign();
+  return (
+    <DropdownMenuPrimitive.Sub>
+      <DropdownMenuPrimitive.SubTrigger className={usageTriggerClass} {...align.trigger}>
+        Usage
+        {cost && <span className="usage-menu-cost">{cost}</span>}
+      </DropdownMenuPrimitive.SubTrigger>
+      <DropdownMenuPrimitive.Portal>
+        <DropdownMenuPrimitive.SubContent
+          className={cn(menuSurfaceClass, 'usage-card-surface')}
+          collisionPadding={usageCardPadding}
+          sideOffset={usageCardGap}
+          alignOffset={align.offset}
+        >
+          <ProjectUsageCard {...props} />
+        </DropdownMenuPrimitive.SubContent>
+      </DropdownMenuPrimitive.Portal>
+    </DropdownMenuPrimitive.Sub>
+  );
+}
+
+/** The same Usage row for a right-click menu (ContextMenu.Content). */
+export function ProjectUsageContextMenuItem(props: UsageProps) {
+  const cost = useProjectUsageCost(props);
+  const align = useMenuTopAlign();
+  return (
+    <ContextMenu.Sub>
+      <ContextMenu.SubTrigger className={usageTriggerClass} {...align.trigger}>
+        Usage
+        {cost && <span className="usage-menu-cost">{cost}</span>}
+      </ContextMenu.SubTrigger>
+      <ContextMenu.Portal>
+        <ContextMenu.SubContent
+          className={cn(menuSurfaceClass, 'usage-card-surface')}
+          collisionPadding={usageCardPadding}
+          sideOffset={usageCardGap}
+          alignOffset={align.offset}
+        >
+          <ProjectUsageCard {...props} />
+        </ContextMenu.SubContent>
+      </ContextMenu.Portal>
+    </ContextMenu.Sub>
   );
 }
 
 /**
- * Shows the Usage sheet when a `kalkidan-open-project-usage` event names a project. The shell
- * mounts it once.
+ * Shows the Usage card in a small dialog when a `kalkidan-open-project-usage` event names a
+ * project (⌘K "Usage", a link from a chat). The shell mounts it once.
  */
 export function ProjectUsageSheetHost({
   api,
@@ -474,14 +470,17 @@ export function ProjectUsageSheetHost({
   const group = groups.find((value) => value.id === groupId);
   if (!group) return null;
   return (
-    <ProjectUsageSheet
-      key={group.id}
-      api={api}
-      group={group}
-      open={open}
-      onOpenChange={setOpen}
-      sessions={sessions}
-      repos={repos}
-    />
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogContent className="usage-dialog" aria-describedby={undefined}>
+        <DialogTitle className="sr-only">Usage</DialogTitle>
+        <ProjectUsageCard
+          key={group.id}
+          api={api}
+          group={group}
+          sessions={sessions}
+          repos={repos}
+        />
+      </DialogContent>
+    </Dialog>
   );
 }

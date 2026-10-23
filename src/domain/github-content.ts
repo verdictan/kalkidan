@@ -66,7 +66,9 @@ export type GitHubContentAction =
     }
   | { kind: 'edit'; title: string; body: string }
   | { kind: 'comment'; body: string }
-  | { kind: 'close' | 'reopen' }
+  /** `reason: 'not-planned'` closes an issue as not planned. A pull request has no reason. */
+  | { kind: 'close'; reason?: 'not-planned' }
+  | { kind: 'reopen' }
   | { kind: 'assign' | 'unassign'; login: string }
   | { kind: 'label' | 'unlabel'; name: string };
 export interface GitHubContentAPI {

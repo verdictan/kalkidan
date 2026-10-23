@@ -1,6 +1,6 @@
 import { type Page } from '@playwright/test';
 import { test, expect, openPalette, palette } from './helpers/app';
-import { openCodeFolder } from './helpers/navigation';
+import { openCodeFolder, openTreeChat } from './helpers/navigation';
 
 /** The actions of the open menu, in order, with "---" for a separator. */
 async function menuActions(page: Page) {
@@ -16,9 +16,10 @@ async function menuActions(page: Page) {
 const title = 'Refine project and repository navigation';
 // The row menu shows its items in two levels. A click on the row opens the chat, so the menu
 // has no Open. "Fork chat…" is the one way to copy a chat, so "Duplicate chat" does not show.
-// The demo project has no board, so "Link task" does not show. Commit shows only when the folder
-// has changes. Notes, side chat, export and usage history are in ⌘K and the menu bar.
+// The demo project has no board, so "Link task" does not show. Commit is in the Changes footer.
+// Notes, export and usage history are in ⌘K and the menu bar. The side chat is gone.
 const rowActions = ['rename', 'pin', '---', 'fork', 'open-in', '---', 'archive'];
+const headerActions = ['rename', 'pin', '---', 'read-only', 'fork', 'open-in', '---', 'archive'];
 const submenus = {
   'Open in': ['show-folder', 'open-vscode', 'open-cursor', 'open-window'],
 };
@@ -51,46 +52,35 @@ async function openNotes(page: Page) {
     .click();
 }
 
-test('chat rows, the sidebar and the chat header show one action list', async ({ page }) => {
+test('the tree row and the chat header show one action list', async ({ page }) => {
   await page.goto('/');
   await openCodeFolder(page);
-  const list = page.locator('.session-list');
 
-  // The All chats row menu.
-  const rowMenu = () => list.getByRole('button', { name: `${title} actions`, exact: true }).click();
+  // The tree row menu and the right-click menu of the same chat.
+  const tree = page.getByRole('navigation', { name: 'Projects and repositories' });
+  const treeRow = tree.getByRole('button', { name: `Chat: ${title}`, exact: true });
+  const rowMenu = async () => {
+    await treeRow.hover();
+    await tree.getByRole('button', { name: `${title} actions`, exact: true }).click();
+  };
   await rowMenu();
   const row = await menuActions(page);
   expect(row).toEqual(rowActions);
   await page.keyboard.press('Escape');
   const more = await submenuActions(page, rowMenu);
   expect(more).toEqual(submenus);
-
-  // The right-click menu of the same row.
-  await list
-    .getByRole('button', { name: `Resume ${title}`, exact: true })
-    .click({ button: 'right' });
-  expect(await menuActions(page)).toEqual(row);
-  await page.keyboard.press('Escape');
-
-  // The sidebar row menu and right-click menu of the same chat.
-  const tree = page.getByRole('navigation', { name: 'Projects and repositories' });
-  const treeRow = tree.getByRole('button', { name: `Chat: ${title}`, exact: true });
-  await treeRow.hover();
-  await tree.getByRole('button', { name: `${title} actions`, exact: true }).click();
-  expect(await menuActions(page)).toEqual(row);
-  await page.keyboard.press('Escape');
   await treeRow.click({ button: 'right' });
   expect(await menuActions(page)).toEqual(row);
   await page.keyboard.press('Escape');
   expect(await submenuActions(page, () => treeRow.click({ button: 'right' }))).toEqual(more);
 
-  // The chat header menu has the same actions.
-  await list.getByRole('button', { name: `Resume ${title}`, exact: true }).click();
+  // The chat header menu has the same actions. Only the open chat knows its access, so it adds
+  // Read only. Commit is in the Changes footer, not in the menus.
+  await openTreeChat(page, title);
   const headerMenu = () => page.getByRole('button', { name: 'Chat actions', exact: true }).click();
   await headerMenu();
-  // The open chat knows that its demo folder has changes, so its menu also shows Commit. A row
-  // does not know it, so it hides Commit.
-  expect(await menuActions(page)).toEqual(['rename', 'pin', '---', 'commit', ...row.slice(3)]);
+  expect(await menuActions(page)).toEqual(headerActions);
+  await expect(page.getByRole('menuitem', { name: /^Commit/ })).toHaveCount(0);
   await page.keyboard.press('Escape');
   expect(await submenuActions(page, headerMenu)).toEqual(more);
   await headerMenu();
@@ -99,18 +89,14 @@ test('chat rows, the sidebar and the chat header show one action list', async ({
   const shortcut = await rename.getAttribute('aria-keyshortcuts');
   expect(shortcut).toMatch(/\+(R|E)$/);
   await page.keyboard.press('Escape');
-  await page.getByRole('button', { name: 'Go back', exact: true }).click();
-  await list.getByRole('button', { name: `${title} actions`, exact: true }).click();
+  await rowMenu();
   await expect(rename).toHaveAttribute('aria-keyshortcuts', shortcut!);
 });
 
-test('Notes from the command palette show in the chat header and the chat row', async ({
-  page,
-}) => {
+test('Notes from the command palette show in the chat header', async ({ page }) => {
   await page.goto('/');
   await openCodeFolder(page);
-  const list = page.locator('.session-list');
-  await list.getByRole('button', { name: `Resume ${title}`, exact: true }).click();
+  await openTreeChat(page, title);
   await openNotes(page);
   await page.getByRole('textbox', { name: 'Notes', exact: true }).fill('Check the tree keys');
   await page.getByRole('button', { name: 'Save notes', exact: true }).click();
@@ -122,7 +108,4 @@ test('Notes from the command palette show in the chat header and the chat row', 
     'Check the tree keys',
   );
   await page.keyboard.press('Escape');
-  // The chat row shows the note after the chat details.
-  await page.getByRole('button', { name: 'Go back', exact: true }).click();
-  await expect(list.getByTitle('Check the tree keys', { exact: true })).toBeVisible();
 });

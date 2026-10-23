@@ -111,10 +111,10 @@ export function runtimeProgressLabel(
 export function transferProgressLabel(progress: RuntimeTransferProgress) {
   const percent = transferPercent(progress);
   const step = {
-    downloading: 'Downloading managed agents on this computer',
+    downloading: 'Downloading the Verdictan gateway on this computer',
     verifying: 'Checking the signature on this computer',
-    copying: 'Copying managed agents to the host',
-    installing: 'The host checks and installs managed agents',
+    copying: 'Copying the Verdictan gateway to the host',
+    installing: 'The host checks and installs the Verdictan gateway',
   }[progress.phase];
   return percent === undefined ? `${step}…` : `${step} · ${Math.round(percent)}%`;
 }
@@ -256,8 +256,7 @@ const accountErrors: Record<string, string> = {
     'The browser account is not the saved account. Use the same account, or sign out.',
   'desktop.auth_expired': 'Your session expired. Sign in again.',
   'desktop.auth_required': 'Sign in first.',
-  'desktop.request_timeout':
-    'Managed agents did not reply in time. Check the status, then try again.',
+  'desktop.request_timeout': 'The Verdictan gateway did not reply in time. Try again.',
   'desktop.operation_in_progress':
     'Another account operation is in progress. Wait for it to finish.',
   'desktop.setup_invalid':

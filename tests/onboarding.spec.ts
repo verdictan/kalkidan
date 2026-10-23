@@ -1,9 +1,11 @@
 import { type Page } from '@playwright/test';
 import { test, expect } from './helpers/app';
+import { openNewProject } from './helpers/navigation';
 
 /** The search field of the command palette, open. */
 async function search(page: Page, text: string) {
-  await page.getByRole('button', { name: 'Search or run a command', exact: true }).click();
+  // Before the first project there is no sidebar, so ⌘K opens the palette.
+  await page.keyboard.press('ControlOrMeta+KeyK');
   await page.getByRole('combobox', { name: 'Search or run a command' }).fill(text);
 }
 
@@ -19,277 +21,168 @@ async function emptyWorkspace(page: Page) {
         warnings: [],
         platform: 'darwin',
       }),
-      agentInstallations: async () => [{ agent: 'codex', status: 'missing' }],
     };
   });
   await page.goto('/');
 }
 
-test('an empty workspace asks for a first project, and there is no Get started', async ({
-  page,
-}) => {
+test('an empty workspace opens the composer, and there is no Get started', async ({ page }) => {
   await emptyWorkspace(page);
-  // No dialog opens by itself. The empty state asks for a first project in one line of text.
+  // No dialog opens by itself. The first window is the composer of a new chat.
   const main = page.getByRole('main');
-  await expect(main.getByText('No projects yet.')).toBeVisible();
-  await expect(main.getByRole('heading', { name: /No projects yet/ })).toHaveCount(0);
+  const composer = main.getByRole('textbox', { name: 'Message for a new chat' });
+  await expect(composer).toBeVisible();
   await expect(page.getByRole('dialog')).toHaveCount(0);
-  // Get started is gone: there is no sidebar row and no search entry. Welcome does the setup.
+  // Get started is gone: there is no sidebar row and no search entry.
   await expect(page.getByRole('button', { name: 'Get started', exact: true })).toHaveCount(0);
   await search(page, 'Get started');
   await expect(page.getByRole('option', { name: 'Get started', exact: true })).toHaveCount(0);
   await page.keyboard.press('Escape');
   await page.reload();
-  await expect(main.getByText('No projects yet.')).toBeVisible();
+  await expect(composer).toBeVisible();
   await expect(page.getByRole('dialog')).toHaveCount(0);
 });
 
-test('an empty overview has one action of each kind', async ({ page }) => {
+test('an empty workspace has one action of each kind', async ({ page }) => {
   const errors: string[] = [];
   page.on('pageerror', (error) => errors.push(error.message));
   await emptyWorkspace(page);
   await expect(page.getByRole('dialog')).toHaveCount(0);
-  // The empty Projects page opens a folder, and its header makes a new project. Each action
-  // shows once. There is no "New empty project".
+  // The composer chooses a folder. Before the first project there is no sidebar (ST-C2):
+  // New project is ⇧⌘N and ⌘K. There is no "New empty project".
   const main = page.getByRole('main');
-  await expect(main.getByText('No projects yet.')).toBeVisible();
-  await expect(main.getByRole('button', { name: 'Open a folder…', exact: true })).toHaveCount(1);
-  await expect(main.getByRole('button', { name: 'New project', exact: true })).toHaveCount(1);
-  await expect(main.getByRole('button', { name: 'New empty project', exact: true })).toHaveCount(0);
-  // All chats and Waiting show only when a project exists.
   const nav = page.getByRole('navigation', { name: 'Projects and repositories' });
-  await expect(nav.getByRole('button', { name: 'All chats', exact: true })).toHaveCount(0);
-  await expect(nav.getByRole('button', { name: /^Waiting/ })).toHaveCount(0);
+  await expect(main.getByRole('button', { name: 'Choose a folder', exact: true })).toHaveCount(1);
+  await expect(nav).toBeHidden();
+  await expect(page.getByRole('button', { name: 'Toggle sidebar', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'New empty project', exact: true })).toHaveCount(0);
+  await openNewProject(page);
+  await expect(page.getByRole('dialog', { name: 'New project', exact: true })).toBeVisible();
   expect(errors).toEqual([]);
 });
 
+/** One tool of a computer, as the tool detection of the desktop reports it. */
+function tool(id: string, name: string, version?: string) {
+  return {
+    tool: id,
+    name,
+    kind: id === 'gh' ? 'github' : 'agent',
+    state: version ? 'ready' : 'missing',
+    installed: !!version,
+    ...(version ? { version, path: `/opt/homebrew/bin/${id}` } : {}),
+    signedIn: version ? 'yes' : 'unknown',
+    access: version ? 'granted' : 'unknown',
+    usable: id !== 'gh' && !!version,
+    installUrl: {
+      codex: 'https://github.com/openai/codex',
+      claude: 'https://docs.anthropic.com/claude-code',
+      gh: 'https://cli.github.com',
+    }[id],
+  };
+}
+
 /**
- * A desktop app at its first launch: no region, no account, no projects. The folder picker
- * returns /Users/dana/code, which has two Git repositories. The project that Welcome makes is
- * in the next snapshot.
+ * A desktop app at its first launch: no account and no projects. `versions` gives the version
+ * of each tool that Kalkidan finds on this Mac. A tool with no version is not installed.
  */
-async function firstRun(page: Page) {
-  await page.addInitScript(() => {
-    // A desktop app at its first launch: no region, no account, no projects.
-    const account = { region: undefined as string | undefined, signedIn: false };
-    const firstRun = { welcomeDone: false, everSignedIn: false };
-    let authorization: Record<string, string> | undefined;
-    const listeners = new Set<() => void>();
-    const changed = () => listeners.forEach((listener) => listener());
-    const status = () => {
-      if (!account.region)
-        return { phase: 'error', error: 'desktop.region_required', executionReady: false };
-      const apiUrl = `https://api.${account.region}.verdictan.com`;
-      if (authorization)
-        return {
-          region: account.region,
-          phase: 'authorizing',
-          account: { state: 'authorizing', apiUrl },
-          authorization,
-          executionReady: false,
-        };
-      if (!account.signedIn)
-        return {
-          region: account.region,
+async function firstRun(page: Page, versions: { codex?: string; claude?: string; gh?: string }) {
+  await page.addInitScript(
+    (tools) => {
+      const w = window as any;
+      w.welcomeDone = false;
+      w.restarts = 0;
+      w.workspace = {
+        trackerProviders: async () => [],
+        snapshot: async () => ({
+          projects: [],
+          groups: [],
+          sessions: [],
+          warnings: [],
+          platform: 'darwin',
+        }),
+        firstRunState: async () => ({ welcomeDone: w.welcomeDone, everSignedIn: false }),
+        setWelcomeDone: async () => {
+          w.welcomeDone = true;
+          return { welcomeDone: true, everSignedIn: false };
+        },
+        verdictanStatus: async () => ({
+          region: 'eu',
           phase: 'signed-out',
-          account: { state: 'signed-out', apiUrl },
+          account: { state: 'signed-out', apiUrl: 'https://api.eu.verdictan.com' },
           executionReady: false,
-        };
-      return {
-        region: account.region,
-        phase: 'authenticated',
-        executionReady: false,
-        account: {
-          state: 'authenticated',
-          userId: 'user',
-          organizationId: 'organization',
-          apiUrl,
-          userName: 'Dana Kim',
-          userEmail: 'dana.kim@acme.dev',
-          organizationName: 'Acme Corp',
+        }),
+        computerTools: async () => [
+          {
+            computer: 'local',
+            name: 'This Mac',
+            connected: true,
+            checkedAt: new Date().toISOString(),
+            tools,
+          },
+        ],
+        restartApp: async () => {
+          w.restarts++;
         },
       };
-    };
-    const runtime = { version: '0.6.9', releaseId: 'r', sha256: '0'.repeat(64) };
-    const groups: any[] = [];
-    const projects: any[] = [];
-    const repositories = [
-      { path: '/Users/dana/code/web', name: 'web', branch: 'main', added: false },
-      { path: '/Users/dana/code/api', name: 'api', branch: 'main', added: false },
-    ];
-    (window as any).created = [];
-    (window as any).workspace = {
-      trackerProviders: async () => [],
-      snapshot: async () => ({
-        projects: [...projects],
-        groups: groups.map((group) => ({ ...group })),
-        sessions: [],
-        warnings: [],
-        platform: 'darwin',
-      }),
-      chooseFolder: async () => '/Users/dana/code',
-      scanRepositories: async (root: string) => ({
-        root,
-        rootIsRepository: false,
-        repositories,
-      }),
-      createGroup: async (
-        name: string,
-        _url: string,
-        _hostId: unknown,
-        _source: unknown,
-        _board: unknown,
-        _operationId: string,
-        paths: string[],
-      ) => {
-        (window as any).created.push({ name, paths });
-        const repoIds = paths.map((path) => 'r-' + path.split('/').pop());
-        for (const path of paths)
-          projects.push({
-            id: 'r-' + path.split('/').pop(),
-            name: path.split('/').pop(),
-            path,
-            favorite: false,
-            notes: '',
-            addedAt: '',
-          });
-        groups.push({ id: 'g', name, repoIds });
-        return 'g';
-      },
-      agentInstallations: async () => [
-        { agent: 'codex', status: 'installed', version: '0.161.0' },
-        { agent: 'claude', status: 'installed', version: '2.1.306' },
-      ],
-      runtimeUpdateStatus: async () => ({
-        hostId: 'local',
-        component: 'verdictan',
-        discovery: 'current',
-        stale: false,
-        history: [],
-        latest: runtime,
-        installed: runtime,
-        running: runtime,
-      }),
-      firstRunState: async () => ({ ...firstRun }),
-      setWelcomeDone: async () => {
-        firstRun.welcomeDone = true;
-        (window as any).welcomeDone = true;
-        return { ...firstRun };
-      },
-      onVerdictanChanged: (listener: () => void) => {
-        listeners.add(listener);
-        return () => listeners.delete(listener);
-      },
-      verdictanStatus: async () => status(),
-      verdictanSetRegion: async (region: string) => {
-        account.region = region;
-        changed();
-        return status();
-      },
-      verdictanAuthorize: (intent: string) => {
-        const now = Date.now();
-        authorization = {
-          url: `https://console.${account.region}.verdictan.com/auth/cli?intent=${intent}`,
-          intent,
-          startedAt: new Date(now).toISOString(),
-          expiresAt: new Date(now + 300_000).toISOString(),
-        };
-        changed();
-        // The user finishes the sign-in in the browser a moment later.
-        return new Promise((resolve) =>
-          setTimeout(() => {
-            authorization = undefined;
-            account.signedIn = true;
-            firstRun.everSignedIn = true;
-            changed();
-            resolve(status());
-          }, 800),
-        );
-      },
-      verdictanCancel: async () => {
-        authorization = undefined;
-        return status();
-      },
-      verdictanSetup: async () => ({
-        status: 'ready',
-        teams: [],
-        policies: [],
-        providerConnections: [],
-        selections: {},
-      }),
-    };
-  });
+    },
+    [
+      tool('codex', 'Codex', versions.codex),
+      tool('claude', 'Claude Code', versions.claude),
+      tool('gh', 'GitHub CLI', versions.gh),
+    ],
+  );
   await page.goto('/');
 }
 
-const welcome = (page: Page) => page.getByRole('region', { name: 'Welcome to Kalkidan' });
+const toolsCheck = (page: Page) => page.getByTestId('welcome');
 
-test('a true first run signs in, chooses a folder, and starts in the new project', async ({
-  page,
-}) => {
-  await firstRun(page);
-  // The Welcome card fills the window. The workspace does not show behind it.
-  await expect(welcome(page)).toBeVisible();
-  await expect(page.getByRole('navigation', { name: 'Projects and repositories' })).toHaveCount(0);
-  // Step 2 waits for step 1. It has no buttons yet.
-  await expect(welcome(page).getByRole('button', { name: 'Choose folder…' })).toHaveCount(0);
-  // The region is a menu in the card. The user chooses it before the sign-in.
-  const region = page.getByRole('button', { name: /^Region: / });
-  await region.click();
-  await page.getByRole('menuitemradio', { name: /^European Union/ }).click();
-  await expect(region).toHaveAccessibleName('Region: European Union');
-  await page.getByRole('button', { name: 'Sign in with Verdictan', exact: true }).click();
-  await expect(
-    page.getByRole('heading', { name: 'Finish signing in in your browser' }),
-  ).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Open browser again' })).toBeVisible();
-  // After the sign-in, step 1 shows the account and step 2 asks for a code folder.
-  await expect(welcome(page)).toContainText('Dana Kim');
-  await expect(welcome(page)).toContainText('Acme Corp · European Union');
-  await welcome(page).getByRole('button', { name: 'Choose folder…' }).click();
-  // The card lists the Git repositories in the folder, all checked.
-  const list = welcome(page).getByRole('list', { name: 'Git repositories' });
-  await expect(list.getByRole('checkbox')).toHaveCount(2);
-  await expect(list.getByRole('checkbox', { checked: true })).toHaveCount(2);
-  await expect(welcome(page)).toContainText('~/code · 2 Git repositories');
-  await list.getByRole('checkbox').nth(1).uncheck();
-  await welcome(page).getByRole('button', { name: 'Start in code', exact: true }).click();
-  // "Start in code" makes the project with the checked repositories and opens it.
-  await expect(page.getByRole('navigation', { name: 'Projects and repositories' })).toBeVisible();
-  expect(await page.evaluate(() => (window as any).created)).toEqual([
-    { name: 'code', paths: ['/Users/dana/code/web'] },
-  ]);
-  expect(await page.evaluate(() => (window as any).welcomeDone)).toBe(true);
-  // The project has a code folder, so a new chat in the project opens. No dialog opens, and the
-  // message is empty: Kalkidan does not write a first prompt.
-  await expect(page.getByRole('dialog')).toHaveCount(0);
-  await expect(page.getByRole('main').getByLabel('Message agent')).toHaveValue('');
-  await expect(page.getByRole('main')).toContainText('code');
-  // The sidebar shows the signed-in account.
-  await expect(page.locator('.account-menu[data-state="signed-in"]')).toContainText('Dana Kim');
-});
-
-test('Later skips each step, and a short window keeps the Welcome actions reachable', async ({
+test('a first run with a missing tool shows the tools check, then the composer', async ({
   page,
 }) => {
   await page.setViewportSize({ width: 600, height: 650 });
-  await firstRun(page);
-  await expect(welcome(page)).toBeVisible();
-  const fits = () => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth);
-  expect(await fits()).toBe(true);
-  // Step 1: Later skips the sign-in. Step 1 then offers the sign-in again.
-  await welcome(page).getByRole('button', { name: 'Later', exact: true }).click();
-  await expect(welcome(page)).toContainText('Not signed in');
-  await expect(welcome(page).getByRole('button', { name: 'Sign in', exact: true })).toBeVisible();
-  // Step 2: the folder actions are in the window.
-  const choose = welcome(page).getByRole('button', { name: 'Choose folder…' });
-  await expect(choose).toBeInViewport();
-  expect(await fits()).toBe(true);
-  // Later skips the folder too and opens the empty workspace.
-  await welcome(page).getByRole('button', { name: 'Later', exact: true }).click();
-  await expect(welcome(page)).toHaveCount(0);
-  expect(await page.evaluate(() => (window as any).welcomeDone)).toBe(true);
-  await expect(page.getByRole('main').getByText('No projects yet.')).toBeVisible();
+  await firstRun(page, { claude: '2.1.306', gh: '2.62.0' });
+  // "Your tools" lists the tools of this Mac. It asks for no sign-in and no folder.
+  await expect(toolsCheck(page).getByRole('heading', { name: 'Your tools' })).toBeVisible();
+  await expect(page.getByRole('navigation', { name: 'Projects and repositories' })).toHaveCount(0);
+  const rows = toolsCheck(page).getByRole('list', { name: 'Your tools' }).getByRole('listitem');
+  await expect(rows).toHaveCount(3);
+  await expect(rows.filter({ hasText: 'Claude Code' }).getByRole('img')).toHaveAccessibleName(
+    'Ready',
+  );
+  // A missing tool links to its official page. Kalkidan does not install it.
+  const codex = rows.filter({ hasText: 'Codex' });
+  await expect(codex.getByRole('img')).toHaveAccessibleName('Needs you');
+  await expect(codex.getByRole('link')).toHaveAttribute('href', 'https://github.com/openai/codex');
+  await expect(toolsCheck(page)).toContainText('Installed something? Restart Kalkidan to find it.');
+  await expect(toolsCheck(page).getByRole('button', { name: /Sign in/ })).toHaveCount(0);
+  // The actions stay in a short window, with no horizontal scroll.
+  const go = toolsCheck(page).getByRole('button', { name: 'Continue with Claude Code' });
+  await expect(go).toBeInViewport();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  // Restart finds the tools that the user installed.
+  await toolsCheck(page).getByRole('button', { name: 'Restart Kalkidan', exact: true }).click();
+  expect(await page.evaluate(() => (window as any).restarts)).toBe(1);
+  // Continue ends the first run and opens the composer.
+  await go.click();
+  await expect(toolsCheck(page)).toHaveCount(0);
+  await expect(page.getByRole('textbox', { name: 'Message for a new chat' })).toBeVisible();
   await expect(page.getByRole('dialog')).toHaveCount(0);
-  expect(await page.evaluate(() => (window as any).created)).toEqual([]);
+  expect(await page.evaluate(() => (window as any).welcomeDone)).toBe(true);
+});
+
+test('a first run with every tool found goes straight to the composer', async ({ page }) => {
+  await firstRun(page, { codex: '0.163.0', claude: '2.1.306', gh: '2.62.0' });
+  await expect(page.getByRole('textbox', { name: 'Message for a new chat' })).toBeVisible();
+  await expect(toolsCheck(page)).toHaveCount(0);
+  // The first run ends here, so the tools check never shows.
+  await expect.poll(() => page.evaluate(() => (window as any).welcomeDone)).toBe(true);
+});
+
+test('a first run with no agent offers only Restart Kalkidan', async ({ page }) => {
+  await firstRun(page, { gh: '2.62.0' });
+  await expect(toolsCheck(page).getByRole('heading', { name: 'Your tools' })).toBeVisible();
+  await expect(toolsCheck(page).getByRole('button')).toHaveCount(1);
+  await toolsCheck(page).getByRole('button', { name: 'Restart Kalkidan', exact: true }).click();
+  expect(await page.evaluate(() => (window as any).restarts)).toBe(1);
+  expect(await page.evaluate(() => (window as any).welcomeDone)).toBe(false);
 });

@@ -76,20 +76,19 @@ test('GitHub inspector edits fields, retains a failed draft, and restores archiv
     .click();
   await page.getByRole('button', { name: 'Plan work', exact: true }).click();
   const dialog = page.getByRole('dialog');
-  // The GitHub fields are pills under the title. "Set a field" sets an empty field.
-  await dialog.getByRole('button', { name: 'Set a field', exact: true }).click();
-  await page.getByRole('menuitem', { name: 'Estimate…', exact: true }).click();
-  const estimate = page
-    .getByRole('dialog', { name: 'Estimate', exact: true })
+  // The GitHub fields are under Details in the task sheet.
+  await dialog.getByRole('button', { name: 'Details', exact: true }).click();
+  const estimate = dialog
+    .getByRole('region', { name: 'Project fields' })
     .getByRole('spinbutton', { name: 'Estimate', exact: true });
   // Fields save on Enter. A failed write keeps the value, so Enter tries again.
   await estimate.fill('5');
   await estimate.press('Enter');
-  await expect(page.getByRole('alert')).toContainText('Permission changed');
+  await expect(dialog.getByRole('alert')).toContainText('Permission changed');
   await expect(estimate).toHaveValue('5');
   await estimate.press('Enter');
-  await expect(estimate).toHaveCount(0);
-  await expect(dialog.getByRole('button', { name: 'Estimate: 5', exact: true })).toBeVisible();
+  await expect(dialog.getByRole('alert')).toHaveCount(0);
+  await expect(estimate).toHaveValue('5');
   const actions = dialog.getByRole('button', { name: 'Task actions', exact: true });
   await actions.click();
   await page.getByRole('menuitem', { name: 'Archive item', exact: true }).click();

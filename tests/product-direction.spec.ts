@@ -1,6 +1,6 @@
 import { type Page } from '@playwright/test';
-import { test, expect, newChat, settingsDialog, settingsSection } from './helpers/app';
-import { openCodeFolder, openProjectTab } from './helpers/navigation';
+import { test, expect, newChat, settingsDialog } from './helpers/app';
+import { openCodeFolder, openProjectTab, openTreeChat } from './helpers/navigation';
 
 /** Connects the demo board to Atlas from the Tasks page of the project. */
 async function connectAtlasBoard(page: Page) {
@@ -44,28 +44,31 @@ test('project creation is GitHub-backed without client fields or navigation', as
   await expect(
     page.getByRole('button', { name: 'Board: Atlas roadmap #1', exact: true }),
   ).toBeVisible();
-  await page.getByRole('button', { name: 'Manage project Platform' }).click();
+  // The ⋯ of the project header holds Rename… and Settings….
+  const actions = page.getByRole('main').getByRole('button', { name: 'Project actions' });
+  await actions.click();
   await page.getByRole('menuitem', { name: 'Rename…', exact: true }).click();
   // Rename opens a dialog with the project name.
   const rename = page.getByRole('dialog', { name: 'Rename project', exact: true });
-  await expect(rename.getByLabel('Project name', { exact: true })).toHaveValue('Platform');
+  await expect(rename.getByRole('textbox')).toHaveValue('Platform');
   await page.keyboard.press('Escape');
   await expect(rename).toHaveCount(0);
-  // The project section of Settings has no client field.
-  await page.getByRole('button', { name: 'Manage project Platform' }).click();
-  await page.getByRole('menuitem', { name: 'Project settings…', exact: true }).click();
+  // The project part of Settings has no client field.
+  await actions.click();
+  await page.getByRole('menuitem', { name: 'Settings…', exact: true }).click();
   const settings = settingsDialog(page);
-  await expect(settingsSection(page, 'Platform')).toHaveAttribute('aria-selected', 'true');
+  const part = settings.getByRole('region', { name: 'Platform', exact: true });
+  await expect(part.getByRole('heading', { name: 'Platform', exact: true })).toBeVisible();
   await expect(settings.getByLabel('Client label', { exact: true })).toHaveCount(0);
-  await settings.getByRole('button', { name: 'Close', exact: true }).click();
+  await page.keyboard.press('Escape');
   await expect(settings).toHaveCount(0);
   await page
     .getByRole('navigation', { name: 'Projects and repositories' })
     .getByRole('button', { name: 'Projects', exact: true })
     .click();
   const overview = page.getByRole('region', { name: 'Projects', exact: true });
-  await expect(overview.getByRole('button', { name: 'Platform', exact: true })).toBeVisible();
-  await expect(overview.getByRole('button', { name: 'Atlas', exact: true })).toBeVisible();
+  await expect(overview.getByRole('button', { name: /^Platform, / })).toBeVisible();
+  await expect(overview.getByRole('button', { name: /^Atlas, / })).toBeVisible();
   await page.screenshot({ path: 'test-results/project-directory.png' });
 });
 
@@ -147,16 +150,22 @@ for (const allow of [true, false])
     });
     await page.goto('/');
     await openCodeFolder(page);
-    await page.getByRole('button', { name: 'Resume Review changes', exact: true }).click();
+    await openTreeChat(page, 'Review changes');
     await page.getByLabel('Message agent').fill('Review and test');
     await page.getByRole('button', { name: 'Send', exact: true }).click();
-    // The live step shows under the steps fold, and the chat row shows that it waits for you.
+    // The live step shows under the steps fold, and the chat row shows that it needs you.
     await expect(page.getByRole('button', { name: 'npm test Running', exact: true })).toBeVisible();
-    await expect(page.getByRole('img', { name: 'Waiting for your approval' })).toBeVisible();
-    await expect(page.getByRole('region', { name: 'Agent approval' })).toContainText('npm test');
+    await expect(
+      page
+        .getByRole('navigation', { name: 'Projects and repositories' })
+        .getByRole('img', { name: 'Needs you' }),
+    ).toBeVisible();
+    // The approval shows in the frame of the composer.
+    const approval = page.getByRole('group', { name: 'Agent approval' });
+    await expect(approval).toContainText('npm test');
     await page.screenshot({ path: `test-results/approval-${allow}.png` });
-    await page.getByRole('button', { name: allow ? 'Allow' : 'Deny', exact: true }).click();
-    await expect(page.getByRole('region', { name: 'Agent approval' })).not.toBeVisible();
+    await approval.getByRole('button', { name: allow ? /^Allow/ : 'Deny' }).click();
+    await expect(approval).not.toBeVisible();
     await expect(
       page.getByText(allow ? 'Checks complete' : 'Request declined', { exact: true }),
     ).toBeVisible();
@@ -167,13 +176,17 @@ for (const allow of [true, false])
     await page.getByRole('button', { name: /^1 step\b/ }).click();
     await page.getByRole('button', { name: /npm test/ }).click();
     await expect(page.getByText('Test output', { exact: true })).toBeVisible();
-    // The changes of the run open from Review on the changes row of the chat.
-    const review = page.getByRole('button', { name: 'Review', exact: true });
-    await review.click();
-    await expect(review).toHaveAttribute('aria-pressed', 'true');
-    await expect(page.getByRole('heading', { name: 'Changes', exact: true })).toBeVisible();
+    // The changes of the run open in the Changes tab of the Tools pane.
+    const tools = page.getByRole('button', { name: 'Tools', exact: true });
+    await tools.click();
+    await expect(tools).toHaveAttribute('aria-pressed', 'true');
+    const changes = page.getByRole('tab', { name: /^Changes/ });
+    await changes.click();
+    await expect(changes).toHaveAttribute('aria-selected', 'true');
     // The diff shows no "+" mark. A screen reader hears "Added".
-    await expect(page.getByLabel('Git diff')).toContainText('Added: change');
+    await expect(page.getByRole('region', { name: 'Changes: file' })).toContainText(
+      'Added: change',
+    );
   });
 
 test('task worktree cancellation keeps the task open and a created worktree becomes the session folder', async ({
@@ -245,9 +258,9 @@ test('task worktree cancellation keeps the task open and a created worktree beco
   await expect(dialog).toBeVisible();
   await dialog.getByRole('button', { name: 'Start task with Codex' }).click();
   await expect(dialog).not.toBeVisible();
-  // The folder pill of the new chat names the branch copy.
+  // The repo chip of the new chat names the branch copy.
   await expect(
-    page.getByRole('button', { name: 'Code folder: task-worktree', exact: true }),
+    page.getByRole('button', { name: 'Repo: Task worktree', exact: true }),
   ).toBeVisible();
   await expect(page.getByLabel('Message agent')).toContainText('Implement feature');
   expect(await page.evaluate(() => (window as any).branches)).toEqual([
@@ -308,8 +321,13 @@ test('project opens its board and filters tasks by repository', async ({ page })
   await expect(
     tracker.getByRole('button', { name: 'Build the project overview', exact: true }),
   ).toBeVisible();
+  // The repo row in the tree shows its chats. There is no code folder page.
   await openCodeFolder(page, 'api-service');
-  await expect(page.getByRole('heading', { name: 'api-service', exact: true })).toBeVisible();
+  await expect(
+    page
+      .getByRole('navigation', { name: 'Projects and repositories' })
+      .getByRole('button', { name: 'api-service', exact: true }),
+  ).toBeVisible();
   await openProjectTab(page, 'Tasks');
   await page.setViewportSize({ width: 980, height: 680 });
   await expect(tracker.getByRole('region', { name: 'Tracker board', exact: true })).toBeVisible();
@@ -350,10 +368,11 @@ test('project board moves tasks and starts work in the selected repository', asy
   // On main, a branch copy is the default. The preview has no Git, so work on main.
   await where.getByRole('radio', { name: 'Work on main', exact: true }).check();
   await page.keyboard.press('Escape');
-  await page.getByRole('button', { name: 'Start task with Codex', exact: true }).click();
+  // The start button names the preferred agent of the demo.
+  await sheet.getByRole('button', { name: /^Start task with / }).click();
   await expect(page.getByLabel('Message agent')).toContainText('Build the project overview');
-  // The folder pill of the new chat names the selected code folder.
-  await expect(page.getByRole('button', { name: /^Code folder: atlas-web/ })).toBeVisible();
+  // The repo chip of the new chat names the selected repo.
+  await expect(page.getByRole('button', { name: /^Repo: atlas-web/ })).toBeVisible();
 });
 
 test('a task linked to a new chat stays linked after the first message', async ({ page }) => {

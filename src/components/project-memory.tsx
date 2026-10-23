@@ -1,5 +1,6 @@
 import {
   useEffect,
+  useId,
   useLayoutEffect,
   useMemo,
   useRef,
@@ -9,8 +10,19 @@ import {
 } from 'react';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { FileText, Trash2 } from 'lucide-react';
+import {
+  CircleDot,
+  Code,
+  File as FileIcon,
+  FileText,
+  Heading2,
+  List,
+  ListChecks,
+  Trash2,
+} from 'lucide-react';
 import { Button } from './ui/button';
+import { CaretMenu, TaskPicker, caretMenuHeight, menuPosition, taskHref } from './wiki-editor';
+import { DocPagePicker } from './doc-page-picker';
 import { Alert, AlertDescription } from './ui/alert';
 import { MoreButton } from './ui/more-button';
 import { showToast } from './ui/toast';
@@ -28,10 +40,11 @@ import type {
   MemoryWriteResult,
   ProjectMemory,
 } from '../domain/memory';
+import { trackerConnection, type TrackerItem } from '../domain/tracker';
 import { useProjectResource } from '../hooks/use-project-resource';
 import { errorMessage } from '../lib/errors';
 import { plural } from '../lib/platform';
-import { cn } from '../lib/utils';
+import { trackerClient } from '../lib/tracker-client';
 import { fullTime, relativeTime } from '../lib/relative-time';
 import {
   defaultMemoryTopic,
@@ -302,7 +315,40 @@ function focusEnd(element: HTMLTextAreaElement | HTMLInputElement | null | undef
   element.setSelectionRange(end, end);
 }
 
-/** A bullet field: one line that grows with its text. */
+/** The rows of "/" in a Memory line: a heading is a topic, a bullet is a fact. */
+const memoryCommands = [
+  { key: 'topic', icon: Heading2, label: 'Topic', hint: '##' },
+  { key: 'fact', icon: List, label: 'Fact', hint: '-' },
+  { key: 'checklist', icon: ListChecks, label: 'Checklist', hint: '[]' },
+  { key: 'code', icon: Code, label: 'Code', hint: '```' },
+  { key: 'page', icon: FileIcon, label: 'Link a page', hint: '[[' },
+  { key: 'task', icon: CircleDot, label: 'Link a task', hint: '#' },
+] as const;
+type MemoryCommand = (typeof memoryCommands)[number]['key'];
+
+/** The rows of "/" for the typed text after it. "Link a task" shows only with a board. */
+export function memoryCommandRows(query: string, board = false) {
+  const text = query.trim().toLowerCase();
+  return memoryCommands.filter(
+    (command) =>
+      (board || command.key !== 'task') &&
+      (!text ||
+        command.label
+          .toLowerCase()
+          .split(' ')
+          .some((w) => w.startsWith(text))),
+  );
+}
+
+/** The "/" menu of a Memory line, while the line holds only "/" and a search text. */
+interface LineMenu {
+  rows: (typeof memoryCommands)[number][];
+  index: number;
+  left: number;
+  top: number;
+}
+
+/** A bullet field: one line that grows with its text. "/" opens the block menu. */
 function BulletInput({
   value,
   label,
@@ -313,6 +359,8 @@ function BulletInput({
   onChange,
   onBlur,
   keys,
+  onCommand,
+  board,
 }: {
   value: string;
   label: string;
@@ -324,26 +372,108 @@ function BulletInput({
   onChange: (value: string) => void;
   onBlur?: () => void;
   keys: LineKeys;
+  /** Runs a row of the "/" menu. Without it, "/" is text. */
+  onCommand?: (command: MemoryCommand) => void;
+  /** True when the project has a board: "/" then also offers "Link a task". */
+  board?: boolean;
 }) {
+  const [menu, setMenu] = useState<LineMenu | null>(null);
+  const menuId = useId();
+  /** Opens, filters or closes the "/" menu for the text of the line. */
+  function slash(text: string) {
+    const match = onCommand && /^\/(\w*)$/.exec(text);
+    const rows = match ? memoryCommandRows(match[1], board) : [];
+    if (!match || !field.current) {
+      setMenu(null);
+      return;
+    }
+    // The menu goes 8px under the line: the field and the 2px padding of the line under it.
+    const place = () => {
+      const box = field.current!.getBoundingClientRect();
+      return menuPosition(
+        { left: box.left, top: box.top, bottom: box.bottom + 2 },
+        caretMenuHeight(rows.length),
+      );
+    };
+    setMenu((current) => ({
+      rows,
+      index: Math.min(current?.index ?? 0, Math.max(0, rows.length - 1)),
+      ...place(),
+    }));
+    // The line moves left when it shows the menu (no bullet). Measure again after that.
+    requestAnimationFrame(
+      () => field.current && setMenu((current) => current && { ...current, ...place() }),
+    );
+  }
+  function run(index: number) {
+    const row = menu?.rows[index];
+    setMenu(null);
+    if (row) onCommand?.(row.key);
+  }
   const field = useRef<HTMLTextAreaElement>(null);
   useLayoutEffect(() => {
     if (focusKey?.key === item) focusEnd(field.current);
   }, [focusKey?.serial]);
   return (
-    <textarea
-      ref={field}
-      data-memory-item={item}
-      className="memory-line-input"
-      aria-label={label}
-      placeholder={placeholder}
-      rows={1}
-      maxLength={2000}
-      value={value}
-      disabled={disabled}
-      onChange={(event) => onChange(event.target.value)}
-      onBlur={onBlur}
-      onKeyDown={(event) => lineKeyDown(event, keys)}
-    />
+    <>
+      <textarea
+        ref={field}
+        data-memory-item={item}
+        data-slash={menu ? '' : undefined}
+        className="memory-line-input"
+        aria-label={label}
+        placeholder={placeholder}
+        rows={1}
+        maxLength={2000}
+        value={value}
+        disabled={disabled}
+        aria-controls={menu ? `${menuId}-list` : undefined}
+        aria-activedescendant={menu?.rows.length ? `${menuId}-${menu.index}` : undefined}
+        onChange={(event) => {
+          onChange(event.target.value);
+          slash(event.target.value);
+        }}
+        onBlur={() => {
+          setMenu(null);
+          onBlur?.();
+        }}
+        onKeyDown={(event) => {
+          if (menu && !event.nativeEvent.isComposing) {
+            const count = menu.rows.length;
+            if ((event.key === 'ArrowDown' || event.key === 'ArrowUp') && count) {
+              event.preventDefault();
+              const step = event.key === 'ArrowDown' ? 1 : -1;
+              setMenu({ ...menu, index: (menu.index + step + count) % count });
+              return;
+            }
+            if (event.key === 'Enter' && count) {
+              event.preventDefault();
+              run(menu.index);
+              return;
+            }
+            if (event.key === 'Escape') {
+              event.preventDefault();
+              event.stopPropagation();
+              setMenu(null);
+              return;
+            }
+          }
+          lineKeyDown(event, keys);
+        }}
+      />
+      {menu && (
+        <CaretMenu
+          id={menuId}
+          label="Insert block"
+          position={menu}
+          rows={menu.rows.map((row) => ({ ...row }))}
+          active={menu.index}
+          empty="No matching blocks"
+          onActive={(index) => setMenu({ ...menu, index })}
+          onPick={run}
+        />
+      )}
+    </>
   );
 }
 
@@ -818,6 +948,44 @@ export function ProjectMemoryPanel({
     if (!failed) setDrafts((current) => current.filter((item) => item.key !== draft.key));
     else updateDraft(draft.key, { busy: false, error: failed, text: left.join('\n') });
   }
+  /** Sets the text of an unsaved line: "Add a fact" or a new line. */
+  function setLineText(item: string, text: string) {
+    if (item === 'ghost') setGhost(text);
+    else updateDraft(item.replace(/^draft:/, ''), { text, error: '' });
+  }
+  // The line that "Link a page" in "/" adds a page link to.
+  const [linkLine, setLinkLine] = useState('');
+  // The line that "Link a task" in "/" adds a task link to, and the board tasks (null: loading).
+  // The board loads only when "Link a task" is chosen.
+  const [taskLine, setTaskLine] = useState('');
+  const [boardTasks, setBoardTasks] = useState<TrackerItem[] | null>(null);
+  const connection = trackerConnection(group);
+  function loadTasks() {
+    if (!connection) return;
+    setBoardTasks(null);
+    trackerClient(api, connection.provider || 'github')
+      .board(group.id)
+      .then((board) => setBoardTasks(board.items))
+      .catch((reason) => {
+        setBoardTasks([]);
+        setActionError(errorMessage(reason));
+      });
+  }
+  /** Runs a row of the "/" menu in an unsaved line. */
+  function runCommand(item: string, command: MemoryCommand) {
+    if (command === 'topic') {
+      if (item === 'ghost') setGhost('');
+      else setDrafts((current) => current.filter((draft) => 'draft:' + draft.key !== item));
+      startTopic('');
+    } else if (command === 'page') {
+      setLineText(item, '');
+      setLinkLine(item);
+    } else if (command === 'task') {
+      setLineText(item, '');
+      setTaskLine(item);
+      loadTasks();
+    } else setLineText(item, command === 'checklist' ? '[ ] ' : command === 'code' ? '`' : '');
+  }
   /** Turns the text of "Add a fact" into a line of the last section, then saves it. */
   function submitGhost(keepFocus: boolean) {
     const text = ghost;
@@ -870,6 +1038,8 @@ export function ProjectMemoryPanel({
               value={draft.text}
               disabled={draft.busy}
               focusKey={focusKey}
+              onCommand={(command) => runCommand(item, command)}
+              board={!!connection}
               onChange={(text) => {
                 const heading = bulletHeading(text);
                 if (heading !== null) {
@@ -912,6 +1082,8 @@ export function ProjectMemoryPanel({
         placeholder="Add a fact"
         value={ghost}
         focusKey={focusKey}
+        onCommand={(command) => runCommand('ghost', command)}
+        board={!!connection}
         onChange={(text) => {
           const heading = bulletHeading(text);
           if (heading !== null) {
@@ -942,16 +1114,12 @@ export function ProjectMemoryPanel({
 
   return (
     <section className="project-memory" aria-label="Memory">
-      <div className="knowledge-pane-header">
-        {switcher}
-        {/* In a narrow window the switcher shows the name, so the title is for screen readers. */}
-        <h2 className={cn('knowledge-pane-title', switcher && '@max-[599px]:sr-only')}>Memory</h2>
-      </div>
-      {extracting && extraction && (
-        <p className="memory-subtitle" role="status">
-          {extractionText(extraction)}…
-        </p>
-      )}
+      {switcher && <div className="knowledge-switcher-row">{switcher}</div>}
+      {/* Memory is a page: the same title, meta line and text column as a page. */}
+      <h2 className="doc-title memory-title">Memory</h2>
+      <p className="doc-meta" role={extracting ? 'status' : undefined}>
+        {extracting && extraction ? `${extractionText(extraction)}…` : 'Every session reads this'}
+      </p>
       {extraction?.status === 'failed' && extraction.error && (
         <Alert variant="destructive" size="sm" className="mb-4">
           <AlertDescription>{extraction.error}</AlertDescription>
@@ -1046,6 +1214,29 @@ export function ProjectMemoryPanel({
           </ul>
         </div>
       )}
+      <DocPagePicker
+        api={api}
+        groupId={group.id}
+        open={!!linkLine}
+        onOpenChange={(open) => !open && setLinkLine('')}
+        onPick={(doc) => {
+          setLineText(linkLine, `[${doc.title || 'Untitled'}](./${doc.id}.md) `);
+          focusLine(linkLine);
+        }}
+        title="Link a page"
+        onCloseAutoFocus={(event) => event.preventDefault()}
+      />
+      <TaskPicker
+        open={!!taskLine}
+        onOpenChange={(open) => !open && setTaskLine('')}
+        tasks={boardTasks}
+        onPick={(task) => {
+          const label = task.number ? `#${task.number} ${task.title}` : task.title || 'Task';
+          setLineText(taskLine, `[${label}](${taskHref(task)}) `);
+          focusLine(taskLine);
+        }}
+        onCloseAutoFocus={(event) => event.preventDefault()}
+      />
       {memory?.limited && (
         <Alert role={undefined} size="sm" className="mt-6">
           <AlertDescription>

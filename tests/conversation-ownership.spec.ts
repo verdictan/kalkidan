@@ -1,5 +1,6 @@
 import { type Page } from '@playwright/test';
 import { test, expect } from './helpers/app';
+import { openCodeFolder } from './helpers/navigation';
 
 const tree = (page: Page) => page.getByRole('navigation', { name: 'Projects and repositories' });
 
@@ -75,6 +76,7 @@ async function withForeignChat(
     { remote, ownership },
   );
   await page.goto('/');
+  await openCodeFolder(page, 'web');
   await tree(page).getByRole('button', { name: 'Chat: Login review' }).click();
 }
 
@@ -105,9 +107,10 @@ test('a conversation of another organization is read-only and offers a new conve
   const message = page.getByRole('textbox', { name: 'Message agent' });
   await expect(message).toBeEditable();
   await expect(message).toHaveValue('');
-  await expect(page.getByRole('navigation', { name: 'Breadcrumb' })).toContainText(
-    'New Codex chat',
-  );
+  // A new chat has no name before its first message: the crumb ends at its repo (CH-B4).
+  const crumb = page.getByRole('navigation', { name: 'Breadcrumb' });
+  await expect(crumb.locator('[aria-current="page"]')).toContainText('web');
+  await expect(crumb).not.toContainText('New Codex chat');
   await expect(page.getByRole('status', { name: 'Read-only conversation' })).toBeHidden();
 });
 

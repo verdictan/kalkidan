@@ -37,6 +37,8 @@ export interface SessionOrganization {
     state?: 'open' | 'merged' | 'closed';
     /** An open pull request that is not ready for review. */
     draft?: boolean;
+    /** The CI checks at the last read. */
+    checks?: 'pass' | 'fail' | 'pending';
   };
   /** The chat that this chat is a fork of. */
   forkedFrom?: ChatLink;
@@ -63,11 +65,20 @@ export interface Session {
   projectId?: string;
   task?: TrackerItem;
   initialPrompt?: string;
+  /** The child runs of this session (Claude Code Task subagents, Codex sub-agents). */
+  subagents?: import('./desktop').SubagentSession[];
 }
 export interface ChatMessage {
   id: string;
   role: 'user' | 'assistant';
   text: string;
+  /**
+   * A saved answer: the tool calls of its turn, oldest first, as the history file has them.
+   * The chat shows them as "23 steps · 3 files edited" under the answer.
+   */
+  steps?: ToolActivity[];
+  /** A saved answer: the files that the tool calls of its turn edited. */
+  edited?: string[];
 }
 export interface Transcript {
   messages: ChatMessage[];
@@ -154,6 +165,8 @@ export interface ChatRun {
   sessionReady?: boolean;
   /** The policy results of the refused or escalated requests in this run, oldest first. */
   policies?: PolicyRecord[];
+  /** The subagents that this run started, oldest first. */
+  subagents?: import('./desktop').SubagentSession[];
 }
 export interface AgentQuestion {
   id: string;

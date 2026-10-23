@@ -1,0 +1,374 @@
+/* The code editor of the Code tab (CH-B3): tabs 32 with a line under them, then the code.
+   Text 12/20 mono, gutter 32 with a 2px bar for who changed a line. */
+.code-editor {
+  --code-keyword: #7048e8;
+  --code-string: #0b7285;
+  --code-selection: color-mix(in oklab, #2563eb 16%, var(--background));
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  background: var(--background);
+  color: var(--foreground);
+  font-size: 12px;
+  line-height: 16px;
+}
+
+.code-tabs {
+  display: flex;
+  flex: none;
+  align-items: stretch;
+  height: 32px;
+  border-bottom: 1px solid var(--border);
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.code-tabs::-webkit-scrollbar {
+  display: none;
+}
+.code-tab {
+  display: flex;
+  flex: none;
+  align-items: center;
+  max-width: 220px;
+  border-right: 1px solid var(--border);
+  color: var(--muted-foreground);
+}
+.code-tab:hover {
+  color: var(--foreground);
+}
+.code-tab.is-active {
+  box-shadow: inset 0 -2px 0 var(--foreground);
+  color: var(--foreground);
+}
+.code-tab-name {
+  display: flex;
+  min-width: 0;
+  height: 100%;
+  align-items: center;
+  gap: 6px;
+  padding: 0 2px 0 10px;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  white-space: nowrap;
+  cursor: default;
+}
+.code-tab-name > span:not([class]) {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.code-tab-name:focus-visible,
+.code-tab-close:focus-visible,
+.code-save:focus-visible,
+.code-changed-file:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: -2px;
+  border-radius: 6px;
+}
+.code-tab-close {
+  display: grid;
+  width: 16px;
+  height: 16px;
+  flex: none;
+  margin-right: 6px;
+  place-items: center;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  color: var(--muted-foreground);
+  opacity: 0;
+}
+.code-tab-close svg {
+  width: 12px;
+  height: 12px;
+}
+.code-tab:hover .code-tab-close,
+.code-tab-close:focus-visible {
+  opacity: 1;
+}
+.code-tab-close:hover {
+  background: var(--fill-strong);
+  color: var(--foreground);
+}
+.code-dirty {
+  width: 6px;
+  height: 6px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--foreground);
+}
+.code-dirty.is-saving {
+  animation: code-saving 1s ease-in-out infinite;
+}
+@keyframes code-saving {
+  50% {
+    opacity: 0.3;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .code-dirty.is-saving {
+    animation: none;
+    opacity: 0.5;
+  }
+}
+
+.code-paper {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+  background: var(--background);
+}
+.code-conflict {
+  display: flex;
+  height: 36px;
+  flex: none;
+  align-items: center;
+  gap: 8px;
+  padding: 0 8px 0 10px;
+  font-size: 13px;
+  line-height: 20px;
+}
+.code-conflict-text {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.code-body {
+  position: relative;
+  min-height: 0;
+  flex: 1;
+}
+.code-view {
+  position: absolute;
+  inset: 0;
+}
+.code-view[hidden] {
+  display: none;
+}
+.code-owner-bar {
+  position: absolute;
+  top: 2px;
+  right: 0;
+  bottom: 2px;
+  width: 2px;
+  border-radius: 1px;
+}
+.code-owner-bar[data-owner='agent'],
+.code-legend i[data-owner='agent'] {
+  background: var(--agent-color);
+}
+.code-owner-bar[data-owner='you'],
+.code-legend i[data-owner='you'] {
+  background: var(--foreground);
+}
+
+.code-empty {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 24px;
+  color: var(--muted-foreground);
+  font-size: 13px;
+  line-height: 20px;
+  text-align: center;
+}
+.code-empty p {
+  margin: 0;
+}
+.code-empty kbd {
+  margin-left: 4px;
+  color: var(--muted-foreground);
+  font: inherit;
+}
+.code-changed {
+  display: grid;
+  width: min(100%, 320px);
+  gap: 2px;
+  margin-top: 8px;
+}
+.code-changed-file {
+  display: flex;
+  height: 28px;
+  align-items: center;
+  gap: 8px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  color: var(--foreground);
+  font: inherit;
+  white-space: nowrap;
+}
+.code-changed-file:hover {
+  background: var(--fill);
+}
+.code-changed-folder {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--muted-foreground);
+  font-size: 12px;
+  text-overflow: ellipsis;
+}
+
+.code-status {
+  display: flex;
+  height: 28px;
+  flex: none;
+  align-items: center;
+  gap: 12px;
+  padding: 0 12px;
+  color: var(--muted-foreground);
+  white-space: nowrap;
+}
+.code-legend {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.code-legend i {
+  display: inline-block;
+  width: 2px;
+  height: 10px;
+  border-radius: 1px;
+}
+.code-status-space {
+  flex: 1;
+}
+.code-save {
+  height: 20px;
+  margin-right: -4px;
+  padding: 0 4px;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  color: var(--foreground);
+  font: inherit;
+}
+.code-save:hover:not(:disabled) {
+  background: var(--fill-strong);
+}
+.code-save:disabled {
+  color: var(--muted-foreground);
+}
+
+/* Go to file (⌘P): the command palette look, over the tabs. */
+.code-quick {
+  position: absolute;
+  z-index: 20;
+  top: 4px;
+  right: 16px;
+  /* 420px, as in the agreed frame (CH-B3). A narrow pane keeps 4px on the left. */
+  width: min(420px, calc(100% - 20px));
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--popover);
+  box-shadow: 0 16px 40px rgb(0 0 0 / 0.16);
+  font-size: 13px;
+  line-height: 20px;
+}
+.code-quick-input {
+  display: flex;
+  height: 40px;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px;
+  border-bottom: 1px solid var(--border);
+}
+.code-quick-input svg {
+  width: 14px;
+  height: 14px;
+  flex: none;
+  color: var(--foreground);
+}
+.code-quick-input input {
+  min-width: 0;
+  flex: 1;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: var(--foreground);
+  font: inherit;
+}
+.code-quick-input input::placeholder {
+  color: var(--muted-foreground);
+}
+.code-quick-hint {
+  flex: none;
+  color: var(--muted-foreground);
+  font-size: 11px;
+  line-height: 16px;
+}
+.code-quick-list {
+  max-height: 264px;
+  padding: 4px;
+  overflow-y: auto;
+}
+.code-quick-item {
+  display: flex;
+  height: 28px;
+  align-items: center;
+  gap: 8px;
+  padding: 0 8px;
+  overflow: hidden;
+  border-radius: 6px;
+  white-space: nowrap;
+}
+.code-quick-item.is-selected {
+  background: var(--fill);
+}
+.code-quick-icon {
+  display: grid;
+  flex: none;
+  place-items: center;
+  color: var(--foreground);
+}
+.code-quick-icon svg {
+  width: 14px;
+  height: 14px;
+}
+.code-quick-label {
+  min-width: 0;
+  flex: none;
+  max-width: 70%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.code-quick-label b {
+  font-weight: 600;
+}
+.code-quick-snippet {
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+.code-quick-item[data-kind='text'] .code-quick-label {
+  flex: 1;
+  max-width: none;
+}
+.code-quick-item[data-kind='text'] .code-quick-detail {
+  flex: none;
+}
+.code-quick-detail {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--muted-foreground);
+  font-size: 12px;
+  line-height: 16px;
+  text-overflow: ellipsis;
+}
+.code-quick-empty {
+  padding: 6px 8px;
+  color: var(--muted-foreground);
+  font-size: 12px;
+  line-height: 16px;
+}

@@ -1,12 +1,19 @@
 import type { Session } from './conversation';
 import type { SettingsTab } from './settings-route';
-/** 'board' is the project overview page (the old name is kept for saved routes). */
-export type ProjectPage = 'board' | 'tasks' | 'chats' | 'knowledge';
+/**
+ * The views of a project, in the order of the view switch: Overview ('board', the old name is
+ * kept for saved routes), Tasks and Knowledge. A project has no Chats view: its chats are in
+ * the sidebar tree and in search.
+ */
+export type ProjectPage = 'board' | 'tasks' | 'knowledge';
 /** The pages of the Knowledge tab. */
 export type KnowledgeSection = 'pages' | 'memory' | 'insights';
-/** The older project pages. Links and saved routes with them open Knowledge at a section. */
-export type LegacyProjectPage = 'docs' | 'memory' | 'insights';
-const legacySections: Record<LegacyProjectPage, KnowledgeSection> = {
+/**
+ * The older project pages. Links and saved routes with them open Knowledge at a section, or
+ * Overview for the removed Chats tab.
+ */
+export type LegacyProjectPage = 'docs' | 'memory' | 'insights' | 'chats';
+const legacySections: Record<'docs' | 'memory' | 'insights', KnowledgeSection> = {
   docs: 'pages',
   memory: 'memory',
   insights: 'insights',
@@ -15,19 +22,18 @@ const legacySections: Record<LegacyProjectPage, KnowledgeSection> = {
 export function projectPageOf(
   value: unknown,
 ): { page: ProjectPage; section?: KnowledgeSection } | null {
-  if (value === 'board' || value === 'tasks' || value === 'chats' || value === 'knowledge')
-    return { page: value };
+  if (value === 'board' || value === 'tasks' || value === 'knowledge') return { page: value };
+  // The Chats tab is gone. Its links open the Overview of the project.
+  if (value === 'chats') return { page: 'board' };
   if (value === 'docs' || value === 'memory' || value === 'insights')
     return { page: 'knowledge', section: legacySections[value] };
   return null;
 }
 export type WorkspacePage =
+  /** The Projects page: the root of the tree. */
   | { kind: 'home' }
-  | { kind: 'sessions' }
-  /** The one "Waiting for you" inbox: chats and assigned tasks. */
-  | { kind: 'waiting' }
   | { kind: 'project'; groupId: string; page: ProjectPage; section?: KnowledgeSection }
-  | { kind: 'repository'; repositoryId: string }
+  /** The one Settings page (Mod+,). */
   | { kind: 'settings'; tab: SettingsTab };
 export type WorkspaceRoute =
   | WorkspacePage
@@ -35,13 +41,9 @@ export type WorkspaceRoute =
 export function routeKey(route: WorkspaceRoute): string {
   switch (route.kind) {
     case 'home':
-    case 'sessions':
-    case 'waiting':
       return route.kind;
     case 'project':
       return `project:${route.groupId}:${route.page}`;
-    case 'repository':
-      return `repository:${route.repositoryId}`;
     case 'settings':
       return `settings:${route.tab}`;
     case 'conversation':
@@ -59,11 +61,7 @@ export function reconcileRoute(
   repositories: readonly { id: string }[],
 ): WorkspaceRoute {
   const valid = (page: WorkspacePage) =>
-    page.kind === 'project'
-      ? groups.some((group) => group.id === page.groupId)
-      : page.kind === 'repository'
-        ? repositories.some((repo) => repo.id === page.repositoryId)
-        : true;
+    page.kind === 'project' ? groups.some((group) => group.id === page.groupId) : true;
   if (route.kind === 'conversation') {
     if (route.repositoryId && !repositories.some((repo) => repo.id === route.repositoryId))
       return { kind: 'home' };
@@ -88,6 +86,7 @@ export function resolveRouteSession(
 export type SavedRoute =
   | WorkspacePage
   | { kind: 'conversation'; agent: string; id: string; hostId?: string; parent: WorkspacePage };
+/** Page kinds of this and older versions. The older ones open their nearest page. */
 const pageKinds = new Set(['home', 'sessions', 'computers', 'waiting', 'project', 'repository']);
 /**
  * The project page of a page name and a Knowledge section. Knowledge has no Insights any more:
@@ -119,23 +118,25 @@ export function saveableRoute(route: WorkspaceRoute): SavedRoute | null {
     parent,
   };
 }
-function readPage(value: unknown): WorkspacePage | null {
+type GroupRef = { id: string; repoIds?: readonly string[] };
+function readPage(value: unknown, groups: readonly GroupRef[]): WorkspacePage | null {
   if (!value || typeof value !== 'object') return null;
   const page = value as Record<string, unknown>;
   if (!pageKinds.has(page.kind as string)) return null;
   if (page.kind === 'project') {
-    // A route saved by an older version can name 'docs', 'memory' or 'insights'.
+    // A route saved by an older version can name 'docs', 'memory', 'insights' or 'chats'.
     const target = projectTarget(page.page, page.section);
     if (typeof page.groupId !== 'string' || !target) return null;
     return { kind: 'project', groupId: page.groupId, ...target };
   }
-  // The Computers page is a section of Settings now. Settings is not a place to return to.
-  if (page.kind === 'computers') return { kind: 'home' };
-  if (page.kind === 'repository')
-    return typeof page.repositoryId === 'string'
-      ? { kind: 'repository', repositoryId: page.repositoryId }
-      : null;
-  return { kind: page.kind as 'home' | 'sessions' | 'waiting' };
+  // The code folder page is gone: the code folder is a row of the tree. Open its project.
+  if (page.kind === 'repository') {
+    if (typeof page.repositoryId !== 'string') return null;
+    const group = groups.find((item) => item.repoIds?.includes(page.repositoryId as string));
+    return group ? { kind: 'project', groupId: group.id, page: 'board' } : { kind: 'home' };
+  }
+  // Computers, Chats and Waiting for you are not pages any more. Open Projects.
+  return { kind: 'home' };
 }
 /**
  * The saved route when its project, code folder and chat still exist. Else the nearest page
@@ -143,14 +144,14 @@ function readPage(value: unknown): WorkspacePage | null {
  */
 export function restoreRoute(
   value: unknown,
-  groups: readonly { id: string }[],
+  groups: readonly GroupRef[],
   repositories: readonly { id: string }[],
   sessions: readonly Session[],
 ): WorkspaceRoute | null {
   if (!value || typeof value !== 'object') return null;
   const saved = value as Record<string, unknown>;
   if (saved.kind === 'conversation') {
-    const parent = readPage(saved.parent) || { kind: 'home' };
+    const parent = readPage(saved.parent, groups) || { kind: 'home' };
     const session = sessions.find(
       (s) =>
         s.agent === saved.agent && s.id === saved.id && (s.hostId || '') === (saved.hostId || ''),
@@ -158,6 +159,6 @@ export function restoreRoute(
     if (!session) return reconcileRoute(parent, groups, repositories);
     return reconcileRoute({ kind: 'conversation', session, parent }, groups, repositories);
   }
-  const page = readPage(saved);
+  const page = readPage(saved, groups);
   return page ? reconcileRoute(page, groups, repositories) : null;
 }

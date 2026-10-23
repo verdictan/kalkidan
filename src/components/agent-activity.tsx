@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useRef, useState } from 'react';
+import { Fragment } from 'react';
 import {
   BookOpen,
   ChevronRight,
@@ -8,23 +8,19 @@ import {
   LoaderCircle,
   Save,
   Search,
-  ShieldAlert,
   SquareTerminal,
   Wrench,
 } from 'lucide-react';
-import type { API, ChatRun, GovernanceEvidence, ToolActivity } from '../types';
+import type { ChatRun, GovernanceEvidence, ToolActivity } from '../types';
 import type { DocPassage } from '../domain/docs';
 import type { ContextUsage } from '../domain/memory';
 import { eventBufferWarning } from '../domain/conversation';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from './ui/collapsible';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
-import { errorMessage } from '../lib/errors';
 import { diffFiles } from '../lib/diff-files';
 import { plural } from '../lib/platform';
-import { AgentQuestions } from './agent-questions';
-import { ChatCard } from './chat-card';
-import { DiffBlock, isPatch } from './diff-review';
+import { DiffBlock } from './diff-review';
 import { Hint } from './hint';
 import { openProjectPage } from './chat-links';
 import { openProjectUsage } from './project-usage';
@@ -380,12 +376,15 @@ function StepLine({ tool }: { tool: ToolActivity }) {
  */
 export function AgentActivity({
   run,
+  edited,
   groupId,
   taskId,
   docPassages = [],
   context,
 }: {
   run?: ChatRun;
+  /** The files that a saved answer edited, from the history file. Else from the run diff. */
+  edited?: string[];
   /** The project of the chat. Memory, docs and usage open its pages. */
   groupId?: string;
   /** The linked task. Usage opens its history. */
@@ -396,7 +395,8 @@ export function AgentActivity({
   context?: ContextUsage;
 }) {
   const tools = run?.tools || [];
-  const paths = run && (run.diff || tools.some((tool) => tool.diff)) ? changedPaths(run) : [];
+  const paths =
+    edited || (run && (run.diff || tools.some((tool) => tool.diff)) ? changedPaths(run) : []);
   const live =
     run?.status === 'running' ? tools.filter((tool) => tool.status === 'inProgress') : [];
   const contextText = contextUsageText(context);
@@ -445,101 +445,5 @@ export function AgentActivity({
         </div>
       )}
     </Collapsible>
-  );
-}
-
-/**
- * The approval and question cards of a run. They dock above the composer, so they never scroll
- * away. An approval has two buttons: Deny and Allow. To tell the agent what to do instead, the
- * user types in the composer.
- */
-export function RunRequests({
-  api,
-  run,
-  onUpdate,
-}: {
-  api: API;
-  run: ChatRun;
-  onUpdate: (run: ChatRun) => void;
-}) {
-  const [busy, setBusy] = useState<string | null>(null);
-  const [error, setError] = useState('');
-  // Announce each new approval request. The live region is always on screen, so
-  // screen readers detect the change of text.
-  const [announcement, setAnnouncement] = useState('');
-  const announced = useRef(new Set<string>());
-  const pending = (run.approvals || []).filter((a) => a.status === 'pending');
-  const pendingKey = pending.map((a) => a.id).join('|');
-  useEffect(() => {
-    const fresh = pending.filter((a) => !announced.current.has(a.id));
-    if (!fresh.length) return;
-    for (const approval of fresh) announced.current.add(approval.id);
-    setAnnouncement(`Approval needed: ${fresh.at(-1)!.title}`);
-  }, [pendingKey]);
-  async function answer(id: string, allow: boolean) {
-    setBusy(id);
-    setError('');
-    try {
-      await api.chatApprove(run.id, id, allow);
-      onUpdate(await api.chatStatus(run.id));
-      return true;
-    } catch (e) {
-      setError(errorMessage(e));
-      return false;
-    } finally {
-      setBusy(null);
-    }
-  }
-  const running = run.status === 'running';
-  return (
-    <>
-      <div aria-live="polite" className="sr-only">
-        {announcement}
-      </div>
-      {running && <AgentQuestions api={api} run={run} onUpdate={onUpdate} pendingOnly />}
-      {running &&
-        pending.map((approval) => (
-          <ChatCard
-            key={approval.id}
-            label="Agent approval"
-            tone="warning"
-            icon={ShieldAlert}
-            title={approval.title}
-            actions={
-              <>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  disabled={!!busy}
-                  onClick={() => void answer(approval.id, false)}
-                >
-                  Deny
-                </Button>
-                <Hint label={approval.scope === 'turn' ? 'For this turn' : 'Once'}>
-                  <Button
-                    size="sm"
-                    disabled={!!busy}
-                    onClick={() => void answer(approval.id, true)}
-                  >
-                    Allow
-                  </Button>
-                </Hint>
-              </>
-            }
-          >
-            {approval.detail &&
-              (isPatch(approval.detail) ? (
-                <DiffBlock patch={approval.detail} className="max-h-40" />
-              ) : (
-                <pre className="chat-card-command">{approval.detail}</pre>
-              ))}
-          </ChatCard>
-        ))}
-      {error && (
-        <p role="alert" className="field-error">
-          {error}
-        </p>
-      )}
-    </>
   );
 }

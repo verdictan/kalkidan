@@ -32,9 +32,9 @@
   --color-warning-subtle: var(--warning-subtle);
   --color-diff-add: var(--diff-add);
   --color-diff-remove: var(--diff-remove);
-  /* Type scale: 11/16 labels, 12/16 meta, 13/20 UI, 15/24 chat prose and composer, 16/24
-     dialog, sheet and pane titles, 20/28 page title, 24/32 document title. */
-  --text-2xs: 11px;
+  /* Type scale (SY-B): four sizes. 12/16 labels and meta, 13/20 UI, 15/24 titles, chat prose
+     and composer, 22/28 document title. The old names map to these four sizes. */
+  --text-2xs: 12px;
   --text-2xs--line-height: 16px;
   --text-xs: 12px;
   --text-xs--line-height: 16px;
@@ -42,26 +42,26 @@
   --text-sm--line-height: 20px;
   --text-base: 15px;
   --text-base--line-height: 24px;
-  --text-lg: 16px;
+  --text-lg: 15px;
   --text-lg--line-height: 24px;
-  --text-xl: 20px;
+  --text-xl: 22px;
   --text-xl--line-height: 28px;
-  --text-2xl: 24px;
-  --text-2xl--line-height: 32px;
+  --text-2xl: 22px;
+  --text-2xl--line-height: 28px;
   /* The Console fonts: Inter and Geist Mono. Kalkidan works offline and loads no web fonts, so
      each stack falls back to the system font when the font is not installed. */
   --font-sans: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   --font-mono: 'Geist Mono', 'SF Mono', Menlo, Consolas, 'DejaVu Sans Mono', monospace;
   --color-destructive-foreground: var(--destructive-foreground);
-  /* Radius scale from --radius (10px): 4 check boxes and keys, 6 buttons, badges, tags, menu
-     items, nav rows and select triggers, 8 fields and list rows, 10 cards, menus, popovers and
-     toasts, 14 dialogs, 18 composer, full for pills, dots and avatars. */
+  /* Radius scale (SY-B): 8 for everything you press or type in and for rows, 12 for floating
+     and grouped surfaces (menus, popovers, toasts, dialogs, the composer, cards, the editor),
+     full for round shapes. 4 only for check boxes, key caps, tags and inline code. */
   --radius-xs: 4px;
-  --radius-sm: calc(var(--radius) * 0.6);
-  --radius-md: calc(var(--radius) * 0.8);
-  --radius-lg: var(--radius);
-  --radius-xl: calc(var(--radius) * 1.4);
-  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-sm: 8px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 12px;
+  --radius-2xl: 12px;
   --radius-full: 9999px;
   /* Shadows: xs raised items (the selected segment, the composer), md menus and popovers,
      toast the dark toast, lg dialogs (with a hairline ring instead of a border). sm is xs. */
@@ -70,6 +70,8 @@
   --shadow-md: 0 12px 32px rgb(0 0 0 / 0.12);
   --shadow-toast: 0 8px 24px rgb(0 0 0 / 0.18);
   --shadow-lg: 0 0 0 1px rgb(0 0 0 / 0.06), 0 16px 48px rgb(0 0 0 / 0.18);
+  /* Floating surfaces have no border: a hairline ring plus the md shadow. */
+  --shadow-floating: 0 0 0 1px rgb(0 0 0 / 0.06), 0 12px 32px rgb(0 0 0 / 0.12);
 }
 
 :root {
@@ -79,8 +81,9 @@
   --foreground: oklch(0.205 0 0);
   --card: var(--background);
   --popover: var(--background);
-  /* The Verdictan brand color. White on #9a4600 is 6.5:1 (WCAG AA). Use it for one primary
-     button per view, links, checked controls, the active tab and the focus ring only. */
+  /* The Verdictan brand color. White on #9a4600 is 6.5:1 (WCAG AA). Use it for the one
+     primary action per view, checked controls and the focus ring only. Never for status,
+     identity, links or the active view. */
   --primary: #9a4600;
   --primary-foreground: oklch(1 0 0);
   /* The one neutral fill. Muted and accent are the same fill. */
@@ -99,9 +102,11 @@
   --border-strong: oklch(0.635 0 0);
   --input: var(--border);
   --ring: var(--primary);
-  --radius: 0.625rem;
-  /* 6.1:1 on white. */
-  --destructive: oklch(0.52 0.21 27.325);
+  --radius: 0.75rem;
+  --radius-control: 8px;
+  --radius-floating: 12px;
+  /* #b42318, 6.1:1 on white. Failed status and destructive actions only. */
+  --destructive: #b42318;
   --destructive-foreground: oklch(1 0 0);
   /* The sidebar and title bar surface: the window chrome is one surface. */
   --navigation: oklch(0.985 0 0);
@@ -109,7 +114,8 @@
      it does not look like the brand color. */
   --success: #047857;
   --warning: #b45309;
-  --link: var(--primary);
+  /* Links are foreground text with a strong-border underline. */
+  --link: var(--foreground);
   /* A tint is 8% of its color on the background. */
   --primary-subtle: color-mix(in oklab, var(--primary) 8%, var(--background));
   --success-subtle: color-mix(in oklab, var(--success) 8%, var(--background));
@@ -120,6 +126,24 @@
   --diff-remove: var(--destructive);
   --diff-remove-surface: var(--destructive-subtle);
   --navigation-width: 260px;
+
+  /* SY-B: one grey fill does every job inside content: hover, secondary button, chip, field,
+     composer, card and the editor surface. Content has no borders. Borders stay only on the
+     sidebar edge and under the 48px header. */
+  --fill: #f5f5f5;
+  --fill-strong: #ededed;
+
+  /* Identity colors (R2). Never brown, amber, red or green. Each is 5:1 or more on #fff and
+     #fafafa. Set --id on an element (identityStyle in src/domain/identity.ts) and read
+     var(--id) inside it. */
+  --id-blue: #2563eb;
+  --id-indigo: #4f46e5;
+  --id-violet: #7c3aed;
+  --id-plum: #a21caf;
+  --id-pink: #be185d;
+  --id-cyan: #0e7490;
+  --id-teal: #0f766e;
+  --id-slate: #475569;
 
   /* Spacing uses a 4px grid. 2px only inside a control. 6px only between an icon and its
      label. */
@@ -132,16 +156,18 @@
   --space-8: 32px;
   --space-12: 48px;
   --space-16: 64px;
-  /* Controls: 24 inline and row actions, 28 toolbars, title bar, buttons and menu items, 32
-     forms, 36 calls to action. Rows: NavRow 32 (28 in the tree), ListRow and SettingsRow 48.
-     Buttons, select triggers, menu items and nav rows have radius 6; fields, list rows and the
-     segmented group 8; menus, popovers and the toast 10; dialogs 14. */
+  /* Controls: 24 inline actions, 28 toolbars, header, buttons, chips and views, 32 forms and
+     menu items, 36 first-run calls to action. Rows: nav 32, setting 40, list 48; tree 32 for a
+     project and 28 below. Radius 8 for all of them; 12 for floating surfaces. */
   --control-xs: 24px;
   --control-sm: 28px;
   --control-md: 32px;
   --control-lg: 36px;
   --row-height: 32px;
+  --row-height-setting: 40px;
   --row-height-lg: 48px;
+  --tree-row: 32px;
+  --tree-row-sm: 28px;
   /* Every control in the title bar: toggle, history, tools and menus. */
   --titlebar-control: var(--control-sm);
   /* Icon slots: 16 by default, 14 in menus, chips and small buttons. Derive offsets from
@@ -154,12 +180,15 @@
   --menu-width: 224px;
   --menu-width-wide: 256px;
   /* Layout */
-  --titlebar-height: 40px;
+  /* The title bar: the crumb and the actions. */
+  --header-height: 40px;
+  --titlebar-height: var(--header-height);
   --page-max-width: 1120px;
   --page-padding-x: 32px;
-  --page-padding-top: 24px;
+  --page-padding-top: 32px;
   --page-padding-bottom: 48px;
-  --reading-width: 752px;
+  /* The reading column: chat transcript, composer in a chat, docs. */
+  --reading-width: 640px;
   --section-gap: 32px;
   --dialog-sm: 440px;
   --dialog-md: 560px;
@@ -190,6 +219,16 @@
   --motion-base: 200ms;
   font-family: var(--font-sans);
   font-synthesis: none;
+}
+/* The identity tints. A custom property that reads var(--id) resolves where it is declared, so
+   the tints are declared on each element that sets --id inline (identityStyle). The tint
+   means "you are here", never "something happened": 12% on the selected row and the active
+   view, 5% on the chat header, 8% on the project window bar. */
+:where([style*='--id']) {
+  --id-tint: color-mix(in oklab, var(--id) 12%, var(--background));
+  --id-tint-sidebar: color-mix(in oklab, var(--id) 12%, var(--navigation));
+  --id-tint-header: color-mix(in oklab, var(--id) 5%, var(--background));
+  --id-tint-window: color-mix(in oklab, var(--id) 8%, var(--background));
 }
 @layer base {
   html {

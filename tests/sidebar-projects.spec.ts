@@ -2,47 +2,65 @@ import { type Page } from '@playwright/test';
 import { test, expect } from './helpers/app';
 
 const tree = (page: Page) => page.getByRole('navigation', { name: 'Projects and repositories' });
-const projectGroup = (page: Page, name: string) =>
+const projectRow = (page: Page, name: string) =>
   page
-    .locator('.project-group')
-    .filter({ has: page.locator('.project-select', { hasText: new RegExp(`^${name}`) }) });
+    .locator('.tree-row[data-kind="project"]')
+    .filter({ has: page.locator('.tree-label', { hasText: new RegExp(`^${name}$`) }) });
+const repoRow = (page: Page, name: string) =>
+  page
+    .locator('.tree-row[data-kind="repo"]')
+    .filter({ has: page.locator('.tree-label', { hasText: new RegExp(`^${name}$`) }) });
+/** Opens the ⋯ menu of a tree row. The button shows when the pointer is on the row. */
+async function openRowMenu(page: Page, row: ReturnType<typeof projectRow>, name: string) {
+  await row.hover();
+  await row.getByRole('button', { name, exact: true }).click();
+}
 
-test('a project row shows its recent chats, not code folders or docs', async ({ page }) => {
+test('the tree shows projects, their repos, and the chats of each repo', async ({ page }) => {
   await page.goto('/');
-  const atlas = projectGroup(page, 'Atlas');
-  const chat = atlas.getByRole('button', {
+  // The root of the tree opens the Projects page. "New project" is its + button, except on the
+  // Projects page, which has its own New project button.
+  await expect(tree(page).getByRole('button', { name: 'Projects', exact: true })).toBeVisible();
+  await expect(tree(page).getByRole('button', { name: 'New project', exact: true })).toHaveCount(0);
+  await expect(
+    page.getByRole('main').getByRole('button', { name: 'New project', exact: true }),
+  ).toBeVisible();
+  await tree(page).getByRole('button', { name: 'Expand Atlas', exact: true }).click();
+  // A project shows its repos (code folders). Each repo row shows its branch.
+  for (const name of ['atlas-web', 'design-system', 'api-service'])
+    await expect(tree(page).getByRole('button', { name, exact: true })).toBeVisible();
+  await expect(repoRow(page, 'atlas-web').locator('.tree-meta')).toHaveText('main');
+  const chat = tree(page).getByRole('button', {
     name: 'Chat: Refine project and repository navigation',
     exact: true,
   });
   await expect(chat).toBeVisible();
-  // The title gets the full row. The agent is in the tooltip, not an icon. Atlas has three code
-  // folders, so the tooltip also names the code folder of the chat.
-  await expect(chat.locator('.tree-secondary')).toHaveCount(0);
+  // The title gets the full row. The tooltip also names the repo of the chat.
   await expect(chat).toHaveAttribute(
     'title',
-    'Refine project and repository navigation · Codex · atlas-web',
+    'Refine project and repository navigation · atlas-web',
   );
-  // The sidebar has no Docs rows. Pages are in the Knowledge tab of the project.
-  await expect(atlas.getByRole('button', { name: 'Docs of Atlas', exact: true })).toHaveCount(0);
-  for (const name of ['atlas-web', 'design-system', 'api-service', 'Tasks', 'Docs', 'Memory'])
+  // Subagents of a chat show under it.
+  await expect(
+    tree(page).getByRole('button', { name: 'Subagent: Explore auth module', exact: true }),
+  ).toBeVisible();
+  // The tree has no Docs, Tasks, Memory, Chats or Waiting rows.
+  for (const name of ['Tasks', 'Docs', 'Memory', 'Knowledge', 'Chats', 'Waiting for you'])
     await expect(tree(page).getByRole('button', { name, exact: true })).toHaveCount(0);
   await expect(tree(page).getByText('Insights', { exact: true })).toHaveCount(0);
-  // The add buttons on the project rows are gone: New project is on the "Your projects"
-  // heading, and the project row menu adds a code folder.
-  await expect(tree(page).getByRole('button', { name: /^Add code folders to / })).toHaveCount(0);
   await expect(tree(page).getByRole('button', { name: /^New chat in / })).toHaveCount(0);
-  await expect(tree(page).getByRole('heading', { name: 'Your projects' })).toBeVisible();
-  await expect(tree(page).getByRole('button', { name: 'New project', exact: true })).toHaveCount(1);
-  // For a local project, "Add code folder…" opens the folder picker at once, with no dialog.
-  // It adds every Git repository in the chosen folder.
-  await page.getByRole('button', { name: 'Manage project Atlas', exact: true }).click();
-  await page.getByRole('menuitem', { name: 'Add code folder…', exact: true }).click();
+  // For a local project, "Add repo…" opens the folder picker at once, with no dialog. It adds
+  // every Git repository in the chosen folder.
+  await openRowMenu(page, projectRow(page, 'Atlas'), 'Manage project Atlas');
+  await page.getByRole('menuitem', { name: 'Add repo…', exact: true }).click();
+  await expect(page.getByRole('dialog')).toHaveCount(0);
   await tree(page).getByRole('button', { name: 'Atlas', exact: true }).click();
   await expect(
-    page.getByRole('region', { name: 'Code folders', exact: true }).locator('.folder-chip'),
+    page.getByRole('region', { name: 'Repos', exact: true }).getByRole('button', {
+      name: /^(atlas-web|design-system|api-service)/,
+    }),
   ).toHaveCount(6);
-  await expect(page.getByRole('dialog')).toHaveCount(0);
-  // An open chat does not show a second time in an "Open chats" section.
+  // An open chat shows once, as the current row.
   await chat.click();
   await expect(chat).toHaveAttribute('aria-current', 'page');
   await expect(tree(page).getByText('Open chats', { exact: true })).toHaveCount(0);
@@ -51,27 +69,37 @@ test('a project row shows its recent chats, not code folders or docs', async ({ 
   ).toHaveCount(1);
 });
 
-test('Pinned shows pinned chats once and the chat actions unpin them', async ({ page }) => {
+test('a pinned chat moves to the top of its repo and the chat actions unpin it', async ({
+  page,
+}) => {
   await page.goto('/');
+  await tree(page).getByRole('button', { name: 'Expand Atlas', exact: true }).click();
   const title = 'Review the authentication flow and add integration tests';
-  await page.getByRole('button', { name: `${title} actions`, exact: true }).click();
+  const chats = page
+    .locator('.tree-row[data-kind="session"]')
+    .getByRole('button', { name: /^Chat: / });
+  await expect(chats.first()).toHaveAccessibleName(
+    'Chat: Refine project and repository navigation',
+  );
+  const row = page
+    .locator('.tree-row[data-kind="session"]')
+    .filter({ has: page.getByRole('button', { name: `Chat: ${title}`, exact: true }) });
+  await openRowMenu(page, row, `${title} actions`);
   await page.getByRole('menuitem', { name: 'Pin', exact: true }).click();
-  const pinned = page.locator('.pinned-sessions');
-  await expect(pinned.getByRole('heading', { name: 'Pinned' })).toBeVisible();
-  await expect(pinned.getByRole('button', { name: `Resume pinned ${title}` })).toBeVisible();
-  // The project does not list the pinned chat again.
-  await expect(
-    projectGroup(page, 'Atlas').getByRole('button', { name: `Chat: ${title}`, exact: true }),
-  ).toHaveCount(0);
-  await page.getByRole('button', { name: `${title} actions`, exact: true }).click();
+  // The pinned chat is first. It shows once: there is no separate Pinned section.
+  await expect(chats.first()).toHaveAccessibleName(`Chat: ${title}`);
+  await expect(tree(page).getByRole('button', { name: `Chat: ${title}`, exact: true })).toHaveCount(
+    1,
+  );
+  await expect(page.locator('.pinned-sessions')).toHaveCount(0);
+  await openRowMenu(page, row, `${title} actions`);
   await page.getByRole('menuitem', { name: 'Unpin', exact: true }).click();
-  await expect(pinned).toHaveCount(0);
-  await expect(
-    projectGroup(page, 'Atlas').getByRole('button', { name: `Chat: ${title}`, exact: true }),
-  ).toBeVisible();
+  await expect(chats.first()).toHaveAccessibleName(
+    'Chat: Refine project and repository navigation',
+  );
 });
 
-test('the sidebar, Chats and the overview count the same chats', async ({ page }) => {
+test('a repo shows its newest chats, then the others on request', async ({ page }) => {
   await page.addInitScript(() => {
     const repo = {
       id: 'r',
@@ -103,69 +131,66 @@ test('the sidebar, Chats and the overview count the same chats', async ({ page }
     };
   });
   await page.goto('/');
-  const group = projectGroup(page, 'Counted');
-  // Seven chats can open: the archived chat does not count. The pinned chat shows in Pinned.
-  const rows = group.getByRole('button', { name: /^Chat: / });
-  await expect(rows).toHaveCount(5);
-  // The newest chat is first. A project with one code folder shows no folder name.
-  await expect(rows.first()).toContainText('Chat 7');
-  await expect(rows.first()).toHaveAttribute('title', 'Chat 7 · Codex');
-  await expect(group.getByRole('button', { name: 'Show all 7 chats', exact: true })).toBeVisible();
-  // The Projects page shows the same count in the Activity column.
+  // The Projects page shows the age of the newest chat (SP-C2: "now", "5 min", "2 d").
   await expect(
     page
       .getByRole('region', { name: 'Projects', exact: true })
-      .getByRole('row', { name: /^Counted / })
-      .getByRole('cell')
-      .nth(1),
-  ).toHaveText('7 chats');
-  await tree(page).getByRole('button', { name: 'Chats', exact: true }).click();
-  await expect(
-    page
-      .getByRole('region', { name: 'Chats', exact: true })
-      .getByRole('button', { name: /^Resume / }),
-  ).toHaveCount(7);
-  // "Show all" opens the Chats tab of the project, with the same count.
-  await group.getByRole('button', { name: 'Show all 7 chats', exact: true }).click();
-  await expect(
-    page.getByRole('navigation', { name: 'Project page' }).getByRole('button', { name: 'Chats' }),
-  ).toHaveAttribute('aria-current', 'page');
-  const chats = page.getByRole('region', { name: 'Project chats' });
-  await expect(chats.getByRole('button', { name: /^Resume / })).toHaveCount(7);
-  // A list under 20 chats has no search field. Archived chats are a choice of the Filter menu.
-  await expect(chats.getByRole('searchbox', { name: 'Filter chats' })).toHaveCount(0);
-  await chats.getByRole('button', { name: 'Filter chats', exact: true }).click();
-  await page.getByRole('menuitemradio', { name: 'Archived (1)', exact: true }).click();
-  await page.keyboard.press('Escape');
-  await expect(chats.getByRole('button', { name: /^Resume / })).toHaveCount(1);
-  await expect(chats.getByRole('button', { name: /^Resume / })).toContainText('Chat 0');
+      .getByRole('button', { name: /^Counted, 1 repo/ })
+      .locator('time'),
+  ).toHaveText(/^\d+ d$/);
+  await tree(page).getByRole('button', { name: 'Expand Counted', exact: true }).click();
+  // The repo with the newest chat of the project opens by default.
+  await expect(tree(page).getByRole('button', { name: 'Collapse web', exact: true })).toBeVisible();
+  // Seven chats can open: the archived chat does not show. The pinned chat is first, then the
+  // newest chats. The repo shows five, then "Show 2 more chats".
+  const rows = tree(page).getByRole('button', { name: /^Chat: / });
+  await expect(rows).toHaveCount(5);
+  await expect(rows).toHaveText(['Chat 1', 'Chat 7', 'Chat 6', 'Chat 5', 'Chat 4']);
+  await expect(rows.nth(1)).toHaveAttribute('title', 'Chat 7 · web');
+  await tree(page).getByRole('button', { name: 'Show 2 more chats', exact: true }).click();
+  await expect(rows).toHaveCount(7);
+  await expect(tree(page).getByRole('button', { name: 'Chat: Chat 0', exact: true })).toHaveCount(
+    0,
+  );
 });
 
-test('keyboard moves between project and chat rows, and expands and collapses projects', async ({
+test('keyboard moves between project, repo and chat rows, and expands and collapses them', async ({
   page,
 }) => {
   await page.goto('/');
   const project = tree(page).getByRole('button', { name: 'Atlas', exact: true });
+  const repo = tree(page).getByRole('button', { name: 'atlas-web', exact: true });
   const chat = tree(page).getByRole('button', {
     name: 'Chat: Refine project and repository navigation',
     exact: true,
   });
   await project.focus();
+  await expect(repo).toHaveCount(0);
+  await page.keyboard.press('ArrowRight');
+  await expect(repo).toBeVisible();
+  await expect(chat).toBeVisible();
+  await page.keyboard.press('ArrowDown');
+  await expect(repo).toBeFocused();
+  // ArrowLeft closes an open row, then moves to its parent.
   await page.keyboard.press('ArrowLeft');
   await expect(chat).toHaveCount(0);
+  await expect(repo).toBeFocused();
+  await page.keyboard.press('ArrowLeft');
+  await expect(project).toBeFocused();
+  await page.keyboard.press('ArrowLeft');
+  await expect(repo).toHaveCount(0);
+  await page.keyboard.press('ArrowRight');
+  await page.keyboard.press('ArrowDown');
   await page.keyboard.press('ArrowRight');
   await expect(chat).toBeVisible();
   await page.keyboard.press('ArrowDown');
   await expect(chat).toBeFocused();
-  await page.keyboard.press('ArrowLeft');
-  await expect(project).toBeFocused();
-  await page.keyboard.press('ArrowDown');
   await page.keyboard.press('Shift+F10');
   await expect(page.getByRole('menuitem', { name: 'Pin', exact: true })).toBeVisible();
   await page.keyboard.press('Escape');
 });
 
-test('an SSH project shows the host in its badge and offers Reconnect in its menu', async ({
+test('an SSH project shows the host on its row and offers Reconnect in its menu', async ({
   page,
 }) => {
   await page.addInitScript(() => {
@@ -187,13 +212,14 @@ test('an SSH project shows the host in its badge and offers Reconnect in its men
     };
   });
   await page.goto('/');
-  const badge = projectGroup(page, 'Remote acceptance project').locator('.project-host-badge');
-  await expect(badge).toHaveText('SSH');
-  await expect(badge).toHaveAttribute('title', /dev@builder\.example · disconnected/);
+  const row = projectRow(page, 'Remote acceptance project');
+  await expect(row.locator('.tree-meta')).toHaveText('SSH');
+  await expect(row.locator('.tree-row-button')).toHaveAttribute(
+    'title',
+    /SSH: dev@builder\.example · disconnected/,
+  );
   await expect(page.locator('.tree-host')).toHaveCount(0);
-  await page
-    .getByRole('button', { name: 'Manage project Remote acceptance project', exact: true })
-    .click();
+  await openRowMenu(page, row, 'Manage project Remote acceptance project');
   await page.getByRole('menuitem', { name: 'Reconnect to Builder', exact: true }).click();
   await expect.poll(() => page.evaluate(() => (window as any).connected)).toBe(true);
 });

@@ -1,15 +1,8 @@
+import { useEffect, useState } from 'react';
 import type { ComponentProps, KeyboardEvent, ReactNode, Ref } from 'react';
-import {
-  ArrowUp,
-  Check,
-  ChevronDown,
-  Folder,
-  FolderPlus,
-  Lock,
-  PencilLine,
-  Plus,
-} from 'lucide-react';
-import { newChatAccessKey } from '../lib/chat-preferences';
+import { onChatPreferencesChange, newChatAccess, saveNewChatAccess } from '../lib/chat-preferences';
+import { ArrowUp, Check, ChevronDown, FolderPlus, Lock, PencilLine, Plus } from 'lucide-react';
+import type { IdentityColor } from '../domain/identity';
 import { cn } from '../lib/utils';
 import { hasPrimaryModifier, isMac, shortcutLabel } from '../lib/platform';
 import { Hint } from './hint';
@@ -23,6 +16,7 @@ import {
   DropdownMenuTrigger,
 } from './ui/dropdown-menu';
 import { Textarea } from './ui/textarea';
+import { IdentityMark } from './ui/identity-mark';
 
 /** The placeholder of a composer that does not know its agent or folder. */
 export const composerPlaceholder = 'Ask anything';
@@ -70,16 +64,6 @@ export function saveAccess(repositoryId: string | undefined, value: ChatAccess) 
   }
 }
 
-/** The "New chats start as" choice of Settings › General, when the user made one. */
-export function defaultAccess(): ChatAccess | null {
-  try {
-    const value = localStorage.getItem(newChatAccessKey);
-    return value === 'edit' || value === 'read' ? value : null;
-  } catch {
-    return null;
-  }
-}
-
 // The model that the Overview composer chose for the next new chat of an agent. The chat view
 // that opens next takes it once.
 const nextModels = new Map<string, string>();
@@ -103,20 +87,33 @@ export const composerChipClass =
 
 const accessModes: Record<ChatAccess, { label: string; description: string }> = {
   read: { label: 'Read only', description: 'The agent reads files and does not change them.' },
-  edit: { label: 'Can edit', description: 'The agent can change files in the folder.' },
+  edit: { label: 'Can edit', description: 'The agent can change files in its branch copy.' },
 };
 
-/** The access pill: a menu with "Read only" and "Can edit". */
+/**
+ * The access chip of every composer (SH-A1, ST-C2, ST-C3): "Can edit" with a pencil or "Read
+ * only" with a lock. Its menu changes the access of the chat. While the agent works, it is a
+ * plain label.
+ */
 export function AccessPill({
   value,
   onChange,
   disabled,
 }: {
   value: ChatAccess;
-  onChange: (value: ChatAccess) => void;
+  onChange?: (value: ChatAccess) => void;
   disabled?: boolean;
 }) {
   const mode = accessModes[value];
+  const icon = value === 'read' ? <Lock aria-hidden="true" /> : <PencilLine aria-hidden="true" />;
+  if (!onChange)
+    return (
+      <span className={cn('composer-access composer-folder-label', composerChipClass)}>
+        <span className="sr-only">Access: </span>
+        {icon}
+        <span className="composer-access-label">{mode.label}</span>
+      </span>
+    );
   return (
     <DropdownMenu>
       <Hint label="Change what the agent can do" disabled={disabled}>
@@ -127,8 +124,8 @@ export function AccessPill({
             aria-label={`Access: ${mode.label}`}
             disabled={disabled}
           >
-            {value === 'read' ? <Lock aria-hidden="true" /> : <PencilLine aria-hidden="true" />}
-            {mode.label}
+            {icon}
+            <span className="composer-access-label">{mode.label}</span>
             {!disabled && <ChevronDown aria-hidden="true" />}
           </Button>
         </DropdownMenuTrigger>
@@ -155,25 +152,57 @@ export function AccessPill({
 }
 
 /**
- * The code folder pill: "api · main". The menu lists the code folders of the project. Without
- * folders it is one "Add code folder…" pill.
+ * The access chip of a composer that starts a new chat (the Overview and the first composer).
+ * It shows the access that the new chat gets in this repo and keeps a change for that repo, so
+ * the chat opens with the same access.
  */
-export function FolderPill({
+export function NewChatAccessPill({ repoId }: { repoId?: string }) {
+  const [value, setValue] = useState<ChatAccess>(() => readAccess(repoId) || newChatAccess());
+  useEffect(() => {
+    const read = () => setValue(readAccess(repoId) || newChatAccess());
+    read();
+    return onChatPreferencesChange(read);
+  }, [repoId]);
+  return (
+    <AccessPill
+      value={value}
+      onChange={(next) => {
+        setValue(next);
+        if (repoId) saveAccess(repoId, next);
+        else saveNewChatAccess(next);
+      }}
+    />
+  );
+}
+
+/**
+ * The repo chip of the composer (CH-B): the repo ring mark, the repo name and, for a new chat,
+ * " · branch". In a new chat, a menu lists the other repos of the project: another repo starts
+ * the new chat there. In a chat with messages it is a plain label.
+ */
+export function RepoPill({
   label,
+  branch,
+  color = 'slate',
   folders,
   current,
   onPick,
   onAdd,
   disabled,
+  chevron = false,
 }: {
-  /** The folder name, with the branch when it is known. */
+  /** The repo name. Older callers give "name · branch" here. */
   label?: string;
-  folders: { id: string; name: string }[];
+  branch?: string;
+  color?: IdentityColor;
+  folders: { id: string; name: string; color?: IdentityColor }[];
   current?: string;
-  onPick: (id: string) => void;
+  onPick?: (id: string) => void;
   /** Adds a code folder. The menu then ends with "Add code folder…". */
   onAdd?: () => void;
   disabled?: boolean;
+  /** Shows a chevron on the menu chip, as on the project Overview (SH-A1). */
+  chevron?: boolean;
 }) {
   if (!folders.length && onAdd)
     return (
@@ -187,26 +216,48 @@ export function FolderPill({
         Add code folder…
       </Button>
     );
+  const content = (
+    <>
+      <IdentityMark kind="repo" color={color} slot={false} />
+      <span className="truncate">{label}</span>
+      {branch && (
+        <>
+          <span className="composer-folder-dot" aria-hidden="true">
+            ·
+          </span>
+          <span className="truncate">{branch}</span>
+        </>
+      )}
+    </>
+  );
+  const name = branch ? `${label} · ${branch}` : label;
+  // One repo and no way to add one: nothing to choose.
+  if (!onPick || (folders.length < 2 && !onAdd))
+    return (
+      <span className={cn('composer-folder composer-folder-label', composerChipClass)}>
+        <span className="sr-only">Repo: </span>
+        {content}
+      </span>
+    );
   return (
     <DropdownMenu>
-      <Hint label="Code folder" disabled={disabled}>
+      <Hint label="Repo" disabled={disabled}>
         <DropdownMenuTrigger asChild>
           <Button
             variant="chip"
             className={cn('composer-folder', composerChipClass)}
-            aria-label={`Code folder: ${label}`}
+            aria-label={`Repo: ${name}`}
             disabled={disabled}
           >
-            <Folder aria-hidden="true" />
-            <span className="truncate">{label}</span>
-            <ChevronDown aria-hidden="true" />
+            {content}
+            {chevron && <ChevronDown aria-hidden="true" />}
           </Button>
         </DropdownMenuTrigger>
       </Hint>
       <DropdownMenuContent align="start">
         {folders.map((folder) => (
           <DropdownMenuItem key={folder.id} onSelect={() => onPick(folder.id)}>
-            <Folder />
+            <IdentityMark kind="repo" color={folder.color || 'slate'} />
             <span className="min-w-0 flex-1">{folder.name}</span>
             {folder.id === current && <Check aria-label="Selected" />}
           </DropdownMenuItem>
@@ -224,6 +275,9 @@ export function FolderPill({
     </DropdownMenu>
   );
 }
+
+/** @deprecated Use RepoPill. */
+export const FolderPill = RepoPill;
 
 /** One item of the "+" menu of the composer. */
 export interface ComposerAddItem {
@@ -314,7 +368,7 @@ export function ComposerSend({
 const sendShortcut = shortcutLabel(['mod'], 'Enter');
 
 /**
- * The one composer: a 14/22 text box with radius 16 and 12/16/8 padding, then a bar with the
+ * The one composer: a 14/22 text box with radius 16 and 12/12/8/16 padding, then a bar with the
  * pills on the left and the round Send at the bottom right. Send keeps its place while the
  * text changes. The chat and the project Overview use it.
  */
@@ -335,6 +389,7 @@ export function Composer({
   sendLabel = 'Send',
   label,
   className,
+  replace,
 }: {
   value: string;
   onValueChange: (value: string, caret: number) => void;
@@ -364,7 +419,18 @@ export function Composer({
   /** The accessible name of the composer group. */
   label?: string;
   className?: string;
+  /**
+   * Content in place of the text box and the bar, in the same frame: the question or the
+   * approval that waits for the user (CH-B1).
+   */
+  replace?: ReactNode;
 }) {
+  if (replace)
+    return (
+      <div className={cn('conversation-composer composer-asking @container/composer', className)}>
+        {replace}
+      </div>
+    );
   return (
     <div
       className={cn('conversation-composer @container/composer', className)}

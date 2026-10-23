@@ -1,0 +1,31 @@
+/*
+ * Knowledge (KN-B "Find in place"). This file comes after projects.css, so its rules replace the
+ * earlier rules of the same name with the exact values of the KN-B frames.
+ */
+
+/* "3 tasks in atlas-web" after Make tasks: a white chip with a 1px border (KN-B2). */
+.wiki-tasks-chip {
+  border-radius: 6px;
+  background: var(--background);
+  box-shadow: inset 0 0 0 1px var(--border);
+}
+/* The task icon of a task row: a thin ring with a dot, 14px, as the circle-dot icon. */
+.wiki-prose ul[data-type='taskList'] > li.wiki-task-row > label::after {
+  left: 1px;
+  width: 14px;
+  height: 14px;
+  margin-top: -7px;
+  border-width: 1px;
+  background: radial-gradient(circle, var(--muted-foreground) 1.25px, transparent 1.75px);
+}
+.wiki-tasks-chip .wiki-repo-ring {
+  margin: 0 3px;
+}
+/* "/" in Memory: the line is a block choice after the list, 12px below the last fact (KN-B3). */
+.memory-line:has(.memory-line-input[data-slash]) {
+  margin-top: var(--space-3);
+}
+/* A session row of the Usage card is 32px with its 1px top line (KN-B4). */
+.usage-card-sessions button {
+  height: 31px;
+}

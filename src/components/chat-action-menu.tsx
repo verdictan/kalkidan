@@ -19,6 +19,8 @@ import {
   GitPullRequestCreate,
   Hash,
   ListTodo,
+  Lock,
+  LockOpen,
   MessageSquare,
   MousePointerClick,
   NotebookPen,
@@ -63,6 +65,7 @@ const icons: Partial<Record<ChatActionId, LucideIcon>> = {
   'open-linked-task': ListTodo,
   notes: NotebookPen,
   commit: GitCommitHorizontal,
+  'read-only': Lock,
   'create-pull-request': GitPullRequestCreate,
   'open-pull-request': GitPullRequest,
   duplicate: CopyPlus,
@@ -88,6 +91,7 @@ const icons: Partial<Record<ChatActionId, LucideIcon>> = {
 function iconOf(item: ChatMenuItem) {
   if (item.id === 'pin' && item.label === 'Unpin') return PinOff;
   if (item.id === 'archive' && item.label === 'Restore') return ArchiveRestore;
+  if (item.id === 'read-only' && item.label !== 'Read only') return LockOpen;
   return icons[item.id];
 }
 

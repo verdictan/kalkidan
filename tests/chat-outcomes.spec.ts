@@ -1,4 +1,4 @@
-import { type Locator, type Page } from '@playwright/test';
+import { type Page } from '@playwright/test';
 import { test, expect, newChat } from './helpers/app';
 import { openCodeFolder } from './helpers/navigation';
 
@@ -58,61 +58,34 @@ async function withOutcomes(page: Page) {
   await page.goto('/');
 }
 
-/** Shows one view of a chat list, such as "Failed (1)", from its Filter chats menu. */
-async function showView(list: Locator, view: string) {
-  await list.getByRole('button', { name: 'Filter chats', exact: true }).click();
-  await list.page().getByRole('menuitemradio', { name: view, exact: true }).click();
-}
+const failedWords = 'The last run failed. The Verdictan gateway stopped this turn after a refusal.';
+const refusedWords = 'Verdictan did not start the last run. Sign in to Verdictan.';
 
-const failedWords = 'The last run failed. The managed gateway stopped this turn after a refusal.';
-const refusedWords = 'Managed agents did not start the last run. Sign in to managed agents.';
+/** The status glyph of a chat row in the sidebar tree. */
+const glyph = (page: Page, title: string) =>
+  tree(page)
+    .locator('.tree-row')
+    .filter({ has: page.getByRole('button', { name: `Chat: ${title}`, exact: true }) })
+    .locator('.status-glyph');
 
-test('sidebar chats show failed and refused dots with the reason', async ({ page }) => {
+test('sidebar chats show failed and refused glyphs with the reason', async ({ page }) => {
   await withOutcomes(page);
-  const row = (title: string) => tree(page).getByRole('button', { name: `Chat: ${title}` });
-  const failed = row('Failed chat').locator('.activity-dot');
-  await expect(failed).toHaveAttribute('data-state', 'failed');
-  await expect(failed).toHaveAttribute('title', failedWords);
-  await expect(row('Failed chat').getByRole('img', { name: failedWords })).toBeVisible();
-  const refused = row('Refused chat').locator('.activity-dot');
-  await expect(refused).toHaveAttribute('data-state', 'refused');
+  await openCodeFolder(page);
+  const failed = glyph(page, 'Failed chat');
+  await expect(failed).toHaveAttribute('data-status', 'failed');
+  await expect(tree(page).getByRole('img', { name: failedWords })).toBeVisible();
+  // A refused run shows the failed glyph with the refusal words.
+  const refused = glyph(page, 'Refused chat');
+  await expect(refused).toHaveAttribute('data-status', 'failed');
   await expect(refused).toHaveAttribute('aria-label', refusedWords);
-  // A completed run and a chat without an outcome show no dot.
-  await expect(row('Completed chat').locator('.activity-dot')).toHaveCount(0);
-  await expect(row('Plain chat').locator('.activity-dot')).toHaveCount(0);
-  // Opening the chat does not remove the failed dot. Only a new run changes it.
-  await row('Failed chat').click();
-  await expect(row('Failed chat')).toHaveAttribute('aria-current', 'page');
-  await expect(failed).toHaveAttribute('data-state', 'failed');
-});
-
-test('Chats and the project Chats tab filter failed and refused chats', async ({ page }) => {
-  await withOutcomes(page);
-  await tree(page).getByRole('button', { name: 'Chats', exact: true }).click();
-  const all = page.getByRole('region', { name: 'Chats', exact: true });
-  await expect(all.getByRole('button', { name: /^Resume / })).toHaveCount(4);
-  await expect(
-    all.getByRole('button', { name: 'Resume Failed chat' }).locator('.activity-dot'),
-  ).toHaveAttribute('data-state', 'failed');
-  await showView(all, 'Failed (1)');
-  await expect(all.getByRole('button', { name: /^Resume / })).toHaveCount(1);
-  await expect(all.getByRole('button', { name: 'Resume Failed chat' })).toBeVisible();
-  await showView(all, 'Refused (1)');
-  await expect(all.getByRole('button', { name: /^Resume / })).toHaveCount(1);
-  await expect(all.getByRole('button', { name: 'Resume Refused chat' })).toBeVisible();
-
-  await tree(page).getByRole('button', { name: 'Outcomes', exact: true }).click();
-  await page
-    .getByRole('navigation', { name: 'Project page' })
-    .getByRole('button', { name: 'Chats' })
-    .click();
-  const chats = page.getByRole('region', { name: 'Project chats' });
-  await expect(chats.getByRole('button', { name: /^Resume / })).toHaveCount(4);
-  await showView(chats, 'Refused (1)');
-  await expect(chats.getByRole('button', { name: /^Resume / })).toHaveCount(1);
-  await expect(chats.getByRole('img', { name: refusedWords })).toBeVisible();
-  await showView(chats, 'Failed (1)');
-  await expect(chats.getByRole('button', { name: 'Resume Failed chat' })).toBeVisible();
+  // A completed run and a chat without an outcome show no glyph.
+  await expect(glyph(page, 'Completed chat')).toHaveCount(0);
+  await expect(glyph(page, 'Plain chat')).toHaveCount(0);
+  // Opening the chat does not remove the failed glyph. Only a new run changes it.
+  const row = tree(page).getByRole('button', { name: 'Chat: Failed chat', exact: true });
+  await row.click();
+  await expect(row).toHaveAttribute('aria-current', 'page');
+  await expect(failed).toHaveAttribute('data-status', 'failed');
 });
 
 test('the command palette shows the failed dot of a chat', async ({ page }) => {
@@ -123,7 +96,7 @@ test('the command palette shows the failed dot of a chat', async ({ page }) => {
   await expect(palette.getByRole('img', { name: failedWords })).toBeVisible();
 });
 
-test('a refused new chat stays a draft and shows the refused dot', async ({ page }) => {
+test('a refused new chat stays a draft and shows the refusal glyph', async ({ page }) => {
   await page.addInitScript(() => {
     const refused = (agent: string) => ({
       id: 'refused-run',
@@ -160,8 +133,9 @@ test('a refused new chat stays a draft and shows the refused dot', async ({ page
   const composer = page.getByLabel('Message agent');
   await composer.fill('Reply OK.');
   await composer.press('Enter');
+  // This build has no accounts, so the card keeps its Sign in button (no sign-in card).
   await expect(page.locator('.chat-message.user + .chat-card')).toBeVisible();
-  const dot = tree(page).locator('.session-row .activity-dot[data-state="refused"]');
+  const dot = tree(page).getByRole('img', { name: refusedWords });
   await expect(dot).toHaveCount(1);
-  await expect(dot).toHaveAttribute('title', refusedWords);
+  await expect(dot).toHaveAttribute('data-status', 'failed');
 });

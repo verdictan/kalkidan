@@ -19,28 +19,31 @@ import { managedSetupTargets } from '../src/domain/verdictan';
 import { restoreRoute, routeKey, saveableRoute } from '../src/domain/workspace-route';
 import type { Session } from '../src/domain/conversation';
 
-test('Settings has General, Computers and Account, then one section per project', () => {
+test('Settings is one page: the account, Tools, Preferences, then the project', () => {
   assert.deepEqual(
     settingsPanes.map((section) => section.label),
-    ['General', 'Computers', 'Account'],
+    ['Account', 'Tools', 'Preferences'],
   );
   assert.equal(projectPane('g1'), 'project:g1');
   assert.equal(paneGroupId('project:g1'), 'g1');
   assert.equal(paneGroupId('project:'), undefined);
   assert.equal(paneGroupId('general'), undefined);
   assert.equal(isSettingsSection('computers'), true);
+  assert.equal(isSettingsSection('tools'), true);
   assert.equal(isSettingsSection('remote'), false);
   assert.equal(isSettingsSection('accounts'), false);
-  assert.equal(settingsTabLabel('updates'), 'Computers');
+  assert.equal(settingsTabLabel('updates'), 'Tools');
   assert.equal(settingsTabLabel('accounts'), 'Account');
-  assert.equal(settingsTabLabel('agents'), 'Computers');
-  assert.equal(settingsTabLabel('about'), 'General');
+  assert.equal(settingsTabLabel('agents'), 'Tools');
+  assert.equal(settingsTabLabel('about'), 'Preferences');
+  assert.equal(settingsTabLabel('general'), 'Settings');
 });
 
 test('older section names and anchors keep their older target', () => {
   assert.deepEqual(settingsTarget(), { tab: 'general', anchor: undefined });
   assert.deepEqual(settingsTarget('unknown'), { tab: 'general', anchor: undefined });
   assert.deepEqual(settingsTarget('accounts'), { tab: 'account', anchor: undefined });
+  assert.deepEqual(settingsTarget('tools'), { tab: 'tools', anchor: undefined });
   assert.deepEqual(settingsTarget('updates'), { tab: 'computers', anchor: 'runtime-local' });
   assert.deepEqual(settingsTarget('remote-hosts'), { tab: 'computers', anchor: undefined });
   assert.deepEqual(settingsTarget('managed-agents'), {
@@ -59,44 +62,47 @@ test('older section names and anchors keep their older target', () => {
   assert.deepEqual(settingsTarget('project:g1', 'board'), { tab: 'project:g1', anchor: 'board' });
 });
 
-test('every older section name opens its section of the one Settings window', () => {
+test('every older section name opens its part of the one Settings page', () => {
   const cases: [string | undefined, string | undefined, string, string | undefined][] = [
     [undefined, undefined, 'general', undefined],
     ['general', undefined, 'general', undefined],
-    ['about', undefined, 'general', undefined],
+    ['about', undefined, 'preferences', undefined],
+    ['preferences', undefined, 'preferences', undefined],
     ['unknown', undefined, 'general', undefined],
     ['account', undefined, 'account', undefined],
     ['accounts', undefined, 'account', undefined],
-    ['agents', undefined, 'computers', 'settings-agents'],
-    ['computers', undefined, 'computers', undefined],
-    ['remote', undefined, 'computers', undefined],
-    ['remote-hosts', undefined, 'computers', undefined],
-    ['updates', undefined, 'computers', 'runtime-local'],
-    ['managed-agents', undefined, 'computers', 'managed-agent-setup'],
+    ['tools', undefined, 'tools', undefined],
+    ['agents', undefined, 'tools', undefined],
+    ['computers', undefined, 'tools', undefined],
+    ['remote', undefined, 'tools', undefined],
+    ['remote-hosts', undefined, 'tools', undefined],
+    ['updates', undefined, 'tools', undefined],
+    ['managed-agents', undefined, 'tools', undefined],
   ];
   for (const [section, anchor, pane, focus] of cases)
     assert.deepEqual(settingsPane(section, anchor), { pane, anchor: focus }, String(section));
 });
 
-test('every older anchor opens the section that holds it', () => {
+test('every older anchor opens the part that holds it now', () => {
   const cases: [string | undefined, string, string, string | undefined][] = [
-    [undefined, 'settings-about', 'general', 'settings-about'],
-    [undefined, 'settings-data', 'general', 'settings-data'],
-    ['general', 'settings-notifications', 'general', 'settings-notifications'],
-    [undefined, 'settings-default-agent', 'computers', 'settings-agents'],
+    [undefined, 'settings-about', 'preferences', 'settings-about'],
+    [undefined, 'settings-data', 'preferences', 'settings-data'],
+    ['general', 'settings-notifications', 'preferences', 'settings-notifications'],
+    [undefined, 'settings-default-agent', 'tools', undefined],
     [undefined, 'verdictan-account', 'account', 'verdictan-account'],
     ['managed-agents', 'verdictan-account', 'account', 'verdictan-account'],
     ['account', 'verdictan-region', 'account', 'verdictan-region'],
-    ['account', 'settings-connected-services', 'account', 'settings-github'],
-    [undefined, 'settings-github', 'account', 'settings-github'],
-    ['general', 'settings-agents', 'computers', 'settings-agents'],
-    ['agents', 'agent-program-h1-claude', 'computers', 'agent-program-h1-claude'],
-    [undefined, 'managed-agent-setup', 'computers', 'managed-agent-setup'],
-    ['managed-agents', 'verdictan-runtime', 'computers', 'runtime-local'],
-    [undefined, runtimeAnchor('h1'), 'computers', 'runtime-h1'],
-    ['updates', computerAnchor('h1'), 'computers', 'computer-h1'],
-    ['updates', helperUpdateAnchor('h1'), 'computers', 'helper-update-h1'],
-    ['updates', 'unknown-anchor', 'computers', 'unknown-anchor'],
+    ['account', 'settings-connected-services', 'tools', 'settings-github'],
+    [undefined, 'settings-github', 'tools', 'settings-github'],
+    ['general', 'settings-agents', 'tools', 'settings-agents'],
+    ['agents', 'agent-program-h1-claude', 'tools', undefined],
+    [undefined, 'managed-agent-setup', 'tools', undefined],
+    ['managed-agents', 'verdictan-runtime', 'tools', undefined],
+    [undefined, runtimeAnchor('h1'), 'tools', undefined],
+    ['updates', computerAnchor('h1'), 'tools', 'computer-h1'],
+    ['updates', computerAnchor(), 'tools', undefined],
+    ['updates', helperUpdateAnchor('h1'), 'tools', undefined],
+    ['updates', 'unknown-anchor', 'tools', undefined],
   ];
   for (const [section, anchor, pane, focus] of cases)
     assert.deepEqual(settingsPane(section, anchor), { pane, anchor: focus }, anchor);
@@ -112,13 +118,13 @@ test('a project section opens with its part of the page', () => {
   assert.deepEqual(settingsPane('project:'), { pane: 'general', anchor: undefined });
 });
 
-test('each managed setup step opens a section that holds its anchor', () => {
+test('each managed setup step opens a part of the page', () => {
   for (const target of Object.values(managedSetupTargets)) {
     const resolved = settingsTarget(target.section, target.anchor);
     assert.equal(resolved.tab, target.section, target.anchor);
     assert.equal(resolved.anchor, target.anchor);
     const pane = settingsPane(target.section, target.anchor);
-    assert.ok(['account', 'computers', 'general'].includes(pane.pane), target.anchor);
+    assert.ok(['account', 'tools', 'preferences', 'general'].includes(pane.pane), target.anchor);
   }
 });
 
@@ -137,7 +143,11 @@ test('every request opens the one Settings window, never a page or a menu', () =
     place: 'preferences',
     anchor: 'settings-github',
   });
-  assert.deepEqual(settingsPlace('agents'), { place: 'preferences', anchor: 'settings-agents' });
+  assert.deepEqual(settingsPlace('agents'), { place: 'preferences', anchor: undefined });
+  assert.deepEqual(settingsPlace('general', 'settings-notifications'), {
+    place: 'preferences',
+    anchor: 'settings-notifications',
+  });
   // The shell sends the older target to the dialog. The dialog maps it the same way.
   for (const [section, anchor] of [
     ['agents', undefined],

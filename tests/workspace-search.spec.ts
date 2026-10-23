@@ -1,5 +1,6 @@
 import { type Page } from '@playwright/test';
 import { test, expect } from './helpers/app';
+import { openProjectTab } from './helpers/navigation';
 
 const sidebar = (page: Page) => page.locator('nav.library-panel');
 const palette = (page: Page) => page.getByRole('dialog', { name: 'Search or run a command' });
@@ -30,7 +31,9 @@ test('search finds project, session and message text and opens the conversation'
   await results.locator('.history-search-hit').first().click();
   await expect(palette(page)).toHaveCount(0);
   await expect(page.getByRole('region', { name: 'Chat', exact: true })).toBeVisible();
-  await expect(page.locator('.conversation-toolbar-title')).toContainText('Refine project');
+  await expect(page.getByRole('navigation', { name: 'Breadcrumb' })).toContainText(
+    'Refine project',
+  );
   await openPalette(page);
   await input.fill('zzzz-no-result');
   await expect(results.getByText('No matches found.')).toBeVisible();
@@ -46,12 +49,14 @@ test('the palette is a centered modal dialog and the sidebar keeps its navigatio
   await expect(dialog).toHaveAttribute('aria-modal', 'true');
   await expect(input).toHaveAttribute('role', 'combobox');
   await expect(dialog.getByRole('listbox', { name: 'Recent and actions' })).toBeVisible();
-  // The palette shows over the window, not in the sidebar.
+  // The palette shows over the page, in the middle of the space right of the sidebar (SH-A4).
+  // Wait for the open motion: the palette is 560px wide at rest.
+  await expect.poll(async () => Math.round((await dialog.boundingBox())!.width)).toBe(560);
   const box = (await dialog.boundingBox())!;
   const viewport = page.viewportSize()!;
-  expect(Math.abs(box.x + box.width / 2 - viewport.width / 2)).toBeLessThan(2);
-  expect(box.width).toBeGreaterThan(560);
-  expect(box.width).toBeLessThanOrEqual(640);
+  const side = (await sidebar(page).boundingBox())!;
+  const middle = side.x + side.width + (viewport.width - side.x - side.width) / 2;
+  expect(Math.abs(box.x + box.width / 2 - middle)).toBeLessThan(3);
   expect(box.height).toBeLessThanOrEqual(viewport.height * 0.6 + 1);
   // The sidebar keeps the project tree under the palette.
   await input.fill('Atlas');
@@ -113,7 +118,7 @@ test('search results support arrow keys, Enter, and Escape', async ({ page }) =>
   const input = await openPalette(page);
   const results = page.getByRole('region', { name: 'Search results' });
   await input.fill('Atlas');
-  await expect(results.getByRole('status').first()).toContainText(/\d+ match/);
+  await expect(results.getByRole('option').first()).toBeVisible();
   await input.press('ArrowDown');
   const first = await input.getAttribute('aria-activedescendant');
   expect(first).toBeTruthy();
@@ -139,7 +144,9 @@ test('search results support arrow keys, Enter, and Escape', async ({ page }) =>
   await input.press('Enter');
   await expect(palette(page)).toHaveCount(0);
   await expect(page.getByRole('region', { name: 'Chat', exact: true })).toBeVisible();
-  await expect(page.locator('.conversation-toolbar-title')).toContainText('Refine project');
+  await expect(page.getByRole('navigation', { name: 'Breadcrumb' })).toContainText(
+    'Refine project',
+  );
 });
 
 test('an empty query shows Recent and Actions with arrow keys', async ({ page }) => {
@@ -180,8 +187,9 @@ test('search discards stale results and reports inaccessible or truncated transc
     };
   });
   await page.goto('/');
-  // The workspace shows after the first-run check. Then Mod+K opens the palette.
-  await expect(page.getByRole('button', { name: 'Search or run a command' })).toBeVisible();
+  // The workspace shows after the first-run check (no projects: the composer, no sidebar).
+  // Then Mod+K opens the palette.
+  await expect(page.getByRole('heading', { name: 'What are we working on?' })).toBeVisible();
   await page.keyboard.press('ControlOrMeta+k');
   const input = page.getByRole('combobox', { name: 'Search or run a command' });
   await input.fill('needle');
@@ -206,4 +214,25 @@ test('a one-character query shows only the two-character hint', async ({ page })
   );
   await expect(results.getByText('No matches found.')).toHaveCount(0);
   await expect(results.getByText(/0 matches/)).toHaveCount(0);
+});
+
+test('the palette has the Knowledge actions of the project in view', async ({ page }) => {
+  await page.goto('/');
+  await openProjectTab(page, 'Overview', 'Atlas');
+  const input = await openPalette(page);
+  const results = page.getByRole('region', { name: 'Search results' });
+  await input.fill('Find in knowledge');
+  const find = results.getByRole('option', { name: 'Find in knowledge', exact: true });
+  await expect(find).toContainText(/⌘F|Ctrl\+F/);
+  await find.click();
+  await expect(page.getByRole('searchbox', { name: 'Find in knowledge' })).toBeFocused();
+  // New page has ⌥⌘N. "Ask agent about this page" shows only while a page is open.
+  await openPalette(page);
+  await input.fill('New page');
+  await expect(results.getByRole('option', { name: 'New page', exact: true })).toContainText(
+    /⌥⌘N|Ctrl\+Alt\+N|Alt\+Ctrl\+N/,
+  );
+  await input.fill('Recently deleted');
+  await results.getByRole('option', { name: 'Recently deleted…', exact: true }).click();
+  await expect(page.getByRole('dialog', { name: 'Recently deleted' })).toBeVisible();
 });

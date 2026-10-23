@@ -3,7 +3,7 @@ import { test, expect, newChat } from './helpers/app';
 import { openCodeFolder } from './helpers/navigation';
 
 const notice =
-  'Kalkidan runs agents only through managed Verdictan agents. It does not start a local agent CLI directly.';
+  'Kalkidan runs the agent CLI of this computer through the Verdictan gateway, for policy and usage.';
 
 /** Each send is refused with `code`. The desktop text is the older generic text. */
 async function refuseWith(page: Page, code: string, extra: Record<string, unknown> = {}) {
@@ -18,7 +18,7 @@ async function refuseWith(page: Page, code: string, extra: Record<string, unknow
         messages: [],
         activity: '',
         errorCode: 'managed_launch_blocked',
-        error: `${notice} The managed agents check did not pass. Check the status, then send the message again.`,
+        error: `${notice} The Verdictan gateway check did not pass. Try again.`,
         managedSetup: 'runtime',
         managedCode: code,
         ...extra,
@@ -39,6 +39,11 @@ async function refuseWith(page: Page, code: string, extra: Record<string, unknow
         chatCreate: async (_projectId: string, agent: string) => refused(agent),
         chatStart: async (agent: string) => refused(agent),
         chatStatus: async () => refused('codex'),
+        // Try again of a gateway failure repairs the gateway runtime first.
+        gatewayRuntimeRetry: async () => {
+          w.gatewayRetries = (w.gatewayRetries || 0) + 1;
+          return { state: 'ready' };
+        },
       };
     },
     { code, notice, extra },
@@ -52,19 +57,18 @@ async function refuseWith(page: Page, code: string, extra: Record<string, unknow
   return page.locator('.chat-message.user + .chat-card');
 }
 
-test('a gateway readiness refusal names the computer and offers no runtime install', async ({
-  page,
-}) => {
+test('a gateway readiness refusal names the computer and has one Try again', async ({ page }) => {
   const card = await refuseWith(page, 'desktop.readiness_blocked');
   await expect(card).toContainText(
-    'The managed gateway on this computer is not ready. Try again in a moment.',
+    'The Verdictan gateway on this computer is not ready. Try again in a moment.',
   );
-  await expect(card.getByRole('button', { name: 'Install managed runtime' })).toHaveCount(0);
-  await expect(card.getByRole('button', { name: 'Try again', exact: true })).toBeVisible();
+  await expect(card).not.toContainText(/managed agent|Settings › Computers/i);
+  await expect(card.getByRole('button', { name: /Install|Check managed|Set up/ })).toHaveCount(0);
+  await expect(card.getByRole('button', { name: 'Try again', exact: true })).toHaveCount(1);
   await expect(card.getByRole('button', { name: 'Use another agent', exact: true })).toBeVisible();
-  // The policy sentence is in the "Details" fold, not the first words.
+  // The gateway sentence is in the "Details" fold, not the first words.
   const text = (await card.innerText()).trim();
-  expect(text.startsWith('Kalkidan runs agents only')).toBe(false);
+  expect(text.startsWith('Kalkidan runs')).toBe(false);
   await expect(card.getByText(notice)).toBeHidden();
   await card.getByText('Details', { exact: true }).click();
   await expect(card.getByText(notice)).toBeVisible();
@@ -77,9 +81,22 @@ test('a transient Verdictan refusal shows only the retry actions', async ({ page
   await expect(card.getByRole('button', { name: 'Try again', exact: true })).toBeVisible();
 });
 
-test('a missing runtime still offers the runtime install', async ({ page }) => {
+test('a missing gateway runtime has Try again, which repairs it and sends again', async ({
+  page,
+}) => {
   const card = await refuseWith(page, 'desktop.runtime_missing');
-  await expect(card.getByRole('button', { name: 'Install managed runtime' })).toBeVisible();
+  await expect(card).not.toContainText(/managed agent/i);
+  await expect(card.getByRole('button', { name: /Install/ })).toHaveCount(0);
+  await card.getByRole('button', { name: 'Try again', exact: true }).click();
+  await expect.poll(() => page.evaluate(() => (window as any).gatewayRetries)).toBe(1);
+});
+
+test('a missing agent CLI links to its install guide and Settings › Tools', async ({ page }) => {
+  const card = await refuseWith(page, 'desktop.agent_not_found', { managedSetup: 'agent-setup' });
+  await expect(card).toContainText('Codex is not installed.');
+  await expect(card.getByRole('button', { name: 'Install guide', exact: true })).toBeVisible();
+  await card.getByRole('button', { name: 'Tools…', exact: true }).click();
+  await expect(page.locator('#settings-tools')).toBeVisible();
 });
 
 test('an old agent names the version that the launch found', async ({ page }) => {
@@ -88,5 +105,6 @@ test('an old agent names the version that the launch found', async ({ page }) =>
     managedSetup: 'agents',
   });
   await expect(card).toContainText('This computer has Codex 0.150.0.');
-  await expect(card.getByRole('button', { name: 'Choose the Codex program' })).toBeVisible();
+  await expect(card.getByRole('button', { name: 'Install guide', exact: true })).toBeVisible();
+  await expect(card.getByRole('button', { name: 'Tools…', exact: true })).toBeVisible();
 });

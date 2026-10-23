@@ -11,7 +11,6 @@ import { DispatchTool } from './parallel-dispatch';
 import { ErrorAlert, githubWritesEvent } from './planning-kit';
 
 export { DocsToIssuesDialog } from './docs-to-issues';
-export { ProjectPortfolio } from './project-portfolio';
 export {
   useUncertainWrites,
   useUncertainWritesToast,

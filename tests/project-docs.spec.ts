@@ -56,12 +56,10 @@ async function newPage(page: Page, title: string) {
   await nameNewPage(page, title);
 }
 
-/** Shows or hides the Markdown source of the open page from the page actions. */
+/** Shows or hides the Markdown source of the open page from the menu of its row in the rail. */
 async function markdownSource(page: Page, show: boolean) {
-  await page.getByRole('button', { name: 'Page actions', exact: true }).click();
-  await page
-    .getByRole('menuitem', { name: show ? 'View Markdown' : 'Hide Markdown', exact: true })
-    .click();
+  const title = await page.getByLabel('Page title', { exact: true }).inputValue();
+  await rowMenu(page, title, 'View Markdown');
   await expect(page.getByLabel('Markdown content')).toHaveCount(show ? 1 : 0);
 }
 
@@ -100,12 +98,9 @@ test('project Board and Docs pages support live Markdown, subpages and persisten
   await markdownSource(page, false);
   await expect(page.getByRole('heading', { name: 'Getting started' })).toBeVisible();
   await expectSaved(page, 'Engineering handbook', /# Getting started/);
-  await page.getByRole('button', { name: 'Page actions', exact: true }).click();
-  await page.getByRole('menuitem', { name: 'Add subpage' }).click();
+  await rowMenu(page, 'Engineering handbook', 'Add subpage');
   await nameNewPage(page, 'Setup');
-  await expect(page.getByRole('navigation', { name: 'Document breadcrumb' })).toContainText(
-    'Engineering handbook',
-  );
+  await expect(pageList(page).locator('.wiki-tree-children')).toContainText('Setup');
   await markdownSource(page, true);
   await page.getByLabel('Markdown content').fill('Child documentation');
   await expectSaved(page, 'Setup', /Child documentation/);
@@ -129,16 +124,14 @@ test('project Board and Docs pages support live Markdown, subpages and persisten
   await page.getByLabel('Page title', { exact: true }).fill('Team handbook');
   await expectSaved(page, 'Team handbook');
   await openPage(page, 'Setup');
-  await page.getByRole('button', { name: 'Page actions', exact: true }).click();
-  await page.getByRole('menuitem', { name: 'Move page…', exact: true }).click();
+  await rowMenu(page, 'Setup', 'Move page…');
   await page.getByRole('combobox', { name: 'Parent page' }).click();
   await page.getByRole('option', { name: 'Top-level page', exact: true }).click();
   await page.getByRole('button', { name: 'Move', exact: true }).click();
   await expectSaved(page, 'Setup', undefined, { parentId: null });
-  // The page is top-level now, so the page has no breadcrumb.
-  await expect(page.getByRole('navigation', { name: 'Document breadcrumb' })).toHaveCount(0);
-  await page.getByRole('button', { name: 'Page actions', exact: true }).click();
-  await page.getByRole('menuitem', { name: 'Delete page', exact: true }).click();
+  // The page is top-level now, so it is not a subpage in the rail.
+  await expect(pageList(page).locator('.wiki-tree-children')).toHaveCount(0);
+  await rowMenu(page, 'Setup', 'Delete page');
   // Delete page has no confirm dialog. The page goes at once and a toast offers Undo.
   await expect(page.getByRole('status').filter({ hasText: '“Setup” deleted.' })).toBeVisible();
   await expect(pageList(page).getByRole('button', { name: 'Setup', exact: true })).toHaveCount(0);
@@ -290,9 +283,8 @@ test('sidebar organizes nested pages and reveals a newly created child', async (
   const sidebar = pageList(page);
   await rowMenu(page, 'Handbook', 'Add subpage');
   await nameNewPage(page, 'Setup guide');
+  // Subpages always show, under their parent.
   await expect(sidebar.locator('.wiki-tree-children')).toContainText('Setup guide');
-  await sidebar.getByRole('button', { name: 'Toggle Handbook subpages' }).click();
-  await expect(sidebar.getByRole('button', { name: 'Setup guide', exact: true })).toHaveCount(0);
   await rowMenu(page, 'Handbook', 'Add subpage');
   await nameNewPage(page, 'Contributing');
   await expect(sidebar.getByRole('button', { name: 'Contributing', exact: true })).toBeVisible();
@@ -402,4 +394,69 @@ test('a link to a page keeps the selected text when the editor gets focus while 
   await expect(picker).toHaveCount(0);
   // The selected text becomes the link. No page title is added after it.
   await expectSaved(page, 'Launch plan', /^\[See the checklist\]\(\.\/[\w-]+\.md\)\s*$/);
+});
+
+test('Undo after Make tasks changes the new issues back to drafts and restores the checklist', async ({
+  page,
+}) => {
+  await page.addInitScript(() => {
+    if (sessionStorage.getItem('seeded')) return;
+    sessionStorage.setItem('seeded', '1');
+    localStorage.setItem(
+      'kalkidan-demo-docs',
+      JSON.stringify({
+        atlas: [
+          {
+            id: 'release-plan',
+            title: 'Release plan',
+            parentId: null,
+            order: 0,
+            revision: 'r1',
+            markdown: '## Steps\n\n- [ ] Tag the release\n- [ ] Publish the notes\n',
+          },
+        ],
+      }),
+    );
+    localStorage.setItem('kalkidan-make-tasks-repository:atlas', 'example/atlas-web');
+  });
+  await page.goto('/');
+  await openProjectTab(page, 'Tasks', 'Atlas');
+  await page
+    .getByRole('region', { name: 'Project tracker' })
+    .getByRole('button', { name: 'Connect Atlas roadmap #1', exact: true })
+    .click();
+  const board = page.getByRole('region', { name: 'Tracker board', exact: true });
+  await expect(board).toBeVisible();
+  await openProjectTab(page, 'Docs');
+  await openPage(page, 'Release plan');
+  await page.getByRole('button', { name: 'Make 2 tasks', exact: true }).click();
+  const toast = page.getByRole('status').filter({ hasText: '2 tasks in atlas-web' }).last();
+  await expect(toast).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Make 2 tasks', exact: true })).toHaveCount(0);
+  // Undo closes each new issue as not planned. A draft with the same text takes its place on
+  // the board, and the checklist items come back on the page.
+  await toast.getByRole('button', { name: 'Undo', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Make 2 tasks', exact: true })).toBeVisible();
+  await expectSaved(page, 'Release plan', /- \[ \] Tag the release\n- \[ \] Publish the notes/);
+  await openProjectTab(page, 'Tasks');
+  const todo = board.getByRole('region', { name: 'Todo column', exact: true });
+  // The cards are drafts now: they show no GitHub repository.
+  for (const title of ['Tag the release', 'Publish the notes']) {
+    const card = todo
+      .getByRole('listitem')
+      .filter({ has: page.getByRole('button', { name: title, exact: true }) });
+    await expect(card).toHaveCount(1);
+    await expect(card).not.toContainText('atlas-web');
+  }
+});
+
+test('⌥⌘N makes a new page in Knowledge', async ({ page }) => {
+  await page.goto('/');
+  await openProjectTab(page, 'Docs');
+  const newPageButton = page.getByRole('button', { name: 'New page', exact: true });
+  await expect(newPageButton).toHaveAttribute('aria-keyshortcuts', /^(Meta|Control)\+Alt\+N$/);
+  await expect(newPageButton.locator('kbd')).toHaveText(/^(⌥⌘N|Ctrl\+Alt\+N)$/);
+  await page.keyboard.press('ControlOrMeta+Alt+KeyN');
+  await nameNewPage(page, 'Shortcut page');
+  await expect(pageList(page).getByRole('button', { name: 'Shortcut page' })).toBeVisible();
 });

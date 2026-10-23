@@ -11,35 +11,42 @@ import {
 import { agentErrorMessage, managedLaunchError } from '../src/lib/agent-errors';
 import type { ChatRun, Session } from '../src/types';
 
-const install = managedSetupTargets.runtime.label;
-
-test('only a missing or old runtime gets the runtime install action', () => {
+test('a missing or old gateway runtime and a gateway check get the gateway Try again', () => {
   for (const code of [
     'desktop.runtime_missing',
     'desktop.remote_runtime_missing',
     'desktop.runtime_not_found',
     'desktop.operation_unsupported',
     'desktop.claude_subscription_unsupported',
-  ])
+  ]) {
     assert.equal(managedRefusal(code).step, 'runtime', code);
+    const error = managedLaunchError({ message: 'x', code });
+    assert.equal(error.action?.kind, 'gateway-retry', code);
+    assert.doesNotMatch(error.message, /managed agent|Settings › Computers/i, code);
+  }
+  assert.equal(managedSetupTargets.runtime.label, 'Try again');
   for (const code of [
     'desktop.readiness_failed',
     'desktop.readiness_required',
     'desktop.readiness_blocked',
     'desktop.evidence_unavailable',
+  ]) {
+    assert.notEqual(managedRefusal(code).step, 'runtime', code);
+    const error = managedLaunchError({ message: 'x', code }, { computer: 'this computer' });
+    assert.equal(error.action?.kind, 'gateway-retry', code);
+  }
+  for (const code of [
     'desktop.event_authority_unavailable',
-    'desktop.secure_storage_unavailable',
     'desktop.operation_in_progress',
     'desktop.process_isolation_unavailable',
   ]) {
-    assert.notEqual(managedRefusal(code).step, 'runtime', code);
     assert.notEqual(managedLaunchBlock(new DesktopProtocolError(code)).step, 'runtime', code);
     const error = managedLaunchError({ message: 'x', code }, { computer: 'this computer' });
-    assert.notEqual(error.action?.label, install, code);
+    assert.equal(error.action, undefined, code);
   }
   assert.equal(
-    managedLaunchError({ message: 'x', code: 'desktop.runtime_missing' }).action?.label,
-    install,
+    managedLaunchError({ message: 'x', code: 'desktop.secure_storage_unavailable' }).action?.kind,
+    'check-status',
   );
 });
 
@@ -48,7 +55,7 @@ test('each refusal code has its own words, step and retry rule', () => {
   const blocked = managedRefusal('desktop.readiness_blocked', where);
   assert.equal(
     blocked.message,
-    'The managed gateway on build-box is not ready. Try again in a moment. If it continues, check Settings › Computers.',
+    'The Verdictan gateway on build-box is not ready. Try again in a moment.',
   );
   assert.equal(blocked.step, 'status');
   assert.equal(blocked.retry, true);
@@ -66,7 +73,7 @@ test('each refusal code has its own words, step and retry rule', () => {
   assert.equal(keychain.step, 'status');
   assert.equal(keychain.retry, true);
   const busy = managedRefusal('desktop.operation_in_progress');
-  assert.match(busy.message, /Another managed agents operation is running/);
+  assert.match(busy.message, /Another Verdictan gateway operation is running/);
   assert.equal(busy.step, null);
   assert.equal(busy.retry, true);
   const isolation = managedRefusal('desktop.process_isolation_unavailable');
@@ -120,7 +127,7 @@ test('the managed-only notice is a note, not the first words of the refusal', ()
     { computer: 'this computer' },
   );
   assert.equal(coded.note, managedOnlyNotice);
-  assert.match(coded.message, /^The managed gateway on this computer is not ready\./);
+  assert.match(coded.message, /^The Verdictan gateway on this computer is not ready\./);
   assert.equal(coded.retryFirst, true);
   // An older desktop sends no code. The text keeps its step and loses the notice prefix.
   const legacy = managedLaunchError({

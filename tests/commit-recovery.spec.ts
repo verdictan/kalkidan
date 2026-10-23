@@ -1,6 +1,7 @@
 import { type Page } from '@playwright/test';
 import { test, expect } from './helpers/app';
-import { openCodeFolder } from './helpers/navigation';
+import { openCodeFolder, openTreeChat } from './helpers/navigation';
+import { toolPane } from './helpers/tools';
 
 /** A chat with one changed file. The first pull request fails, and the next one opens. */
 async function stubPublish(page: Page) {
@@ -82,49 +83,57 @@ async function stubPublish(page: Page) {
   });
 }
 
+/** Opens the chat and the Changes tab, and returns the footer that ships the changes. */
+async function openShipFooter(page: Page) {
+  await page.goto('/');
+  await openCodeFolder(page);
+  await openTreeChat(page, 'Implement feature');
+  await page.getByLabel('Message agent').click();
+  await page.keyboard.press('ControlOrMeta+Shift+G');
+  const ship = toolPane(page).getByRole('group', { name: 'Ship changes' });
+  await expect(ship.getByRole('status')).toContainText('feature/work → main');
+  return ship;
+}
+
 test('a failed pull request keeps the successful commit and retries only the pull request', async ({
   page,
 }) => {
   await stubPublish(page);
-  await page.goto('/');
-  await openCodeFolder(page);
-  await page.getByRole('button', { name: 'Resume Implement feature', exact: true }).click();
-  // The changes row of the chat commits the changes and creates the pull request in one step.
-  await page
-    .getByRole('group', { name: 'Changes from this chat' })
-    .getByRole('button', { name: 'Create pull request', exact: true })
-    .click();
-  const dialog = page.getByRole('dialog', { name: 'Create pull request' });
-  await dialog.getByRole('button', { name: 'Create pull request', exact: true }).click();
-  await expect(dialog.getByRole('alert')).toContainText('GitHub unavailable');
-  await expect(dialog.getByRole('status')).toContainText('Committed abcdef1.');
-  // The commit is done, so the retry only creates the pull request.
-  await dialog.getByRole('button', { name: 'Create pull request', exact: true }).click();
-  await expect(dialog.getByRole('link', { name: 'View pull request #1' })).toBeVisible();
-  await expect(dialog.getByRole('alert')).toHaveCount(0);
+  // The Changes footer commits the changes and creates the pull request in one step.
+  const ship = await openShipFooter(page);
+  const create = ship.getByRole('button', { name: 'Create pull request', exact: true });
+  await create.click();
+  const alert = ship.getByRole('alert');
+  await expect(alert).toContainText('Committed abcdef1. The pull request did not open.');
+  await expect(alert).toContainText('GitHub unavailable');
+  // The commit is done, so Try again only creates the pull request.
+  await alert.getByRole('button', { name: 'Try again', exact: true }).click();
+  await expect(
+    page.getByText(/Committed abcdef1 and created pull request #1\./).first(),
+  ).toBeVisible();
+  await expect(ship.getByRole('alert')).toHaveCount(0);
+  const row = page.getByRole('group', { name: 'Pull request', exact: true });
+  await expect(row).toContainText('#1');
+  await expect(row.getByRole('button', { name: 'Open on GitHub', exact: true })).toBeVisible();
   expect(await page.evaluate(() => (window as any).operations)).toEqual(['commit', 'pr', 'pr']);
+  const requests = await page.evaluate(() => (window as any).requests);
+  expect(requests.map((request: any) => !!request.commit)).toEqual([true, false]);
 });
 
 test('a pull request can open as a draft', async ({ page }) => {
   await stubPublish(page);
-  await page.goto('/');
-  await openCodeFolder(page);
-  await page.getByRole('button', { name: 'Resume Implement feature', exact: true }).click();
-  await page
-    .getByRole('group', { name: 'Changes from this chat' })
-    .getByRole('button', { name: 'Create pull request', exact: true })
-    .click();
-  const dialog = page.getByRole('dialog', { name: 'Create pull request' });
-  await dialog.getByRole('checkbox', { name: 'Draft', exact: true }).check();
-  await dialog.getByRole('button', { name: 'Create draft', exact: true }).click();
-  await expect(dialog.getByRole('alert')).toContainText('GitHub unavailable');
-  await dialog.getByRole('button', { name: 'Create draft', exact: true }).click();
-  await expect(dialog.getByRole('link', { name: 'View pull request #1' })).toBeVisible();
+  const ship = await openShipFooter(page);
+  const more = ship.getByRole('button', { name: 'More ways to ship', exact: true });
+  const draft = page.getByRole('menuitem', { name: 'Create draft pull request', exact: true });
+  await more.click();
+  await draft.click();
+  await expect(ship.getByRole('alert')).toContainText('GitHub unavailable');
+  // Try again keeps the draft choice.
+  await ship.getByRole('button', { name: 'Try again', exact: true }).click();
   const requests = await page.evaluate(() => (window as any).requests);
   expect(requests.map((request: any) => request.pullRequest?.draft)).toEqual([true, true]);
   await expect(page.getByText(/created draft pull request #1/).first()).toBeVisible();
-  // The choice stays for the next pull request on this computer.
-  expect(await page.evaluate(() => localStorage.getItem('kalkidan-pull-request-draft'))).toBe(
-    'true',
+  await expect(page.getByRole('group', { name: 'Pull request', exact: true })).toContainText(
+    'Draft',
   );
 });

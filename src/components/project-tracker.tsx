@@ -2,7 +2,7 @@ import { GitHubViewLayout, SavedViewFilterChip } from './github-view-layout';
 import { SavedViewsMenu, openSavedView, useSavedViews } from './github-saved-views';
 import type { SavedProjectView } from '../domain/github-resources';
 import type { TrackerField } from '../domain/tracker';
-import { FieldPills, GitHubItemEditor, ItemActionsMenu, fieldChoices } from './github-item-editor';
+import { GitHubItemEditor, ItemActionsMenu, fieldChoices } from './github-item-editor';
 import { useProjectBoard } from '../hooks/use-project-board';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -10,7 +10,6 @@ import { Popover } from 'radix-ui';
 import {
   Archive,
   ArrowUpRight,
-  ChartNoAxesColumn,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
@@ -19,7 +18,6 @@ import {
   FileText,
   Folder,
   FolderPlus,
-  GitBranch,
   GitPullRequest,
   Layers2,
   List,
@@ -37,10 +35,15 @@ import {
   TriangleAlert,
   X,
 } from 'lucide-react';
-import { agentCatalog, agentLabel } from '../config/agents';
+import { agentLabel } from '../config/agents';
 import { trackerConnection } from '../domain/tracker';
 import { useTracker } from '../hooks/use-tracker';
 import { sessionRepo } from '../lib/session-repository';
+import {
+  relinkTaskChats,
+  revertIssuesToDrafts,
+  type DraftRevertTarget,
+} from '../lib/tracker-client';
 import { pathBasename, plural } from '../lib/platform';
 import { relativeTime } from '../lib/relative-time';
 import { cn } from '../lib/utils';
@@ -52,10 +55,17 @@ import {
   isDoneStatus,
   linkedChats,
   pullRequestStateWord,
+  taskFolderName,
   taskPullRequest,
   trackerColumns,
+  type LiveActivity,
+  type TaskIdentity,
   type TaskSelection,
 } from './tracker-list';
+import { AgentMenuItems, openToolsSettings, startAgent, useDetectedAgents } from './task-agents';
+import { useWorkspaceIdentity, type WorkspaceIdentity } from '../hooks/use-workspace-identity';
+import { IdentityMark } from './ui/identity-mark';
+import { StatusGlyph } from './ui/status-glyph';
 import { boardNoun } from './project-header';
 import {
   DocsToIssuesDialog,
@@ -66,12 +76,11 @@ import {
 import { UncertainWritesChip, useUncertainWriteRows } from './github-write-history';
 import { checkWritesEvent } from './planning-kit';
 import { BoardHealthLine, ProjectHealth } from './project-health';
-import { useTaskUsage } from './task-usage-history';
 import { safeWave, startTasksInWaves } from './parallel-dispatch';
 import { setFieldOnTasks } from './project-batch';
 import {
-  ActivityDot,
   activityKey,
+  answerApproval,
   useActivityState,
   type SessionActivityState,
 } from './activity-dot';
@@ -83,6 +92,7 @@ import { Radio } from './ui/checkbox';
 import { menuCollisionPadding, menuContentClass, menuShortcutClass } from './ui/menu-styles';
 import { showToast } from './ui/toast';
 import {
+  Fragment,
   useEffect,
   useRef,
   useState,
@@ -108,11 +118,7 @@ import {
   DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from './ui/dropdown-menu';
-import {
-  onPreferredAgentChange,
-  readPreferredAgent,
-  savePreferredAgent,
-} from '../lib/agent-preference';
+import { onPreferredAgentChange, savePreferredAgent } from '../lib/agent-preference';
 import { Textarea } from './ui/textarea';
 import { Badge } from './ui/badge';
 import { Tag } from './ui/tag';
@@ -124,10 +130,8 @@ import {
   DialogHeader,
   DialogTitle,
   DialogDescription,
-  DialogFooter,
 } from './ui/dialog';
-import { ConnectBoardPanel } from './tracker-project-picker';
-import { Choice } from './choice';
+import { ConnectBoardPanel, openConnectBoard } from './tracker-project-picker';
 import type { API, ProjectGroup, Project, TrackerItem, Agent, Session } from '../types';
 import { errorMessage } from '../lib/errors';
 
@@ -150,11 +154,6 @@ const authErrorPattern =
   /\bauth|sign in|log in|login|not accessible|no longer accessible|access|token|permission|forbidden|unauthori[sz]ed|\b40[13]\b/i;
 
 export { boardNoun };
-
-/** Opens Settings at a section. The shell listens for this event. */
-function openSettings(section: 'general' | 'account' | 'agents' | 'computers' | 'about') {
-  window.dispatchEvent(new CustomEvent('kalkidan-open-settings', { detail: { section } }));
-}
 
 /** Opens Project settings › Board. */
 function openBoardSettings(groupId: string) {
@@ -181,8 +180,29 @@ function saveFolder(groupId: string, repoId: string) {
   }
 }
 
-/** The chat command that opens the "Create pull request" dialog of the chat that shows. */
-const createPullRequestCommand = 'create-pull-request';
+// The code folder of each new task, by task ID. A draft has no GitHub repository, so the board
+// keeps the repo that the user chose when adding it.
+function taskReposKey(groupId: string) {
+  return `kalkidan-task-repos:${groupId}`;
+}
+/** A draft that became an issue on Start. Undo makes a draft from it again. */
+type ConvertedDraft = DraftRevertTarget & { folderId: string };
+function readTaskRepos(groupId: string): Record<string, string> {
+  try {
+    const value = JSON.parse(localStorage.getItem(taskReposKey(groupId)) || '{}');
+    return value && typeof value === 'object' ? value : {};
+  } catch {
+    return {};
+  }
+}
+function saveTaskRepo(groupId: string, itemId: string, repoId: string) {
+  try {
+    const next = { ...readTaskRepos(groupId), [itemId]: repoId };
+    localStorage.setItem(taskReposKey(groupId), JSON.stringify(next));
+  } catch {
+    // The card then shows "Draft" until the task becomes an issue.
+  }
+}
 
 type LinkedDoc = { id: string; title: string };
 // Older versions kept the related docs of a task in local storage. The desktop app now keeps
@@ -314,7 +334,13 @@ export function ProjectTrackerPanel({
   onAllSessions,
   page: requestedPage,
   onPageChange,
+  identity: workspaceIdentity,
 }: {
+  /**
+   * The identity colors of the sidebar tree. With them, the repo rings and the chat dots on the
+   * cards match the tree. Without them, the panel picks the colors itself.
+   */
+  identity?: WorkspaceIdentity;
   /**
    * The page to show: the project overview, the tasks or the insights. Without it, the last
    * page shows. 'board' is the route name of the overview.
@@ -373,6 +399,24 @@ export function ProjectTrackerPanel({
       ),
     [liveActivity],
   );
+  const live = useMemo(
+    () =>
+      Object.fromEntries(
+        liveActivity.map((item) => [activityKey(item.agent, item.id), item as LiveActivity]),
+      ),
+    [liveActivity],
+  );
+  // The identity colors: the repo ring on the cards and the chat dot on the live line, the
+  // same as in the sidebar tree.
+  const localIdentity = useWorkspaceIdentity([group], repos, sessions);
+  const colors = workspaceIdentity || localIdentity;
+  const identity: TaskIdentity = {
+    repoColor: (name) => {
+      const repo = repos.find((item) => item.name === name);
+      return repo && colors.repo(repo);
+    },
+    sessionColor: (session) => colors.session(session),
+  };
   // The agent works in a branch copy unless the user changes it, or the folder has no Git.
   const [checkout, setCheckout] = useState('worktree');
   // "Where to work" in the start box of the task sheet: the code folder and branch popover.
@@ -381,8 +425,6 @@ export function ProjectTrackerPanel({
   const [editing, setEditing] = useState<'title' | 'body' | null>(null);
   const [editText, setEditText] = useState('');
   const [editBusy, setEditBusy] = useState(false);
-  // The sheet footer mounts after the task opens, so the effect below waits for the node.
-  const [footer, setFooter] = useState<HTMLDivElement | null>(null);
   // The user chose a checkout. A loaded branch status then does not change it.
   const checkoutTouched = useRef(false);
   const [repoStatus, setRepoStatus] = useState<{ branch: string; defaultBranch: string } | null>(
@@ -429,6 +471,11 @@ export function ProjectTrackerPanel({
     revision,
   );
   const board = boardState.value ?? null;
+  // The toast Undo runs after later renders. It reads the board and the chats from these refs.
+  const boardRef = useRef(board);
+  boardRef.current = board;
+  const sessionsRef = useRef(sessions);
+  sessionsRef.current = sessions;
   // A task that starts moves to In progress at once. The chat then sets the status on the
   // board. The local move ends when the board shows the new status.
   const [moved, setMoved] = useState<Record<string, string>>({});
@@ -470,21 +517,34 @@ export function ProjectTrackerPanel({
     writeFilters(filterStorage, { query, status, repoFilter, sort: 'project', view });
   }, [filterStorage, query, status, repoFilter, view]);
   const [task, setTask] = useState<TrackerItem | null>(null);
-  const taskOpen = !!task;
-  useEffect(() => {
-    // The task sheet dims only the main pane, not the sidebar. The scrim CSS reads this offset.
-    if (!taskOpen) return;
-    const pane = document.querySelector('.project-tracker')?.closest('.project-frame');
-    const left = pane?.getBoundingClientRect().left || 0;
-    document.documentElement.style.setProperty('--tracker-scrim-left', `${Math.round(left)}px`);
-  }, [taskOpen]);
   // The card that gets the focus back when the task sheet closes.
   const lastTaskId = useRef('');
   const taskTitle = useRef<HTMLHeadingElement>(null);
   const [archived, setArchived] = useState(false);
   const [repoId, setRepoId] = useState(repos[0]?.id || '');
-  const [preferredAgent, setPreferredAgent] = useState(readPreferredAgent);
-  useEffect(() => onPreferredAgentChange(setPreferredAgent), []);
+  // A new choice of agent in any menu shows at once.
+  const [, setAgentChoice] = useState(0);
+  useEffect(() => onPreferredAgentChange(() => setAgentChoice((value) => value + 1)), []);
+  // Start lists only the agent CLIs found on the computer of the repo.
+  const agents = useDetectedAgents(
+    api,
+    (task && repos.find((repo) => repo.id === repoId)?.hostId) || 'local',
+  );
+  const preferredAgent = startAgent(agents);
+  // The repo of the New task field: the repo used last, else the best match.
+  const [addRepoId, setAddRepoId] = useState(
+    () => preferredRepoId || readFolder(group.id) || repos[0]?.id || '',
+  );
+  const addRepo =
+    repos.find((repo) => repo.id === addRepoId) ||
+    repos.find((repo) => repo.id === preferredRepoId) ||
+    repos[0];
+  const [taskRepos, setTaskRepos] = useState(() => readTaskRepos(group.id));
+  /** The code folder name on a card: its GitHub repository, else the repo chosen when added. */
+  function cardFolder(item: TrackerItem) {
+    const chosen = !item.repository && repos.find((repo) => repo.id === taskRepos[item.id]);
+    return chosen ? chosen.name : taskFolderName(item);
+  }
   const boardName = boardNoun(providerName);
   const addFolder = () =>
     onAddFolder
@@ -493,6 +553,8 @@ export function ProjectTrackerPanel({
           new CustomEvent('kalkidan-add-code-folder', { detail: { groupId: group.id } }),
         );
   const openChat = (session: Session) => (onOpenSession || onResume)(session);
+  /** Allow on a card: the chat that owns the run answers its oldest approval. */
+  const allowChat = (session: Session) => answerApproval(session, true);
   /** The board list is on the page. This puts the focus in its search field. */
   function connect() {
     if (page !== 'tasks') setPage('tasks');
@@ -524,9 +586,10 @@ export function ProjectTrackerPanel({
     const matches = item.repository
       ? repos.filter((r) => r.name === pathBasename(item.repository!))
       : [];
+    const chosen = repos.find((repo) => repo.id === taskRepos[item.id]);
     return matches.length === 1
       ? matches[0].id
-      : preferredRepoId || lastFolder() || (repos.length === 1 ? repos[0].id : '');
+      : chosen?.id || preferredRepoId || lastFolder() || (repos.length === 1 ? repos[0].id : '');
   }
   function chooseTask(item: TrackerItem) {
     setTask(item);
@@ -675,18 +738,103 @@ export function ProjectTrackerPanel({
     setTaskBusy(true);
     setTaskError('');
     const branch = taskBranch.trim();
+    const converted: ConvertedDraft[] = [];
     try {
-      const target = await workTarget(repo, task, checkout, branch);
+      const [item] = await ensureIssues([task], () => repo.id, converted);
+      const target = await workTarget(repo, item, checkout, branch);
       saveFolder(group.id, repo.id);
-      moveToProgress(task);
-      launch(target, agent, task);
+      moveToProgress(item);
+      launch(target, agent, item);
       setTask(null);
       if (checkout === 'worktree') showToast(`Started on branch ${branch}.`);
     } catch (e) {
       setTaskError(errorMessage(e));
     } finally {
       setTaskBusy(false);
+      announceConverted(converted);
     }
+  }
+  /** The GitHub repository of a code folder: the board repository with the same name. */
+  function githubRepository(repo: Project) {
+    const name = repo.name.toLowerCase();
+    const match = repositoryOptions.find((value) => pathBasename(value).toLowerCase() === name);
+    return match || (linkedProject?.owner ? `${linkedProject.owner}/${repo.name}` : '');
+  }
+  /**
+   * Drafts become issues on Start, in the GitHub repository of their code folder. Returns the
+   * tasks as the board shows them after the change. A draft without a repository stays a draft.
+   * `converted` gets the drafts that are issues now, for the "Converted N drafts" toast.
+   */
+  async function ensureIssues(
+    list: TrackerItem[],
+    folderFor: (item: TrackerItem) => string = taskFolder,
+    converted: ConvertedDraft[] = [],
+  ) {
+    const drafts = list.filter((item) => item.kind === 'DraftIssue');
+    if (!drafts.length || connection?.provider !== 'github' || board?.writable === false)
+      return list;
+    for (const draft of drafts) {
+      const folderId = folderFor(draft);
+      const repo = repos.find((item) => item.id === folderId);
+      const repository = repo && githubRepository(repo);
+      if (!repository) continue;
+      await api.trackerItemAction(group.id, draft.id, { kind: 'convert', repository });
+      converted.push({
+        itemId: draft.id,
+        title: draft.title,
+        body: draft.body || '',
+        statusId: draft.statusId,
+        folderId,
+      });
+    }
+    if (!converted.length) return list;
+    const next = await refreshBoard();
+    return list.map((item) => next?.items.find((found) => found.id === item.id) || item);
+  }
+  /** "Converted 2 drafts to issues" with Undo. Show it after the start toasts, so both show. */
+  function announceConverted(converted: ConvertedDraft[]) {
+    if (!converted.length) return;
+    const count = converted.length;
+    showToast({
+      message:
+        count === 1 ? 'Converted 1 draft to an issue.' : `Converted ${count} drafts to issues.`,
+      actions: [{ label: 'Undo', onClick: () => void undoConvert(converted) }],
+    });
+  }
+  /**
+   * Undo of "Converted N drafts": each new issue closes on GitHub as not planned, and a draft
+   * with the same title and description takes its place in the same column. The chats that
+   * started continue. Each saved chat links to the new draft.
+   */
+  async function undoConvert(converted: ConvertedDraft[]) {
+    const items = boardRef.current?.items || [];
+    const results = await revertIssuesToDrafts(
+      api,
+      group.id,
+      converted.map((draft) => ({
+        ...draft,
+        statusId: items.find((item) => item.id === draft.itemId)?.statusId || draft.statusId,
+      })),
+    );
+    for (const result of results) {
+      clearMove(result.itemId);
+      const folderId = converted.find((draft) => draft.itemId === result.itemId)?.folderId;
+      if (result.draftId && folderId) saveTaskRepo(group.id, result.draftId, folderId);
+    }
+    setTaskRepos(readTaskRepos(group.id));
+    await relinkTaskChats(api, sessionsRef.current, results);
+    window.dispatchEvent(
+      new CustomEvent('kalkidan-github-writes', { detail: { groupId: group.id } }),
+    );
+    await refreshBoard().catch(() => undefined);
+    const failed = results.filter((result) => result.error);
+    if (failed.length)
+      showToast({
+        message:
+          `${plural(failed.length, 'issue')} did not change back to a draft. ` +
+          `${failed[0].error}`,
+        tone: 'error',
+      });
   }
   /**
    * Where a new chat on a task works: a branch copy, or the code folder itself when the folder
@@ -709,14 +857,21 @@ export function ProjectTrackerPanel({
       chooseTask(item);
       return;
     }
+    const agent = startAgent(agents);
+    if (!agent) {
+      openToolsSettings();
+      return;
+    }
     setQuickBusy(item.id);
     moveToProgress(item);
+    const converted: ConvertedDraft[] = [];
     try {
+      const [ready] = await ensureIssues([item], () => repo.id, converted);
       const mode = await defaultMode(repo.id);
-      const branch = taskBranchName(item);
-      const target = await workTarget(repo, item, mode, branch);
+      const branch = taskBranchName(ready);
+      const target = await workTarget(repo, ready, mode, branch);
       saveFolder(group.id, repo.id);
-      launch(target, readPreferredAgent(), item);
+      launch(target, agent, ready);
       if (mode === 'worktree') showToast(`Started on branch ${branch}.`);
     } catch (e) {
       clearMove(item.id);
@@ -727,6 +882,7 @@ export function ProjectTrackerPanel({
       });
     } finally {
       setQuickBusy('');
+      announceConverted(converted);
     }
   }
   // A folder without a Git branch cannot have a branch copy. Then the agent works in it.
@@ -764,6 +920,22 @@ export function ProjectTrackerPanel({
         : null,
     );
     return next;
+  }
+  async function action(
+    fn: () => Promise<unknown>,
+    refresh = true,
+    showError: (message: string) => void = setError,
+  ) {
+    setBusy(true);
+    showError('');
+    try {
+      await fn();
+      if (refresh) await refreshBoard();
+    } catch (e) {
+      showError(errorMessage(e));
+    } finally {
+      setBusy(false);
+    }
   }
   // Refresh reloads the board and the saved views together.
   const [viewsReload, setViewsReload] = useState(0);
@@ -808,22 +980,6 @@ export function ProjectTrackerPanel({
     window.addEventListener('focus', handle);
     return () => window.removeEventListener('focus', handle);
   }, []);
-  async function action(
-    fn: () => Promise<unknown>,
-    refresh = true,
-    showError: (message: string) => void = setError,
-  ) {
-    setBusy(true);
-    showError('');
-    try {
-      await fn();
-      if (refresh) await refreshBoard();
-    } catch (e) {
-      showError(errorMessage(e));
-    } finally {
-      setBusy(false);
-    }
-  }
   const currentRepository = embedded
     ? repos.find((repo) => repo.id === preferredRepoId)
     : undefined;
@@ -971,7 +1127,7 @@ export function ProjectTrackerPanel({
       connect();
       return;
     }
-    if (!board || busy || readOnly || !descriptor?.capabilities.createItem) return;
+    if (!board || readOnly || !descriptor?.capabilities.createItem) return;
     setPage('tasks');
     setView('board');
     setArchived(false);
@@ -997,6 +1153,12 @@ export function ProjectTrackerPanel({
         return true;
       }
       const createdId = await client.draft(group.id, value, '');
+      // The card shows the repo of the new task, and Start works in it.
+      if (createdId && addRepo) {
+        saveTaskRepo(group.id, createdId, addRepo.id);
+        saveFolder(group.id, addRepo.id);
+        setTaskRepos(readTaskRepos(group.id));
+      }
       if (statusId && createdId && descriptor?.capabilities.updateStatus) {
         try {
           await client.status(group.id, createdId, statusId);
@@ -1052,7 +1214,7 @@ export function ProjectTrackerPanel({
       // Readiness and dispatch are "Start N" in the selection bar now. It checks first.
       if (name === 'readiness' || name === 'dispatch') {
         if (page !== 'tasks') setPage('tasks');
-        if (selectedIssues.length) void startSelected();
+        if (selectedItems.length) void startSelected();
         else showToast('Select tasks on the board first. Then use Start.');
         return;
       }
@@ -1186,20 +1348,6 @@ export function ProjectTrackerPanel({
     descriptor?.capabilities.updateStatus
       ? doneOption
       : undefined;
-  /** Opens the chat and asks it for its "Create pull request" dialog. */
-  function createPullRequest(session: Session) {
-    setTask(null);
-    openChat(session);
-    setTimeout(
-      () =>
-        window.dispatchEvent(
-          new CustomEvent('kalkidan-session-command', {
-            detail: { command: createPullRequestCommand },
-          }),
-        ),
-      250,
-    );
-  }
   const syncFailed = !!boardState.error && !busy;
   const syncText = busy
     ? `Syncing with ${providerName}…`
@@ -1258,25 +1406,8 @@ export function ProjectTrackerPanel({
   const statusUpdateAvailable =
     github && !!board?.writable && typeof api.trackerResourceChange === 'function';
   const archivedCount = board?.archivedItems?.length || 0;
-  // The links row at the bottom of the sheet raises the toasts, so a toast does not cover it.
-  useEffect(() => {
-    const root = document.documentElement;
-    if (!task || !footer) return;
-    const update = () => root.style.setProperty('--toast-offset', `${footer.offsetHeight}px`);
-    update();
-    const observer = new ResizeObserver(update);
-    observer.observe(footer);
-    return () => {
-      observer.disconnect();
-      root.style.removeProperty('--toast-offset');
-    };
-  }, [task?.id, !!task, footer]);
-  // The selected tasks that can start: issues only. Drafts must become issues first.
+  // The selected tasks. Drafts among them become issues on Start.
   const selectedItems = visualOrder.filter((item) => selectedIds.has(item.id));
-  const selectedIssues = selectedItems.filter((item) => item.kind === 'Issue');
-  const selectedDrafts = selectedItems.filter((item) => item.kind === 'DraftIssue');
-  const [convertOpen, setConvertOpen] = useState(false);
-  const usage = useTaskUsage(api, group.id, projectSessions);
   // The GitHub editor of a task: fields, the issue or pull request, and its comments.
   const editsItem = provider === 'github' && !!board?.writable && !!task;
   // The title and the description of a draft, an issue or a pull request can change here.
@@ -1337,15 +1468,15 @@ export function ProjectTrackerPanel({
         <Button
           variant="ghost"
           size="sm"
-          className="tracker-board-name"
+          className="tracker-board-name text-foreground has-[>svg]:px-2"
           aria-label={`Board: ${boardTitle}`}
         >
-          <Layers2 aria-hidden="true" />
+          <Layers2 aria-hidden="true" className="size-4 text-muted-foreground" />
           <span className="truncate">{linkedProject.title}</span>
           {!!linkedProject.number && (
             <span className="tracker-board-number">#{linkedProject.number}</span>
           )}
-          <ChevronDown aria-hidden="true" className="tracker-board-chevron" />
+          <ChevronDown aria-hidden="true" className="tracker-board-chevron text-muted-foreground" />
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" width="wide">
@@ -1423,12 +1554,17 @@ export function ProjectTrackerPanel({
    * own branch copy with its own chat. No dialog: the toast says what started and what waits.
    */
   async function startSelected() {
-    if (waveBusy || !board) return;
-    const chosen = selectedIssues.length ? selectedIssues : [];
-    if (!chosen.length) return;
-    const agent = readPreferredAgent();
+    if (waveBusy || !board || !selectedItems.length) return;
+    const agent = startAgent(agents);
+    if (!agent) {
+      openToolsSettings();
+      return;
+    }
     setWaveBusy(true);
+    const converted: ConvertedDraft[] = [];
     try {
+      // Drafts become issues first, so every selected task can start.
+      const chosen = await ensureIssues(selectedItems, taskFolder, converted);
       const result = await startTasksInWaves({
         api,
         group,
@@ -1464,6 +1600,7 @@ export function ProjectTrackerPanel({
       showToast({ message: `Could not start the tasks. ${errorMessage(e)}`, tone: 'error' });
     } finally {
       setWaveBusy(false);
+      announceConverted(converted);
     }
   }
   const choiceFields = (board?.fields || []).filter(
@@ -1486,49 +1623,44 @@ export function ProjectTrackerPanel({
       <span className="tracker-selection-count" role="status">
         {selectedVisible.length} selected
       </span>
-      {startAvailable && (
-        // Only issues start. With drafts in the selection, Start tells how many start.
-        <StartHint
-          reason={selectedIssues.length ? '' : 'Drafts cannot start. Convert them to issues first.'}
-        >
+      {startAvailable &&
+        (preferredAgent ? (
+          // "Start 3 with Codex" counts every selected task: drafts become issues on Start.
           <Button
-            // A Start that cannot run reads like a disabled ghost button on the dark bar.
-            className="tracker-selection-start gap-1.5 disabled:bg-transparent disabled:text-background/50 disabled:shadow-[inset_0_0_0_1px_color-mix(in_oklch,var(--background)_22%,transparent)] [&_svg]:size-3.5"
-            disabled={waveBusy || !selectedIssues.length}
-            aria-label={`Start ${plural(selectedIssues.length, 'task')} with ${agentLabel(preferredAgent)}`}
+            className="tracker-selection-start gap-1.5 [&_svg]:size-3.5"
+            disabled={waveBusy}
+            aria-label={`Start ${plural(selectedVisible.length, 'task')} with ${agentLabel(preferredAgent)}`}
             onClick={() => void startSelected()}
           >
-            {waveBusy ? <LoaderCircle className="animate-spin" /> : <Play />}
+            {waveBusy ? (
+              <LoaderCircle className="size-3.5 animate-spin" />
+            ) : (
+              <Play className="size-3.5" />
+            )}
             {waveBusy
               ? 'Starting…'
-              : `Start ${
-                  selectedDrafts.length || selectedIssues.length < selectedItems.length
-                    ? `${selectedIssues.length} of ${selectedItems.length}`
-                    : selectedIssues.length
-                } with ${agentLabel(preferredAgent)}`}
+              : `Start ${selectedVisible.length} with ${agentLabel(preferredAgent)}`}
           </Button>
-        </StartHint>
-      )}
-      {selectedDrafts.length > 0 && !readOnly && github && (
-        <Button
-          variant="ghost"
-          className="gap-1.5 [&_svg]:size-3"
-          onClick={() => setConvertOpen(true)}
-        >
-          Convert to issues
-        </Button>
-      )}
+        ) : (
+          <Button
+            variant="ghost"
+            className="gap-1.5 text-background hover:bg-background/15 hover:text-background"
+            onClick={openToolsSettings}
+          >
+            No agent found
+          </Button>
+        ))}
       {canMove && (
         <DropdownMenu>
           <StartHint reason={readOnly}>
             <DropdownMenuTrigger asChild>
               <Button
                 variant="ghost"
-                className="gap-1.5 [&_svg]:size-3"
+                className="gap-1.5 px-2.5 text-background hover:bg-background/15 hover:text-background"
                 disabled={busy || !!readOnly}
               >
                 Move to
-                <ChevronDown aria-hidden="true" />
+                <ChevronDown aria-hidden="true" className="size-3" />
               </Button>
             </DropdownMenuTrigger>
           </StartHint>
@@ -1548,7 +1680,7 @@ export function ProjectTrackerPanel({
             <DropdownMenuTrigger asChild>
               <Button
                 variant="ghost"
-                className="gap-1.5 [&_svg]:size-3"
+                className="gap-1.5 text-background hover:bg-background/15 hover:text-background [&_svg]:size-3"
                 disabled={busy || !!readOnly}
               >
                 Set field
@@ -1580,12 +1712,12 @@ export function ProjectTrackerPanel({
         <Button
           variant="ghost"
           size="icon"
-          className="tracker-selection-clear [&_svg]:size-3.5"
+          className="tracker-selection-clear w-[30px] text-background hover:bg-background/15 hover:text-background"
           aria-label="Clear selection"
           aria-keyshortcuts="Escape"
           onClick={endSelection}
         >
-          <X />
+          <X className="size-3.5" />
         </Button>
       </Hint>
     </div>
@@ -1618,9 +1750,14 @@ export function ProjectTrackerPanel({
     <Hint label="New task" shortcut="N">
       <Button
         size="sm"
-        disabled={busy || !descriptor?.capabilities.createItem}
+        disabled={!descriptor?.capabilities.createItem}
         aria-keyshortcuts="N"
-        onClick={openNewTask}
+        onClick={() => {
+          // While the field is open, the button puts the focus back in it.
+          const open = document.querySelector<HTMLElement>('.project-tracker .tracker-quick-title');
+          if (open) open.focus();
+          else openNewTask();
+        }}
       >
         <Plus size={16} />
         New task
@@ -1651,10 +1788,25 @@ export function ProjectTrackerPanel({
           onRetry={refreshAll}
           onSignIn={
             authErrorPattern.test(boardState.error || '')
-              ? () => openSettings('account')
+              ? () => openConnectBoard({ groupId: group.id })
               : undefined
           }
           onFilter={applyFilter}
+          noRepository={
+            board.items.filter((item) => !item.repository && !taskRepos[item.id]).length
+          }
+        />
+      )}
+      {board && (
+        <UncertainWritesChip
+          api={api}
+          groupId={group.id}
+          board={board}
+          rows={writeCheck.rows}
+          open={checkOpen}
+          onOpenChange={setCheckOpen}
+          onChecked={writeCheck.reload}
+          onOpenTask={(id) => void openTaskById(id)}
         />
       )}
       {filterName && (
@@ -1672,18 +1824,6 @@ export function ProjectTrackerPanel({
         {syncText}
       </span>
       <div className="tracker-filter-end">
-        {board && (
-          <UncertainWritesChip
-            api={api}
-            groupId={group.id}
-            board={board}
-            rows={writeCheck.rows}
-            open={checkOpen}
-            onOpenChange={setCheckOpen}
-            onChecked={writeCheck.reload}
-            onOpenTask={(id) => void openTaskById(id)}
-          />
-        )}
         {searchOpen || query ? (
           <SearchInput
             autoFocus={searchOpen && !query}
@@ -1718,7 +1858,6 @@ export function ProjectTrackerPanel({
       </div>
     </div>
   );
-  const firstFolder = repos.find((r) => r.id === (preferredRepoId || lastFolder()));
   return (
     <section
       className={embedded ? 'project-tracker embedded-tracker' : 'project-tracker'}
@@ -1768,7 +1907,11 @@ export function ProjectTrackerPanel({
             {actionError}
             {linkedProject &&
               (authErrorPattern.test(actionError) ? (
-                <Button variant="outline" size="sm" onClick={() => openSettings('account')}>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => openConnectBoard({ groupId: group.id })}
+                >
                   Sign in to {providerName}
                 </Button>
               ) : (
@@ -1809,17 +1952,10 @@ export function ProjectTrackerPanel({
       ) : (
         !items.length &&
         (filtered ? (
-          <EmptyState
-            title="No matching tasks"
-            className="tracker-empty-result"
-            action={
-              !!query || filterCount > 0 ? (
-                <Button variant="outline" onClick={clearFilters}>
-                  Clear filters
-                </Button>
-              ) : undefined
-            }
-          />
+          // The columns stay and dim (see the board). The x in the search field clears it.
+          <span className="sr-only" role="status">
+            No matching tasks
+          </span>
         ) : archived ? (
           <EmptyState
             title="No archived tasks"
@@ -1860,6 +1996,10 @@ export function ProjectTrackerPanel({
                   void action(() => client.status(group.id, item.id, value))
                 }
                 activity={activity}
+                live={live}
+                identity={identity}
+                onAllow={allowChat}
+                folderOf={cardFolder}
                 onOpenChat={openChat}
                 onStart={canStart && !archived ? (item) => void quickStart(item) : undefined}
                 startingId={quickBusy}
@@ -1869,10 +2009,11 @@ export function ProjectTrackerPanel({
             </div>
           )
         ) : (
-          (!!items.length || (!filtered && !archived)) && (
+          (!!items.length || !archived) && (
             <TrackerBoard
               board={board}
               items={sortedItems}
+              dimmed={filtered && !items.length}
               sessions={projectSessions}
               busy={busy || !descriptor?.capabilities.updateStatus}
               onCreate={
@@ -1882,11 +2023,17 @@ export function ProjectTrackerPanel({
               }
               adding={adding}
               onAddingChange={setAdding}
-              addFolder={firstFolder?.name || (repos.length === 1 ? repos[0].name : undefined)}
-              usage={usage}
+              folders={repos}
+              addFolderId={addRepo?.id}
+              onAddFolderChange={setAddRepoId}
+              startLabel={preferredAgent ? `start with ${agentLabel(preferredAgent)}` : undefined}
+              folderOf={cardFolder}
               onOpen={chooseTask}
               onStatus={(item, value) => void action(() => client.status(group.id, item.id, value))}
               activity={activity}
+              live={live}
+              identity={identity}
+              onAllow={allowChat}
               onOpenChat={openChat}
               onStart={canStart && !archived ? (item) => void quickStart(item) : undefined}
               startingId={quickBusy}
@@ -1915,20 +2062,6 @@ export function ProjectTrackerPanel({
           onOpenTask={(id) => {
             setTool(null);
             openTaskById(id);
-          }}
-        />
-      )}
-      {selectedDrafts.length > 0 && (
-        <ConvertDraftsDialog
-          open={convertOpen}
-          onOpenChange={setConvertOpen}
-          drafts={selectedDrafts}
-          repositories={repositoryOptions}
-          onConvert={async (repository) => {
-            for (const item of selectedDrafts)
-              await api.trackerItemAction(group.id, item.id, { kind: 'convert', repository });
-            await refreshBoard();
-            showToast(`Converted ${plural(selectedDrafts.length, 'draft')} to issues.`);
           }}
         />
       )}
@@ -1966,14 +2099,28 @@ export function ProjectTrackerPanel({
           </DialogContent>
         </Dialog>
       )}
-      <Dialog open={!!task} onOpenChange={(open) => !open && !taskBusy && setTask(null)}>
+      {/*
+       * The task sheet floats on the right with a shadow and no scrim, so the board stays live
+       * behind it (TK-9). A click on another card shows that task in the sheet.
+       */}
+      <Dialog
+        modal={false}
+        open={!!task}
+        onOpenChange={(open) => !open && !taskBusy && setTask(null)}
+      >
         <DialogContent
           showCloseButton={false}
-          className="tracker-issue-detail top-0 right-0 left-auto flex h-dvh max-h-dvh w-[min(460px,100vw)] max-w-[100vw] translate-x-0 translate-y-0 flex-col gap-0 overflow-hidden rounded-none border-0 border-l p-0 sm:max-w-[100vw] data-[state=closed]:zoom-out-100 data-[state=closed]:slide-out-to-right-4 data-[state=open]:zoom-in-100 data-[state=open]:slide-in-from-right-4"
+          className="tracker-issue-detail top-0 right-0 left-auto flex h-dvh max-h-dvh w-[min(440px,100vw)] max-w-[100vw] translate-x-0 translate-y-0 flex-col gap-0 overflow-hidden rounded-none border-0 p-0 sm:max-w-[100vw] data-[state=closed]:zoom-out-100 data-[state=closed]:slide-out-to-right-4 data-[state=open]:zoom-in-100 data-[state=open]:slide-in-from-right-4"
           onOpenAutoFocus={(event) => {
             // The title is the first stop, so a screen reader starts with the task name.
             event.preventDefault();
             taskTitle.current?.focus();
+          }}
+          onInteractOutside={(event) => {
+            // A card, a menu or a toast does not close the sheet. A card shows its task here.
+            const target = event.target as HTMLElement | null;
+            if (target?.closest('.tracker-task, [role="menu"], [data-sonner-toaster], .toast'))
+              event.preventDefault();
           }}
           onCloseAutoFocus={(event) => {
             // Return to the card of the last task that showed, also after previous and next.
@@ -1987,58 +2134,75 @@ export function ProjectTrackerPanel({
           }}
         >
           <div className="tracker-issue-nav">
-            <span className="truncate">
-              {task?.number ? `#${task.number}` : task?.kind === 'DraftIssue' ? 'Draft' : ''}
-            </span>
-            <div>
-              <Hint label="Previous task">
-                <Button
-                  variant="ghost"
-                  size="icon-sm"
-                  aria-label="Previous task"
-                  disabled={taskBusy || taskIndex <= 0}
-                  onClick={() => chooseTask(sheetOrder[taskIndex - 1])}
-                >
-                  <ChevronLeft size={16} />
-                </Button>
-              </Hint>
-              <Hint label="Next task">
-                <Button
-                  variant="ghost"
-                  size="icon-sm"
-                  aria-label="Next task"
-                  disabled={taskBusy || taskIndex < 0 || taskIndex >= sheetOrder.length - 1}
-                  onClick={() => chooseTask(sheetOrder[taskIndex + 1])}
-                >
-                  <ChevronRight size={16} />
-                </Button>
-              </Hint>
-              {task && (
-                <ItemActionsMenu
-                  api={api}
-                  groupId={group.id}
-                  item={task}
-                  onSaved={refreshBoard}
-                  size="sm"
-                  editable={editsItem}
-                  openLabel={`Open on ${providerName}`}
-                />
-              )}
-              <Hint label="Close" shortcut="Esc">
-                <Button
-                  variant="ghost"
-                  size="icon-sm"
-                  aria-label="Close task"
-                  disabled={taskBusy}
-                  onClick={() => setTask(null)}
-                >
-                  <X size={16} />
-                </Button>
-              </Hint>
-            </div>
+            <Hint label="Previous task">
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                aria-label="Previous task"
+                disabled={taskBusy || taskIndex <= 0}
+                onClick={() => chooseTask(sheetOrder[taskIndex - 1])}
+              >
+                <ChevronLeft size={16} />
+              </Button>
+            </Hint>
+            <Hint label="Next task">
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                aria-label="Next task"
+                disabled={taskBusy || taskIndex < 0 || taskIndex >= sheetOrder.length - 1}
+                onClick={() => chooseTask(sheetOrder[taskIndex + 1])}
+              >
+                <ChevronRight size={16} />
+              </Button>
+            </Hint>
+            {task && (
+              <ItemActionsMenu
+                api={api}
+                groupId={group.id}
+                item={task}
+                onSaved={refreshBoard}
+                size="sm"
+                editable={editsItem}
+                openLabel={`Open on ${providerName}`}
+                extra={[
+                  {
+                    label: 'Link a chat…',
+                    icon: <MessageSquare className="size-4" />,
+                    action: () => setChatPickerOpen(true),
+                  },
+                  ...(docsAvailable
+                    ? [
+                        {
+                          label: 'Link a page…',
+                          icon: <FileText className="size-4" />,
+                          action: () => setDocPickerOpen(true),
+                        },
+                        ...docLinks.map((doc) => ({
+                          label: `Unlink “${doc.title}”`,
+                          icon: <X className="size-4" />,
+                          action: () =>
+                            void changeDocLinks(docLinks.filter((d) => d.id !== doc.id)),
+                        })),
+                      ]
+                    : []),
+                ]}
+              />
+            )}
+            <Hint label="Close" shortcut="Esc">
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                aria-label="Close task"
+                disabled={taskBusy}
+                onClick={() => setTask(null)}
+              >
+                <X size={16} />
+              </Button>
+            </Hint>
           </div>
           <div className="tracker-issue-body">
-            <DialogHeader className="pr-0">
+            <DialogHeader className="tracker-sheet-head pr-0">
               {editing === 'title' ? (
                 <Input
                   autoFocus
@@ -2087,95 +2251,177 @@ export function ProjectTrackerPanel({
               <DialogDescription className="sr-only">
                 {task?.repository || 'Project task'}
               </DialogDescription>
+              {/*
+               * One line under the title: the status, the number and the links that exist
+               * ("Todo · #142 · Search API spec"). Nothing shows for what is missing (TK-8).
+               */}
+              {task && (
+                <div className="tracker-sheet-meta" role="group" aria-label="Task properties">
+                  {board?.statusField && descriptor?.capabilities.updateStatus && !readOnly ? (
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <button
+                          type="button"
+                          className="tracker-sheet-link"
+                          aria-label={`Status: ${task.status || 'No status'}`}
+                          disabled={busy}
+                        >
+                          {task.status || 'No status'}
+                        </button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="start">
+                        <DropdownMenuLabel>Status</DropdownMenuLabel>
+                        {board.statusField.options.map((option) => (
+                          <DropdownMenuItem
+                            key={option.id}
+                            disabled={option.id === task.statusId}
+                            onSelect={() =>
+                              void action(
+                                () => client.status(group.id, task.id, option.id),
+                                true,
+                                setTaskError,
+                              )
+                            }
+                          >
+                            <StatusIcon name={option.name} size={16} />
+                            {option.name}
+                          </DropdownMenuItem>
+                        ))}
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  ) : (
+                    <span>{task.status || 'No status'}</span>
+                  )}
+                  {task.number ? (
+                    <>
+                      <span aria-hidden="true">·</span>
+                      {task.url ? (
+                        <a
+                          className="tracker-sheet-link tabular-nums"
+                          href={task.url}
+                          target="_blank"
+                          rel="noreferrer"
+                          aria-label={`#${task.number}. Opens on ${providerName}`}
+                        >
+                          #{task.number}
+                        </a>
+                      ) : (
+                        <span className="tabular-nums">#{task.number}</span>
+                      )}
+                    </>
+                  ) : (
+                    task.kind === 'DraftIssue' && (
+                      <>
+                        <span aria-hidden="true">·</span>
+                        <span>Draft</span>
+                      </>
+                    )
+                  )}
+                  {docLinks.map((doc) => (
+                    <Fragment key={doc.id}>
+                      <span aria-hidden="true">·</span>
+                      {onOpenDocs ? (
+                        <button
+                          type="button"
+                          className="tracker-sheet-link"
+                          onClick={() => {
+                            setTask(null);
+                            onOpenDocs(doc.id);
+                          }}
+                        >
+                          {doc.title}
+                        </button>
+                      ) : (
+                        <span>{doc.title}</span>
+                      )}
+                    </Fragment>
+                  ))}
+                  {linkedSessions.map((s) => {
+                    const state = activity[activityKey(s.agent, s.id)];
+                    const name = s.organization?.title || s.title;
+                    const color = identity.sessionColor(s);
+                    return (
+                      <Fragment key={s.agent + s.id}>
+                        <span aria-hidden="true">·</span>
+                        <button
+                          type="button"
+                          className="tracker-sheet-link tracker-sheet-chat"
+                          aria-label={`Open chat: ${name}${state ? `. ${activityText(state, s.agent)}` : ''}`}
+                          onClick={() => {
+                            setTask(null);
+                            openChat(s);
+                          }}
+                        >
+                          {color && <IdentityMark kind="session" color={color} slot={false} />}
+                          <span className="truncate">{name}</span>
+                          <StatusGlyph
+                            status={
+                              state === 'running' ? 'working' : state ? 'needs-you' : undefined
+                            }
+                          />
+                        </button>
+                      </Fragment>
+                    );
+                  })}
+                  {taskPr && (
+                    <>
+                      <span aria-hidden="true">·</span>
+                      <a
+                        className="tracker-sheet-link tabular-nums"
+                        href={taskPr.url}
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        <GitPullRequest aria-hidden="true" />
+                        {taskPr.number ? `#${taskPr.number}` : 'Pull request'}
+                        {taskPr.state ? ` · ${pullRequestStateWord(taskPr.state)}` : ''}
+                      </a>
+                      {markDoneOption && (
+                        <button
+                          type="button"
+                          className="tracker-sheet-link"
+                          disabled={busy}
+                          onClick={() =>
+                            void action(
+                              () => client.status(group.id, task.id, markDoneOption.id),
+                              true,
+                              setTaskError,
+                            )
+                          }
+                        >
+                          <CircleCheck aria-hidden="true" />
+                          Mark done
+                        </button>
+                      )}
+                    </>
+                  )}
+                </div>
+              )}
             </DialogHeader>
-            {/* One property line: status, code folder and the GitHub fields as pills. */}
-            <div className="tracker-issue-pills" role="group" aria-label="Task properties">
-              {task && board?.statusField ? (
-                <DropdownMenu>
-                  <StartHint reason={readOnly}>
-                    <DropdownMenuTrigger asChild>
-                      <Button
-                        variant="outline"
-                        size="xs"
-                        className="field-pill gap-1.5 px-2 font-normal has-[>svg]:px-2"
-                        aria-label={`Status: ${task.status || 'No status'}`}
-                        disabled={busy || !!readOnly || !descriptor?.capabilities.updateStatus}
-                      >
-                        <StatusIcon name={task.status || 'No status'} />
-                        {task.status || 'No status'}
-                      </Button>
-                    </DropdownMenuTrigger>
-                  </StartHint>
-                  <DropdownMenuContent align="start">
-                    <DropdownMenuLabel>Status</DropdownMenuLabel>
-                    {board.statusField.options.map((option) => (
-                      <DropdownMenuItem
-                        key={option.id}
-                        disabled={option.id === task.statusId}
-                        onSelect={() =>
-                          void action(
-                            () => client.status(group.id, task.id, option.id),
-                            true,
-                            setTaskError,
-                          )
-                        }
-                      >
-                        <StatusIcon name={option.name} size={16} />
-                        {option.name}
-                      </DropdownMenuItem>
-                    ))}
-                  </DropdownMenuContent>
-                </DropdownMenu>
-              ) : (
-                <span className="field-pill field-pill-static">
-                  <StatusIcon name={task?.status || 'No status'} />
-                  {task?.status || 'No status'}
-                </span>
-              )}
-              {task?.repository ? (
-                // The short name, as on the card. The owner shows in the tooltip.
-                <Hint label={`Code folder · ${task.repository}`}>
-                  <span className="field-pill field-pill-static" tabIndex={0}>
-                    <Folder aria-hidden="true" />
-                    {pathBasename(task.repository)}
-                  </span>
-                </Hint>
-              ) : (
-                task?.kind === 'DraftIssue' && (
-                  <span className="field-pill field-pill-static">Draft</span>
-                )
-              )}
-              {editsItem && task && board && (
-                <FieldPills
-                  api={api}
-                  groupId={group.id}
-                  board={board}
-                  item={task}
-                  disabled={busy || !!readOnly}
-                  onSaved={refreshBoard}
-                />
-              )}
-            </div>
-            {/* Start comes first: where the agent works, then the one primary action. */}
-            <div className="tracker-start-box">
+            {/*
+             * One 32px row: where the agent works (the repo; the branch is in its menu), then
+             * Start with an agent found on this computer (TK-7, R6).
+             */}
+            <div className="tracker-start-row">
               {repos.length > 0 ? (
                 <Popover.Root open={whereOpen} onOpenChange={setWhereOpen}>
                   <Popover.Trigger asChild>
-                    <button
-                      type="button"
-                      className="tracker-start-where"
+                    <Button
+                      variant="secondary"
+                      className="tracker-start-repo gap-1.5 bg-background px-3 shadow-[inset_0_0_0_1px_var(--border)] hover:bg-[var(--fill)] has-[>svg]:px-3"
                       disabled={taskBusy}
                       aria-label={`Where to work: ${taskRepo?.name || 'Choose a code folder'} · ${branchText}`}
                     >
-                      <span className="tracker-start-folder">
-                        <span className="truncate">{taskRepo?.name || 'Choose a code folder'}</span>
-                        <ChevronDown aria-hidden="true" />
-                      </span>
-                      <span className="tracker-start-branch">
-                        <GitBranch aria-hidden="true" />
-                        <span className="truncate">{branchText}</span>
-                      </span>
-                    </button>
+                      {taskRepo && identity.repoColor(taskRepo.name) && (
+                        <IdentityMark
+                          kind="repo"
+                          color={identity.repoColor(taskRepo.name)!}
+                          slot={false}
+                        />
+                      )}
+                      <span className="truncate">{taskRepo?.name || 'Choose a code folder'}</span>
+                      <ChevronDown aria-hidden="true" className="size-3 text-muted-foreground" />
+                    </Button>
                   </Popover.Trigger>
                   <Popover.Portal>
                     <Popover.Content
@@ -2187,20 +2433,24 @@ export function ProjectTrackerPanel({
                     >
                       <fieldset disabled={taskBusy}>
                         <legend className="group-label">Code folder</legend>
-                        {repos.map((r) => (
-                          <label key={r.id} className="tracker-radio-row">
-                            <Radio
-                              name="task-folder"
-                              value={r.id}
-                              checked={repoId === r.id}
-                              onChange={() => {
-                                checkoutTouched.current = false;
-                                setRepoId(r.id);
-                              }}
-                            />
-                            <span className="truncate">{r.name}</span>
-                          </label>
-                        ))}
+                        {repos.map((r) => {
+                          const color = identity.repoColor(r.name);
+                          return (
+                            <label key={r.id} className="tracker-radio-row">
+                              <Radio
+                                name="task-folder"
+                                value={r.id}
+                                checked={repoId === r.id}
+                                onChange={() => {
+                                  checkoutTouched.current = false;
+                                  setRepoId(r.id);
+                                }}
+                              />
+                              {color && <IdentityMark kind="repo" color={color} slot={false} />}
+                              <span className="truncate">{r.name}</span>
+                            </label>
+                          );
+                        })}
                       </fieldset>
                       <fieldset disabled={taskBusy}>
                         <legend className="group-label">Branch</legend>
@@ -2223,7 +2473,6 @@ export function ProjectTrackerPanel({
                           <Input
                             size="sm"
                             aria-label="Task branch"
-
                             value={taskBranch}
                             onFocus={() => {
                               checkoutTouched.current = true;
@@ -2256,14 +2505,10 @@ export function ProjectTrackerPanel({
                     </Popover.Content>
                   </Popover.Portal>
                 </Popover.Root>
-              ) : (
-                <span className="tracker-start-where" data-static>
-                  <span className="tracker-start-folder">No code folder</span>
-                </span>
-              )}
+              ) : null}
               {!repos.length ? (
                 <Button
-                  variant="outline"
+                  variant="secondary"
                   onClick={() => {
                     setTask(null);
                     addFolder();
@@ -2272,16 +2517,24 @@ export function ProjectTrackerPanel({
                   <FolderPlus />
                   Add code folder…
                 </Button>
+              ) : !preferredAgent ? (
+                <Button variant="secondary" className="ml-auto" onClick={openToolsSettings}>
+                  No agent found
+                </Button>
               ) : (
                 <StartHint reason={taskBusy ? '' : startBlocker}>
-                  <div className="split-button" role="group" aria-label="Start task">
+                  <div className="split-button ml-auto" role="group" aria-label="Start task">
                     <Button
-                      className="rounded-r-none px-3.5 has-[>svg]:px-3.5 [&_svg]:size-3.5"
+                      className="rounded-r-none px-3 has-[>svg]:px-3 [&_svg]:size-3.5"
                       disabled={!startReady}
                       aria-label={`Start task with ${agentLabel(preferredAgent)}`}
                       onClick={() => void startTask(preferredAgent)}
                     >
-                      <AgentIcon agent={preferredAgent} />
+                      {taskBusy ? (
+                        <LoaderCircle className="size-3.5 animate-spin" />
+                      ) : (
+                        <Play className="size-3.5" />
+                      )}
                       {taskBusy ? 'Starting…' : `Start with ${agentLabel(preferredAgent)}`}
                     </Button>
                     <DropdownMenu>
@@ -2292,23 +2545,22 @@ export function ProjectTrackerPanel({
                           className="rounded-l-none border-l border-primary-foreground/20"
                           aria-label="Choose an agent"
                         >
-                          <ChevronDown />
+                          <ChevronDown className="size-3.5" />
                         </Button>
                       </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end">
-                        <DropdownMenuLabel>Agent</DropdownMenuLabel>
-                        {agentCatalog.map(({ id: agent }) => (
-                          <DropdownMenuItem
-                            key={agent}
-                            onSelect={() => {
-                              savePreferredAgent(agent);
-                              void startTask(agent);
-                            }}
-                          >
-                            <AgentIcon agent={agent} className="size-4" />
-                            Start with {agentLabel(agent)}
-                          </DropdownMenuItem>
-                        ))}
+                      <DropdownMenuContent
+                        align="end"
+                        sideOffset={8}
+                        className="tracker-agent-menu w-[232px]"
+                      >
+                        <AgentMenuItems
+                          agents={agents}
+                          current={preferredAgent}
+                          onPick={(agent) => {
+                            savePreferredAgent(agent);
+                            void startTask(agent);
+                          }}
+                        />
                       </DropdownMenuContent>
                     </DropdownMenu>
                   </div>
@@ -2351,7 +2603,7 @@ export function ProjectTrackerPanel({
                     Cancel
                   </Button>
                   <Button
-                    variant="outline"
+                    variant="secondary"
                     size="sm"
                     disabled={editBusy}
                     onClick={() => void saveText()}
@@ -2383,11 +2635,13 @@ export function ProjectTrackerPanel({
                 </Markdown>
               </div>
             ) : (
-              <div className="tracker-issue-description prose-ui" data-size="sm">
-                <Markdown remarkPlugins={[remarkGfm]} components={{ a: ExternalAnchor }}>
-                  {task?.body || 'No description.'}
-                </Markdown>
-              </div>
+              task?.body?.trim() && (
+                <div className="tracker-issue-description prose-ui" data-size="sm">
+                  <Markdown remarkPlugins={[remarkGfm]} components={{ a: ExternalAnchor }}>
+                    {task.body}
+                  </Markdown>
+                </div>
+              )
             )}
             {provider === 'github' && board?.writable && task && (
               <GitHubItemEditor
@@ -2397,142 +2651,8 @@ export function ProjectTrackerPanel({
                 board={board}
                 item={task}
                 onSaved={refreshBoard}
+                showFields
               />
-            )}
-          </div>
-          {/* Chats, pages, the pull request and the usage sit at the end of the task. */}
-          <div
-            ref={setFooter}
-            className="tracker-issue-links"
-            aria-label="Linked work"
-            role="group"
-          >
-            <span className="tracker-issue-link-group">
-              <MessageSquare aria-hidden="true" />
-              {linkedSessions.length ? (
-                linkedSessions.map((s) => {
-                  const state = activity[activityKey(s.agent, s.id)];
-                  const name = s.organization?.title || s.title;
-                  return (
-                    <button
-                      key={s.agent + s.id}
-                      type="button"
-                      className="tracker-issue-link-button"
-                      aria-label={`Open chat: ${name}${state ? `. ${activityText(state, s.agent)}` : ''}`}
-                      onClick={() => {
-                        setTask(null);
-                        openChat(s);
-                      }}
-                    >
-                      <span className="truncate">{name}</span>
-                      {state && <ActivityDot state={state} />}
-                    </button>
-                  );
-                })
-              ) : (
-                <span>No chats yet</span>
-              )}
-              <LinkButton label="Link chat" onClick={() => setChatPickerOpen(true)} />
-            </span>
-            {docsAvailable && (
-              <span className="tracker-issue-link-group">
-                <FileText aria-hidden="true" />
-                {docLinks.map((doc) => (
-                  <Tag
-                    key={doc.id}
-                    removeLabel={`Remove link to ${doc.title}`}
-                    onRemove={() => void changeDocLinks(docLinks.filter((d) => d.id !== doc.id))}
-                  >
-                    {onOpenDocs ? (
-                      <button
-                        type="button"
-                        className="tracker-context-open"
-                        onClick={() => {
-                          setTask(null);
-                          onOpenDocs(doc.id);
-                        }}
-                      >
-                        {doc.title}
-                      </button>
-                    ) : (
-                      doc.title
-                    )}
-                  </Tag>
-                ))}
-                {docLinks.length ? (
-                  <LinkButton label="Link a page" onClick={() => setDocPickerOpen(true)} />
-                ) : (
-                  <button
-                    type="button"
-                    className="tracker-issue-link-button"
-                    onClick={() => setDocPickerOpen(true)}
-                  >
-                    Link a page
-                  </button>
-                )}
-              </span>
-            )}
-            <span className="tracker-issue-link-group">
-              <GitPullRequest aria-hidden="true" />
-              {taskPr ? (
-                <>
-                  <a
-                    className="tracker-issue-link-button tabular-nums"
-                    href={taskPr.url}
-                    target="_blank"
-                    rel="noreferrer"
-                  >
-                    {taskPr.number ? `#${taskPr.number}` : 'Pull request'}
-                    {taskPr.state ? ` · ${pullRequestStateWord(taskPr.state)}` : ''}
-                  </a>
-                  {markDoneOption && (
-                    <Button
-                      variant="outline"
-                      size="xs"
-                      disabled={busy}
-                      onClick={() =>
-                        void action(
-                          () => client.status(group.id, task!.id, markDoneOption.id),
-                          true,
-                          setTaskError,
-                        )
-                      }
-                    >
-                      <CircleCheck />
-                      Mark done
-                    </Button>
-                  )}
-                </>
-              ) : linkedSessions.length ? (
-                <button
-                  type="button"
-                  className="tracker-issue-link-button"
-                  onClick={() => createPullRequest(linkedSessions[0])}
-                >
-                  Create pull request…
-                </button>
-              ) : (
-                <span>No pull request</span>
-              )}
-            </span>
-            {task && usage[task.id] && (
-              <span className="tracker-issue-link-group">
-                <ChartNoAxesColumn aria-hidden="true" />
-                <button
-                  type="button"
-                  className="tracker-issue-link-button"
-                  onClick={() => {
-                    setTask(null);
-                    window.dispatchEvent(
-                      new CustomEvent('kalkidan-open-project-usage', {
-                        detail: { groupId: group.id, taskId: task.id },
-                      }),
-                    );
-                  }}
-                >
-                  {usage[task.id].text}
-                </button>
-              </span>
             )}
           </div>
         </DialogContent>
@@ -2650,7 +2770,9 @@ function LinkChatDialog({
                     >
                       <AgentIcon agent={s.agent} />
                       <span className="min-w-0 flex-1 truncate">{name}</span>
-                      {state && <ActivityDot state={state} />}
+                      <StatusGlyph
+                        status={state === 'running' ? 'working' : state ? 'needs-you' : undefined}
+                      />
                       {s.organization?.taskId && (
                         <span className="text-xs text-muted-foreground">Linked to a task</span>
                       )}
@@ -2681,124 +2803,6 @@ function LinkChatDialog({
         </DialogBody>
       </DialogContent>
     </Dialog>
-  );
-}
-
-/** Converts draft tasks to issues in one GitHub repository, so that they can start. */
-function ConvertDraftsDialog({
-  open,
-  onOpenChange,
-  drafts,
-  repositories,
-  onConvert,
-}: {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  drafts: TrackerItem[];
-  /** The repositories of the board, as "owner/name". */
-  repositories: string[];
-  onConvert: (repository: string) => Promise<void>;
-}) {
-  const [repository, setRepository] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState('');
-  useEffect(() => {
-    if (open) {
-      setRepository(repositories[0] || '');
-      setError('');
-    }
-  }, [open]);
-  const valid = /^[\w.-]+\/[\w.-]+$/.test(repository.trim());
-  async function submit() {
-    if (!valid || busy) return;
-    setBusy(true);
-    setError('');
-    try {
-      await onConvert(repository.trim());
-      onOpenChange(false);
-    } catch (e) {
-      setError(errorMessage(e));
-    } finally {
-      setBusy(false);
-    }
-  }
-  return (
-    <Dialog open={open} onOpenChange={(next) => !busy && onOpenChange(next)}>
-      <DialogContent size="sm">
-        <DialogHeader>
-          <DialogTitle>Convert {plural(drafts.length, 'draft')} to issues</DialogTitle>
-          <DialogDescription className="sr-only">
-            Choose the GitHub repository of the new issues.
-          </DialogDescription>
-        </DialogHeader>
-        <DialogBody className="grid gap-4">
-          <label className="form-label">
-            Repository
-            {repositories.length ? (
-              <Choice
-                className="w-full"
-                label="Repository"
-                value={repository}
-                disabled={busy}
-                onChange={setRepository}
-                options={repositories.map((value) => ({ value, label: value }))}
-              />
-            ) : (
-              <Input
-                aria-label="Repository"
-                placeholder="owner/repository"
-                value={repository}
-                disabled={busy}
-                onChange={(event) => setRepository(event.target.value)}
-              />
-            )}
-          </label>
-          {error && (
-            <p role="alert" className="field-error">
-              {error}
-            </p>
-          )}
-        </DialogBody>
-        <DialogFooter>
-          <Button variant="outline" disabled={busy} onClick={() => onOpenChange(false)}>
-            Cancel
-          </Button>
-          <Button disabled={!valid || busy} onClick={() => void submit()}>
-            {busy ? 'Converting…' : 'Convert'}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-/** "+ Link chat" when there is nothing linked yet, else a 24px + after the linked items. */
-function LinkButton({
-  label,
-  iconOnly = true,
-  onClick,
-}: {
-  label: string;
-  iconOnly?: boolean;
-  onClick: () => void;
-}) {
-  return iconOnly ? (
-    <Hint label={label}>
-      <Button
-        variant="ghost"
-        size="icon-xs"
-        className="tracker-link-add"
-        aria-label={label}
-        onClick={onClick}
-      >
-        <Plus />
-      </Button>
-    </Hint>
-  ) : (
-    <Button variant="ghost" size="xs" className="-ml-2" onClick={onClick}>
-      <Plus />
-      {label}
-    </Button>
   );
 }
 

@@ -19,11 +19,11 @@ import { Input } from './ui/input';
 import { showToast } from './ui/toast';
 import type { StatusLabel } from '../lib/verdictan-labels';
 
-/** Opens Settings › Account at the GitHub row. Every GitHub sign-in outside Settings uses this. */
+/** Opens Settings › Tools at the GitHub CLI row. Every GitHub sign-in outside Settings uses this. */
 export function openAccountSettings() {
   window.dispatchEvent(
     new CustomEvent('kalkidan-open-settings', {
-      detail: { section: 'account', anchor: settingsAnchors.github },
+      detail: { section: 'tools', anchor: settingsAnchors.github },
     }),
   );
 }

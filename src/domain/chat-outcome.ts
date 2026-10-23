@@ -101,7 +101,7 @@ export function chatOutcomeOf(
 const failureWords: Record<Exclude<ChatFailureReason, `desktop.${string}`>, string> = {
   agent_error: 'The agent stopped because of an error.',
   api_error: 'The model provider sent an error.',
-  gateway_refused: 'The managed gateway stopped this turn after a refusal.',
+  gateway_refused: 'The Verdictan gateway stopped this turn after a refusal.',
   permission_denied: 'The agent permission policy declined an action.',
   session_busy: 'A different app has this chat open.',
   timeout: 'The agent did not respond in time.',
@@ -112,8 +112,10 @@ const failureWords: Record<Exclude<ChatFailureReason, `desktop.${string}`>, stri
 export function outcomeLabel(outcome: Pick<ChatOutcome, 'outcome' | 'reason'>) {
   if (outcome.outcome === 'refused') {
     const code = outcome.reason && managedCode.test(outcome.reason) ? outcome.reason : '';
-    const detail = code ? managedRefusal(code).message : 'The managed launch checks did not pass.';
-    return `Managed agents did not start the last run. ${detail}`;
+    const detail = code
+      ? managedRefusal(code).message
+      : 'The Verdictan launch checks did not pass.';
+    return `Verdictan did not start the last run. ${detail}`;
   }
   if (outcome.outcome === 'failed') {
     const reason = outcome.reason || 'agent_error';

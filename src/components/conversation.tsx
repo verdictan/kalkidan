@@ -11,32 +11,40 @@ import {
 } from './conversation-tools';
 import { PolicyResultCard } from './policy-result';
 import { addPolicyRecords, chatPolicyLimit, type PolicyRecord } from '../domain/policy-result';
-import { AgentActivity, RunRequests, runLineCounts } from './agent-activity';
+import { AgentActivity } from './agent-activity';
+import { SubagentCards, subagentCardId } from './subagent-card';
+import { ComposerAsk, waitingRequest } from './agent-questions';
 import { useContextUsage } from './context-usage-chip';
 import { useVerdictanStatus } from '../hooks/use-verdictan-status';
 import { changeTaskStatus } from '../lib/task-status';
 import { agentCatalog, agentLabel } from '../config/agents';
 import { ConfirmDialog } from './confirm-dialog';
-import { CommitDialog, reportChatMenuState } from './session-menu';
-import { ModelChip, useModelChoice } from './model-chip';
-import { chosenModel } from '../domain/model-choice';
+import { ShipFooter, reportChatMenuState } from './session-menu';
+import { AgentPicker } from './model-chip';
+import { shortChatTitle } from '../domain/chat-title';
 import { Fragment, useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import {
   AtSign,
-  FileDiff,
+  Check,
+  Clock,
   FileText,
+  GitPullRequest,
   ListTodo,
   LoaderCircle,
   Lock,
-  LogIn,
   Paperclip,
   Search,
   Square,
   X,
 } from 'lucide-react';
+import type { IdentityColor } from '../domain/identity';
+import { SignInGate, queueSendAfterSignIn, useSendAfterSignIn } from './sign-in-gate';
+import { cancelQueuedSend } from '../lib/send-after-sign-in';
+import { diffFiles } from '../lib/diff-files';
+import { ChatCard } from './chat-card';
+import { CircleSlash } from 'lucide-react';
 import Markdown, { defaultUrlTransform } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { Alert, AlertDescription } from './ui/alert';
 import { ReadOnlyConversation, useConversationOwnership } from './conversation-ownership';
 import { isReadOnly } from '../domain/conversation-ownership';
 import { showToast } from './ui/toast';
@@ -45,10 +53,8 @@ import { agentErrorMessage, managedLaunchError, type AgentError } from '../lib/a
 import { takePendingDraft } from '../lib/pending-draft';
 import { composerAfterSubmit, contextsAfterSubmit } from '../lib/composer-draft';
 import {
-  hasBranchWork,
   moveTaskToReview,
   pullRequestActionLabel,
-  pullRequestLabel as pullRequestLabelText,
   type SessionPullRequest,
 } from '../lib/pull-request';
 import type { ProjectDocMetadata } from '../domain/docs';
@@ -86,15 +92,13 @@ import {
   removeMentionBefore,
 } from '../domain/mentions';
 import { pathBasename, plural, shortcutLabel } from '../lib/platform';
-import { onChatPreferencesChange, readEnterToSend } from '../lib/chat-preferences';
+import { onChatPreferencesChange, readEnterToSend, newChatAccess } from '../lib/chat-preferences';
 import {
-  AccessPill,
   Composer,
   ComposerAddMenu,
-  FolderPill,
+  AccessPill,
+  RepoPill,
   composerPlaceholderFor,
-  defaultAccess,
-  isOwnBranchCopy,
   readAccess,
   saveAccess,
   takeNextChatModel,
@@ -105,18 +109,21 @@ import type { WorkingStatus } from '../api/contracts';
 import { markDraftOutcome, type SessionActivityState } from './activity-dot';
 import { chatOutcomeOf } from '../domain/chat-outcome';
 import { Button } from './ui/button';
-import type {
-  API,
-  ChatMessage,
-  ChatRun,
-  Session,
-  ModelOption,
-  ProjectGroup,
-  TrackerItem,
-} from '../types';
+import type { API, ChatMessage, ChatRun, Session, ProjectGroup, TrackerItem } from '../types';
 
 /** Unsent text and attachments. They stay when the session view is unmounted. */
 export type ConversationDraft = { prompt: string; contexts: ConversationContext[] };
+
+/** The identity colors of the chat: its repo (and the other repos) and the session (R2). */
+export interface ChatIdentity {
+  repo?: { name: string; color: IdentityColor };
+  session: IdentityColor;
+  /** The colors of the other repos of the project, by repository ID. */
+  repos?: Record<string, IdentityColor>;
+}
+
+/** The approval that a chat waits for, for Overview, search and the tree. */
+export type WaitingApproval = { title: string; detail?: string };
 
 const sendShortcut = shortcutLabel(['mod'], 'Enter');
 // The "+" menu offers this many doc pages. "All pages…" opens the page picker.
@@ -207,6 +214,38 @@ function SentMentions({ text }: { text: string }) {
   );
 }
 
+/**
+ * The state chip of the pull request row (CH-B5). An open pull request shows its CI checks:
+ * "Checks pass", "Checks failing" or "Checks running". Without checks it shows "Open".
+ */
+function PullRequestState({ value }: { value: SessionPullRequest }) {
+  const state = value.state || 'open';
+  const shown =
+    state !== 'open'
+      ? { key: state, label: state === 'merged' ? 'Merged' : 'Closed' }
+      : value.draft
+        ? { key: 'draft', label: 'Draft' }
+        : value.checks === 'fail'
+          ? { key: 'fail', label: 'Checks failing', icon: <X aria-hidden="true" /> }
+          : value.checks === 'pending'
+            ? {
+                key: 'pending',
+                label: 'Checks running',
+                icon: <LoaderCircle className="animate-spin" aria-hidden="true" />,
+              }
+            : {
+                key: value.checks === 'pass' ? 'pass' : 'open',
+                label: value.checks === 'pass' ? 'Checks pass' : 'Open',
+                icon: <Check aria-hidden="true" />,
+              };
+  return (
+    <span className="pr-row-state" data-state={shown.key}>
+      {shown.icon}
+      {shown.label}
+    </span>
+  );
+}
+
 export function Conversation({
   api,
   session,
@@ -225,8 +264,11 @@ export function Conversation({
   hostName,
   mentionChats = [],
   folders = [],
+  identity,
 }: {
   api: API;
+  /** The identity colors of the repo and the session. */
+  identity?: ChatIdentity;
   /** The code folders of the project. The folder pill of a new chat lists them. */
   folders?: { id: string; name: string }[];
   /** The other chats of the project, for "@" mentions. */
@@ -242,7 +284,12 @@ export function Conversation({
   session: Session;
   open: boolean;
   onComplete: () => void;
-  onActivityChange: (activity: SessionActivityState | null) => void;
+  onActivityChange: (
+    activity: SessionActivityState | null,
+    approval?: WaitingApproval,
+    /** What runs now, for example "Edit overview.tsx", for the live line on task cards. */
+    detail?: string,
+  ) => void;
   onSessionCreated?: (id: string, title: string) => void;
   /** Gives the chat a title from its first message when the first send fails. */
   onTitleChange?: (title: string) => void;
@@ -298,13 +345,11 @@ export function Conversation({
   useEffect(() => {
     reportDraft.current?.(prompt || contexts.length ? { prompt, contexts } : null);
   }, [prompt, contexts]);
-  // A new chat from the project Overview starts with the model that its composer chose.
-  const [model, setModel] = useState(() =>
+  // A new chat from the project Overview starts with the model that its composer chose. The
+  // composer has no model choice (R6): the agent and the organization policy choose it.
+  const [model] = useState(() =>
     session.projectId && !session.forkFrom ? takeNextChatModel(session.agent) : '',
   );
-  const modelAgent = useRef(session.agent);
-  const [models, setModels] = useState<ModelOption[]>([]);
-  const [modelsFailed, setModelsFailed] = useState(false);
   // The linked task is Done. The changes row then shows only for new changes.
   const [taskDone, setTaskDone] = useState(false);
   const [reviewChanges, setReviewChanges] = useState(0);
@@ -316,8 +361,6 @@ export function Conversation({
   const [taskBusy, setTaskBusy] = useState(false);
   const [taskNotice, setTaskNotice] = useState('');
   const [uncommitted, setUncommitted] = useState(0);
-  const [commitOpen, setCommitOpen] = useState(false);
-  const [commitIntent, setCommitIntent] = useState<'commit' | 'pull-request'>('commit');
   const taskUpdates = useRef(Promise.resolve());
   const startedTasks = useRef(new Set<string>());
   function syncStartedTask(next: ChatRun) {
@@ -383,17 +426,19 @@ export function Conversation({
   async function refreshPullRequest(current = pullRequest) {
     if (!current || !repositoryId || !api.pullRequestStatus) return current;
     const status = await api.pullRequestStatus(repositoryId, current.url);
-    const { draft: _draft, ...rest } = current;
+    const { draft: _draft, checks: _checks, ...rest } = current;
     const next = {
       ...rest,
       state: status.state,
       number: status.number || current.number,
       ...(status.draft ? { draft: true } : {}),
+      ...(status.checks ? { checks: status.checks } : {}),
     };
     if (
       next.state !== current.state ||
       next.number !== current.number ||
-      !!next.draft !== !!current.draft
+      !!next.draft !== !!current.draft ||
+      next.checks !== current.checks
     ) {
       setPullRequest(next);
       void saveOrganization({ pullRequest: next }).catch(() => {
@@ -500,23 +545,15 @@ export function Conversation({
   // A known status with no changed files has nothing to commit. An unknown status does not
   // block the Commit dialog, because the dialog reads the status again.
   const nothingToCommit = !!working && changedFiles === 0;
-  /** Opens the Commit dialog, or tells the user that there is nothing to commit. */
+  /** Opens the Changes tab: "Commit only" is on the arrow of its Create pull request. */
   function openCommit() {
     if (nothingToCommit) showToast({ message: noChangesToCommit });
-    else {
-      setCommitIntent('commit');
-      setCommitOpen(true);
-    }
+    else showTool('diff');
   }
-  /** Opens the dialog that commits the changes and creates the pull request. */
+  /** Opens the Changes tab, where the footer creates the pull request (no dialog). */
   function createPullRequest() {
     if (pullRequest) openExternal(pullRequest.url);
-    else if (working && !hasBranchWork(working))
-      showToast({ message: 'No changes or commits for a pull request.' });
-    else {
-      setCommitIntent('pull-request');
-      setCommitOpen(true);
-    }
+    else showTool('diff');
   }
   // A resumed session has only the task id. Load the board to show the task title.
   useEffect(() => {
@@ -536,41 +573,10 @@ export function Conversation({
       current = false;
     };
   }, [api, projectGroup?.id, taskId]);
-  useEffect(() => {
-    let current = true;
-    setModels([]);
-    // Another agent has other models. The first read keeps the model from the Overview.
-    if (modelAgent.current !== session.agent) setModel('');
-    modelAgent.current = session.agent;
-    setModelsFailed(false);
-    api
-      .models?.(session.agent)
-      .then((value) => {
-        if (current) setModels(value);
-      })
-      .catch(() => {
-        if (current) setModelsFailed(true);
-      });
-    return () => {
-      current = false;
-    };
-  }, [api, session.agent]);
-  // Access default: a chat that works in its own branch copy (a separate folder that Kalkidan
-  // made, on its own branch) can edit files, because its changes stay apart from the user's
-  // checkout. Every other chat starts as Read only, also on a feature branch in the main
-  // checkout, so the user's own work stays safe. The last choice in the code folder and the
-  // choice in Settings › General ("New chats start as") apply when the user made one.
-  const storedPermission = session.projectId ? readAccess(repositoryId) || defaultAccess() : null;
+  // Access: the chip in the composer shows "Can edit" or "Read only". The last choice in the
+  // code folder comes first, then the Settings choice. Without a choice, a new chat can edit.
+  const storedPermission = readAccess(repositoryId) || newChatAccess();
   const [allowEdits, setAllowEdits] = useState(() => storedPermission === 'edit');
-  const onDefaultBranch = !!working && working.branch === working.defaultBranch;
-  const onBranchCopy = !!working && !onDefaultBranch;
-  const ownBranchCopy = isOwnBranchCopy(session.cwd, working);
-  useEffect(() => {
-    if (storedPermission || permissionTouched.current || startedTasks.current.size) return;
-    // A chat that already sent a message keeps its access.
-    if (messages.length) return;
-    setAllowEdits(ownBranchCopy);
-  }, [ownBranchCopy]);
   function choosePermission(value: ChatAccess) {
     permissionTouched.current = true;
     setAllowEdits(value === 'edit');
@@ -621,15 +627,11 @@ export function Conversation({
       current = false;
     };
   }, [api, session.agent, session.id, session.hostId, policyChat, policyReads]);
-  function finishRun(next: ChatRun) {
-    if (finished.current.has(next.id)) return;
-    finished.current.add(next.id);
-    syncStartedTask(next);
-    if (next.policies?.length) {
-      if (next.sessionReady && next.sessionId) setPolicyChat(next.sessionId);
-      setPolicyReads((count) => count + 1);
-    }
-
+  /**
+   * Links a new chat to the session of the agent as soon as the agent reports it, also while the
+   * run continues. The tree and the crumb then show the saved chat with its title and color.
+   */
+  function bindSession(next: ChatRun) {
     if (session.projectId && !providerSession.current && next.sessionReady && next.sessionId) {
       providerSession.current = next.sessionId;
       if (taskId || pullRequest || session.organization)
@@ -656,7 +658,20 @@ export function Conversation({
             .slice(0, 100) ||
           session.title,
       );
+      // While the run continues, read the saved chats again: the tree then shows this chat.
+      if (next.status === 'running') completed.current();
     }
+  }
+  function finishRun(next: ChatRun) {
+    if (finished.current.has(next.id)) return;
+    finished.current.add(next.id);
+    syncStartedTask(next);
+    if (next.policies?.length) {
+      if (next.sessionReady && next.sessionId) setPolicyChat(next.sessionId);
+      setPolicyReads((count) => count + 1);
+    }
+
+    bindSession(next);
     // A draft that did not save keeps its outcome in memory only, for its status dot. A refused
     // launch is never saved as a chat.
     if (session.id.startsWith('draft-'))
@@ -693,7 +708,7 @@ export function Conversation({
               }),
       });
       if (!providerSession.current && !messagesBefore.current)
-        onTitleChange?.(sent.prompt.trim().split('\n', 1)[0].slice(0, 100));
+        onTitleChange?.(shortChatTitle(sent.prompt));
     } else if (next.error) setError(next.error);
     if (!runEdits.current && next.status !== 'stopped' && refusedWrite(next)) setEditsRefused(true);
     setRunsFinished((n) => n + 1);
@@ -704,9 +719,9 @@ export function Conversation({
   completed.current = onComplete;
   const active = starting || run?.status === 'running';
   const agentName = agentLabel(session.agent);
-  const modelOptions = useModelChoice(api, session.agent, models, agentName);
-  // While nobody is signed in, Send starts the sign-in. The draft stays in the composer and
-  // sends after the sign-in, so no failed chat shows in the sidebar.
+  // While nobody is signed in, Send keeps the message and starts the sign-in at the first send
+  // (ST-C). The message shows in the chat with "Sends after sign-in", and sends by itself after
+  // the sign-in. It survives the browser round trip and a restart.
   const { status: account } = useVerdictanStatus(api, open);
   const signedOut =
     !!account &&
@@ -714,7 +729,19 @@ export function Conversation({
       account.phase === 'missing' ||
       account.phase === 'expired' ||
       (account.phase === 'error' && account.error === 'desktop.region_required'));
-  const sendAfterSignIn = useRef(false);
+  const chatKey = `${session.agent}:${session.id}`;
+  // The sign-in card needs accounts. Builds without them keep the Sign in button.
+  const gateReady = typeof api.verdictanStatus === 'function';
+  /** Keeps the message until the sign-in. The composer is empty again. */
+  function queueForSignIn(text: string, sentPrompt: string) {
+    // The sign-in card under the message signs in. No dialog opens.
+    queueSendAfterSignIn({ key: chatKey, text, data: { prompt: sentPrompt } });
+    setPrompt((current) => composerAfterSubmit(current, sentPrompt));
+    setContexts([]);
+    // A new chat takes a short title from the message at once, as at a usual first send.
+    if (session.projectId && !providerSession.current && !messages.length && !taskId)
+      onTitleChange?.(shortChatTitle(mentionPlainText(sentPrompt)));
+  }
   useEffect(() => {
     mounted.current = true;
     let current = true;
@@ -765,6 +792,10 @@ export function Conversation({
       clearTimeout(timer);
     };
   }, [api, run?.id, run?.status, run?.governance?.finalized]);
+  // The agent reported its session while the run continues: link the new chat to it now.
+  useEffect(() => {
+    if (run?.status === 'running' && run.sessionReady && run.sessionId) bindSession(run);
+  }, [run?.id, run?.status, run?.sessionReady, run?.sessionId]);
   // A run that continued on the SSH host while this chat was closed: attach to it again.
   useEffect(() => {
     const id = session.liveRunId;
@@ -797,23 +828,57 @@ export function Conversation({
       : active
         ? 'running'
         : null;
+  const waitingApproval = run?.approvals?.find((approval) => approval.status === 'pending');
+  const liveTitle =
+    activity === 'running'
+      ? [...(run?.tools || [])].reverse().find((tool) => tool.status === 'inProgress')?.title
+      : undefined;
   useEffect(() => {
-    onActivityChange(activity);
+    onActivityChange(
+      activity,
+      activity === 'approval' && waitingApproval
+        ? { title: waitingApproval.title, detail: waitingApproval.detail || undefined }
+        : undefined,
+      liveTitle,
+    );
     return () => onActivityChange(null);
-  }, [activity, onActivityChange]);
+  }, [activity, waitingApproval?.id, liveTitle, onActivityChange]);
+  // Overview, search and the tree allow or deny the oldest approval of this chat.
+  useEffect(() => {
+    const answer = (event: Event) => {
+      const detail = (event as CustomEvent<{ agent?: string; id?: string; allow?: boolean }>)
+        .detail;
+      const current = runRef.current;
+      if (!detail || !current || detail.agent !== session.agent) return;
+      if (detail.id !== session.id && detail.id !== providerSession.current) return;
+      const pending = current.approvals?.find((approval) => approval.status === 'pending');
+      if (!pending) return;
+      void api
+        .chatApprove(current.id, pending.id, !!detail.allow)
+        .then(() => api.chatStatus(current.id))
+        .then((next) => {
+          if (runRef.current?.id !== next.id) return;
+          runRef.current = next;
+          setRun(next);
+          if (next.status !== 'running') finishRun(next);
+        })
+        .catch((e) => setError(errorMessage(e)));
+    };
+    window.addEventListener('kalkidan-answer-approval', answer);
+    return () => window.removeEventListener('kalkidan-answer-approval', answer);
+  }, [api, session.agent, session.id]);
   /**
    * Sends the composer text. `allowEdits` sends the last message again with other permissions.
    * `resend` sends a message that failed.
    */
   async function send(retry?: { allowEdits?: boolean; resend?: { text: string; prompt: string } }) {
     const again = retry ? retry.resend || submitted.current : null;
-    // "Sign in to send" always starts the sign-in. A draft then sends after the sign-in.
+    if (retry ? !again : !prompt.trim()) return;
+    // Signed out: the message waits for the sign-in, then sends by itself.
     if (signedOut && !retry) {
-      sendAfterSignIn.current = !!prompt.trim();
-      startSignIn();
+      queueForSignIn([prompt, ...contexts.map((context) => context.text)].join('\n\n'), prompt);
       return;
     }
-    if (retry ? !again : !prompt.trim()) return;
     // A message while an approval waits is the answer "do this instead": deny the request,
     // stop the turn, then send the message.
     if (!retry && run && active && approvalsPending && !readOnly) {
@@ -831,7 +896,6 @@ export function Conversation({
     }
     if (active || taskBusy || startingRef.current || loading || readOnly) return;
     if (signedOut) {
-      sendAfterSignIn.current = true;
       startSignIn();
       return;
     }
@@ -901,12 +965,12 @@ export function Conversation({
               operationId,
               forkFrom: session.forkFrom,
               ...(session.forkOf ? { forkOf: session.forkOf, forkUntil: session.forkUntil } : {}),
-              model: chosenModel(modelOptions, model) || undefined,
+              model: model || undefined,
               taskId: taskId || undefined,
             })
           : await api.chatStart(session.agent, providerSession.current || session.id, text, edits, {
               operationId,
-              model: chosenModel(modelOptions, model) || undefined,
+              model: model || undefined,
               taskId: taskId || undefined,
             });
       localStorage.removeItem(key);
@@ -932,6 +996,10 @@ export function Conversation({
       runRef.current = next;
       setRun(next);
       follow.current = true;
+      // A new chat takes a short title from its first message at once (CH-2). The saved chat
+      // keeps the title that the agent gives it.
+      if (session.projectId && !providerSession.current && !messagesBefore.current && !taskId)
+        onTitleChange?.(shortChatTitle(mentionPlainText(sentPrompt)));
       if (next.status !== 'running') finishRun(next);
     } catch (e) {
       if (!mounted.current) return;
@@ -954,7 +1022,7 @@ export function Conversation({
       clearComposer();
       follow.current = true;
       if (session.projectId && !providerSession.current && !messagesBefore.current)
-        onTitleChange?.(mentionPlainText(sentPrompt).trim().split('\n', 1)[0].slice(0, 100));
+        onTitleChange?.(shortChatTitle(mentionPlainText(sentPrompt)));
     } finally {
       startingRef.current = false;
       setStarting(false);
@@ -967,12 +1035,14 @@ export function Conversation({
     sendWhenIdle.current = false;
     void send();
   }, [active]);
-  // Send the kept draft after the sign-in.
-  useEffect(() => {
-    if (account?.phase !== 'authenticated' || !sendAfterSignIn.current) return;
-    sendAfterSignIn.current = false;
-    void send();
-  }, [account?.phase]);
+  // The message that waited for the sign-in sends once, when the account is signed in.
+  const latestSend = useRef(send);
+  latestSend.current = send;
+  const { queued } = useSendAfterSignIn(api, chatKey, async (item) => {
+    if (loading || startingRef.current) throw new Error('The chat is not ready to send.');
+    const sentPrompt = typeof item.data?.prompt === 'string' ? item.data.prompt : item.text;
+    await latestSend.current({ resend: { text: item.text, prompt: sentPrompt } });
+  });
   /** Sends the failed message again. */
   function retrySend() {
     const failed = sendFailure;
@@ -1091,7 +1161,7 @@ export function Conversation({
         ...previous,
         {
           id: crypto.randomUUID(),
-          label: `Doc: ${title}`,
+          label: `Page: ${title}`,
           text: `Project doc page "${title}" (from the project docs):\n${page.markdown}`.slice(
             0,
             interfaceConfig.attachmentCharacters,
@@ -1158,12 +1228,46 @@ export function Conversation({
     requestAnimationFrame(() => textarea.current?.focus());
   }, []);
   // The open pull request can merge or close on GitHub. Read its state again.
+  // The tree opens a chat at one of its subagents: show its card, scroll to it and mark it.
+  const [focusedSubagent, setFocusedSubagent] = useState<string>();
+  const [focusRequest, setFocusRequest] = useState(0);
+  useEffect(() => {
+    const focus = (event: Event) => {
+      const detail = (event as CustomEvent<{ id?: string; subagentId?: string }>).detail;
+      if (!detail?.subagentId) return;
+      if (detail.id !== session.id && detail.id !== providerSession.current) return;
+      setFocusedSubagent(detail.subagentId);
+      setFocusRequest((value) => value + 1);
+    };
+    window.addEventListener('kalkidan-focus-subagent', focus);
+    return () => window.removeEventListener('kalkidan-focus-subagent', focus);
+  }, [session.id]);
+  useEffect(() => {
+    if (!focusedSubagent || !focusRequest) return;
+    const card = document.getElementById(subagentCardId(focusedSubagent));
+    if (!card) return;
+    card.scrollIntoView({ block: 'center' });
+    card.focus({ preventScroll: true });
+    card.setAttribute('data-focused', '');
+    const timer = window.setTimeout(() => card.removeAttribute('data-focused'), 1600);
+    return () => window.clearTimeout(timer);
+  }, [focusedSubagent, focusRequest]);
+  // The checks change too: read again when the window gets the focus, and each minute while
+  // a check runs.
   useEffect(() => {
     if (!pullRequest?.url || pullRequest.state === 'merged') return;
-    refreshPullRequest().catch(() => {
-      /* The chip keeps the saved state. */
-    });
-  }, [pullRequest?.url, repositoryId]);
+    const read = () =>
+      refreshPullRequest().catch(() => {
+        /* The chip keeps the saved state. */
+      });
+    void read();
+    window.addEventListener('focus', read);
+    const timer = pullRequest.checks === 'pending' ? window.setInterval(read, 60000) : undefined;
+    return () => {
+      window.removeEventListener('focus', read);
+      if (timer) window.clearInterval(timer);
+    };
+  }, [pullRequest?.url, pullRequest?.checks, repositoryId]);
   // A classic scrollbar (Windows, Linux) takes width on the right of the messages only. The
   // CSS subtracts it from the right padding, so messages and composer share one column.
   const panel = useRef<HTMLElement>(null);
@@ -1180,7 +1284,8 @@ export function Conversation({
     observer.observe(element);
     return () => observer.disconnect();
   }, []);
-  const empty = !loading && !messages.length && !run;
+  // A message that waits for the sign-in is in the transcript: the composer stays at the bottom.
+  const empty = !loading && !messages.length && !run && !queued;
   const liveStep = !!run?.tools?.some((tool) => tool.status === 'inProgress');
   // Every new or empty chat puts the cursor in the composer, so the user can type at once. A
   // dialog that opened the chat (for example the task sheet) closes first, so wait for it.
@@ -1234,6 +1339,8 @@ export function Conversation({
   const commands = useRef<(name: string) => boolean>(() => false);
   commands.current = (name) => {
     if (name === 'session-commit' && repositoryId) openCommit();
+    else if (name === 'session-read-only' && !active)
+      choosePermission(allowEdits ? 'read' : 'edit');
     else if (name === 'save-to-docs' && projectGroup) setSaveDocsOpen(true);
     else if (name === 'open-linked-task' && taskId && projectGroup) openLinkedTask();
     else if (name === 'link-task' && trackerConnection(projectGroup) && !active)
@@ -1289,6 +1396,25 @@ export function Conversation({
     if (last) activityAfter.set(last.id, [...(activityAfter.get(last.id) || []), entry]);
     else unplaced.push(entry);
   }
+  // A saved answer from the history file has its steps: one line under it, as after a run.
+  const historyEdited = new Map<string, string[]>();
+  for (const message of messages) {
+    if (message.role !== 'assistant' || !message.steps?.length || activityAfter.has(message.id))
+      continue;
+    const id = 'history:' + message.id;
+    historyEdited.set(id, message.edited || []);
+    activityAfter.set(message.id, [
+      {
+        id,
+        agent: session.agent,
+        sessionId: session.id,
+        status: 'completed',
+        messages: [],
+        activity: '',
+        tools: message.steps,
+      },
+    ]);
+  }
   // The facts and pages that the chat read. They go behind the line of the last run.
   const contextUsage = useContextUsage(
     api,
@@ -1300,15 +1426,23 @@ export function Conversation({
   const showContext = !!contextUsage && answered && !active;
   const lastRun = runs.at(-1);
   const activityOf = (entry: ChatRun) => (
-    <AgentActivity
-      key={'activity:' + entry.id}
-      run={entry}
-      groupId={projectGroup?.id}
-      taskId={taskId || undefined}
-      docPassages={docPassages[entry.id]}
-      context={showContext && entry === lastRun ? contextUsage : undefined}
-    />
+    <Fragment key={'activity:' + entry.id}>
+      <AgentActivity
+        run={entry}
+        edited={historyEdited.get(entry.id)}
+        groupId={projectGroup?.id}
+        taskId={taskId || undefined}
+        docPassages={docPassages[entry.id]}
+        context={showContext && entry === lastRun ? contextUsage : undefined}
+      />
+      {/* The subagents that this run started go under its answer (SH-A3). */}
+      <SubagentCards subagents={entry.subagents} shown={focusedSubagent} />
+    </Fragment>
   );
+  // A chat from history has its subagents on the session, not on a run in this view.
+  const historySubagents = runs.some((entry) => entry.subagents?.length)
+    ? undefined
+    : session.subagents;
   const lastAnswer =
     [...allMessages].reverse().find((message) => message.role === 'assistant')?.text || '';
   const firstMessage = allMessages.find((message) => message.role === 'user')?.text || prompt || '';
@@ -1351,23 +1485,27 @@ export function Conversation({
     placeCaret(next.caret);
   }
   const linkTaskAvailable = !!trackerConnection(projectGroup) && !taskId;
-  // An approval or a question docks above the composer.
-  const waiting = !!run && run.status === 'running' && !!(approvalsPending || questionsPending);
-  // One changes row after a run: "3 files +70 −2", Review and one action. It is the one way to
-  // the Changes pane. A branch with commits and no pull request also offers the pull request.
-  // Commit only and Mark task done are in the chat menu.
-  const unsharedCommits =
-    onBranchCopy && !pullRequest && !!working && working.ahead > 0 ? working.ahead : 0;
-  const lines = runLineCounts(runs);
+  // A question or an approval takes the place of the composer text box (CH-B1).
+  const waiting = !!waitingRequest(run) && !run?.hostDetached;
+  // The files that the agent changed in this chat, for the agent bars of the Code tab.
+  const agentPaths = [
+    ...new Set(
+      runs.flatMap((entry) =>
+        entry.diff
+          ? diffFiles(entry.diff).map((file) => file.path)
+          : (entry.tools || []).flatMap((tool) =>
+              tool.diff ? diffFiles(tool.diff).map((file) => file.path) : [],
+            ),
+      ),
+    ),
+  ].filter((path) => path !== 'Changes');
   // A task is done only after a run that finished, or when it has a pull request. A run that
   // failed or was stopped does not offer "Mark task done".
   const canMarkDone =
     !!taskId && !taskDone && (!!pullRequest || runs.at(-1)?.status === 'completed');
   canMarkDoneRef.current = canMarkDone && !taskBusy;
-  const showChanges =
-    !active &&
-    !!repositoryId &&
-    (chatChanges > 0 || unsharedCommits > 0 || (!!pullRequest && pullRequest.state !== 'merged'));
+  // After shipping, one PR row sits above the composer (CH-B5).
+  const showPullRequest = !!pullRequest && !waiting;
   // The chat menu shows "Mark task done" only when the chat can mark it.
   useEffect(() => {
     if (!visible) return;
@@ -1376,9 +1514,19 @@ export function Conversation({
       sessionId: session.id,
       linkedTask: !!taskId,
       pullRequest: !!pullRequest?.url,
+      readOnly: !allowEdits,
       ...(pullRequest?.number ? { pullRequestNumber: pullRequest.number } : {}),
     });
-  }, [visible, canMarkDone, taskBusy, session.id, taskId, pullRequest?.url, pullRequest?.number]);
+  }, [
+    visible,
+    canMarkDone,
+    taskBusy,
+    session.id,
+    taskId,
+    pullRequest?.url,
+    pullRequest?.number,
+    allowEdits,
+  ]);
   // A merged pull request finishes the linked task.
   const closedOnMerge = useRef('');
   useEffect(() => {
@@ -1387,10 +1535,10 @@ export function Conversation({
     closedOnMerge.current = pullRequest.url;
     void markDone();
   }, [pullRequest?.state, pullRequest?.url, taskId, taskDone]);
-  // A new chat shows its code folder and branch. Another folder starts a new chat there.
-  const folderPill =
+  // The repo chip: the ring mark and the name. A new chat also shows the branch, and another
+  // repo starts a new chat there.
+  const newChat =
     !!session.projectId && !messages.length && !run && !providerSession.current && !!repositoryId;
-  const folderLabel = working ? `${folderName} · ${working.branch}` : folderName;
   function switchFolder(repoId: string) {
     if (repoId === repositoryId) return;
     dispatchApp('kalkidan-close-chat', { agent: session.agent, id: session.id });
@@ -1433,6 +1581,41 @@ export function Conversation({
       disabled={!!attachReason}
       disabledReason={attachReason}
       onAttach={(context) => setContexts((previous) => [...previous, context])}
+      changesCount={chatChanges}
+      code={
+        session.projectId || repositoryId
+          ? {
+              hostId: session.hostId,
+              repositoryId,
+              repository: identity?.repo,
+              session: { id: session.id, title: sessionTitle, color: identity?.session || 'slate' },
+              agentName,
+              agentPaths,
+            }
+          : undefined
+      }
+      shipFooter={
+        repositoryId ? (
+          <ShipFooter
+            api={api}
+            repositoryId={repositoryId}
+            sessionTitle={sessionTitle}
+            summary={lastAnswer.slice(0, 2000)}
+            task={taskId ? linkedTask : undefined}
+            group={projectGroup}
+            onTaskChange={(item) =>
+              setLinkItems((items) => [...items.filter((entry) => entry.id !== item.id), item])
+            }
+            onCommitted={() => {
+              readWorking.current();
+              setRunsFinished((n) => n + 1);
+            }}
+            onPullRequest={pullRequestOpened}
+            pullRequest={pullRequest}
+            refresh={runsFinished}
+          />
+        ) : undefined
+      }
     >
       <section
         ref={panel}
@@ -1454,11 +1637,6 @@ export function Conversation({
             </div>
           )}
           {truncated && <p className="chat-context-note">Recent messages</p>}
-          {!loading && !messages.length && (
-            <div className="conversation-welcome">
-              <h3>{session.projectId ? 'What are we working on?' : 'Resume your chat'}</h3>
-            </div>
-          )}
           <div
             className="chat-log"
             role="log"
@@ -1498,49 +1676,75 @@ export function Conversation({
                   {message.role === 'user' && <SentMentions text={message.text} />}
                 </article>
                 {/* The failure is a card in the column under the message, not in the bubble. */}
-                {sendFailure?.messageId === message.id && (
-                  <SendFailure
-                    agentName={agentName}
-                    error={sendFailure.error}
-                    busy={!!active}
-                    onRetry={retrySend}
-                    onChangeAgent={changeAgent}
-                    onFork={session.id.startsWith('draft-') ? undefined : () => forkChat(session)}
-                    unsaved={!providerSession.current && session.id.startsWith('draft-')}
-                  />
-                )}
+                {/* A missing sign-in shows the sign-in card. The message sends again after it. */}
+                {sendFailure?.messageId === message.id &&
+                  sendFailure.error.action?.kind === 'sign-in' &&
+                  gateReady && <SignInGate api={api} onFinished={retrySend} />}
+                {sendFailure?.messageId === message.id &&
+                  (sendFailure.error.action?.kind !== 'sign-in' || !gateReady) && (
+                    <SendFailure
+                      agentName={agentName}
+                      error={sendFailure.error}
+                      api={api}
+                      busy={!!active}
+                      onRetry={retrySend}
+                      onChangeAgent={changeAgent}
+                      onFork={session.id.startsWith('draft-') ? undefined : () => forkChat(session)}
+                      unsaved={!providerSession.current && session.id.startsWith('draft-')}
+                    />
+                  )}
                 {activityAfter.get(message.id)?.map(activityOf)}
               </Fragment>
             ))}
           </div>
           {unplaced.map(activityOf)}
+          <SubagentCards subagents={historySubagents} shown={focusedSubagent} />
+          {/* The message that waits for the sign-in, and the sign-in card under it (ST-C3). */}
+          {queued && (
+            <>
+              <article className="chat-message user" data-queued="">
+                <div className="chat-message-author">You</div>
+                <div className="chat-markdown prose-ui" data-variant="chat">
+                  <Markdown remarkPlugins={[remarkGfm]} urlTransform={mentionUrl}>
+                    {mentionMarkdown(
+                      typeof queued.data?.prompt === 'string' ? queued.data.prompt : queued.text,
+                    )}
+                  </Markdown>
+                </div>
+              </article>
+              <p className="chat-queued-meta">
+                <Clock aria-hidden="true" />
+                Sends after sign-in
+                <Button variant="link" onClick={() => cancelQueuedSend(chatKey)}>
+                  Cancel
+                </Button>
+              </p>
+              <SignInGate api={api} />
+            </>
+          )}
           {/* The run without an answer in this view: the context line shows alone. */}
           {showContext && !runs.length && (
             <AgentActivity groupId={projectGroup?.id} context={contextUsage} />
           )}
-          {/* One status line: waiting for the user, or what runs now. The live step already
-              shows under the run line. */}
-          {waiting ? (
-            <div className="chat-activity" data-waiting="">
-              <span className="chat-activity-dot" aria-hidden="true" />
-              <span role="status">
-                {run?.hostDetached
-                  ? 'Waiting on SSH host'
-                  : approvalsPending
-                    ? 'Waiting for your approval'
-                    : 'Waiting for your answer'}
-              </span>
+          {/* One status line: what runs now. A question or an approval shows in the composer.
+              The live step already shows under the run line. */}
+          {active && !waiting && (!liveStep || run?.hostDetached) && (
+            <div className="chat-activity">
+              <LoaderCircle className="size-3.5 animate-spin" aria-hidden="true" />
+              <span role="status">{run?.hostDetached ? 'Waiting on SSH host' : activityText}</span>
             </div>
-          ) : (
-            active &&
-            (!liveStep || run?.hostDetached) && (
-              <div className="chat-activity">
-                <LoaderCircle className="size-3.5 animate-spin" aria-hidden="true" />
-                <span role="status">
-                  {run?.hostDetached ? 'Waiting on SSH host' : activityText}
-                </span>
-              </div>
-            )
+          )}
+          {!!run?.unsupportedRequests && active && (
+            <ChatCard
+              as="div"
+              role="status"
+              icon={CircleSlash}
+              title="Kalkidan declined a request it cannot show"
+            >
+              <p className="chat-card-body">
+                No permission was given. Ask the agent to send its question as a message.
+              </p>
+            </ChatCard>
           )}
           {shownPolicies.map((policy) => (
             <PolicyResultCard
@@ -1556,77 +1760,104 @@ export function Conversation({
               }
             />
           ))}
-          {run?.status === 'stopped' && !sendWhenIdle.current && (
-            <p className="chat-context-note">Stopped</p>
+          {/* "Stopped" on the left edge of the column, with its next step (CH-7). */}
+          {run?.status === 'stopped' && !active && !sendWhenIdle.current && (
+            <div className="chat-activity chat-stopped">
+              <Square className="size-3 fill-current" aria-hidden="true" />
+              <span role="status">Stopped</span>
+              <Button
+                variant="link"
+                onClick={() => void send({ resend: { text: 'Continue', prompt: 'Continue' } })}
+              >
+                Continue
+              </Button>
+            </div>
+          )}
+          {/* A failure shows in the chat under the answer, with its action (CH-6). */}
+          {errorInfo && (
+            <div className="chat-failure" role="alert">
+              <X className="chat-failure-icon" aria-hidden="true" />
+              <div className="chat-failure-body">
+                <p>{errorInfo.message}</p>
+                <AgentErrorNote note={errorInfo.note} code={errorInfo.code} />
+                {errorInfo.action?.kind === 'sign-in' && gateReady && <SignInGate api={api} />}
+                <div className="chat-failure-actions">
+                  {errorInfo.action && (errorInfo.action.kind !== 'sign-in' || !gateReady) && (
+                    <AgentErrorActions
+                      error={errorInfo}
+                      api={api}
+                      onRetry={
+                        errorInfo.action.kind === 'gateway-retry' && submitted.current && !active
+                          ? () => void send({ allowEdits: runEdits.current })
+                          : undefined
+                      }
+                      onFork={session.id.startsWith('draft-') ? undefined : () => forkChat(session)}
+                    />
+                  )}
+                  {hostError && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={reconnecting}
+                      onClick={() => void reconnect()}
+                    >
+                      {reconnecting ? 'Reconnecting…' : 'Reconnect'}
+                    </Button>
+                  )}
+                  {!errorInfo.action && !hostError && submitted.current && !active && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => void send({ allowEdits: runEdits.current })}
+                    >
+                      Try again
+                    </Button>
+                  )}
+                </div>
+              </div>
+            </div>
           )}
         </div>
         <div className="composer-dock">
-          {run && waiting && (
-            <div className="request-dock">
-              <RunRequests
-                api={api}
-                run={run}
-                onUpdate={(next) => {
-                  if (runRef.current?.id !== next.id) return;
-                  runRef.current = next;
-                  setRun(next);
-                  if (next.status !== 'running') finishRun(next);
-                }}
-              />
-            </div>
-          )}
-          {showChanges && (
-            <div className="run-changes" role="group" aria-label="Changes from this chat">
-              <FileDiff className="size-4 shrink-0" aria-hidden="true" />
-              <span role="status" className="run-changes-text">
-                {/* The count never shortens. */}
-                <span className="run-changes-count">
-                  {chatChanges > 0
-                    ? plural(chatChanges, 'file')
-                    : unsharedCommits > 0
-                      ? `${plural(unsharedCommits, 'commit')} not in a pull request`
-                      : pullRequestLabelText(pullRequest!)}
-                </span>
-                {chatChanges > 0 && (!!lines.added || !!lines.removed) && (
-                  <span className="run-changes-lines">
-                    <span className="diff-count-add">+{lines.added}</span>{' '}
-                    <span className="diff-count-remove">−{lines.removed}</span>
-                  </span>
-                )}
+          {showPullRequest && pullRequest && (
+            <div className="pr-row" role="group" aria-label="Pull request">
+              <GitPullRequest className="size-4 shrink-0" aria-hidden="true" />
+              <span className="pr-row-title">
+                {pullRequest.number ? `#${pullRequest.number} ` : ''}
+                {sessionTitle}
               </span>
-              <span className="run-changes-actions">
-                {chatChanges > 0 && (
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    aria-pressed={toolOpen === 'diff'}
-                    onClick={() => showTool('diff', true)}
-                  >
-                    Review
-                  </Button>
-                )}
-                {pullRequest ? (
-                  <Button size="sm" variant="outline" onClick={() => openExternal(pullRequest.url)}>
-                    {pullRequestActionLabel(pullRequest)}
-                  </Button>
-                ) : (
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="run-changes-primary"
-                    aria-label="Create pull request"
-                    onClick={createPullRequest}
-                  >
-                    <span className="run-changes-long">Create pull request</span>
-                    <span className="run-changes-short" aria-hidden="true">
-                      Create PR
-                    </span>
-                  </Button>
-                )}
-              </span>
+              <PullRequestState value={pullRequest} />
+              <Button
+                size="sm"
+                variant="outline"
+                className="ml-auto"
+                onClick={() => openExternal(pullRequest.url)}
+              >
+                Open on GitHub
+              </Button>
             </div>
           )}
           <Composer
+            replace={
+              waiting && run ? (
+                <ComposerAsk
+                  api={api}
+                  run={run}
+                  onUpdate={(next) => {
+                    if (runRef.current?.id !== next.id) return;
+                    runRef.current = next;
+                    setRun(next);
+                    if (next.status !== 'running') finishRun(next);
+                  }}
+                  onStop={() => void stop()}
+                  instead={{
+                    value: prompt,
+                    onChange: (value) => setPrompt(value),
+                    onSend: () => void send(),
+                  }}
+                />
+              ) : undefined
+            }
             inputRef={textarea}
             value={prompt}
             onValueChange={(value, at) => {
@@ -1638,13 +1869,11 @@ export function Conversation({
             canSend={!!prompt.trim() && !taskBusy && !loading && !readOnly}
             enterToSend={enterToSend}
             placeholder={
-              approvalsPending && waiting
-                ? `Or tell ${agentName} what to do instead`
-                : waiting
-                  ? `${agentName} is waiting for you…`
-                  : messages.length || run
-                    ? 'Ask for a change'
-                    : composerPlaceholderFor(agentName, session.projectId ? folderName : undefined)
+              queued
+                ? 'Reply…'
+                : messages.length || run
+                  ? 'Ask for a change'
+                  : composerPlaceholderFor(agentName, session.projectId ? folderName : undefined)
             }
             inputProps={{
               readOnly,
@@ -1781,33 +2010,6 @@ export function Conversation({
                     onFork={() => forkChat(session)}
                   />
                 )}
-                {errorInfo && (
-                  <Alert variant="destructive" size="sm" className="max-h-32 overflow-auto">
-                    <AlertDescription className="grid gap-1 text-xs whitespace-pre-wrap">
-                      {errorInfo.message}
-                      <AgentErrorNote note={errorInfo.note} code={errorInfo.code} />
-                      {errorInfo.action && (
-                        <AgentErrorActions
-                          error={errorInfo}
-                          onFork={
-                            session.id.startsWith('draft-') ? undefined : () => forkChat(session)
-                          }
-                        />
-                      )}
-                      {hostError && (
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="mt-1"
-                          disabled={reconnecting}
-                          onClick={() => void reconnect()}
-                        >
-                          {reconnecting ? 'Reconnecting…' : 'Reconnect'}
-                        </Button>
-                      )}
-                    </AlertDescription>
-                  </Alert>
-                )}
                 {pickerOpen && mentionAt && (
                   <MentionPicker
                     id={mentionListId}
@@ -1893,27 +2095,34 @@ export function Conversation({
                     event.currentTarget.value = '';
                   }}
                 />
-                {folderPill && (
-                  <FolderPill
-                    label={folderLabel}
-                    folders={folders}
+                {!!repositoryId && (
+                  <RepoPill
+                    label={identity?.repo?.name || folderName}
+                    // The branch shows when it is not the default branch (CH-B4, CH-B5).
+                    branch={
+                      working?.branch && working.branch !== working.defaultBranch
+                        ? working.branch
+                        : undefined
+                    }
+                    color={identity?.repo?.color}
+                    folders={folders.map((folder) => ({
+                      ...folder,
+                      color: identity?.repos?.[folder.id],
+                    }))}
                     current={repositoryId}
-                    onPick={switchFolder}
+                    onPick={newChat ? switchFolder : undefined}
                   />
                 )}
                 <AccessPill
                   value={allowEdits ? 'edit' : 'read'}
-                  onChange={choosePermission}
+                  onChange={readOnly ? undefined : choosePermission}
                   disabled={!!active}
                 />
-                <ModelChip
-                  choice={modelOptions}
-                  value={model}
-                  onChange={setModel}
-                  disabled={!!active}
-                  failed={modelsFailed}
+                <AgentPicker
+                  api={api}
                   agent={session.agent}
-                  agentName={agentName}
+                  hostId={session.hostId}
+                  disabled={!!active}
                   onAgentChange={
                     onAgentChange && !messages.length && !run && !providerSession.current
                       ? (next) => onAgentChange(next, taskId || undefined)
@@ -1935,11 +2144,6 @@ export function Conversation({
                     <Square className="size-2.5 fill-current" />
                   </Button>
                 </Hint>
-              ) : signedOut ? (
-                <Button className="composer-send-slot" size="sm" onClick={() => void send()}>
-                  <LogIn aria-hidden="true" />
-                  Sign in to send
-                </Button>
               ) : undefined
             }
           />
@@ -2007,36 +2211,13 @@ export function Conversation({
               variant="link"
               onClick={() => {
                 setUncommitted(0);
-                setCommitIntent('commit');
-                setCommitOpen(true);
+                showTool('diff');
               }}
             >
               Commit the changes first
             </Button>
           </p>
         </ConfirmDialog>
-        {repositoryId && (
-          <CommitDialog
-            api={api}
-            repositoryId={repositoryId}
-            open={commitOpen}
-            intent={commitIntent}
-            onOpenChange={setCommitOpen}
-            onCommitted={() => {
-              readWorking.current();
-              setRunsFinished((n) => n + 1);
-            }}
-            message={sessionTitle}
-            sessionTitle={sessionTitle}
-            summary={lastAnswer.slice(0, 2000)}
-            task={taskId ? linkedTask : undefined}
-            group={projectGroup}
-            onTaskChange={(item) =>
-              setLinkItems((items) => [...items.filter((entry) => entry.id !== item.id), item])
-            }
-            onPullRequest={pullRequestOpened}
-          />
-        )}
         {projectGroup && (
           <DocPagePicker
             api={api}
