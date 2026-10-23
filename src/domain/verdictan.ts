@@ -911,6 +911,10 @@ export const managedErrors: Record<string, ManagedErrorInfo> = {
     message: 'Select the EU or US region, then sign in to managed agents.',
     section: 'account',
   },
+  'desktop.region_locked': {
+    message: 'Sign out of Verdictan to change the region.',
+    section: 'account',
+  },
   'desktop.session_rejected': {
     message: 'The managed agents service did not accept the sign-in. Sign in again.',
     section: 'account',
