@@ -437,6 +437,10 @@ function DocEditor({
   }
   function update(value: ProjectDoc) {
     if (recovery) return;
+    // The editor can report its first render as a change. Only a real change saves the page.
+    const last = latest.current;
+    const keys = new Set([...Object.keys(value), ...Object.keys(last)] as (keyof ProjectDoc)[]);
+    if ([...keys].every((key) => value[key] === last[key])) return;
     machine.edit(value);
     latest.current = value;
     clearTimeout(timer.current);
@@ -1190,7 +1194,7 @@ export function ProjectDocsPanel({
       content: (
         <span className="inline-flex items-center gap-1.5">
           {`${plural(made.length, 'task')} in `}
-          {color && <IdentityMark kind="repo" color={color} slot={false} />}{' '}
+          {color && <IdentityMark kind="repo" color={color} slot={false} className="mx-[3px]" />}
           <b className="font-semibold">{name}</b>
         </span>
       ),

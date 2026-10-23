@@ -1,4 +1,4 @@
-import { Check, Settings2, SquareArrowOutUpRight } from 'lucide-react';
+import { ExternalLink } from 'lucide-react';
 import type { API } from '../api/contracts';
 import { agentChoices, type ComputerTools } from '../domain/desktop';
 import { agentCatalog, isAgent } from '../config/agents';
@@ -12,7 +12,7 @@ import {
   DropdownMenuShortcut,
 } from './ui/dropdown-menu';
 import { openSettings } from './chat-links';
-import { useComputerTools } from './settings-tools';
+import { ReadyCheck, useComputerTools } from './settings-tools';
 
 /**
  * The computers of the agent picker before a folder is chosen (ST-C2): this computer first,
@@ -27,6 +27,28 @@ function pickerComputers(computers: ComputerTools[] | undefined) {
         computer.computer !== 'local' && computer.connected && computer.tools.length > 0,
     ),
   ];
+}
+
+/** The icon of "Tools…": three sliders. */
+function ToolsIcon() {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      width="16"
+      height="16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M4 6h9M17 6h3M4 12h3M11 12h9M4 18h11M19 18h1" />
+      <circle cx="15" cy="6" r="2" />
+      <circle cx="9" cy="12" r="2" />
+      <circle cx="17" cy="18" r="2" />
+    </svg>
+  );
 }
 
 /**
@@ -72,6 +94,7 @@ export function ComputerAgentGroups({
               return choice.available ? (
                 <DropdownMenuItem
                   key={choice.agent}
+                  className={selected ? 'agent-picker-current' : undefined}
                   disabled={!selected && !onAgentChange}
                   onSelect={() => {
                     if (selected) return;
@@ -81,7 +104,9 @@ export function ComputerAgentGroups({
                 >
                   <AgentIcon agent={choice.agent} />
                   <span className="min-w-0 flex-1 truncate">{choice.name}</span>
-                  {selected && <Check aria-label="Selected" className="text-muted-foreground" />}
+                  {selected && (
+                    <ReadyCheck label="Selected" className="size-3.5 text-muted-foreground" />
+                  )}
                 </DropdownMenuItem>
               ) : (
                 <DropdownMenuItem
@@ -92,8 +117,10 @@ export function ComputerAgentGroups({
                 >
                   <AgentIcon agent={choice.agent} />
                   <span className="min-w-0 flex-1 truncate">{choice.name}</span>
-                  <span className="agent-picker-version">Not installed</span>
-                  <SquareArrowOutUpRight aria-label="Opens the official page" className="size-3" />
+                  <span className="agent-picker-missing">
+                    Not installed
+                    <ExternalLink aria-label="Opens the official page" className="size-3" />
+                  </span>
                 </DropdownMenuItem>
               );
             })}
@@ -102,7 +129,7 @@ export function ComputerAgentGroups({
       })}
       <DropdownMenuSeparator />
       <DropdownMenuItem onSelect={() => openSettings('tools')}>
-        <Settings2 />
+        <ToolsIcon />
         Tools…
         <DropdownMenuShortcut>{isMac ? '⌘,' : 'Ctrl+,'}</DropdownMenuShortcut>
       </DropdownMenuItem>

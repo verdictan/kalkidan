@@ -4,7 +4,7 @@ import type { ModelOption } from '../types';
 import { modelChoice, type ModelChoice } from '../domain/model-choice';
 import { agentChoices, type AgentChoice, type ComputerTools } from '../domain/desktop';
 import { savePreferredAgent } from '../lib/agent-preference';
-import { Check, ChevronDown, Settings2, SquareArrowOutUpRight } from 'lucide-react';
+import { Check, ChevronDown, SquareArrowOutUpRight } from 'lucide-react';
 import { agentCatalog, isAgent } from '../config/agents';
 import { AgentIcon } from './ui/agent-icon';
 import { Button } from './ui/button';
@@ -18,7 +18,6 @@ import {
   DropdownMenuTrigger,
 } from './ui/dropdown-menu';
 import { Hint } from './hint';
-import { openSettings } from './chat-links';
 import { ComputerAgentGroups } from './agent-picker-computers';
 
 /** The tool detection calls of the desktop app (DESKTOP). Older builds do not have them. */
@@ -26,6 +25,10 @@ type ToolsAPI = {
   toolStatus?: (computer?: string, options?: { fresh?: boolean }) => Promise<ComputerTools>;
   onToolsChange?: (callback: (computer: ComputerTools) => void) => () => void;
 };
+
+/** A 28px agent row with 14px icons in the text color, as in CH-B4. */
+const pickerRowClass =
+  "h-7 rounded-[6px] [&_svg:not([class*='size-'])]:size-3.5 [&_svg:not([class*='text-'])]:text-foreground";
 
 /** The line under the agent list. Kalkidan finds new programs when it starts. */
 export const restartLine = 'Installed another agent? Restart Kalkidan to find it.';
@@ -113,7 +116,7 @@ export function AgentPicker({
             disabled={disabled}
             aria-label={`Agent: ${name}`}
             className={cn(
-              'composer-agent max-w-[220px] min-w-0 shrink data-[state=open]:bg-[var(--surface-selected)] data-[state=open]:text-foreground',
+              'composer-agent max-w-[220px] min-w-0 shrink aria-expanded:bg-[var(--surface-selected)] aria-expanded:text-foreground',
               composerChipClass,
             )}
           >
@@ -131,7 +134,12 @@ export function AgentPicker({
           <ComputerAgentGroups api={api} agent={agent} onAgentChange={onAgentChange} />
         </DropdownMenuContent>
       ) : (
-        <DropdownMenuContent align="start" className="agent-picker-menu">
+        <DropdownMenuContent
+          align="start"
+          sideOffset={16}
+          // CH-B4: 264px, radius 10, a border and 28px rows, 16px under the chip.
+          className="agent-picker-menu w-[264px] min-w-0 rounded-[10px] border border-border shadow-[0_8px_28px_rgb(0_0_0/0.12)]"
+        >
           <div className="agent-picker-head" role="presentation">
             <span>{hostId ? 'On this SSH host' : 'On this computer'}</span>
             <span className="agent-picker-through">through Verdictan</span>
@@ -145,6 +153,7 @@ export function AgentPicker({
             choice.available ? (
               <DropdownMenuItem
                 key={choice.agent}
+                className={pickerRowClass}
                 disabled={choice.agent !== agent && !onAgentChange}
                 onSelect={() => {
                   if (choice.agent === agent) return;
@@ -152,7 +161,7 @@ export function AgentPicker({
                   onAgentChange?.(choice.agent);
                 }}
               >
-                <AgentIcon agent={choice.agent} />
+                <AgentIcon agent={choice.agent} className="size-3.5" />
                 <span className="min-w-0 flex-1 truncate">{choice.name}</span>
                 {choice.version && <span className="agent-picker-version">{choice.version}</span>}
                 {choice.agent === agent ? (
@@ -164,22 +173,19 @@ export function AgentPicker({
             ) : (
               <DropdownMenuItem
                 key={choice.agent}
-                className="text-muted-foreground"
+                className={cn(pickerRowClass, 'text-muted-foreground')}
                 disabled={!choice.installUrl}
                 onSelect={() => window.open(choice.installUrl, '_blank', 'noreferrer')}
               >
-                <AgentIcon agent={choice.agent} />
+                <AgentIcon agent={choice.agent} className="size-3.5" />
                 <span className="min-w-0 flex-1 truncate">{choice.name}</span>
                 <span className="agent-picker-version">Not installed</span>
                 <SquareArrowOutUpRight aria-label="Opens the official page" />
               </DropdownMenuItem>
             ),
           )}
+          {/* CH-B4: the restart line under the list. Tools is in Settings (⌘,). */}
           <DropdownMenuSeparator />
-          <DropdownMenuItem onSelect={() => openSettings('tools')}>
-            <Settings2 />
-            Tools…
-          </DropdownMenuItem>
           <p className="agent-picker-note">{restartLine}</p>
         </DropdownMenuContent>
       )}

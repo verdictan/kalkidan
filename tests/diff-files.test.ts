@@ -15,3 +15,15 @@ test('file review handles spaces, deletion and rename without counting headers',
   );
   assert.deepEqual(diffFiles(''), []);
 });
+test('a whole new or removed file counts its lines from the hunk header, also when cut', () => {
+  const files = diffFiles(
+    'diff --git a/new.ts b/new.ts\n--- /dev/null\n+++ b/new.ts\n@@ -0,0 +1,13 @@\n+one\n+two\ndiff --git a/old.ts b/old.ts\n--- a/old.ts\n+++ /dev/null\n@@ -1,4 +0,0 @@\n-a\n',
+  );
+  assert.deepEqual(
+    files.map(({ path, added, removed }) => ({ path, added, removed })),
+    [
+      { path: 'new.ts', added: 13, removed: 0 },
+      { path: 'old.ts', added: 0, removed: 4 },
+    ],
+  );
+});

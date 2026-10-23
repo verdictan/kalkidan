@@ -11,7 +11,8 @@ import { PageHeader } from './ui/page-header';
 import { StatusGlyph } from './ui/status-glyph';
 import type { API, Agent, ProjectGroup, Project, Session } from '../types';
 import { sessionRepo } from '../lib/session-repository';
-import { fullTime, relativeTime } from '../lib/relative-time';
+import { fullTime } from '../lib/relative-time';
+import { projectAge } from '../lib/project-age';
 import { folderName, showFolderImportResult, useFolderImport } from './repository-import';
 import { showToast } from './ui/toast';
 import { errorMessage } from '../lib/errors';
@@ -219,14 +220,24 @@ export function ProjectOverview({
   return (
     <div className="project-frame projects-page" data-page="projects">
       <PageHeader
-        title="Projects"
-        actions={
-          <Button size="sm" onClick={() => setOpen(true)}>
+        crumbs={
+          // The title row below holds the heading; the title bar shows the crumb.
+          <span className="app-header-title" aria-hidden="true">
+            <span className="app-header-title-text">Projects</span>
+          </span>
+        }
+      />
+      {/* SP-C2: the title row of the page, with the brown New project button at the right. */}
+      <div className="page-head" data-title-row="">
+        <div className="page-head-row">
+          <h1 className="page-head-title page-title">Projects</h1>
+          <span className="app-header-spacer" />
+          <Button className="has-[>svg]:px-3" onClick={() => setOpen(true)}>
             <Plus />
             New project
           </Button>
-        }
-      />
+        </div>
+      </div>
       <div className="project-frame-body">
         <section className="page" aria-label="Projects">
           {/* SP-C2: a table with Name, Activity and Updated. Each row opens its project. */}
@@ -267,7 +278,7 @@ export function ProjectOverview({
                       <span className="projects-table-updated">
                         {last && (
                           <time dateTime={last} title={fullTime(last)}>
-                            {relativeTime(last)}
+                            {projectAge(last)}
                           </time>
                         )}
                       </span>

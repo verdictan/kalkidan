@@ -1,9 +1,9 @@
 import {
   AppWindow,
-  MessageSquarePlus,
   PenLine,
   Plus,
   SlidersHorizontal,
+  SquarePen,
   Trash2,
   Unplug,
 } from 'lucide-react';
@@ -76,9 +76,10 @@ export interface ProjectMenuHandlers {
 }
 
 /**
- * The items of the one project menu, in this order: Open in new window, New chat — Add repo,
- * Rename — Color — Usage, Settings. New task and New page are in search. Give the color choice
- * to the menu as `color`; it shows before Settings, with the extra rows (Usage).
+ * The items of the one project menu (SH-A2), in this order: Open in new window, New chat — Add
+ * repo, Rename, Color — Settings, then Remove project when the caller gives `onRemove`. New task
+ * and New page are in search. Give the color choice to the menu as `color`; it shows before
+ * Settings, with the extra rows that the caller gives.
  */
 export function projectMenuActions(handlers: ProjectMenuHandlers): TreeAction[] {
   const icon = (Icon: typeof Plus) => <Icon className="size-4" />;
@@ -95,7 +96,7 @@ export function projectMenuActions(handlers: ProjectMenuHandlers): TreeAction[] 
       : []),
     {
       label: `New chat in ${handlers.projectName}`,
-      icon: icon(MessageSquarePlus),
+      icon: icon(SquarePen),
       shortcut: shortcutLabel(['mod'], 'N'),
       action: handlers.onNewChat,
     },
@@ -193,12 +194,8 @@ export function TreeContextMenu({
   const hasSlot = actions.some((item) => item.colorBefore);
   const slot = (
     <>
-      {color && (
-        <>
-          <ContextMenu.Separator className={menuSeparatorClass} />
-          <ColorSection color={color} />
-        </>
-      )}
+      {/* SH-A2: Color follows Rename… without a line. */}
+      {color && <ColorSection color={color} />}
       {extra && (
         <>
           <ContextMenu.Separator className={menuSeparatorClass} />
@@ -234,7 +231,8 @@ export function TreeContextMenu({
           collisionPadding={menuCollisionPadding}
           className={cn(
             menuSurfaceClass,
-            menuWideClass,
+            // The project menu with its Color swatches is 248px wide (SH-A2).
+            color ? 'w-[248px] min-w-fit' : menuWideClass,
             'max-h-(--radix-context-menu-content-available-height) origin-(--radix-context-menu-content-transform-origin)',
           )}
           aria-label={label}
@@ -294,12 +292,7 @@ export function TreeActionsMenu({
   const hasSlot = actions.some((item) => item.colorBefore);
   const slot = (
     <>
-      {color && (
-        <>
-          <DropdownMenuSeparator />
-          <ColorSection color={color} />
-        </>
-      )}
+      {color && <ColorSection color={color} />}
       {extra && (
         <>
           <DropdownMenuSeparator />

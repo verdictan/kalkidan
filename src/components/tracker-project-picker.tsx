@@ -133,7 +133,9 @@ export function TrackerProjectPicker({
     client
       .projects(owner)
       .then((result) => {
-        if (active) setProjects(result);
+        if (!active) return;
+        setProjects(result);
+        if (result.length) saveBoardNames(provider, result);
       })
       .catch((e) => {
         if (active) setError(e.message);
@@ -437,7 +439,13 @@ function TrackerAccess({
             : `Asking ${providerName} for a code`}
           <StatusGlyph status="working" />
         </span>
-        <Button variant="secondary" disabled={!auth.code} onClick={onOpenAuth}>
+        <Button
+          variant="secondary"
+          size="sm"
+          className="bg-background shadow-[inset_0_0_0_1px_var(--border)] hover:bg-[var(--fill)]"
+          disabled={!auth.code}
+          onClick={onOpenAuth}
+        >
           Open {providerName}
           <ArrowUpRight aria-hidden="true" />
         </Button>
@@ -481,6 +489,31 @@ export function rankBoards(projects: TrackerProject[], projectName: string) {
     .map((project, index) => ({ project, index, score: score(project) }))
     .sort((a, b) => b.score - a.score || a.index - b.index)
     .map((entry) => entry.project);
+}
+
+/** The board names of the last board list, so the list can show them before the sign-in. */
+const boardNamesKey = (provider: string) => `kalkidan-board-names:${provider}`;
+type BoardName = Pick<TrackerProject, 'title' | 'number'>;
+function readBoardNames(provider: string): BoardName[] {
+  try {
+    const value: unknown = JSON.parse(localStorage.getItem(boardNamesKey(provider)) || '[]');
+    return Array.isArray(value)
+      ? value.filter(
+          (item): item is BoardName =>
+            !!item && typeof item.title === 'string' && item.title.length <= 200,
+        )
+      : [];
+  } catch {
+    return [];
+  }
+}
+function saveBoardNames(provider: string, projects: TrackerProject[]) {
+  try {
+    const names = projects.slice(0, 20).map(({ title, number }) => ({ title, number }));
+    localStorage.setItem(boardNamesKey(provider), JSON.stringify(names));
+  } catch {
+    // Without storage, the list shows a placeholder before the sign-in.
+  }
 }
 
 /**
@@ -575,7 +608,7 @@ export function ConnectBoardPanel({
     return () => {
       active = false;
     };
-  }, [client, owner, revision]);
+  }, [client, owner, revision, provider]);
   const text = query.trim();
   const pasted = boardUrl(text);
   const matches = pasted
@@ -601,6 +634,11 @@ export function ConnectBoardPanel({
     }
   }
   const canCreate = !!owner && !!descriptor?.capabilities.createProject;
+  // Before the sign-in, the best board of the last list shows (dimmed) in the first row.
+  const bestKnown =
+    auth.status === 'waiting'
+      ? rankBoards(readBoardNames(provider) as TrackerProject[], group.name)[0]
+      : undefined;
   const name = (project: TrackerProject) =>
     project.number ? `${project.title} #${project.number}` : project.title;
   return (
@@ -645,7 +683,16 @@ export function ConnectBoardPanel({
           <li className="connect-board-row" data-first>
             <Layers2 aria-hidden="true" />
             <span className="connect-board-name">
-              <span className="connect-board-skeleton" />
+              {bestKnown ? (
+                <>
+                  {bestKnown.title}
+                  {!!bestKnown.number && (
+                    <span className="connect-board-number">#{bestKnown.number}</span>
+                  )}
+                </>
+              ) : (
+                <span className="connect-board-skeleton" />
+              )}
             </span>
             <span className="connect-board-action">Connect</span>
           </li>

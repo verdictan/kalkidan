@@ -1,11 +1,10 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import {
-  Check,
   CircleAlert,
   ExternalLink,
   LoaderCircle,
   Plus,
-  RotateCw,
+  RefreshCcw,
   SquareTerminal,
   Asterisk,
 } from 'lucide-react';
@@ -119,10 +118,49 @@ export function restartKalkidan(api: API) {
   );
 }
 
+/** The check of a tool that is ready: one short and one long stroke. */
+export function ReadyCheck({ className, label }: { className?: string; label: string }) {
+  return (
+    <svg
+      className={className}
+      viewBox="0 0 24 24"
+      width="16"
+      height="16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      role="img"
+      aria-label={label}
+    >
+      <path d="m5 12 5 5 9-10" />
+    </svg>
+  );
+}
+
+/** The GitHub mark as a line icon, as the other tool icons. */
+function GitHubLineIcon() {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      width="16"
+      height="16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M9 19c-4 1.5-4-2-6-2.5M15 21v-3.5c0-1 .1-1.4-.5-2 2.8-.3 5.5-1.4 5.5-6a4.6 4.6 0 0 0-1.3-3.2 4.2 4.2 0 0 0-.1-3.2s-1-.3-3.4 1.3a11.6 11.6 0 0 0-6.2 0C6.6 2.8 5.6 3.1 5.6 3.1a4.2 4.2 0 0 0-.1 3.2A4.6 4.6 0 0 0 4.2 9.5c0 4.6 2.7 5.7 5.5 6-.6.6-.6 1.2-.5 2V21" />
+    </svg>
+  );
+}
+
 /** The 16px icon of a tool. */
 export function ToolIcon({ tool }: { tool: ToolStatus['tool'] }) {
-  if (tool === 'gh')
-    return <img src="./icons/github.svg" width="16" height="16" alt="" aria-hidden="true" />;
+  if (tool === 'gh') return <GitHubLineIcon />;
   if (tool === 'claude') return <Asterisk aria-hidden="true" />;
   return <SquareTerminal aria-hidden="true" />;
 }
@@ -146,7 +184,7 @@ export function ToolLink({ tool, children }: { tool: ToolStatus['tool']; childre
 /** A green check for a tool that is ready, else an amber "!". */
 export function ToolStateGlyph({ ready, label }: { ready: boolean; label: string }) {
   return ready ? (
-    <Check className="st-tool-ok" role="img" aria-label={label} />
+    <ReadyCheck className="st-tool-ok" label={label} />
   ) : (
     <CircleAlert className="st-tool-warn" role="img" aria-label={label} />
   );
@@ -231,11 +269,11 @@ export function ToolsPart({ api, open }: { api: API; open: boolean }) {
           <Button
             variant="ghost"
             size="sm"
-            className="st-head-action h-6 px-0 hover:bg-transparent has-[>svg]:px-0"
+            className="st-head-action -mb-0.5 h-6 gap-1.5 px-px text-xs hover:bg-transparent has-[>svg]:px-px [&_svg:not([class*='size-'])]:size-3"
             disabled={tools.checking}
             onClick={() => void tools.checkAgain()}
           >
-            {tools.checking ? <LoaderCircle className="animate-spin" /> : <RotateCw />}
+            {tools.checking ? <LoaderCircle className="animate-spin" /> : <RefreshCcw />}
             {tools.checking ? 'Checking…' : 'Check again'}
           </Button>
         )}

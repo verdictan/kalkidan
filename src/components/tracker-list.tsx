@@ -38,6 +38,7 @@ import { MoreButton } from './ui/more-button';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table';
 import { Hint } from './hint';
 import { pathBasename, plural } from '../lib/platform';
+import { cn } from '../lib/utils';
 
 /** True for a status that means the work is complete, such as "Done" or "Closed". */
 export function isDoneStatus(name: string) {
@@ -273,7 +274,15 @@ export function TaskPullRequest({
   return (
     <>
       {separator && <span aria-hidden="true">·</span>}
-      <Button asChild variant="ghost" size="xs" className="tracker-task-pr">
+      <Button
+        asChild
+        variant="ghost"
+        size="xs"
+        className={cn(
+          'tracker-task-pr',
+          short && 'h-4 gap-1 px-0 font-normal has-[>svg]:px-0 hover:bg-transparent',
+        )}
+      >
         <a
           href={pullRequest.url}
           target="_blank"

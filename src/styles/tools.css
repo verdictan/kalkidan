@@ -1,3 +1,8 @@
+/* Line numbers, crumb slashes and the frame of a question: #a3a3a3, as in the agreed frames.
+   They are not control edges, so they do not need the 3:1 of --border-strong. */
+:root {
+  --chat-faint: oklch(0.72 0 0);
+}
 /* DiffBlock (diff-review.tsx): one diff for steps, approvals and the Changes pane. Framed
    like a code block in the chat. The Changes pane fills its edges. */
 .diff-block {
@@ -43,7 +48,7 @@
   width: 28px;
   margin-right: 12px;
   text-align: right;
-  color: var(--border-strong);
+  color: var(--chat-faint);
   user-select: none;
 }
 /* The Changes panel is a column. The body does not scroll. Only the diff output and the
@@ -192,7 +197,7 @@
   width: 40px;
   padding-right: 12px;
   text-align: right;
-  color: var(--border-strong);
+  color: var(--chat-faint);
   user-select: none;
 }
 .diff-view-text {
@@ -256,6 +261,8 @@
   box-shadow: var(--focus-ring);
 }
 .tool-pane-count {
+  /* The count has its own 10px sides, as in the agreed frames: "Changes   3   ". */
+  padding: 0 10px;
   font-weight: 400;
   color: var(--muted-foreground);
   font-variant-numeric: tabular-nums;
@@ -451,7 +458,7 @@
 }
 
 /* Chat stays mounted alongside the tools; native surfaces track the right pane bounds. The
-   chat keeps at least 420px and the tool pane at least 360px. */
+   chat keeps at least 320px and the tool pane at least 360px. */
 .conversation-split {
   position: relative;
   display: flex;
@@ -469,7 +476,7 @@
 .conversation-split.tools-expanded {
   display: grid;
   grid-template-columns:
-    clamp(340px, var(--chat-width, calc(100% - 441px)), calc(100% - 361px))
+    clamp(320px, var(--chat-width, calc(100% - 441px)), calc(100% - 361px))
     1px minmax(360px, 1fr);
 }
 /* Below 701px there is no room for both side by side: the tool pane goes above the chat, and

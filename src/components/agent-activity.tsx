@@ -376,12 +376,15 @@ function StepLine({ tool }: { tool: ToolActivity }) {
  */
 export function AgentActivity({
   run,
+  edited,
   groupId,
   taskId,
   docPassages = [],
   context,
 }: {
   run?: ChatRun;
+  /** The files that a saved answer edited, from the history file. Else from the run diff. */
+  edited?: string[];
   /** The project of the chat. Memory, docs and usage open its pages. */
   groupId?: string;
   /** The linked task. Usage opens its history. */
@@ -392,7 +395,8 @@ export function AgentActivity({
   context?: ContextUsage;
 }) {
   const tools = run?.tools || [];
-  const paths = run && (run.diff || tools.some((tool) => tool.diff)) ? changedPaths(run) : [];
+  const paths =
+    edited || (run && (run.diff || tools.some((tool) => tool.diff)) ? changedPaths(run) : []);
   const live =
     run?.status === 'running' ? tools.filter((tool) => tool.status === 'inProgress') : [];
   const contextText = contextUsageText(context);

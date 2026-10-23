@@ -55,9 +55,9 @@ const kinds: ToolKind[] = ['diff', 'code', 'terminal', 'browser'];
 const singleKinds = new Set<ToolKind>(['diff', 'code']);
 
 // Command+` cycles windows on macOS, so the terminal uses Control+` there, as VS Code does.
-// The chat column keeps at least 340px and a tool pane at least 360px. A narrower area shows
+// The chat column keeps at least 320px and a tool pane at least 360px. A narrower area shows
 // the tool pane above the chat (tools.css). The pane is 440px wide until the user resizes it.
-const minSessionWidth = 340;
+const minSessionWidth = 320;
 const minToolWidth = 360;
 const shortcuts = {
   terminal: shortcutLabel([isMac ? 'ctrl' : 'mod'], '`'),

@@ -627,15 +627,11 @@ export function Conversation({
       current = false;
     };
   }, [api, session.agent, session.id, session.hostId, policyChat, policyReads]);
-  function finishRun(next: ChatRun) {
-    if (finished.current.has(next.id)) return;
-    finished.current.add(next.id);
-    syncStartedTask(next);
-    if (next.policies?.length) {
-      if (next.sessionReady && next.sessionId) setPolicyChat(next.sessionId);
-      setPolicyReads((count) => count + 1);
-    }
-
+  /**
+   * Links a new chat to the session of the agent as soon as the agent reports it, also while the
+   * run continues. The tree and the crumb then show the saved chat with its title and color.
+   */
+  function bindSession(next: ChatRun) {
     if (session.projectId && !providerSession.current && next.sessionReady && next.sessionId) {
       providerSession.current = next.sessionId;
       if (taskId || pullRequest || session.organization)
@@ -662,7 +658,20 @@ export function Conversation({
             .slice(0, 100) ||
           session.title,
       );
+      // While the run continues, read the saved chats again: the tree then shows this chat.
+      if (next.status === 'running') completed.current();
     }
+  }
+  function finishRun(next: ChatRun) {
+    if (finished.current.has(next.id)) return;
+    finished.current.add(next.id);
+    syncStartedTask(next);
+    if (next.policies?.length) {
+      if (next.sessionReady && next.sessionId) setPolicyChat(next.sessionId);
+      setPolicyReads((count) => count + 1);
+    }
+
+    bindSession(next);
     // A draft that did not save keeps its outcome in memory only, for its status dot. A refused
     // launch is never saved as a chat.
     if (session.id.startsWith('draft-'))
@@ -783,6 +792,10 @@ export function Conversation({
       clearTimeout(timer);
     };
   }, [api, run?.id, run?.status, run?.governance?.finalized]);
+  // The agent reported its session while the run continues: link the new chat to it now.
+  useEffect(() => {
+    if (run?.status === 'running' && run.sessionReady && run.sessionId) bindSession(run);
+  }, [run?.id, run?.status, run?.sessionReady, run?.sessionId]);
   // A run that continued on the SSH host while this chat was closed: attach to it again.
   useEffect(() => {
     const id = session.liveRunId;
@@ -1383,6 +1396,25 @@ export function Conversation({
     if (last) activityAfter.set(last.id, [...(activityAfter.get(last.id) || []), entry]);
     else unplaced.push(entry);
   }
+  // A saved answer from the history file has its steps: one line under it, as after a run.
+  const historyEdited = new Map<string, string[]>();
+  for (const message of messages) {
+    if (message.role !== 'assistant' || !message.steps?.length || activityAfter.has(message.id))
+      continue;
+    const id = 'history:' + message.id;
+    historyEdited.set(id, message.edited || []);
+    activityAfter.set(message.id, [
+      {
+        id,
+        agent: session.agent,
+        sessionId: session.id,
+        status: 'completed',
+        messages: [],
+        activity: '',
+        tools: message.steps,
+      },
+    ]);
+  }
   // The facts and pages that the chat read. They go behind the line of the last run.
   const contextUsage = useContextUsage(
     api,
@@ -1397,6 +1429,7 @@ export function Conversation({
     <Fragment key={'activity:' + entry.id}>
       <AgentActivity
         run={entry}
+        edited={historyEdited.get(entry.id)}
         groupId={projectGroup?.id}
         taskId={taskId || undefined}
         docPassages={docPassages[entry.id]}

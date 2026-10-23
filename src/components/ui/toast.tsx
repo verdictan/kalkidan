@@ -143,29 +143,30 @@ export function Toaster({ className, resetKey }: { className?: string; resetKey?
           onFocus={() => pauseTimer(item.id)}
           onBlur={() => startTimer(item.id)}
           className={cn(
-            // One dark toast: 40px, radius 12, padding 0 8 0 16, 13/20 text, actions 13/20 500.
-            'pointer-events-auto flex max-w-full min-h-10 items-center gap-1 rounded-lg bg-foreground py-1 pr-2 pl-4 text-sm text-background shadow-[var(--shadow-toast)]',
+            // One dark toast (KN-B2): 40px, radius 8, padding 0 8 0 16, 16px between the parts,
+            // 13/20 text, actions 13/20 600.
+            'pointer-events-auto flex max-w-full min-h-10 items-center gap-4 rounded-md bg-foreground py-1 pr-2 pl-4 text-sm text-background shadow-[var(--shadow-toast)]',
             'motion-safe:animate-in motion-safe:fade-in-0 motion-safe:slide-in-from-bottom-2 motion-safe:duration-[var(--motion-base)]',
           )}
         >
           {item.tone === 'error' && (
-            <CircleAlert className="mr-1 size-4 shrink-0 text-background" aria-hidden="true" />
+            <CircleAlert className="size-4 shrink-0 text-background" aria-hidden="true" />
           )}
           {item.tone === 'success' && (
-            <Check className="mr-1 size-4 shrink-0 text-background/70" aria-hidden="true" />
+            <Check className="size-3.5 shrink-0 text-background/70" aria-hidden="true" />
           )}
           {item.leading && (
-            <span className="mr-1 flex shrink-0 items-center" aria-hidden="true">
+            <span className="flex shrink-0 items-center" aria-hidden="true">
               {item.leading}
             </span>
           )}
-          <span className="min-w-0 flex-1 pr-2">{item.content ?? item.message}</span>
+          <span className="min-w-0 flex-1">{item.content ?? item.message}</span>
           {item.actions?.map((action) => (
             <Button
               key={action.label}
               size="sm"
               variant="ghost"
-              className="px-2 text-sm font-medium text-background hover:bg-background/10 hover:text-background"
+              className="h-7 px-2 text-sm font-semibold text-background hover:bg-background/10 hover:text-background"
               onClick={() => {
                 action.onClick();
                 close(item.id);

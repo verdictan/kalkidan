@@ -1,5 +1,5 @@
 import { open } from 'node:fs/promises';
-import type { Agent, ChatMessage, Transcript } from '../src/types';
+import type { Agent, ChatMessage, ToolActivity, Transcript } from '../src/types';
 export function contentText(content: unknown): string {
   if (typeof content === 'string') return content;
   if (!Array.isArray(content)) return '';
@@ -44,14 +44,111 @@ export function visibleUserText(text: string) {
   }
   return visible;
 }
+/** The most steps that one saved answer keeps. The count stays right. */
+const stepLimit = 200;
+/** The paths in an apply_patch input of Codex: "*** Update File: src/a.ts". */
+function patchPaths(input: string) {
+  return [...input.matchAll(/^\*\*\* (?:Add|Update|Delete) File: (.+)$/gm)].map((match) =>
+    match[1].trim(),
+  );
+}
+function parsedArguments(value: unknown): Record<string, unknown> {
+  if (value && typeof value === 'object') return value as Record<string, unknown>;
+  if (typeof value !== 'string') return {};
+  try {
+    const parsed = JSON.parse(value);
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+/** A shell command as one line: "bash -lc 'npm test'" gives "npm test". */
+function commandText(command: unknown) {
+  const parts = Array.isArray(command) ? command.map(String) : [String(command ?? '')];
+  const inner =
+    parts.length >= 3 && /(^|\/)(ba|z)?sh$/.test(parts[0]) && /^-l?c$/.test(parts[1])
+      ? parts.slice(2).join(' ')
+      : parts.join(' ');
+  return inner.replace(/\s+/g, ' ').trim();
+}
+/** The tool calls of one history record: a title per call and the files that it edited. */
+export function recordSteps(
+  row: { type?: string; payload?: Record<string, unknown>; message?: { content?: unknown } },
+  agent: Agent,
+  index: number,
+): { steps: ToolActivity[]; edited: string[] } {
+  const steps: ToolActivity[] = [];
+  const edited: string[] = [];
+  if (agent === 'codex') {
+    const payload = row.type === 'response_item' ? row.payload : undefined;
+    const kind = payload?.type;
+    if (kind === 'function_call' || kind === 'custom_tool_call' || kind === 'local_shell_call') {
+      const name = String(payload?.name || (kind === 'local_shell_call' ? 'shell' : 'tool'));
+      const args = parsedArguments(payload?.arguments ?? payload?.action);
+      const input = typeof payload?.input === 'string' ? payload.input : '';
+      const paths = name === 'apply_patch' ? patchPaths(input || String(args.input || '')) : [];
+      edited.push(...paths);
+      const title = paths.length
+        ? `Edit ${paths.join(', ')}`
+        : args.command
+          ? commandText(args.command)
+          : name;
+      steps.push({ id: `step-${index}`, title, status: 'completed' });
+    }
+  } else if (Array.isArray(row.message?.content)) {
+    for (const [part, block] of row.message.content.entries()) {
+      if (!block || block.type !== 'tool_use') continue;
+      const input = parsedArguments(block.input);
+      const path = typeof input.file_path === 'string' ? input.file_path : '';
+      const name = String(block.name || 'Tool');
+      if (path && /^(Edit|MultiEdit|Write|NotebookEdit)$/.test(name)) edited.push(path);
+      const title =
+        name === 'Bash' && input.command
+          ? commandText(input.command)
+          : path
+            ? `${/^(Edit|MultiEdit|Write|NotebookEdit)$/.test(name) ? 'Edit' : name} ${path}`
+            : name;
+      steps.push({ id: `step-${index}-${part}`, title, status: 'completed' });
+    }
+  }
+  return { steps, edited };
+}
 export function parseTranscript(text: string, agent: Agent): ChatMessage[] {
   const messages: ChatMessage[] = [];
   const fallback: ChatMessage[] = [];
   const seen = new Set<string>();
+  // The tool calls since the last message of the user. They go on the last answer of the turn.
+  let turnSteps: ToolActivity[] = [];
+  let turnCount = 0;
+  let turnEdited = new Set<string>();
+  let turnAnswer: ChatMessage | undefined;
+  const closeTurn = () => {
+    if (turnAnswer && turnCount) {
+      turnAnswer.steps = turnSteps;
+      if (turnCount > turnSteps.length)
+        turnAnswer.steps = [
+          ...turnSteps,
+          ...Array.from({ length: turnCount - turnSteps.length }, (_, extra) => ({
+            id: `${turnAnswer!.id}-more-${extra}`,
+            title: 'Step',
+            status: 'completed',
+          })),
+        ];
+      if (turnEdited.size) turnAnswer.edited = [...turnEdited];
+    }
+    turnSteps = [];
+    turnCount = 0;
+    turnEdited = new Set();
+    turnAnswer = undefined;
+  };
   for (const [index, line] of text.split('\n').entries()) {
     try {
       const row = JSON.parse(line);
       if (agent === 'claude' && row.isSidechain) continue;
+      const found = recordSteps(row, agent, index);
+      turnCount += found.steps.length;
+      turnSteps.push(...found.steps.slice(0, Math.max(0, stepLimit - turnSteps.length)));
+      for (const path of found.edited) turnEdited.add(path);
       const payload =
         agent === 'codex' ? (row.type === 'response_item' ? row.payload : null) : row.message;
       const role = payload?.role || (agent === 'claude' ? row.type : null);
@@ -64,7 +161,10 @@ export function parseTranscript(text: string, agent: Agent): ChatMessage[] {
         const id = row.uuid || `message-${index}`;
         if (body && !seen.has(id)) {
           seen.add(id);
-          messages.push({ id, role, text: body });
+          if (role === 'user') closeTurn();
+          const message: ChatMessage = { id, role, text: body };
+          messages.push(message);
+          if (role === 'assistant') turnAnswer = message;
         }
       }
       if (
@@ -86,6 +186,7 @@ export function parseTranscript(text: string, agent: Agent): ChatMessage[] {
       /* Partial and unknown JSONL records are ignored. */
     }
   }
+  closeTurn();
   return messages.length ? messages : fallback;
 }
 export async function readTranscript(path: string, agent: Agent): Promise<Transcript> {

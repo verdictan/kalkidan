@@ -1,10 +1,10 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { ArrowUpRight, Check, CircleAlert } from 'lucide-react';
+import { ArrowUpRight, CircleAlert } from 'lucide-react';
 import type { API } from '../api/contracts';
 import { toolDetail, toolsNeedAttention, type ToolStatus } from '../domain/desktop';
 import { useFirstRunState } from '../hooks/use-verdictan-status';
 import { hideSplash } from '../lib/splash';
-import { restartKalkidan, sortTools, useComputerTools } from './settings-tools';
+import { ReadyCheck, restartKalkidan, sortTools, useComputerTools } from './settings-tools';
 import type { SignInResult } from './sign-in-steps';
 import { Button } from './ui/button';
 
@@ -93,7 +93,7 @@ function CheckRow({ tool }: { tool: ToolStatus }) {
       </span>
       {ready ? (
         <span className="st-check-ready">
-          <Check role="img" aria-label="Ready" />
+          <ReadyCheck label="Ready" />
           Ready
         </span>
       ) : (
@@ -179,7 +179,7 @@ export function Welcome({ api, onDone }: { api: API; onDone: (result: SignInResu
                 </Button>
                 <Button
                   variant="secondary"
-                  className="bg-background shadow-[inset_0_0_0_1px_var(--border)] hover:bg-[var(--fill)]"
+                  className="bg-background px-[13px] shadow-[inset_0_0_0_1px_var(--border)] hover:bg-[var(--fill)]"
                   disabled={busy}
                   onClick={() => restartKalkidan(api)}
                 >

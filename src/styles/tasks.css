@@ -294,8 +294,8 @@ button.tracker-task-live-open:focus-visible {
   color: var(--background);
 }
 .task-agent-tile > svg {
-  width: 14px !important;
-  height: 14px !important;
+  width: 12px !important;
+  height: 12px !important;
 }
 .task-agent-tile[data-missing] {
   background: var(--fill-strong);
@@ -318,7 +318,7 @@ button.tracker-task-live-open:focus-visible {
  */
 .connect-board[data-variant='page'] {
   max-width: 480px;
-  margin: 0;
+  margin: var(--space-2) 0 0;
 }
 .connect-board-title {
   margin: 0;
@@ -385,4 +385,87 @@ button.tracker-task-live-open:focus-visible {
   height: 12px;
   border-radius: var(--radius-xs);
   background: var(--fill-strong);
+}
+
+/*
+ * The exact TK-A frame values. The board name is foreground text. The GitHub check is a plain
+ * amber line with no fill. Search and New task are 12px apart.
+ */
+.tracker-board-name {
+  color: var(--foreground);
+}
+.uncertain-writes-chip {
+  height: 24px;
+  padding: 0;
+  border-radius: var(--radius-xs);
+  background: none;
+  font-weight: 400;
+}
+.uncertain-writes-chip:hover {
+  background: none;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.tracker-filter-end {
+  gap: var(--space-3);
+}
+/* The pull request of a card is one 16px line of muted text with a muted icon. */
+.tracker-task-meta .tracker-task-pr {
+  height: 16px;
+  gap: 4px;
+  font-weight: 400;
+}
+.tracker-task-meta .tracker-task-pr[data-state] svg {
+  color: var(--muted-foreground);
+}
+/* The live line is 16px high. Only Allow makes it 24px. */
+.tracker-task-live-open {
+  min-height: 16px;
+}
+.tracker-task-live .status-glyph,
+.connect-code-state .status-glyph {
+  width: 12px;
+  height: 12px;
+}
+.tracker-task-live .status-glyph[data-status='working']::before,
+.connect-code-state .status-glyph[data-status='working']::before {
+  width: 12px;
+  height: 12px;
+  border-color: var(--border-strong);
+  border-top-color: transparent;
+}
+.tracker-task-live .status-glyph[data-status='needs-you'] {
+  font-size: 12px;
+}
+/* Start and Allow are white buttons with a 1px border on the grey card. */
+.tracker-task-start,
+.tracker-task-allow {
+  box-shadow: inset 0 0 0 1px var(--border);
+}
+/* Before the sign-in: "Atlas roadmap #1" from the last board list, on one line. */
+.connect-board-list[data-preview] .connect-board-name {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+.connect-board-number {
+  color: var(--muted-foreground);
+  font-size: var(--text-xs);
+}
+/* The task text of the sheet: 22px lines, 16px between blocks, 18px list indent (TK-A2). */
+.tracker-issue-description.prose-ui,
+.tracker-issue-description.prose-ui[data-size] {
+  line-height: 22px;
+}
+.tracker-issue-description :where(p, ul, ol, blockquote, pre) {
+  margin: 0 0 var(--space-4);
+}
+.tracker-issue-description :where(ul, ol) {
+  padding-left: 18px;
+}
+.tracker-issue-description :where(li) {
+  margin: 2px 0;
+}
+.tracker-sheet-meta {
+  column-gap: 0.3em;
 }

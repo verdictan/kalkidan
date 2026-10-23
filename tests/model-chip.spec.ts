@@ -1,5 +1,5 @@
 import { type Page } from '@playwright/test';
-import { test, expect, settingsDialog, settingsSection } from './helpers/app';
+import { test, expect } from './helpers/app';
 import { openCodeFolder, openTreeChat } from './helpers/navigation';
 
 /**
@@ -138,10 +138,10 @@ test('the agent chip lists the detected agents and the chat picks no model', asy
   expect((await send(page, 'Hello')).model).toBeUndefined();
 });
 
-test('Tools… in the agent chip opens the Tools part of Settings', async ({ page }) => {
+test('the agent chip lists the agents and the restart line, not Tools…', async ({ page }) => {
   await openChat(page, {});
   await chip(page).click();
-  await page.getByRole('menuitem', { name: 'Tools…', exact: true }).click();
-  await expect(settingsDialog(page)).toBeVisible();
-  await expect(settingsSection(page, 'Tools')).toBeVisible();
+  const menu = page.getByRole('menu');
+  await expect(menu).toContainText('Installed another agent? Restart Kalkidan to find it.');
+  await expect(menu.getByRole('menuitem', { name: 'Tools…', exact: true })).toHaveCount(0);
 });

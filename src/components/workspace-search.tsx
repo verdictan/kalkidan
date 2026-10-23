@@ -5,6 +5,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type CSSProperties,
   type ReactNode,
   type RefObject,
 } from 'react';
@@ -68,7 +69,7 @@ export interface RecentPlace {
   label: string;
   /** The project and the kind or agent, shown after the label. */
   context?: string;
-  kind: 'chat' | 'task' | 'doc' | 'project';
+  kind: 'chat' | 'task' | 'doc' | 'project' | 'repo';
   agent?: string;
   /** The identity mark of the item: a session dot or a project square. */
   mark?: { kind: IdentityKind; color: IdentityColor };
@@ -139,6 +140,12 @@ function RecentIcon({ place }: { place: RecentPlace }) {
   if (place.kind === 'doc') return <FileText />;
   if (place.kind === 'project') return <Folder />;
   return <Clock />;
+}
+
+/** The width of the sidebar of the window, from the app shell. 0px without a sidebar. */
+function navigationWidth() {
+  const shell = document.querySelector('.app-shell');
+  return (shell && getComputedStyle(shell).getPropertyValue('--navigation-width').trim()) || '0px';
 }
 
 /** The content of one result row. Each part stays on one line. */
@@ -646,8 +653,10 @@ export function WorkspaceSearch({
           showCloseButton={false}
           layout="scroll"
           aria-modal="true"
+          // SH-A4: the palette centers over the page, not over the sidebar.
+          style={{ '--navigation-width': navigationWidth() } as CSSProperties}
           aria-describedby={undefined}
-          className="command-palette top-[84px] max-h-[min(60vh,560px)] translate-y-0 sm:max-w-[600px]"
+          className="command-palette top-[72px] left-[calc(50%+var(--navigation-width,0px)/2)] max-h-[min(60vh,560px)] translate-y-0 sm:max-w-[560px]"
           onOpenAutoFocus={(event) => {
             event.preventDefault();
             inputRef.current?.focus();
@@ -735,7 +744,7 @@ export function WorkspaceSearch({
                           place.allow && activeOption?.key === 'needs:' + place.key ? (
                             <Button
                               size="xs"
-                              className="search-allow"
+                              className="search-allow h-6 gap-1.5 rounded-[6px] px-2.5 text-xs"
                               aria-label={`Allow ${place.label}`}
                               aria-keyshortcuts={isMac ? 'Meta+Enter' : 'Control+Enter'}
                               onMouseDown={(event) => event.preventDefault()}

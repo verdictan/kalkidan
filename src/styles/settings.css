@@ -70,6 +70,10 @@
   z-index: var(--z-dialog);
   background: color-mix(in srgb, var(--foreground) 16%, transparent);
 }
+/* Under the sheet, the page keeps only its title bar (ST-C4): the tree stays in view. */
+body:has(.st-sheet) .management-pane > * > :not(.app-header) {
+  visibility: hidden;
+}
 /* 640px wide, 40px from the top and 24px from the bottom of the window, radius 12. */
 .st-sheet {
   position: fixed;
@@ -102,7 +106,7 @@
   flex: none;
   display: flex;
   align-items: center;
-  gap: var(--space-2);
+  gap: var(--space-3);
   padding: 0 var(--space-4) 0 var(--space-8);
   border-bottom: 1px solid var(--border);
 }
@@ -114,7 +118,12 @@
 }
 .st-sheet-head .st-account-name {
   font-size: 16px;
+  line-height: 20px;
 }
+.st-sheet-head .st-avatar {
+  font-size: 11px;
+}
+
 .st-sheet .st-sheet-body {
   display: flex;
   flex-direction: column;
@@ -127,7 +136,7 @@
   min-height: 36px;
   align-items: flex-end;
   margin: 0;
-  padding-bottom: 6px;
+  padding-bottom: 8px;
   border-bottom: 1px solid var(--border);
 }
 .st-sheet .st-rows > li {
@@ -139,6 +148,7 @@
   border-bottom: 0;
 }
 .st-sheet .st-section > .st-rows + .st-foot {
+  margin-top: -1px;
   border-top: 1px solid var(--border);
 }
 .st-sheet .st-tile {
@@ -156,9 +166,12 @@
   margin: var(--space-2) 0 0 calc(-1 * var(--space-2));
 }
 /* The project: the mark and the name open its menu. The chips have a 1px line. */
+.st-sheet #settings-project .st-section-head {
+  padding-bottom: 6px;
+}
 .st-sheet .st-project-title {
   font-size: 12px !important;
-  line-height: 16px !important;
+  line-height: 20px !important;
 }
 .st-project-menu {
   display: inline-flex;
@@ -186,9 +199,24 @@
 }
 .st-sheet .st-chip {
   gap: 8px;
+  border: 1px solid var(--border);
   border-radius: 6px;
   background: var(--background);
-  box-shadow: inset 0 0 0 1px var(--border);
+}
+.st-sheet .st-chip svg {
+  width: 12px;
+  height: 12px;
+}
+.st-sheet .st-board-chip {
+  gap: 6px;
+}
+/* The hidden remove button takes no room, so the chip is as wide as its mark and name. */
+.st-sheet .st-chip-remove {
+  margin-right: -8px;
+}
+.st-sheet .st-chip:hover .st-chip-remove,
+.st-sheet .st-chip-remove:focus-visible {
+  margin-right: -4px;
 }
 .st-sheet button.st-chip:hover,
 .st-sheet .st-board-chip[aria-expanded='true'] {
@@ -196,13 +224,8 @@
 }
 .st-sheet .st-chip-add {
   width: 34px;
+  border-style: dashed;
   background: none;
-  box-shadow: none;
-  outline: 1px dashed var(--border-strong, #d4d4d4);
-  outline-offset: -1px;
-}
-.st-sheet .st-chip-add:focus-visible {
-  outline: none;
 }
 /* The last line sits under the fold: the sheet shows the account, Tools, Preferences and the
    project in a 620px window. */
@@ -572,15 +595,15 @@ button.st-chip:focus-visible,
   margin: 0 auto;
   padding-top: 88px;
 }
-/* The splash lockup at 0.8 scale: a 32px mark and the name. */
+/* The splash lockup at 0.8 scale: a 32px mark, 9.6px apart, and the 22px name at 17.6px. */
 .st-first-run-lockup {
   height: 32px;
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 9.6px;
   margin-bottom: var(--space-8, 32px);
-  font-size: 18px;
-  line-height: 24px;
+  font-size: 17.6px;
+  line-height: 22.4px;
   font-weight: 600;
   letter-spacing: -0.01em;
 }
@@ -798,12 +821,93 @@ button.st-account-trigger[data-state='open'] {
 .st-setting [data-slot='switch'][data-state='checked'] {
   background: var(--foreground) !important;
 }
+/* A switch that is off is a light grey track (ST-C4). */
+.st-setting [data-slot='switch'][data-state='unchecked'] {
+  background: #a3a3a3 !important;
+}
 
 /* ---------- The agent picker of the first composer (ST-C2) ---------- */
 
 /* One group for each computer: "This Mac", then each SSH host. */
 .agent-picker-computer {
-  font-weight: 400;
+  font-weight: 500;
+}
+/* The menu: radius 10, a 1px line and a soft shadow. */
+.agent-picker-computers {
+  border-radius: 10px !important;
+  box-shadow:
+    0 0 0 1px var(--border),
+    0 12px 32px rgb(0 0 0 / 0.12) !important;
+}
+/* 3px under the chip. */
+.agent-picker-computers[data-side='bottom'] {
+  margin-top: -3px;
+}
+/* Rows with radius 6. */
+.agent-picker-computers [role='menuitem'] {
+  border-radius: 6px !important;
+}
+/* The agent of the new chat has the hover fill. */
+.agent-picker-computers .agent-picker-current {
+  background: var(--fill);
+}
+/* "Not installed" and its link icon, 4px apart. */
+.agent-picker-missing {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+  font-size: var(--text-xs);
+  color: var(--muted-foreground);
+}
+
+/* ---------- The first composer (ST-C2) ---------- */
+
+/* The column starts 136px from the top of a 620px window. */
+.start-page:has(> .start-composer) {
+  padding-top: max(var(--space-8), calc(50vh - 174px));
+}
+/* The mark, 20px to the 24px question, 24px to the composer, 16px to the found folders. */
+.start-page .start-composer {
+  gap: 0;
+}
+.start-page .start-composer-mark {
+  margin: 0;
+}
+.start-page .start-composer-title {
+  margin: 20px 0 24px;
+  font-size: 24px;
+  line-height: 32px;
+  letter-spacing: -0.02em;
+}
+.start-page .found-folders {
+  margin-top: var(--space-4);
+}
+/* The composer: radius 12, a 24px line, 12px to the chips, and Send inside the padding. */
+.start-page .conversation-composer {
+  gap: 12px;
+  border-radius: 12px;
+  box-shadow:
+    0 1px 2px rgb(0 0 0 / 0.03),
+    0 4px 16px rgb(0 0 0 / 0.04);
+}
+.start-page .conversation-composer textarea {
+  min-height: 24px !important;
+  line-height: 24px !important;
+}
+.start-page .composer-actions {
+  margin-right: 0;
+}
+/* The 12px arrows at the end of the chips. */
+.start-page .composer-settings button > svg:last-child:not(:first-child) {
+  width: 12px !important;
+  height: 12px !important;
+}
+/* The agent chip of an open picker. The hint sets its own data-state, so this reads
+   aria-expanded. */
+.start-page .composer-agent[aria-expanded='true'] {
+  background: var(--fill) !important;
+  color: var(--foreground) !important;
 }
 
 /* The project menu in Settings has no item icons: the swatches start on the item labels. */
@@ -843,10 +947,9 @@ button.st-account-trigger[data-state='open'] {
   align-items: center;
   gap: var(--space-2);
   padding: 0 12px 0 10px;
-  border: 0;
+  border: 1px solid var(--border);
   border-radius: var(--radius-full, 9999px);
   background: var(--background);
-  box-shadow: inset 0 0 0 1px var(--border);
   color: var(--foreground);
   font: inherit;
   font-weight: 500;

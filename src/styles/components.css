@@ -1241,3 +1241,8 @@
 .identity-swatches-auto:hover {
   background: var(--fill);
 }
+
+/* Icons use a 1.5px line, as in the design frames. */
+svg[class~='lucide'] {
+  stroke-width: 1.5;
+}

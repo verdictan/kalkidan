@@ -78,7 +78,16 @@ const sessions: Session[] = [
 // The navigation frames show three projects. Opt in with kalkidan-demo-workspace = 'full'.
 const demoFullWorkspace = (() => {
   try {
-    return localStorage.getItem('kalkidan-demo-workspace') === 'full';
+    return ['full', 'knowledge'].includes(localStorage.getItem('kalkidan-demo-workspace') || '');
+  } catch {
+    return false;
+  }
+})();
+// The Knowledge frames: the full workspace with their own sample data (kalkidan-demo-workspace =
+// 'knowledge').
+const demoKnowledgeFrame = (() => {
+  try {
+    return localStorage.getItem('kalkidan-demo-workspace') === 'knowledge';
   } catch {
     return false;
   }
@@ -125,6 +134,14 @@ if (demoFullWorkspace) {
       cwd: projects[2].path,
       updatedAt: now,
       title: 'Fix token refresh race',
+    },
+    // The navigation frames show design-system with one older chat, so its row can expand.
+    {
+      id: 'demo-tokens',
+      agent: 'codex',
+      cwd: projects[1].path,
+      updatedAt: new Date(Date.now() - 3 * 3600000).toISOString(),
+      title: 'Update the button tokens',
     },
     {
       id: 'demo-ledger',
@@ -386,10 +403,36 @@ if (demoTasksFrame) {
         id: 'demo-sub-overview',
         title: 'Explore overview components',
         status: 'running',
-        type: 'Explore',
       },
     ];
+  // The Tasks frames list api-service before design-system.
+  projects = [projects[0], projects[2], projects[1], ...projects.slice(3)];
 }
+// The Knowledge frames (KN-B): the full workspace with their sample sessions. The review chat has
+// one subagent, and the other chats have the short titles of the frames.
+if (demoKnowledgeFrame) {
+  const titles: Record<string, string> = {
+    'demo-session': 'Refine repository settings',
+    'demo-token': 'Fix flaky sign-in test',
+  };
+  for (const session of sessions) {
+    if (titles[session.id]) session.title = titles[session.id];
+    if (session.id === 'demo-session') delete session.subagents;
+    if (session.id === 'demo-claude')
+      session.subagents = [
+        { id: 'demo-sub-explore-sign-in', title: 'Explore sign-in tests', status: 'running' },
+      ];
+  }
+  projects = [projects[0], projects[2], projects[1], ...projects.slice(3)];
+}
+/**
+ * The Usage card of the Knowledge frames (KN-B4): $18.40, 412 requests, 3 refused. The requests
+ * of each day make the bars of the frame: [chat, paid requests, refused, free requests].
+ */
+const demoKnowledgeUsage = {
+  days: [16, 27, 11, 1, 0, 32, 48, 37, 59, 21, 0, 43, 64, 53],
+  chats: { 'demo-session': [196, 3, 0], 'demo-claude': [122, 0, 0], 'demo-token': [50, 0, 41] },
+} as const;
 // The GitHub sign-in of the connect frame (TK-A3): a code that waits for approval.
 const demoGitHubWaiting = (() => {
   try {
@@ -892,6 +935,35 @@ export const demo: API = {
       audited: false,
       subscription: null,
     });
+    if (demoKnowledgeFrame) {
+      // One day for each request, oldest first; each chat takes its requests in turn.
+      const days = demoKnowledgeUsage.days.flatMap((count, d) =>
+        Array.from({ length: count }, (_, i) => Date.now() - (13 - d) * day - i * 60000),
+      );
+      const plan = demoKnowledgeUsage.chats as Record<string, readonly number[]>;
+      return {
+        chats: chats
+          .filter((chat) => plan[chat.sessionId])
+          .map((chat) => {
+            const [paid, refused, free] = plan[chat.sessionId];
+            const costs = [
+              ...Array.from({ length: paid }, () => '0.05'),
+              ...Array.from({ length: refused }, () => ''),
+              ...Array.from({ length: free }, () => '0'),
+            ];
+            return {
+              ...chat,
+              billing: 'metered' as const,
+              complete: true,
+              entries: costs.map((cost) => entry(days.shift() || Date.now(), cost || '0', !cost)),
+            };
+          }),
+        unmanaged: 0,
+        failed: 0,
+        skipped: 0,
+        observedAt: new Date().toISOString(),
+      };
+    }
     return {
       chats: chats.map((chat, c) => ({
         ...chat,
@@ -1599,7 +1671,11 @@ export const demo: API = {
         id: 'preview-user',
         role: 'user' as const,
         text:
-          sessions.find((s) => s.agent === agent && s.id === id)?.title || 'Continue this project',
+          (demoFullWorkspace && id === 'demo-claude'
+            ? 'Review the authentication flow and add integration tests'
+            : undefined) ||
+          sessions.find((s) => s.agent === agent && s.id === id)?.title ||
+          'Continue this project',
       },
       // The review chat of the full workspace continues in its live run.
       ...(sessions.find((s) => s.agent === agent && s.id === id)?.liveRunId === demoReviewRunId

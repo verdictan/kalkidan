@@ -16,16 +16,15 @@ test('explorer context menus rename the clicked item and confirm non-destructive
 }) => {
   await page.goto('/');
   await tree(page).getByRole('button', { name: 'Atlas', exact: true }).click({ button: 'right' });
-  // The row menu is the shared project menu: no copies of the project views. The Color
-  // swatches and Usage are in the menu. New task and New page are in ⌘K.
+  // The row menu is the project menu of SH-A2: no copies of the project views, the Color
+  // swatches after Rename, then Settings. Usage is in the header menu; New task and New page
+  // are in ⌘K; Remove project is in the project settings.
   await expect(page.getByRole('menuitem')).toHaveText([
     /^Open in new window/,
     /^New chat in Atlas/,
     'Add repo…',
     'Rename…',
-    /^Usage/,
     'Settings…',
-    'Remove project…',
   ]);
   await expect(page.getByRole('menu').getByRole('radiogroup', { name: 'Color' })).toBeVisible();
   await page.getByRole('menuitem', { name: 'Rename…' }).click();

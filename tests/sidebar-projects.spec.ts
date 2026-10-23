@@ -127,13 +127,13 @@ test('a repo shows its newest chats, then the others on request', async ({ page 
     };
   });
   await page.goto('/');
-  // The Projects page shows the time of the newest chat.
+  // The Projects page shows the age of the newest chat (SP-C2: "now", "5 min", "2 d").
   await expect(
     page
       .getByRole('region', { name: 'Projects', exact: true })
       .getByRole('button', { name: /^Counted, 1 repo/ })
       .locator('time'),
-  ).toHaveText('Oct 8');
+  ).toHaveText(/^\d+ d$/);
   await tree(page).getByRole('button', { name: 'Expand Counted', exact: true }).click();
   // The repo with the newest chat of the project opens by default.
   await expect(tree(page).getByRole('button', { name: 'Collapse web', exact: true })).toBeVisible();

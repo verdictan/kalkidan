@@ -362,6 +362,32 @@ export function ProjectUsageCard(props: UsageProps & { className?: string }) {
 }
 
 const usageTriggerClass = cn(menuItemClass, 'usage-menu-row');
+/** The card is 8px from the menu edge. The row is 4px inside the edge, so 12px from the row. */
+const usageCardGap = 12;
+/** The card can go up to the title bar (40px), as high as the menu beside it. */
+const usageCardPadding = { ...menuCollisionPadding, top: 40 };
+
+/**
+ * The Usage card starts at the top of the menu, not at the Usage row (KN-B4). The trigger
+ * measures how far its row is from the top of the menu each time it opens the card.
+ */
+function useMenuTopAlign() {
+  const [offset, setOffset] = useState(0);
+  const measure = (row: HTMLElement) => {
+    const menu = row.closest('[role="menu"]');
+    if (!menu) return;
+    // Layout offsets, not screen boxes: the menu can still scale in while it opens.
+    if (menu instanceof HTMLElement && row.offsetParent === menu.offsetParent)
+      setOffset(menu.offsetTop - row.offsetTop);
+  };
+  return {
+    offset,
+    trigger: {
+      onPointerEnter: (event: { currentTarget: HTMLElement }) => measure(event.currentTarget),
+      onFocus: (event: { currentTarget: HTMLElement }) => measure(event.currentTarget),
+    },
+  };
+}
 
 /**
  * The Usage row of the project menu: "Usage" with the cost on the right. Hover, the right arrow
@@ -369,17 +395,19 @@ const usageTriggerClass = cn(menuItemClass, 'usage-menu-row');
  */
 export function ProjectUsageMenuItem(props: UsageProps) {
   const cost = useProjectUsageCost(props);
+  const align = useMenuTopAlign();
   return (
     <DropdownMenuPrimitive.Sub>
-      <DropdownMenuPrimitive.SubTrigger className={usageTriggerClass}>
+      <DropdownMenuPrimitive.SubTrigger className={usageTriggerClass} {...align.trigger}>
         Usage
         {cost && <span className="usage-menu-cost">{cost}</span>}
       </DropdownMenuPrimitive.SubTrigger>
       <DropdownMenuPrimitive.Portal>
         <DropdownMenuPrimitive.SubContent
           className={cn(menuSurfaceClass, 'usage-card-surface')}
-          collisionPadding={menuCollisionPadding}
-          sideOffset={4}
+          collisionPadding={usageCardPadding}
+          sideOffset={usageCardGap}
+          alignOffset={align.offset}
         >
           <ProjectUsageCard {...props} />
         </DropdownMenuPrimitive.SubContent>
@@ -391,17 +419,19 @@ export function ProjectUsageMenuItem(props: UsageProps) {
 /** The same Usage row for a right-click menu (ContextMenu.Content). */
 export function ProjectUsageContextMenuItem(props: UsageProps) {
   const cost = useProjectUsageCost(props);
+  const align = useMenuTopAlign();
   return (
     <ContextMenu.Sub>
-      <ContextMenu.SubTrigger className={usageTriggerClass}>
+      <ContextMenu.SubTrigger className={usageTriggerClass} {...align.trigger}>
         Usage
         {cost && <span className="usage-menu-cost">{cost}</span>}
       </ContextMenu.SubTrigger>
       <ContextMenu.Portal>
         <ContextMenu.SubContent
           className={cn(menuSurfaceClass, 'usage-card-surface')}
-          collisionPadding={menuCollisionPadding}
-          sideOffset={4}
+          collisionPadding={usageCardPadding}
+          sideOffset={usageCardGap}
+          alignOffset={align.offset}
         >
           <ProjectUsageCard {...props} />
         </ContextMenu.SubContent>

@@ -1,10 +1,9 @@
 import { useEffect, useState } from 'react';
-import { ArrowUpRight, Check } from 'lucide-react';
+import { ArrowUpRight, Check, Terminal } from 'lucide-react';
 import type { Agent, API } from '../types';
 import { agentChoices, type AgentChoice, type DesktopAPI } from '../domain/desktop';
 import { agentPreferenceKey } from '../lib/agent-preference';
 import { agentCatalog, agentLabel, isAgent } from '../config/agents';
-import { AgentIcon } from './ui/agent-icon';
 import { DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator } from './ui/dropdown-menu';
 
 /** The agents that a task can start with: the agent CLIs found on the computer of the repo. */
@@ -82,6 +81,18 @@ export function openToolsSettings() {
   window.dispatchEvent(new CustomEvent('kalkidan-open-settings', { detail: { section: 'tools' } }));
 }
 
+/** The agents in catalog order: Codex, then Claude Code. */
+function catalogOrder(a: AgentChoice, b: AgentChoice) {
+  const index = (agent: Agent) => agentCatalog.findIndex(({ id }) => id === agent);
+  return index(a.agent) - index(b.agent);
+}
+
+/** "0.46.0" shows as "0.46": the menu gives the major and minor version only. */
+export function shortVersion(version: string) {
+  const match = /^(\d+\.\d+)(?:\.\d+)?$/.exec(version.trim());
+  return match ? match[1] : version;
+}
+
 /**
  * The items of a Start menu: "Found on this Mac", each found agent with its version and a check
  * on the current one, the known agents that are not installed (they open the official page),
@@ -101,18 +112,16 @@ export function AgentMenuItems({
       <DropdownMenuLabel>
         Found on {agents.computerName.replace(/^This /, 'this ')}
       </DropdownMenuLabel>
-      {agents.found.map((choice) => (
+      {[...agents.found].sort(catalogOrder).map((choice) => (
         <DropdownMenuItem key={choice.agent} onSelect={() => onPick(choice.agent)}>
           <span className="task-agent-tile" aria-hidden="true">
-            <AgentIcon agent={choice.agent} />
+            <Terminal />
           </span>
           <span className="min-w-0 flex-1 truncate">{choice.name}</span>
-          {choice.version && <span className="task-agent-version">{choice.version}</span>}
-          {choice.agent === current ? (
-            <Check className="size-4" aria-label="Current" />
-          ) : (
-            <span className="size-4" aria-hidden="true" />
+          {choice.version && (
+            <span className="task-agent-version">{shortVersion(choice.version)}</span>
           )}
+          {choice.agent === current && <Check className="size-3.5" aria-label="Current" />}
         </DropdownMenuItem>
       ))}
       {!agents.found.length && (
@@ -125,7 +134,7 @@ export function AgentMenuItems({
           <DropdownMenuItem key={choice.agent} asChild className="text-muted-foreground">
             <a href={choice.installUrl} target="_blank" rel="noreferrer">
               <span className="task-agent-tile" data-missing aria-hidden="true">
-                <AgentIcon agent={choice.agent} />
+                <Terminal />
               </span>
               <span className="min-w-0 flex-1 truncate">{choice.name}</span>
               <span className="task-agent-version">Not installed</span>
@@ -137,7 +146,7 @@ export function AgentMenuItems({
       <DropdownMenuSeparator />
       <DropdownMenuItem className="task-agent-tools" onSelect={openToolsSettings}>
         <span className="min-w-0 flex-1">Settings › Tools</span>
-        <ArrowUpRight className="size-4" aria-hidden="true" />
+        <ArrowUpRight className="size-3" aria-hidden="true" />
       </DropdownMenuItem>
     </>
   );

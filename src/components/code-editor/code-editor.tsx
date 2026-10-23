@@ -4,7 +4,6 @@ import { cn } from '@/lib/utils';
 import type { API } from '../../api/contracts';
 import { identityVar, type IdentityColor } from '../../domain/identity';
 import { fileSymbols, splitPath } from '../../domain/code-navigation';
-import { IdentityMark, IdentityToken } from '../ui/identity-mark';
 import { StatusGlyph } from '../ui/status-glyph';
 import { Button } from '../ui/button';
 import { ConfirmDialog } from '../confirm-dialog';
@@ -77,8 +76,6 @@ export function CodeEditor({
   const [closing, setClosing] = useState<string | null>(null);
   controller.onCaret = setCaret;
   controller.onClosePrompt = setClosing;
-  const repoName = repository?.name || cwd.split(/[\\/]/).filter(Boolean).pop() || 'Repository';
-  const repoColor = repository?.color || 'slate';
   const agentColor = session?.color || 'slate';
 
   // One editor view for the folder. Each tab keeps its own document state.
@@ -181,10 +178,6 @@ export function CodeEditor({
   const reload = (path: string) => controller.reload(path);
   const find = (path: string) => controller.find(path);
 
-  const activeFolder = active ? splitPath(active.path).folder : '';
-  const showSession = Boolean(
-    session && active && (active.agentChanged || agentPaths?.includes(active.path)),
-  );
   const conflict = active?.conflict;
   const editorReady = Boolean(active?.state);
   const closingTab = closing ? find(closing) : undefined;
@@ -223,7 +216,6 @@ export function CodeEditor({
                     if (event.button === 1) closeTab(tab.path);
                   }}
                 >
-                  <IdentityMark kind="repo" color={repoColor} slot={false} />
                   <span>{name}</span>
                   {tab.conflict ? (
                     <StatusGlyph status="needs-you" label="Changed on disk" />
@@ -249,27 +241,6 @@ export function CodeEditor({
         </div>
       ) : null}
       <div className="code-paper">
-        {active ? (
-          <div className="code-file-header">
-            <IdentityToken
-              kind="repo"
-              color={repoColor}
-              name={activeFolder ? `${repoName} / ${activeFolder}` : repoName}
-              className="code-file-path"
-            />
-            {showSession && session ? (
-              <button
-                type="button"
-                className="code-file-session"
-                onClick={onOpenSession}
-                disabled={!onOpenSession}
-                title={onOpenSession ? 'Open the session' : undefined}
-              >
-                <IdentityToken kind="session" color={session.color} name={session.title} />
-              </button>
-            ) : null}
-          </div>
-        ) : null}
         {conflict && active ? (
           <div className="code-conflict" role="alert">
             <StatusGlyph status="needs-you" label="Changed on disk" />

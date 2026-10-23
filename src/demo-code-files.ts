@@ -21,8 +21,7 @@ test.describe('sign in', () => {
     await page.goto('/sso/callback?state=abc&next=/billing');
     await expect(page).toHaveURL('/billing');
   });
-});
-`;
+});`;
 
 const files: Record<string, string> = {
   'README.md': '# atlas-web\n\nThe customer app of Atlas.\n\n```sh\nnpm run dev\n```\n',

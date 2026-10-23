@@ -15,7 +15,6 @@ import {
 import { sessionRepo } from '../lib/session-repository';
 import { errorMessage } from '../lib/errors';
 import { CreateProject } from './create-project';
-import { openProjectSettings } from './settings-dialog';
 import { trackerConnection } from '../domain/tracker';
 import { AddRepository } from './add-repository';
 import { ChatActionsDropdown, ChatContextMenu } from './chat-action-menu';
@@ -53,7 +52,6 @@ import { StatusGlyph } from './ui/status-glyph';
 import { NavRow } from './ui/nav-row';
 import { showToast } from './ui/toast';
 import { RenameDialog } from './session-actions';
-import { ProjectUsageContextMenuItem } from './project-usage';
 import type { ChatMenuGroup, ChatMenuItem } from '../domain/chat-actions';
 import type { API, Project, ProjectGroup, Session, RemoteHost, TrackerItem } from '../types';
 
@@ -238,7 +236,6 @@ export function ProjectTree({
   onNewChat,
   onNewChatIn,
   repoActions,
-  usage,
   scopeLinks,
 }: {
   api: API;
@@ -289,8 +286,6 @@ export function ProjectTree({
   onNewChatIn?: (group: ProjectGroup, repo?: Project) => void;
   /** The menu of a code folder row. */
   repoActions?: (repo: Project) => TreeAction[];
-  /** The props of the Usage row of the project menu. */
-  usage?: { sessions: Session[]; repos: Project[] };
   /** A project window: the rows after the tree, Tasks and Knowledge (SH-A3). */
   scopeLinks?: ReactNode;
 }) {
@@ -428,7 +423,6 @@ export function ProjectTree({
       onAddFolder: () => showAddFolder(group),
       onRename: () => setRenaming(group),
       onSettings: () => openSettings(group),
-      onRemove: () => openProjectSettings(group.id, 'danger'),
       reconnect:
         host && host.status !== 'connected'
           ? {
@@ -588,7 +582,6 @@ export function ProjectTree({
           rowKey={key + ':' + child.id}
           parentKey={key}
           label={child.title}
-          meta={child.type}
           title={[child.type, child.title, child.status, `Subagent of ${title}`]
             .filter(Boolean)
             .join(' · ')}
@@ -709,14 +702,6 @@ export function ProjectTree({
       : '';
     const actions = projectActions(group, host);
     const color = identity.project(group);
-    const usageRow = usage ? (
-      <ProjectUsageContextMenuItem
-        api={api}
-        group={group}
-        sessions={usage.sessions}
-        repos={usage.repos}
-      />
-    ) : undefined;
     const clones = cloning.filter((clone) => clone.groupId === group.id);
     const row = (
       <TreeContextMenu
@@ -728,7 +713,6 @@ export function ProjectTree({
           chosen: !!getIdentityOverride('project', group.name),
           onChange: (next) => setIdentityOverride('project', group.name, next),
         }}
-        extra={usageRow}
       >
         <TreeRow
           depth={0}

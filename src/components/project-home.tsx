@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
-import { Plus } from 'lucide-react';
-import { agentCatalog, agentLabel } from '../config/agents';
+import { FolderPlus, Plus } from 'lucide-react';
+import { agentCatalog } from '../config/agents';
 import { onChatPreferencesChange, readEnterToSend } from '../lib/chat-preferences';
 import { sessionRepo } from '../lib/session-repository';
 import { relativeTime } from '../lib/relative-time';
@@ -10,10 +10,9 @@ import type { WorkspaceIdentity } from '../hooks/use-workspace-identity';
 import { activityKey, answerApproval, useActivityState } from './activity-dot';
 import { requestNewChat, usePreferredAgent } from './new-chat-button';
 import { useNeedsYou } from './project-overview';
-import { Composer, NewChatAccessPill, RepoPill } from './composer';
+import { Composer, ComposerAddMenu, NewChatAccessPill, RepoPill } from './composer';
 import { AgentPicker } from './model-chip';
 import { Button } from './ui/button';
-import { Hint } from './hint';
 import { IdentityMark } from './ui/identity-mark';
 import { Row } from './ui/row';
 import { SectionHeader } from './ui/page-header';
@@ -92,7 +91,18 @@ function HomeComposer({
       enterToSend={enterToSend}
       controls={
         <>
+          {/* "+" adds context to the first message (SH-A1). Here the context is a code folder. */}
+          <ComposerAddMenu
+            items={[
+              {
+                label: 'Add code folder…',
+                icon: <FolderPlus />,
+                onSelect: onAddFolder,
+              },
+            ]}
+          />
           <RepoPill
+            chevron
             label={repo?.name}
             color={repo ? identity.repo(repo) : undefined}
             folders={repos.map((item) => ({
@@ -121,9 +131,9 @@ function HomeComposer({
 }
 
 /**
- * The project Overview: one composer that starts a chat, then the chats that need the user
- * (Allow and Deny in place), the chats that work now, and the repos as one row of chips. Other
- * chats are in the tree and in search.
+ * The project Overview (SH-A1): one composer that starts a chat, then the chats that need the
+ * user (Allow and Deny in place) and the repos as one row of chips. Other chats, also the chats
+ * that work now, are in the tree and in search.
  */
 export function ProjectHomePage({
   api,
@@ -165,17 +175,6 @@ export function ProjectHomePage({
       live = false;
     };
   }, [api, repoKey]);
-  const waitingKeys = new Set(
-    needsYou.map(({ session }) => activityKey(session.agent, session.id)),
-  );
-  const workingNow = openSessions(sessions, repos).filter(
-    ({ session }) =>
-      !waitingKeys.has(activityKey(session.agent, session.id)) &&
-      activity.some(
-        (item) =>
-          item.state === 'running' && item.agent === session.agent && item.id === session.id,
-      ),
-  );
   const titleOf = (session: Session) => session.organization?.title || session.title;
   const approvalOf = (session: Session) =>
     activity.find((item) => item.agent === session.agent && item.id === session.id)?.approval;
@@ -197,7 +196,8 @@ export function ProjectHomePage({
               const title = titleOf(session);
               const approval = state === 'approval' ? approvalOf(session) : undefined;
               // SH-A1: "Wants to run `npm test -- auth` · atlas-web · 2m".
-              const when = relativeTime(session.updatedAt);
+              // The time since the chat started to wait, else the time of its last change.
+              const when = relativeTime(approval?.since || session.updatedAt);
               const detail = (
                 <>
                   {approval ? (
@@ -235,7 +235,7 @@ export function ProjectHomePage({
                         <Button
                           variant="ghost"
                           size="sm"
-                          className="needs-you-deny"
+                          className="needs-you-deny rounded-[6px] px-2.5 text-xs text-muted-foreground"
                           aria-label={`Deny ${title}`}
                           onClick={() => answerApproval(session, false)}
                         >
@@ -243,6 +243,7 @@ export function ProjectHomePage({
                         </Button>
                         <Button
                           size="sm"
+                          className="rounded-[6px] px-2.5 text-xs"
                           aria-label={`Allow ${title}`}
                           onClick={() => answerApproval(session, true)}
                         >
@@ -263,24 +264,6 @@ export function ProjectHomePage({
                 />
               );
             })}
-          </div>
-        </section>
-      )}
-      {!!workingNow.length && (
-        <section className="project-home-section" aria-label="Working">
-          <SectionHeader title="Working" as="h2" />
-          <div className="row-list">
-            {workingNow.map(({ session, repo }) => (
-              <Row
-                key={activityKey(session.agent, session.id)}
-                size="list"
-                leading={<IdentityMark kind="session" color={identity.session(session)} />}
-                title={titleOf(session)}
-                detail={`${repo.name} · ${agentLabel(session.agent)}`}
-                status="working"
-                onClick={() => onOpenSession(session)}
-              />
-            ))}
           </div>
         </section>
       )}
@@ -306,16 +289,15 @@ export function ProjectHomePage({
             );
           })}
           <li>
-            <Hint label="Add repo">
-              <button
-                type="button"
-                className="folder-chip folder-chip-add"
-                aria-label="Add repo…"
-                onClick={onAddFolder}
-              >
-                <Plus aria-hidden="true" />
-              </button>
-            </Hint>
+            <button
+              type="button"
+              className="folder-chip folder-chip-add"
+              aria-label="Add repo…"
+              onClick={onAddFolder}
+            >
+              <Plus aria-hidden="true" />
+              Add
+            </button>
           </li>
         </ul>
       </section>

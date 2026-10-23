@@ -19,9 +19,10 @@ export interface SessionActivity {
   state: SessionActivityState;
   /**
    * The approval that the chat waits for, when the state is 'approval': its title (for example
-   * "Run npm test -- auth") and an optional detail. The chat fills it. Overview and search show it.
+   * "Run npm test -- auth"), an optional detail and the ISO time when the chat started to wait.
+   * The chat fills it. Overview and search show it.
    */
-  approval?: { title: string; detail?: string };
+  approval?: { title: string; detail?: string; since?: string };
 }
 /**
  * Allows or denies the oldest approval that a chat waits for, from a place outside the chat

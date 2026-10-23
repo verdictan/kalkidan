@@ -12,6 +12,23 @@ function pathLabel(value: string) {
   }
   return value.replace(/^[ab]\//, '');
 }
+/**
+ * The line count of a whole new file ("@@ -0,0 +1,13 @@") or a whole removed file
+ * ("@@ -1,13 +0,0 @@"). It stays right when a long diff is cut before the end of the file.
+ */
+function wholeFileCount(lines: string[], side: 'added' | 'removed') {
+  for (const line of lines) {
+    const hunk = line.match(/^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/);
+    if (!hunk) continue;
+    const [oldStart, oldCount, newStart, newCount] = [hunk[1], hunk[2], hunk[3], hunk[4]].map(
+      (value) => (value === undefined ? 1 : Number(value)),
+    );
+    if (side === 'added' && oldStart === 0 && oldCount === 0) return newCount;
+    if (side === 'removed' && newStart === 0 && newCount === 0) return oldCount;
+    return 0;
+  }
+  return 0;
+}
 export function diffFiles(patch: string): DiffFile[] {
   if (!patch.trim()) return [];
   return patch
@@ -32,8 +49,14 @@ export function diffFiles(patch: string): DiffFile[] {
       return {
         path,
         patch: part,
-        added: lines.filter((line) => line.startsWith('+') && !line.startsWith('+++')).length,
-        removed: lines.filter((line) => line.startsWith('-') && !line.startsWith('---')).length,
+        added: Math.max(
+          wholeFileCount(lines, 'added'),
+          lines.filter((line) => line.startsWith('+') && !line.startsWith('+++')).length,
+        ),
+        removed: Math.max(
+          wholeFileCount(lines, 'removed'),
+          lines.filter((line) => line.startsWith('-') && !line.startsWith('---')).length,
+        ),
       };
     });
 }

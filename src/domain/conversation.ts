@@ -72,6 +72,13 @@ export interface ChatMessage {
   id: string;
   role: 'user' | 'assistant';
   text: string;
+  /**
+   * A saved answer: the tool calls of its turn, oldest first, as the history file has them.
+   * The chat shows them as "23 steps · 3 files edited" under the answer.
+   */
+  steps?: ToolActivity[];
+  /** A saved answer: the files that the tool calls of its turn edited. */
+  edited?: string[];
 }
 export interface Transcript {
   messages: ChatMessage[];

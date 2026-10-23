@@ -15,6 +15,7 @@ import {
   type ChatActionTarget,
   type ChatMenuItem,
 } from '../domain/chat-actions';
+import { cn } from '../lib/utils';
 import { Button } from './ui/button';
 import { showToast } from './ui/toast';
 import {
@@ -630,7 +631,8 @@ export function ShipFooter({
         <span className="ship-split">
           <Button
             size="sm"
-            className="ship-primary"
+            // The split button of the agreed frame: 6px corners, joined to its arrow.
+            className={cn('ship-primary rounded-[6px] px-[13px]', !pullRequest && 'rounded-r-none')}
             disabled={disabled}
             onClick={() => void ship(pullRequest ? 'commit' : 'pull-request')}
           >
@@ -641,7 +643,7 @@ export function ShipFooter({
               <DropdownMenuTrigger asChild>
                 <Button
                   size="sm"
-                  className="ship-more"
+                  className="ship-more rounded-l-none rounded-r-[6px]"
                   aria-label="More ways to ship"
                   disabled={!!busy || !status || !name}
                 >

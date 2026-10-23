@@ -176,7 +176,7 @@ const theme = EditorView.theme({
   '.cm-gutters': {
     backgroundColor: 'var(--background)',
     border: 'none',
-    color: 'var(--border-strong)',
+    color: 'var(--chat-faint)',
   },
   '.cm-lineNumbers .cm-gutterElement': {
     minWidth: '30px',
@@ -185,7 +185,7 @@ const theme = EditorView.theme({
   },
   '.code-owner-gutter .cm-gutterElement': { width: '2px', position: 'relative' },
   '.cm-activeLine, .cm-activeLineGutter': { backgroundColor: 'var(--fill, #f5f5f5)' },
-  '.cm-activeLineGutter': { color: 'var(--muted-foreground)' },
+  '.cm-activeLineGutter': { color: 'var(--chat-faint)' },
   '.cm-cursor, .cm-dropCursor': { borderLeft: '1.5px solid var(--foreground)' },
   '&.cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground, .cm-selectionBackground':
     { backgroundColor: 'var(--code-selection)' },

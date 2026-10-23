@@ -224,7 +224,7 @@
 }
 /* A message that waits for the sign-in: the bubble, then "Sends after sign-in" (ST-C3). */
 .chat-message.user[data-queued] {
-  margin-bottom: 4px;
+  margin-bottom: 8px;
 }
 .chat-queued-meta {
   position: relative;
@@ -282,10 +282,11 @@
 }
 /* A question or an approval in the frame of the composer (CH-B1): a stronger border, 16px
    inside, the question 14/22 500, the options as 36px rows with key boxes. */
-.conversation-composer.composer-asking {
+.conversation-composer.composer-asking,
+.conversation-composer.composer-asking:focus-within {
   gap: 0;
   padding: 16px 12px 12px 16px;
-  border-color: var(--border-strong);
+  border-color: var(--chat-faint);
 }
 .composer-ask {
   display: grid;
@@ -298,6 +299,9 @@
 .composer-ask-body {
   display: grid;
   gap: 12px;
+  /* Room for the option rows, which start 8px left of the text. */
+  margin-left: -8px;
+  padding-left: 8px;
   max-height: min(320px, 45vh);
   overflow-y: auto;
 }
@@ -332,8 +336,8 @@
   margin-left: -8px;
   padding: 0 8px;
   border-radius: 8px;
-  font-size: 14px;
-  line-height: 22px;
+  font-size: 13px;
+  line-height: 20px;
   cursor: pointer;
 }
 .composer-ask-option:hover,
@@ -395,7 +399,7 @@
 .composer-ask-other {
   flex: 1;
   min-width: 0;
-  height: 32px;
+  height: 28px;
   border: 0;
   background: transparent;
   font-size: 14px;
@@ -407,9 +411,9 @@
   color: var(--muted-foreground);
 }
 .composer-ask-key-hint {
-  margin-left: 2px;
+  font-size: 11px;
   font-weight: 400;
-  opacity: 0.75;
+  opacity: 0.7;
 }
 .conversation-composer:focus-within {
   border-color: color-mix(in oklab, var(--foreground) 20%, var(--border));
@@ -737,6 +741,7 @@
   color: var(--muted-foreground);
 }
 .agent-picker-through {
+  font-size: 12px;
   font-weight: 400;
 }
 .agent-picker-version {
@@ -845,7 +850,7 @@ button.agent-step:hover {
   padding-bottom: 64px;
 }
 .conversation-empty .composer-dock {
-  padding-bottom: 0;
+  padding-block: 0;
 }
 .conversation-empty .conversation-messages {
   display: flex;
@@ -905,7 +910,7 @@ button.conversation-crumb:hover {
 .conversation-crumb-slash {
   flex-shrink: 0;
   margin: 0 2px;
-  color: var(--border-strong);
+  color: var(--chat-faint);
 }
 .conversation-toolbar-title {
   display: inline-flex;

@@ -115,10 +115,14 @@ function splitPath(path: string) {
     : { name: path.slice(index + 1), folder: path.slice(0, index) };
 }
 
-/** The hunk line as the pane shows it: "@@ new file · 13 lines" for a new file. */
+/**
+ * The hunk line as the pane shows it: "@@ new file · 13 lines" for a new file. The count comes
+ * from the hunk header, so a diff that was cut still gives the length of the file.
+ */
 function hunkLabel(text: string, added: number) {
-  return /^@@ -0(?:,0)? \+/.test(text)
-    ? `@@ new file · ${added} lines`
+  const created = text.match(/^@@ -0(?:,0)? \+\d+(?:,(\d+))? @@/);
+  return created
+    ? `@@ new file · ${created[1] === undefined ? added : Math.max(added, Number(created[1]))} lines`
     : text.replace(/ @@.*$/, ' @@');
 }
 

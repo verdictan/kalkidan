@@ -1,5 +1,5 @@
-/* The code editor of the Code tab (SY-B editor surfaces): one grey surface with white paper.
-   Tabs 32, file header 28, text 12/20 mono, gutter 32 with a 2px bar for who changed a line. */
+/* The code editor of the Code tab (CH-B3): tabs 32 with a line under them, then the code.
+   Text 12/20 mono, gutter 32 with a 2px bar for who changed a line. */
 .code-editor {
   --code-keyword: #7048e8;
   --code-string: #0b7285;
@@ -9,7 +9,7 @@
   flex-direction: column;
   height: 100%;
   min-height: 0;
-  background: var(--fill);
+  background: var(--background);
   color: var(--foreground);
   font-size: 12px;
   line-height: 16px;
@@ -19,9 +19,8 @@
   display: flex;
   flex: none;
   align-items: stretch;
-  gap: 2px;
   height: 32px;
-  padding: 4px 4px 0;
+  border-bottom: 1px solid var(--border);
   overflow-x: auto;
   scrollbar-width: none;
 }
@@ -33,14 +32,14 @@
   flex: none;
   align-items: center;
   max-width: 220px;
-  border-radius: 8px 8px 0 0;
+  border-right: 1px solid var(--border);
   color: var(--muted-foreground);
 }
 .code-tab:hover {
-  background: var(--fill-strong);
+  color: var(--foreground);
 }
 .code-tab.is-active {
-  background: var(--background);
+  box-shadow: inset 0 -2px 0 var(--foreground);
   color: var(--foreground);
 }
 .code-tab-name {
@@ -63,7 +62,6 @@
 }
 .code-tab-name:focus-visible,
 .code-tab-close:focus-visible,
-.code-file-session:focus-visible,
 .code-save:focus-visible,
 .code-changed-file:focus-visible {
   outline: 2px solid var(--ring);
@@ -123,36 +121,6 @@
   flex: 1;
   flex-direction: column;
   background: var(--background);
-}
-.code-file-header {
-  display: flex;
-  height: 28px;
-  flex: none;
-  align-items: center;
-  gap: 8px;
-  padding: 0 10px;
-  color: var(--muted-foreground);
-}
-.code-file-path {
-  min-width: 0;
-}
-.code-file-session {
-  display: flex;
-  min-width: 0;
-  max-width: 50%;
-  height: 24px;
-  align-items: center;
-  margin-left: auto;
-  padding: 0 4px;
-  border: 0;
-  border-radius: 6px;
-  background: none;
-  color: var(--muted-foreground);
-  font: inherit;
-}
-.code-file-session:not(:disabled):hover {
-  background: var(--fill);
-  color: var(--foreground);
 }
 .code-conflict {
   display: flex;
@@ -298,12 +266,14 @@
   position: absolute;
   z-index: 20;
   top: 4px;
-  right: 8px;
-  left: 8px;
+  right: 16px;
+  /* 420px, as in the agreed frame (CH-B3). A narrow pane keeps 4px on the left. */
+  width: min(420px, calc(100% - 20px));
   overflow: hidden;
+  border: 1px solid var(--border);
   border-radius: 12px;
   background: var(--popover);
-  box-shadow: var(--shadow-floating);
+  box-shadow: 0 16px 40px rgb(0 0 0 / 0.16);
   font-size: 13px;
   line-height: 20px;
 }
@@ -316,10 +286,10 @@
   border-bottom: 1px solid var(--border);
 }
 .code-quick-input svg {
-  width: 16px;
-  height: 16px;
+  width: 14px;
+  height: 14px;
   flex: none;
-  color: var(--muted-foreground);
+  color: var(--foreground);
 }
 .code-quick-input input {
   min-width: 0;
@@ -336,7 +306,7 @@
 .code-quick-hint {
   flex: none;
   color: var(--muted-foreground);
-  font-size: 12px;
+  font-size: 11px;
   line-height: 16px;
 }
 .code-quick-list {
@@ -346,12 +316,12 @@
 }
 .code-quick-item {
   display: flex;
-  height: 32px;
+  height: 28px;
   align-items: center;
   gap: 8px;
   padding: 0 8px;
   overflow: hidden;
-  border-radius: 8px;
+  border-radius: 6px;
   white-space: nowrap;
 }
 .code-quick-item.is-selected {
@@ -361,11 +331,11 @@
   display: grid;
   flex: none;
   place-items: center;
-  color: var(--muted-foreground);
+  color: var(--foreground);
 }
 .code-quick-icon svg {
-  width: 16px;
-  height: 16px;
+  width: 14px;
+  height: 14px;
 }
 .code-quick-label {
   min-width: 0;

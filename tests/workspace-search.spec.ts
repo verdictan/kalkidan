@@ -49,12 +49,14 @@ test('the palette is a centered modal dialog and the sidebar keeps its navigatio
   await expect(dialog).toHaveAttribute('aria-modal', 'true');
   await expect(input).toHaveAttribute('role', 'combobox');
   await expect(dialog.getByRole('listbox', { name: 'Recent and actions' })).toBeVisible();
-  // The palette shows over the window, not in the sidebar.
+  // The palette shows over the page, in the middle of the space right of the sidebar (SH-A4).
+  // Wait for the open motion: the palette is 560px wide at rest.
+  await expect.poll(async () => Math.round((await dialog.boundingBox())!.width)).toBe(560);
   const box = (await dialog.boundingBox())!;
   const viewport = page.viewportSize()!;
-  expect(Math.abs(box.x + box.width / 2 - viewport.width / 2)).toBeLessThan(2);
-  expect(box.width).toBeGreaterThan(560);
-  expect(box.width).toBeLessThanOrEqual(640);
+  const side = (await sidebar(page).boundingBox())!;
+  const middle = side.x + side.width + (viewport.width - side.x - side.width) / 2;
+  expect(Math.abs(box.x + box.width / 2 - middle)).toBeLessThan(3);
   expect(box.height).toBeLessThanOrEqual(viewport.height * 0.6 + 1);
   // The sidebar keeps the project tree under the palette.
   await input.fill('Atlas');

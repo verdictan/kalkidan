@@ -237,7 +237,7 @@ export function UncertainWritesChip({
       <Button
         variant="ghost"
         size="xs"
-        className="uncertain-writes-chip gap-1.5 rounded-full px-2 font-medium text-[var(--warning)] has-[>svg]:px-2 hover:bg-[color-mix(in_oklab,var(--warning)_14%,var(--background))] hover:text-[var(--warning)] [&_svg]:size-3.5"
+        className="uncertain-writes-chip gap-1.5 px-0 font-normal text-[var(--warning)] has-[>svg]:px-0 hover:bg-transparent hover:text-[var(--warning)] hover:underline [&_svg]:size-3.5"
         aria-haspopup="dialog"
         aria-expanded={open}
         aria-label={`${uncertainWritesText(rows.length)}. Check`}

@@ -26,20 +26,19 @@ import Image from '@tiptap/extension-image';
 import {
   Bold,
   CircleDot,
-  Italic,
   Code,
+  File as FileIcon,
   FileText,
   Heading2,
   Heading3,
+  Italic,
   Link as LinkIcon,
   List,
   ListChecks,
-  MessageSquare,
   ListOrdered,
-  ListTodo,
+  MessageSquare,
   Minus,
   Quote,
-  SquareCode,
   Table,
   type LucideIcon,
 } from 'lucide-react';
@@ -439,7 +438,7 @@ const commands: Command[] = [
   },
   {
     label: 'Checklist',
-    icon: ListTodo,
+    icon: ListChecks,
     shortcut: '[]',
     keywords: ['todo', 'task', 'check box', 'checkbox', 'track tasks'],
     group: 'Blocks',
@@ -456,7 +455,7 @@ const commands: Command[] = [
   },
   {
     label: 'Code',
-    icon: SquareCode,
+    icon: Code,
     shortcut: '```',
     keywords: ['code block', 'pre', 'monospace', 'snippet'],
     group: 'Blocks',
@@ -996,7 +995,7 @@ export function WikiEditor({
       ? [
           {
             label: 'Link a page',
-            icon: FileText,
+            icon: FileIcon,
             shortcut: '[[',
             keywords: ['link', 'page', 'doc', 'wiki'],
             group: 'Links' as const,
@@ -1474,7 +1473,7 @@ export function WikiEditor({
           position={mention}
           rows={mentionRows.map(({ page, path }) => ({
             key: page.id,
-            icon: FileText,
+            icon: FileIcon,
             label: page.title || 'Untitled',
             detail: path,
           }))}

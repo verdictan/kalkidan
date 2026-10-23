@@ -189,6 +189,7 @@ export function RepoPill({
   onPick,
   onAdd,
   disabled,
+  chevron = false,
 }: {
   /** The repo name. Older callers give "name · branch" here. */
   label?: string;
@@ -200,6 +201,8 @@ export function RepoPill({
   /** Adds a code folder. The menu then ends with "Add code folder…". */
   onAdd?: () => void;
   disabled?: boolean;
+  /** Shows a chevron on the menu chip, as on the project Overview (SH-A1). */
+  chevron?: boolean;
 }) {
   if (!folders.length && onAdd)
     return (
@@ -247,6 +250,7 @@ export function RepoPill({
             disabled={disabled}
           >
             {content}
+            {chevron && <ChevronDown aria-hidden="true" />}
           </Button>
         </DropdownMenuTrigger>
       </Hint>

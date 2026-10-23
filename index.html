@@ -45,6 +45,25 @@
         background: #ffffff;
         transition: opacity 200ms cubic-bezier(0, 0, 0.2, 1) 40ms;
       }
+      /* The browser preview has no window buttons: it draws their place, as the app does. The
+         desktop app draws its own buttons, so the place stays hidden there. */
+      .splash-lights {
+        position: absolute;
+        left: 16px;
+        top: 14px;
+        display: none;
+        gap: 8px;
+      }
+      #splash.splash-preview .splash-lights {
+        display: flex;
+      }
+      .splash-lights i {
+        display: block;
+        width: 12px;
+        height: 12px;
+        border-radius: 9999px;
+        background: #e5e5e5;
+      }
       .splash-lockup {
         position: absolute;
         left: 0;
@@ -161,7 +180,9 @@
       }
     </style>
     <div id="splash" aria-hidden="true">
-      <div class="splash-bg"></div>
+      <div class="splash-bg">
+        <span class="splash-lights"><i></i><i></i><i></i></span>
+      </div>
       <div class="splash-lockup">
         <svg class="splash-mark" viewBox="0 0 100 100">
           <path
@@ -185,6 +206,7 @@
         <div class="splash-name">Kalkidan</div>
       </div>
     </div>
+    <script src="./splash-preview.js"></script>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

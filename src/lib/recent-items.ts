@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react';
 
-/** A chat, task or doc page that the user opened. Search and the project home list them. */
+/** A chat, task, doc page or repo that the user opened. Search lists them under Recent. */
 export interface RecentItem {
-  kind: 'chat' | 'task' | 'doc';
+  kind: 'chat' | 'task' | 'doc' | 'repo';
   id: string;
   title: string;
   /** The project of a task or a page. */
@@ -30,7 +30,7 @@ export function readRecentItems(): RecentItem[] {
             typeof item === 'object' &&
             typeof (item as RecentItem).id === 'string' &&
             typeof (item as RecentItem).title === 'string' &&
-            ['chat', 'task', 'doc'].includes((item as RecentItem).kind),
+            ['chat', 'task', 'doc', 'repo'].includes((item as RecentItem).kind),
         )
       : [];
   } catch {

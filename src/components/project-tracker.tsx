@@ -1468,15 +1468,15 @@ export function ProjectTrackerPanel({
         <Button
           variant="ghost"
           size="sm"
-          className="tracker-board-name"
+          className="tracker-board-name text-foreground has-[>svg]:px-2"
           aria-label={`Board: ${boardTitle}`}
         >
-          <Layers2 aria-hidden="true" />
+          <Layers2 aria-hidden="true" className="size-4 text-muted-foreground" />
           <span className="truncate">{linkedProject.title}</span>
           {!!linkedProject.number && (
             <span className="tracker-board-number">#{linkedProject.number}</span>
           )}
-          <ChevronDown aria-hidden="true" className="tracker-board-chevron" />
+          <ChevronDown aria-hidden="true" className="tracker-board-chevron text-muted-foreground" />
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" width="wide">
@@ -1632,7 +1632,11 @@ export function ProjectTrackerPanel({
             aria-label={`Start ${plural(selectedVisible.length, 'task')} with ${agentLabel(preferredAgent)}`}
             onClick={() => void startSelected()}
           >
-            {waveBusy ? <LoaderCircle className="animate-spin" /> : <Play />}
+            {waveBusy ? (
+              <LoaderCircle className="size-3.5 animate-spin" />
+            ) : (
+              <Play className="size-3.5" />
+            )}
             {waveBusy
               ? 'Starting…'
               : `Start ${selectedVisible.length} with ${agentLabel(preferredAgent)}`}
@@ -1652,11 +1656,11 @@ export function ProjectTrackerPanel({
             <DropdownMenuTrigger asChild>
               <Button
                 variant="ghost"
-                className="gap-1.5 text-background hover:bg-background/15 hover:text-background [&_svg]:size-3"
+                className="gap-1.5 px-2.5 text-background hover:bg-background/15 hover:text-background"
                 disabled={busy || !!readOnly}
               >
                 Move to
-                <ChevronDown aria-hidden="true" />
+                <ChevronDown aria-hidden="true" className="size-3" />
               </Button>
             </DropdownMenuTrigger>
           </StartHint>
@@ -1708,12 +1712,12 @@ export function ProjectTrackerPanel({
         <Button
           variant="ghost"
           size="icon"
-          className="tracker-selection-clear text-background hover:bg-background/15 hover:text-background [&_svg]:size-3.5"
+          className="tracker-selection-clear w-[30px] text-background hover:bg-background/15 hover:text-background"
           aria-label="Clear selection"
           aria-keyshortcuts="Escape"
           onClick={endSelection}
         >
-          <X />
+          <X className="size-3.5" />
         </Button>
       </Hint>
     </div>
@@ -2404,7 +2408,7 @@ export function ProjectTrackerPanel({
                   <Popover.Trigger asChild>
                     <Button
                       variant="secondary"
-                      className="tracker-start-repo"
+                      className="tracker-start-repo gap-1.5 bg-background px-3 shadow-[inset_0_0_0_1px_var(--border)] hover:bg-[var(--fill)] has-[>svg]:px-3"
                       disabled={taskBusy}
                       aria-label={`Where to work: ${taskRepo?.name || 'Choose a code folder'} · ${branchText}`}
                     >
@@ -2416,7 +2420,7 @@ export function ProjectTrackerPanel({
                         />
                       )}
                       <span className="truncate">{taskRepo?.name || 'Choose a code folder'}</span>
-                      <ChevronDown aria-hidden="true" />
+                      <ChevronDown aria-hidden="true" className="size-3 text-muted-foreground" />
                     </Button>
                   </Popover.Trigger>
                   <Popover.Portal>
@@ -2526,7 +2530,11 @@ export function ProjectTrackerPanel({
                       aria-label={`Start task with ${agentLabel(preferredAgent)}`}
                       onClick={() => void startTask(preferredAgent)}
                     >
-                      {taskBusy ? <LoaderCircle className="animate-spin" /> : <Play />}
+                      {taskBusy ? (
+                        <LoaderCircle className="size-3.5 animate-spin" />
+                      ) : (
+                        <Play className="size-3.5" />
+                      )}
                       {taskBusy ? 'Starting…' : `Start with ${agentLabel(preferredAgent)}`}
                     </Button>
                     <DropdownMenu>
@@ -2537,10 +2545,14 @@ export function ProjectTrackerPanel({
                           className="rounded-l-none border-l border-primary-foreground/20"
                           aria-label="Choose an agent"
                         >
-                          <ChevronDown />
+                          <ChevronDown className="size-3.5" />
                         </Button>
                       </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end" className="tracker-agent-menu">
+                      <DropdownMenuContent
+                        align="end"
+                        sideOffset={8}
+                        className="tracker-agent-menu w-[232px]"
+                      >
                         <AgentMenuItems
                           agents={agents}
                           current={preferredAgent}

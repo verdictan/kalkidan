@@ -85,6 +85,26 @@ export function projectPart(tab: string | undefined) {
  * place, under the chips. The mark and name open the menu: Color, Automatic color, Rename… and
  * Remove project…. `tab` moves to a part, for example 'board'.
  */
+/** The board of the board chip: a frame with two columns of cards. */
+function BoardIcon() {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      width="12"
+      height="12"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <rect x="3" y="4" width="18" height="16" rx="2" />
+      <path d="M9 4v16M15 4v10" />
+    </svg>
+  );
+}
+
 export function ProjectSettingsPanel({
   api,
   group,
@@ -255,7 +275,7 @@ export function ProjectSettingsPanel({
           aria-controls={projectParts.board}
           onClick={() => setBoardOpen((value) => !value)}
         >
-          <SquareKanban aria-hidden="true" />
+          <BoardIcon />
           {boardTitle || 'Connect board'}
         </button>
       </div>

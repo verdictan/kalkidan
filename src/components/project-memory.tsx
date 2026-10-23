@@ -10,7 +10,16 @@ import {
 } from 'react';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { CircleDot, FileText, Heading2, List, ListTodo, SquareCode, Trash2 } from 'lucide-react';
+import {
+  CircleDot,
+  Code,
+  File as FileIcon,
+  FileText,
+  Heading2,
+  List,
+  ListChecks,
+  Trash2,
+} from 'lucide-react';
 import { Button } from './ui/button';
 import { CaretMenu, TaskPicker, caretMenuHeight, menuPosition, taskHref } from './wiki-editor';
 import { DocPagePicker } from './doc-page-picker';
@@ -310,9 +319,9 @@ function focusEnd(element: HTMLTextAreaElement | HTMLInputElement | null | undef
 const memoryCommands = [
   { key: 'topic', icon: Heading2, label: 'Topic', hint: '##' },
   { key: 'fact', icon: List, label: 'Fact', hint: '-' },
-  { key: 'checklist', icon: ListTodo, label: 'Checklist', hint: '[]' },
-  { key: 'code', icon: SquareCode, label: 'Code', hint: '```' },
-  { key: 'page', icon: FileText, label: 'Link a page', hint: '[[' },
+  { key: 'checklist', icon: ListChecks, label: 'Checklist', hint: '[]' },
+  { key: 'code', icon: Code, label: 'Code', hint: '```' },
+  { key: 'page', icon: FileIcon, label: 'Link a page', hint: '[[' },
   { key: 'task', icon: CircleDot, label: 'Link a task', hint: '#' },
 ] as const;
 type MemoryCommand = (typeof memoryCommands)[number]['key'];
@@ -378,8 +387,14 @@ function BulletInput({
       setMenu(null);
       return;
     }
-    const place = () =>
-      menuPosition(field.current!.getBoundingClientRect(), caretMenuHeight(rows.length));
+    // The menu goes 8px under the line: the field and the 2px padding of the line under it.
+    const place = () => {
+      const box = field.current!.getBoundingClientRect();
+      return menuPosition(
+        { left: box.left, top: box.top, bottom: box.bottom + 2 },
+        caretMenuHeight(rows.length),
+      );
+    };
     setMenu((current) => ({
       rows,
       index: Math.min(current?.index ?? 0, Math.max(0, rows.length - 1)),

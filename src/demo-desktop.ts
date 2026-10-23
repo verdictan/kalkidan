@@ -85,6 +85,8 @@ function demoTools(): ToolStatus[] {
     ];
   const gh = tool('gh', '2.62.0', { account: 'dana-kim' });
   if (mode === 'all') return [tool('claude', '2.0.14'), tool('codex', '0.46.0'), gh];
+  // The Tasks frames (TK-A2): Claude Code 2.1.
+  if (mode === 'tasks') return [tool('claude', '2.1.0'), tool('codex', '0.46.0'), gh];
   if (mode === 'none') return [tool('claude', undefined), tool('codex', undefined), gh];
   return [tool('claude', '2.0.14'), tool('codex', undefined), gh];
 }

@@ -293,6 +293,11 @@ export function AgentWorkspace({
   const forkedFrom = live.organization?.forkedFrom || live.forkOf;
   const forks = live.organization?.forks || [];
   const resolvedId = created[selectedKey]?.id;
+  // A new chat before its first message has no name yet: the crumb ends at its repo (CH-B4).
+  const unnamed =
+    !resolvedId &&
+    selectedTab.id.startsWith('draft-') &&
+    /^New( .*)? (session|chat)$/.test(live.title);
   const saved = !!resolvedId || !selectedTab.projectId;
   const repository = sessionRepo(live, projects);
   const repositoryName = repository?.name || pathBasename(live.cwd) || returnLabel;
@@ -438,7 +443,19 @@ export function AgentWorkspace({
                   </span>
                 </>
               )}
-              {repository ? (
+              {repository && unnamed ? (
+                <span
+                  className="conversation-toolbar-title"
+                  title={repositoryName}
+                  aria-current="page"
+                >
+                  <IdentityToken
+                    kind="repo"
+                    color={identity.repo(repository)}
+                    name={repositoryName}
+                  />
+                </span>
+              ) : repository ? (
                 <button
                   type="button"
                   className="conversation-crumb"
@@ -462,20 +479,24 @@ export function AgentWorkspace({
                   {repositoryName}
                 </span>
               )}
-              <span className="conversation-crumb-slash" data-optional aria-hidden="true">
-                /
-              </span>
-              <span
-                className="conversation-toolbar-title"
-                title={titleOf(live)}
-                aria-current="page"
-              >
-                <IdentityToken
-                  kind="session"
-                  color={identity.session({ agent: live.agent, id: resolvedId || live.id })}
-                  name={titleOf(live)}
-                />
-              </span>
+              {!(repository && unnamed) && (
+                <>
+                  <span className="conversation-crumb-slash" data-optional aria-hidden="true">
+                    /
+                  </span>
+                  <span
+                    className="conversation-toolbar-title"
+                    title={titleOf(live)}
+                    aria-current="page"
+                  >
+                    <IdentityToken
+                      kind="session"
+                      color={identity.session({ agent: live.agent, id: resolvedId || live.id })}
+                      name={titleOf(live)}
+                    />
+                  </span>
+                </>
+              )}
               {live.organization?.notes && (
                 <button
                   type="button"

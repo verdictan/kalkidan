@@ -124,7 +124,7 @@ import {
   ArchiveRestore,
   MessageSquarePlus,
   ListTodo,
-  NotebookText,
+  Book,
   type LucideIcon,
 } from 'lucide-react';
 import { ConfirmDialog } from './components/confirm-dialog';
@@ -950,6 +950,7 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
    */
   function openProject(p: Project) {
     setLastRepository(p.id);
+    recordRecentItem({ kind: 'repo', id: p.id, title: p.name });
     const group = data.groups?.find((g) => g.repoIds.includes(p.id));
     if (group) openGroup(group);
   }
@@ -1820,7 +1821,8 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
           ? [
               {
                 key: 'open-window',
-                label: inProject(actionGroup, 'Open project in new window'),
+                // SH-A4: the action is for the current project, so its label has no name.
+                label: 'Open project in new window',
                 keywords: 'window separate dedicated',
                 shortcut: shortcutLabel(['shift'], '↵'),
                 icon: <AppWindow />,
@@ -2016,6 +2018,22 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
       if (!session || (chatOpen && sameChat(chatSession, session))) return [];
       return [chatPlace(session)];
     }
+    if (item.kind === 'repo') {
+      const repo = data.projects.find((p) => p.id === item.id);
+      const group = repo && groupOfRepo(repo);
+      if (!repo) return [];
+      return [
+        {
+          key: 'repo:' + repo.id,
+          kind: 'repo' as const,
+          label: repo.name,
+          context: group?.name,
+          mark: { kind: 'repo', color: identity.repo(repo) },
+          place: group && { name: group.name, color: identity.project(group) },
+          open: () => openProject(repo),
+        },
+      ];
+    }
     const group = data.groups?.find((g) => g.id === item.groupId);
     if (!group) return [];
     if (item.kind === 'task') {
@@ -2071,7 +2089,8 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
       (place, index, list) =>
         !waitingKeys.has(place.key) && list.findIndex((item) => item.key === place.key) === index,
     )
-    .slice(0, 4);
+    // SH-A4: two recent places, so Needs you and Actions show without a scroll.
+    .slice(0, 2);
   /** Starts a chat with the search text as its first message, where the user works now. */
   function askAgent(prompt: string) {
     const chatRepo = chatOpen && chatSession ? sessionRepo(chatSession, data.projects) : undefined;
@@ -2090,12 +2109,8 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
   const suggestedKeys = chatOpen
     ? ['new-chat', 'chat-changes', 'chat-terminal']
     : boardGroup
-      ? [
-          'new-chat',
-          ...(boardReady ? ['new-task', 'new-page', 'plan-iteration'] : ['add-folder', 'new-page']),
-          ...(boardReady ? [] : ['connect-board']),
-          'open-window',
-        ]
+      ? // SH-A4: on a project page, New chat and Open project in new window.
+        ['new-chat', 'open-window']
       : data.groups?.length
         ? ['new-chat', 'open-window', 'new-project']
         : ['new-project', 'add-folder', 'settings'];
@@ -2388,7 +2403,6 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
             repo ? startSession(preferredAgent, repo) : newChatIn(group)
           }
           repoActions={repoActions}
-          usage={{ sessions: data.sessions, repos: data.projects }}
           scopeLinks={
             scoped && (
               <div className="tree-scope-links" role="group" aria-label={`${scoped.name} pages`}>
@@ -2399,7 +2413,7 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
                   onClick={() => openGroup(scoped, 'tasks')}
                 />
                 <NavRow
-                  icon={<NotebookText />}
+                  icon={<Book />}
                   label="Knowledge"
                   current={boardGroup === scoped.id && projectPage === 'knowledge' && !chatOpen}
                   onClick={() => openGroup(scoped, 'knowledge')}
