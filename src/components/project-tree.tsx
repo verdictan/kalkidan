@@ -812,7 +812,7 @@ export function ProjectTree({
         if (isRow(event.target as HTMLElement)) activeRow.current = event.target as HTMLElement;
       }}
     >
-      {onNewChat && !scope && (
+      {onNewChat && (
         <NavRow
           className="tree-new-chat"
           icon={<SquarePen />}

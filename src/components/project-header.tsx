@@ -1,15 +1,22 @@
 import { useState, type ReactNode } from 'react';
-import { Loader2 } from 'lucide-react';
+import { AppWindow, Loader2, Unplug } from 'lucide-react';
 import type { API, Project, ProjectGroup, RemoteHost, Session } from '../types';
 import type { ProjectPage } from '../domain/workspace-route';
-import { getIdentityOverride, setIdentityOverride, type IdentityColor } from '../domain/identity';
+import type { IdentityColor } from '../domain/identity';
 import { errorMessage } from '../lib/errors';
+import { fileManagerName, isMac, shortcutLabel } from '../lib/platform';
+import { Hint } from './hint';
 import { projectTabs, openProjectPage } from './project-tabs';
-import { requestNewChat } from './new-chat-button';
 import { ProjectUsageMenuItem } from './project-usage';
-import { projectMenuActions, TreeActionsMenu } from './tree-context-menu';
-import { openProjectSettings } from './settings-dialog';
 import { Button } from './ui/button';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from './ui/dropdown-menu';
+import { menuShortcutClass, menuWideClass } from './ui/menu-styles';
+import { MoreButton } from './ui/more-button';
 import { PageHeader } from './ui/page-header';
 import { showToast } from './ui/toast';
 
@@ -34,6 +41,7 @@ function ProjectHeader({
   host,
   page,
   usage,
+  desktop,
   onOpenWindow,
   onRefresh,
 }: {
@@ -43,6 +51,7 @@ function ProjectHeader({
   host?: RemoteHost;
   page: ProjectPage;
   usage?: { sessions: Session[]; repos: Project[] };
+  desktop?: boolean;
   onOpenWindow?: () => void;
   onRefresh(): Promise<unknown>;
 }) {
@@ -63,19 +72,15 @@ function ProjectHeader({
       setReconnecting(false);
     }
   }
-  const actions = projectMenuActions({
-    projectName: group.name,
-    onOpenWindow,
-    onNewChat: () => requestNewChat({ groupId: group.id }),
-    onAddFolder: () => event('kalkidan-add-code-folder', { groupId: group.id }),
-    onRename: () => event('kalkidan-rename-project', { groupId: group.id }),
-    onSettings: () => event('kalkidan-open-project-settings', { groupId: group.id }),
-    onRemove: () => openProjectSettings(group.id, 'danger'),
-    reconnect:
-      host && status !== 'connected'
-        ? { host: host.name, disabled: reconnecting, run: () => void reconnect() }
-        : undefined,
-  });
+  // Open in Finder shows the first repo of a project on this computer, in the desktop app.
+  const folder = desktop && !group.hostId ? group.repoIds[0] : undefined;
+  function reveal(id: string) {
+    api
+      .reveal(id)
+      .catch((error) =>
+        showToast({ message: `Could not open the folder: ${errorMessage(error)}`, tone: 'error' }),
+      );
+  }
   return (
     <PageHeader
       className="project-header"
@@ -115,27 +120,56 @@ function ProjectHeader({
       actions={
         <>
           <div id="project-header-actions" className="project-header-actions" />
-          <TreeActionsMenu
-            label="Project actions"
-            size="sm"
-            align="end"
-            actions={actions}
-            color={{
-              value: color,
-              chosen: !!getIdentityOverride('project', group.name),
-              onChange: (next) => setIdentityOverride('project', group.name, next),
-            }}
-            extra={
-              usage && (
+          {/* The short project menu. The tree's right-click menu has all the project actions. */}
+          <DropdownMenu>
+            <Hint label="Project actions">
+              <DropdownMenuTrigger asChild>
+                <MoreButton size="sm" label="Project actions" />
+              </DropdownMenuTrigger>
+            </Hint>
+            <DropdownMenuContent align="end" aria-label="Project actions" className={menuWideClass}>
+              {onOpenWindow && (
+                <DropdownMenuItem onSelect={onOpenWindow}>
+                  <AppWindow className="size-4" />
+                  <span className="flex-1">Open in new window</span>
+                  <span className={menuShortcutClass}>{shortcutLabel(['shift'], '↵')}</span>
+                </DropdownMenuItem>
+              )}
+              {host && status !== 'connected' && (
+                <DropdownMenuItem disabled={reconnecting} onSelect={() => void reconnect()}>
+                  <Unplug className="size-4" />
+                  <span className="flex-1">Reconnect to {host.name}</span>
+                </DropdownMenuItem>
+              )}
+              <DropdownMenuItem
+                onSelect={() => event('kalkidan-rename-project', { groupId: group.id })}
+              >
+                <span className="flex-1">Rename…</span>
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                aria-keyshortcuts={isMac ? 'Meta+,' : 'Control+,'}
+                onSelect={() => event('kalkidan-open-project-settings', { groupId: group.id })}
+              >
+                <span className="flex-1">Settings…</span>
+                <span className={menuShortcutClass} aria-hidden="true">
+                  {shortcutLabel(['mod'], ',')}
+                </span>
+              </DropdownMenuItem>
+              {usage && (
                 <ProjectUsageMenuItem
                   api={api}
                   group={group}
                   sessions={usage.sessions}
                   repos={usage.repos}
                 />
-              )
-            }
-          />
+              )}
+              {folder && (
+                <DropdownMenuItem onSelect={() => reveal(folder)}>
+                  <span className="flex-1">Open in {fileManagerName()}</span>
+                </DropdownMenuItem>
+              )}
+            </DropdownMenuContent>
+          </DropdownMenu>
         </>
       }
     />
@@ -153,6 +187,7 @@ export function ProjectFrame({
   host,
   page,
   usage,
+  desktop,
   onOpenWindow,
   onRefresh,
   children,
@@ -163,6 +198,8 @@ export function ProjectFrame({
   host?: RemoteHost;
   page: ProjectPage;
   usage?: { sessions: Session[]; repos: Project[] };
+  /** True in the desktop app: the menu then has Open in Finder. */
+  desktop?: boolean;
   onOpenWindow?: () => void;
   onRefresh(): Promise<unknown>;
   children: ReactNode;
@@ -176,6 +213,7 @@ export function ProjectFrame({
         host={host}
         page={page}
         usage={usage}
+        desktop={desktop}
         onOpenWindow={onOpenWindow}
         onRefresh={onRefresh}
       />

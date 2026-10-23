@@ -10,9 +10,9 @@ import {
 } from 'react';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { FileText, Heading2, List, ListTodo, SquareCode, Trash2 } from 'lucide-react';
+import { CircleDot, FileText, Heading2, List, ListTodo, SquareCode, Trash2 } from 'lucide-react';
 import { Button } from './ui/button';
-import { CaretMenu, caretMenuHeight, menuPosition } from './wiki-editor';
+import { CaretMenu, TaskPicker, caretMenuHeight, menuPosition, taskHref } from './wiki-editor';
 import { DocPagePicker } from './doc-page-picker';
 import { Alert, AlertDescription } from './ui/alert';
 import { MoreButton } from './ui/more-button';
@@ -31,9 +31,11 @@ import type {
   MemoryWriteResult,
   ProjectMemory,
 } from '../domain/memory';
+import { trackerConnection, type TrackerItem } from '../domain/tracker';
 import { useProjectResource } from '../hooks/use-project-resource';
 import { errorMessage } from '../lib/errors';
 import { plural } from '../lib/platform';
+import { trackerClient } from '../lib/tracker-client';
 import { fullTime, relativeTime } from '../lib/relative-time';
 import {
   defaultMemoryTopic,
@@ -311,19 +313,21 @@ const memoryCommands = [
   { key: 'checklist', icon: ListTodo, label: 'Checklist', hint: '[]' },
   { key: 'code', icon: SquareCode, label: 'Code', hint: '```' },
   { key: 'page', icon: FileText, label: 'Link a page', hint: '[[' },
+  { key: 'task', icon: CircleDot, label: 'Link a task', hint: '#' },
 ] as const;
 type MemoryCommand = (typeof memoryCommands)[number]['key'];
 
-/** The rows of "/" for the typed text after it. */
-export function memoryCommandRows(query: string) {
+/** The rows of "/" for the typed text after it. "Link a task" shows only with a board. */
+export function memoryCommandRows(query: string, board = false) {
   const text = query.trim().toLowerCase();
   return memoryCommands.filter(
     (command) =>
-      !text ||
-      command.label
-        .toLowerCase()
-        .split(' ')
-        .some((w) => w.startsWith(text)),
+      (board || command.key !== 'task') &&
+      (!text ||
+        command.label
+          .toLowerCase()
+          .split(' ')
+          .some((w) => w.startsWith(text))),
   );
 }
 
@@ -347,6 +351,7 @@ function BulletInput({
   onBlur,
   keys,
   onCommand,
+  board,
 }: {
   value: string;
   label: string;
@@ -360,13 +365,15 @@ function BulletInput({
   keys: LineKeys;
   /** Runs a row of the "/" menu. Without it, "/" is text. */
   onCommand?: (command: MemoryCommand) => void;
+  /** True when the project has a board: "/" then also offers "Link a task". */
+  board?: boolean;
 }) {
   const [menu, setMenu] = useState<LineMenu | null>(null);
   const menuId = useId();
   /** Opens, filters or closes the "/" menu for the text of the line. */
   function slash(text: string) {
     const match = onCommand && /^\/(\w*)$/.exec(text);
-    const rows = match ? memoryCommandRows(match[1]) : [];
+    const rows = match ? memoryCommandRows(match[1], board) : [];
     if (!match || !field.current) {
       setMenu(null);
       return;
@@ -933,6 +940,22 @@ export function ProjectMemoryPanel({
   }
   // The line that "Link a page" in "/" adds a page link to.
   const [linkLine, setLinkLine] = useState('');
+  // The line that "Link a task" in "/" adds a task link to, and the board tasks (null: loading).
+  // The board loads only when "Link a task" is chosen.
+  const [taskLine, setTaskLine] = useState('');
+  const [boardTasks, setBoardTasks] = useState<TrackerItem[] | null>(null);
+  const connection = trackerConnection(group);
+  function loadTasks() {
+    if (!connection) return;
+    setBoardTasks(null);
+    trackerClient(api, connection.provider || 'github')
+      .board(group.id)
+      .then((board) => setBoardTasks(board.items))
+      .catch((reason) => {
+        setBoardTasks([]);
+        setActionError(errorMessage(reason));
+      });
+  }
   /** Runs a row of the "/" menu in an unsaved line. */
   function runCommand(item: string, command: MemoryCommand) {
     if (command === 'topic') {
@@ -942,6 +965,10 @@ export function ProjectMemoryPanel({
     } else if (command === 'page') {
       setLineText(item, '');
       setLinkLine(item);
+    } else if (command === 'task') {
+      setLineText(item, '');
+      setTaskLine(item);
+      loadTasks();
     } else setLineText(item, command === 'checklist' ? '[ ] ' : command === 'code' ? '`' : '');
   }
   /** Turns the text of "Add a fact" into a line of the last section, then saves it. */
@@ -997,6 +1024,7 @@ export function ProjectMemoryPanel({
               disabled={draft.busy}
               focusKey={focusKey}
               onCommand={(command) => runCommand(item, command)}
+              board={!!connection}
               onChange={(text) => {
                 const heading = bulletHeading(text);
                 if (heading !== null) {
@@ -1040,6 +1068,7 @@ export function ProjectMemoryPanel({
         value={ghost}
         focusKey={focusKey}
         onCommand={(command) => runCommand('ghost', command)}
+        board={!!connection}
         onChange={(text) => {
           const heading = bulletHeading(text);
           if (heading !== null) {
@@ -1180,6 +1209,17 @@ export function ProjectMemoryPanel({
           focusLine(linkLine);
         }}
         title="Link a page"
+        onCloseAutoFocus={(event) => event.preventDefault()}
+      />
+      <TaskPicker
+        open={!!taskLine}
+        onOpenChange={(open) => !open && setTaskLine('')}
+        tasks={boardTasks}
+        onPick={(task) => {
+          const label = task.number ? `#${task.number} ${task.title}` : task.title || 'Task';
+          setLineText(taskLine, `[${label}](${taskHref(task)}) `);
+          focusLine(taskLine);
+        }}
         onCloseAutoFocus={(event) => event.preventDefault()}
       />
       {memory?.limited && (

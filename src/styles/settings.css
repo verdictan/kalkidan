@@ -52,8 +52,13 @@
 .st-page {
   display: flex;
   flex-direction: column;
-  gap: var(--space-6);
+  gap: var(--space-4);
   max-width: 640px;
+}
+/* The Settings page of the shell: less space above the account, so the account, Tools,
+   Preferences and the current project fit in a 620px window (ST-C4). */
+.project-frame[data-page='settings'] .project-frame-body {
+  padding-top: var(--space-4);
 }
 
 /* The account: avatar, name, organization and region, then its actions. */
@@ -269,31 +274,6 @@
 }
 .st-host-state {
   flex: 1;
-}
-.st-add-row {
-  align-self: flex-start;
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-2);
-  height: 32px;
-  margin: var(--space-2) 0 0 calc(-1 * var(--space-2));
-  padding: 0 var(--space-2);
-  border: 0;
-  border-radius: var(--radius-control, 8px);
-  background: transparent;
-  color: var(--muted-foreground);
-  outline: none;
-}
-.st-add-row:hover {
-  background: var(--fill);
-  color: var(--foreground);
-}
-.st-add-row:focus-visible {
-  box-shadow: var(--focus-ring);
-}
-.st-add-row svg {
-  width: 16px;
-  height: 16px;
 }
 .st-section .computers-add {
   margin-top: var(--space-2);
@@ -558,6 +538,7 @@ button.st-chip:focus-visible,
   display: inline-flex;
   align-items: center;
   gap: 2px;
+  margin: 0;
   padding: 0;
   border: 0;
   background: none;

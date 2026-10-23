@@ -162,33 +162,27 @@ main:focus {
 .project-window .app-header:not([data-tinted]) {
   background: var(--id-tint-window);
 }
-/* The project of a project window: its 16px square, its name and New chat. */
-.sidebar-project {
-  flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  height: var(--row-height);
-  margin: var(--space-1) 0 var(--space-2);
-  padding-right: var(--space-1);
-  border-radius: var(--radius-md);
+/* A project window: a 3px line in the project color on the top edge of the window. */
+.project-window::before {
+  content: '';
+  position: fixed;
+  inset: 0 0 auto;
+  z-index: 60;
+  height: 3px;
+  background: var(--id);
+  pointer-events: none;
 }
-.sidebar-project:hover {
-  background: var(--sidebar-hover);
-}
-.sidebar-project.selected {
-  background: var(--id-tint-sidebar);
-}
+/* The project of a project window, in the title bar: its 16px square and its name. */
 .sidebar-project-open {
   flex: 1;
   min-width: 0;
-  height: 100%;
+  height: 28px;
   display: flex;
   align-items: center;
   gap: var(--space-2);
   padding: 0 var(--space-2);
   border: 0;
-  border-radius: inherit;
+  border-radius: var(--radius-md);
   background: none;
   color: var(--foreground);
   font: inherit;
@@ -196,6 +190,10 @@ main:focus {
   line-height: 24px;
   font-weight: 600;
   text-align: left;
+  -webkit-app-region: no-drag;
+}
+.sidebar-project-open:hover {
+  background: var(--sidebar-hover);
 }
 .sidebar-project-open:focus-visible {
   outline: none;
@@ -3669,4 +3667,8 @@ button.tracker-task-chip:focus-visible {
 /* With the sidebar hidden, the page starts on the x of the header title. */
 .navigation-collapsed .project-frame-body:not([data-page='knowledge'] *) {
   padding-left: calc(var(--collapsed-controls) + var(--space-3));
+}
+/* A project window: a gap between New chat and the repos. */
+.project-window .tree-new-chat {
+  margin-bottom: var(--space-2);
 }

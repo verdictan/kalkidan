@@ -2158,6 +2158,11 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
         });
     }
   }, [api, data.projects, data.sessions]);
+  // A project window has the name of its project as the window title.
+  const scopedName = scopeGroup ? data.groups?.find((g) => g.id === scopeGroup)?.name : undefined;
+  useEffect(() => {
+    if (scopedName) document.title = scopedName;
+  }, [scopedName]);
   // The Welcome screen fills the window before the workspace shows.
   if (welcome.show === undefined) return <div className="app-shell" aria-busy="true" />;
   if (welcome.show)
@@ -2226,30 +2231,11 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
         hidden={!navigationOpen}
         aria-label={scoped ? `${scoped.name} code folders` : 'Projects and repositories'}
       >
-        {/* The top of the sidebar is the title bar: the window buttons, then the toggle. */}
+        {/* The top of the sidebar is the title bar: the window buttons, then the toggle. A
+            project window shows the project mark and name there. */}
         <div className={'sidebar-top' + (!preview ? ' desktop-titlebar' : '')}>
           {menuButton}
-          <span className="sidebar-top-space" />
-          {scoped && (
-            <Hint label="Search" shortcut={shortcutLabel(['mod'], 'K')}>
-              <Button
-                variant="ghost"
-                size="icon-sm"
-                aria-label="Search or run a command"
-                onClick={openSearch}
-              >
-                <Search />
-              </Button>
-            </Hint>
-          )}
-          {navigationToggle}
-        </div>
-        {scoped && (
-          <div
-            className={
-              'sidebar-project' + (boardGroup === scoped.id && !chatOpen ? ' selected' : '')
-            }
-          >
+          {scoped ? (
             <button
               type="button"
               className="sidebar-project-open"
@@ -2263,23 +2249,15 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
               <IdentityMark kind="project" color={identity.project(scoped)} size="lg" />
               <span className="sidebar-project-name">{scoped.name}</span>
             </button>
-            <Hint label="New chat" shortcut={shortcutLabel(['mod'], 'N')}>
-              <Button
-                variant="ghost"
-                size="icon-xs"
-                aria-label="New chat"
-                onClick={() => newChat()}
-              >
-                <SquarePen />
-              </Button>
-            </Hint>
-          </div>
-        )}
+          ) : (
+            <span className="sidebar-top-space" />
+          )}
+          {navigationToggle}
+        </div>
         <WorkspaceSearch
           api={api}
           open={searchOpen}
           onOpenChange={setSearchOpen}
-          trigger={!scoped}
           projects={data.projects}
           groups={scoped ? [scoped] : data.groups || []}
           sessions={data.sessions}
@@ -2479,6 +2457,7 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
                     host={data.hosts?.find((h) => h.id === currentGroup.hostId)}
                     page={projectPage}
                     usage={{ sessions: data.sessions, repos: data.projects }}
+                    desktop={!preview}
                     onOpenWindow={scopeGroup ? undefined : () => openProjectWindow(currentGroup)}
                     onRefresh={refresh}
                   >

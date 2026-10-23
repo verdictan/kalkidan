@@ -80,6 +80,15 @@ test('Memory "/" rows filter by the typed word', async () => {
     memoryCommandRows('li').map((row) => row.label),
     ['Link a page'],
   );
+  // With a board, "/" also offers "Link a task".
+  assert.deepEqual(
+    memoryCommandRows('', true).map((row) => row.label),
+    ['Topic', 'Fact', 'Checklist', 'Code', 'Link a page', 'Link a task'],
+  );
+  assert.deepEqual(
+    memoryCommandRows('li', true).map((row) => row.label),
+    ['Link a page', 'Link a task'],
+  );
 });
 
 test('The Usage card counts 14 days and writes one cost', async () => {

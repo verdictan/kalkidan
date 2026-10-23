@@ -226,6 +226,17 @@ export function ToolsPart({ api, open }: { api: API; open: boolean }) {
     <section className="st-section" id="settings-tools" aria-labelledby="settings-tools-label">
       <div className="st-section-head">
         <h2 id="settings-tools-label">Tools</h2>
+        {!adding && (
+          <Button
+            variant="ghost"
+            size="sm"
+            className="st-head-action"
+            onClick={() => setAdding(true)}
+          >
+            <Plus aria-hidden="true" />
+            Add SSH host
+          </Button>
+        )}
         {tools.supported && (
           <Button
             variant="ghost"
@@ -270,7 +281,7 @@ export function ToolsPart({ api, open }: { api: API; open: boolean }) {
         />
       ))}
       {hosts.length > 0 && <SshQuitRow api={api} />}
-      {adding ? (
+      {adding && (
         <AddHostForm
           api={api}
           onCancel={() => setAdding(false)}
@@ -282,11 +293,6 @@ export function ToolsPart({ api, open }: { api: API; open: boolean }) {
               .catch(() => undefined);
           }}
         />
-      ) : (
-        <button type="button" className="st-add-row" onClick={() => setAdding(true)}>
-          <Plus aria-hidden="true" />
-          Add SSH host
-        </button>
       )}
       <ProxySignIns api={api} active={open} />
     </section>

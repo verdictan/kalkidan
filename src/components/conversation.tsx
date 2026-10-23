@@ -695,6 +695,9 @@ export function Conversation({
     queueSendAfterSignIn({ key: chatKey, text, data: { prompt: sentPrompt } });
     setPrompt((current) => composerAfterSubmit(current, sentPrompt));
     setContexts([]);
+    // A new chat takes a short title from the message at once, as at a usual first send.
+    if (session.projectId && !providerSession.current && !messages.length && !taskId)
+      onTitleChange?.(pullRequestTitle(mentionPlainText(sentPrompt)));
   }
   useEffect(() => {
     mounted.current = true;
@@ -1200,7 +1203,8 @@ export function Conversation({
     observer.observe(element);
     return () => observer.disconnect();
   }, []);
-  const empty = !loading && !messages.length && !run;
+  // A message that waits for the sign-in is in the transcript: the composer stays at the bottom.
+  const empty = !loading && !messages.length && !run && !queued;
   const liveStep = !!run?.tools?.some((tool) => tool.status === 'inProgress');
   // Every new or empty chat puts the cursor in the composer, so the user can type at once. A
   // dialog that opened the chat (for example the task sheet) closes first, so wait for it.
