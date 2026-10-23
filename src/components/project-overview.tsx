@@ -219,14 +219,8 @@ export function ProjectOverview({
   };
   return (
     <div className="project-frame projects-page" data-page="projects">
-      <PageHeader
-        crumbs={
-          // The title row below holds the heading; the title bar shows the crumb.
-          <span className="app-header-title" aria-hidden="true">
-            <span className="app-header-title-text">Projects</span>
-          </span>
-        }
-      />
+      {/* SP-C2: a top-level page has an empty title bar with no line. The title row names it. */}
+      <PageHeader className="projects-page-bar" />
       {/* SP-C2: the title row of the page, with the brown New project button at the right. */}
       <div className="page-head" data-title-row="">
         <div className="page-head-row">

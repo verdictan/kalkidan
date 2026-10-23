@@ -680,7 +680,10 @@ export function ProjectTree({
   }
   function projectRows(group: ProjectGroup) {
     const key = 'project:' + group.id;
-    const members = allRepos.filter((repo) => group.repoIds.includes(repo.id));
+    // Repos show in the order that the project keeps.
+    const members = group.repoIds
+      .map((id) => allRepos.find((repo) => repo.id === id))
+      .filter((repo): repo is (typeof allRepos)[number] => !!repo);
     const host = hosts.find((h) => h.id === group.hostId);
     const elsewhere = windowed.includes(group.id);
     const contains = !!activeRepo && group.repoIds.includes(activeRepo.id);
@@ -810,9 +813,9 @@ export function ProjectTree({
       )}
       {scoped ? (
         <div className="tree-scope" role="group" aria-label={`${scoped.name} code folders`}>
-          {allRepos
-            .filter((repo) => scoped.repoIds.includes(repo.id))
-            .flatMap((repo) => repoRows(repo, scoped, 0, ''))}
+          {scoped.repoIds
+            .map((id) => allRepos.find((repo) => repo.id === id))
+            .flatMap((repo) => (repo ? repoRows(repo, scoped, 0, '') : []))}
           {cloning
             .filter((clone) => clone.groupId === scoped.id)
             .map((clone) => (
@@ -839,18 +842,21 @@ export function ProjectTree({
             >
               Projects
             </button>
-            <Hint label="New project" shortcut={shortcutLabel(['mod', 'shift'], 'N')}>
-              <Button
-                variant="ghost"
-                size="icon-xs"
-                className="tree-row-action"
-                disabled={busy}
-                aria-label="New project"
-                onClick={() => setCreating(true)}
-              >
-                <Plus />
-              </Button>
-            </Hint>
+            {/* The Projects page has its own New project button, so the row hides its "+". */}
+            {!projectsCurrent && (
+              <Hint label="New project" shortcut={shortcutLabel(['mod', 'shift'], 'N')}>
+                <Button
+                  variant="ghost"
+                  size="icon-xs"
+                  className="tree-row-action"
+                  disabled={busy}
+                  aria-label="New project"
+                  onClick={() => setCreating(true)}
+                >
+                  <Plus />
+                </Button>
+              </Hint>
+            )}
           </div>
           <div className="tree-projects" role="group" aria-label="Projects">
             {groups.flatMap((group) => projectRows(group))}

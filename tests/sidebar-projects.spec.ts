@@ -18,9 +18,13 @@ async function openRowMenu(page: Page, row: ReturnType<typeof projectRow>, name:
 
 test('the tree shows projects, their repos, and the chats of each repo', async ({ page }) => {
   await page.goto('/');
-  // The root of the tree opens the Projects page. "New project" is its + button.
+  // The root of the tree opens the Projects page. "New project" is its + button, except on the
+  // Projects page, which has its own New project button.
   await expect(tree(page).getByRole('button', { name: 'Projects', exact: true })).toBeVisible();
-  await expect(tree(page).getByRole('button', { name: 'New project', exact: true })).toHaveCount(1);
+  await expect(tree(page).getByRole('button', { name: 'New project', exact: true })).toHaveCount(0);
+  await expect(
+    page.getByRole('main').getByRole('button', { name: 'New project', exact: true }),
+  ).toBeVisible();
   await tree(page).getByRole('button', { name: 'Expand Atlas', exact: true }).click();
   // A project shows its repos (code folders). Each repo row shows its branch.
   for (const name of ['atlas-web', 'design-system', 'api-service'])

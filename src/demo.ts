@@ -127,6 +127,19 @@ if (demoFullWorkspace) {
     { id: 'ledger', name: 'Ledger', repoIds: ['4'] },
     { id: 'harbor', name: 'Harbor', repoIds: ['5', '6'] },
   ];
+  // The splash hand-off frame (SP-C2) lists api-service before design-system and the
+  // navigation chat before the review chat. Opt in with kalkidan-demo-order = 'splash'.
+  try {
+    if (localStorage.getItem('kalkidan-demo-order') === 'splash') {
+      groups = groups.map((group) =>
+        group.id === 'atlas' ? { ...group, repoIds: ['1', '3', '2'] } : group,
+      );
+      const review = sessions.find((session) => session.id === 'demo-claude');
+      if (review) review.updatedAt = new Date(Date.parse(now) - 60_000).toISOString();
+    }
+  } catch {
+    // Without storage the demo keeps its usual order.
+  }
   sessions.push(
     {
       id: 'demo-token',
