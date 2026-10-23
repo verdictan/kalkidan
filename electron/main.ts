@@ -2822,7 +2822,7 @@ app.whenReady().then(async () => {
   const titleBarOverlay = {
     color: windowColors.chrome,
     symbolColor: windowColors.symbol,
-    height: 48,
+    height: 40,
   };
   // Electron can release a notification that has no reference, and then a click does nothing.
   const notifications = new Set<Notification>();
@@ -2898,7 +2898,7 @@ app.whenReady().then(async () => {
       icon: appIcon,
       backgroundColor: windowColors.background,
       ...(process.platform === 'darwin'
-        ? { titleBarStyle: 'hiddenInset', trafficLightPosition: { x: 22, y: 17 } }
+        ? { titleBarStyle: 'hiddenInset', trafficLightPosition: { x: 22, y: 13 } }
         : { titleBarStyle: 'hidden', titleBarOverlay }),
       webPreferences: {
         preload: join(__dirname, 'preload.cjs'),

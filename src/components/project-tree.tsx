@@ -1,4 +1,3 @@
-import { projectColors } from '../domain/project-colors';
 import {
   StatusMark,
   activityKey,
@@ -23,13 +22,13 @@ import { plural, shortcutLabel } from '../lib/platform';
 import { interfaceConfig } from '../config/interface';
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import {
+  ChevronDown,
+  ChevronRight,
   Eye,
-  Folder,
-  FolderOpen,
   Inbox,
   LayoutGrid,
   Loader2,
-  MessagesSquare,
+  MessageSquare,
   Plus,
   SquarePen,
 } from 'lucide-react';
@@ -55,7 +54,7 @@ function savedCollapsed(key = collapsedKey) {
 }
 // The row paints hover, selection and the focus ring. Its main button only holds the content.
 const rowButton =
-  'tree-row-button min-w-0 flex-1 justify-start gap-2 px-0 font-normal hover:bg-transparent focus-visible:ring-0 has-[>svg]:px-0';
+  'tree-row-button min-w-0 flex-1 justify-start gap-2.5 px-0 font-normal hover:bg-transparent focus-visible:ring-0 has-[>svg]:px-0';
 // A chat row is 32px high, like every sidebar row. Its button has the same height.
 const childButton = rowButton + ' h-8';
 const titleOf = (session: Session) => session.organization?.title || session.title;
@@ -503,8 +502,8 @@ export function ProjectTree({
       {/* Before the first project, the lists are empty. Only Projects shows. */}
       {onAllSessions && groups.length > 0 && (
         <NavRow
-          icon={<MessagesSquare />}
-          label="All chats"
+          icon={<MessageSquare />}
+          label="Chats"
           current={allSessionsCurrent}
           onClick={onAllSessions}
         />
@@ -633,17 +632,7 @@ export function ProjectTree({
                     className="tree-toggle tree-icon"
                     aria-label={`${open ? 'Collapse' : 'Expand'} ${group.name}`}
                   >
-                    {open ? (
-                      <FolderOpen
-                        className="size-4"
-                        style={{ color: group.color ? projectColors[group.color] : undefined }}
-                      />
-                    ) : (
-                      <Folder
-                        className="size-4"
-                        style={{ color: group.color ? projectColors[group.color] : undefined }}
-                      />
-                    )}
+                    {open ? <ChevronDown /> : <ChevronRight />}
                   </Button>
                 </CollapsibleTrigger>
                 <Button

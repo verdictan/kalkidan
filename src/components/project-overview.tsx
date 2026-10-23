@@ -2,10 +2,11 @@ import { trackerConnection, type TrackerBoard } from '../domain/tracker';
 import { CreateProject } from './create-project';
 import { startFirstChat } from './onboarding';
 import { useState } from 'react';
-import { FolderOpen, Loader2, Plus } from 'lucide-react';
+import { Folder, FolderOpen, Inbox, Loader2, Plus } from 'lucide-react';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
 import { EmptyState } from './ui/empty-state';
+import { EntityIcon } from './ui/entity-icon';
 import { PageHeader, SectionHeader } from './ui/page-header';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table';
 import type { API, ProjectGroup, Project, Session } from '../types';
@@ -87,7 +88,7 @@ export function WaitingPage({
   const placeOf = (repo: Project) => groups.find((g) => g.repoIds.includes(repo.id))?.name;
   return (
     <section className="page" aria-label="Waiting for you">
-      <PageHeader title="Waiting for you" reserveSubtitle />
+      <PageHeader title="Waiting for you" />
       {(needsYou.length > 0 || boards) && (
         <section className="waiting-section" aria-label="Chats">
           {/* With tasks below, the chats get their own header. */}
@@ -95,11 +96,19 @@ export function WaitingPage({
           {needsYou.length > 0 ? (
             <div className="chat-list">
               {needsYou.map(({ session, repo, reason, state }) => (
+                // The same row as "Needs you" on the project Overview.
                 <ChatRow
                   key={activityKey(session.agent, session.id)}
+                  className="needs-you-row"
+                  time={false}
                   session={session}
                   activity={state}
                   onOpen={onResume}
+                  icon={
+                    <EntityIcon className="needs-you-icon">
+                      <Inbox />
+                    </EntityIcon>
+                  }
                   meta={[reason, placeOf(repo), repo.name].filter(Boolean).join(' · ')}
                   trailing={
                     <Button
@@ -205,7 +214,6 @@ export function ProjectOverview({
     <section className="page" aria-label="Projects">
       <PageHeader
         title="Projects"
-        reserveSubtitle
         actions={
           <Button onClick={() => setOpen(true)}>
             <Plus />
@@ -223,9 +231,9 @@ export function ProjectOverview({
             </colgroup>
             <TableHeader className="[&_tr]:border-0">
               <TableRow className="border-0 hover:bg-transparent">
-                <TableHead>Name</TableHead>
+                <TableHead className="pl-0">Name</TableHead>
                 <TableHead>Activity</TableHead>
-                <TableHead className="text-right">Updated</TableHead>
+                <TableHead className="pr-0 text-right">Updated</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -236,15 +244,18 @@ export function ProjectOverview({
                   className="project-row border-0"
                   onClick={() => onSelect(group)}
                 >
-                  <TableCell>
+                  <TableCell className="pl-0">
                     <Button
                       variant="bare"
-                      className="project-open max-w-full justify-start gap-2 text-left whitespace-normal"
+                      className="project-open max-w-full justify-start gap-3 text-left whitespace-normal"
                       onClick={(event) => {
                         event.stopPropagation();
                         onSelect(group);
                       }}
                     >
+                      <EntityIcon>
+                        <Folder />
+                      </EntityIcon>
                       <span className="min-w-0 break-words font-medium">{group.name}</span>
                       {group.hostId && (
                         <Badge variant="outline" size="sm">
@@ -275,7 +286,7 @@ export function ProjectOverview({
                       )}
                     </span>
                   </TableCell>
-                  <TableCell className="text-right">
+                  <TableCell className="pr-0 text-right">
                     {last && (
                       <time
                         dateTime={last}

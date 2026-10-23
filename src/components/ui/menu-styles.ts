@@ -14,10 +14,13 @@ export const menuSurfaceClass =
   menuMotionClass;
 /** The menu surface at the default width. */
 export const menuContentClass = menuSurfaceClass + ' ' + menuWidthClass;
-/** A 28px item with a 14px muted icon. Destructive items set `--menu-icon` to red. */
+/**
+ * A 28px item, radius 6, with a 14px muted icon and an 8px gap. The highlighted item is the
+ * 4% hover fill. Destructive items set `--menu-icon` to red.
+ */
 export const menuItemClass =
-  "relative flex h-7 cursor-default items-center gap-2 rounded-md px-2 text-sm whitespace-nowrap outline-hidden select-none focus:bg-[var(--surface-selected)] focus:text-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50 data-[state=open]:bg-[var(--surface-selected)] [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-3.5 [&_svg:not([class*='text-'])]:text-[var(--menu-icon,var(--muted-foreground))]";
-/** One group-label style for menus, select lists, the sidebar and settings: 11/16, 600. */
+  "relative flex h-7 cursor-default items-center gap-2 rounded-sm px-2 text-sm whitespace-nowrap outline-hidden select-none focus:bg-[var(--surface-hover)] focus:text-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50 data-[state=open]:bg-[var(--surface-hover)] [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-3.5 [&_svg:not([class*='text-'])]:text-[var(--menu-icon,var(--muted-foreground))]";
+/** One group-label style for menus, select lists, the sidebar and settings: 11/16, 500. */
 export const menuLabelClass = 'group-label px-2 pt-2 pb-1';
 /** Destructive items in dropdown and context menus. */
 export const menuDestructiveClass =
@@ -26,7 +29,7 @@ export const menuSeparatorClass = '-mx-1 my-1 h-px bg-border';
 export const menuShortcutClass = 'ml-auto pl-4 text-xs text-muted-foreground';
 /**
  * The space that menus, select lists and tooltips keep from the window edges. The top value
- * is larger: the title bar and the macOS window controls are at the top of the window. Keep it
- * equal to `--titlebar-height` in theme.css plus a small gap.
+ * is larger: the 40px title bar and the macOS window controls are at the top of the window.
+ * Keep it equal to `--titlebar-height` (40px) in theme.css plus 4px.
  */
-export const menuCollisionPadding = { top: 52, right: 8, bottom: 8, left: 8 };
+export const menuCollisionPadding = { top: 44, right: 8, bottom: 8, left: 8 };

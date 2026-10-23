@@ -53,9 +53,9 @@
   --font-sans: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   --font-mono: 'Geist Mono', 'SF Mono', Menlo, Consolas, 'DejaVu Sans Mono', monospace;
   --color-destructive-foreground: var(--destructive-foreground);
-  /* Radius scale from --radius (10px): 4 check boxes and keys, 6 badges, tags and xs buttons,
-     8 controls, rows and menu items, 10 cards and popovers, 14 dialogs, 18 composer, full for
-     pills, dots and avatars. */
+  /* Radius scale from --radius (10px): 4 check boxes and keys, 6 buttons, badges, tags, menu
+     items, nav rows and select triggers, 8 fields and list rows, 10 cards, menus, popovers and
+     toasts, 14 dialogs, 18 composer, full for pills, dots and avatars. */
   --radius-xs: 4px;
   --radius-sm: calc(var(--radius) * 0.6);
   --radius-md: calc(var(--radius) * 0.8);
@@ -63,17 +63,20 @@
   --radius-xl: calc(var(--radius) * 1.4);
   --radius-2xl: calc(var(--radius) * 1.8);
   --radius-full: 9999px;
-  /* Shadows: xs controls, md menus, popovers and toasts, lg dialogs. sm is the same as xs. */
-  --shadow-xs: 0 1px 2px rgb(0 0 0 / 0.06);
+  /* Shadows: xs raised items (the selected segment, the composer), md menus and popovers,
+     toast the dark toast, lg dialogs (with a hairline ring instead of a border). sm is xs. */
+  --shadow-xs: 0 1px 2px rgb(0 0 0 / 0.08);
   --shadow-sm: var(--shadow-xs);
-  --shadow-md: 0 4px 16px rgb(0 0 0 / 0.12);
-  --shadow-lg: 0 16px 48px rgb(0 0 0 / 0.18);
+  --shadow-md: 0 12px 32px rgb(0 0 0 / 0.12);
+  --shadow-toast: 0 8px 24px rgb(0 0 0 / 0.18);
+  --shadow-lg: 0 0 0 1px rgb(0 0 0 / 0.06), 0 16px 48px rgb(0 0 0 / 0.18);
 }
 
 :root {
   color-scheme: light;
   --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
+  /* #171717. */
+  --foreground: oklch(0.205 0 0);
   --card: var(--background);
   --popover: var(--background);
   /* The Verdictan brand color. White on #9a4600 is 6.5:1 (WCAG AA). Use it for one primary
@@ -90,10 +93,11 @@
   --muted-foreground: oklch(0.53 0 0);
   /* Dividers. */
   --border: oklch(0.922 0 0);
-  /* Control boundaries: check box, radio, switch track, input and select. 3.3:1 on white and
-     3.1:1 on the muted surface (WCAG 1.4.11). */
-  --border-strong: oklch(0.64 0 0);
-  --input: var(--border-strong);
+  /* Control boundaries: check box, radio, switch track and select (#8a8a8a, 3.4:1 on white,
+     the WCAG minimum for a control edge). Text fields use the divider border and show the
+     strong border on hover and the ring on focus. */
+  --border-strong: oklch(0.635 0 0);
+  --input: var(--border);
   --ring: var(--primary);
   --radius: 0.625rem;
   /* 6.1:1 on white. */
@@ -128,8 +132,10 @@
   --space-8: 32px;
   --space-12: 48px;
   --space-16: 64px;
-  /* Controls: 24 inline and row actions, 28 toolbars and menu items, 32 forms, 36 calls to
-     action. Rows: NavRow 32, ListRow and SettingsRow 48. */
+  /* Controls: 24 inline and row actions, 28 toolbars, title bar, buttons and menu items, 32
+     forms, 36 calls to action. Rows: NavRow 32 (28 in the tree), ListRow and SettingsRow 48.
+     Buttons, select triggers, menu items and nav rows have radius 6; fields, list rows and the
+     segmented group 8; menus, popovers and the toast 10; dialogs 14. */
   --control-xs: 24px;
   --control-sm: 28px;
   --control-md: 32px;
@@ -148,7 +154,7 @@
   --menu-width: 224px;
   --menu-width-wide: 256px;
   /* Layout */
-  --titlebar-height: 48px;
+  --titlebar-height: 40px;
   --page-max-width: 1120px;
   --page-padding-x: 32px;
   --page-padding-top: 24px;
@@ -166,18 +172,19 @@
   --z-popover: 65;
   --z-toast: 70;
   --z-titlebar: 100;
-  /* States: hover 4% and selected 7% on the page, 6% and 9% on the sidebar surface. */
+  /* States: hover 4% (#f5f5f5) and selected 8% (#ededed) on the page, 3% and 6% on the
+     sidebar surface (#f5f5f5 and #ededed on #fafafa). */
   --surface-hover: color-mix(in oklch, var(--foreground) 4%, transparent);
-  --surface-selected: color-mix(in oklch, var(--foreground) 7%, transparent);
-  --sidebar-hover: color-mix(in oklch, var(--foreground) 6%, transparent);
-  --sidebar-selected: color-mix(in oklch, var(--foreground) 9%, transparent);
+  --surface-selected: color-mix(in oklch, var(--foreground) 8%, transparent);
+  --sidebar-hover: color-mix(in oklch, var(--foreground) 3%, transparent);
+  --sidebar-selected: color-mix(in oklch, var(--foreground) 6%, transparent);
   /* Keyboard focus. Buttons: a 2px ring 2px from the control. Fields: the border plus a 3px
      ring at 20%. Rows in clipped containers: an inset ring. */
   --focus-color: var(--ring);
   --focus-ring: 0 0 0 2px var(--background), 0 0 0 4px var(--ring);
   --focus-ring-field: 0 0 0 3px color-mix(in oklab, var(--ring) 20%, transparent);
   --focus-ring-inset: inset 0 0 0 2px var(--ring);
-  --overlay: rgb(0 0 0 / 0.32);
+  --overlay: rgb(0 0 0 / 0.24);
   /* Motion. Wrapped by a reduced-motion rule in components.css. */
   --motion-fast: 120ms;
   --motion-base: 200ms;

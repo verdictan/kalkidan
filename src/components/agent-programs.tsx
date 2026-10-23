@@ -1,12 +1,7 @@
 import { useRef, useState, type FormEvent } from 'react';
 import { agentCatalog } from '../config/agents';
 import type { API, AgentInstallation, RemoteHost } from '../types';
-import {
-  agentMinimumVersions,
-  agentVersionRequirement,
-  checkAgentVersion,
-  nativeAgentKind,
-} from '../domain/agent-version';
+import { agentMinimumVersions, checkAgentVersion, nativeAgentKind } from '../domain/agent-version';
 import {
   agentComputerAnchor,
   agentProgramAnchor,
@@ -17,7 +12,7 @@ import { setAgentInstallations } from '../lib/agent-preference';
 import { errorMessage } from '../lib/errors';
 import { fullTime, relativeTime } from '../lib/relative-time';
 import { AgentIcon } from './ui/agent-icon';
-import { Badge } from './ui/badge';
+import { StatusText } from './settings-disclosure';
 import { Button } from './ui/button';
 import { EntityIcon } from './ui/entity-icon';
 import { Input } from './ui/input';
@@ -285,9 +280,12 @@ function ProgramRow({
             <p className="text-sm font-medium break-words">{name}</p>
             <p className="text-xs break-words text-muted-foreground">{vendor}</p>
           </div>
-          <Badge variant={status.ready ? 'success' : 'muted'} size="sm" className="shrink-0">
-            {status.label}
-          </Badge>
+          <StatusText
+            status={{
+              label: status.label,
+              tone: status.ready ? 'success' : checking ? 'muted' : 'warning',
+            }}
+          />
         </div>
         <ProgramPath path={installation?.path} />
         {installation?.status === 'installed' && (
@@ -321,7 +319,7 @@ function ProgramRow({
           !installation.candidates?.length && <AgentInstallHelp agent={agent} />}
         {!checking && version && version.status !== 'supported' && (
           <>
-            <p className="text-xs text-muted-foreground">{agentVersionRequirement(version.kind)}</p>
+            {/* The status says the minimum, so no second sentence repeats it. */}
             {editable &&
               installation?.candidates?.some(
                 (item) => checkAgentVersion(version.kind, item.version).status === 'supported',

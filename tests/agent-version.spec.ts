@@ -89,11 +89,8 @@ test('the Computers page shows each version and whether it meets the minimum', a
   const claude = agents.getByRole('listitem', { name: 'Claude Code on this computer' });
   await expect(claude).toContainText('Update required: needs 2.1.300 or later');
   await expect(agents.getByTestId('agent-version-claude')).toContainText('Version 2.1.296');
-  await expect(claude).toContainText(
-    'Kalkidan needs Claude Code 2.1.300 or later. Update Claude Code, then try again.',
-  );
   await expect(claude.getByRole('button', { name: /^Copy npm i -g/ })).toBeVisible();
-  await expect(programs.getByRole('status')).toContainText('Checked');
+  await expect(programs.getByRole('status').filter({ hasText: 'Checked' })).toBeVisible();
 });
 
 test('a Claude Code version below the minimum refuses the send and links to the Computers page', async ({

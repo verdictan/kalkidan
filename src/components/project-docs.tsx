@@ -33,7 +33,6 @@ import { trackerClient } from '../lib/tracker-client';
 import { useProjectBoard } from '../hooks/use-project-board';
 import { DocsToIssuesDialog, plannedTaskCount } from './docs-to-issues';
 import { openConnectBoard } from './tracker-project-picker';
-import { ConfirmDialog } from './confirm-dialog';
 import type { DeletedProjectDoc, ProjectDoc, ProjectDocMetadata } from '../domain/docs';
 import { hasPrimaryModifier, plural } from '../lib/platform';
 import { cn } from '../lib/utils';
@@ -70,7 +69,7 @@ import {
   DialogFooter,
 } from './ui/dialog';
 import { errorMessage } from '../lib/errors';
-import { relativeTime } from '../lib/relative-time';
+import { fullTime, relativeTime } from '../lib/relative-time';
 
 type TreeCommand = {
   id: string;
@@ -218,6 +217,13 @@ function writeSelection(groupId: string, id: string) {
   } catch {
     // Storage can be unavailable. The selection then resets on the next visit.
   }
+}
+
+/** When a page changed, after "Edited": "just now", "2h ago", or a day or date. */
+export function editedText(value: string | number, now = Date.now()) {
+  const time = relativeTime(value, now);
+  if (time === 'now') return 'just now';
+  return /^\d+[mh]$/.test(time) ? `${time} ago` : time;
 }
 
 /** The page and task actions that the editor gets from the docs page. */
@@ -491,6 +497,12 @@ function DocEditor({
   const makeTasks = () => void flush().then(actions.onPlanTasks);
   const taskCount = actions.taskCount(draft.markdown);
   const makeLabel = taskCount ? `Make ${plural(taskCount, 'task')}` : 'Make tasks';
+  const meta = [
+    editedAt ? `Edited ${editedText(editedAt)}` : '',
+    readCount ? `Read in ${plural(readCount, 'chat')}` : '',
+  ]
+    .filter(Boolean)
+    .join(' · ');
   const linkTask = () => (actions.onConnectBoard ? actions.onConnectBoard() : setPicking(true));
   const editorActions: WikiEditorActions = {
     onLinkTask: actions.onLinkTask,
@@ -504,7 +516,7 @@ function DocEditor({
       <div className="wiki-document-bar">
         <div className="wiki-document-bar-inner">
           {switcher}
-          {/* The ancestors of the page, then how agents use it. The title is under the bar. */}
+          {/* The ancestors of the page. The title and its meta line are under the bar. */}
           {ancestors.length > 0 && (
             <nav className="wiki-breadcrumbs" aria-label="Document breadcrumb">
               {ancestors.map((ancestor, index) => (
@@ -517,15 +529,6 @@ function DocEditor({
               ))}
             </nav>
           )}
-          <span className="doc-meta">
-            {[
-              readCount ? `Read in ${plural(readCount, 'chat')}` : '',
-              editedAt ? `edited ${relativeTime(editedAt)}` : '',
-            ]
-              .filter(Boolean)
-              .join(' · ')
-              .replace(/^e/, 'E')}
-          </span>
           <div className="wiki-document-actions">
             {/* Do not announce each save. Announce only a failed save. */}
             {status && (
@@ -543,7 +546,12 @@ function DocEditor({
                 Retry
               </Button>
             )}
-            <Button variant="ghost" size="sm" onClick={() => askAgent()}>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="text-muted-foreground hover:text-foreground"
+              onClick={() => askAgent()}
+            >
               <MessageSquare aria-hidden="true" />
               Ask agent
             </Button>
@@ -551,14 +559,14 @@ function DocEditor({
               <Hint label={actions.planTasksDisabled}>
                 {/* A disabled button gets no pointer events. The wrapper shows the reason. */}
                 <span tabIndex={0} className="rounded-md">
-                  <Button size="sm" disabled>
+                  <Button variant="outline" size="sm" disabled>
                     <ListChecks aria-hidden="true" />
                     {makeLabel}
                   </Button>
                 </span>
               </Hint>
             ) : (
-              <Button size="sm" onClick={makeTasks}>
+              <Button variant="outline" size="sm" onClick={makeTasks}>
                 <ListChecks aria-hidden="true" />
                 {makeLabel}
               </Button>
@@ -569,19 +577,19 @@ function DocEditor({
                   <MoreButton label="Page actions" />
                 </DropdownMenuTrigger>
               </Hint>
+              {/* The same items, in the same order, as the menu of the page row. */}
               <DropdownMenuContent align="end">
-                <DropdownMenuItem onSelect={() => setSource((value) => !value)}>
-                  <Code className="size-4" aria-hidden="true" />
-                  {source ? 'Hide Markdown' : 'View Markdown'}
+                <DropdownMenuItem onSelect={onSubpage}>
+                  <FilePlus className="size-4" aria-hidden="true" />
+                  Add subpage
                 </DropdownMenuItem>
-                <DropdownMenuSeparator />
                 <DropdownMenuItem onSelect={startMove}>
                   <FolderInput className="size-4" aria-hidden="true" />
                   Move page…
                 </DropdownMenuItem>
-                <DropdownMenuItem onSelect={onSubpage}>
-                  <FilePlus className="size-4" aria-hidden="true" />
-                  Add subpage
+                <DropdownMenuItem onSelect={() => setSource((value) => !value)}>
+                  <Code className="size-4" aria-hidden="true" />
+                  {source ? 'Hide Markdown' : 'View Markdown'}
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem variant="destructive" onSelect={requestDelete}>
@@ -762,6 +770,7 @@ function DocEditor({
             void flush();
           }}
         />
+        {meta && <p className="doc-meta">{meta}</p>}
         {linkedTasks.length > 0 && (
           <div className="doc-tasks" role="group" aria-label="Linked tasks">
             <span className="doc-tasks-label">Tasks</span>
@@ -951,7 +960,6 @@ export function ProjectDocsPanel({
   const [error, setError] = useState('');
   const loading = ['idle', 'loading'].includes(metadata.state.status);
   const [busy, setBusy] = useState(false);
-  const [deleting, setDeleting] = useState(false);
   const [deletedPages, setDeletedPages] = useState<DeletedProjectDoc[] | null>(null);
   // The number of deleted pages. It loads again after a delete or a restore.
   const [trashCount, setTrashCount] = useState(0);
@@ -1151,6 +1159,44 @@ export function ProjectDocsPanel({
     element.scrollTop = 0;
     element.removeAttribute('data-scrolled');
   }, [openPageId]);
+  /** Puts a page back from Deleted pages and opens it. */
+  async function restore(trashId: string) {
+    const doc = await api.docsRestore(group.id, trashId);
+    setProjectResource(api, group, 'docs-page', doc, doc.id);
+    setPages((current) => [
+      ...current.filter((p) => p.id !== doc.id),
+      { id: doc.id, title: doc.title, parentId: doc.parentId, order: doc.order },
+    ]);
+    open(doc.id);
+    return doc;
+  }
+  /**
+   * Moves a page to Deleted pages at once, with no dialog. The toast can undo it, as for a
+   * removed fact.
+   */
+  function deletePage(doc: ProjectDoc) {
+    return action(async () => {
+      await api.docsDelete(group.id, doc.id, doc.revision);
+      setPages((p) => p.filter((d) => d.id !== doc.id));
+      setSelected(pageAfterDelete(pages, doc.id));
+      showToast({
+        message: `“${doc.title || 'Untitled'}” deleted.`,
+        actions: [
+          {
+            label: 'Undo',
+            onClick: () =>
+              void action(async () => {
+                const trash = await api.docsTrash(group.id);
+                const item = trash
+                  .filter((entry) => entry.id === doc.id)
+                  .sort((a, b) => b.deletedAt - a.deletedAt)[0];
+                if (item) await restore(item.trashId);
+              }),
+          },
+        ],
+      });
+    });
+  }
   function command(id: string, kind: TreeCommand['kind']) {
     open(id);
     setTreeCommand((current) => ({ id, kind, serial: (current?.serial ?? 0) + 1 }));
@@ -1245,6 +1291,7 @@ export function ProjectDocsPanel({
               className="wiki-tree-row row-focus"
               // A subpage row has the full width. Only its icon and title move in.
               style={depth ? ({ '--depth': depth } as CSSProperties) : undefined}
+              data-depth={depth || undefined}
               data-selected={current}
               data-drop={drag?.over === p.id ? drag.position : undefined}
               draggable={!busy}
@@ -1347,6 +1394,7 @@ export function ProjectDocsPanel({
           {trashCount > 0 && (
             <NavRow
               className="knowledge-rail-muted"
+              size="sm"
               icon={<Trash2 aria-hidden="true" />}
               label="Deleted pages"
               onClick={() => {
@@ -1413,7 +1461,7 @@ export function ProjectDocsPanel({
                   message: 'Move or delete the subpages of this page first.',
                   tone: 'error',
                 });
-              else setDeleting(true);
+              else void deletePage(page);
             }}
           />
         </div>
@@ -1441,30 +1489,6 @@ export function ProjectDocsPanel({
           />
         </div>
       )}
-      <ConfirmDialog
-        open={deleting}
-        title="Delete page"
-        description={`“${page?.title || 'Untitled'}” goes to Deleted pages. You can restore it from there.`}
-        confirmLabel="Delete page"
-        destructive
-        busy={busy}
-        onCancel={() => setDeleting(false)}
-        onConfirm={() =>
-          void action(async () => {
-            if (!page) return;
-            await api.docsDelete(group.id, page.id, page.revision);
-            setPages((p) => p.filter((d) => d.id !== page.id));
-            setSelected(pageAfterDelete(pages, page.id));
-            setDeleting(false);
-          })
-        }
-      >
-        {error && (
-          <p role="alert" className="field-error">
-            {error}
-          </p>
-        )}
-      </ConfirmDialog>
       {(connection || planning) && !planReason && (
         <DocsToIssuesDialog
           api={api}
@@ -1509,8 +1533,11 @@ export function ProjectDocsPanel({
                       <span className="block truncate" title={item.title}>
                         {item.title}
                       </span>
-                      <span className="block text-xs text-muted-foreground">
-                        Deleted {new Date(item.deletedAt).toLocaleString()}
+                      <span
+                        className="block text-xs text-muted-foreground"
+                        title={fullTime(item.deletedAt)}
+                      >
+                        Deleted {editedText(item.deletedAt)}
                       </span>
                     </span>
                     <Button
@@ -1520,21 +1547,10 @@ export function ProjectDocsPanel({
                       disabled={busy}
                       onClick={() =>
                         void action(async () => {
-                          const doc = await api.docsRestore(group.id, item.trashId);
-                          setProjectResource(api, group, 'docs-page', doc, doc.id);
-                          setPages((current) => [
-                            ...current,
-                            {
-                              id: doc.id,
-                              title: doc.title,
-                              parentId: doc.parentId,
-                              order: doc.order,
-                            },
-                          ]);
+                          await restore(item.trashId);
                           setDeletedPages((current) =>
                             (current || []).filter((d) => d.trashId !== item.trashId),
                           );
-                          open(doc.id);
                         })
                       }
                     >

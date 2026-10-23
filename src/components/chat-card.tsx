@@ -3,10 +3,10 @@ import type { LucideIcon } from 'lucide-react';
 import { cn } from '../lib/utils';
 
 /**
- * One card in the chat column: a refusal, an error, an approval or a question. Padding 12/16,
- * radius 14, a neutral border and no shadow. A 16px icon column with a 12px gap, a 13/600
- * title, then the body and the actions. Only the icon has the tone color. Actions are right
- * aligned with the primary action last.
+ * One card in the chat column: a refusal, an error, an approval or a question. Padding 12,
+ * radius 12, a neutral border and no shadow. The head is the 16px icon and the 13/500 title.
+ * The body and the actions use the full width under it. Only the icon has the tone color.
+ * Actions are right aligned with the primary action last.
  */
 export function ChatCard({
   tone = 'neutral',
@@ -45,12 +45,12 @@ export function ChatCard({
       tabIndex={tabIndex}
       onSubmit={onSubmit as FormEventHandler<HTMLElement>}
     >
-      <Icon className="chat-card-icon" aria-hidden="true" />
-      <div className="chat-card-main">
+      <div className="chat-card-head">
+        <Icon className="chat-card-icon" aria-hidden="true" />
         <h3 className="chat-card-title">{title}</h3>
-        {children}
-        {actions && <div className="chat-card-actions">{actions}</div>}
       </div>
+      {children}
+      {actions && <div className="chat-card-actions">{actions}</div>}
     </Element>
   );
 }

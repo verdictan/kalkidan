@@ -1,6 +1,6 @@
 import { forkChat } from './chat-links';
 import { useEffect, useRef, useState } from 'react';
-import { LoaderCircle, ExternalLink, GitPullRequest } from 'lucide-react';
+import { LoaderCircle, ExternalLink, GitBranch, GitPullRequest } from 'lucide-react';
 import type { API, ProjectGroup, Session, SessionOrganization, TrackerItem } from '../types';
 import type { WorkingFile, WorkingStatus } from '../api/contracts';
 import {
@@ -662,34 +662,19 @@ export function CommitDialog({
   const allSelected = !!files && chosen.length === files.length;
   return (
     <Dialog open={open} onOpenChange={(next) => !busy && onOpenChange(next)}>
-      <DialogContent size="md" layout="scroll">
-        <DialogHeader>
-          <DialogTitle>
+      {/* 460 wide, 20 padding, a 15/20 title and no close button: Cancel and Escape close it.
+          The fields come first. The branch line is under them. */}
+      <DialogContent
+        size="md"
+        showCloseButton={false}
+        className="gap-4 p-5 sm:max-w-[460px] [&_.form-label]:gap-1.5 [&_.form-label]:text-foreground"
+      >
+        <DialogHeader className="pr-0">
+          <DialogTitle className="text-[15px] leading-5">
             {intent === 'pull-request' ? 'Create pull request' : 'Commit changes'}
           </DialogTitle>
-          <DialogDescription>
-            {status && pullRequestIntent ? (
-              <>
-                {onDefault && branchName.trim() ? branchName.trim() : status.branch} →{' '}
-                {status.defaultBranch}
-                {changes ? ` · ${plural(changes, 'file')}` : ''}
-              </>
-            ) : status ? (
-              <>
-                On <span className="font-medium text-foreground">{status.branch}</span> ·{' '}
-                {plural(changes, 'changed file')}
-              </>
-            ) : error ? (
-              'Select the files to commit.'
-            ) : (
-              <span className="inline-flex items-center gap-2" role="status">
-                <LoaderCircle className="size-3.5 animate-spin" aria-hidden="true" />
-                Reading changes…
-              </span>
-            )}
-          </DialogDescription>
         </DialogHeader>
-        <DialogBody className="grid gap-4">
+        <DialogBody className="grid gap-4 overflow-visible p-0">
           {status && !changes && !result && (
             <Alert size="sm" role="status">
               <AlertDescription className="text-xs">
@@ -769,7 +754,8 @@ export function CommitDialog({
               <label className="form-label">
                 Description
                 <Textarea
-                  rows={5}
+                  rows={4}
+                  className="min-h-24"
                   value={description ?? pullRequestBody}
                   disabled={busy}
                   onChange={(e) => setDescription(e.target.value)}
@@ -793,6 +779,28 @@ export function CommitDialog({
               />
             </label>
           )}
+          {/* The branch line: "kal/sign-in-tests → main · 3 files". */}
+          <DialogDescription className="flex items-center gap-1.5 text-xs text-muted-foreground">
+            {status && <GitBranch className="size-3.5 shrink-0" aria-hidden="true" />}
+            {status && pullRequestIntent ? (
+              <span>
+                {onDefault && branchName.trim() ? branchName.trim() : status.branch} →{' '}
+                {status.defaultBranch}
+                {changes ? ` · ${plural(changes, 'file')}` : ''}
+              </span>
+            ) : status ? (
+              <span>
+                {status.branch} · {plural(changes, 'changed file')}
+              </span>
+            ) : error ? (
+              'Select the files to commit.'
+            ) : (
+              <span className="inline-flex items-center gap-2" role="status">
+                <LoaderCircle className="size-3.5 animate-spin" aria-hidden="true" />
+                Reading changes…
+              </span>
+            )}
+          </DialogDescription>
           {draftTask && pullRequestIntent && !result?.url && (
             <Alert size="sm">
               <GitPullRequest aria-hidden="true" />
@@ -876,9 +884,9 @@ export function CommitDialog({
             </p>
           )}
         </DialogBody>
-        <DialogFooter>
+        <DialogFooter className="items-center">
           {result && !error ? (
-            <Button disabled={busy} onClick={() => onOpenChange(false)}>
+            <Button size="sm" disabled={busy} onClick={() => onOpenChange(false)}>
               Done
             </Button>
           ) : (
@@ -893,13 +901,19 @@ export function CommitDialog({
                   Draft
                 </label>
               )}
-              <Button variant="outline" disabled={busy} onClick={() => onOpenChange(false)}>
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={busy}
+                onClick={() => onOpenChange(false)}
+              >
                 Cancel
               </Button>
               {/* One primary button. "Create pull request" makes the branch on the default
                   branch, commits the selected files and opens the pull request. */}
               {pullRequestIntent ? (
                 <Button
+                  size="sm"
                   disabled={
                     busy ||
                     !status ||
@@ -910,11 +924,11 @@ export function CommitDialog({
                   }
                   onClick={() => void createPullRequest()}
                 >
-                  <GitPullRequest aria-hidden="true" />
                   {draft ? 'Create draft' : 'Create pull request'}
                 </Button>
               ) : (
                 <Button
+                  size="sm"
                   disabled={busy || !status || !commitCount || !message.trim() || !!result?.commit}
                   onClick={() => void submit(false)}
                 >

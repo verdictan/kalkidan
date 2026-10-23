@@ -60,7 +60,8 @@ test('the palette is a centered modal dialog and the sidebar keeps its navigatio
   // Each result has one line.
   const option = dialog.getByRole('option').first();
   const height = (await option.boundingBox())!.height;
-  expect(height).toBeLessThanOrEqual(34);
+  // A result row is 36px high.
+  expect(height).toBeLessThanOrEqual(36);
   await page.screenshot({ path: 'test-results/command-palette.png', animations: 'disabled' });
 });
 

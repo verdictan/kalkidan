@@ -640,11 +640,13 @@ export function ConnectBoardPanel({
                 }
               }}
             />
-            {owners.length > 1 && (
+            {owners.length > 0 && (
+              // The owner shows also when it is the only one: the rows do not repeat it.
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button
                     variant="outline"
+                    className="connect-board-owner"
                     disabled={!!busy}
                     aria-label={`Owner: ${owner?.login || ''}`}
                   >
@@ -704,9 +706,7 @@ export function ConnectBoardPanel({
                     first={index === 0}
                     icon={<Layers2 aria-hidden="true" />}
                     title={project.title}
-                    meta={[project.number ? `#${project.number}` : '', project.owner || '']
-                      .filter(Boolean)
-                      .join(' · ')}
+                    meta={project.number ? `#${project.number}` : undefined}
                     label={`Connect ${name(project)}`}
                     current={project.url === connection?.project.url}
                     busy={busy === project.id}
@@ -764,7 +764,7 @@ function ConnectRow({
 }: {
   icon: ReactNode;
   title: string;
-  meta: string;
+  meta?: string;
   label: string;
   /** The best match. Its Connect shows without hover. */
   first?: boolean;

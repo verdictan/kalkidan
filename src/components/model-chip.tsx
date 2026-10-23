@@ -20,6 +20,8 @@ import { ChevronDown, Settings2 } from 'lucide-react';
 import { agentCatalog, isAgent } from '../config/agents';
 import { AgentIcon } from './ui/agent-icon';
 import { Button } from './ui/button';
+import { composerChipClass } from './composer';
+import { cn } from '../lib/utils';
 import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
@@ -194,7 +196,7 @@ export function ModelChip({
           tabIndex={0}
           role="note"
           aria-label={`Agent and model: ${label}. ${fixedModelHint}`}
-          className="model-chip-label inline-flex h-7 max-w-[220px] min-w-0 shrink items-center gap-1.5 rounded-full px-2.5 text-xs font-medium text-muted-foreground outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-color)] focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+          className="model-chip-label inline-flex h-7 max-w-[220px] min-w-0 shrink items-center gap-1.5 rounded-full px-2 text-sm text-muted-foreground outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-color)] focus-visible:ring-offset-2 focus-visible:ring-offset-background"
         >
           <AgentIcon agent={agent} className="size-3.5" />
           <span className="truncate">{label}</span>
@@ -228,11 +230,11 @@ export function ModelChip({
             variant="chip"
             disabled={disabled}
             aria-label={`Agent and model: ${label}`}
-            className="max-w-[220px] min-w-0 shrink gap-1.5"
+            className={cn('max-w-[220px] min-w-0 shrink', composerChipClass)}
           >
             <AgentIcon agent={agent} className="size-3.5" />
             <span className="truncate">{label}</span>
-            <ChevronDown aria-hidden="true" className="size-3.5 opacity-60" />
+            {!disabled && <ChevronDown aria-hidden="true" className="size-3.5" />}
           </Button>
         </DropdownMenuTrigger>
       </Hint>

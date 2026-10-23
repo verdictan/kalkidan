@@ -3,7 +3,7 @@ import { ExternalLink } from 'lucide-react';
 import type { API } from '../types';
 import type { AppVersion } from '../domain/updates';
 import { settingsAnchors } from '../domain/settings-route';
-import { displayVersion, shortId } from '../lib/verdictan-labels';
+import { displayVersion } from '../lib/verdictan-labels';
 import { SettingsRow } from './settings-disclosure';
 import { Button } from './ui/button';
 
@@ -29,7 +29,7 @@ export function useAppVersion(api: API, open = true) {
 }
 
 /**
- * The version row of Settings › General: "Kalkidan 0.1.0", the build, and "Check for updates ↗".
+ * The version row of Settings › General: "Kalkidan 0.1.0" and "Check for updates ↗".
  * Kalkidan does not update itself. The link opens the release page, where the user gets the
  * new installer and the update command.
  */
@@ -40,12 +40,11 @@ export function VersionRow({ api, open = true }: { api: API; open?: boolean }) {
       ? `Kalkidan ${displayVersion(app.version)}`
       : `Kalkidan ${app.version}`
     : 'Kalkidan';
-  const build = app?.build && app.build !== 'unknown' ? `Build ${shortId(app.build)}` : '';
+  // The build digest is in the support bundle. The row shows only the version.
   return (
     <SettingsRow
       id={settingsAnchors.about}
       label={<span data-testid="settings-version">{version}</span>}
-      help={build || undefined}
     >
       <Button asChild variant="ghost" size="sm">
         <a href={releasesUrl} target="_blank" rel="noreferrer">

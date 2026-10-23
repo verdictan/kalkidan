@@ -14,8 +14,9 @@ test('project settings set matching project folder colors and reset them', async
   const violet = colors.getByRole('button', { name: 'Violet folder', exact: true });
   await violet.click();
   await expect(violet).toHaveAttribute('aria-pressed', 'true');
-  // The folder icon of the project row takes the project color.
-  const icon = page.locator('.project-tree .tree-toggle svg').first();
+  // The sidebar project row shows a chevron, not a folder. The folder icon of the project in
+  // the Settings sections takes the project color.
+  const icon = settingsSection(page, 'Atlas').locator('svg').first();
   await expect(icon).toHaveCSS('color', 'rgb(147, 51, 234)');
   await colors.getByRole('button', { name: 'Default folder', exact: true }).click();
   await expect(violet).toHaveAttribute('aria-pressed', 'false');

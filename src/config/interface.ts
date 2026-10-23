@@ -11,7 +11,7 @@ export const interfaceConfig = Object.freeze({
     contentMin: 640,
     collapseBelow: 900,
     compactBelow: 1100,
-    compact: 220,
+    compact: 232,
   },
   /** The sidebar shows this many recent chats under each project. */
   recentChats: 5,

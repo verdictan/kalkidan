@@ -211,7 +211,7 @@ const openSession = (session: Session) =>
   );
 
 /**
- * A link to the source chat of a fact: "From a chat". It is meta text: muted, with an underline
+ * A link to the source chat of a fact: "from a chat". It is meta text: muted, with an underline
  * on hover. The chat title shows in the tooltip and the accessible name.
  */
 function SessionLink({ session }: { session: Session }) {
@@ -225,7 +225,7 @@ function SessionLink({ session }: { session: Session }) {
       className="h-auto p-0 text-xs text-muted-foreground hover:text-foreground"
       onClick={() => openSession(session)}
     >
-      From a chat
+      from a chat
     </Button>
   );
 }
@@ -511,7 +511,6 @@ function FactLine({
           role={editable ? 'button' : undefined}
           aria-label={editable ? `Edit fact: ${fact.content.slice(0, 80)}` : undefined}
           className="prose-ui memory-fact-text"
-          data-size="sm"
           onFocus={() => editable && setEditing(true)}
           onClick={(event) => {
             // A link in the fact opens. A click on the text edits the fact.
@@ -837,15 +836,21 @@ export function ProjectMemoryPanel({
     const reads = readCounts?.[fact.id] || 0;
     return (
       <p className="memory-fact-meta">
+        {/* Where the fact came from and its age: "from a chat · 12h". */}
         {entry?.provenance === 'user' ? (
-          <span>Added by you</span>
+          <span>added by you</span>
         ) : source ? (
           <SessionLink session={source} />
         ) : entry?.provenance === 'external' ? (
-          <span>Changed outside Kalkidan</span>
+          <span>changed outside Kalkidan</span>
         ) : null}
-        <span title={fullTime(fact.updatedAt)}>{relativeTime(fact.updatedAt)}</span>
-        {reads > 0 && <span>read in {plural(reads, 'chat')}</span>}
+        <span
+          title={[fullTime(fact.updatedAt), reads ? `read in ${plural(reads, 'chat')}` : '']
+            .filter(Boolean)
+            .join(' · ')}
+        >
+          {relativeTime(fact.updatedAt)}
+        </span>
       </p>
     );
   }
@@ -940,7 +945,7 @@ export function ProjectMemoryPanel({
       <div className="knowledge-pane-header">
         {switcher}
         {/* In a narrow window the switcher shows the name, so the title is for screen readers. */}
-        <h2 className={cn('knowledge-pane-title', switcher && '@max-[719px]:sr-only')}>Memory</h2>
+        <h2 className={cn('knowledge-pane-title', switcher && '@max-[599px]:sr-only')}>Memory</h2>
       </div>
       {extracting && extraction && (
         <p className="memory-subtitle" role="status">

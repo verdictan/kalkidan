@@ -8,11 +8,13 @@ import {
   computerAgentIssue,
   findAgent,
   managedErrorText,
+  localComputer,
   usesAgentChoice,
   withoutManagedCode,
   type VerdictanSetup,
 } from '../domain/verdictan';
 import { computerAgentAnchor } from '../domain/settings-route';
+import { isMac } from '../lib/platform';
 import { useRefreshTriggers } from '../hooks/use-refresh-triggers';
 import { Choice } from './choice';
 import { ConfirmDialog } from './confirm-dialog';
@@ -28,18 +30,22 @@ export const agentChangeNote = 'New chats use the new agent. Existing chats keep
 /**
  * The agent of one computer: 'local' or an SSH host ID. Codex and Claude Code on the computer
  * both use it for new chats. "Change agent" sets another agent. Existing chats keep their
- * agent. The row shows only when the runtime sends two or more agents, or when the agent of the
- * computer has a problem, and the account is signed in.
+ * agent. The account must be signed in. With `show="issue"` (the default) the row shows only
+ * when the agent of the computer has a problem: only a row that needs the user has a button.
+ * With `show="choice"` (the Details fold) it shows when the runtime sends two or more agents
+ * and nothing is wrong.
  */
 export function ComputerAgentRow({
   api,
   open,
   computer,
   name,
+  show = 'issue',
 }: {
   api: API;
   open: boolean;
   computer: string;
+  show?: 'issue' | 'choice';
   /** The visible name of the computer, for example "this computer" or the host name. */
   name: string;
 }) {
@@ -60,8 +66,8 @@ export function ComputerAgentRow({
   const current = computerAgentId(setup, computer);
   const agent = findAgent(setup, current);
   const issue = computerAgentIssue(setup, computer);
-  // With one agent there is nothing to choose. The row shows only with a choice or a problem.
-  if (agents.length < 2 && !issue) return null;
+  // A problem shows in the group of the computer. A choice without a problem waits in Details.
+  if (show === 'issue' ? !issue : issue || agents.length < 2) return null;
   const label = agent ? labels[agents.indexOf(agent)] : 'No agent';
   const policy = agent && agentConfigurationLabel(agent);
   async function save() {
@@ -90,7 +96,12 @@ export function ComputerAgentRow({
             <Bot />
           </EntityIcon>
         }
-        label={`Runs as ${label}`}
+        // In Details the rows of all computers are together, so each names its computer.
+        label={
+          show === 'choice'
+            ? `${computer === localComputer ? (isMac ? 'This Mac' : 'This computer') : name} runs as ${label}`
+            : `Runs as ${label}`
+        }
         help={
           issue
             ? withoutManagedCode(managedErrorText(issue))

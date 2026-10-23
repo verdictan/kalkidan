@@ -260,13 +260,11 @@ test('a true first run signs in, chooses a folder, and starts in the new project
     { name: 'code', paths: ['/Users/dana/code/web'] },
   ]);
   expect(await page.evaluate(() => (window as any).welcomeDone)).toBe(true);
-  await expect(page.locator('.project-header').getByRole('heading')).toHaveText('code');
-  // The Overview opens on its composer. No dialog opens, and the message is empty: Kalkidan
-  // does not write a first prompt.
+  // The project has a code folder, so a new chat in the project opens. No dialog opens, and the
+  // message is empty: Kalkidan does not write a first prompt.
   await expect(page.getByRole('dialog')).toHaveCount(0);
-  await expect(
-    page.getByRole('main').getByRole('textbox', { name: 'Message for a new chat' }),
-  ).toHaveValue('');
+  await expect(page.getByRole('main').getByLabel('Message agent')).toHaveValue('');
+  await expect(page.getByRole('main')).toContainText('code');
   // The sidebar shows the signed-in account.
   await expect(page.locator('.account-menu[data-state="signed-in"]')).toContainText('Dana Kim');
 });

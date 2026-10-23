@@ -56,12 +56,12 @@ async function fixture(page: Page, extra = '') {
   await page.goto('/');
 }
 
-/** Opens Settings › General › Your data. */
+/** Opens Settings › General › Your data with the help link of the Your data row. */
 async function openYourData(page: Page) {
   const settings = await openSettingsWindow(page, 'General');
   await settings
     .getByRole('group', { name: 'Your data', exact: true })
-    .getByRole('button', { name: 'Manage…' })
+    .getByRole('button', { name: /^Manage your data/ })
     .click();
 }
 

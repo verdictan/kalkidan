@@ -317,7 +317,7 @@ export function KnowledgePanel({
     <Button
       variant="ghost"
       size="sm"
-      className="knowledge-switcher -ml-2 hidden @max-[719px]:inline-flex"
+      className="knowledge-switcher -ml-2 hidden @max-[599px]:inline-flex"
       aria-expanded={railOpen}
       aria-label={`Knowledge: ${currentLabel}`}
       onClick={() => setRailOpen((open) => !open)}
@@ -350,6 +350,7 @@ export function KnowledgePanel({
   const memoryRow = (
     <NavRow
       className="knowledge-rail-memory"
+      size="sm"
       icon={<Lightbulb aria-hidden="true" />}
       label="Memory"
       current={!trimmed && section === 'memory'}
@@ -370,9 +371,7 @@ export function KnowledgePanel({
         if (!items.length) return null;
         return (
           <div key={kind} role="group" aria-label={label} className="knowledge-result-group">
-            <p className="group-label knowledge-result-label">
-              {label} · {items.length}
-            </p>
+            <p className="group-label knowledge-result-label">{label}</p>
             {items.map((item) => {
               const index = results.indexOf(item);
               const Icon = kind === 'page' ? FileText : Lightbulb;

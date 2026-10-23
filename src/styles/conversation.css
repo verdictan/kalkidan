@@ -43,6 +43,8 @@
   min-height: 0;
   /* The welcome text and the composer dock use a compact size in a small panel. */
   container: conversation / size;
+  /* The chat column: messages, the changes row and the composer share it. */
+  --chat-column: 600px;
 }
 /* Composer and messages share edges; composer text is inset 16px + 1px border.
    A classic scrollbar takes width on the right only. The session view measures it as
@@ -53,10 +55,10 @@
   min-height: 0;
   overflow: auto;
   padding-block: 28px 24px;
-  padding-left: max(24px, calc((100% - var(--reading-width)) / 2));
+  padding-left: max(24px, calc((100% - var(--chat-column)) / 2));
   padding-right: max(
     calc(24px - var(--scrollbar-width, 0px)),
-    calc((100% - var(--reading-width)) / 2 - var(--scrollbar-width, 0px))
+    calc((100% - var(--chat-column)) / 2 - var(--scrollbar-width, 0px))
   );
   scrollbar-gutter: stable;
 }
@@ -64,7 +66,7 @@
   display: contents;
 }
 .chat-message {
-  margin: 0 0 32px;
+  margin: 0 0 24px;
   max-width: 100%;
 }
 .chat-message-author {
@@ -78,8 +80,8 @@
   width: fit-content;
   max-width: 85%;
   background: var(--secondary);
-  border-radius: var(--radius-2xl);
-  padding: 12px 16px;
+  border-radius: 16px;
+  padding: 10px 14px;
 }
 .chat-message.user .chat-message-author {
   position: absolute;
@@ -88,8 +90,19 @@
   overflow: hidden;
   clip-path: inset(50%);
 }
-/* Message bodies use .prose-ui for code, lists, quotes and links. Chat headings are
-   smaller than page headings: h1 20/28, h2 16/24, h3 15/24. All are 600. */
+/* Message bodies use .prose-ui for code, lists, quotes and links. Chat text is 14/22 with
+   12.5px code. Chat headings are smaller than page headings: h1 20/28, h2 16/24, h3 15/24.
+   All are 600. */
+.prose-ui[data-variant='chat'] {
+  font-size: 14px;
+  line-height: 22px;
+}
+.prose-ui[data-variant='chat'] :where(code) {
+  font-size: 12.5px;
+}
+.prose-ui[data-variant='chat'] :where(p, ul, ol, blockquote, pre) {
+  margin-bottom: var(--space-2);
+}
 .prose-ui[data-variant='chat'] :where(h1) {
   font-size: var(--text-xl);
   line-height: 28px;
@@ -162,17 +175,17 @@
   display: flex;
   align-items: center;
   gap: 8px;
+  min-height: 24px;
   font-size: var(--text-xs);
   line-height: 16px;
   color: var(--muted-foreground);
-  margin: 8px 0;
+  margin: 0 0 16px;
   overflow-wrap: anywhere;
 }
-/* "Waiting for your approval": an amber dot in the place of the spinner. */
+/* "Waiting for your approval": a 6px amber dot on the column edge. */
 .chat-activity-dot {
   width: 6px;
   height: 6px;
-  margin-inline: 4px;
   flex-shrink: 0;
   border-radius: var(--radius-full);
   background: var(--warning);
@@ -181,7 +194,7 @@
 /* The composer dock holds the approval banner and the composer. It has the message width,
    so the composer edges align with the messages. */
 .composer-dock {
-  width: min(calc(100% - 48px), var(--reading-width));
+  width: min(calc(100% - 48px), var(--chat-column, var(--reading-width)));
   align-self: center;
   flex-shrink: 0;
   padding: 8px 0 16px;
@@ -197,7 +210,7 @@
   gap: 8px;
   padding: 12px 16px 8px;
   border: 1px solid var(--border);
-  border-radius: var(--radius-2xl);
+  border-radius: 16px;
   background: var(--card);
   color: var(--card-foreground);
 }
@@ -292,18 +305,38 @@
   color: var(--secondary-foreground);
   font-weight: 500;
 }
-/* ChatCard (chat-card.tsx): refusals, errors, approvals and questions. Padding 12/16,
-   radius 14, a neutral border, no shadow, a 16px icon column and a 12px gap. Only the icon has
-   the tone color. */
+/* ChatCard (chat-card.tsx): refusals, errors, approvals and questions. Padding 12, radius 12,
+   a neutral border, no shadow and 10px between the parts. The head is a 16px icon, 8px, then
+   the 13/500 title. Only the icon has the tone color. */
 .chat-card {
   display: grid;
-  grid-template-columns: 16px minmax(0, 1fr);
-  gap: 12px;
-  padding: 12px 16px;
+  gap: 10px;
+  padding: 12px;
   border: 1px solid var(--border);
-  border-radius: var(--radius-xl);
+  border-radius: 12px;
   background: var(--card);
   color: var(--card-foreground);
+}
+.chat-card-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+/* A command or other text that the agent asks to run: a quiet mono block. */
+.chat-card-command {
+  margin: 0;
+  max-height: 160px;
+  overflow: auto;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--navigation);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  line-height: 20px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 .chat-card:focus-visible {
   outline: none;
@@ -311,12 +344,12 @@
 }
 /* A card in the transcript sits 12px under its message. */
 .conversation-messages .chat-card {
-  margin: -20px 0 32px;
+  margin: -12px 0 24px;
 }
 .chat-card-icon {
   width: 16px;
   height: 16px;
-  margin-top: 2px;
+  flex-shrink: 0;
   color: var(--muted-foreground);
 }
 .chat-card[data-tone='danger'] .chat-card-icon {
@@ -325,16 +358,12 @@
 .chat-card[data-tone='warning'] .chat-card-icon {
   color: var(--warning);
 }
-.chat-card-main {
-  display: grid;
-  gap: 8px;
-  min-width: 0;
-}
 .chat-card-title {
   margin: 0;
+  min-width: 0;
   font-size: var(--text-sm);
   line-height: 20px;
-  font-weight: 600;
+  font-weight: 500;
 }
 .chat-card-body {
   margin: 0;
@@ -414,17 +443,17 @@
   color: var(--foreground);
   line-height: 16px;
 }
-/* "3 files +86 −4 · Review · Create pull request" after a run. It has the radius and the 16px
-   text inset of the composer under it. The count never shortens; the action label does. */
+/* "3 files +86 −4 · Review · Create pull request" after a run: 40px, radius 12, 12px text
+   with the icon 12px from the edge. The count never shortens. A narrow row says "Create PR". */
 .run-changes {
   display: flex;
   align-items: center;
   gap: 8px;
-  min-height: 40px;
+  height: 40px;
   margin: 0 0 8px;
-  padding: 4px 8px 4px 16px;
+  padding: 0 4px 0 12px;
   border: 1px solid var(--border);
-  border-radius: var(--radius-2xl);
+  border-radius: 12px;
   background: var(--card);
   color: var(--muted-foreground);
   font-size: var(--text-xs);
@@ -441,7 +470,7 @@
 .run-changes-count {
   flex-shrink: 0;
   color: var(--foreground);
-  font-weight: 600;
+  font-weight: 500;
 }
 .run-changes-lines {
   flex-shrink: 0;
@@ -455,6 +484,17 @@
 }
 .run-changes-primary {
   min-width: 0;
+}
+.run-changes-short {
+  display: none;
+}
+@container composer-dock (max-width: 440px) {
+  .run-changes-long {
+    display: none;
+  }
+  .run-changes-short {
+    display: inline;
+  }
 }
 /* The access pill keeps its label. The model chip and the folder pill shorten first. */
 .composer-access {
@@ -472,14 +512,14 @@
 }
 .composer-folder {
   min-width: 0;
-  max-width: 200px;
+  max-width: 280px;
 }
 /* The activity of a run sits under its answer as one quiet line, "N steps · M files edited".
    Steps, sources, policy and usage open behind it. One 24px line for each step. */
 .agent-activity {
   display: grid;
   gap: 4px;
-  margin: -24px 0 32px;
+  margin: -12px 0 8px;
 }
 .agent-activity-detail {
   display: grid;
@@ -571,17 +611,23 @@ button.agent-step:hover {
   letter-spacing: -0.01em;
 }
 /* Until the first message, the welcome block and the composer sit together in the middle of
-   the panel, a little above the centre. */
+   the panel, 64px above the centre. The title is 20px above the composer. */
 .conversation-empty {
   justify-content: center;
-  padding-bottom: 8vh;
+  padding-bottom: 64px;
+}
+.conversation-empty .conversation-welcome {
+  padding: 0 0 20px;
+}
+.conversation-empty .composer-dock {
+  padding-bottom: 0;
 }
 .conversation-empty .conversation-messages {
   display: flex;
   flex: 0 1 auto;
   flex-direction: column;
   justify-content: flex-end;
-  padding-block: 16px 8px;
+  padding-block: 0;
 }
 /* Compact: a narrow session column (next to tools or a side session) or a short panel. */
 @container conversation (max-width: 720px) or (max-height: 640px) {
@@ -592,12 +638,9 @@ button.agent-step:hover {
     font-size: var(--text-xl);
     line-height: 28px;
   }
-  .composer-dock {
-    padding-bottom: 12px;
-  }
 }
-/* In a short window, the empty chat uses the full height. */
-@media (max-height: 640px) {
+/* In a very short window, the empty chat uses the full height. */
+@media (max-height: 480px) {
   .conversation-empty {
     padding-bottom: 0;
   }

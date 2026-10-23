@@ -11,7 +11,6 @@ import type { ChatLink } from '../domain/chat-fork';
 import { Conversation, type ConversationDraft } from './conversation';
 import type { MentionChat } from '../lib/mention-sections';
 import { Button } from './ui/button';
-import { AgentIcon } from './ui/agent-icon';
 import { Hint } from './hint';
 import { showToast } from './ui/toast';
 import { agentLabel, isAgent } from '../config/agents';
@@ -484,8 +483,11 @@ export function AgentWorkspace({
                   hidden={key !== selectedKey && key !== sideKey}
                 >
                   {key === sideKey && (
-                    <div className="tool-toolbar" role="group" aria-label="Side chat">
-                      <AgentIcon agent={session.agent} className="size-4 shrink-0" />
+                    <div
+                      className="tool-toolbar side-chat-header"
+                      role="group"
+                      aria-label="Side chat"
+                    >
                       <span className="side-chat-title">
                         {/^New( .*)? (session|chat)$/.test(titleOf(session))
                           ? 'New chat'
@@ -503,7 +505,7 @@ export function AgentWorkspace({
                           disabled={!!running[key]}
                           onClick={() => setSideKey(null)}
                         >
-                          <X />
+                          <X className="size-3.5" />
                         </Button>
                       </Hint>
                     </div>

@@ -4,7 +4,7 @@ import { cn } from '@/lib/utils';
 import { Slot } from 'radix-ui';
 
 const buttonVariants = cva(
-  "inline-flex shrink-0 items-center justify-center gap-2 rounded-md text-sm font-medium whitespace-nowrap transition-[color,background-color,border-color,box-shadow,opacity] duration-150 outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-color)] focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:pointer-events-none disabled:opacity-50 aria-pressed:bg-[var(--surface-selected)] aria-invalid:border-destructive aria-invalid:ring-destructive/20 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+  "inline-flex shrink-0 items-center justify-center gap-1.5 rounded-sm text-sm font-medium whitespace-nowrap transition-[color,background-color,border-color,box-shadow,opacity] duration-150 outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-color)] focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:pointer-events-none disabled:opacity-50 aria-pressed:bg-[var(--surface-selected)] aria-invalid:border-destructive aria-invalid:ring-destructive/20 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
   {
     variants: {
       variant: {
@@ -12,12 +12,14 @@ const buttonVariants = cva(
         default:
           'bg-primary text-primary-foreground hover:bg-primary/90 disabled:bg-muted disabled:text-muted-foreground disabled:opacity-100',
         destructive: 'bg-destructive text-destructive-foreground hover:bg-destructive/90',
-        outline: 'border bg-transparent shadow-xs hover:bg-[var(--surface-hover)]',
+        // White with a hairline divider border and no shadow.
+        outline: 'border bg-background hover:bg-[var(--surface-hover)]',
         // The trigger of a destructive action in a Danger zone. Filled red is only for the
         // button inside the confirmation.
         'destructive-outline':
-          'border bg-transparent text-destructive shadow-xs hover:bg-destructive/10 hover:text-destructive',
-        ghost: 'hover:bg-[var(--surface-hover)] hover:text-accent-foreground',
+          'border bg-background text-destructive hover:bg-destructive/10 hover:text-destructive',
+        // Quiet: muted text and icons, the foreground on hover.
+        ghost: 'text-muted-foreground hover:bg-[var(--surface-hover)] hover:text-foreground',
         // The one link style. At the default size it is inline text: no height or padding.
         link: 'text-link underline-offset-2 hover:underline',
         // Small pill for composer controls, attachments and inline links: 28px, 12px text.
@@ -26,10 +28,11 @@ const buttonVariants = cva(
         bare: 'h-auto justify-start p-0 hover:bg-transparent has-[>svg]:px-0',
       },
       size: {
-        // Control heights: lg 36 (empty-state actions), default 32, sm 28, xs 24.
+        // Control heights: lg 36 (first-run calls to action), default 32 (forms and dialog
+        // footers), sm 28 (toolbars, title bar, rows and inline actions), xs 24. Radius 6.
         default: 'h-8 px-3 has-[>svg]:px-2.5',
         xs: "h-6 gap-1 rounded-sm px-2 text-xs has-[>svg]:px-1.5 [&_svg:not([class*='size-'])]:size-3",
-        sm: "h-7 gap-1.5 rounded-md px-2.5 has-[>svg]:px-2 [&_svg:not([class*='size-'])]:size-3.5",
+        sm: "h-7 gap-1.5 px-2.5 has-[>svg]:px-2 [&_svg:not([class*='size-'])]:size-3.5",
         lg: 'h-9 rounded-md px-4 has-[>svg]:px-3',
         icon: 'size-8',
         'icon-xs': "size-6 rounded-sm [&_svg:not([class*='size-'])]:size-3.5",

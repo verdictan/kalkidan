@@ -1614,9 +1614,13 @@ export function Conversation({
                     size="sm"
                     variant="outline"
                     className="run-changes-primary"
+                    aria-label="Create pull request"
                     onClick={createPullRequest}
                   >
-                    <span className="truncate">Create pull request</span>
+                    <span className="run-changes-long">Create pull request</span>
+                    <span className="run-changes-short" aria-hidden="true">
+                      Create PR
+                    </span>
                   </Button>
                 )}
               </span>
@@ -1928,7 +1932,7 @@ export function Conversation({
                     size="icon-sm"
                     onClick={() => void stop()}
                   >
-                    <Square className="size-3 fill-current" />
+                    <Square className="size-2.5 fill-current" />
                   </Button>
                 </Hint>
               ) : signedOut ? (

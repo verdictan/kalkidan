@@ -149,7 +149,9 @@ test('the Computers page shows the agent programs of each computer', async ({ pa
   // A host that is not connected shows the last result and when Kalkidan checked it.
   const buildbox = await openHostPrograms(page, settings, 'buildbox');
   await expect(buildbox).toContainText('This host is not connected. This is the last result.');
-  await expect(buildbox.getByRole('status')).toContainText('Checked 2h');
+  await expect(buildbox.getByRole('status').filter({ hasText: 'Checked' })).toContainText(
+    'Checked 2h',
+  );
   await expect(buildbox.getByRole('listitem', { name: 'Codex on buildbox' })).toContainText(
     'Meets the minimum',
   );
