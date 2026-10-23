@@ -10,8 +10,8 @@ export interface ToastAction {
 export interface ToastInput {
   message: string;
   /**
-   * Error toasts show a red alert icon and stay until the user closes them. Success toasts show
-   * a green check.
+   * Error toasts show an alert icon and stay until the user closes them. Success toasts show a
+   * check.
    */
   tone?: 'default' | 'success' | 'error';
   /** A toast with actions stays until the user uses or closes it, or the page changes. */
@@ -109,7 +109,7 @@ export function Toaster({ className, resetKey }: { className?: string; resetKey?
     <div
       className={cn(
         // Above the dialogs and menus, so a toast with Undo stays usable while a dialog shows.
-        'pointer-events-none fixed right-4 bottom-[calc(1rem+var(--toast-offset,0px))] z-[var(--z-toast)] flex w-[min(420px,calc(100vw-2rem))] flex-col items-end gap-2',
+        'pointer-events-none fixed right-5 bottom-[calc(1.25rem+var(--toast-offset,0px))] z-[var(--z-toast)] flex w-[min(420px,calc(100vw-2.5rem))] flex-col items-end gap-2',
         className,
       )}
     >
@@ -130,22 +130,24 @@ export function Toaster({ className, resetKey }: { className?: string; resetKey?
           onFocus={() => pauseTimer(item.id)}
           onBlur={() => startTimer(item.id)}
           className={cn(
-            'pointer-events-auto flex max-w-full min-h-9 items-center gap-2 rounded-lg border bg-popover py-1 pr-1 pl-3 text-sm text-popover-foreground shadow-md',
+            // One dark toast: 40px, radius 10, 12px text, the actions in bold white.
+            'pointer-events-auto flex max-w-full min-h-10 items-center gap-1 rounded-lg bg-foreground py-1.5 pr-2 pl-3.5 text-xs text-background shadow-[var(--shadow-toast)]',
             'motion-safe:animate-in motion-safe:fade-in-0 motion-safe:slide-in-from-bottom-2 motion-safe:duration-[var(--motion-base)]',
           )}
         >
           {item.tone === 'error' && (
-            <CircleAlert className="size-4 shrink-0 text-destructive" aria-hidden="true" />
+            <CircleAlert className="mr-1 size-4 shrink-0 text-background" aria-hidden="true" />
           )}
           {item.tone === 'success' && (
-            <Check className="size-4 shrink-0 text-success" aria-hidden="true" />
+            <Check className="mr-1 size-4 shrink-0 text-background/70" aria-hidden="true" />
           )}
-          <span className="min-w-0 flex-1">{item.message}</span>
+          <span className="min-w-0 flex-1 pr-2">{item.message}</span>
           {item.actions?.map((action) => (
             <Button
               key={action.label}
               size="sm"
               variant="ghost"
+              className="px-2 text-xs font-semibold text-background hover:bg-background/10 hover:text-background"
               onClick={() => {
                 action.onClick();
                 close(item.id);
@@ -157,6 +159,7 @@ export function Toaster({ className, resetKey }: { className?: string; resetKey?
           <Button
             size="icon-sm"
             variant="ghost"
+            className="text-background/70 hover:bg-background/10 hover:text-background"
             aria-label="Close notification"
             onClick={() => close(item.id)}
           >

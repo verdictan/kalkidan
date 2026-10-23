@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react';
-import { AtSign, FileText, GitBranch, Inbox, ListTodo } from 'lucide-react';
+import { FileText, GitBranch, Inbox, ListTodo } from 'lucide-react';
 import { agentCatalog, agentLabel } from '../config/agents';
 import { agentInstalled } from '../lib/agent-preference';
 import { onChatPreferencesChange, readEnterToSend } from '../lib/chat-preferences';
@@ -27,8 +27,6 @@ import {
   AccessPill,
   Composer,
   FolderPill,
-  ComposerAddMenu,
-  composerPlaceholderFor,
   defaultAccess,
   readAccess,
   saveAccess,
@@ -156,7 +154,7 @@ function HomeComposer({
     <Composer
       label="New chat"
       inputLabel="Message for a new chat"
-      placeholder={composerPlaceholderFor(agentLabel(agent), repo?.name)}
+      placeholder={`Ask anything about ${group.name}`}
       sendLabel="Start the chat"
       value={text}
       onValueChange={setText}
@@ -165,18 +163,7 @@ function HomeComposer({
       enterToSend={enterToSend}
       controls={
         <>
-          {/* The same chips in the same order as in a chat: + · folder · access · agent. */}
-          <ComposerAddMenu
-            items={[
-              {
-                label: 'File or folder',
-                icon: <AtSign />,
-                shortcut: '@',
-                onSelect: () =>
-                  setText((value) => (value && !value.endsWith(' ') ? value + ' @' : value + '@')),
-              },
-            ]}
-          />
+          {/* folder · access · agent, in the order of a chat. Type @ to add a file. */}
           <FolderPill
             label={repo?.name}
             folders={repos}
@@ -361,6 +348,7 @@ export function ProjectHomePage({
                 <ChatRow
                   key={activityKey(session.agent, session.id)}
                   className="needs-you-row"
+                  time={false}
                   session={session}
                   activity={state}
                   onOpen={onOpenSession}

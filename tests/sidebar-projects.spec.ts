@@ -71,7 +71,7 @@ test('Pinned shows pinned chats once and the chat actions unpin them', async ({ 
   ).toBeVisible();
 });
 
-test('the sidebar, All chats and the overview count the same chats', async ({ page }) => {
+test('the sidebar, Chats and the overview count the same chats', async ({ page }) => {
   await page.addInitScript(() => {
     const repo = {
       id: 'r',
@@ -119,9 +119,11 @@ test('the sidebar, All chats and the overview count the same chats', async ({ pa
       .getByRole('cell')
       .nth(1),
   ).toHaveText('7 chats');
-  await tree(page).getByRole('button', { name: 'All chats', exact: true }).click();
+  await tree(page).getByRole('button', { name: 'Chats', exact: true }).click();
   await expect(
-    page.getByRole('region', { name: 'All chats' }).getByRole('button', { name: /^Resume / }),
+    page
+      .getByRole('region', { name: 'Chats', exact: true })
+      .getByRole('button', { name: /^Resume / }),
   ).toHaveCount(7);
   // "Show all" opens the Chats tab of the project, with the same count.
   await group.getByRole('button', { name: 'Show all 7 chats', exact: true }).click();

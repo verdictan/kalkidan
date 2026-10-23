@@ -4,8 +4,10 @@ test('Diagnostics opens from Settings and shows a redacted bundle preview before
   page,
 }) => {
   await page.goto('/');
-  // The support bundle opens from Settings › General. The account menu has no Diagnostics item.
-  const settings = await openSettingsWindow(page, 'General');
+  // The support bundle opens from Settings › Computers › Details. The account menu has no
+  // Diagnostics item.
+  const settings = await openSettingsWindow(page, 'Computers');
+  await settings.getByRole('button', { name: 'Details', exact: true }).click();
   await settings
     .getByRole('group', { name: 'Diagnostics', exact: true })
     .getByRole('button', { name: 'Support bundle…' })

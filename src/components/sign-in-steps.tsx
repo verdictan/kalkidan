@@ -206,7 +206,8 @@ export function SignInSteps({
       setAccountStatus(result);
       if (result.phase === 'authenticated') {
         attempt.current++;
-        showToast(`Signed in as ${signedInName(result)}`);
+        // The Welcome card shows the name in step 1 at once. A toast would say it twice.
+        if (mode !== 'step') showToast(`Signed in as ${signedInName(result)}`);
         setView('setup');
         return;
       }
@@ -223,7 +224,7 @@ export function SignInSteps({
       // The sign-in stopped with no error, for example after a cancel in the runtime.
       if (result.phase !== 'authorizing') setView('start');
     },
-    [setAccountStatus],
+    [setAccountStatus, mode],
   );
 
   /** Saves the region, waits for the runtime, and opens the browser. */

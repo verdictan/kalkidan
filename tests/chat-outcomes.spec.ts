@@ -86,10 +86,10 @@ test('sidebar chats show failed and refused dots with the reason', async ({ page
   await expect(failed).toHaveAttribute('data-state', 'failed');
 });
 
-test('All chats and the project Chats tab filter failed and refused chats', async ({ page }) => {
+test('Chats and the project Chats tab filter failed and refused chats', async ({ page }) => {
   await withOutcomes(page);
-  await tree(page).getByRole('button', { name: 'All chats', exact: true }).click();
-  const all = page.getByRole('region', { name: 'All chats' });
+  await tree(page).getByRole('button', { name: 'Chats', exact: true }).click();
+  const all = page.getByRole('region', { name: 'Chats', exact: true });
   await expect(all.getByRole('button', { name: /^Resume / })).toHaveCount(4);
   await expect(
     all.getByRole('button', { name: 'Resume Failed chat' }).locator('.activity-dot'),

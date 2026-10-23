@@ -4,7 +4,7 @@ import { cn } from '@/lib/utils';
 import { Slot } from 'radix-ui';
 
 const badgeVariants = cva(
-  'inline-flex w-fit shrink-0 items-center justify-center gap-1 overflow-hidden rounded-full border border-transparent font-medium whitespace-nowrap transition-[color,box-shadow] focus-visible:ring-2 focus-visible:ring-[var(--focus-color)] focus-visible:ring-offset-2 focus-visible:ring-offset-background aria-invalid:border-destructive aria-invalid:ring-destructive/20 [&>svg]:pointer-events-none [&>svg]:size-3',
+  'inline-flex w-fit shrink-0 items-center justify-center gap-1 overflow-hidden rounded-sm border border-transparent font-medium whitespace-nowrap transition-[color,box-shadow] focus-visible:ring-2 focus-visible:ring-[var(--focus-color)] focus-visible:ring-offset-2 focus-visible:ring-offset-background aria-invalid:border-destructive aria-invalid:ring-destructive/20 [&>svg]:pointer-events-none [&>svg]:size-3',
   {
     variants: {
       variant: {
@@ -19,9 +19,9 @@ const badgeVariants = cva(
         muted: 'bg-secondary text-muted-foreground',
       },
       size: {
-        // sm 20px for tags in rows, md 24px for status badges.
+        // One badge shape: 20px, radius 6, 11/16 medium, 6px side padding. sm is the same.
         sm: 'h-5 px-1.5 text-2xs',
-        md: 'h-6 px-2 text-xs',
+        md: 'h-5 px-1.5 text-2xs',
       },
     },
     // Status and labels are quiet. Brown (default) is only for the "waiting for you" count.

@@ -237,20 +237,16 @@ test('Settings and the account menu show their content', async ({ page }) => {
   await expect(general.getByRole('group', { name: 'Your data' })).toBeVisible();
   await expect(general.getByTestId('settings-version')).toHaveText('Kalkidan 0.1.0');
   const version = general.getByRole('group', { name: 'Kalkidan 0.1.0' });
-  // The help shows only the build. The update command is on the release page.
-  await expect(version).toContainText('Build ccccccc');
+  // The version row has no build line. The update command is on the release page.
+  await expect(version).not.toContainText('Build');
   await expect(version).not.toContainText('brew');
   // Kalkidan does not update itself. "Check for updates" opens the release page.
   await expect(version.getByRole('link', { name: /Check for updates/ })).toHaveAttribute(
     'href',
     'https://github.com/verdictan/packages/releases?q=kalkidan',
   );
-  // The support bundle opens from General. There is no Advanced fold.
-  await expect(
-    general
-      .getByRole('group', { name: 'Diagnostics', exact: true })
-      .getByRole('button', { name: 'Support bundle…' }),
-  ).toBeVisible();
+  // The support bundle is in Computers › Details, not in General. There is no Advanced fold.
+  await expect(general.getByRole('group', { name: 'Diagnostics', exact: true })).toHaveCount(0);
   await expect(settings(page).getByRole('button', { name: 'Advanced', exact: true })).toHaveCount(
     0,
   );
@@ -495,10 +491,10 @@ test('General shows only the build of a development build', async ({ page }) => 
   await openWith(page, { section: 'about' });
   const general = await expectSection(page, 'General');
   await expect(general.getByTestId('settings-version')).toHaveText('Kalkidan 0.1.0');
-  // The help shows only the build.
+  // The version row has no build line.
   await expect(
     general.getByRole('group', { name: 'Kalkidan 0.1.0' }).locator('.settings-row-help'),
-  ).toHaveText('Build ccccccc');
+  ).toHaveCount(0);
   // Kalkidan does not update itself. General has no update button and no download.
   await expect(general.getByRole('button', { name: /update|download|restart/i })).toHaveCount(0);
   await expect(general.getByRole('link', { name: /Check for updates/ })).toBeVisible();

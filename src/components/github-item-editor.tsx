@@ -4,6 +4,7 @@ import { Fragment, useEffect, useRef, useState, type ReactNode } from 'react';
 import {
   Archive,
   ArchiveRestore,
+  ArrowUpRight,
   ArrowUpToLine,
   Check,
   CircleCheck,
@@ -248,7 +249,7 @@ export function FieldPills({
     <Button
       variant="outline"
       size="icon-xs"
-      className="field-pill-add"
+      className="field-pill-add w-auto px-2 text-muted-foreground [&_svg]:size-3"
       aria-label="Set a field"
       disabled={off}
     >
@@ -362,7 +363,7 @@ function FieldPill({
     <Button
       variant="outline"
       size="xs"
-      className="field-pill"
+      className="field-pill font-normal"
       disabled={disabled}
       aria-label={`${field.name}: ${text}`}
     >
@@ -485,12 +486,18 @@ export function ItemActionsMenu({
   item,
   onSaved,
   size = 'sm',
+  editable = true,
+  openLabel,
 }: {
   api: API;
   groupId: string;
   item: TrackerItem;
   onSaved: () => Promise<unknown>;
   size?: 'md' | 'sm' | 'xs';
+  /** False on a board that the user can only read: the menu has only "Open on GitHub". */
+  editable?: boolean;
+  /** "Open on GitHub": the first item, when the item has a URL. */
+  openLabel?: string;
 }) {
   const [busy, setBusy] = useState(false);
   const [confirmRemove, setConfirmRemove] = useState(false);
@@ -510,13 +517,25 @@ export function ItemActionsMenu({
       setBusy(false);
     }
   }
-  const items: (ActionMenuItem & { icon?: ReactNode })[] = [
-    ...contentMenu,
+  const open: (ActionMenuItem & { icon?: ReactNode })[] =
+    openLabel && item.url
+      ? [
+          {
+            label: openLabel,
+            icon: <ArrowUpRight className="size-4" />,
+            action: () => window.open(item.url, '_blank', 'noreferrer'),
+          },
+        ]
+      : [];
+  const edits: (ActionMenuItem & { icon?: ReactNode })[] = [
+    ...contentMenu.map((entry, index) =>
+      index === 0 && open.length ? { ...entry, separator: true } : entry,
+    ),
     {
       label: item.archived ? 'Restore item' : 'Archive item',
       icon: item.archived ? <ArchiveRestore className="size-4" /> : <Archive className="size-4" />,
       disabled: busy,
-      separator: contentMenu.length > 0,
+      separator: contentMenu.length > 0 || open.length > 0,
       action: () =>
         void act(
           { kind: item.archived ? 'unarchive' : 'archive' },
@@ -542,6 +561,8 @@ export function ItemActionsMenu({
       action: () => setConfirmRemove(true),
     },
   ];
+  const items = editable ? [...open, ...edits] : open;
+  if (!items.length) return null;
   return (
     <>
       <DropdownMenu>

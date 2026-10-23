@@ -7,7 +7,6 @@ import { useProjectBoard } from '../hooks/use-project-board';
 import { errorMessage } from '../lib/errors';
 import { Button } from './ui/button';
 import { Alert, AlertDescription } from './ui/alert';
-import { EmptyState } from './ui/empty-state';
 import { EntityIcon } from './ui/entity-icon';
 import { showToast } from './ui/toast';
 import {
@@ -358,15 +357,14 @@ function BoardSection({
           </SettingsRow>
         </SettingsRows>
       ) : (
-        <EmptyState
-          compact
-          title="No board."
-          action={
+        // The same row shape as the rest of Settings: the state, then its one action.
+        <SettingsRows label="Board">
+          <SettingsRow label="No board">
             <Button variant="outline" size="sm" onClick={() => setConnecting(true)}>
               Connect board…
             </Button>
-          }
-        />
+          </SettingsRow>
+        </SettingsRows>
       )}
       {connection &&
         automation &&

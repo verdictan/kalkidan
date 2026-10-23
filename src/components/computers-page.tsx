@@ -19,6 +19,7 @@ import {
 } from './verdictan-settings';
 import { SettingsDisclosure, SettingsRow } from './settings-disclosure';
 import { ComputerAgentRow } from './computer-agent';
+import { openDiagnostics } from './diagnostics-section';
 import { AgentProgramsDialog } from './agent-programs';
 import { publishAgentChecks } from './settings-attention';
 import { localComputer, type ManagedAgentKind } from '../domain/verdictan';
@@ -294,9 +295,31 @@ export function ComputersPanel({
               }`}
             />
           )}
+          <ComputerAgentRow
+            api={api}
+            open={open}
+            computer={localComputer}
+            name="this computer"
+            show="choice"
+          />
+          {hosts.map((host) => (
+            <ComputerAgentRow
+              key={host.id}
+              api={api}
+              open={open}
+              computer={host.id}
+              name={host.name}
+              show="choice"
+            />
+          ))}
           <SettingsRow label="Coding agent programs">
             <Button variant="outline" size="sm" onClick={() => setPrograms(true)}>
               Programs…
+            </Button>
+          </SettingsRow>
+          <SettingsRow label="Diagnostics">
+            <Button variant="outline" size="sm" onClick={openDiagnostics}>
+              Support bundle…
             </Button>
           </SettingsRow>
           {hosts.map((host) => (

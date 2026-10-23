@@ -78,7 +78,7 @@ test('the project section of Settings has the name, color, code folders, board a
   // Board: no board is connected, so the group offers "Connect board…". The empty state is
   // plain text, not a heading.
   const board = web.getByRole('region', { name: 'Board', exact: true });
-  await expect(board.getByText('No board.')).toBeVisible();
+  await expect(board.getByText('No board', { exact: true })).toBeVisible();
   await expect(board.getByRole('heading', { name: /^No board/ })).toHaveCount(0);
   await expect(board.getByRole('button', { name: 'Connect board…', exact: true })).toBeVisible();
 

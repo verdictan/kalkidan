@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from 'react';
-import { Loader2 } from 'lucide-react';
+import { Folder, Loader2 } from 'lucide-react';
 import type { API, ProjectGroup, RemoteHost } from '../types';
 import type { ProjectPage } from '../domain/workspace-route';
 import { errorMessage } from '../lib/errors';
@@ -8,6 +8,7 @@ import { requestNewChat } from './new-chat-button';
 import { openProjectUsage } from './project-usage';
 import { projectMenuActions, TreeActionsMenu } from './tree-context-menu';
 import { Button } from './ui/button';
+import { EntityIcon } from './ui/entity-icon';
 import { PageHeader } from './ui/page-header';
 import { showToast } from './ui/toast';
 
@@ -20,9 +21,8 @@ const event = (name: string, detail: object) =>
   window.dispatchEvent(new CustomEvent(name, { detail }));
 
 /**
- * The one header of a project: the title at the content edge and the project menu, the same on
- * every tab. The title has no tile and no counts: the page below shows the code folders and
- * the chats. A remote project shows its SSH host under the title. The ⋯ menu has the same items
+ * The one header of a project: a 28px folder tile, the title and the project menu, the same on
+ * every tab. The title has no counts: the page below shows the code folders and the chats. A remote project shows its SSH host under the title. The ⋯ menu has the same items
  * as the menu of the project row in the sidebar. New chat is not here: on Overview the composer
  * starts a chat, and ⌘N works on every tab.
  */
@@ -80,6 +80,11 @@ function ProjectHeader({
   return (
     <PageHeader
       className="project-header"
+      icon={
+        <EntityIcon>
+          <Folder />
+        </EntityIcon>
+      }
       title={group.name}
       subtitle={
         group.hostId && (

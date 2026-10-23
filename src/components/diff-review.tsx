@@ -1,18 +1,10 @@
 import { useEffect, useRef, useState, type ReactElement } from 'react';
-import { FileCheck, Paperclip } from 'lucide-react';
+import { File, FileCheck } from 'lucide-react';
 import type { RepositoryDiff } from '../types';
 import { diffFiles } from '../lib/diff-files';
-import { pathBasename } from '../lib/platform';
-import { Button } from './ui/button';
 import { EmptyState } from './ui/empty-state';
 import { Hint } from './hint';
 import { cn } from '../lib/utils';
-
-/** The folder part of a path, without the file name. Empty for a file at the root. */
-function folderOf(path: string) {
-  const name = pathBasename(path);
-  return path.length > name.length ? path.slice(0, -name.length).replace(/[\\/]+$/, '') : '';
-}
 
 /** Shows why an attach button is disabled. */
 export function AttachHint({ reason, children }: { reason: string; children: ReactElement }) {
@@ -55,6 +47,7 @@ function numberLines(patch: string): DiffLine[] {
     return { kind: 'context', text, oldNumber: oldNumber++, newNumber: newNumber++ };
   });
 }
+const signs: Partial<Record<DiffLineKind, string>> = { add: 'Added: ', remove: 'Removed: ' };
 const lineClass: Record<DiffLineKind, string> = {
   header: 'diff-line diff-header',
   hunk: 'diff-line diff-location',
@@ -64,8 +57,10 @@ const lineClass: Record<DiffLineKind, string> = {
 };
 
 /**
- * One diff block for steps, approvals and the Changes pane: line numbers, and green and red
- * lines. `framed` draws the 10px frame of a code block. The Changes pane fills its edges.
+ * One diff block for steps, approvals and the Changes pane: one line-number column, the hunk
+ * line, and green and red lines without the "+" and "−" marks (a screen reader hears "Added"
+ * or "Removed"). The Git file header lines do not show. `framed` draws the 10px frame of a
+ * code block. The Changes pane fills its edges.
  */
 export function DiffBlock({
   patch,
@@ -86,18 +81,22 @@ export function DiffBlock({
       className={cn('diff-block', framed && 'diff-block-framed', className)}
     >
       {patch
-        ? numberLines(patch).map((line, index) => (
-            <span key={index} className={lineClass[line.kind]}>
-              <span className="diff-gutter" aria-hidden="true">
-                {line.oldNumber ?? ''}
-              </span>
-              <span className="diff-gutter" aria-hidden="true">
-                {line.newNumber ?? ''}
-              </span>
-              <span className="diff-text">{line.text}</span>
-              {'\n'}
-            </span>
-          ))
+        ? numberLines(patch)
+            .filter((line) => line.kind !== 'header')
+            .map((line, index) => {
+              const marked = line.kind === 'add' || line.kind === 'remove';
+              const body = marked || line.kind === 'context' ? line.text.slice(1) : line.text;
+              return (
+                <span key={index} className={lineClass[line.kind]}>
+                  <span className="diff-gutter" aria-hidden="true">
+                    {line.newNumber ?? line.oldNumber ?? ''}
+                  </span>
+                  {signs[line.kind] && <span className="sr-only">{signs[line.kind]}</span>}
+                  <span className="diff-text">{body}</span>
+                  {'\n'}
+                </span>
+              );
+            })
         : 'No text preview available.'}
     </pre>
   );
@@ -108,19 +107,16 @@ export function isPatch(text: string) {
   return /^(diff --git|@@ -\d|--- |\+\+\+ )/m.test(text) && /^[+-][^+-]/m.test(text);
 }
 
+/**
+ * The Changes pane: the changed files (28px rows, full path), then the diff of the selected
+ * file to the pane edges.
+ */
 export function DiffReview({
   diff,
-  onAttach,
-  disabled,
-  disabledReason = '',
   focusPath,
   focusRequest = 0,
 }: {
   diff: RepositoryDiff;
-  onAttach: (label: string, text: string) => void;
-  disabled: boolean;
-  /** Why the attach button is disabled. */
-  disabledReason?: string;
   /** A file to show first. It can be an absolute path or a path in the repository. */
   focusPath?: string;
   /** Increase this number to show `focusPath` again. */
@@ -192,28 +188,16 @@ export function DiffReview({
               title={file.path}
               onClick={() => setSelection(file.key)}
             >
-              <span className="diff-file-name">{pathBasename(file.path)}</span>
-              {folderOf(file.path) && <span className="diff-file-path">{folderOf(file.path)}</span>}
-              <span className="diff-count-add">+{file.added}</span>
-              <span className="diff-count-remove">−{file.removed}</span>
+              <File className="diff-file-icon" aria-hidden="true" />
+              <span className="diff-file-path">{file.path}</span>
+              {!!file.added && <span className="diff-count-add">+{file.added}</span>}
+              {!!file.removed && <span className="diff-count-remove">−{file.removed}</span>}
             </button>
           </li>
         ))}
       </ul>
-      {current.note && <p className="shrink-0 text-xs text-muted-foreground">{current.note}</p>}
+      {current.note && <p className="diff-review-note">{current.note}</p>}
       <DiffBlock key={current.key} patch={current.patch} framed={false} />
-      <AttachHint reason={current.patch ? disabledReason : ''}>
-        <Button
-          size="sm"
-          variant="outline"
-          className="shrink-0 self-start"
-          disabled={disabled || !current.patch}
-          onClick={() => onAttach(current.path, current.patch)}
-        >
-          <Paperclip aria-hidden="true" />
-          Attach file to message
-        </Button>
-      </AttachHint>
     </section>
   );
 }

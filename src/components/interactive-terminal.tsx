@@ -7,7 +7,7 @@ import { Paperclip, RotateCcw } from 'lucide-react';
 import { Button } from './ui/button';
 import { PaneMessage } from './pane-message';
 import { ConfirmDialog } from './confirm-dialog';
-import { AttachHint } from './diff-review';
+import { Hint } from './hint';
 import { errorMessage } from '../lib/errors';
 
 /** xterm draws on a canvas, so it needs the font family value, not the CSS variable. */
@@ -213,20 +213,33 @@ export function InteractiveTerminal({
   const restart = () => (exited ? setGeneration((n) => n + 1) : setConfirmRestart(true));
   return (
     <div hidden={!visible} className="terminal-pane">
-      <div className="tool-toolbar">
+      {/* The pane header: "Terminal", the folder or "Shell exited", then two 28px icons. */}
+      <div className="tool-toolbar terminal-header">
+        <h2 className="tool-pane-title">Terminal</h2>
         <span className="tool-toolbar-status" title={exited ? undefined : cwd}>
           {exited ? 'Shell exited' : cwd}
         </span>
-        <AttachHint reason={disabledReason}>
-          <Button size="sm" variant="ghost" disabled={disabled} onClick={attach}>
+        <Hint label={disabledReason || 'Attach output'} disabled={disabled}>
+          <Button
+            size="icon-sm"
+            variant="ghost"
+            aria-label="Attach output"
+            disabled={disabled}
+            onClick={attach}
+          >
             <Paperclip aria-hidden="true" />
-            Attach output
           </Button>
-        </AttachHint>
-        <Button size="sm" variant="ghost" onClick={restart}>
-          <RotateCcw aria-hidden="true" />
-          {exited ? 'Restart terminal' : 'New shell'}
-        </Button>
+        </Hint>
+        <Hint label={exited ? 'Restart terminal' : 'New shell'}>
+          <Button
+            size="icon-sm"
+            variant="ghost"
+            aria-label={exited ? 'Restart terminal' : 'New shell'}
+            onClick={restart}
+          >
+            <RotateCcw aria-hidden="true" />
+          </Button>
+        </Hint>
       </div>
       <div
         ref={element}

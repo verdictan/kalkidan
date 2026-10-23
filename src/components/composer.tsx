@@ -93,6 +93,14 @@ export function takeNextChatModel(agent: string) {
   return model;
 }
 
+/**
+ * The look of a composer pill: 13px text with a 14px icon, 8px side padding and 6px between
+ * the icon and the label. A pill that cannot change while the agent works keeps its colour and
+ * loses its arrow.
+ */
+export const composerChipClass =
+  'gap-1.5 px-2 text-sm font-normal has-[>svg]:px-2 disabled:opacity-100';
+
 const accessModes: Record<ChatAccess, { label: string; description: string }> = {
   read: { label: 'Read only', description: 'The agent reads files and does not change them.' },
   edit: { label: 'Can edit', description: 'The agent can change files in the folder.' },
@@ -115,13 +123,13 @@ export function AccessPill({
         <DropdownMenuTrigger asChild>
           <Button
             variant="chip"
-            className="composer-access"
+            className={cn('composer-access', composerChipClass)}
             aria-label={`Access: ${mode.label}`}
             disabled={disabled}
           >
             {value === 'read' ? <Lock aria-hidden="true" /> : <PencilLine aria-hidden="true" />}
             {mode.label}
-            <ChevronDown aria-hidden="true" />
+            {!disabled && <ChevronDown aria-hidden="true" />}
           </Button>
         </DropdownMenuTrigger>
       </Hint>
@@ -169,7 +177,12 @@ export function FolderPill({
 }) {
   if (!folders.length && onAdd)
     return (
-      <Button variant="chip" className="composer-folder" onClick={onAdd} disabled={disabled}>
+      <Button
+        variant="chip"
+        className={cn('composer-folder', composerChipClass)}
+        onClick={onAdd}
+        disabled={disabled}
+      >
         <FolderPlus aria-hidden="true" />
         Add code folder…
       </Button>
@@ -180,7 +193,7 @@ export function FolderPill({
         <DropdownMenuTrigger asChild>
           <Button
             variant="chip"
-            className="composer-folder"
+            className={cn('composer-folder', composerChipClass)}
             aria-label={`Code folder: ${label}`}
             disabled={disabled}
           >
@@ -243,11 +256,11 @@ export function ComposerAddMenu({
         <DropdownMenuTrigger asChild>
           <Button
             variant="chip"
-            className="composer-add"
+            className={cn('composer-add', composerChipClass, 'px-0 has-[>svg]:px-0')}
             aria-label="Add context"
             disabled={disabled}
           >
-            <Plus />
+            <Plus className="size-4" />
           </Button>
         </DropdownMenuTrigger>
       </Hint>
@@ -285,7 +298,7 @@ export function ComposerSend({
   return (
     <Hint label={label} shortcut={shortcut} className="composer-send-slot">
       <Button
-        className="composer-send rounded-full"
+        className="composer-send rounded-full bg-foreground text-background hover:bg-foreground/90 disabled:bg-[var(--surface-selected)] disabled:text-muted-foreground [&_svg:not([class*='size-'])]:size-3.5"
         aria-label={label}
         aria-keyshortcuts={keyShortcuts}
         size="icon-sm"
@@ -301,7 +314,7 @@ export function ComposerSend({
 const sendShortcut = shortcutLabel(['mod'], 'Enter');
 
 /**
- * The one composer: a 15/24 text box with radius 18 and 12/16/8 padding, then a bar with the
+ * The one composer: a 14/22 text box with radius 16 and 12/16/8 padding, then a bar with the
  * pills on the left and the round Send at the bottom right. Send keeps its place while the
  * text changes. The chat and the project Overview use it.
  */
@@ -362,8 +375,8 @@ export function Composer({
       <Textarea
         ref={inputRef}
         data-composer=""
-        // The text box has no frame of its own: the composer is the frame. 15/24 text.
-        className="max-h-[clamp(80px,20vh,180px)] min-h-8 resize-none rounded-none border-0 bg-transparent px-0 py-0 text-base leading-6 shadow-none focus-visible:shadow-none"
+        // The text box has no frame of its own: the composer is the frame. 14/22 text.
+        className="max-h-[clamp(80px,20vh,180px)] min-h-[22px] resize-none rounded-none border-0 bg-transparent px-0 py-0 text-[14px] leading-[22px] shadow-none focus-visible:shadow-none"
         aria-label={inputLabel}
         aria-keyshortcuts={enterToSend ? 'Enter' : isMac ? 'Meta+Enter' : 'Control+Enter'}
         placeholder={placeholder}

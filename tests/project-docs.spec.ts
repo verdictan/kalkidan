@@ -139,7 +139,8 @@ test('project Board and Docs pages support live Markdown, subpages and persisten
   await expect(page.getByRole('navigation', { name: 'Document breadcrumb' })).toHaveCount(0);
   await page.getByRole('button', { name: 'Page actions', exact: true }).click();
   await page.getByRole('menuitem', { name: 'Delete page', exact: true }).click();
-  await page.getByRole('dialog').getByRole('button', { name: 'Delete page', exact: true }).click();
+  // Delete page has no confirm dialog. The page goes at once and a toast offers Undo.
+  await expect(page.getByRole('status').filter({ hasText: '“Setup” deleted.' })).toBeVisible();
   await expect(pageList(page).getByRole('button', { name: 'Setup', exact: true })).toHaveCount(0);
   await openPage(page, 'Team handbook');
   await page.setViewportSize({ width: 900, height: 800 });

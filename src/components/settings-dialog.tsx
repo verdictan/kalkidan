@@ -21,11 +21,11 @@ import {
 } from '../lib/chat-preferences';
 import { accountNames } from '../lib/verdictan-labels';
 import { isMac } from '../lib/platform';
+import { errorMessage } from '../lib/errors';
 import { BrowserSettingsDialog } from './browser-menu';
 import { ComputersPanel } from './computers-page';
 import { VersionRow } from './about-section';
 import { DataDialog, formatBytes } from './data-settings';
-import { openDiagnostics } from './diagnostics-section';
 import { GitHubRow, useGitHubServices } from './github-account';
 import { ProjectSettingsPanel } from './project-settings-dialog';
 import { useRemoteHosts } from './remote-host-picker';
@@ -180,7 +180,7 @@ export function SettingsDialog({
     <Dialog open={visible} onOpenChange={onOpenChange}>
       <SettingsShell<SettingsPane>
         // Utilities, so that they replace the width and the height of the shell.
-        className="one-settings h-[min(560px,calc(100dvh-2rem))] min-h-0 sm:max-w-[820px]"
+        className="one-settings h-[min(480px,calc(100dvh-2rem))] min-h-0 sm:max-w-[820px]"
         title="Settings"
         hideTitle
         description="General, computers, account, and project settings."
@@ -194,6 +194,9 @@ export function SettingsDialog({
     </Dialog>
   );
 }
+
+/** "this Mac" or "this computer", as in the rows of Settings › Computers. */
+const computerName = isMac ? 'this Mac' : 'this computer';
 
 /** Shows that a choice was saved, with Undo. */
 function savedToast(message: string, undo: () => void) {
@@ -236,6 +239,18 @@ function GeneralPanel({ api, open }: { api: API; open: boolean }) {
       saveNewChatAccess(before);
     });
   }
+  const [exporting, setExporting] = useState(false);
+  async function exportData() {
+    setExporting(true);
+    try {
+      const result = await api.localDataExport!();
+      if (result) showToast(`Exported ${result.files} files.`);
+    } catch (failure) {
+      showToast({ message: errorMessage(failure), tone: 'error' });
+    } finally {
+      setExporting(false);
+    }
+  }
   function chooseEnter(next: boolean) {
     setEnterToSend(next);
     saveEnterToSend(next);
@@ -264,24 +279,39 @@ function GeneralPanel({ api, open }: { api: API; open: boolean }) {
         <NotificationRow api={api} open={open} />
         <SettingsRow label="Built-in browser">
           <Button variant="outline" size="sm" onClick={() => setBrowserOpen(true)}>
-            Manage…
+            Clear data…
           </Button>
         </SettingsRow>
         <SettingsRow
           id={settingsAnchors.data}
           label="Your data"
-          help={disk === undefined ? undefined : `${formatBytes(disk)} on this computer`}
+          help={
+            // The size opens the data window: disk use by kind and deletion. Without a size, the
+            // link still opens it.
+            <button
+              type="button"
+              className="settings-row-help-link"
+              aria-label={
+                disk === undefined
+                  ? 'Manage your data'
+                  : `Manage your data, ${formatBytes(disk)} on ${computerName}`
+              }
+              onClick={() => setDataOpen(true)}
+            >
+              {disk === undefined ? 'Manage data' : `${formatBytes(disk)} on ${computerName}`}
+            </button>
+          }
         >
-          <Button variant="outline" size="sm" onClick={() => setDataOpen(true)}>
-            Manage…
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={exporting || typeof api.localDataExport !== 'function'}
+            onClick={() => void exportData()}
+          >
+            Export…
           </Button>
         </SettingsRow>
         <VersionRow api={api} open={open} />
-        <SettingsRow label="Diagnostics">
-          <Button variant="ghost" size="sm" onClick={openDiagnostics}>
-            Support bundle…
-          </Button>
-        </SettingsRow>
       </SettingsRows>
       <BrowserSettingsDialog api={api} open={browserOpen} onOpenChange={setBrowserOpen} />
       <DataDialog api={api} open={dataOpen} onOpenChange={setDataOpen} />
@@ -290,8 +320,9 @@ function GeneralPanel({ api, open }: { api: API; open: boolean }) {
 }
 
 /**
- * One switch for notifications: an agent finished or needs you, while Kalkidan is in the
- * background. The desktop keeps two flags (finished and needs input). The switch sets both.
+ * One switch for notifications: a chat waits for you, while Kalkidan is in the background. A
+ * finished chat also waits for you (for a review), so the switch sets both flags of the desktop
+ * (finished and needs input).
  */
 function NotificationRow({ api, open }: { api: API; open: boolean }) {
   const [preferences, setPreferences] = useState<NotificationPreferences>();
@@ -316,9 +347,9 @@ function NotificationRow({ api, open }: { api: API; open: boolean }) {
     }
   }
   return (
-    <SettingsRow id={settingsAnchors.notifications} label="Notify me when a chat waits or ends">
+    <SettingsRow id={settingsAnchors.notifications} label="Notify me when a chat waits">
       <Switch
-        aria-label="Notify me when a chat waits or ends"
+        aria-label="Notify me when a chat waits"
         checked={on}
         onCheckedChange={(next) => void toggle(next)}
       />

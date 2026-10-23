@@ -497,21 +497,25 @@ export function DocsToIssuesDialog({
                         )}
                       </label>
                     )}
-                    {doc && headings > 0 && hasListItems(doc.markdown) && (
-                      <div className="docs-plan-split">
-                        <span className="form-label">Split by</span>
-                        <SegmentedControl
-                          label="Split by"
-                          size="sm"
-                          value={byListItem ? 'items' : 'headings'}
-                          onChange={(value) => splitBy(value === 'items')}
-                          options={[
-                            { value: 'headings', label: 'Headings', disabled: busy },
-                            { value: 'items', label: 'List items', disabled: busy },
-                          ]}
-                        />
-                      </div>
-                    )}
+                    {/* A page with a checklist makes one task per open item: no choice. */}
+                    {doc &&
+                      headings > 0 &&
+                      hasListItems(doc.markdown) &&
+                      !openChecklistItems(doc.markdown) && (
+                        <div className="docs-plan-split">
+                          <span className="form-label">Split by</span>
+                          <SegmentedControl
+                            label="Split by"
+                            size="sm"
+                            value={byListItem ? 'items' : 'headings'}
+                            onChange={(value) => splitBy(value === 'items')}
+                            options={[
+                              { value: 'headings', label: 'Headings', disabled: busy },
+                              { value: 'items', label: 'List items', disabled: busy },
+                            ]}
+                          />
+                        </div>
+                      )}
                     <ol className="issue-plan-list" aria-label="Tasks">
                       {entries.map((entry, index) => {
                         const open = expanded.includes(index);

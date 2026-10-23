@@ -6,12 +6,9 @@
   width: 100%;
   max-width: var(--page-max-width);
   margin-inline: auto;
-  padding: var(--page-padding-top) var(--page-padding-x) var(--page-padding-bottom);
-}
-@media (max-width: 1023px) {
-  .page {
-    padding-inline: var(--space-4);
-  }
+  /* The side padding is the frame x of the app shell (32px), so page content and the title
+     bar share one edge at every width. */
+  padding: var(--page-padding-top) var(--frame-x, var(--page-padding-x)) var(--page-padding-bottom);
 }
 /* A 32px title row, so the title is at the same y on every page. The optional 28px tile is
    before the title. The actions align with the title row. The subtitle is under the title. */
@@ -108,7 +105,7 @@
   justify-content: center;
   width: 28px;
   height: 28px;
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-sm);
   background: var(--secondary);
   color: var(--entity-color, var(--muted-foreground));
 }
@@ -163,14 +160,16 @@
   line-height: 16px;
 }
 
-/* Segmented control: one active option. */
+/* Segmented control: one active option. A 2px inset group with radius 8 on the neutral fill;
+   the active item is white and raised. sm (28/24, 12px) in the title bar, toolbars and
+   settings rows; md (32/28, 13px) in forms. */
 .segmented {
   display: inline-flex;
   align-items: center;
   gap: 2px;
   height: var(--control-md);
   padding: 2px;
-  border-radius: var(--radius-lg);
+  border-radius: var(--radius-md);
   background: var(--secondary);
 }
 .segmented-item {
@@ -181,7 +180,7 @@
   height: var(--control-sm);
   padding-inline: var(--space-3);
   border: 0;
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-sm);
   background: transparent;
   color: var(--muted-foreground);
   font: inherit;
@@ -212,6 +211,8 @@
 .segmented[data-size='sm'] .segmented-item {
   height: var(--control-xs);
   padding-inline: var(--space-2);
+  font-size: var(--text-xs);
+  line-height: 16px;
 }
 /* An option with an icon and no label is a square. */
 .segmented-item:has(> svg:only-child) {
@@ -250,7 +251,7 @@
   background: var(--row-selected, var(--surface-selected));
 }
 
-/* NavRow (nav-row.tsx): 32px, radius 8, 8px padding, 16px icon, 8px gap. sm is 28px, for the
+/* NavRow (nav-row.tsx): 32px, radius 6, 8px padding, 16px icon, 8px gap. sm is 28px, for the
    sidebar tree. */
 .nav-row {
   position: relative;
@@ -258,7 +259,7 @@
   align-items: center;
   min-width: 0;
   height: var(--row-height);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-sm);
   color: var(--foreground);
 }
 .nav-row[data-size='sm'] {
@@ -506,7 +507,7 @@
   color: var(--muted-foreground);
   font-size: var(--text-2xs);
   line-height: 16px;
-  font-weight: 600;
+  font-weight: 500;
   letter-spacing: 0;
 }
 
@@ -519,21 +520,29 @@
   line-height: 16px;
 }
 
-/* Keyboard hints. */
+/* Keyboard hints: plain muted text, sans 11/16, as in rows, menus and tooltips. Add
+   `kbd-cap` for an 18px key cap with a hairline border (the ⌘K footer, the shortcuts sheet). */
 .kbd {
-  /* One key-label style everywhere: sans 11/16. */
   font-family: var(--font-sans, inherit);
   display: inline-flex;
   align-items: center;
-  height: 20px;
-  padding: 0 var(--space-1);
-  border-radius: var(--radius-xs);
-  background: var(--secondary);
+  justify-content: center;
+  height: 16px;
+  padding: 0;
+  background: none;
   color: var(--muted-foreground);
   font-size: var(--text-2xs);
   line-height: 16px;
-  font-weight: 500;
+  font-weight: 400;
   white-space: nowrap;
+}
+.kbd.kbd-cap {
+  min-width: 18px;
+  height: 18px;
+  padding: 0 var(--space-1);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xs);
+  background: var(--background);
 }
 
 /* Prose for chat messages, docs and task descriptions. */

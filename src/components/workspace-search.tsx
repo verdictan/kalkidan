@@ -122,7 +122,7 @@ function Highlight({ text, term }: { text: string; term: string }) {
 /** The icon of a recent chat, task or page. */
 function RecentIcon({ place }: { place: RecentPlace }) {
   if (place.kind === 'chat' && place.agent)
-    return <AgentIcon agent={place.agent} className="size-3.5" />;
+    return <AgentIcon agent={place.agent} className="size-4" />;
   if (place.kind === 'task') return <ListTodo />;
   if (place.kind === 'doc') return <FileText />;
   if (place.kind === 'project') return <Folder />;
@@ -610,7 +610,7 @@ export function WorkspaceSearch({
           layout="scroll"
           aria-modal="true"
           aria-describedby={undefined}
-          className="command-palette top-[15vh] max-h-[60vh] translate-y-0 sm:max-w-[640px]"
+          className="command-palette top-[84px] max-h-[min(60vh,560px)] translate-y-0 sm:max-w-[600px]"
           onOpenAutoFocus={(event) => {
             event.preventDefault();
             inputRef.current?.focus();
@@ -750,7 +750,7 @@ export function WorkspaceSearch({
                             : relativeTime(s.updatedAt);
                       const where = [projectOf(repo), state].filter(Boolean).join(' · ');
                       return row('session:' + sessionKey(s), {
-                        icon: <AgentIcon agent={s.agent} className="size-3.5" />,
+                        icon: <AgentIcon agent={s.agent} className="size-4" />,
                         title: (
                           <>
                             <Highlight text={title(s)} term={term} />
@@ -858,11 +858,11 @@ export function WorkspaceSearch({
           {/* Two keys: Open and Ask an agent. Each action shows its own key on its row. */}
           <div className="command-palette-footer" aria-hidden="true">
             <span>
-              <kbd className="kbd">↵</kbd> Open
+              <kbd className="kbd kbd-cap">↵</kbd> Open
             </span>
             {onAsk && (
               <span>
-                <kbd className="kbd">{askKeys}</kbd> Ask an agent
+                <kbd className="kbd kbd-cap">{askKeys}</kbd> Ask an agent
               </span>
             )}
           </div>

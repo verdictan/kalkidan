@@ -90,8 +90,7 @@ import {
   Plus,
   RefreshCw,
   Settings2,
-  ArrowRight,
-  ArrowLeft,
+  ChevronLeft,
   Check,
   Trash2,
   Menu,
@@ -164,7 +163,6 @@ import {
   type SessionActivityState,
 } from './components/activity-dot';
 import { AgentWorkspace } from './components/agent-workspace';
-import { toolPaneEvent } from './components/conversation-tools';
 import type { MenuCommand } from './api/contracts';
 import type { API, Snapshot, Agent, Project, ProjectGroup, Session, TrackerItem } from './types';
 
@@ -429,25 +427,7 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
   function openSearch() {
     setSearchOpen(true);
   }
-  // A tool pane (Changes, Terminal, Browser) needs room. Below 1100px the sidebar hides while
-  // the pane is open, and comes back as it was when the pane closes.
-  const paneHidSidebar = useRef(false);
-  useEffect(() => {
-    const onPane = (event: Event) => {
-      const open = !!(event as CustomEvent<{ open?: boolean }>).detail?.open;
-      if (open && window.innerWidth < 1100) {
-        setNavigationOpen((current) => {
-          if (current) paneHidSidebar.current = true;
-          return false;
-        });
-      } else if (!open && paneHidSidebar.current) {
-        paneHidSidebar.current = false;
-        setNavigationOpen(true);
-      }
-    };
-    window.addEventListener(toolPaneEvent, onPane);
-    return () => window.removeEventListener(toolPaneEvent, onPane);
-  }, []);
+  // A tool pane does not hide the sidebar: the chat fits a narrow area by itself.
   // When the sidebar closes with the focus in it, move the focus to the sidebar button.
   function toggleSidebar() {
     setNavigationOpen((open) => {
@@ -1277,10 +1257,10 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
   const projectGroup = project
     ? data.groups?.find((g) => g.repoIds.includes(project.id))
     : undefined;
-  // The title bar shows the way up from the page: its ancestors only, never the page itself.
-  // The page title says where the user is. Top-level pages (Projects, All chats, Waiting for
-  // you) have no trail. A project page shows "Projects", a code folder "Projects › Atlas". A
-  // chat has its own trail (agent-workspace.tsx).
+  // The title bar shows the way to the page and stops at the page: "Projects › Atlas" on a
+  // project, "Projects › Atlas › atlas-web" on a code folder. The last crumb is the page. Top-level
+  // pages (Projects, Chats, Waiting for you) have no trail, so their bar is flat. A chat has its
+  // own trail (agent-workspace.tsx).
   const trailGroup = currentGroup || projectGroup;
   const pageNames: Record<ProjectPage, string> = {
     board: 'Overview',
@@ -1288,7 +1268,13 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
     chats: 'Chats',
     knowledge: 'Knowledge',
   };
-  type Crumb = { label: string; name: string; open?: () => void; optional?: boolean };
+  type Crumb = {
+    label: string;
+    name: string;
+    open?: () => void;
+    optional?: boolean;
+    current?: boolean;
+  };
   const projectsCrumb: Crumb = { label: 'Projects', name: 'Projects', open: openOverview };
   // In a narrow title bar, the project crumb hides first.
   const groupCrumb = (group: ProjectGroup): Crumb => ({
@@ -1301,9 +1287,13 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
     home || sessionsPage || waitingPage
       ? []
       : currentGroup
-        ? [projectsCrumb]
+        ? [projectsCrumb, { label: currentGroup.name, name: currentGroup.name, current: true }]
         : project
-          ? [projectsCrumb, ...(trailGroup ? [groupCrumb(trailGroup)] : [])]
+          ? [
+              projectsCrumb,
+              ...(trailGroup ? [groupCrumb(trailGroup)] : []),
+              { label: project.name, name: project.name, current: true },
+            ]
           : [];
   openRef.current = (session: Session) => openConversation(session);
   function openConversation(session: Session, parentPage?: WorkspacePage) {
@@ -2315,12 +2305,18 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
           onDone={(result) => {
             welcome.hide();
             if (!result.signedIn) dismissOnboarding();
-            // The Welcome card can make the first project. It opens on its Overview.
+            // The Welcome card can make the first project. It opens a new chat in the project,
+            // so the first thing to do is to type. Without a code folder, the Overview opens.
             const groupId = (result as { groupId?: string }).groupId;
             if (groupId)
               void refresh().then(() => {
-                const group = dataRef.current.groups?.find((g) => g.id === groupId);
-                if (group) openGroup(group);
+                const current = dataRef.current;
+                const group = current.groups?.find((g) => g.id === groupId);
+                if (!group) return;
+                const members = current.projects.filter((p) => group.repoIds.includes(p.id));
+                const repo = recentRepo(members, current.sessions);
+                if (repo) startSession(preferredAgent, repo);
+                else openGroup(group);
               });
           }}
         />
@@ -2334,7 +2330,8 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
         'app-shell' +
         (!preview ? ' desktop-app' : '') +
         (!navigationOpen ? ' navigation-collapsed' : '') +
-        (chatOpen ? ' conversation-open' : '')
+        (chatOpen ? ' conversation-open' : '') +
+        (!chatOpen && !viewTrail.length ? ' topbar-flat' : '')
       }
       style={
         { '--navigation-width': navigationOpen ? sidebar.width + 'px' : '0px' } as CSSProperties
@@ -2379,7 +2376,7 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
                 disabled={!navigation.canBack}
                 onClick={navigation.back}
               >
-                <ArrowLeft />
+                <ChevronLeft />
               </Button>
             </Hint>
             <Hint
@@ -2393,7 +2390,7 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
                 disabled={!navigation.canForward}
                 onClick={navigation.forward}
               >
-                <ArrowRight />
+                <ChevronRight />
               </Button>
             </Hint>
           </div>
@@ -2402,7 +2399,7 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
           {!chatOpen && viewTrail.length > 0 && (
             <nav className="topbar-title" aria-label="Breadcrumb">
               {viewTrail.map((part, index) => {
-                // Every crumb is an ancestor: a link up. The page title names the page.
+                // Every crumb before the last is a link up. The last one is the page.
                 return (
                   <Fragment key={index}>
                     {index > 0 && (
@@ -2427,6 +2424,8 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
                       <span
                         className="topbar-crumb"
                         data-optional={part.optional || undefined}
+                        data-current={part.current || undefined}
+                        aria-current={part.current ? 'page' : undefined}
                         title={part.label}
                       >
                         {part.label}
@@ -2610,9 +2609,9 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
                     onResume={openConversation}
                   />
                 ) : sessionsPage ? (
-                  <section className="page" aria-label="All chats">
+                  <section className="page" aria-label="Chats">
                     {/* One way to start a chat: ⌘N, or New chat in the sidebar. */}
-                    <PageHeader title="All chats" reserveSubtitle />
+                    <PageHeader title="Chats" />
                     <SessionBrowser
                       api={api}
                       onChanged={() => void reload()}

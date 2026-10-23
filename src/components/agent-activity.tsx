@@ -531,9 +531,7 @@ export function RunRequests({
               (isPatch(approval.detail) ? (
                 <DiffBlock patch={approval.detail} className="max-h-40" />
               ) : (
-                <div className="prose-ui" data-size="sm">
-                  <pre className={outputClass + ' max-h-40'}>{approval.detail}</pre>
-                </div>
+                <pre className="chat-card-command">{approval.detail}</pre>
               ))}
           </ChatCard>
         ))}

@@ -172,7 +172,8 @@ for (const allow of [true, false])
     await review.click();
     await expect(review).toHaveAttribute('aria-pressed', 'true');
     await expect(page.getByRole('heading', { name: 'Changes', exact: true })).toBeVisible();
-    await expect(page.getByText('+change').first()).toBeVisible();
+    // The diff shows no "+" mark. A screen reader hears "Added".
+    await expect(page.getByLabel('Git diff')).toContainText('Added: change');
   });
 
 test('task worktree cancellation keeps the task open and a created worktree becomes the session folder', async ({

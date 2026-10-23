@@ -10,7 +10,7 @@ import {
 } from '../domain/project-batch';
 import type { PlanningLabel } from '../domain/planning-labels';
 import { fullTime, relativeTime } from '../lib/relative-time';
-import { History, TriangleAlert } from 'lucide-react';
+import { ArrowUpRight, History, TriangleAlert } from 'lucide-react';
 import { Button } from './ui/button';
 import { EmptyState } from './ui/empty-state';
 import { SectionHeader } from './ui/page-header';
@@ -90,8 +90,8 @@ export function uncertainWritesText(count: number) {
 }
 
 /**
- * A popover at the board "⋯" button: the writes of this session that have no confirmed
- * result, each with "Mark as checked", and a link to the board on GitHub.
+ * The popover of the GitHub check chip, "Not confirmed on GitHub": the writes of this session
+ * that have no confirmed result, each with "Mark as checked" and "Open on GitHub".
  */
 export function UncertainWritesPopover({
   api,
@@ -149,17 +149,24 @@ export function UncertainWritesPopover({
           sideOffset={6}
           collisionPadding={menuCollisionPadding}
           aria-label="Changes to check"
-          className={cn(menuContentClass, 'grid w-80 gap-1 p-2')}
+          className={cn(menuContentClass, 'grid w-[340px] gap-0 p-1')}
         >
-          <p className="px-1 pt-1 text-sm font-semibold">{uncertainWritesText(rows.length)}</p>
-          <ul className="m-0 grid list-none gap-1 p-0">
+          <p className="m-0 px-2 pt-1.5 pb-1 text-2xs font-medium text-muted-foreground">
+            Not confirmed on GitHub
+          </p>
+          <ul className="m-0 grid list-none gap-0 p-0">
             {rows.map((row) => {
               const task = item(row.detail?.itemId);
               const time = new Date(row.updatedAt).toISOString();
+              const href = task?.url || board.project.url;
               return (
-                <li key={row.id} className="flex min-h-10 items-center gap-2 rounded-sm px-1">
+                <li key={row.id} className="flex items-start gap-2.5 p-2">
+                  <TriangleAlert
+                    className="mt-0.5 size-4 shrink-0 text-[var(--warning)]"
+                    aria-hidden="true"
+                  />
                   <div className="min-w-0 flex-1">
-                    <div className="truncate text-sm">
+                    <div className="text-sm">
                       {mutationLabel(row)}
                       {task && (
                         <>
@@ -181,23 +188,28 @@ export function UncertainWritesPopover({
                     >
                       {relativeTime(time)}
                     </time>
+                    <div className="mt-2 flex gap-1.5">
+                      <Button
+                        size="xs"
+                        variant="outline"
+                        disabled={!!busy}
+                        onClick={() => void check(row.id)}
+                      >
+                        Mark as checked
+                      </Button>
+                      <Button asChild size="xs" variant="ghost">
+                        <a href={href} target="_blank" rel="noreferrer">
+                          Open on GitHub
+                          <ArrowUpRight aria-hidden="true" />
+                        </a>
+                      </Button>
+                    </div>
                   </div>
-                  <Button
-                    size="xs"
-                    variant="outline"
-                    disabled={!!busy}
-                    onClick={() => void check(row.id)}
-                  >
-                    Mark as checked
-                  </Button>
                 </li>
               );
             })}
           </ul>
           <ErrorAlert>{error}</ErrorAlert>
-          <div className="px-1 pt-1 pb-1 text-sm">
-            <ExternalTextLink href={board.project.url}>Open board on GitHub</ExternalTextLink>
-          </div>
         </Popover.Content>
       </Popover.Portal>
     </Popover.Root>
@@ -224,8 +236,8 @@ export function UncertainWritesChip({
     <UncertainWritesPopover rows={rows} open={open} onOpenChange={onOpenChange} {...props}>
       <Button
         variant="ghost"
-        size="sm"
-        className="uncertain-writes-chip"
+        size="xs"
+        className="uncertain-writes-chip gap-1.5 rounded-full px-2 font-medium text-[var(--warning)] has-[>svg]:px-2 hover:bg-[color-mix(in_oklab,var(--warning)_14%,var(--background))] hover:text-[var(--warning)] [&_svg]:size-3.5"
         aria-haspopup="dialog"
         aria-expanded={open}
         aria-label={`${uncertainWritesText(rows.length)}. Check`}

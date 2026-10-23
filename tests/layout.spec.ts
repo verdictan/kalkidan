@@ -93,18 +93,16 @@ test('notifications and a long draft do not push the composer outside the window
         el.closest('.conversation-messages')!.getBoundingClientRect().top,
     ),
   ).toBe(true);
-  // The welcome stays above the composer.
+  // The welcome title stays above the composer.
   expect(
-    await page
-      .locator('.conversation-welcome')
-      .evaluate(
-        (el) =>
-          el.getBoundingClientRect().bottom + 16 <=
-          el
-            .closest('.conversation-panel')!
-            .querySelector('.conversation-composer')!
-            .getBoundingClientRect().top,
-      ),
+    await welcome.evaluate(
+      (el) =>
+        el.getBoundingClientRect().bottom + 16 <=
+        el
+          .closest('.conversation-panel')!
+          .querySelector('.conversation-composer')!
+          .getBoundingClientRect().top,
+    ),
   ).toBe(true);
   expect(
     await page

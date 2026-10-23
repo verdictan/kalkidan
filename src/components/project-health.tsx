@@ -164,9 +164,8 @@ export function ProjectHealth({
 }
 
 /**
- * The board health line of the Tasks header. It shows only what the columns do not show:
- * tasks without a repository, hidden tasks and the sync state. Each count filters the board.
- * It shows nothing when the board is healthy and synced.
+ * The board health line of the Tasks header (Knowledge B4): "4 Todo  2 In progress  7 Done
+ * 1 No repository", then hidden tasks and the sync state. Each count filters the board.
  */
 export function BoardHealthLine({
   board,
@@ -184,9 +183,24 @@ export function BoardHealthLine({
   onSignIn?(): void;
   onFilter(filter: { status?: string; repository?: string }): void;
 }) {
-  const noRepository = projectHealthCounts(board).find((row) => row.label === 'No repository');
+  const counts = projectHealthCounts(board);
+  const noRepository = counts.find((row) => row.label === 'No repository');
   const hidden = board.restrictedItems || 0;
+  // Every status shows, also at 0. "No status" and "No repository" show only when they count.
+  const statuses = counts.filter(
+    (row) => row.filter.status && (row.count > 0 || row.filter.status !== 'none'),
+  );
   const parts = [
+    ...statuses.map((row) => (
+      <button
+        key={row.label}
+        type="button"
+        className="board-health-link"
+        onClick={() => onFilter(row.filter)}
+      >
+        <b>{row.count}</b> {row.label}
+      </button>
+    )),
     noRepository && noRepository.count > 0 && (
       <button
         key="repository"
@@ -194,13 +208,13 @@ export function BoardHealthLine({
         className="board-health-link"
         onClick={() => onFilter(noRepository.filter)}
       >
-        {noRepository.count} without a repository
+        <b>{noRepository.count}</b> No repository
       </button>
     ),
     hidden > 0 && (
       <Hint key="hidden" label="You cannot read these tasks on GitHub.">
         <span className="board-health-text" tabIndex={0}>
-          {hidden} hidden
+          <b>{hidden}</b> Hidden
         </span>
       </Hint>
     ),
@@ -228,7 +242,6 @@ export function BoardHealthLine({
       ) : null}
       {parts.map((part, index) => (
         <span key={index} className="board-health-part">
-          {(index > 0 || syncing || !!syncError) && <span aria-hidden="true">·</span>}
           {part}
         </span>
       ))}

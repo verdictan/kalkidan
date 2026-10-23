@@ -104,7 +104,7 @@ test('GitHub inspector edits fields, retains a failed draft, and restores archiv
   await dialog.getByRole('button', { name: 'Close task', exact: true }).click();
   await expect(dialog).toHaveCount(0);
   // The board health line tells how many tasks the user cannot see.
-  await expect(page.getByRole('toolbar', { name: 'Task tools' })).toContainText('1 hidden');
+  await expect(page.getByRole('toolbar', { name: 'Task tools' })).toContainText('1 Hidden');
   expect(await page.evaluate(() => (window as any).calls)).toEqual([
     ['g', 'I', 'estimate', { number: 5 }],
     ['g', 'I', 'estimate', { number: 5 }],

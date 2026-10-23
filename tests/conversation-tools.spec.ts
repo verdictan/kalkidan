@@ -63,8 +63,8 @@ test('conversation tools preview evidence, attach it to the draft, and send it o
         truncated: false,
       }),
       repositoryDiff: async () => ({
-        unstaged: 'diff --git a/app.ts b/app.ts\n-old\n+new',
-        staged: 'diff --git a/lib.ts b/lib.ts\n-before\n+staged change',
+        unstaged: 'diff --git a/app.ts b/app.ts\n@@ -1 +1 @@\n-old\n+new',
+        staged: 'diff --git a/lib.ts b/lib.ts\n@@ -1 +1 @@\n-before\n+staged change',
         untracked: ['new.ts'],
         newFiles: [{ path: 'new.ts', text: 'export const added = true;' }],
         truncated: false,
@@ -113,14 +113,15 @@ test('conversation tools preview evidence, attach it to the draft, and send it o
   // The pane shows staged, unstaged and new files together, staged first.
   const files = dialog.getByRole('list', { name: 'Changed files' });
   await expect(files.getByRole('button')).toHaveCount(3);
-  await expect(dialog.getByLabel('Git diff')).toContainText('+staged change');
-  await dialog.getByRole('button', { name: 'Attach file to message' }).click();
+  // The diff shows no "+" and "−" marks. A screen reader hears "Added" or "Removed".
+  await expect(dialog.getByLabel('Git diff')).toContainText('Added: staged change');
+  // The Changes pane has no attach button. The user attaches a file with @ or the + menu.
+  await expect(dialog.getByRole('button', { name: 'Attach file to message' })).toHaveCount(0);
   await files.getByRole('button', { name: /^app\.ts/ }).click();
-  await expect(dialog.getByLabel('Git diff')).toContainText('+new');
+  await expect(dialog.getByLabel('Git diff')).toContainText('Added: new');
   await files.getByRole('button', { name: /^new\.ts/ }).click();
   await expect(dialog.getByLabel('Git diff')).toContainText('export const added = true;');
   await expect(files.locator('[aria-current="true"]')).toContainText('new.ts');
-  await dialog.getByRole('button', { name: 'Attach file to message' }).click();
   await openTool(page, 'Browser');
   await dialog.getByRole('button', { name: 'Open preview' }).click();
   await dialog.getByRole('button', { name: 'Select element' }).click();
@@ -141,8 +142,6 @@ test('conversation tools preview evidence, attach it to the draft, and send it o
   await expect(page.getByText('Reviewed context.', { exact: true })).toBeVisible();
   const sent = await page.evaluate(() => (window as any).sent[0]);
   expect(sent).toContain('Tests passed: 12');
-  expect(sent).toContain('+staged change');
-  expect(sent).toContain('export const added = true;');
   expect(sent).toContain('#save');
   expect(sent).toContain('Untrusted page evidence');
   await expect(page.getByLabel('Attached context')).toHaveCount(0);

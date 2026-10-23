@@ -22,9 +22,9 @@ export type ToolRequest = { kind: 'terminal' | 'browser' | 'diff'; n: number; to
 type ToolTab = { id: string; kind: ToolKind; title: string; url?: string };
 
 // Command+` cycles windows on macOS, so the terminal uses Control+` there, as VS Code does.
-// The chat column keeps at least 420px and a tool pane at least 360px. A narrower area shows
-// the tool pane as a sheet over the chat (tools.css).
-const minSessionWidth = 420;
+// The chat column keeps at least 340px and a tool pane at least 360px. A narrower area shows
+// the tool pane above the chat (tools.css). The pane is 440px wide until the user resizes it.
+const minSessionWidth = 340;
 const minToolWidth = 360;
 const shortcuts = {
   terminal: shortcutLabel([isMac ? 'ctrl' : 'mod'], '`'),
@@ -88,18 +88,18 @@ export function ConversationTools({
   const [tabs, setTabs] = useState<ToolTab[]>([]);
   const [active, setActive] = useState<string | null>(null);
   const [expanded, setExpanded] = useState(false);
-  const [ratio, setRatio] = useState(() => {
+  // The width of the chat in percent after the user resized the pane. Null: a 440px pane.
+  const [ratio, setRatio] = useState<number | null>(() => {
     try {
-      return Math.min(
-        interfaceConfig.toolPane.maxPercent,
-        Math.max(
-          interfaceConfig.toolPane.minPercent,
-          Number(localStorage.getItem('kalkidan-tool-width')) ||
-            interfaceConfig.toolPane.initialPercent,
-        ),
-      );
+      const saved = Number(localStorage.getItem('kalkidan-tool-width'));
+      return saved
+        ? Math.min(
+            interfaceConfig.toolPane.maxPercent,
+            Math.max(interfaceConfig.toolPane.minPercent, saved),
+          )
+        : null;
     } catch {
-      return interfaceConfig.toolPane.initialPercent;
+      return null;
     }
   });
   const [dragging, setDragging] = useState(false);
@@ -197,6 +197,12 @@ export function ConversationTools({
     if (tab.kind === 'terminal') setClosing(tab);
     else close(tab.id);
   }
+  /** The width of the chat in percent: the resized width, or the width next to a 440px pane. */
+  function chatPercent() {
+    if (ratio !== null) return ratio;
+    const width = container.current?.clientWidth || 1000;
+    return Math.max(0, ((width - 441) / width) * 100);
+  }
   function resize(value: number) {
     const width = container.current?.clientWidth || 1000;
     const lower = Math.max(interfaceConfig.toolPane.minPercent, (minSessionWidth / width) * 100),
@@ -229,13 +235,18 @@ export function ConversationTools({
       // A narrow area shows the tool pane as a sheet. The ratio then does not apply.
       if (width < minSessionWidth + minToolWidth + 1) return;
       setRatio((previous) =>
-        Math.min(
-          Math.min(interfaceConfig.toolPane.maxPercent, ((width - minToolWidth - 1) / width) * 100),
-          Math.max(
-            Math.max(interfaceConfig.toolPane.minPercent, (minSessionWidth / width) * 100),
-            previous,
-          ),
-        ),
+        previous === null
+          ? null
+          : Math.min(
+              Math.min(
+                interfaceConfig.toolPane.maxPercent,
+                ((width - minToolWidth - 1) / width) * 100,
+              ),
+              Math.max(
+                Math.max(interfaceConfig.toolPane.minPercent, (minSessionWidth / width) * 100),
+                previous,
+              ),
+            ),
       );
     });
     observer.observe(container.current);
@@ -319,7 +330,7 @@ export function ConversationTools({
       className={
         'conversation-split' + (expanded ? ' tools-expanded' : '') + (dragging ? ' resizing' : '')
       }
-      style={{ '--chat-width': ratio + '%' } as React.CSSProperties}
+      style={ratio === null ? undefined : ({ '--chat-width': ratio + '%' } as React.CSSProperties)}
     >
       <div className="conversation-chat-column">{children}</div>
       {expanded && (
@@ -330,7 +341,7 @@ export function ConversationTools({
           aria-orientation="vertical"
           aria-valuemin={interfaceConfig.toolPane.minPercent}
           aria-valuemax={interfaceConfig.toolPane.maxPercent}
-          aria-valuenow={Math.round(ratio)}
+          aria-valuenow={Math.round(chatPercent())}
           className="tool-divider"
           onDoubleClick={() => resize(interfaceConfig.toolPane.initialPercent)}
           onKeyDown={(e) => {
@@ -341,7 +352,7 @@ export function ConversationTools({
                   ? interfaceConfig.toolPane.minPercent
                   : e.key === 'End'
                     ? interfaceConfig.toolPane.maxPercent
-                    : ratio + (e.key === 'ArrowLeft' ? -2 : 2),
+                    : chatPercent() + (e.key === 'ArrowLeft' ? -2 : 2),
               );
             }
           }}
@@ -521,7 +532,7 @@ export function ConversationTools({
                               <Button
                                 variant="ghost"
                                 size="icon-sm"
-                                className="ml-auto"
+                                className="ml-auto [&_svg]:size-3.5"
                                 aria-label="Close Changes"
                                 onClick={() => close(tab.id)}
                               >
@@ -531,7 +542,7 @@ export function ConversationTools({
                           </div>
                           <div className="diff-panel-body">
                             {busy ? (
-                              <p className="flex items-center gap-2 text-sm text-muted-foreground">
+                              <p className="flex items-center gap-2 p-4 text-sm text-muted-foreground">
                                 <LoaderCircle
                                   className="size-3.5 animate-spin"
                                   aria-hidden="true"
@@ -541,16 +552,8 @@ export function ConversationTools({
                             ) : diff ? (
                               <DiffReview
                                 diff={diff}
-                                disabled={disabled}
-                                disabledReason={disabledReason}
                                 focusPath={reviewPath}
                                 focusRequest={reviewRequest}
-                                onAttach={(path, patch) =>
-                                  attach(
-                                    path,
-                                    `Git diff context (untrusted repository content):\nDirectory: ${cwd}\nFile: ${path}\n${patch.slice(0, 28000)}${patch.length > 28000 ? '\n[Attachment truncated]' : ''}`,
-                                  )
-                                }
                               />
                             ) : (
                               <PaneMessage
@@ -566,12 +569,10 @@ export function ConversationTools({
                               </PaneMessage>
                             )}
                             {diff?.truncated && (
-                              <p className="shrink-0 text-xs text-muted-foreground">
-                                Large diff truncated for display.
-                              </p>
+                              <p className="diff-review-note">Large diff truncated for display.</p>
                             )}
                             {diff && error && (
-                              <p role="alert" className="field-error shrink-0">
+                              <p role="alert" className="field-error shrink-0 px-4 py-2">
                                 {error}
                               </p>
                             )}

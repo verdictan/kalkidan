@@ -470,6 +470,14 @@ export function ProjectTrackerPanel({
     writeFilters(filterStorage, { query, status, repoFilter, sort: 'project', view });
   }, [filterStorage, query, status, repoFilter, view]);
   const [task, setTask] = useState<TrackerItem | null>(null);
+  const taskOpen = !!task;
+  useEffect(() => {
+    // The task sheet dims only the main pane, not the sidebar. The scrim CSS reads this offset.
+    if (!taskOpen) return;
+    const pane = document.querySelector('.project-tracker')?.closest('.project-frame');
+    const left = pane?.getBoundingClientRect().left || 0;
+    document.documentElement.style.setProperty('--tracker-scrim-left', `${Math.round(left)}px`);
+  }, [taskOpen]);
   // The card that gets the focus back when the task sheet closes.
   const lastTaskId = useRef('');
   const taskTitle = useRef<HTMLHeadingElement>(null);
@@ -1484,8 +1492,8 @@ export function ProjectTrackerPanel({
           reason={selectedIssues.length ? '' : 'Drafts cannot start. Convert them to issues first.'}
         >
           <Button
-            size="sm"
-            className="tracker-selection-start"
+            // A Start that cannot run reads like a disabled ghost button on the dark bar.
+            className="tracker-selection-start gap-1.5 disabled:bg-transparent disabled:text-background/50 disabled:shadow-[inset_0_0_0_1px_color-mix(in_oklch,var(--background)_22%,transparent)] [&_svg]:size-3.5"
             disabled={waveBusy || !selectedIssues.length}
             aria-label={`Start ${plural(selectedIssues.length, 'task')} with ${agentLabel(preferredAgent)}`}
             onClick={() => void startSelected()}
@@ -1502,7 +1510,11 @@ export function ProjectTrackerPanel({
         </StartHint>
       )}
       {selectedDrafts.length > 0 && !readOnly && github && (
-        <Button variant="ghost" size="sm" onClick={() => setConvertOpen(true)}>
+        <Button
+          variant="ghost"
+          className="gap-1.5 [&_svg]:size-3"
+          onClick={() => setConvertOpen(true)}
+        >
           Convert to issues
         </Button>
       )}
@@ -1510,7 +1522,11 @@ export function ProjectTrackerPanel({
         <DropdownMenu>
           <StartHint reason={readOnly}>
             <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="sm" disabled={busy || !!readOnly}>
+              <Button
+                variant="ghost"
+                className="gap-1.5 [&_svg]:size-3"
+                disabled={busy || !!readOnly}
+              >
                 Move to
                 <ChevronDown aria-hidden="true" />
               </Button>
@@ -1530,7 +1546,11 @@ export function ProjectTrackerPanel({
         <DropdownMenu>
           <StartHint reason={readOnly}>
             <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="sm" disabled={busy || !!readOnly}>
+              <Button
+                variant="ghost"
+                className="gap-1.5 [&_svg]:size-3"
+                disabled={busy || !!readOnly}
+              >
                 Set field
                 <ChevronDown aria-hidden="true" />
               </Button>
@@ -1559,8 +1579,8 @@ export function ProjectTrackerPanel({
       <Hint label="Clear selection" shortcut="Esc">
         <Button
           variant="ghost"
-          size="icon-sm"
-          className="tracker-selection-clear"
+          size="icon"
+          className="tracker-selection-clear [&_svg]:size-3.5"
           aria-label="Clear selection"
           aria-keyshortcuts="Escape"
           onClick={endSelection}
@@ -1949,7 +1969,7 @@ export function ProjectTrackerPanel({
       <Dialog open={!!task} onOpenChange={(open) => !open && !taskBusy && setTask(null)}>
         <DialogContent
           showCloseButton={false}
-          className="tracker-issue-detail top-0 right-0 left-auto flex h-dvh max-h-dvh w-[min(var(--dialog-md),100vw)] max-w-[100vw] translate-x-0 translate-y-0 flex-col gap-0 overflow-hidden rounded-none border-0 border-l p-0 sm:max-w-[100vw] data-[state=closed]:zoom-out-100 data-[state=closed]:slide-out-to-right-4 data-[state=open]:zoom-in-100 data-[state=open]:slide-in-from-right-4"
+          className="tracker-issue-detail top-0 right-0 left-auto flex h-dvh max-h-dvh w-[min(460px,100vw)] max-w-[100vw] translate-x-0 translate-y-0 flex-col gap-0 overflow-hidden rounded-none border-0 border-l p-0 sm:max-w-[100vw] data-[state=closed]:zoom-out-100 data-[state=closed]:slide-out-to-right-4 data-[state=open]:zoom-in-100 data-[state=open]:slide-in-from-right-4"
           onOpenAutoFocus={(event) => {
             // The title is the first stop, so a screen reader starts with the task name.
             event.preventDefault();
@@ -1993,13 +2013,15 @@ export function ProjectTrackerPanel({
                   <ChevronRight size={16} />
                 </Button>
               </Hint>
-              {editsItem && task && (
+              {task && (
                 <ItemActionsMenu
                   api={api}
                   groupId={group.id}
                   item={task}
                   onSaved={refreshBoard}
                   size="sm"
+                  editable={editsItem}
+                  openLabel={`Open on ${providerName}`}
                 />
               )}
               <Hint label="Close" shortcut="Esc">
@@ -2021,7 +2043,7 @@ export function ProjectTrackerPanel({
                 <Input
                   autoFocus
                   aria-label="Task title"
-                  className="tracker-edit-title"
+                  className="tracker-edit-title h-9 text-[18px] leading-7 font-semibold"
                   maxLength={256}
                   value={editText}
                   disabled={editBusy}
@@ -2043,27 +2065,12 @@ export function ProjectTrackerPanel({
                   <DialogTitle
                     ref={taskTitle}
                     tabIndex={-1}
-                    className="tracker-issue-title"
+                    className="tracker-issue-title py-0 text-[18px] leading-7"
                     data-editable={canEditText || undefined}
                     onClick={canEditText ? () => startEdit('title') : undefined}
                   >
                     {task?.title}
                   </DialogTitle>
-                  {task?.url && (
-                    <Hint label={`Open on ${providerName}`} className="tracker-issue-link">
-                      <Button asChild variant="ghost" size="icon-xs">
-                        <a
-                          href={task.url}
-                          target="_blank"
-                          rel="noreferrer"
-                          aria-label={`Open on ${providerName}`}
-                        >
-                          <ArrowUpRight />
-                        </a>
-                      </Button>
-                    </Hint>
-                  )}
-                  {/* Last, so that the hidden button keeps no space between the title and ↗. */}
                   {canEditText && (
                     <Button
                       variant="ghost"
@@ -2090,7 +2097,7 @@ export function ProjectTrackerPanel({
                       <Button
                         variant="outline"
                         size="xs"
-                        className="field-pill"
+                        className="field-pill gap-1.5 px-2 font-normal has-[>svg]:px-2"
                         aria-label={`Status: ${task.status || 'No status'}`}
                         disabled={busy || !!readOnly || !descriptor?.capabilities.updateStatus}
                       >
@@ -2269,7 +2276,7 @@ export function ProjectTrackerPanel({
                 <StartHint reason={taskBusy ? '' : startBlocker}>
                   <div className="split-button" role="group" aria-label="Start task">
                     <Button
-                      className="rounded-r-none"
+                      className="rounded-r-none px-3.5 has-[>svg]:px-3.5 [&_svg]:size-3.5"
                       disabled={!startReady}
                       aria-label={`Start task with ${agentLabel(preferredAgent)}`}
                       onClick={() => void startTask(preferredAgent)}
@@ -2777,7 +2784,13 @@ function LinkButton({
 }) {
   return iconOnly ? (
     <Hint label={label}>
-      <Button variant="ghost" size="icon-xs" aria-label={label} onClick={onClick}>
+      <Button
+        variant="ghost"
+        size="icon-xs"
+        className="tracker-link-add"
+        aria-label={label}
+        onClick={onClick}
+      >
         <Plus />
       </Button>
     </Hint>

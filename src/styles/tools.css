@@ -22,28 +22,28 @@
 }
 .diff-line {
   display: block;
-  padding-inline: 4px 12px;
+  padding-inline: 12px;
 }
+/* Added and removed lines: the text keeps its colour on an 8% tint. */
 .diff-addition {
-  color: var(--diff-add);
-  background: var(--diff-add-surface);
+  background: color-mix(in srgb, var(--success) 8%, transparent);
 }
 .diff-deletion {
-  color: var(--diff-remove);
-  background: var(--diff-remove-surface);
+  background: color-mix(in srgb, var(--destructive) 8%, transparent);
 }
 .diff-location {
   color: var(--muted-foreground);
+  background: var(--navigation);
 }
 .diff-header {
   color: var(--muted-foreground);
 }
 .diff-gutter {
   display: inline-block;
-  width: 4ch;
-  margin-right: 1ch;
+  width: 28px;
+  margin-right: 12px;
   text-align: right;
-  color: var(--muted-foreground);
+  color: var(--border-strong);
   user-select: none;
 }
 /* The Changes panel is a column. The body does not scroll. Only the diff output and the
@@ -59,8 +59,6 @@
   min-height: 0;
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  padding: 12px;
   overflow: hidden;
 }
 .diff-review {
@@ -68,37 +66,53 @@
   min-height: 0;
   display: flex;
   flex-direction: column;
-  gap: 12px;
 }
-/* The diff fills the pane to its edges: no frame, and the pane padding is cancelled. */
+/* The diff fills the pane to its edges, on the page background. */
 .diff-review .diff-block {
   flex: 1;
   min-height: 120px;
   max-height: none;
-  margin-inline: -12px;
-  border-block: 1px solid var(--border);
+  padding: 8px 0;
+  background: var(--background);
 }
+.diff-review-note {
+  flex-shrink: 0;
+  margin: 0;
+  padding: 8px 16px 0;
+  font-size: var(--text-xs);
+  line-height: 16px;
+  color: var(--muted-foreground);
+}
+/* The changed files: 28px rows with the full path, in an 8px block over the diff. */
 .diff-file-list {
   display: grid;
   flex-shrink: 0;
   gap: 2px;
-  max-height: 120px;
+  max-height: 128px;
   overflow: auto;
-  padding: 0;
+  padding: 8px;
   margin: 0;
   list-style: none;
+  border-bottom: 1px solid var(--border);
 }
 .diff-file {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: 8px;
   width: 100%;
   min-width: 0;
-  padding: 4px 8px;
+  height: 28px;
+  padding: 0 8px;
   border-radius: var(--radius-sm);
   font-size: var(--text-xs);
   line-height: 16px;
   text-align: left;
+  color: var(--foreground);
+}
+.diff-file-icon {
+  flex-shrink: 0;
+  width: 14px;
+  height: 14px;
   color: var(--muted-foreground);
 }
 .diff-file:hover {
@@ -113,19 +127,15 @@
   background: var(--surface-selected);
   color: var(--foreground);
 }
-.diff-file-name {
-  flex-shrink: 0;
-  font-weight: 500;
-}
 .diff-file-path {
   flex: 1;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  font-family: var(--font-mono);
   font-size: var(--text-xs);
   line-height: 16px;
-  color: var(--muted-foreground);
 }
 .diff-count-add {
   color: var(--diff-add);
@@ -141,15 +151,16 @@
 }
 
 /* One toolbar at the top of every tool pane: browser, find, device, Changes, terminal and the
-   side chat. A 36px box with the divider inside it, padding 4/8 and 28px controls. A status
+   side chat. A 44px box with the divider inside it, padding 0/8/0/12 and 28px controls. A
+   title (13/500) starts 16px from the edge, then 12px muted status. A status
    bar is 24px with 11px text, for passive status only. */
 .tool-toolbar {
   display: flex;
   flex-shrink: 0;
   align-items: center;
   gap: var(--space-1);
-  height: var(--control-lg);
-  padding: var(--space-1) var(--space-2);
+  height: 44px;
+  padding: 0 var(--space-2) 0 var(--space-3);
   overflow: hidden;
   box-shadow: inset 0 -1px 0 var(--border);
   font-size: var(--text-xs);
@@ -187,15 +198,11 @@
   height: 12px;
   color: var(--destructive);
 }
-/* The empty or error state of a pane, in the middle of the pane. */
+/* The empty or error state of a pane: left-aligned, 16px inside the pane, under the header. */
 .tool-pane-message {
-  display: grid;
   flex: 1;
   min-height: 0;
-  place-items: center;
-}
-.tool-pane-message .empty-state {
-  align-self: center;
+  padding: var(--space-4);
 }
 
 /* Tool panes stay mounted next to the chat. */
@@ -270,8 +277,12 @@
     border-top: 1px solid var(--border);
   }
 }
+/* The side chat header: the title, the agent in 12px muted text, then Close. */
+.side-chat-header {
+  gap: var(--space-2);
+}
 .side-chat-title {
-  flex: 1;
+  flex: 0 1 auto;
   min-width: 0;
   padding-left: var(--space-1);
   overflow: hidden;
@@ -283,7 +294,7 @@
   white-space: nowrap;
 }
 .side-chat-agent {
-  flex-shrink: 0;
+  flex: 1 0 auto;
   color: var(--muted-foreground);
 }
 
@@ -305,12 +316,13 @@
 }
 .conversation-split.tools-expanded {
   display: grid;
-  grid-template-columns: clamp(420px, var(--chat-width), calc(100% - 361px)) 1px minmax(360px, 1fr);
+  grid-template-columns:
+    clamp(340px, var(--chat-width, calc(100% - 441px)), calc(100% - 361px))
+    1px minmax(360px, 1fr);
 }
-/* Below 781px there is no room for both side by side: the tool pane goes above the chat, and
-   the chat keeps its last messages and the composer below it. Nothing covers the composer. The
-   shell also hides the sidebar in a narrow window while a tool shows. */
-@container agent-pane (max-width: 780px) {
+/* Below 701px there is no room for both side by side: the tool pane goes above the chat, and
+   the chat keeps its last messages and the composer below it. Nothing covers the composer. */
+@container agent-pane (max-width: 700px) {
   .conversation-split.tools-expanded {
     display: grid;
     grid-template-columns: minmax(0, 1fr);
@@ -327,7 +339,17 @@
     grid-row: 2;
   }
 }
-/* "Changes  kal/sign-in-tests → main" with Close: the header of the Changes pane. */
+/* "Changes  kal/sign-in-tests → main" with Close: the header of the Changes pane. The
+   Terminal pane has the same header: "Terminal", the folder, then its icons. */
+.diff-panel-header,
+.terminal-header {
+  gap: var(--space-2);
+}
+.diff-panel-header .tool-toolbar-status,
+.terminal-header .tool-toolbar-status {
+  padding-left: 0;
+}
+.tool-pane-title,
 .diff-panel-title {
   flex-shrink: 0;
   padding-left: var(--space-1);

@@ -463,6 +463,7 @@ export function BrowserSettingsDialog({
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState('');
   const [failed, setFailed] = useState(false);
+  const [pendingClear, setPendingClear] = useState<ClearOption | null>(null);
   async function attempt(action: string, value?: unknown) {
     setBusy(true);
     setNotice('');
@@ -529,7 +530,22 @@ export function BrowserSettingsDialog({
               {notice}
             </p>
           )}
-          <SettingsRows label="Browser">
+          <SettingsRows title="Clear data">
+            {clearOptions.map((option) => (
+              <SettingsRow key={option.kind} label={option.label}>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  disabled={busy}
+                  onClick={() => setPendingClear(option)}
+                >
+                  {option.button}…
+                </Button>
+              </SettingsRow>
+            ))}
+          </SettingsRows>
+          <SettingsRows title="Browser">
             <SettingsRow label="Home page" htmlFor="browser-home">
               <form
                 className="flex gap-2"
@@ -596,6 +612,23 @@ export function BrowserSettingsDialog({
           </SettingsRows>
         </DialogBody>
       </DialogContent>
+      <ConfirmDialog
+        open={!!pendingClear}
+        title={`${pendingClear?.button || 'Clear'}?`}
+        description={pendingClear?.warning || ''}
+        confirmLabel={pendingClear?.button || 'Clear'}
+        destructive
+        busy={busy}
+        onCancel={() => setPendingClear(null)}
+        onConfirm={() => {
+          const option = pendingClear;
+          if (!option) return;
+          void attempt('clear', option.kind).then((outcome) => {
+            setPendingClear(null);
+            if (outcome.ok) setNotice(option.label + ' cleared');
+          });
+        }}
+      />
     </Dialog>
   );
 }

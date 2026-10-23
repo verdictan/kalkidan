@@ -9,7 +9,6 @@ import {
   Pin,
 } from 'lucide-react';
 import { agentCatalog, agentLabel } from '../config/agents';
-import { fullTime, relativeTime } from '../lib/relative-time';
 import { ChatRow } from './chat-row';
 import { ChatActionsDropdown, ChatContextMenu } from './chat-action-menu';
 import { useChatListActions } from './chat-list-actions';
@@ -387,7 +386,6 @@ export function SessionBrowser({
                 : place
                   ? [place.project, place.folder].filter(Boolean).join(' · ')
                   : '';
-            const when = relativeTime(session.updatedAt);
             const menu = menuFor(session);
             return (
               <ChatContextMenu
@@ -414,14 +412,6 @@ export function SessionBrowser({
                           <span className="sr-only">Branch </span>
                           {branch}
                         </span>
-                      )}
-                      {when && (
-                        <>
-                          {' · '}
-                          <time dateTime={session.updatedAt} title={fullTime(session.updatedAt)}>
-                            {when}
-                          </time>
-                        </>
                       )}
                       {org.notes && !compact && (
                         <span className="chat-row-note" title={org.notes}>
