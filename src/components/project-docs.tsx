@@ -737,10 +737,16 @@ function PageRowMenu({
   onSource: () => void;
   onDelete: () => void;
 }) {
+  // After an item runs, focus stays where the item put it (the title of a new page, a dialog).
+  // Only Escape returns the focus to the row.
+  const ran = useRef(false);
   const item = (label: string, Icon: typeof Plus, run: () => void, destructive = false) => (
     <ContextMenu.Item
       className={cn(menuItemClass, destructive && menuDestructiveClass)}
-      onSelect={run}
+      onSelect={() => {
+        ran.current = true;
+        run();
+      }}
     >
       <Icon className="size-4" aria-hidden="true" />
       {label}
@@ -750,7 +756,14 @@ function PageRowMenu({
     <ContextMenu.Root>
       <ContextMenu.Trigger asChild>{children}</ContextMenu.Trigger>
       <ContextMenu.Portal>
-        <ContextMenu.Content collisionPadding={menuCollisionPadding} className={menuContentClass}>
+        <ContextMenu.Content
+          collisionPadding={menuCollisionPadding}
+          className={menuContentClass}
+          onCloseAutoFocus={(event) => {
+            if (ran.current) event.preventDefault();
+            ran.current = false;
+          }}
+        >
           {item('Add subpage', FilePlus, onSubpage)}
           {item('Move page…', FolderInput, onMove)}
           {item('View Markdown', Code, onSource)}
